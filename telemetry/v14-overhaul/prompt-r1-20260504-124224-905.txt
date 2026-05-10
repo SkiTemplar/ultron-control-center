@@ -1,0 +1,34 @@
+Sprint 0 Re-Review (post-fix). Round 1 was BLOCKERS. Three fixes applied:
+
+FIX 1: Removed orphan reference to deprecated standalone "code-simplifier" plugin from active code.
+- C:\Users\USER\.claude\skills\ultron\agents\subagent-routing.md (line 33): row "code-simplifier:code-simplifier" replaced with valid alternatives "pr-review-toolkit:code-simplifier o skill agent-skills:code-simplify".
+- C:\Users\USER\.claude\skills\ultron\scripts\cockpit\route_quality_aggregator.py (line 44): NOT TOUCHED — this references "pr-review-toolkit:code-simplifier" which IS a valid subagent (pr-review-toolkit plugin remains enabled in settings.json line 89). Codex Round 1 citation appears to have conflated the standalone "code-simplifier" plugin (removed) with the "pr-review-toolkit:code-simplifier" subagent (still valid).
+- Grep verified: zero hits of "code-simplifier:code-simplifier" anywhere in skills/ultron/.
+
+FIX 2: Removed orphan marketplace references from C:\Users\USER\.claude\settings.json.
+- "thedotmack" marketplace (lines 112-117) removed — no plugins from it enabled.
+- "major7apps-pensyve" marketplace (lines 118-123) removed — no plugins from it enabled.
+- Verified: ConvertFrom-Json passes; no references to thedotmack/major7apps-pensyve remain.
+- Active marketplaces remaining: superpowers-marketplace, claude-code-plugins, addy-agent-skills.
+
+FIX 3: Reworded changelog v13.3.0 entry (C:\Users\USER\.claude\skills\ultron\references\changelog.md ~line 2142+).
+- Original "Removed:" section conflated permanent cruft with runtime artifacts.
+- Now split into two sections:
+  * "Removed (cruft permanente)": legitimate deletions (deprecated knowledge folders, archived versions, removed plugins, removed memory MCP).
+  * "Purgado (runtime artifacts — se regeneran automáticamente)": .tmp.driveupload/ (Google Drive sync regenerates) and hooks/push-async.log (memory_sync.py push-async writes on each run).
+- Added Sprint 5 doctor TODO note about adding .tmp.driveupload to exclusion list.
+
+OUT OF SCOPE for Sprint 0 (defer):
+- rollback.ps1 "merges instead of clear-first" → defer to Sprint 5 doctor v2
+- skill-registry.md doc drift on memory MCP → defer to Sprint 4 manifest
+- General settings.json marketplace section cleanup beyond orphans → defer to Sprint 4
+- code-simplifier@claude-plugins-official cache files (still in ~/.claude/plugins/marketplaces/claude-plugins-official/plugins/code-simplifier/ and cache/) — plugin not enabled in settings, harmless cache, defer to Sprint 4 manifest cleanup
+
+VALIDATE FIXES:
+1. code-simplifier orphan no longer in active code (subagent-routing.md cleaned; route_quality_aggregator.py kept intact because its reference is valid)
+2. settings.json orphan refs gone (valid JSON, no thedotmack/major7apps-pensyve)
+3. changelog v13.3.0 entry now distinguishes permanent removals from runtime artifact purges
+
+VERDICT EXPECTED: GREEN-LIGHT for Sprint 0 close (with explicit Sprint 1+ deferrals noted above).
+
+If still BLOCKERS: list ONLY the new ones, not the deferred items.

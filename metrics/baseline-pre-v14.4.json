@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "captured_at": "2026-05-08T17:22:01",
+  "blocks": [
+    {
+      "name": "context_md",
+      "bytes": 1475,
+      "chars": 1429,
+      "tokens": 478,
+      "method": "tiktoken-cl100k"
+    },
+    {
+      "name": "MEMORY_md",
+      "bytes": 7222,
+      "chars": 6947,
+      "tokens": 2125,
+      "method": "tiktoken-cl100k"
+    },
+    {
+      "name": "claude_md_global",
+      "bytes": 2604,
+      "chars": 2536,
+      "tokens": 763,
+      "method": "tiktoken-cl100k"
+    },
+    {
+      "name": "skill_listing",
+      "bytes": 29985,
+      "chars": 29901,
+      "tokens": 6606,
+      "method": "tiktoken-cl100k"
+    },
+    {
+      "name": "tool_descriptions",
+      "bytes": 0,
+      "chars": 0,
+      "tokens": 0,
+      "method": "tiktoken-cl100k"
+    }
+  ],
+  "totals": {
+    "tokens": 9972,
+    "bytes": 41286
+  }
+}

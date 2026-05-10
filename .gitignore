@@ -1,0 +1,50 @@
+# ULTRON ~/.ultron/ — operational state + tooling
+# Initialized 2026-05-10 as part of v14.9 STRUCTURE prep
+
+# Python venv (regenerable via `uv sync`)
+.venv/
+
+# Ephemeral session state
+.tmp/
+sessions/
+multimodel/
+quarantine/
+skill_cache/
+
+# Brain index (rebuildable)
+brain_index/*.db
+brain_index/*.db-journal
+brain_index/*.db-wal
+brain_index/*.db-shm
+
+# Backups (must NOT enter git history; could leak secrets/snapshots)
+backups/
+
+# Logs
+logs/
+*.log
+
+# Bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Qdrant residual (real data is in D:\Qdrant\data via bind mount)
+qdrant_storage/
+
+# OS / editor noise
+*.swp
+*.bak
+.DS_Store
+Thumbs.db
+
+# Lockfiles for things that shouldn't be tracked
+*.lock
+!uv.lock
+
+# Audit logs that may include paths/IDs from runs
+audits/*.log
+
+# Telemetry runtime data
+telemetry/*.jsonl
+telemetry/*.db

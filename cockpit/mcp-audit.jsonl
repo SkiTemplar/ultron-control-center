@@ -1,0 +1,2 @@
+{"event": "allowlist-add", "server": "test-server", "detail": "node C:/Users/USER/AppData/Local/Temp/server.js", "ts": "2026-04-28T11:06:59"}
+{"event": "allowlist-remove", "server": "test-server", "ts": "2026-04-28T11:06:59"}

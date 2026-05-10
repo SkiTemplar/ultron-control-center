@@ -1,0 +1,36 @@
+{
+  "apps": {
+    "spotify": {
+      "path": "C:\\Users\\USER\\AppData\\Local\\Microsoft\\WindowsApps\\Spotify.exe",
+      "label": "Spotify"
+    },
+    "notion": {
+      "path": "C:\\Users\\USER\\AppData\\Local\\Programs\\Notion\\Notion.exe",
+      "label": "Notion"
+    },
+    "discord": {
+      "path": "C:\\Users\\USER\\AppData\\Local\\Discord\\Update.exe",
+      "label": "Discord",
+      "args": [
+        "--processStart",
+        "Discord.exe"
+      ]
+    },
+    "steam": {
+      "path": "C:\\Program Files (x86)\\Steam\\steam.exe",
+      "label": "Steam"
+    },
+    "obsidian": {
+      "path": "C:\\Users\\USER\\AppData\\Local\\Programs\\Obsidian\\Obsidian.exe",
+      "label": "Obsidian"
+    },
+    "vscode": {
+      "path": "C:\\Users\\USER\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe",
+      "label": "VS Code"
+    },
+    "explorer": {
+      "path": "C:\\Windows\\explorer.exe",
+      "label": "File Explorer"
+    }
+  }
+}

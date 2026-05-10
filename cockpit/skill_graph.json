@@ -1,0 +1,140 @@
+[
+  {
+    "persona": "don-claudio",
+    "domain": "UE5·Unity·netcode",
+    "connects_to": [
+      "cpp-pro",
+      "ue5-dev"
+    ],
+    "memory_layer": "knowledge/ue5/",
+    "knowledge_files": [
+      "cpp-ue5/gas.md",
+      "cpp-ue5/replication.md",
+      "cpp-ue5/enhanced-input.md",
+      "cpp-ue5/multiplayer.md"
+    ]
+  },
+  {
+    "persona": "novalbos",
+    "domain": "C++·Gráfica·IA·low-lvl",
+    "connects_to": [
+      "einstein",
+      "cpp-pro"
+    ],
+    "memory_layer": "knowledge/cpp/",
+    "knowledge_files": [
+      "cpp-modern/cpp-23-features.md",
+      "opengl/pipeline.md",
+      "opengl/shaders.md"
+    ]
+  },
+  {
+    "persona": "terry-davis",
+    "domain": "refactor·git·deuda",
+    "connects_to": [
+      "focused-fix"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "einstein",
+    "domain": "investiga·física·math",
+    "connects_to": [
+      "novalbos [C++/GPU/IA]"
+    ],
+    "memory_layer": "knowledge/physics/",
+    "knowledge_files": []
+  },
+  {
+    "persona": "warren",
+    "domain": "bolsa·finanzas",
+    "connects_to": [
+      "tio-gilito"
+    ],
+    "memory_layer": "knowledge/finance/",
+    "knowledge_files": []
+  },
+  {
+    "persona": "tio-gilito",
+    "domain": "finanzas personales",
+    "connects_to": [
+      "warren"
+    ],
+    "memory_layer": "knowledge/finance/",
+    "knowledge_files": [
+      "finance/tio-gilito-context.md"
+    ]
+  },
+  {
+    "persona": "alfred",
+    "domain": "Windows·CLI·scripts",
+    "connects_to": [
+      "openjarvis"
+    ],
+    "memory_layer": "knowledge/claude-platform/",
+    "knowledge_files": [
+      "claude-platform/subagents-and-hooks.md",
+      "claude-platform/codex-cli.md"
+    ]
+  },
+  {
+    "persona": "openjarvis",
+    "domain": "DevOps·cloud·Docker",
+    "connects_to": [
+      "alfred"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "obliteratus",
+    "domain": "rewrite·purga·deuda",
+    "connects_to": [
+      "terry-davis"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "manolo-lama",
+    "domain": "ventas·persuasión",
+    "connects_to": [],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "tolkien",
+    "domain": "narrativa·escritura",
+    "connects_to": [],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "pana",
+    "domain": "productividad·archivos",
+    "connects_to": [
+      "alfred"
+    ],
+    "memory_layer": "knowledge/pana/",
+    "knowledge_files": []
+  },
+  {
+    "persona": "shannon",
+    "domain": "información·teoría",
+    "connects_to": [
+      "novalbos"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "jordan-belfort",
+    "domain": "pitch·estrategia",
+    "connects_to": [
+      "warren"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  }
+]

@@ -1,0 +1,388 @@
+# ULTRON Intent Dispatcher -- keyword/regex routing rules
+# Order matters: first match wins. Most specific patterns first.
+# Schema fields:
+#   id: unique rule identifier
+#   match: Python regex (re.IGNORECASE applied)
+#   skill: skill ID to suggest (optional)
+#   agent: agent name to suggest (optional)
+#   suggest_tool: tool name to suggest (optional)
+#   suggest_mode: mode to suggest (optional, e.g. ULTRA)
+#   ctx: context file path to load (optional, ~ expanded)
+#   ztmsi_query: if true, run ZTMSI query to find best ctx at runtime
+#   confidence: float 0.0-1.0 (required)
+version: 1
+rules:
+
+  # ── Overlays & architecture ──────────────────────────────────────────────────
+
+  - id: architect
+    match: "(dise[n\xf1][a\xe1]|design).*(arquitectura|architecture|sistema)"
+    skill: "agent-skills:plan"
+    suggest_mode: "ULTRA"
+    confidence: 0.95
+
+  # ── PR / code review (must precede generic code rules) ───────────────────────
+
+  - id: pr-code-review
+    # Acepta gap pequeño entre verbo-review y PR/pull request.
+    match: "(?:code review|hacer (?:un )?review|revisar|revisa|review)(?:\\s+\\w+){0,3}\\s+(?:\\bPR\\b|pull request|este PR|del PR|de este PR)"
+    skill: "pr-review-toolkit:code-reviewer"
+    confidence: 0.95
+
+  # ── TDD / testing ───────────────────────────────────────────────────────────
+
+  - id: tdd
+    match: "\\bTDD\\b|(test.driven|hacer.TDD|quiero.TDD)"
+    skill: "superpowers:test-driven-development"
+    confidence: 0.95
+
+  - id: tests-create
+    # Verbos de creación + objeto "tests" cercano (5-30 chars). Evita "haz X y luego mira los tests" con gap enorme.
+    match: "\\b(?:haz|crea|escribe|implementa)(?:me)?\\s+(?:los?|unos?)?\\s*tests?\\b"
+    skill: "superpowers:test-driven-development"
+    confidence: 0.90
+
+  # ── Systematic debugging ────────────────────────────────────────────────────
+
+  - id: systematic-debug
+    # Bidireccional: "llevo X horas con bug" o "bug ... y llevo X horas".
+    match: "(?:(?=.*\\bllevo\\b)(?=.*\\b(?:sesiones|horas|d[ií]as|semanas)\\b)(?=.*(?:bug|arregl|fix|fall[ao]|error|debug)))|no encuentro la causa|corr[ií]geme\\s+(?:este\\s+|el\\s+|un\\s+)?(?:bug|error)|\\bestoy atascado\\b"
+    skill: "superpowers:systematic-debugging"
+    confidence: 0.95
+
+  # ── MCP builder ─────────────────────────────────────────────────────────────
+
+  - id: mcp-builder
+    # server/servidor opcional — "hacer un MCP para X" es señal suficiente.
+    match: "\\b(?:crea|crear|construir|hacer|haz|implementa|desarrolla)\\b(?:\\s+\\w+){0,3}\\s+(?:un\\s+)?MCP(?:\\s+(?:server|servidor|para|de|custom|nuevo))?\\b"
+    skill: "mcp-builder"
+    confidence: 0.90
+
+  # ── Database schema ─────────────────────────────────────────────────────────
+
+  - id: db-schema
+    # Acepta "crea/crear/diseña/define" + "schema" + (BD/DB/database/tabla) en cualquier orden cercano.
+    match: "(?=.*\\b(?:crea|crear|dise[ñn]a|dise[ñn]ar|define|definir)\\b)(?=.*\\bschema\\b)(?=.*\\b(?:base de datos|\\bBD\\b|\\bDB\\b|database|tabla))"
+    skill: "database-schema-designer"
+    confidence: 0.90
+
+  # ── Business / pricing (BEFORE UE5 — domain beats platform, T-34) ───────────
+
+  - id: monetize
+    match: "(monetiz[a\xe1]r?|c[o\xf3]mo.cobrar|c[o\xf3]mo.vender|qu[e\xe9].pricing|cu[a\xe1]nto.cobrar)"
+    skill: "jordan-belfort"
+    confidence: 0.92
+
+  - id: saas-pricing
+    match: "(pricing|suscripci[o\xf3]n|freemium|tier|plan.de.precios).*(SaaS|app|producto|negocio|plugin)"
+    skill: "jordan-belfort"
+    confidence: 0.92
+
+  - id: business-validate
+    # "validar" suelto matcheaba "validar el código / la entrada". Restringido a contexto comercial.
+    match: "\\b(?:idea de negocio|modelo de negocio|mercado objetivo|\\bTAM\\b|\\bSAM\\b|validar (?:la idea|el negocio|el modelo|el producto|el pitch)|go.to.market|pitch (?:deck|investor|comercial))\\b"
+    skill: "jordan-belfort"
+    confidence: 0.88
+
+  # ── Academic code evaluation (BEFORE generic code rules) ────────────────────
+
+  - id: academic-grade
+    match: "(corr[i\xed]geme|eval[u\xfa]a|nota|c[o\xf3]mo.est[a\xe1]).*(T\\d+|entrega|pr[a\xe1]ctica|trabajo.de)"
+    skill: "repo-evaluator"
+    confidence: 0.92
+
+  - id: academic-submission
+    match: "(corrige|revisa).*(entrega|proyecto).*(uni|universidad|asignatura|backend|frontend|servidor)"
+    skill: "repo-evaluator"
+    confidence: 0.90
+
+  - id: academic-eval
+    match: "\\b(?:dame (?:una )?nota|ponme (?:una )?nota|qu[eé] nota me pones|qu[eé] nota me das|eval[uú]a(?:r)?\\s+(?:el\\s+)?(?:c[oó]digo|trabajo)\\s+(?:como\\s+)?(?:profesor|estricto|nota))\\b"
+    skill: "repo-evaluator"
+    confidence: 0.90
+
+  # ── UE5 / don-claudio (domain beats generic bug/code) ───────────────────────
+
+  - id: ue5-cpp
+    match: "(\\.(cpp|h|hpp)|blueprint|replicaci[o\xf3]n).*(UE5|Unreal|GAS|gameplay.ability)"
+    skill: "don-claudio"
+    confidence: 0.95
+
+  - id: ue5-gas
+    match: "(GAS|Gameplay.Ability|ability.system|netcode|replication|dedicated.server).*(UE5|Unreal|game)"
+    skill: "don-claudio"
+    confidence: 0.95
+
+  - id: ue5-shader
+    match: "(shader|material|PBR|post.process).*(UE5|Unreal)"
+    skill: "don-claudio"
+    confidence: 0.90
+
+  - id: ue5-general
+    match: "\\b(UE5|Unreal.Engine|Blueprint|GameplayEffect|AbilityTask)\\b"
+    skill: "don-claudio"
+    confidence: 0.90
+
+  - id: ue5-gas-context
+    match: "\\bGAS\\b.*(cooldown|ability|replicaci[o\xf3]n)|cooldown.*(ability|GAS)"
+    skill: "don-claudio"
+    confidence: 0.88
+
+  - id: ue5-game-spawn
+    match: "(spawnear|spawn.*(proyectil|actor)|se.replique.*lag|actor.*replicaci[o\xf3]n)"
+    skill: "don-claudio"
+    confidence: 0.85
+
+  # ── CUDA / GPU / OpenGL → novalbos ─────────────────────────────────────────
+
+  - id: gpu-cuda
+    # GPU/CUDA en contexto técnico — evitar "ejecutar en GPU" / "tarjeta GPU" coloquial.
+    # Multi-keyword exigido para nombres muy cortos.
+    match: "\\b(?:CUDA|coalescing|warp|memory bandwidth|compute shader|dispatch shader|GPU (?:kernel|memoria|pipeline|shader|programaci[oó]n)|kernel (?:de )?CUDA|programar en (?:CUDA|GPU))\\b"
+    skill: "novalbos"
+    confidence: 0.92
+
+  - id: opengl-pipeline
+    match: "(OpenGL|Vulkan|DirectX|VAO|VBO|fragment.shader|vertex.shader|pipeline.de.(render|gr\xe1ficos))"
+    skill: "novalbos"
+    confidence: 0.90
+
+  - id: cpp-deep
+    match: "(C\\+\\+20|concepts|metaprogramming|template.*specializ|constexpr.*impl|SIMD|bajo.nivel)"
+    skill: "novalbos"
+    confidence: 0.88
+
+  # ── Unity / .cs → terry-davis (tiebreak: Unity+cs → terry, not don-claudio) ─
+
+  - id: unity-cs
+    match: "(\\.cs|MonoBehaviour|NGO|NetworkObject).*(Unity|Android|iOS|mobile)"
+    skill: "terry-davis"
+    confidence: 0.90
+
+  # ── Code bugs / refactors → terry-davis ────────────────────────────────────
+
+  - id: typescript-bug
+    match: "(\\.ts|\\.tsx|TypeScript).*(bug|error|no.funciona|crash|falla)|(bug|error|crash).*\\.tsx?"
+    skill: "terry-davis"
+    confidence: 0.90
+
+  - id: code-bug-general
+    # Acepta orden síntoma→objeto u objeto→síntoma. Género/número flexible.
+    match: "\\b(?:(?:bug|error|crash|stack trace|exception|no funciona|est[aá] (?:roto|rota|rotos|rotas)|fall[ao])\\b\\s+(?:\\w+\\s+){0,5}(?:c[oó]digo|archivo|m[oó]dulo|funci[oó]n|clase|m[eé]todo|script)\\b|(?:el|la|los|las|este|esta|mi|un|una)\\s+(?:c[oó]digo|archivo|m[oó]dulo|funci[oó]n|clase|m[eé]todo|script)(?:\\s+\\w+){0,4}\\s+(?:est[aá] (?:roto|rota|rotos|rotas)|tiene un? (?:bug|error)|falla|crashe[ao]|no funciona|se rompe))"
+    skill: "terry-davis"
+    confidence: 0.85
+
+  - id: refactor
+    match: "(refactori[sz]|reescribe|limpia|reorganiza).*(m[o\xf3]dulo|c[o\xf3]dig[o\xf3]|clase|funci[o\xf3]n)"
+    skill: "terry-davis"
+    confidence: 0.85
+
+  - id: implementa
+    match: "(implementa|crea|escribe|desarrolla).*(en.TypeScript|en.Python|en.C#|server.action|api.route|endpoint)"
+    skill: "terry-davis"
+    confidence: 0.82
+
+  # ── Design / UI → mike-tyson ────────────────────────────────────────────────
+
+  - id: ui-design
+    match: "(dise\xf1a|diseña|revisa|critica|mira).*(UI|pantalla|layout|wireframe|mockup|interfaz)"
+    skill: "mike-tyson"
+    confidence: 0.90
+
+  - id: design-system
+    match: "(design.system|sistema.de.dise\xf1o|tipograf\xeda|paleta.de.colores|spacing|tokens.de.dise\xf1o)"
+    skill: "mike-tyson"
+    confidence: 0.88
+
+  # ── Science / concepts → einstein ──────────────────────────────────────────
+
+  - id: sky-science
+    match: "por.qu[e\xe9].el.cielo.es|scattering.de.Rayleigh"
+    skill: "einstein"
+    confidence: 0.95
+
+  - id: science-concept
+    match: "(por.qu[e\xe9].el|c[o\xf3]mo.funciona.la).*(f\xedsica|qu\xedmica|bioLog\xeda|astronom\xeda|mec\xe1nica.cu\xe1ntica)"
+    skill: "einstein"
+    confidence: 0.88
+
+  # ── Web research (before concept-explain — explicit internet intent beats generic how-it-works) ──
+
+  - id: web-research
+    match: "(investiga|busca).*(internet|online|web)"
+    agent: "Explore"
+    suggest_tool: "WebSearch"
+    confidence: 0.90
+
+  - id: concept-explain
+    # "concepto" suelto era trampa. Lista cerrada de conceptos comunes + sin .* glotón.
+    match: "\\b(?:qu[eé] es (?:un|el|la)|c[oó]mo funciona (?:un|el|la)|expl[ií]came (?:el|la|un|una))\\s+(?:\\w+\\s+){0,3}(?:transformer|red neuronal|algoritmo|protocolo|encoder|decoder|backprop|attention|gradient)\\b"
+    skill: "einstein"
+    confidence: 0.85
+
+  # ── Personal assistant / pana ───────────────────────────────────────────────
+
+  - id: calendar-reminder
+    match: "(Google.Calendar|recordatorio|agenda|event[o].en|calendario|cita)"
+    skill: "pana"
+    confidence: 0.92
+
+  - id: gmail-email
+    match: "(Gmail|emails|correo|bandeja.de.entrada|revisa.mis.(emails|correos))"
+    skill: "pana"
+    confidence: 0.90
+
+  - id: morning-mode
+    match: "(modo.ma\xf1ana|buenos.d\xedas|briefing.de.hoy|qu[e\xe9].tengo.hoy)"
+    skill: "pana"
+    confidence: 0.92
+
+  # ── Kirkardo audit (BEFORE tio-gilito-explicit so "audita skill tio-gilito" routes correctly) ──
+
+  - id: kirkardo-audit-early
+    match: "\\b(?:Kirkardo|kirkardo)\\b"
+    skill: "ultron"
+    suggest_mode: "HIGH"
+    confidence: 0.95
+
+  # ── Personal finances → tio-gilito ──────────────────────────────────────────
+
+  - id: tio-gilito-explicit
+    # Trigger explícito por nombre — siempre tio-gilito.
+    match: "\\b(?:T[ií]o Gilito|Gilito)\\b"
+    skill: "tio-gilito"
+    confidence: 0.98
+
+  - id: spending-kutxabank
+    # Nombres propios + verbos en 1ª persona pasada + contextos financieros explícitos.
+    # No usa "gasto" suelto (matchearía "gasto computacional / de tokens").
+    match: "\\b(?:KutxaBank|cu[aá]nto he gastado|cu[aá]nto me queda en (?:la cuenta|el banco)|gasto de (?:dinero|euros?|\\d+\\s*€)|a[nñ]ade un (?:gasto|ingreso) de|categor[ií]a de gasto|fondo de ahorro|presupuesto mensual)\\b"
+    skill: "tio-gilito"
+    confidence: 0.92
+
+  - id: monthly-money
+    match: "\\b(?:c[oó]mo voy de dinero|finanzas personales|mis (?:ahorros?|finanzas|gastos)|c[oó]mo va mi saldo|saldo (?:actual|mensual|de (?:mi|la) cuenta|bancari[oa])|gasto del mes|qu[eé] tal voy econ[oó]micamente)\\b"
+    skill: "tio-gilito"
+    confidence: 0.90
+
+  # ── Investments → warren ────────────────────────────────────────────────────
+
+  - id: investment
+    # "cartera" suelto matcheaba "cartera de productos" (corporativo). Exigir contexto financiero.
+    match: "\\b(?:mi cartera(?:\\s+(?:de\\s+(?:inversi[oó]n|acciones|ETFs?)|burs[aá]til|stock))?|cartera de inversi[oó]n|inversiones?\\b|tracker de cartera|dashboard de inversiones|ETFs?\\b|compro? (?:acciones|NVDA|AAPL|MSFT|TSLA)|an[aá]lisis fundamental|P/?E ratio|moat (?:competitivo|empresarial)|dividendos|fondo (?:indexado|de inversi[oó]n))\\b"
+    skill: "warren"
+    confidence: 0.90
+
+  - id: stock-query
+    match: "(\\b(NVDA|AAPL|MSFT|AMZN|TSLA|SPY|QQQ)\\b|bolsa|mercado.de.valores)"
+    skill: "warren"
+    confidence: 0.88
+
+  # ── System/Windows → alfred ─────────────────────────────────────────────────
+
+  - id: windows-system
+    match: "(procesos.*(RAM|CPU|memoria)|limpiar.archivos.temporales|Windows.con.PowerShell|registro.de.Windows)"
+    skill: "alfred"
+    confidence: 0.90
+
+  - id: process-monitor
+    match: "\\b(procesos|proceso)\\b.*(comiendo|usando|consumiendo).*(RAM|CPU|memoria|disco)"
+    skill: "alfred"
+    confidence: 0.90
+
+  # ── Physics / academics → profesor-fisica ──────────────────────────────────
+
+  - id: physics-exam
+    match: "(ejercicio.de|repasa.el.tema|para.el.examen).*(cinem\xe1tica|din\xe1mica|f\xedsica|termodin\xe1mica|electromagnetismo)"
+    skill: "profesor-fisica"
+    confidence: 0.92
+
+  - id: physics-problem
+    match: "(simular.colisiones|ejercicio.de.f\xedsica|problema.de.f\xedsica|no.me.sale).*(f\xedsica|cinem\xe1tica|din\xe1mica)"
+    skill: "profesor-fisica"
+    confidence: 0.90
+
+  # ── Football → manolo-lama ──────────────────────────────────────────────────
+
+  - id: football-commentary-strong
+    # Términos exclusivamente futbolísticos — match individual basta.
+    match: "\\b(?:gol\\s+(?:de|del)|partido (?:de|del) (?:f[uú]tbol|liga|champions)|f[uú]tbol|narra (?:el|este) partido|jugada del (?:partido|d[ií]a)|portero (?:par[oó]|fall[oó])|delantero (?:gan[oó]|march[oó])|Champions League\\s+(?:final|semifinal|cuartos|grupos?|jornada))\\b"
+    skill: "manolo-lama"
+    confidence: 0.92
+
+  - id: football-commentary-weak
+    # Lookahead: equipo concreto (no "La Liga" suelto) + verbo/contexto deportivo.
+    # "La Liga Champions del cripto" no matchea porque no hay verbo deportivo ni "España".
+    match: "(?=.*\\b(?:Bar[cç]a|Barcelona|REDACTED_TEAM|Atl[eé]tico|Sevilla|Valencia)\\b.*\\b(?:gan[oó]|perdi[oó]|empat[oó]|jug[oó]|march[oó]|final|semifinal|jornada|partido|liga espa[ñn]ola|gol)\\b)|\\b(?:Bar[cç]a|REDACTED_TEAM)\\s+(?:vs|gan[oó]|perdi[oó]|empat[oó]|jug[oó])\\b|\\b(?:c[oó]mo va el?\\s+(?:Bar[cç]a|REDACTED_TEAM|Madrid)|cómo va\\s+(?:el|la)\\s+(?:Bar[cç]a|Madrid|liga))\\b"
+    skill: "manolo-lama"
+    confidence: 0.88
+
+  # ── Creative writing → tolkien ──────────────────────────────────────────────
+
+  - id: narrative-writing
+    # "capítulo" suelto matcheaba "capítulo de física". Exigir contexto narrativo o nombre propio.
+    match: "\\b(?:escribe la siguiente escena|siguiente escena del libro|cap[ií]tulo del libro|cap[ií]tulo \\d+ del libro|plot hole|consistencia del personaje|worldbuilding|escribe (?:un|el) cap[ií]tulo|narrativa del libro|Imperio de los Once Grandes|once grandes)\\b"
+    skill: "tolkien"
+    confidence: 0.90
+
+  # ── Generic code review (low priority — after specific rules) ───────────────
+
+  - id: code-review-general
+    match: "(rev[i\xed]s[a\xe1]|revisa|review).*\\bc[o\xf3]dig[o\xf3]\\b"
+    skill: "superpowers:requesting-code-review"
+    confidence: 0.85
+
+  # ── ULTRON operations ────────────────────────────────────────────────────────
+
+  - id: standup
+    match: "(standup|stand.up|qu[e\xe9].hice|qu[e\xe9].hiciste|resumen.del.d[i\xed]a|daily)"
+    skill: "ultron"
+    suggest_mode: "HIGH"
+    confidence: 0.90
+
+  - id: kirkardo-audit
+    # "audita" / "auditar" sueltos matcheaban "audita el código" (eso es repo-evaluator/security).
+    # Restringido a contexto skill/repo-eval o nombre propio Kirkardo.
+    match: "\\b(?:Kirkardo|kirkardo|audita(?:r)? (?:la skill|el skill|las skills|este skill|mi skill|el manifest)|audit(?:a|or[ií]a) de skills?|revisar skill|review skill)\\b"
+    skill: "ultron"
+    suggest_mode: "HIGH"
+    confidence: 0.90
+
+  - id: news-today
+    match: "(noticias|newsletter|digest|qu[e\xe9].pas[o\xf3]|novedades).*(hoy|hoy|tech|ia|ai|f[u\xfa]tbol|REDACTED_TEAM)"
+    skill: "ultron"
+    confidence: 0.85
+
+  - id: security-review
+    # "seguridad" suelto matcheaba "seguridad de tipos" (TypeScript). Exigir contexto auditoría/pen/CVE.
+    # Acepta artículo "la" entre verbo y objeto. CVE/CVEs en plural.
+    match: "\\b(?:vulnerabilidad(?:es)?|CVEs?\\b|pentest(?:ing)?|penetration test|escan[ea]a(?:r)? (?:los? )?CVEs?|audit(?:a|ar|or[ií]a)?\\s+(?:la\\s+)?seguridad|audita el repo|security (?:audit|review|scan)|revisar (?:la )?seguridad)\\b"
+    skill: "security-review"
+    suggest_mode: "HIGH"
+    confidence: 0.90
+
+  # NOTE: la antigua `finance-tio-gilito` con `(gasto|gastos|finanzas|ahorro|...)`
+  # fue retirada 2026-05-09 por falsos positivos masivos (matcheaba "gasto de tokens",
+  # "gasto computacional", "presupuesto de la API"). Las reglas tio-gilito-explicit /
+  # spending-kutxabank / monthly-money cubren todos los casos legítimos con boundary
+  # y contexto exigido. Si necesitas reactivarla, hazlo solo con multi-keyword AND.
+
+  # ── Skill management ────────────────────────────────────────────────────────
+
+  - id: skill-create
+    match: "(crea|nuevo).*\\bskill\\b"
+    skill: "skill-creator:skill-creator"
+    confidence: 0.95
+
+  # ── Memory recall ────────────────────────────────────────────────────────────
+
+  - id: project-status
+    match: "(c[o\xf3]mo.va|como.va|status|estado).*\\bproyecto\\b"
+    ctx: "~/.ultron-vault/00_INDEX/_packets/projects-active.md"
+    confidence: 0.90
+
+  - id: decision-recall
+    match: "(qu[e\xe9] decidimos|que decidimos|cu[a\xe1]l fue la decisi[o\xf3]n|qu[e\xe9] dijo)"
+    ztmsi_query: true
+    confidence: 0.85
+

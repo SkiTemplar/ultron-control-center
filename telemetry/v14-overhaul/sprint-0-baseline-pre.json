@@ -1,0 +1,20 @@
+﻿{
+    "timestamp":  "2026-05-04T12:16:20.6929951+02:00",
+    "ultron_version":  "v13.2.0",
+    "settings_json_size_bytes":  5837,
+    "enabled_plugins_count":  17,
+    "mcp_servers":  [
+                        "sequential-thinking",
+                        "n8n-mcp",
+                        "superpowers-mcp",
+                        "context7",
+                        "memory",
+                        "playwright",
+                        "firebase",
+                        "unity",
+                        "codex"
+                    ],
+    "mcp_servers_count":  9,
+    "ultron_dir_size_mb":  29.55,
+    "brain_index_size_kb":  15236
+}

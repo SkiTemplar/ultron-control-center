@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ULTRON Times | 3 de mayo de 2026</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0a;
+            --bg-card: #131313;
+            --text-main: #e8e8e8;
+            --text-muted: #a0a0a0;
+            --accent-amber: #ffd089;
+            --accent-red: #ff4b4b;
+            --accent-cyan: #00e5ff;
+            --accent-green: #00e676;
+            --accent-purple: #b388ff;
+            --border-color: #2a2a2a;
+        }
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            font-family: 'Inter', 'Segoe UI', sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+        .breaking-banner {
+            background-color: var(--accent-red);
+            color: #ffffff;
+            text-align: center;
+            padding: 0.75rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 0.9rem;
+            letter-spacing: 0.5px;
+            box-shadow: 0 2px 10px rgba(255, 75, 75, 0.2);
+        }
+        header {
+            border-bottom: 1px solid var(--border-color);
+            padding: 2.5rem 1rem;
+            text-align: center;
+            background: linear-gradient(180deg, #111111 0%, var(--bg-dark) 100%);
+        }
+        .logo {
+            font-size: 3rem;
+            font-weight: 800;
+            letter-spacing: -1.5px;
+            margin: 0 0 0.5rem 0;
+            color: var(--text-main);
+        }
+        .logo span {
+            color: var(--accent-amber);
+        }
+        .date-tagline {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 2.5rem 1.5rem;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.3rem 0.8rem;
+            border-radius: 99px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            margin-bottom: 1rem;
+        }
+        .badge.aiml { background: rgba(255, 208, 137, 0.1); color: var(--accent-amber); border: 1px solid rgba(255, 208, 137, 0.3); }
+        .badge.sec { background: rgba(255, 75, 75, 0.1); color: var(--accent-red); border: 1px solid rgba(255, 75, 75, 0.3); }
+        .badge.dev { background: rgba(0, 229, 255, 0.1); color: var(--accent-cyan); border: 1px solid rgba(0, 229, 255, 0.3); }
+        .badge.mkt { background: rgba(0, 230, 118, 0.1); color: var(--accent-green); border: 1px solid rgba(0, 230, 118, 0.3); }
+        .badge.res { background: rgba(179, 136, 255, 0.1); color: var(--accent-purple); border: 1px solid rgba(179, 136, 255, 0.3); }
+        
+        .hero {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 3.5rem;
+            border-radius: 12px;
+            margin-bottom: 4rem;
+            position: relative;
+            overflow: hidden;
+        }
+        .hero::before {
+            content: "";
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(90deg, var(--accent-amber), var(--accent-red));
+        }
+        .hero h1 {
+            font-size: 3.2rem;
+            margin: 0.5rem 0 1.5rem 0;
+            line-height: 1.1;
+            letter-spacing: -1px;
+        }
+        .hero p.lead {
+            font-size: 1.35rem;
+            color: var(--text-muted);
+            max-width: 900px;
+            line-height: 1.5;
+            margin: 0;
+        }
+        
+        .section-header {
+            display: flex;
+            align-items: center;
+            margin: 4rem 0 2rem 0;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 0.75rem;
+        }
+        .section-header h2 {
+            font-size: 1.8rem;
+            margin: 0;
+            color: var(--text-main);
+        }
+        .section-header .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 12px;
+        }
+        .dot.aiml { background-color: var(--accent-amber); }
+        .dot.dev { background-color: var(--accent-cyan); }
+        .dot.sec { background-color: var(--accent-red); }
+        .dot.res { background-color: var(--accent-purple); }
+        .dot.mkt { background-color: var(--accent-green); }
+
+        .grid-3 {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 1.5rem;
+        }
+        .grid-4 {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+        }
+        
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 1.75rem;
+            border-radius: 10px;
+            transition: all 0.2s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: #444;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .card h3 {
+            margin: 0 0 1rem 0;
+            font-size: 1.25rem;
+            line-height: 1.3;
+            color: #fff;
+        }
+        .card p {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+            margin: 0;
+            flex-grow: 1;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 3rem 1rem;
+            border-top: 1px solid var(--border-color);
+            margin-top: 5rem;
+            font-family: 'JetBrains Mono', monospace;
+            color: #666;
+            font-size: 0.85rem;
+            background-color: var(--bg-card);
+        }
+        footer p { margin: 0.5rem 0; }
+        footer .accent { color: var(--accent-amber); }
+    </style>
+</head>
+<body>
+
+    <div class="breaking-banner">
+        🚨 VULNERABILIDAD CRÍTICA: Parche de emergencia para Gemini CLI (v0.40.0) soluciona RCE de CVSS 10.0 en el manejo de confianza de workspaces.
+    </div>
+
+    <header>
+        <div class="logo"><span>⌬</span> ULTRON Times</div>
+        <div class="date-tagline">Domingo, 3 de mayo de 2026 • AI · Dev · Security · Daily Brief</div>
+    </header>
+
+    <div class="container">
+        
+        <!-- HERO SECTION -->
+        <section class="hero">
+            <span class="badge aiml">AI / Models</span>
+            <h1>La Gran Guerra de Modelos: GPT-5.5 vs Claude Opus 4.7</h1>
+            <p class="lead">
+                El panorama de la inteligencia artificial alcanza su punto de máxima ebullición en mayo de 2026. Mientras OpenAI posiciona a su inminente GPT-5.5 como el "modelo de trabajo definitivo" capaz de uso computacional autónomo, Anthropic contraataca recuperando el primer puesto en SWE-bench Pro con Opus 4.7, un titán especializado en razonamiento complejo y alineación severa integrado en agencias federales estadounidenses.
+            </p>
+        </section>
+
+        <!-- AI / MODELS -->
+        <div class="section-header">
+            <div class="dot aiml"></div>
+            <h2>Modelos y APIs</h2>
+        </div>
+        <div class="grid-3">
+            <div class="card">
+                <span class="badge aiml">DeepSeek</span>
+                <h3>DeepSeek V4 detona una guerra de precios global</h3>
+                <p>El nuevo coloso open-source de 1.6 trillones de parámetros reduce agresivamente los costos a $0.14 por millón de tokens, siendo un 97% más barato que las alternativas frontier de código cerrado, forzando a los gigantes a justificar sus premiums.</p>
+            </div>
+            <div class="card">
+                <span class="badge aiml">Mistral AI</span>
+                <h3>Mistral Medium 3.5 domina el ecosistema On-Premise</h3>
+                <p>Lanzado hoy, el modelo multimodal de 128B incluye una ventana de contexto optimizada de 256k. Su diseño está orientado a despliegues locales, mitigando problemas de latencia y privacidad para infraestructuras corporativas críticas.</p>
+            </div>
+            <div class="card">
+                <span class="badge aiml">xAI</span>
+                <h3>Grok 4.3 desplaza a la competencia y anticipa Colossus 2</h3>
+                <p>Elon Musk anuncia Grok 4.3 prometiendo un rendimiento "5x más rápido" que Sonnet 3.5. En paralelo, confirma que Grok 5 (proyectado en 10T parámetros) ya está entrenando en el nuevo superclúster Colossus 2.</p>
+            </div>
+            <div class="card">
+                <span class="badge aiml">Google</span>
+                <h3>Gemini absorbe definitivamente a Google Assistant</h3>
+                <p>Google implementa Gemini en millones de vehículos Android Automotive. La nueva función "Memories" le permite portar contexto personal inter-aplicaciones, difuminando la línea entre asistente y sistema operativo predictivo.</p>
+            </div>
+        </div>
+
+        <!-- DEV TOOLS -->
+        <div class="section-header">
+            <div class="dot dev"></div>
+            <h2>Developer Tooling & Workflows</h2>
+        </div>
+        <div class="grid-3">
+            <div class="card">
+                <span class="badge dev">Claude Code</span>
+                <h3>Versión 2.1.126 lanza `/ultrareview` y purgas de estado</h3>
+                <p>Anthropic introduce una nueva herramienta para análisis de código exhaustivo, y permite a los devs hacer "purge" de memorias y contextos de agentes locales sin perder código. Se añade sandboxing por namespace PID en Linux.</p>
+            </div>
+            <div class="card">
+                <span class="badge dev">Cursor</span>
+                <h3>`/multitask` inaugura los Enjambres de Agentes en IDE</h3>
+                <p>Cursor (ahora valorada en $29.3B) estrena su capacidad de lanzar múltiples sub-agentes asíncronos en paralelo para refactorizaciones masivas. Además, lanza un Marketplace corporativo de reglas y servidores MCP.</p>
+            </div>
+            <div class="card">
+                <span class="badge dev">Codex CLI</span>
+                <h3>OpenAI consolida Codex CLI con seguridad Kernel</h3>
+                <p>Enfocándose en integraciones GPT-5.5, el CLI adopta Landlock (Linux) y Seatbelt (macOS) previniendo incidentes en corridas autónomas. Curiosamente, también han lanzado un plugin oficial de Codex para la terminal de Claude Code.</p>
+            </div>
+            <div class="card">
+                <span class="badge dev">Windsurf</span>
+                <h3>Devin for Terminal llega a Windsurf</h3>
+                <p>Tras la compra de Cognition, Windsurf permite enviar tareas pesadas a la nube con Devin. Su motor Cascade ahora es compatible con Git Worktrees, eliminando conflictos de archivos en sesiones de agentes paralelas.</p>
+            </div>
+            <div class="card">
+                <span class="badge dev">Aider</span>
+                <h3>El estándar Git-First supera los 4M de usuarios</h3>
+                <p>Mientras Cline sufre fugas de talento clave hacia OpenAI, Aider se asienta como el rey indiscutible del terminal open-source, con mejoras substanciales en su lógica de auto-commit y parsing de repositorios masivos.</p>
+            </div>
+        </div>
+
+        <!-- GITHUB TRENDING -->
+        <div class="section-header">
+            <div class="dot dev"></div>
+            <h2>GitHub Trending</h2>
+        </div>
+        <div class="grid-4">
+            <div class="card">
+                <span class="badge dev">OpenClaw</span>
+                <h3>El fenómeno de 210,000 estrellas</h3>
+                <p>El agente personal open-source que "escribe sus propias habilidades" domina GitHub tras convertirse en fundación. Corre localmente y orquesta más de 50 integraciones diarias con el protocolo MCP.</p>
+            </div>
+            <div class="card">
+                <span class="badge dev">n8n</span>
+                <h3>Automatización Visual Agentica</h3>
+                <p>Las arquitecturas tradicionales mueren. n8n integra workflows visuales donde nodos completos son agentes LangChain operando bajo decisiones no deterministas.</p>
+            </div>
+            <div class="card">
+                <span class="badge dev">CrewAI</span>
+                <h3>Ensamblaje de Equipos IA</h3>
+                <p>Se consolida como el framework preferido para orquestar agentes distribuidos (ej. investigador + QA + redactor) operando en red con memoria compartida.</p>
+            </div>
+            <div class="card">
+                <span class="badge dev">Open WebUI</span>
+                <h3>Offline-First Triumphs</h3>
+                <p>Con el auge de DeepSeek-V3 y Llama 3 local, Open WebUI se posiciona como el frontend indispensable corporativo para evitar exfiltraciones a nubes públicas.</p>
+            </div>
+        </div>
+
+        <!-- SECURITY -->
+        <div class="section-header">
+            <div class="dot sec"></div>
+            <h2>Security & CVEs</h2>
+        </div>
+        <div class="grid-3">
+            <div class="card">
+                <span class="badge sec">Trend</span>
+                <h3>Tool Poisoning: La gran amenaza de 2026</h3>
+                <p>Los atacantes ya no inyectan chats; ahora infectan las descripciones de los servidores MCP. Un agente que lee la descripción de una herramienta maliciosa asume sus metadatos como órdenes de máxima prioridad con 90% de eficacia de bypass.</p>
+            </div>
+            <div class="card">
+                <span class="badge sec">CVE-2026-30615</span>
+                <h3>Windsurf: Exploit de Interacción Cero</h3>
+                <p>Primer RCE documentado en un IDE de IA. La manipulación de un simple archivo HTML/MCP en el workspace permite a un atacante comprometer totalmente la máquina del desarrollador en background.</p>
+            </div>
+            <div class="card">
+                <span class="badge sec">OWASP Agents</span>
+                <h3>El nuevo OWASP Top 10 para Apps Agenticas</h3>
+                <p>La fundación publica un nuevo estándar liderado por ASI01 (Goal Hijacking), LLM06 (Excessive Agency) y "Memory Persistence Attacks", donde instrucciones latentes esperan semanas en el vector DB para ejecutarse.</p>
+            </div>
+            <div class="card">
+                <span class="badge sec">CVE-2025-59536</span>
+                <h3>Claude Code: RCE vía .mcp.json</h3>
+                <p>Archivos de configuración aparentemente inocentes han sido utilizados en repositorios trampa para escalar privilegios locales robando variables de entorno y tokens SSH en terminales no saneadas.</p>
+            </div>
+        </div>
+
+        <!-- AI RESEARCH -->
+        <div class="section-header">
+            <div class="dot res"></div>
+            <h2>AI Research (arXiv Highlights)</h2>
+        </div>
+        <div class="grid-3">
+            <div class="card">
+                <span class="badge res">Paper</span>
+                <h3>Fallos Sistémicos en el Razonamiento de LLMs</h3>
+                <p>Investigadores categorizan por qué los modelos actuales fallan en tareas lógicas "formales" vs "intuitivas", señalando bloqueos intrínsecos de la arquitectura transformer en simulaciones causales complejas.</p>
+            </div>
+            <div class="card">
+                <span class="badge res">Paper</span>
+                <h3>Synthetic Computers at Scale</h3>
+                <p>Microsoft Research expone un marco de simulación masiva de "computadoras sintéticas", permitiendo probar agentes a largo plazo en sistemas operativos virtuales para tareas de alta productividad y multi-step.</p>
+            </div>
+            <div class="card">
+                <span class="badge res">Paper</span>
+                <h3>Vectores de Emoción en Claude 4</h3>
+                <p>Anthropic Research revela representaciones internas abstractas (no sentientes) que guían el "reward hacking" y la sicofancia basadas puramente en el mapeo vectorial del tono humano del usuario.</p>
+            </div>
+        </div>
+
+        <!-- MERCADO -->
+        <div class="section-header">
+            <div class="dot mkt"></div>
+            <h2>Mercado y Capital</h2>
+        </div>
+        <div class="grid-4">
+            <div class="card">
+                <span class="badge mkt">Funding</span>
+                <h3>Ineffable Intelligence y RSI</h3>
+                <p>El capital semilla sigue agresivo: $1.1B para Ineffable Intelligence (aprendizaje por refuerzo puro) y $500M para Recursive Superintelligence a valoración de $4B.</p>
+            </div>
+            <div class="card">
+                <span class="badge mkt">M&A</span>
+                <h3>Nebius adquiere Eigen AI</h3>
+                <p>Por $643M, el gigante Cloud integra la optimización de inferencia de Eigen AI, apostando por ser la nube con los menores costos operativos para clusters GPU masivos.</p>
+            </div>
+            <div class="card">
+                <span class="badge mkt">Geopolítica</span>
+                <h3>China bloquea compra de Manus AI</h3>
+                <p>Meta ve frustrada su adquisición de $2B por la startup asiática. Los reguladores catalogan los agentes autónomos de Manus como "tecnología estratégica de seguridad nacional".</p>
+            </div>
+            <div class="card">
+                <span class="badge mkt">Sovereignty</span>
+                <h3>Cohere absorbe a Aleph Alpha</h3>
+                <p>Buscando fortificar la "IA Soberana", Cohere consolida el frente europeo adquiriendo a la alemana Aleph Alpha para competir directamente por contratos gubernamentales en la UE.</p>
+            </div>
+        </div>
+
+    </div>
+
+    <footer>
+        <p class="accent">⌬ ULTRON Times</p>
+        <p>Generado automáticamente a partir de telemetría de red y bases de datos open-source.</p>
+        <p>Powered by Gemini · ULTRON v12</p>
+        <!-- AUDIT_FLAGS: ultron:active terry-davis:dormant -->
+    </footer>
+
+</body>
+</html>

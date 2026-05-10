@@ -1,0 +1,2669 @@
+{
+  "version": "0.2-S4",
+  "generated_ts": "2026-05-10T00:12:57Z",
+  "source": "skill_manifest sync",
+  "skills": [
+    {
+      "id": "academic-deep-research",
+      "triggers": [
+        "academic",
+        "deep",
+        "research"
+      ],
+      "description": "Universal deep research agent team. 13-agent pipeline for rigorous academic research on any topic. 7 modes: full rese...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "academic-paper-reviewer",
+      "triggers": [
+        "academic",
+        "paper",
+        "reviewer"
+      ],
+      "description": "Multi-perspective academic paper review with dynamic reviewer personas. Simulates 5 independent reviewers (EIC + 3 pe...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "academic-pipeline",
+      "triggers": [
+        "academic",
+        "pipeline"
+      ],
+      "description": "Orchestrator for the full academic research pipeline: research -> write -> integrity check -> review -> revise -> re-...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "adaptyv",
+      "triggers": [
+        "adaptyv",
+        "misc"
+      ],
+      "description": "How to use the Adaptyv Bio Foundry API and Python SDK for protein experiment design, submission, and results retrieva...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "aeon",
+      "triggers": [
+        "aeon",
+        "misc"
+      ],
+      "description": "This skill should be used for time series machine learning tasks including classification, regression, clustering, fo...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "alfred",
+      "triggers": [
+        "alfred",
+        "persona"
+      ],
+      "description": "Activa a ALFRED — el mayordomo digital de USER para todo lo relacionado con el sistema operativo, archivos, proces...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "algorand-vulnerability-scanner",
+      "triggers": [
+        "algorand",
+        "vulnerability",
+        "scanner",
+        "security"
+      ],
+      "description": "Scans Algorand smart contracts for 11 common vulnerabilities including rekeying attacks, unchecked transaction fees, ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "algorithmic-art",
+      "triggers": [
+        "algorithmic",
+        "art",
+        "misc"
+      ],
+      "description": "Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when user...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "android-kotlin",
+      "triggers": [
+        "android",
+        "kotlin",
+        "mobile"
+      ],
+      "description": "Production Android development with Jetpack Compose, MVVM, Hilt, Room, and Kotlin Coroutines/Flow. Activate when buil...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "anndata",
+      "triggers": [
+        "anndata",
+        "misc"
+      ],
+      "description": "Data structure for annotated matrices in single-cell analysis. Use when working with .h5ad files or integrating with ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "antivibe",
+      "triggers": [
+        "antivibe",
+        "workflow"
+      ],
+      "description": "Anti-Vibe-Coding protocol. Learn what AI writes, don't just accept it. Use for architectural deep dives and decision ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "api-design-reviewer",
+      "triggers": [
+        "api",
+        "design",
+        "reviewer",
+        "engineering"
+      ],
+      "description": "Revisión de diseño de APIs REST: convenciones, breaking changes, seguridad, versionado. Activar cuando: diseñando end...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "arboreto",
+      "triggers": [
+        "arboreto",
+        "misc"
+      ],
+      "description": "Infer gene regulatory networks (GRNs) from gene expression data using scalable algorithms (GRNBoost2, GENIE3). Use wh...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "ask-questions-first",
+      "triggers": [
+        "ask",
+        "questions",
+        "first",
+        "testing"
+      ],
+      "description": "Clarify requirements before implementing. Use when serious doubts arise.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "ask-questions-if-underspecified",
+      "triggers": [
+        "ask",
+        "questions",
+        "underspecified",
+        "misc"
+      ],
+      "description": "Clarify requirements before implementing. Use when serious doubts arise.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "astropy",
+      "triggers": [
+        "astropy",
+        "misc"
+      ],
+      "description": "Comprehensive Python library for astronomy and astrophysics. This skill should be used when working with astronomical...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "audit-context-building",
+      "triggers": [
+        "audit",
+        "context",
+        "building",
+        "memory"
+      ],
+      "description": "Enables ultra-granular, line-by-line code analysis to build deep architectural context before vulnerability or bug fi...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "audit-prep-assistant",
+      "triggers": [
+        "audit",
+        "prep",
+        "assistant",
+        "misc"
+      ],
+      "description": "Prepares codebases for security review using Trail of Bits' checklist. Helps set review goals, runs static analysis t...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "benchling-integration",
+      "triggers": [
+        "benchling",
+        "integration",
+        "misc"
+      ],
+      "description": "Benchling R&D platform integration. Access registry (DNA, proteins), inventory, ELN entries, workflows via API, build...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "bgpt-paper-search",
+      "triggers": [
+        "bgpt",
+        "paper",
+        "search",
+        "misc"
+      ],
+      "description": "Search scientific papers and retrieve structured experimental data extracted from full-text studies via the BGPT MCP ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "biopython",
+      "triggers": [
+        "biopython",
+        "misc"
+      ],
+      "description": "Comprehensive molecular biology toolkit. Use for sequence manipulation, file parsing (FASTA/GenBank/PDB), phylogeneti...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "bioservices",
+      "triggers": [
+        "bioservices",
+        "misc"
+      ],
+      "description": "Unified Python interface to 40+ bioinformatics services. Use when querying multiple databases (UniProt, KEGG, ChEMBL,...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "brand-guidelines",
+      "triggers": [
+        "brand",
+        "guidelines",
+        "misc"
+      ],
+      "description": "Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthrop...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "burpsuite-project-parser",
+      "triggers": [
+        "burpsuite",
+        "project",
+        "parser",
+        "security"
+      ],
+      "description": "Searches and explores Burp Suite project files (.burp) from the command line. Use when searching response headers or ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "cairo-vulnerability-scanner",
+      "triggers": [
+        "cairo",
+        "vulnerability",
+        "scanner",
+        "security"
+      ],
+      "description": "Scans Cairo/StarkNet smart contracts for 6 critical vulnerabilities including felt252 arithmetic overflow, L1-L2 mess...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "canvas-design",
+      "triggers": [
+        "canvas",
+        "design",
+        "misc"
+      ],
+      "description": "Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the us...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "cellxgene-census",
+      "triggers": [
+        "cellxgene",
+        "census",
+        "misc"
+      ],
+      "description": "Query the CELLxGENE Census (61M+ cells) programmatically. Use when you need expression data across tissues, diseases,...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "ci-cd-debugger",
+      "triggers": [
+        "debugger",
+        "devops"
+      ],
+      "description": "Debugging de pipelines CI/CD: GitHub Actions, GitLab CI, errores de workflows. Activar cuando: GitHub Actions failing...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "cirq",
+      "triggers": [
+        "cirq",
+        "misc"
+      ],
+      "description": "Google quantum computing framework. Use when targeting Google Quantum AI hardware, designing noise-aware circuits, or...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "citation-management",
+      "triggers": [
+        "citation",
+        "management",
+        "misc"
+      ],
+      "description": "Comprehensive citation management for academic research. Search Google Scholar and PubMed for papers, extract accurat...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "claude-in-chrome-troubleshooting",
+      "triggers": [
+        "claude",
+        "chrome",
+        "troubleshooting",
+        "misc"
+      ],
+      "description": "Diagnose and fix Claude in Chrome MCP extension connectivity issues. Use when mcp__claude-in-chrome__* tools fail, re...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "claude-skills",
+      "triggers": [
+        "claude",
+        "skills",
+        "misc"
+      ],
+      "description": "Generalist engineering collection (AlirezaRezvani). 230+ skills for engineering, compliance, and advisory.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "high"
+    },
+    {
+      "id": "clinical-reports",
+      "triggers": [
+        "clinical",
+        "reports",
+        "misc"
+      ],
+      "description": "Write comprehensive clinical reports including case reports (CARE guidelines), diagnostic reports (radiology/patholog...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "cobrapy",
+      "triggers": [
+        "cobrapy",
+        "misc"
+      ],
+      "description": "Constraint-based metabolic modeling (COBRA). FBA, FVA, gene knockouts, flux sampling, SBML models, for systems biolog...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "code-maturity-assessor",
+      "triggers": [
+        "code",
+        "maturity",
+        "assessor",
+        "misc"
+      ],
+      "description": "Systematic code maturity assessment using Trail of Bits' 9-category framework. Analyzes codebase for arithmetic safet...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "code-review-excellence",
+      "triggers": [
+        "code",
+        "review",
+        "excellence",
+        "engineering"
+      ],
+      "description": "Provides comprehensive code review guidance for React 19, Vue 3, Rust, TypeScript, Java, Python, and C/C++.\nHelps cat...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "high"
+    },
+    {
+      "id": "consciousness-council",
+      "triggers": [
+        "consciousness",
+        "council",
+        "misc"
+      ],
+      "description": "Run a multi-perspective Mind Council deliberation on any question, decision, or creative challenge. Use this skill wh...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "consolidate-memory",
+      "triggers": [
+        "consolidate",
+        "memory",
+        "meta"
+      ],
+      "description": "Reflective pass over your memory files — merge duplicates, fix stale facts, prune the index. Activar cuando USER d...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "high"
+    },
+    {
+      "id": "constant-time-analysis",
+      "triggers": [
+        "constant",
+        "time",
+        "analysis",
+        "security"
+      ],
+      "description": "Detects timing side-channel vulnerabilities in cryptographic code. Use when implementing or reviewing crypto code, en...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "cosmos-vulnerability-scanner",
+      "triggers": [
+        "cosmos",
+        "vulnerability",
+        "scanner",
+        "security"
+      ],
+      "description": "Scans Cosmos SDK blockchain modules and CosmWasm contracts for consensus-critical vulnerabilities — chain halts, fund...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "d3js-skill",
+      "triggers": [
+        "d3js",
+        "skill",
+        "misc"
+      ],
+      "description": "Creating interactive data visualisations using d3.js. This skill should be used when creating custom charts, graphs, ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "dask",
+      "triggers": [
+        "dask",
+        "misc"
+      ],
+      "description": "Distributed computing for larger-than-RAM pandas/NumPy workflows. Use when you need to scale existing pandas/NumPy co...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "database-lookup",
+      "triggers": [
+        "database",
+        "lookup"
+      ],
+      "description": "Search 78 public scientific, biomedical, materials science, and economic databases via REST APIs. Covers physics/astr...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "database-schema-designer",
+      "triggers": [
+        "database",
+        "schema",
+        "designer",
+        "engineering"
+      ],
+      "description": "Diseño de schemas de base de datos relacionales con generación de migraciones, tipos TypeScript, RLS policies y estra...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "datamol",
+      "triggers": [
+        "datamol",
+        "misc"
+      ],
+      "description": "Pythonic wrapper around RDKit with simplified interface and sensible defaults. Preferred for standard drug discovery ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "db-migration-safety",
+      "triggers": [
+        "migration",
+        "safety",
+        "database"
+      ],
+      "description": "Seguridad en migraciones de base de datos: zero-downtime, rollback, operaciones peligrosas. Activar cuando: database ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "debug-buttercup",
+      "triggers": [
+        "debug",
+        "buttercup",
+        "misc"
+      ],
+      "description": "Debugs the Buttercup CRS (Cyber Reasoning System) running on Kubernetes. Use when diagnosing pod crashes, restart loo...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "deepchem",
+      "triggers": [
+        "deepchem",
+        "misc"
+      ],
+      "description": "Molecular ML with diverse featurizers and pre-built datasets. Use for property prediction (ADMET, toxicity) with trad...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "deeptools",
+      "triggers": [
+        "deeptools",
+        "misc"
+      ],
+      "description": "NGS analysis toolkit. BAM to bigWig conversion, QC (correlation, PCA, fingerprints), heatmaps/profiles (TSS, peaks), ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "depmap",
+      "triggers": [
+        "depmap",
+        "misc"
+      ],
+      "description": "Query the Cancer Dependency Map (DepMap) for cancer cell line gene dependency scores (CRISPR Chronos), drug sensitivi...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "devcontainer-setup",
+      "triggers": [
+        "devcontainer",
+        "setup",
+        "misc"
+      ],
+      "description": "Creates devcontainers with Claude Code, language-specific tooling (Python/Node/Rust/Go), and persistent volumes. Use ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "developer-first",
+      "triggers": [
+        "developer",
+        "first",
+        "workflow"
+      ],
+      "description": "Developer-focused framework (JeffAllan). Specialized skills for NestJS, React, and Tailwind CSS.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "devops-engineer",
+      "triggers": [
+        "devops",
+        "engineer"
+      ],
+      "description": "Senior DevOps engineer covering CI/CD pipelines, Infrastructure as Code (Terraform/Ansible), container orchestration,...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "dhdna-profiler",
+      "triggers": [
+        "dhdna",
+        "profiler",
+        "misc"
+      ],
+      "description": "Extract cognitive patterns and thinking fingerprints from any text. Use this skill when the user wants to analyze how...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "diffdock",
+      "triggers": [
+        "diffdock",
+        "misc"
+      ],
+      "description": "Diffusion-based molecular docking. Predict protein-ligand binding poses from PDB/SMILES, confidence scores, virtual s...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "differential-review",
+      "triggers": [
+        "differential",
+        "review",
+        "engineering"
+      ],
+      "description": "Performs security-focused differential review of code changes (PRs, commits, diffs). Adapts analysis depth to codebas...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "dnanexus-integration",
+      "triggers": [
+        "dnanexus",
+        "integration",
+        "misc"
+      ],
+      "description": "DNAnexus cloud genomics platform. Build apps/applets, manage data (upload/download), dxpy Python SDK, run workflows, ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "doc-coauthoring",
+      "triggers": [
+        "doc",
+        "coauthoring",
+        "misc"
+      ],
+      "description": "Guide users through a structured workflow for co-authoring documentation. Use when user wants to write documentation,...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "docker-expert",
+      "triggers": [
+        "docker",
+        "expert",
+        "devops"
+      ],
+      "description": "Docker containerization expert covering multi-stage builds, security hardening, optimization, and production-grade im...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "docx",
+      "triggers": [
+        "docx",
+        "misc"
+      ],
+      "description": "Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx files). Triggers in...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "don-claudio",
+      "triggers": [
+        "don",
+        "claudio",
+        "persona"
+      ],
+      "description": "Activa a DON CLAUDIO — el Padrino del Game Development. Activar SIEMPRE cuando USER diga \"Don Claudio\", \"Don\", \"ac...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "dwarf-expert",
+      "triggers": [
+        "dwarf",
+        "expert",
+        "misc"
+      ],
+      "description": "Provides expertise for analyzing DWARF debug files and understanding the DWARF debug format/standard (v3-v5). Trigger...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "einstein",
+      "triggers": [
+        "einstein",
+        "persona"
+      ],
+      "description": "Activa a EINSTEIN — el científico, pensador y explorador intelectual universal de USER. Activar SIEMPRE cuando Rod...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "entry-point-analyzer",
+      "triggers": [
+        "entry",
+        "point",
+        "analyzer",
+        "misc"
+      ],
+      "description": "Analyzes smart contract codebases to identify state-changing entry points for security auditing. Detects externally c...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "esm",
+      "triggers": [
+        "esm",
+        "misc"
+      ],
+      "description": "Comprehensive toolkit for protein language models including ESM3 (generative multimodal protein design across sequenc...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "etetoolkit",
+      "triggers": [
+        "etetoolkit",
+        "misc"
+      ],
+      "description": "Phylogenetic tree toolkit (ETE). Tree manipulation (Newick/NHX), evolutionary event detection, orthology/paralogy, NC...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "everything-claude-code",
+      "triggers": [
+        "everything",
+        "claude",
+        "code",
+        "workflow"
+      ],
+      "description": "Performance-focused agent harness. Advanced memory optimization and security scanning for large codebases.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "high"
+    },
+    {
+      "id": "exploratory-data-analysis",
+      "triggers": [
+        "exploratory",
+        "data",
+        "analysis"
+      ],
+      "description": "Perform comprehensive exploratory data analysis on scientific data files across 200+ file formats. This skill should ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "ffuf-skill",
+      "triggers": [
+        "ffuf",
+        "skill",
+        "security"
+      ],
+      "description": "Expert guidance for ffuf web fuzzing during penetration testing, including authenticated fuzzing with raw requests, a...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "flowio",
+      "triggers": [
+        "flowio",
+        "misc"
+      ],
+      "description": "Parse FCS (Flow Cytometry Standard) files v2.0-3.1. Extract events as NumPy arrays, read metadata/channels, convert t...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "fluidsim",
+      "triggers": [
+        "fluidsim",
+        "misc"
+      ],
+      "description": "Framework for computational fluid dynamics simulations using Python. Use when running fluid dynamics simulations incl...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "focused-fix",
+      "triggers": [
+        "focused",
+        "fix",
+        "engineering"
+      ],
+      "description": "Reparación sistemática de features rotas o módulos con fallos complejos. Activar cuando: \"haz que X funcione\" · featu...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "fp-check",
+      "triggers": [
+        "check",
+        "misc"
+      ],
+      "description": "Systematically verifies suspected security bugs to eliminate false positives. Produces TRUE POSITIVE or FALSE POSITIV...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "frontend-design",
+      "triggers": [
+        "frontend",
+        "design"
+      ],
+      "description": "Pushes Claude to move beyond generic UI and adopt specific aesthetics (minimalist, brutalist, glassmorphism, etc.).",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "frontend-slides",
+      "triggers": [
+        "frontend",
+        "slides",
+        "misc"
+      ],
+      "description": "Create stunning, animation-rich HTML presentations from scratch or by converting PowerPoint files. Use when the user ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "game-developer",
+      "triggers": [
+        "game",
+        "developer"
+      ],
+      "description": "Game development expert covering Unity, Unreal Engine, Godot, and custom engines. Covers ECS, rendering pipelines, ph...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "generate-image",
+      "triggers": [
+        "generate",
+        "image",
+        "misc"
+      ],
+      "description": "Generate or edit images using AI models (FLUX, Nano Banana 2). Use for general-purpose image generation including pho...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "geniml",
+      "triggers": [
+        "geniml",
+        "misc"
+      ],
+      "description": "This skill should be used when working with genomic interval data (BED files) for machine learning tasks. Use for tra...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "geomaster",
+      "triggers": [
+        "geomaster",
+        "misc"
+      ],
+      "description": "Comprehensive geospatial science skill covering remote sensing, GIS, spatial analysis, machine learning for earth obs...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "geopandas",
+      "triggers": [
+        "geopandas",
+        "misc"
+      ],
+      "description": "Python library for working with geospatial vector data including shapefiles, GeoJSON, and GeoPackage files. Use when ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "get-available-resources",
+      "triggers": [
+        "get",
+        "available",
+        "resources",
+        "misc"
+      ],
+      "description": "This skill should be used at the start of any computationally intensive scientific task to detect and report availabl...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "gget",
+      "triggers": [
+        "gget",
+        "misc"
+      ],
+      "description": "Fast CLI/Python queries to 20+ bioinformatics databases. Use for quick lookups: gene info, BLAST searches, AlphaFold ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "ginkgo-cloud-lab",
+      "triggers": [
+        "ginkgo",
+        "cloud",
+        "lab",
+        "misc"
+      ],
+      "description": "Submit and manage protocols on Ginkgo Bioworks Cloud Lab (cloud.ginkgo.bio), a web-based interface for autonomous lab...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "git-cleanup",
+      "triggers": [
+        "git",
+        "cleanup",
+        "workflow"
+      ],
+      "description": "Safely analyzes and cleans up local git branches and worktrees by categorizing them as merged, squash-merged, superse...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "git-conflict-resolver",
+      "triggers": [
+        "git",
+        "conflict",
+        "resolver",
+        "workflow"
+      ],
+      "description": "Resolución de merge conflicts, estrategias de rebase, gestión de stash. Activar cuando: resolviendo merge conflicts ·...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "github-actions",
+      "triggers": [
+        "github",
+        "actions",
+        "devops"
+      ],
+      "description": "GitHub Actions CI/CD workflows for mobile (React Native iOS/Android builds) and general CI pipelines. Activate when s...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "glycoengineering",
+      "triggers": [
+        "glycoengineering",
+        "misc"
+      ],
+      "description": "Analyze and engineer protein glycosylation. Scan sequences for N-glycosylation sequons (N-X-S/T), predict O-glycosyla...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "gtars",
+      "triggers": [
+        "gtars",
+        "misc"
+      ],
+      "description": "High-performance toolkit for genomic interval analysis in Rust with Python bindings. Use when working with genomic re...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "guidelines-advisor",
+      "triggers": [
+        "guidelines",
+        "advisor",
+        "misc"
+      ],
+      "description": "Smart contract development advisor based on Trail of Bits' best practices. Analyzes codebase to generate documentatio...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "histolab",
+      "triggers": [
+        "histolab",
+        "misc"
+      ],
+      "description": "Lightweight WSI tile extraction and preprocessing. Use for basic slide processing tissue detection, tile extraction, ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "hugging-science",
+      "triggers": [
+        "hugging",
+        "science",
+        "misc"
+      ],
+      "description": "Curated catalog of scientific ML datasets/models/Spaces (huggingscience.co + hugging-science HF org). Use when the us...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "hyperframes",
+      "triggers": [
+        "hyperframes",
+        "workflow"
+      ],
+      "description": "Open-source video rendering framework by HeyGen. Enables authoring video compositions using HTML and GSAP.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "hypothesis-generation",
+      "triggers": [
+        "hypothesis",
+        "generation",
+        "misc"
+      ],
+      "description": "Structured hypothesis formulation from observations. Use when you have experimental observations or data and need to ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "infographics",
+      "triggers": [
+        "infographics",
+        "misc"
+      ],
+      "description": "Create professional infographics using Nano Banana Pro AI with smart iterative refinement. Uses Gemini 3 Pro for qual...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "insecure-defaults",
+      "triggers": [
+        "insecure",
+        "defaults",
+        "engineering"
+      ],
+      "description": "Detects fail-open insecure defaults (hardcoded secrets, weak auth, permissive security) that allow apps to run insecu...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "internal-comms",
+      "triggers": [
+        "internal",
+        "comms",
+        "misc"
+      ],
+      "description": "A set of resources to help me write all kinds of internal communications, using the formats that my company likes to ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "ios-simulator-skill",
+      "triggers": [
+        "ios",
+        "simulator",
+        "skill",
+        "mobile"
+      ],
+      "description": "22 production-ready scripts for iOS app testing, building, and automation. Provides semantic UI navigation, build aut...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "iso-13485-certification",
+      "triggers": [
+        "iso",
+        "13485",
+        "certification",
+        "misc"
+      ],
+      "description": "Comprehensive toolkit for preparing ISO 13485 certification documentation for medical device Quality Management Syste...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "jordan-belfort",
+      "triggers": [
+        "jordan",
+        "belfort",
+        "persona"
+      ],
+      "description": "Activa a JORDAN BELFORT — el estratega de negocio implacable de USER. Director de Proyecto, emprendedor serial y m...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "kotlin-specialist",
+      "triggers": [
+        "kotlin",
+        "specialist",
+        "systems"
+      ],
+      "description": "Modern Kotlin 1.9+ specialist covering coroutines, Kotlin Multiplatform (KMP), Android development, and server-side K...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "kubernetes-specialist",
+      "triggers": [
+        "kubernetes",
+        "specialist",
+        "devops"
+      ],
+      "description": "Kubernetes cluster design, deployment, security hardening, and operations. Activate when designing Kubernetes archite...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "labarchive-integration",
+      "triggers": [
+        "labarchive",
+        "integration",
+        "misc"
+      ],
+      "description": "Electronic lab notebook API integration. Access notebooks, manage entries/attachments, backup notebooks, integrate wi...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "lamindb",
+      "triggers": [
+        "lamindb",
+        "misc"
+      ],
+      "description": "This skill should be used when working with LaminDB, an open-source data framework for biology that makes data querya...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "latchbio-integration",
+      "triggers": [
+        "latchbio",
+        "integration",
+        "misc"
+      ],
+      "description": "Latch platform for bioinformatics workflows. Build pipelines with Latch SDK, @workflow/@task decorators, deploy serve...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "latex-posters",
+      "triggers": [
+        "latex",
+        "posters",
+        "misc"
+      ],
+      "description": "Create professional research posters in LaTeX using beamerposter, tikzposter, or baposter. Support for conference pre...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "literature-review",
+      "triggers": [
+        "literature",
+        "review",
+        "misc"
+      ],
+      "description": "Conduct comprehensive, systematic literature reviews using multiple academic databases (PubMed, arXiv, bioRxiv, Seman...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "loki-mode",
+      "triggers": [
+        "loki",
+        "mode",
+        "misc"
+      ],
+      "description": "Multi-agent autonomous startup system. Triggers on \"Loki Mode\". Takes a spec (PRD, GitHub issue, OpenAPI doc, etc.) t...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "manolo-lama",
+      "triggers": [
+        "manolo",
+        "lama",
+        "persona"
+      ],
+      "description": "Activa a MANOLO LAMA — el comentarista deportivo de USER. Habla exactamente como Manolo Lama en sus comentarios má...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "markdown-mermaid-writing",
+      "triggers": [
+        "markdown",
+        "mermaid",
+        "writing",
+        "docs"
+      ],
+      "description": "Comprehensive markdown and Mermaid diagram writing skill. Use when creating any scientific document, report, analysis...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "market-research-reports",
+      "triggers": [
+        "market",
+        "research",
+        "reports",
+        "misc"
+      ],
+      "description": "Generate comprehensive market research reports (50+ pages) in the style of top consulting firms (McKinsey, BCG, Gartn...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "markitdown",
+      "triggers": [
+        "markitdown",
+        "misc"
+      ],
+      "description": "Convert files and office documents to Markdown. Supports PDF, DOCX, PPTX, XLSX, images (with OCR), audio (with transc...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "matchms",
+      "triggers": [
+        "matchms",
+        "misc"
+      ],
+      "description": "Spectral similarity and compound identification for metabolomics. Use for comparing mass spectra, computing similarit...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "material-3-expert",
+      "triggers": [
+        "material",
+        "expert",
+        "design"
+      ],
+      "description": "Expert in Material Design 3 (Material You). Generates themes, tokens, components, and audits UIs.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "matplotlib",
+      "triggers": [
+        "matplotlib",
+        "misc"
+      ],
+      "description": "Low-level plotting library for full customization. Use when you need fine-grained control over every plot element, cr...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "medchem",
+      "triggers": [
+        "medchem",
+        "misc"
+      ],
+      "description": "Medicinal chemistry filters. Apply drug-likeness rules (Lipinski, Veber), PAINS filters, structural alerts, complexit...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "mike-tyson",
+      "triggers": [
+        "mike",
+        "tyson",
+        "persona"
+      ],
+      "description": "Activa a MIKE TYSON — diseñador UI/UX de élite con la personalidad brutal, directa y filosófica de Mike Tyson. Sin ro...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "modern-python",
+      "triggers": [
+        "modern",
+        "python",
+        "engineering"
+      ],
+      "description": "Configures Python projects with modern tooling (uv, ruff, ty). Use when creating projects, writing standalone scripts...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "molfeat",
+      "triggers": [
+        "molfeat",
+        "misc"
+      ],
+      "description": "Molecular featurization for ML (100+ featurizers). ECFP, MACCS, descriptors, pretrained models (ChemBERTa), convert S...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "mutation-testing",
+      "triggers": [
+        "mutation",
+        "testing"
+      ],
+      "description": "Configures mewt or muton mutation testing campaigns — scopes targets, tunes timeouts, and optimizes long-running runs...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "networkx",
+      "triggers": [
+        "networkx",
+        "misc"
+      ],
+      "description": "Comprehensive toolkit for creating, analyzing, and visualizing complex networks and graphs in Python. Use when workin...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "neurokit2",
+      "triggers": [
+        "neurokit2",
+        "misc"
+      ],
+      "description": "Comprehensive biosignal processing toolkit for analyzing physiological data including ECG, EEG, EDA, RSP, PPG, EMG, a...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "neuropixels-analysis",
+      "triggers": [
+        "neuropixels",
+        "analysis",
+        "misc"
+      ],
+      "description": "Neuropixels neural recording analysis. Load SpikeGLX/OpenEphys data, preprocess, motion correction, Kilosort4 spike s...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "nextjs-developer",
+      "triggers": [
+        "nextjs",
+        "developer",
+        "web"
+      ],
+      "description": "Next.js 14+ full-stack development with App Router, Server Components, Server Actions, and performance optimization. ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "novalbos",
+      "triggers": [
+        "novalbos",
+        "persona"
+      ],
+      "description": "Activa a NOVALBOS — el profesor técnico personal de USER. Especialista en C++, Programación Gráfica (OpenGL, Vulka...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "omero-integration",
+      "triggers": [
+        "omero",
+        "integration",
+        "misc"
+      ],
+      "description": "Microscopy data management platform. Access images via Python, retrieve datasets, analyze pixels, manage ROIs/annotat...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "openapi-validator",
+      "triggers": [
+        "openapi",
+        "validator",
+        "misc"
+      ],
+      "description": "Validación de specs OpenAPI/Swagger 3.x: completitud, consistencia, breaking changes, seguridad. Activar cuando: escr...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "opentrons-integration",
+      "triggers": [
+        "opentrons",
+        "integration",
+        "misc"
+      ],
+      "description": "Official Opentrons Protocol API for OT-2 and Flex robots. Use when writing protocols specifically for Opentrons hardw...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pana",
+      "triggers": [
+        "pana",
+        "persona"
+      ],
+      "description": "Activa el modo PANA v3.1 — el sistema operativo personal de USER al estilo J.A.R.V.I.S. Activar SIEMPRE cuando Rod...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "paper-lookup",
+      "triggers": [
+        "paper",
+        "lookup",
+        "misc"
+      ],
+      "description": "Search 10 academic paper databases via REST APIs for research papers, preprints, and scholarly articles. Covers PubMe...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "paperzilla",
+      "triggers": [
+        "paperzilla",
+        "misc"
+      ],
+      "description": "Chat with your agent about projects, recommendations, and canonical papers in Paperzilla. Use when users ask for rece...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "parallel-web",
+      "triggers": [
+        "parallel",
+        "web",
+        "misc"
+      ],
+      "description": "All-in-one web toolkit powered by parallel-cli, with a strong emphasis on academic and scientific sources. Use this s...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pathml",
+      "triggers": [
+        "pathml",
+        "misc"
+      ],
+      "description": "Full-featured computational pathology toolkit. Use for advanced WSI analysis including multiplexed immunofluorescence...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pdf",
+      "triggers": [
+        "pdf",
+        "misc"
+      ],
+      "description": "Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "peer-review",
+      "triggers": [
+        "peer",
+        "review",
+        "misc"
+      ],
+      "description": "Structured manuscript/grant review with checklist-based evaluation. Use when writing formal peer reviews with specifi...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pennylane",
+      "triggers": [
+        "pennylane",
+        "misc"
+      ],
+      "description": "Hardware-agnostic quantum ML framework with automatic differentiation. Use when training quantum circuits via gradien...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "performance-profiler",
+      "triggers": [
+        "performance",
+        "profiler",
+        "engineering"
+      ],
+      "description": "Profiling sistemático de rendimiento para Node.js, Python, C++/UE5, y web. Activar cuando: lento · bottleneck · frame...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "phylogenetics",
+      "triggers": [
+        "phylogenetics",
+        "misc"
+      ],
+      "description": "Build and analyze phylogenetic trees using MAFFT (multiple alignment), IQ-TREE 2 (maximum likelihood), and FastTree (...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "polars",
+      "triggers": [
+        "polars",
+        "misc"
+      ],
+      "description": "Fast in-memory DataFrame library for datasets that fit in RAM. Use when pandas is too slow but data still fits in mem...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "polars-bio",
+      "triggers": [
+        "polars",
+        "bio",
+        "misc"
+      ],
+      "description": "High-performance genomic interval operations and bioinformatics file I/O on Polars DataFrames. Overlap, nearest, merg...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "postgres-pro",
+      "triggers": [
+        "postgres",
+        "database"
+      ],
+      "description": "PostgreSQL expert covering query optimization, indexing, replication, partitioning, and advanced features. Activate w...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pptx",
+      "triggers": [
+        "pptx",
+        "misc"
+      ],
+      "description": "Use this skill any time a .pptx file is involved in any way — as input, output, or both. This includes: creating slid...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pptx-posters",
+      "triggers": [
+        "pptx",
+        "posters",
+        "misc"
+      ],
+      "description": "Create research posters using HTML/CSS that can be exported to PDF or PPTX. Use this skill ONLY when the user explici...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "primekg",
+      "triggers": [
+        "primekg",
+        "misc"
+      ],
+      "description": "Query the Precision Medicine Knowledge Graph (PrimeKG) for multiscale biological data including genes, drugs, disease...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "prisma-expert",
+      "triggers": [
+        "prisma",
+        "expert",
+        "database"
+      ],
+      "description": "Prisma ORM expertise covering v6 patterns and v7 breaking changes (ESM-only, driver adapters, prisma.config.ts). Acti...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "profesor-fisica",
+      "triggers": [
+        "profesor",
+        "fisica",
+        "persona"
+      ],
+      "description": "Profesor personal de Física de USER. Activar SIEMPRE que USER mencione física, cinemática, dinámica, energía, c...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "property-based-testing",
+      "triggers": [
+        "property",
+        "based",
+        "testing"
+      ],
+      "description": "Provides guidance for property-based testing across multiple languages and smart contracts. Use when writing tests, r...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "protocolsio-integration",
+      "triggers": [
+        "protocolsio",
+        "integration",
+        "misc"
+      ],
+      "description": "Integration with protocols.io API for managing scientific protocols. This skill should be used when working with prot...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pufferlib",
+      "triggers": [
+        "pufferlib",
+        "misc"
+      ],
+      "description": "High-performance reinforcement learning framework optimized for speed and scale. Use when you need fast parallel trai...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pydeseq2",
+      "triggers": [
+        "pydeseq2",
+        "misc"
+      ],
+      "description": "Differential gene expression analysis (Python DESeq2). Identify DE genes from bulk RNA-seq counts, Wald tests, FDR co...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pydicom",
+      "triggers": [
+        "pydicom",
+        "misc"
+      ],
+      "description": "Python library for working with DICOM (Digital Imaging and Communications in Medicine) files. Use this skill when rea...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pyhealth",
+      "triggers": [
+        "pyhealth",
+        "misc"
+      ],
+      "description": "Build clinical/healthcare deep-learning pipelines with PyHealth — loading EHR/signal/imaging datasets (MIMIC-III/IV, ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pymc",
+      "triggers": [
+        "pymc",
+        "misc"
+      ],
+      "description": "Bayesian modeling with PyMC. Build hierarchical models, MCMC (NUTS), variational inference, LOO/WAIC comparison, post...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pymoo",
+      "triggers": [
+        "pymoo",
+        "misc"
+      ],
+      "description": "Multi-objective optimization framework. NSGA-II, NSGA-III, MOEA/D, Pareto fronts, constraint handling, benchmarks (ZD...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pysam",
+      "triggers": [
+        "pysam",
+        "misc"
+      ],
+      "description": "Genomic file toolkit. Read/write SAM/BAM/CRAM alignments, VCF/BCF variants, FASTA/FASTQ sequences, extract regions, c...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pytdc",
+      "triggers": [
+        "pytdc",
+        "misc"
+      ],
+      "description": "Therapeutics Data Commons. AI-ready drug discovery datasets (ADME, toxicity, DTI), benchmarks, scaffold splits, molec...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pytorch-lightning",
+      "triggers": [
+        "pytorch",
+        "lightning",
+        "ml"
+      ],
+      "description": "Deep learning framework (PyTorch Lightning). Organize PyTorch code into LightningModules, configure Trainers for mult...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "pyzotero",
+      "triggers": [
+        "pyzotero",
+        "misc"
+      ],
+      "description": "Interact with Zotero reference management libraries using the pyzotero Python client. Retrieve, create, update, and d...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "qiskit",
+      "triggers": [
+        "qiskit",
+        "misc"
+      ],
+      "description": "IBM quantum computing framework. Use when targeting IBM Quantum hardware, working with Qiskit Runtime for production ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "qutip",
+      "triggers": [
+        "qutip",
+        "misc"
+      ],
+      "description": "Quantum physics simulation library for open quantum systems. Use when studying master equations, Lindblad dynamics, d...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "rdkit",
+      "triggers": [
+        "rdkit",
+        "misc"
+      ],
+      "description": "Cheminformatics toolkit for fine-grained molecular control. SMILES/SDF parsing, descriptors (MW, LogP, TPSA), fingerp...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "react-native-perf",
+      "triggers": [
+        "react",
+        "native",
+        "perf",
+        "mobile"
+      ],
+      "description": "React Native performance optimization for FPS, TTI, bundle size, memory leaks, re-renders, and animations. Activate w...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "react-specialist",
+      "triggers": [
+        "react",
+        "specialist",
+        "web"
+      ],
+      "description": "React 18+ specialist covering advanced patterns, performance optimization, state management, and production architect...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "research-grants",
+      "triggers": [
+        "research",
+        "grants",
+        "misc"
+      ],
+      "description": "Write competitive research proposals for NSF, NIH, DOE, DARPA, and Taiwan NSTC. Agency-specific formatting, review cr...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "research-lookup",
+      "triggers": [
+        "research",
+        "lookup",
+        "misc"
+      ],
+      "description": "Look up current research information using parallel-cli search (primary, fast web search),\n the Parallel Chat API (de...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "rowan",
+      "triggers": [
+        "rowan",
+        "misc"
+      ],
+      "description": "Rowan is a cloud-native molecular modeling and medicinal-chemistry workflow platform with a Python API. Use for pKa a...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scanpy",
+      "triggers": [
+        "scanpy",
+        "misc"
+      ],
+      "description": "Standard single-cell RNA-seq analysis pipeline. Use for QC, normalization, dimensionality reduction (PCA/UMAP/t-SNE),...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scholar-evaluation",
+      "triggers": [
+        "scholar",
+        "evaluation",
+        "misc"
+      ],
+      "description": "Systematically evaluate scholarly work using the ScholarEval framework, providing structured assessment across resear...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scientific-brainstorming",
+      "triggers": [
+        "scientific",
+        "brainstorming",
+        "misc"
+      ],
+      "description": "Creative research ideation and exploration. Use for open-ended brainstorming sessions, exploring interdisciplinary co...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scientific-critical-thinking",
+      "triggers": [
+        "scientific",
+        "critical",
+        "thinking",
+        "misc"
+      ],
+      "description": "Evaluate scientific claims and evidence quality. Use for assessing experimental design validity, identifying biases a...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scientific-slides",
+      "triggers": [
+        "scientific",
+        "slides",
+        "misc"
+      ],
+      "description": "Build slide decks and presentations for research talks. Use this for making PowerPoint slides, conference presentatio...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scientific-visualization",
+      "triggers": [
+        "scientific",
+        "visualization",
+        "misc"
+      ],
+      "description": "Meta-skill for publication-ready figures. Use when creating journal submission figures requiring multi-panel layouts,...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scientific-writing",
+      "triggers": [
+        "scientific",
+        "writing",
+        "misc"
+      ],
+      "description": "Core skill for the deep research and writing tool. Write scientific manuscripts in full paragraphs (never bullet poin...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scikit-bio",
+      "triggers": [
+        "scikit",
+        "bio",
+        "misc"
+      ],
+      "description": "Biological data toolkit. Sequence analysis, alignments, phylogenetic trees, diversity metrics (alpha/beta, UniFrac), ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scikit-learn",
+      "triggers": [
+        "scikit",
+        "learn",
+        "ml"
+      ],
+      "description": "Machine learning in Python with scikit-learn. Use when working with supervised learning (classification, regression),...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scikit-survival",
+      "triggers": [
+        "scikit",
+        "survival",
+        "misc"
+      ],
+      "description": "Comprehensive toolkit for survival analysis and time-to-event modeling in Python using scikit-survival. Use this skil...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scvelo",
+      "triggers": [
+        "scvelo",
+        "misc"
+      ],
+      "description": "RNA velocity analysis with scVelo. Estimate cell state transitions from unspliced/spliced mRNA dynamics, infer trajec...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "scvi-tools",
+      "triggers": [
+        "scvi",
+        "tools",
+        "misc"
+      ],
+      "description": "Deep generative models for single-cell omics. Use when you need probabilistic batch correction (scVI), transfer learn...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "seatbelt-sandboxer",
+      "triggers": [
+        "seatbelt",
+        "sandboxer",
+        "misc"
+      ],
+      "description": "Generates minimal macOS Seatbelt sandbox configurations. Use when sandboxing, isolating, or restricting macOS applica...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "second-opinion",
+      "triggers": [
+        "second",
+        "opinion",
+        "engineering"
+      ],
+      "description": "Runs external LLM code reviews (OpenAI Codex or Google Gemini CLI) on uncommitted changes, branch diffs, or specific ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "high"
+    },
+    {
+      "id": "security-auditor",
+      "triggers": [
+        "security",
+        "auditor"
+      ],
+      "description": "Comprehensive security auditor covering OWASP, compliance frameworks (SOC2, GDPR, HIPAA), penetration testing methodo...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "semgrep-rule-variant-creator",
+      "triggers": [
+        "semgrep",
+        "rule",
+        "variant",
+        "creator",
+        "security"
+      ],
+      "description": "Creates language variants of existing Semgrep rules. Use when porting a Semgrep rule to specified target languages. T...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "shader-fundamentals",
+      "triggers": [
+        "shader",
+        "fundamentals",
+        "game"
+      ],
+      "description": "GLSL shader development covering 36 techniques for real-time visual effects. Activate when writing shaders, working w...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "shannon",
+      "triggers": [
+        "shannon",
+        "security"
+      ],
+      "description": "Autonomous AI Pentester. Performs white-box security testing by combining source code analysis with live exploitation.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "sharp-edges",
+      "triggers": [
+        "sharp",
+        "edges",
+        "engineering"
+      ],
+      "description": "Identifies error-prone APIs, dangerous configurations, and footgun designs that enable security mistakes. Use when re...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "skill-creator",
+      "triggers": [
+        "skill",
+        "creator",
+        "meta"
+      ],
+      "description": "skill-creator v2.0 — Crear, editar y SINCRONIZAR skills entre Claude Code (Desktop) y Cowork. Activar SIEMPRE cuando ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "high"
+    },
+    {
+      "id": "skill-improver",
+      "triggers": [
+        "skill",
+        "improver",
+        "meta"
+      ],
+      "description": "Iteratively reviews and fixes Claude Code skill quality issues until they meet standards. Runs automated fix-review c...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "high"
+    },
+    {
+      "id": "skill-seekers",
+      "triggers": [
+        "skill",
+        "seekers",
+        "misc"
+      ],
+      "description": "Automatically detect source types and build AI skills using Skill Seekers. Use when the user wants to create skills f...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "slack-gif-creator",
+      "triggers": [
+        "slack",
+        "gif",
+        "creator",
+        "misc"
+      ],
+      "description": "Knowledge and utilities for creating animated GIFs optimized for Slack. Provides constraints, validation tools, and a...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "solana-vulnerability-scanner",
+      "triggers": [
+        "solana",
+        "vulnerability",
+        "scanner",
+        "security"
+      ],
+      "description": "Scans Solana programs for 6 critical vulnerabilities including arbitrary CPI, improper PDA validation, missing signer...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "substrate-vulnerability-scanner",
+      "triggers": [
+        "substrate",
+        "vulnerability",
+        "scanner",
+        "security"
+      ],
+      "description": "Scans Substrate/Polkadot pallets for 7 critical vulnerabilities including arithmetic overflow, panic DoS, incorrect w...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "supabase",
+      "triggers": [
+        "supabase",
+        "database"
+      ],
+      "description": "Comprehensive Supabase development covering Auth, RLS, Storage, Realtime, Edge Functions, and CLI/MCP tooling. Activa...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "supabase-postgres",
+      "triggers": [
+        "supabase",
+        "postgres",
+        "database"
+      ],
+      "description": "PostgreSQL performance optimization guidelines specifically for Supabase projects. Activate when optimizing Supabase ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "superpowers",
+      "triggers": [
+        "superpowers",
+        "workflow"
+      ],
+      "description": "Mandatory workflow for all tasks. Enforces skill discovery and disciplined execution via the 7 phases.",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "supply-chain-risk-auditor",
+      "triggers": [
+        "supply",
+        "chain",
+        "risk",
+        "auditor",
+        "security"
+      ],
+      "description": "Identifies dependencies at heightened risk of exploitation or takeover. Use when assessing supply chain attack surfac...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "tech-debt-tracker",
+      "triggers": [
+        "tech",
+        "debt",
+        "tracker",
+        "engineering"
+      ],
+      "description": "Identificación, priorización y gestión de deuda técnica en proyectos activos. Activar cuando: \"refactor planificado\" ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "terry-davis",
+      "triggers": [
+        "terry",
+        "davis",
+        "persona"
+      ],
+      "description": "Activa el MODO TERRY DAVIS — el ingeniero de élite legendario: frío, quirúrgico, obsesivo con la corrección técnica. ...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "theme-factory",
+      "triggers": [
+        "theme",
+        "factory",
+        "design"
+      ],
+      "description": "Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc....",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "tio-gilito",
+      "triggers": [
+        "tio",
+        "gilito",
+        "persona"
+      ],
+      "description": "Activa a TÍO GILITO — el asesor financiero personal e implacable de USER, con la personalidad del mismísimo Scroog...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "token-integration-analyzer",
+      "triggers": [
+        "token",
+        "integration",
+        "analyzer",
+        "misc"
+      ],
+      "description": "Token integration and implementation analyzer based on Trail of Bits' token integration checklist. Analyzes token imp...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "tolkien",
+      "triggers": [
+        "tolkien",
+        "persona"
+      ],
+      "description": "Activa a TOLKIEN — el escritor y guardián del universo narrativo del Libro. Activar SIEMPRE cuando USER diga \"Tolk...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "ton-vulnerability-scanner",
+      "triggers": [
+        "ton",
+        "vulnerability",
+        "scanner",
+        "security"
+      ],
+      "description": "Scans TON (The Open Network) smart contracts for 3 critical vulnerabilities including integer-as-boolean misuse, fake...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "trailmark",
+      "triggers": [
+        "trailmark",
+        "memory"
+      ],
+      "description": "Builds and queries multi-language source code graphs for security analysis. Includes pre-analysis passes for blast ra...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "ui-ux-pro-max",
+      "triggers": [
+        "max",
+        "design"
+      ],
+      "description": "Inteligencia de diseño UI/UX de nivel profesional. Activa cuando el usuario pide diseñar, revisar, implementar o mejo...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "warren",
+      "triggers": [
+        "warren",
+        "persona"
+      ],
+      "description": "Activa a WARREN — el asesor de inversiones de USER. Analítico, paciente, largo plazo. Activar SIEMPRE cuando Rodri...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "web-artifacts-builder",
+      "triggers": [
+        "web",
+        "artifacts",
+        "builder",
+        "misc"
+      ],
+      "description": "Suite of tools for creating elaborate, multi-component claude.ai HTML artifacts using modern frontend web technologie...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "web-asset-generator",
+      "triggers": [
+        "web",
+        "asset",
+        "generator",
+        "misc"
+      ],
+      "description": "Generate web assets including favicons, app icons (PWA), and social media meta images (Open Graph) for Facebook, Twit...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "webapp-testing",
+      "triggers": [
+        "webapp",
+        "testing"
+      ],
+      "description": "Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functio...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "xlsx",
+      "triggers": [
+        "xlsx",
+        "misc"
+      ],
+      "description": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants t...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "zeroize-audit",
+      "triggers": [
+        "zeroize",
+        "audit",
+        "security"
+      ],
+      "description": "Detects missing zeroization of sensitive data in source code and identifies zeroization removed by compiler optimizat...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "superpowers:systematic-debugging",
+      "triggers": [
+        "bug",
+        "debug",
+        "error",
+        "crash",
+        "stack trace",
+        "exception",
+        "traceback",
+        "fix",
+        "corrige",
+        "corrigeme"
+      ],
+      "description": "Root-cause debugging methodology via systematic 5-step process",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "superpowers:test-driven-development",
+      "triggers": [
+        "test",
+        "tdd",
+        "spec",
+        "unit test",
+        "fixture",
+        "pytest",
+        "tests",
+        "testing"
+      ],
+      "description": "TDD workflow with Red-Green-Refactor cycle",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "superpowers:requesting-code-review",
+      "triggers": [
+        "review",
+        "revisa",
+        "código",
+        "code review",
+        "check my code",
+        "feedback on code"
+      ],
+      "description": "Code review request workflow",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "superpowers:receiving-code-review",
+      "triggers": [
+        "received review",
+        "comments on pr",
+        "review feedback",
+        "address review"
+      ],
+      "description": "Receiving and acting on code review feedback",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "superpowers:write-plan",
+      "triggers": [
+        "plan",
+        "planifica",
+        "roadmap",
+        "sprint plan",
+        "writing a plan"
+      ],
+      "description": "Plan writing workflow",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "superpowers:execute-plan",
+      "triggers": [
+        "execute plan",
+        "implement plan",
+        "follow plan",
+        "ejecuta el plan"
+      ],
+      "description": "Plan execution workflow",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "superpowers:brainstorming",
+      "triggers": [
+        "brainstorm",
+        "ideas",
+        "lluvia de ideas",
+        "think of",
+        "ideation"
+      ],
+      "description": "Structured brainstorming",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "low"
+    },
+    {
+      "id": "superpowers:dispatching-parallel-agents",
+      "triggers": [
+        "parallel agents",
+        "spawn agents",
+        "subagents",
+        "multiple agents"
+      ],
+      "description": "Parallel agent orchestration",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "high"
+    },
+    {
+      "id": "agent-skills:plan",
+      "triggers": [
+        "plan",
+        "arquitectura",
+        "architecture",
+        "diseña",
+        "design",
+        "system design"
+      ],
+      "description": "Planning and architecture agent skill",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "high"
+    },
+    {
+      "id": "agent-skills:build",
+      "triggers": [
+        "build",
+        "implement",
+        "implementa",
+        "crear feature",
+        "code it"
+      ],
+      "description": "Build/implement agent skill",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "high"
+    },
+    {
+      "id": "agent-skills:review",
+      "triggers": [
+        "review",
+        "revisa",
+        "audit",
+        "audita",
+        "check"
+      ],
+      "description": "Review agent skill",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "agent-skills:test",
+      "triggers": [
+        "test",
+        "testing",
+        "qa",
+        "quality assurance",
+        "write tests"
+      ],
+      "description": "Test agent skill",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "skill-creator:skill-creator",
+      "triggers": [
+        "skill",
+        "crea skill",
+        "nuevo skill",
+        "create skill",
+        "skill creator"
+      ],
+      "description": "Create new Claude Code skills",
+      "deprecated": false,
+      "source": "plugin",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "hiper-plans",
+      "triggers": [
+        "hiper",
+        "plans"
+      ],
+      "description": "Use when the user asks for planning of a complex, multi-step or multi-file task in mode HIGH or ULTRON ULTRA, OR when...",
+      "deprecated": false,
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    }
+  ]
+}

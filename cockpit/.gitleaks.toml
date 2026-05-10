@@ -1,0 +1,143 @@
+# ULTRON v12.5.0-fix2 — gitleaks config (F5)
+# Closes V-CRIT-1..6 + SI-CRIT-1 of Kirkardo TOTAL Triple 2026-05-03.
+# Audit-driven patterns. Coverage: GitHub PATs, OpenAI, Anthropic, Slack,
+# Notion/Linear/Figma/Egnyte/Supabase OAuth client secrets, generic high-entropy.
+#
+# Usage:
+#   gitleaks detect --source <path> --config ~/.ultron/cockpit/.gitleaks.toml
+#   pre-commit hook: see install-gitleaks.ps1
+#
+# All rules can be allowlisted per-file via .gitleaksignore at repo root.
+
+title = "ULTRON gitleaks ruleset"
+
+[allowlist]
+description = "Ignore obviously-doc placeholder values"
+regexes = [
+  '''ghp_[Xx]+''',
+  '''sk-ant-[Xx]+''',
+  '''sk-proj-[Xx]+''',
+  '''xoxb-[0-9]+-[Xx]+''',
+  '''[Yy][Oo][Uu][Rr]_?[Tt][Oo][Kk][Ee][Nn]_?[Hh][Ee][Rr][Ee]''',
+  '''<[Rr][Ee][Dd][Aa][Cc][Tt][Ee][Dd]''',
+]
+paths = [
+  '''(?i).*\.gitleaksignore$''',
+  '''(?i).*/(test|tests|fixtures|examples|docs?)/.*''',
+]
+
+# ── GitHub ────────────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "github-pat-classic"
+description = "GitHub Personal Access Token (classic ghp_)"
+regex = '''\bghp_[A-Za-z0-9]{36,255}\b'''
+tags = ["key", "github", "pat"]
+
+[[rules]]
+id = "github-pat-fine-grained"
+description = "GitHub fine-grained PAT (github_pat_)"
+regex = '''\bgithub_pat_[A-Za-z0-9_]{82,}\b'''
+tags = ["key", "github", "pat", "fine-grained"]
+
+[[rules]]
+id = "github-oauth-app"
+description = "GitHub OAuth access token (gho_)"
+regex = '''\bgho_[A-Za-z0-9]{36,255}\b'''
+tags = ["key", "github", "oauth"]
+
+[[rules]]
+id = "github-server-app"
+description = "GitHub server-to-server token (ghs_)"
+regex = '''\bghs_[A-Za-z0-9]{36,255}\b'''
+tags = ["key", "github", "app"]
+
+[[rules]]
+id = "github-refresh"
+description = "GitHub OAuth refresh token (ghr_)"
+regex = '''\bghr_[A-Za-z0-9]{36,255}\b'''
+tags = ["key", "github", "refresh"]
+
+# ── OpenAI / Codex ────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "openai-key-classic"
+description = "OpenAI API key (sk-)"
+regex = '''\bsk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}\b'''
+tags = ["key", "openai"]
+
+[[rules]]
+id = "openai-key-project"
+description = "OpenAI project key (sk-proj-)"
+regex = '''\bsk-proj-[A-Za-z0-9_\-]{40,}\b'''
+tags = ["key", "openai", "project"]
+
+# ── Anthropic Claude ─────────────────────────────────────────────────────────
+
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic API key (sk-ant-api)"
+regex = '''\bsk-ant-api[0-9]{2}-[A-Za-z0-9_\-]{80,}\b'''
+tags = ["key", "anthropic", "api"]
+
+[[rules]]
+id = "anthropic-oauth-access"
+description = "Anthropic OAuth access token (sk-ant-oat)"
+regex = '''\bsk-ant-oat[0-9]{2}-[A-Za-z0-9_\-]{80,}\b'''
+tags = ["key", "anthropic", "oauth"]
+
+[[rules]]
+id = "anthropic-oauth-refresh"
+description = "Anthropic OAuth refresh token (sk-ant-ort)"
+regex = '''\bsk-ant-ort[0-9]{2}-[A-Za-z0-9_\-]{80,}\b'''
+tags = ["key", "anthropic", "refresh"]
+
+# ── Slack ────────────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "slack-bot-token"
+description = "Slack bot/user token (xoxb / xoxp)"
+regex = '''\bxox[bpars]-[0-9]+-[0-9]+-[A-Za-z0-9]{20,}\b'''
+tags = ["key", "slack"]
+
+# ── Supabase ─────────────────────────────────────────────────────────────────
+
+[[rules]]
+id = "supabase-access-token"
+description = "Supabase access token (sbp_)"
+regex = '''\bsbp_[A-Za-z0-9]{40,}\b'''
+tags = ["key", "supabase"]
+
+[[rules]]
+id = "supabase-secret-key"
+description = "Supabase API secret (sba_/sbs_)"
+regex = '''\bsb[as]_[A-Za-z0-9]{40,}\b'''
+tags = ["key", "supabase", "secret"]
+
+# ── Generic high-confidence patterns ─────────────────────────────────────────
+
+[[rules]]
+id = "aws-access-key"
+description = "AWS Access Key ID (AKIA/ASIA)"
+regex = '''\b(?:AKIA|ASIA)[A-Z0-9]{16}\b'''
+tags = ["key", "aws"]
+
+[[rules]]
+id = "google-api-key"
+description = "Google API key (AIza)"
+regex = '''\bAIza[0-9A-Za-z_\-]{35}\b'''
+tags = ["key", "google", "gcp"]
+
+[[rules]]
+id = "private-key-pem"
+description = "PEM-style private key block"
+regex = '''-----BEGIN (RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----'''
+tags = ["key", "pem"]
+
+# ── ULTRON-specific ──────────────────────────────────────────────────────────
+
+[[rules]]
+id = "ultron-credentials-json"
+description = "Anthropic Claude .credentials.json fingerprint"
+regex = '''"claudeAiOauth"\s*:\s*\{[^}]*"accessToken"'''
+tags = ["ultron", "credentials"]

@@ -1,0 +1,75 @@
+{
+  "_comment": "ULTRON Cockpit scheduler configuration. Edit this file then run: ultron schedule install. Tasks fire AT LAPTOP WAKE (unlock/resume) with delays — no fixed 8AM times. Each script checks via marker if it already ran today/this-week to avoid duplicate runs. v11: register_wake_triggers.ps1 adds SessionStateChange+EventTrigger to all daily tasks.",
+  "_version": "1.1",
+  "_last_updated": "2026-04-28",
+
+  "tasks": {
+    "ScanProjects-Login": {
+      "enabled": false,
+      "delay_minutes": 0,
+      "frequency": "on_login",
+      "description": "Re-scan filesystem for projects every login [DISABLED — manual edits only]"
+    },
+    "Retention-Daily": {
+      "enabled": true,
+      "delay_minutes": 5,
+      "frequency": "once_per_day",
+      "description": "Rotate logs (routing 30d, news 30d, backups 90d). Skip if already ran today."
+    },
+    "Standup-Weekday": {
+      "enabled": true,
+      "delay_minutes": 15,
+      "frequency": "once_per_weekday",
+      "description": "Generate AI standup with last 24h activity + git commits + recommendation. Skip weekends and if already ran today."
+    },
+    "TUI-Login": {
+      "enabled": false,
+      "delay_minutes": 10,
+      "frequency": "on_login",
+      "description": "Open TUI in Windows Terminal at login. DISABLED by default - enable if you want auto-launch."
+    },
+    "Research-Weekly": {
+      "enabled": true,
+      "delay_minutes": 18,
+      "frequency": "once_per_week_sunday",
+      "description": "Deep research via Gemini Pro CLI (~5-10K tokens). Skip if already ran this week."
+    },
+    "GithubTrending-Daily": {
+      "enabled": true,
+      "delay_minutes": 10,
+      "frequency": "once_per_day",
+      "description": "Scrape GitHub Trending (daily) for AI/ML + USER's tech stack. Filter by score, write digest to ~/.ultron/cockpit/trending/. Skip if already ran today."
+    },
+    "Doctor-Weekly": {
+      "enabled": true,
+      "delay_minutes": 25,
+      "frequency": "once_per_week_sunday",
+      "description": "Run doctor.py --health-check to detect environment drift (16 detectors). Skip if already ran this week."
+    },
+    "Backup-Weekly": {
+      "enabled": true,
+      "delay_minutes": 35,
+      "frequency": "once_per_week_sunday",
+      "description": "v14.7 BACKUP-WATCH: weekly robocopy of CARRERA/PERSONAL/.ultron/.ultron-vault/.claude to D:\\USER\\BACKUP. Skip if D: drive missing or already ran this week."
+    }
+  },
+
+  "_frequency_options": [
+    "on_login",
+    "every_10_minutes",
+    "every_hour",
+    "once_per_day",
+    "once_per_weekday",
+    "once_per_week_sunday",
+    "once_per_week_monday",
+    "once_per_week_friday"
+  ],
+
+  "_how_to_edit": [
+    "1. Set task.enabled = false to disable a specific task",
+    "2. Adjust delay_minutes to control execution order at login (avoid simultaneous spike)",
+    "3. Change frequency from the _frequency_options list",
+    "4. Save the file",
+    "5. Run: ultron schedule install (regenerates Windows Task Scheduler from this config)"
+  ]
+}

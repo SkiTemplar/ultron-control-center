@@ -1,0 +1,6 @@
+block_name	bytes	chars	tokens_estimated	tokens_method
+context_md	1475	1429	478	tiktoken-cl100k
+MEMORY_md	7222	6947	2125	tiktoken-cl100k
+claude_md_global	2604	2536	763	tiktoken-cl100k
+skill_listing	29985	29901	6606	tiktoken-cl100k
+tool_descriptions	0	0	0	tiktoken-cl100k

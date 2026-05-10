@@ -1,0 +1,96 @@
+{
+  "proposals": [
+    {
+      "finding_ref": "arsenal-extendido-engineering-skills-inexistentes",
+      "severity": "critical",
+      "target_file": "SKILL.md",
+      "old_string": "║  ARSENAL EXTENDIDO (skills de ingeniería del marketplace)        ║\n║  ⚔ engineering:debug           → debugging estructurado          ║\n║  ⚔ engineering:code-review     → auditoría completa de código    ║\n║  ⚔ engineering:architecture    → ADRs y decisiones de diseño     ║\n║  ⚔ engineering:system-design   → diseño de sistemas             ║\n║  ⚔ engineering:testing-strategy → estrategia de tests           ║\n║  ⚔ engineering:incident-response → gestión de incidentes        ║\n║  ⚔ engineering:deploy-checklist → pre-deploy verification       ║\n║  ⚔ engineering:documentation   → documentación técnica          ║",
+      "new_string": "║  ARSENAL EXTENDIDO (invocar via Skill tool)                      ║\n║  ⚔ superpowers:systematic-debugging       → debugging formal     ║\n║  ⚔ pr-review-toolkit:code-reviewer        → auditoría completa   ║\n║  ⚔ feature-dev:code-architect             → ADRs y decisiones    ║\n║  ⚔ superpowers:writing-plans              → diseño de sistemas   ║\n║  ⚔ superpowers:test-driven-development    → estrategia de tests  ║\n║  ⚔ focused-fix                            → incidentes/módulos   ║\n║  ⚔ superpowers:verification-before-completion → pre-deploy       ║\n║  ⚔ tech-debt-tracker                      → deuda técnica/docs   ║",
+      "rationale": "Las ocho skills engineering:* no existen en el sistema de skills. Skill('engineering:debug') etc. generan error en runtime. Se reemplazan con los nombres canónicos reales disponibles confirmados en la lista de skills activa.",
+      "false_positive_risk": "none"
+    },
+    {
+      "finding_ref": "superpowers-nombres-sin-prefijo-canonico",
+      "severity": "medium",
+      "target_file": "SKILL.md",
+      "old_string": "║  SUPERPOWERS (disciplina de trabajo — Claude Code)               ║\n║  ⚡ systematic-debugging        → fase 1 cuando el bug no cede   ║\n║  ⚡ test-driven-development     → TDD RED→GREEN→REFACTOR          ║\n║  ⚡ verification-before-completion → nunca reportar sin verificar ║\n║  ⚡ writing-plans               → plan estructurado antes de code ║\n║  ⚡ dispatching-parallel-agents → trabajos paralelos >15 min      ║\n║  ⚡ requesting-code-review      → antes de merges a main/prod     ║\n║  ⚡ receiving-code-review       → respuesta a feedback            ║\n║  ⚡ using-git-worktrees         → desarrollo en paralelo          ║",
+      "new_string": "║  SUPERPOWERS (disciplina de trabajo — Claude Code)               ║\n║  ⚡ superpowers:systematic-debugging        → bug no cede 10 min  ║\n║  ⚡ superpowers:test-driven-development     → RED→GREEN→REFACTOR   ║\n║  ⚡ superpowers:verification-before-completion → nunca sin verificar║\n║  ⚡ superpowers:writing-plans               → plan antes de code  ║\n║  ⚡ superpowers:dispatching-parallel-agents → paralelo >15 min    ║\n║  ⚡ superpowers:requesting-code-review      → antes de merges     ║\n║  ⚡ superpowers:receiving-code-review       → al recibir feedback  ║\n║  ⚡ superpowers:using-git-worktrees         → desarrollo paralelo  ║",
+      "rationale": "El Skill tool requiere nombres canónicos completos. Skill('systematic-debugging') falla o activa skill incorrecto; el correcto es Skill('superpowers:systematic-debugging'). Los nombres sin prefijo son ruido operativo que genera errores silenciosos.",
+      "false_positive_risk": "none"
+    },
+    {
+      "finding_ref": "chrome-mcp-inexistente-en-sistema",
+      "severity": "low",
+      "target_file": "SKILL.md",
+      "old_string": "║  ✓ Chrome MCP          → GitHub repos, MDN, docs online         ║",
+      "new_string": "║  ✓ WebFetch / WebSearch → GitHub repos, MDN, docs online        ║",
+      "rationale": "Chrome MCP no está en los MCP tools configurados del sistema. Las herramientas reales para navegación web son WebFetch, WebSearch y mcp__plugin_playwright_playwright__* (Playwright). Referenciar un tool inexistente en el arsenal genera confusión operativa.",
+      "false_positive_risk": "none"
+    },
+    {
+      "finding_ref": "taskcreate-inventado-vs-todowrite",
+      "severity": "medium",
+      "target_file": "SKILL.md",
+      "old_string": "",
+      "new_string": "",
+      "rationale": "El audit penaliza 'TaskCreate' como herramienta inexistente. Sin embargo, la instrucción de generación de este JSON cita explícitamente TaskCreate como ejemplo de herramienta reciente de Claude Code que el auditor podría no conocer. Marcar high para verificación manual: si TaskCreate fue agregado recientemente al runtime, el audit está desactualizado; si no existe, reemplazar por TodoWrite en la línea de deferred tools.",
+      "false_positive_risk": "high"
+    },
+    {
+      "finding_ref": "gating-omniabarcante-colision-skills",
+      "severity": "medium",
+      "target_file": "SKILL.md",
+      "old_string": "  deploy, testing, documentación técnica, incidents, o cualquier tarea técnica\n  de ingeniería de software.\n  Terry no da rodeos: ejecuta, reporta mínimo, razona máximo. Brillante, metódico, implacable.",
+      "new_string": "  deploy, testing, documentación técnica, incidents de software.\n  Excluir: decisiones engine-específicas UE5/Unity (→ don-claudio), análisis financiero (→ warren),\n  auditorías de calidad de repo (→ repo-evaluator), diseño de APIs (→ api-design-reviewer).\n  Terry no da rodeos: ejecuta, reporta mínimo, razona máximo. Brillante, metódico, implacable.",
+      "rationale": "'Cualquier tarea técnica de ingeniería de software' colisiona con don-claudio, warren, repo-evaluator y api-design-reviewer sin mecanismo de desempate. Las exclusiones explícitas previenen activación incorrecta por ambigüedad de gating.",
+      "false_positive_risk": "none"
+    },
+    {
+      "finding_ref": "don-claudio-delegacion-sin-invocacion-concreta",
+      "severity": "low",
+      "target_file": "SKILL.md",
+      "old_string": "- USER pide específicamente \"Don\", \"Padrino\" o \"arquitectura del juego\".",
+      "new_string": "- USER pide específicamente \"Don\", \"Padrino\" o \"arquitectura del juego\".\n\n→ Mecanismo de delegación: `Skill(\"don-claudio\")`",
+      "rationale": "La sección describe el handoff a Don Claudio en detalle pero nunca declara el mecanismo de ejecución. Sin Skill('don-claudio') explícito, la instrucción es intención sin implementación operativa.",
+      "false_positive_risk": "none"
+    },
+    {
+      "finding_ref": "references-dominio-sin-fallback",
+      "severity": "low",
+      "target_file": "SKILL.md",
+      "old_string": "| `.c`, `malloc`, `syscall`, `#include <stdio.h>`, `ptr` | Sistemas | `references/systems.md` |",
+      "new_string": "| `.c`, `malloc`, `syscall`, `#include <stdio.h>`, `ptr` | Sistemas | `references/systems.md` |\n\n> Si un reference no existe: operar con conocimiento base del stack sin abortar ni notificar al usuario.",
+      "rationale": "La tabla de detección de dominio asume silenciosamente que todos los archivos reference existen. Si cpp-ue5.md falta, Terry opera sin contexto UE5 sin ningún aviso. El fallback explícito previene comportamiento impredecible.",
+      "false_positive_risk": "none"
+    },
+    {
+      "finding_ref": "commit-rules-dependen-de-keys-de-memoria",
+      "severity": "low",
+      "target_file": "SKILL.md",
+      "old_string": "- Commits: `feedback_commit_cadence` (uno por unidad cerrada) + `feedback_no_coauthor` (sin Co-Authored-By).",
+      "new_string": "- Commits: un commit por unidad de trabajo cerrada; nunca añadir línea Co-Authored-By.",
+      "rationale": "Las reglas referencian keys de memoria externa (feedback_commit_cadence, feedback_no_coauthor) que pueden no estar cargados o cambiar de nombre. Reglas operativas críticas deben estar inline para ser fiables en cualquier sesión.",
+      "false_positive_risk": "none"
+    },
+    {
+      "finding_ref": "flujo-estandar-desktop-commander-en-cc",
+      "severity": "medium",
+      "target_file": "SKILL.md",
+      "old_string": "",
+      "new_string": "",
+      "rationale": "El FLUJO DE TRABAJO ESTÁNDAR referencia Desktop Commander para leer código, pero en Claude Code (CLI) la herramienta correcta es Read/Grep/Glob. La sección está en los chars 12000-23914 del archivo, fuera del fragmento visible — requiere lectura completa del SKILL.md para generar old_string exacto antes de aplicar el patch.",
+      "false_positive_risk": "none"
+    },
+    {
+      "finding_ref": "personalidad-murmurar-dios-ruido-en-output",
+      "severity": "low",
+      "target_file": "SKILL.md",
+      "old_string": "",
+      "new_string": "",
+      "rationale": "La línea 'A veces murmuras algo sobre Dios y los sistemas. Es parte del proceso.' introduce comportamiento de ruido que contradice la eficiencia técnica del arquetipo y puede contaminar outputs de code review. Localizada en la segunda mitad del archivo (chars 12000-23914), fuera del fragmento visible — requiere lectura completa para localizar y parchear.",
+      "false_positive_risk": "none"
+    }
+  ],
+  "status": "consumed",
+  "consumed_at": "2026-04-28T09:42:18"
+}

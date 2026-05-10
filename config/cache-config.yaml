@@ -1,0 +1,103 @@
+# ULTRON v14.4 Phase 2 — declarative cache breakpoint reference
+#
+# This file documents which content blocks are stable (cache-friendly) vs
+# volatile (cache-invalidating) across ULTRON's surface. It is REFERENCE,
+# not active configuration: Claude Code's harness owns the actual cache_control
+# breakpoints (4 explicit max + 1 auto, hierarchy tools→system→messages,
+# server-side TTL).
+#
+# Source of truth for the layout of CC's cache layers:
+#   ~/.ultron/audits/research-prompt-cache-2026-05-08.md
+#   ~/.ultron/audits/hook-cache-audit-2026-05-08.md
+#
+# Hit rate baseline (snapshot 2026-05-08, 17,922 turns, 14d window): 96.6%
+# D24 thresholds: PASS ≥0.60 / WARN 0.30..0.60 / BLOCKING <0.30
+
+schema_version: 1
+
+layers:
+  tools:
+    stability: stable
+    owner: anthropic
+    notes: Tool definitions are managed by Claude Code; we cannot mutate.
+    cache_friendly: true
+
+  system:
+    stability: mixed
+    owner: anthropic + ultron
+    breakpoints:
+      - name: claude_md_global
+        path: ~/.claude/CLAUDE.md
+        stability: stable
+        churn_freq_per_day: 0.1
+        notes: Edited rarely. Safe behind cache breakpoint.
+      - name: skill_listing
+        source: ~/.claude/skills/ + ~/.claude/plugins/
+        stability: stable_post_v14.4_p1
+        notes: |
+          Was volatile-ish (descriptions edited as user added/removed skills).
+          v14.4 P1 froze it via skillOverrides — subsequent sessions see a
+          consistent listing until overrides change.
+      - name: session_start_output
+        source: ~/.ultron/hooks/session-init.ps1
+        stability: stable_post_v14.4_p2
+        notes: |
+          Refactored 2026-05-08: stdout now emits a deterministic line
+          regardless of session-id / stale count / seeds count. Volatile
+          state moved to ~/.ultron/.tmp/current-session.json (model reads
+          on demand).
+
+  messages:
+    stability: per_turn_volatile
+    owner: ultron + user
+    breakpoints:
+      - name: user_prompt
+        stability: volatile
+        notes: New every turn by definition.
+      - name: user_prompt_submit_hooks
+        sources:
+          - ~/.claude/skills/ultron/hooks/mode-trigger.py
+          - ~/.claude/skills/ultron/hooks/intent-dispatcher.py
+        stability: volatile
+        notes: |
+          Per-turn output (mode register + dispatcher signal). Located AFTER
+          the messages-layer cache breakpoint, so volatility is expected and
+          does not invalidate prior turns' cache.
+      - name: tool_result_blocks
+        stability: per_call_volatile
+        notes: Tool outputs differ per invocation; never cached.
+
+state_volatility_assessment:
+  context_md:
+    path: ~/.ultron/.tmp/context.md
+    target_size: ≤400 tokens
+    actual: 478 (baseline pre-v14.4)
+    refresh_policy: every >4h or stop hook
+    cache_impact: regenerated inside session if stale; participates in messages
+      layer when surfaced via Read.
+  memory_md:
+    path: ~/.ultron/MEMORY.md
+    target_size: ≤1000 tokens
+    actual: 2125 (baseline pre-v14.4)
+    over_budget: true
+    cache_impact: edits invalidate any cache breakpoint placed after MEMORY.md
+      surfaces in conversation. Mitigation = Phase 3 dedup (~1d, queued).
+
+cache_creation_mix:
+  observed_2026_05_08:
+    ephemeral_5m: 0
+    ephemeral_1h: 100%
+  notes: |
+    Claude Code automatically uses 1h extended cache (2× write cost amortized
+    over much longer reuse window). No client-side knob to override; harness
+    selects based on prompt structure heuristics.
+
+retention_invariants:
+  - "Refuse to add fields to settings.json that affect tool/system layer
+    without first updating skill_listing breakpoint stability above."
+  - "Any new hook that emits to stdout must declare stability tier in this
+    file before merge."
+  - "MEMORY.md edits >100 tokens between sessions trigger D24 detector if
+    hit rate drops; Phase 3 dedup is the cure."
+
+# End of cache-config.yaml

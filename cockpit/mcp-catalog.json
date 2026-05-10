@@ -1,0 +1,236 @@
+{
+  "version": "1.0",
+  "updated": "2026-04-27",
+  "_comment": "MCP catalog for ultron mcp install/uninstall/validate. Each entry describes how to install a public MCP server. Edit freely - this file is user-owned. Add new entries as MCPs are released.",
+  "mcps": [
+    {
+      "id": "supabase",
+      "name": "Supabase",
+      "category": "database",
+      "description": "Database, auth, storage, edge functions for Supabase projects",
+      "docs_url": "https://github.com/supabase-community/supabase-mcp",
+      "transport": "stdio",
+      "multi_account": true,
+      "package": {"type": "npm", "name": "@supabase/mcp-server-supabase"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@supabase/mcp-server-supabase@latest"],
+        "env": {"SUPABASE_ACCESS_TOKEN": "${SUPABASE_ACCESS_TOKEN}"},
+        "type": "stdio"
+      },
+      "prompts": [
+        {"key": "SUPABASE_ACCESS_TOKEN", "label": "Personal Access Token (sbp_...)", "secret": true,
+         "url_hint": "https://supabase.com/dashboard/account/tokens"},
+        {"key": "_read_only", "label": "Read-only mode (recommended)? (y/N)", "secret": false,
+         "applies_to": "args", "if_yes": "--read-only", "default": "n"},
+        {"key": "_project_ref", "label": "Pin to single project ref (optional, leave blank for all)", "secret": false,
+         "applies_to": "args", "format": "--project-ref={value}"}
+      ]
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "category": "vcs",
+      "description": "Issues, PRs, repos, branches via GitHub Personal Access Token",
+      "docs_url": "https://github.com/github/github-mcp-server",
+      "transport": "stdio",
+      "multi_account": true,
+      "package": {"type": "npm", "name": "@modelcontextprotocol/server-github"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-github"],
+        "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"},
+        "type": "stdio"
+      },
+      "prompts": [
+        {"key": "GITHUB_PERSONAL_ACCESS_TOKEN", "label": "GitHub Personal Access Token (ghp_... or github_pat_...)", "secret": true,
+         "url_hint": "https://github.com/settings/tokens"}
+      ]
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "category": "productivity",
+      "description": "Read/write Notion pages, databases, comments via Internal Integration Token",
+      "docs_url": "https://github.com/makenotion/notion-mcp-server",
+      "transport": "stdio",
+      "multi_account": true,
+      "package": {"type": "npm", "name": "@notionhq/notion-mcp-server"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@notionhq/notion-mcp-server"],
+        "env": {"OPENAPI_MCP_HEADERS": "{\"Authorization\": \"Bearer ${NOTION_TOKEN}\", \"Notion-Version\": \"2022-06-28\"}"},
+        "type": "stdio"
+      },
+      "prompts": [
+        {"key": "NOTION_TOKEN", "label": "Notion Internal Integration Secret (secret_...)", "secret": true,
+         "url_hint": "https://www.notion.so/profile/integrations"}
+      ]
+    },
+    {
+      "id": "tavily",
+      "name": "Tavily Search",
+      "category": "search",
+      "description": "AI-optimized web search with crawl/extract for deep research",
+      "docs_url": "https://github.com/tavily-ai/tavily-mcp",
+      "transport": "stdio",
+      "multi_account": false,
+      "package": {"type": "npm", "name": "tavily-mcp"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "tavily-mcp@latest"],
+        "env": {"TAVILY_API_KEY": "${TAVILY_API_KEY}"},
+        "type": "stdio"
+      },
+      "prompts": [
+        {"key": "TAVILY_API_KEY", "label": "Tavily API Key (tvly-...)", "secret": true,
+         "url_hint": "https://app.tavily.com/home"}
+      ]
+    },
+    {
+      "id": "brave-search",
+      "name": "Brave Search",
+      "category": "search",
+      "description": "Privacy-respecting web + news + image search",
+      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search",
+      "transport": "stdio",
+      "multi_account": false,
+      "package": {"type": "npm", "name": "@modelcontextprotocol/server-brave-search"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-brave-search"],
+        "env": {"BRAVE_API_KEY": "${BRAVE_API_KEY}"},
+        "type": "stdio"
+      },
+      "prompts": [
+        {"key": "BRAVE_API_KEY", "label": "Brave Search API Key", "secret": true,
+         "url_hint": "https://api-dashboard.search.brave.com/app/keys"}
+      ]
+    },
+    {
+      "id": "filesystem",
+      "name": "Filesystem",
+      "category": "system",
+      "description": "Sandbox filesystem MCP scoped to one or more directories",
+      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "transport": "stdio",
+      "multi_account": false,
+      "package": {"type": "npm", "name": "@modelcontextprotocol/server-filesystem"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "${ROOT_PATH}"],
+        "type": "stdio"
+      },
+      "prompts": [
+        {"key": "ROOT_PATH", "label": "Sandbox root path (e.g. C:\\Users\\USER\\Documents)", "secret": false,
+         "applies_to": "args"}
+      ]
+    },
+    {
+      "id": "playwright",
+      "name": "Playwright",
+      "category": "automation",
+      "description": "Browser automation: navigate, click, screenshot, network requests",
+      "docs_url": "https://github.com/microsoft/playwright-mcp",
+      "transport": "stdio",
+      "multi_account": false,
+      "package": {"type": "npm", "name": "@playwright/mcp"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@playwright/mcp@latest"],
+        "type": "stdio"
+      },
+      "prompts": []
+    },
+    {
+      "id": "context7",
+      "name": "Context7 Docs",
+      "category": "research",
+      "description": "Up-to-date library docs for any framework/SDK (use over web search)",
+      "docs_url": "https://github.com/upstash/context7",
+      "transport": "stdio",
+      "multi_account": false,
+      "package": {"type": "npm", "name": "@upstash/context7-mcp"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@upstash/context7-mcp"],
+        "type": "stdio"
+      },
+      "prompts": []
+    },
+    {
+      "id": "memory",
+      "name": "Knowledge Graph Memory",
+      "category": "system",
+      "description": "Persistent knowledge graph as MCP - create/search entities + relations",
+      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/memory",
+      "transport": "stdio",
+      "multi_account": false,
+      "package": {"type": "npm", "name": "@modelcontextprotocol/server-memory"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-memory"],
+        "type": "stdio"
+      },
+      "prompts": []
+    },
+    {
+      "id": "sequential-thinking",
+      "name": "Sequential Thinking",
+      "category": "reasoning",
+      "description": "Token-efficient step-by-step reasoning (30-50% reduction)",
+      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/sequentialthinking",
+      "transport": "stdio",
+      "multi_account": false,
+      "package": {"type": "npm", "name": "@modelcontextprotocol/server-sequential-thinking"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-sequential-thinking"],
+        "type": "stdio"
+      },
+      "prompts": []
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "category": "productivity",
+      "description": "Read/write messages, channels, users via Slack Bot Token",
+      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/slack",
+      "transport": "stdio",
+      "multi_account": true,
+      "package": {"type": "npm", "name": "@modelcontextprotocol/server-slack"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-slack"],
+        "env": {"SLACK_BOT_TOKEN": "${SLACK_BOT_TOKEN}", "SLACK_TEAM_ID": "${SLACK_TEAM_ID}"},
+        "type": "stdio"
+      },
+      "prompts": [
+        {"key": "SLACK_BOT_TOKEN", "label": "Slack Bot Token (xoxb-...)", "secret": true,
+         "url_hint": "https://api.slack.com/apps"},
+        {"key": "SLACK_TEAM_ID", "label": "Slack Team/Workspace ID (T...)", "secret": false}
+      ]
+    },
+    {
+      "id": "sentry",
+      "name": "Sentry",
+      "category": "monitoring",
+      "description": "Read errors, issues, releases from Sentry projects",
+      "docs_url": "https://github.com/getsentry/sentry-mcp",
+      "transport": "stdio",
+      "multi_account": false,
+      "package": {"type": "npm", "name": "@sentry/mcp-server"},
+      "settings_template": {
+        "command": "npx",
+        "args": ["-y", "@sentry/mcp-server"],
+        "env": {"SENTRY_AUTH_TOKEN": "${SENTRY_AUTH_TOKEN}", "SENTRY_HOST": "${SENTRY_HOST}"},
+        "type": "stdio"
+      },
+      "prompts": [
+        {"key": "SENTRY_AUTH_TOKEN", "label": "Sentry User Auth Token", "secret": true,
+         "url_hint": "https://sentry.io/settings/account/api/auth-tokens/"},
+        {"key": "SENTRY_HOST", "label": "Sentry host (default: sentry.io)", "secret": false, "default": "sentry.io"}
+      ]
+    }
+  ]
+}

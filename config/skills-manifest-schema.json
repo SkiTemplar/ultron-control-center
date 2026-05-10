@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ultron.local/skills-manifest-schema.json",
+  "title": "ULTRON Skills Manifest Entry",
+  "description": "JSON Schema 2020-12 for a single entry in skills.manifest.yaml. The manifest is an array of these entries.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["name", "source", "triggers"],
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Unique skill identifier (e.g. 'superpowers:systematic-debugging' or 'alfred'). No control chars (Codex S4 M3).",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:\\-]{0,127}$"
+      },
+      "source": {
+        "type": "string",
+        "description": "Origin of the skill entry",
+        "enum": ["built-in", "plugin", "mcp", "persona", "hookify", "auto-discover"]
+      },
+      "triggers": {
+        "type": "array",
+        "description": "Keywords/phrases that trigger this skill in the dispatcher. No control chars/newlines (Codex S4 M3).",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        },
+        "minItems": 1
+      },
+      "tags": {
+        "type": "array",
+        "description": "Semantic tags for filtering and categorization. No control chars (Codex S4 M3).",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      },
+      "cost_tier": {
+        "type": "string",
+        "description": "Estimated token cost tier for invoking this skill",
+        "enum": ["low", "medium", "high", "ultra"]
+      },
+      "dispatcher_priority": {
+        "type": "integer",
+        "description": "Routing priority (1=highest, 5=lowest). Lower number wins on tie.",
+        "minimum": 1,
+        "maximum": 5
+      },
+      "deprecated": {
+        "type": "boolean",
+        "description": "Whether this skill is deprecated (hidden from active routing by default)"
+      },
+      "replaces": {
+        "type": "array",
+        "description": "List of skill names this entry supersedes",
+        "items": { "type": "string" }
+      },
+      "last_used": {
+        "oneOf": [
+          { "type": "string", "description": "ISO 8601 date of last routing telemetry hit" },
+          { "type": "null" }
+        ]
+      },
+      "last_synced": {
+        "type": "string",
+        "description": "ISO 8601 date of last manifest sync that touched this entry"
+      },
+      "description": {
+        "type": "string",
+        "description": "Human-readable one-line description synthesized from SKILL.md or skill name"
+      },
+      "kind": {
+        "type": "string",
+        "description": "Skill kind from SKILL.md frontmatter (skill, persona, meta, hookify, mcp)"
+      },
+      "category": {
+        "type": "string",
+        "description": "Skill category from SKILL.md frontmatter"
+      },
+      "tier": {
+        "type": "string",
+        "description": "Skill tier from SKILL.md frontmatter (L1, L2, L3)"
+      },
+      "security_status": {
+        "type": "string",
+        "description": "F05 fix: security verdict status when registry sync surfaces a quarantine decision. Distinct from `deprecated` (which can be benign). Optional.",
+        "enum": ["quarantine_pending", "quarantine_approved", "quarantine_resolved", "warned"]
+      },
+      "security_status_reason": {
+        "type": "string",
+        "description": "Human-readable reason / rule_id that triggered the security_status (e.g. 'security_quarantine_pending:PI002'). Optional.",
+        "maxLength": 256
+      }
+    }
+  }
+}

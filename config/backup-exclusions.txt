@@ -1,0 +1,87 @@
+# ULTRON v14.7 BACKUP-WATCH — exclusion list (gitignore-style)
+#
+# Format: one pattern per line.
+#   * Lines starting with #  = comment
+#   * `dir/` (trailing slash) = directory exclusion (robocopy /XD)
+#   * `*.ext`                 = file exclusion (robocopy /XF)
+#   * `name`                  = both (defensive)
+#
+# Patterns are split into /XD (dir names) and /XF (file globs) by
+# weekly-backup.ps1. Anything that doesn't fit either bucket is treated as a
+# directory name.
+
+# === Unreal Engine 5 ===
+Binaries/
+Build/
+DerivedDataCache/
+Intermediate/
+Saved/
+*.pdb
+*.exe
+
+# === Unity ===
+Library/
+Temp/
+Logs/
+Builds/
+obj/
+*.csproj
+*.sln
+
+# === Web / Node ===
+node_modules/
+.next/
+.nuxt/
+dist/
+build/
+.turbo/
+.vercel/
+.svelte-kit/
+
+# === Android / Gradle ===
+.gradle/
+local.properties
+*.apk
+*.aab
+
+# === Python ===
+__pycache__/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.pyc
+*.pyo
+
+# === Rust / Cargo ===
+target/
+
+# === Generic build / artifacts ===
+out/
+.cache/
+.parcel-cache/
+coverage/
+.nyc_output/
+
+# === ULTRON internals (regenerable / re-installable) ===
+.ultron/.tmp/
+.claude/plugins/cache/
+.claude/file-history/
+.claude/projects/
+.claude/sessions/
+
+# === IDE / OS noise ===
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === Large binaries that don't compress and aren't auth-of-truth ===
+*.zip
+*.7z
+*.rar
+*.iso
+*.dmg
+*.bak
+*.swp

@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ULTRON Times · Fútbol</title>
+    <style>
+        body {
+            background-color: #0a0a0a;
+            color: #e8e8e8;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+        }
+        header {
+            text-align: center;
+            padding: 3.5rem 1rem;
+            border-bottom: 1px solid #333;
+            background-color: #131313;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 2.8rem;
+            color: #9eca7e;
+            letter-spacing: 2px;
+            font-weight: 800;
+        }
+        .date {
+            font-size: 1rem;
+            color: #888;
+            margin-top: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .tagline {
+            font-size: 1.2rem;
+            margin-top: 1rem;
+            font-style: italic;
+            color: #ccc;
+        }
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2.5rem 1rem;
+        }
+        .hero {
+            background-color: #131313;
+            border-left: 5px solid #9eca7e;
+            padding: 2.5rem;
+            margin-bottom: 3rem;
+            border-radius: 6px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .hero h2 {
+            margin-top: 0;
+            font-size: 2.2rem;
+            color: #fff;
+        }
+        .hero p {
+            font-size: 1.1rem;
+            color: #bbb;
+        }
+        .section-title {
+            border-bottom: 2px solid #9eca7e;
+            padding-bottom: 0.5rem;
+            margin-top: 3.5rem;
+            margin-bottom: 2rem;
+            font-size: 1.8rem;
+            color: #fff;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+        .card {
+            background-color: #131313;
+            padding: 1.8rem;
+            border-radius: 8px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            border: 1px solid #222;
+            display: flex;
+            flex-direction: column;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 6px 12px rgba(0,0,0,0.5);
+            border-color: #333;
+        }
+        .badge {
+            align-self: flex-start;
+            background-color: #9eca7e;
+            color: #0a0a0a;
+            padding: 0.3rem 0.8rem;
+            font-size: 0.8rem;
+            font-weight: bold;
+            border-radius: 12px;
+            margin-bottom: 1rem;
+            text-transform: uppercase;
+        }
+        .card h3 {
+            margin: 0 0 1rem 0;
+            font-size: 1.3rem;
+            color: #fff;
+        }
+        .card p {
+            font-size: 1rem;
+            color: #bbb;
+            flex-grow: 1;
+        }
+        .source {
+            font-size: 0.85rem;
+            color: #666;
+            margin-top: 1.5rem;
+            text-align: right;
+            border-top: 1px solid #222;
+            padding-top: 0.8rem;
+        }
+        footer {
+            text-align: center;
+            padding: 2.5rem;
+            background-color: #131313;
+            border-top: 1px solid #333;
+            margin-top: 4rem;
+            color: #888;
+            font-size: 0.95rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>⌬ ULTRON Times · Fútbol</h1>
+        <div class="date">Miércoles, 6 de mayo de 2026</div>
+        <div class="tagline">REDACTED_TEAM · La Liga · Champions · Fichajes</div>
+    </header>
+    
+    <main>
+        <section class="hero">
+            <span class="badge">Próximo Partido</span>
+            <h2>El Clásico: El Camp Nou dicta sentencia en LaLiga</h2>
+            <p>El REDACTED_TEAM visita al FC Barcelona el próximo domingo 10 de mayo a las 21:00 CET en un duelo vital por la jornada 35. Con el Barça líder a 11 puntos de distancia y una plaga de lesiones en el equipo blanco, este partido puede definir matemáticamente el campeonato o darle una vida extra a los merengues.</p>
+            <div class="source">Fuente: Marca / AS | 6 May 2026</div>
+        </section>
+
+        <h2 class="section-title">REDACTED_TEAM</h2>
+        <div class="grid">
+            <article class="card">
+                <span class="badge">Lesiones</span>
+                <h3>Plaga defensiva: Carvajal de baja</h3>
+                <p>Dani Carvajal sufre una fisura en el quinto dedo del pie derecho y será baja por dos semanas. Se perderá el Clásico y los próximos choques de LaLiga.</p>
+                <div class="source">Fuente: AS | 2 May 2026</div>
+            </article>
+            
+            <article class="card">
+                <span class="badge">Enfermería</span>
+                <h3>Mendy vuelve a recaer</h3>
+                <p>Ferland Mendy ha vuelto a tener problemas físicos en la victoria frente al Espanyol. Su disponibilidad para el tramo final de la temporada es una gran incógnita.</p>
+                <div class="source">Fuente: Marca | 5 May 2026</div>
+            </article>
+            
+            <article class="card">
+                <span class="badge">Cantera</span>
+                <h3>Arbeloa tira de La Fábrica</h3>
+                <p>Ante la avalancha de ausencias en el primer equipo, Álvaro Arbeloa ha integrado a cinco canteranos, incluyendo a los porteros Arroyo y Álvaro, y al defensa David Jiménez.</p>
+                <div class="source">Fuente: AS | 6 May 2026</div>
+            </article>
+        </div>
+
+        <h2 class="section-title">La Liga</h2>
+        <div class="grid">
+            <article class="card">
+                <span class="badge">Clasificación</span>
+                <h3>El Barça acaricia el título</h3>
+                <p>Tras la jornada 34, el FC Barcelona es líder con 88 puntos, aventajando por 11 a un REDACTED_TEAM que aplazó el alirón al ganar 0-2 al Espanyol con doblete de Vinícius.</p>
+                <div class="source">Fuente: AS | 6 May 2026</div>
+            </article>
+
+            <article class="card">
+                <span class="badge">Jornada 34</span>
+                <h3>Victoria ajustada culé</h3>
+                <p>El Barcelona superó 1-2 a Osasuna con goles de Robert Lewandowski y Ferran Torres, manteniendo un paso demoledor rumbo al campeonato doméstico.</p>
+                <div class="source">Fuente: Marca | 6 May 2026</div>
+            </article>
+
+            <article class="card">
+                <span class="badge">Jornada 34</span>
+                <h3>El Atlético asegura la Champions</h3>
+                <p>Los pupilos del Cholo Simeone consiguieron una victoria clave por 0-2 ante el Valencia, afianzándose en la cuarta posición con 63 puntos y asegurando su pase europeo.</p>
+                <div class="source">Fuente: ESPN | 6 May 2026</div>
+            </article>
+        </div>
+
+        <h2 class="section-title">Champions League</h2>
+        <div class="grid">
+            <article class="card">
+                <span class="badge">Semifinales</span>
+                <h3>El Arsenal echa al Atlético</h3>
+                <p>Los "Gunners" vencieron 1-0 al Atlético de Madrid en la vuelta de semifinales, clasificando a la Gran Final con un marcador global de 2-1.</p>
+                <div class="source">Fuente: UEFA | 5 May 2026</div>
+            </article>
+
+            <article class="card">
+                <span class="badge">Semifinales</span>
+                <h3>El PSG defiende su corona</h3>
+                <p>El actual campeón, Paris Saint-Germain, certificó su pase a la final eliminando al Bayern Múnich, haciendo valer su épica victoria 5-4 conseguida en el partido de ida.</p>
+                <div class="source">Fuente: UEFA | 6 May 2026</div>
+            </article>
+
+            <article class="card">
+                <span class="badge">La Gran Final</span>
+                <h3>Arsenal vs PSG en Budapest</h3>
+                <p>La final de la UEFA Champions League está servida: Arsenal y PSG se verán las caras el próximo 30 de mayo en el Puskás Aréna de Budapest para decidir al rey de Europa.</p>
+                <div class="source">Fuente: UEFA | 6 May 2026</div>
+            </article>
+        </div>
+
+        <h2 class="section-title">Mercado de Fichajes</h2>
+        <div class="grid">
+            <article class="card">
+                <span class="badge">Rumores</span>
+                <h3>Haaland, el objetivo blanco</h3>
+                <p>Los rumores sobre la cláusula de salida de Erling Haaland para 2026 son cada vez más fuertes, situándolo como la gran prioridad de Florentino Pérez para reforzar el ataque.</p>
+                <div class="source">Fuente: Marca | 6 May 2026</div>
+            </article>
+
+            <article class="card">
+                <span class="badge">Traspasos</span>
+                <h3>Raphinha no se mueve</h3>
+                <p>A pesar del inmenso interés y las mareantes ofertas de la Saudi Pro League, el FC Barcelona ha dejado claro que Raphinha es intocable y pieza clave del proyecto.</p>
+                <div class="source">Fuente: AS | 6 May 2026</div>
+            </article>
+
+            <article class="card">
+                <span class="badge">Renovaciones</span>
+                <h3>Koke, futuro en el aire</h3>
+                <p>El capitán del Atlético de Madrid finaliza contrato y, tras la eliminación europea, su continuidad es incierta. El jugador y el club decidirán su situación al finalizar el curso.</p>
+                <div class="source">Fuente: Marca | 6 May 2026</div>
+            </article>
+            
+            <article class="card">
+                <span class="badge">Renovaciones</span>
+                <h3>Blindaje para Foden</h3>
+                <p>El Manchester City no quiere sorpresas y se encuentra en las etapas finales para renovar el contrato de Phil Foden, extendiendo su vinculación hasta el año 2030.</p>
+                <div class="source">Fuente: AS | 6 May 2026</div>
+            </article>
+        </div>
+    </main>
+
+    <footer>
+        <p>Powered by Gemini · ULTRON v14</p>
+    </footer>
+</body>
+</html>

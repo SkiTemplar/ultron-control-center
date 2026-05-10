@@ -1,0 +1,343 @@
+schema_version: 1
+last_updated: '2026-05-09'
+items:
+- id: U-001
+  title: TUI version SSOT (v14.4 → v14.8)
+  status: done
+  priority: P1
+  sprint: v14.8.1
+  created: 2026-05-09
+  completed: 2026-05-09
+  related_decisions:
+  - D-006
+  tags:
+  - tui
+  - refactor
+  description: 'TUI title showed v14.4 hardcoded vs frontmatter v14.8. SSOT helper
+
+    read_ultron_version() en cockpit_base.py parsea SKILL.md.
+
+    '
+- id: U-002
+  title: Changelog Markdown widget en TUI
+  status: done
+  priority: P2
+  sprint: v14.8.1
+  completed: 2026-05-09
+  tags:
+  - tui
+- id: U-003
+  title: Reorder changelog.md cronológicamente
+  status: done
+  priority: P2
+  sprint: v14.8.1
+  completed: 2026-05-09
+- id: U-004
+  title: News path bug — TUI no veía trending/{date}.md
+  status: done
+  priority: P1
+  sprint: v14.8.1
+  completed: 2026-05-09
+  description: 'github_trending.py escribía a trending/, TUI buscaba en news/.
+
+    Fix: probar 4 candidatos incluido trending/ + drop dead ULTRON_NEWS_DIR.
+
+    '
+- id: U-005
+  title: Sidebar MEJORAS — quitar 'u Audits' (no binding)
+  status: done
+  priority: P3
+  sprint: v14.8.1
+  completed: 2026-05-09
+- id: U-006
+  title: Deprecation sweep — 11 acciones cleanup
+  status: done
+  priority: P1
+  sprint: v14.8.1
+  completed: 2026-05-09
+  related_decisions: []
+  description: 'Archivar qdrant-mcp-install-steps.md, actualizar MACRO-INDEX tracker,
+
+    borrar vault/python/ vacía, doc CLAUDE.md hooks 12→14, BOM fix
+
+    backup-last-run, ack alert, threshold skill_truncation 200→700.
+
+    '
+- id: U-007
+  title: MEMORY-ARCHITECTURE.md en vault
+  status: done
+  priority: P1
+  sprint: v14.8.x
+  completed: 2026-05-09
+  related_decisions:
+  - D-001
+  - D-005
+  plan_doc: ~/.ultron-vault/MEMORY-ARCHITECTURE.md
+  description: 'Doc canonical que mapea las 5 zonas de memoria + write protocol.
+
+    '
+- id: U-008
+  title: 'Vault folders nuevas: 60_BUGS, 70_ERRORS, 80_ACADEMIC'
+  status: done
+  priority: P2
+  sprint: v14.8.x
+  completed: 2026-05-09
+  related_decisions:
+  - D-004
+  description: 'AI-write zones para bugs, error patterns, correcciones académicas.
+
+    '
+- id: U-009
+  title: Move memory/L1/ → vault/00_INDEX/_packets/
+  status: done
+  priority: P2
+  sprint: v14.8.x
+  completed: 2026-05-09
+  related_decisions:
+  - D-005
+  description: 'Pre-rendered context packets ahora viven en vault. brain_index.py
+
+    MEMORY_L1_DIR actualizado.
+
+    '
+- id: U-010
+  title: Vault Write Protocol en SKILL.md
+  status: done
+  priority: P1
+  sprint: v14.8.x
+  completed: 2026-05-09
+  description: 'Sección que mapea triggers de conversación → folder destino + naming.
+
+    '
+- id: U-011
+  title: Push hook focus-steal fix (pythonw.exe)
+  status: done
+  priority: P1
+  sprint: v14.8.x
+  completed: 2026-05-09
+  related_decisions:
+  - D-003
+  description: 'memory_sync.py cmd_push_async + session-init.ps1 (3 Start-Process)
+
+    ahora usan pythonw.exe + STARTUPINFO SW_HIDE. Cero focus steal en juegos.
+
+    '
+- id: U-012
+  title: Docker Desktop start + Qdrant container up
+  status: done
+  priority: P0
+  sprint: v14.8.x
+  completed: 2026-05-09
+  description: 'Docker estaba instalado pero nunca arrancado. Container ultron-qdrant
+
+    tenía datos persistidos (269 vault + 426 skills points). Auto-recall
+
+    ahora funcional con Qdrant + fastembed + cross-encoder.
+
+    '
+- id: U-020
+  title: v14.9 STRUCTURE — cockpit migration
+  status: ready
+  priority: P1
+  sprint: v14.9
+  created: 2026-05-09
+  plan_doc: ~/.ultron/plans/2026-05-09-v14.9-STRUCTURE.md
+  related_decisions:
+  - D-002
+  tags:
+  - migration
+  - refactor
+  - structure
+  acceptance:
+  - 769 tests pass post-migration
+  - All 14 hooks fire without error
+  - TUI v14.8.0 opens correctly
+  - Skill loader still activates ULTRON via 'Ultron' trigger
+  - Auto-recall semantic context still works
+  notes: 'Script v2 listo en ~/.ultron/scripts/migrate-v14.9.ps1. Ejecutar fuera
+
+    de Claude Code (cierra todas las instancias antes). Rollback embebido.
+
+    Diferido por: muchas instancias Claude abiertas simultáneamente.
+
+    '
+- id: U-021
+  title: Fix intent-dispatcher path drift (memory/L1 → packets)
+  status: done
+  priority: P1
+  sprint: v14.9
+  created: 2026-05-09
+  description: 'Hook devuelve ctx=~/.ultron/memory/L1/projects-active.md (path viejo).
+
+    Reglas en intent-dispatcher.py o sus rules YAML referencian la ruta
+
+    antigua. Actualizar a vault/00_INDEX/_packets/.
+
+    '
+  completed: '2026-05-09'
+- id: U-022
+  title: Backlog system — schema + CLI + initial migration
+  status: done
+  priority: P1
+  sprint: v14.9
+  created: 2026-05-09
+  started: 2026-05-09
+  related_decisions:
+  - D-008
+  description: '~/.ultron/roadmap/{backlog,decisions}.yaml + backlog.py CLI.
+
+    Migrar items y decisiones de macro plan + sesión actual.
+
+    '
+  completed: '2026-05-09'
+- id: U-023
+  title: Backlog TUI integration
+  status: spec
+  priority: P2
+  sprint: v14.9
+  description: 'View nuevo binding ''b'' Backlog en TUI con filtros sprint/status/priority.
+
+    Modal detail con acceptance + decisiones relacionadas.
+
+    '
+- id: U-024
+  title: ULTRON como proyecto en TUI Projects view
+  status: spec
+  priority: P2
+  sprint: v14.9
+  description: 'Añadir entry is_meta:true en projects.json. Open action lanza Claude
+
+    con contexto pre-cargado del backlog activo.
+
+    '
+- id: U-030
+  title: v15.0 Phase 0 — Brief + content audit
+  status: ready
+  priority: P1
+  sprint: v15.0
+  plan_doc: ~/.ultron/plans/2026-05-09-MACRO-roadmap-v14.2-to-v15.0.md
+  description: 'Audiencia, mensaje, tono. ~1 día.
+
+    '
+- id: U-031
+  title: v15.0 Phase 1 — Next.js + Tailwind + shadcn setup
+  status: ready
+  priority: P1
+  sprint: v15.0
+  description: ~1 día.
+- id: U-032
+  title: v15.0 Phase 2 — Core pages (manifesto, architecture, sprints, numbers, blog, contact)
+  status: ready
+  priority: P1
+  sprint: v15.0
+  description: ~3-5 días.
+- id: U-033
+  title: v15.0 Phase 3 — Contenido (manifesto 800w, 3 blog posts, numbers endpoint)
+  status: ready
+  priority: P1
+  sprint: v15.0
+  description: ~3 días.
+- id: U-034
+  title: v15.0 Phase 4 — Marketing legítimo + open-source decision
+  status: spec
+  priority: P2
+  sprint: v15.0
+  description: HN + LinkedIn + GitHub (defer público).
+- id: U-035
+  title: v15.0 Phase 5 — RESOLVED gates (Lighthouse 90, Plausible, contact form)
+  status: spec
+  priority: P1
+  sprint: v15.0
+- id: U-040
+  title: v15.1 MOBILE-RELAY — Tailscale + SSH + tmux + voice dictation
+  status: ideated
+  priority: P2
+  sprint: v15.1
+  tags:
+  - mobile
+  - ssh
+  - voice
+  description: 'Phase 1: cliente fino vía móvil. Setup ~45 min. Voz vía teclado OS.
+
+    '
+- id: U-041
+  title: v15.2 PUBLIC-SPLIT — extraer ULTRON-Core sin personas
+  status: ideated
+  priority: P2
+  sprint: v15.2
+  description: 'Eliminar 15 personas, MCPs personales, paths USER-specific.
+
+    Repo público ultron-core + privado ultron-USER.
+
+    '
+- id: U-042
+  title: v15.3 ONBOARDING — `ultron init` wizard + GETTING-STARTED + README
+  status: ideated
+  priority: P2
+  sprint: v15.3
+- id: U-043
+  title: v15.4 MARKETPLACE — skill install/publish + signature verify
+  status: ideated
+  priority: P3
+  sprint: v15.4
+- id: U-044
+  title: v15.5 TOKEN-DASH — user-facing budget tracker
+  status: ideated
+  priority: P3
+  sprint: v15.5
+- id: U-045
+  title: v16.0 PUBLIC RELEASE — open-source repo + announcement
+  status: ideated
+  priority: P2
+  sprint: v16.0
+- id: U-046
+  title: v16.1 VOICE-BRIDGE Phase 2 — Whisper local + wake-word
+  status: ideated
+  priority: P3
+  sprint: v16.1
+  tags:
+  - voice
+  - mobile
+- id: U-100
+  title: CC-memories duplication audit (vault vs .claude/projects/MEMORY)
+  status: ideated
+  priority: P3
+  description: 'Vault tiene CC-memories/ con ~95 archivos que pueden duplicar
+
+    .claude/projects/<proj>/MEMORY.md. Decidir: indexar fuente sin copiar.
+
+    '
+- id: U-101
+  title: MASTER.md update (697→769 tests, v14.8.x entries)
+  status: ready
+  priority: P3
+  description: Drift cosmético, baja prioridad.
+- id: U-102
+  title: Triple mode candidate for deprecation
+  status: ideated
+  priority: P3
+  description: 'Codex+Gemini paralelo. Complejidad alta, ratio uso bajo. Considerar
+
+    colapsar a Dual con flag --triple.
+
+    '
+- id: U-103
+  title: Skill catalog audit — quitar plugins con 0 hits 30d
+  status: ideated
+  priority: P3
+  description: '660+ skills en system prompt. route_quality_aggregator puede revelar
+
+    cuáles nunca se usan.
+
+    '
+- id: U-104
+  title: Test item — añadir desde CLI funciona
+  status: cancelled
+  priority: P3
+  sprint: null
+  created: '2026-05-09'
+  tags:
+  - test
+  - demo
+  completed: '2026-05-09'
+  notes: 'Cancelled 2026-05-09: test demo - cleanup'

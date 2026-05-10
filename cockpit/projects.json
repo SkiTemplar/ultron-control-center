@@ -1,0 +1,289 @@
+{
+    "version": "1.0",
+    "last_scan": "2026-05-09T21:38:22",
+    "projects": [
+        {
+            "id": "orbitaldb",
+            "name": "OrbitalDB",
+            "path": "C:\\Users\\USER\\CARRERA\\ASIGNATURAS\\AppMoviles\\codigo\\OrbitalDB",
+            "ide": "AndroidStudio",
+            "language": "Kotlin",
+            "type": "mobile",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "ASIGNATURAS"
+            ],
+            "auto_tags": [
+                "gradle",
+                "java"
+            ]
+        },
+        {
+            "id": "sparkling-luxury",
+            "name": "sparkling-luxury",
+            "path": "C:\\Users\\USER\\CARRERA\\ASIGNATURAS\\FUUX — Fundamentos UX\\web\\sparkling-luxury",
+            "ide": "Webstorm",
+            "language": "TypeScript",
+            "type": "academic",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "ASIGNATURAS"
+            ],
+            "auto_tags": [
+                "node",
+                "react",
+                "typescript"
+            ]
+        },
+        {
+            "id": "ia_template",
+            "name": "IA_Template",
+            "path": "C:\\Users\\USER\\CARRERA\\ASIGNATURAS\\PROGRAM_A-DisenoVideojuegos\\codigo\\Unity\\IA_Template",
+            "ide": "UnityHub",
+            "language": "C#",
+            "type": "game",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "ASIGNATURAS"
+            ],
+            "auto_tags": [
+                "csharp",
+                "dotnet",
+                "game",
+                "unity"
+            ]
+        },
+        {
+            "id": "proggrafica",
+            "name": "ProgGrafica",
+            "path": "C:\\Users\\USER\\CARRERA\\ASIGNATURAS\\PROGRAM_B — Prog Gráfica\\codigo\\OpenGL\\ProgGrafica",
+            "ide": "CLion",
+            "language": "C++",
+            "type": "academic",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "manual",
+            "tags": [
+                "ASIGNATURAS"
+            ],
+            "auto_tags": [
+                "cmake",
+                "cpp"
+            ]
+        },
+        {
+            "id": "finanzas",
+            "name": "finanzas",
+            "path": "C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\Bank\\finanzas",
+            "ide": "VSCode",
+            "language": "Python",
+            "type": "library",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "PROYECTOS_PERSONALES"
+            ],
+            "auto_tags": [
+                "python"
+            ]
+        },
+        {
+            "id": "niajska",
+            "name": "niajska",
+            "path": "C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\niajska",
+            "ide": "Webstorm",
+            "language": "TypeScript",
+            "type": "web",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "PROYECTOS_PERSONALES"
+            ],
+            "auto_tags": [
+                "next",
+                "node",
+                "typescript"
+            ]
+        },
+        {
+            "id": "sairanskies",
+            "name": "SairanSkies",
+            "path": "C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\Unreal Engine\\SairanSkies",
+            "ide": "Rider",
+            "language": "C++",
+            "type": "game",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "PROYECTOS_PERSONALES"
+            ],
+            "auto_tags": [
+                "cpp",
+                "game",
+                "unreal"
+            ]
+        },
+        {
+            "id": "tortunabo",
+            "name": "Tortunabo",
+            "path": "C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\Unreal Engine\\Tortunabo",
+            "ide": "Rider",
+            "language": "C++",
+            "type": "game",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "PROYECTOS_PERSONALES"
+            ],
+            "auto_tags": [
+                "cpp",
+                "csharp",
+                "dotnet",
+                "game",
+                "unreal"
+            ]
+        },
+        {
+            "id": "laundry-club-next",
+            "name": "laundry-club-next",
+            "path": "C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\Workspace_personal\\LaundryClubFolder\\laundry-club-next",
+            "ide": "Webstorm",
+            "language": "TypeScript",
+            "type": "web",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "PROYECTOS_PERSONALES"
+            ],
+            "auto_tags": [
+                "next",
+                "node",
+                "typescript"
+            ]
+        },
+        {
+            "id": "ultron",
+            "name": "ultron",
+            "path": "C:\\Users\\USER\\.claude\\skills\\ultron",
+            "ide": "VSCode",
+            "language": "Markdown",
+            "type": "skill",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "auto-detected",
+            "tags": [
+                "skills"
+            ],
+            "auto_tags": [
+                "python",
+                "skill"
+            ]
+        },
+        {
+            "id": "web2",
+            "name": "Web2",
+            "path": "C:\\Users\\USER\\CARRERA\\ASIGNATURAS\\PW2S — Web Servidor\\codigo\\Web2",
+            "ide": "Webstorm",
+            "language": "JavaScript",
+            "type": "academic",
+            "deadline": null,
+            "last_active": "2026-04-29",
+            "status": "manual",
+            "tags": [
+                "ASIGNATURAS"
+            ],
+            "auto_tags": [
+                "javascript",
+                "node"
+            ]
+        },
+        {
+            "id": "fuux-web",
+            "name": "FUUX Web",
+            "path": "C:\\Users\\USER\\CARRERA\\ASIGNATURAS\\FUUX — Fundamentos UX\\web",
+            "ide": "Webstorm",
+            "language": "TypeScript",
+            "type": "academic",
+            "deadline": null,
+            "last_active": "2026-05-09",
+            "status": "manual",
+            "tags": [
+                "ASIGNATURAS",
+                "UX"
+            ],
+            "auto_tags": []
+        },
+        {
+            "id": "rdr2-mods",
+            "name": "RDR2 Mods (Organized)",
+            "path": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Red Dead Redemption 2",
+            "ide": "VSCode",
+            "language": "Lua",
+            "type": "modding",
+            "deadline": null,
+            "last_active": "2026-04-29",
+            "status": "manual",
+            "tags": [
+                "STEAMAPPS"
+            ],
+            "auto_tags": [
+                "game",
+                "modding"
+            ],
+            "parent_project": "rdr2"
+        },
+        {
+            "id": "finance",
+            "name": "Finance",
+            "path": "C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\Bank",
+            "ide": "VSCode",
+            "language": "Python",
+            "type": "personal",
+            "deadline": null,
+            "last_active": "2026-04-29",
+            "status": "manual",
+            "tags": [
+                "PROYECTOS_PERSONALES",
+                "finanzas"
+            ],
+            "auto_tags": [
+                "python",
+                "sqlite",
+                "notion"
+            ]
+        },
+        {
+            "id": "ai-shell-propuesta",
+            "name": "AI-Shell-Propuesta",
+            "path": "C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\AI-Shell-Propuesta",
+            "ide": "VSCode",
+            "language": "Markdown",
+            "type": "proposal",
+            "deadline": null,
+            "last_active": "2026-05-04",
+            "status": "manual",
+            "tags": [
+                "PROYECTOS_PERSONALES",
+                "propuesta",
+                "ai"
+            ],
+            "auto_tags": [
+                "markdown",
+                "docx",
+                "pdf",
+                "ai"
+            ]
+        }
+    ]
+}

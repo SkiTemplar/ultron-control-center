@@ -1,0 +1,66 @@
+# ULTRON v14 Sprint 5-C Security Hardening — ENFORCED.
+# Allowlist for MCP server packages.
+#
+# allow_unlisted=false  -> hard-block unknown packages on `ultron mcp install`
+#                          unless --force is passed.
+# allow_unlisted=true   -> always allow (kill-switch for the gate).
+#
+# F03 fix: this file is now ENFORCED by `mcp_installer.py:cmd_install`.
+# Decision order:
+#   1. allow_unlisted=true  -> always allow
+#   2. <name> in `servers`  -> allow
+#   3. <package> startswith any prefix in `trusted_publishers` -> allow
+#   4. otherwise            -> reject (exit 2 unless --force)
+#
+# `--force` bypass writes a warn-level alert (dedupe_tag=mcp_force_install:<id>)
+# so any unlisted install is auditable.
+#
+# Seed values mirror the MCPs already configured in ~/.claude/settings.json
+# so the current install is consistent with the allowlist baseline.
+schema_version: "1"
+allow_unlisted: false
+trusted_publishers:
+  - "@modelcontextprotocol"
+  - "@upstash"
+  - "@playwright"
+  - "@openai"
+  - "@rlabs-inc"
+  - "firebase-tools"
+  - "n8n-mcp"
+servers:
+  sequential-thinking:
+    package: "@modelcontextprotocol/server-sequential-thinking"
+    transport: stdio
+    pinned_at: "2026-04-15"
+  n8n-mcp:
+    package: "n8n-mcp"
+    transport: stdio
+    pinned_at: "2026-04-15"
+  gemini:
+    package: "@rlabs-inc/gemini-mcp"
+    transport: stdio
+    pinned_at: "2026-04-15"
+  gemini-flash:
+    package: "@rlabs-inc/gemini-mcp"
+    transport: stdio
+    pinned_at: "2026-04-15"
+  context7:
+    package: "@upstash/context7-mcp"
+    transport: stdio
+    pinned_at: "2026-04-15"
+  playwright:
+    package: "@playwright/mcp"
+    transport: stdio
+    pinned_at: "2026-04-15"
+  firebase:
+    package: "firebase-tools"
+    transport: stdio
+    pinned_at: "2026-04-15"
+  unity:
+    package: "local-unity-bridge"
+    transport: sse
+    pinned_at: "2026-04-15"
+  codex:
+    package: "@openai/codex"
+    transport: stdio
+    pinned_at: "2026-04-15"

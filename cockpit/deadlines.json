@@ -1,0 +1,63 @@
+{
+  "version": "1.0",
+  "last_match": "2026-04-27T18:24:10",
+  "matches": [
+    {
+      "project_id": "tortunabo",
+      "event_id": "ev1",
+      "event_title": "Tortunabo demo entrega final",
+      "date": "2026-05-15",
+      "score": 1.0,
+      "confidence": "high",
+      "reasons": [
+        "name in title",
+        "id in title",
+        "name in description",
+        "deadline-keyword + project signal"
+      ]
+    },
+    {
+      "project_id": "orbitaldb",
+      "event_id": "ev3",
+      "event_title": "Practica entrega OrbitalDB",
+      "date": "2026-05-01",
+      "score": 1.0,
+      "confidence": "high",
+      "reasons": [
+        "name in title",
+        "id in title",
+        "name in description",
+        "deadline-keyword + project signal"
+      ]
+    },
+    {
+      "project_id": "niajska",
+      "event_id": "ev5",
+      "event_title": "Demo Niajska deadline",
+      "date": "2026-05-18",
+      "score": 1.0,
+      "confidence": "high",
+      "reasons": [
+        "name in title",
+        "id in title",
+        "deadline-keyword + project signal"
+      ]
+    }
+  ],
+  "unmatched": [
+    {
+      "event_id": "ev2",
+      "title": "Examen FIAV - Física e IA",
+      "date": "2026-05-07",
+      "best_score": 0.0,
+      "best_project": null
+    },
+    {
+      "event_id": "ev4",
+      "title": "Cita medico",
+      "date": "2026-04-29",
+      "best_score": 0.0,
+      "best_project": null
+    }
+  ]
+}

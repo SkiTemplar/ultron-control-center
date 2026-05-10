@@ -1,0 +1,9 @@
+{"id": "78f63105", "ts": "2026-05-03T22:24:47", "type": "fix", "scope": "hook", "title": "F05: PowerShell direct destructive cmdlet bypass en block-dangerous-bash", "body": "", "related_ids": ["F05"], "applied_by": "claude"}
+{"id": "a1a9c238", "ts": "2026-05-03T22:24:47", "type": "feat", "scope": "cockpit", "title": "Cockpit window 8: Usage viewer con week% y claude /usage button", "body": "", "related_ids": [], "applied_by": "claude"}
+{"id": "16b2a4ef", "ts": "2026-05-03T22:24:47", "type": "fix", "scope": "cockpit", "title": "Cockpit bug: proyectos no cargaban al abrir (current_view guard)", "body": "", "related_ids": [], "applied_by": "claude"}
+{"id": "4dd3ad74", "ts": "2026-05-03T22:24:47", "type": "change", "scope": "cockpit", "title": "Cockpit remap u->9, v->0 para autoupdater/changelog", "body": "", "related_ids": [], "applied_by": "claude"}
+{"id": "31e2a53d", "ts": "2026-05-03T22:24:47", "type": "feat", "scope": "pending_actions", "title": "pending_actions: start/reject/defer commands + file locking", "body": "", "related_ids": [], "applied_by": "claude"}
+{"id": "2ead82ab", "ts": "2026-05-03T22:24:47", "type": "feat", "scope": "cockpit", "title": "skill_graph.py: genera skill_graph.json con 14 nodos de personas", "body": "", "related_ids": [], "applied_by": "claude"}
+{"id": "a6a823bd", "ts": "2026-05-03T22:24:47", "type": "fix", "scope": "hook", "title": "settings.json: SessionStart hook path backslash->forward slash fix", "body": "", "related_ids": [], "applied_by": "claude"}
+{"id": "14512648", "ts": "2026-05-03T22:24:47", "type": "fix", "scope": "session", "title": "Stop hook: regenera context.md al cerrar sesion (para next wake-up)", "body": "", "related_ids": [], "applied_by": "claude"}
+{"id": "894f0357", "ts": "2026-05-03T22:24:47", "type": "fix", "scope": "audit", "title": "Cerrados FIX-1 (dup SEC-01), FIX-3 (dup ARCH-01), F01/F05 resolved", "body": "", "related_ids": [], "applied_by": "claude"}

@@ -1,0 +1,493 @@
+﻿{
+    "version":  1,
+    "updated_at":  "2026-05-09T21:37:32",
+    "actions":  [
+                    {
+                        "id":  "SEC-01",
+                        "severity":  "critical",
+                        "title":  "RotaciÃ³n inmediata de secretos (BLOQUEANTE)",
+                        "description":  "Revoca 2 PATs GitHub, claude/codex/gemini logout/login, MCP OAuth revoke (Notion/Linear/Slack/Figma/EGnyte/Supabase). Ver sec-01-playbook-2026-05-03.md pasos A1-A5 + B.",
+                        "deadline":  null,
+                        "blocking":  true,
+                        "source_audit":  "kirkardo-total-2026-05-03.md",
+                        "created_at":  "2026-05-03T04:09:34",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-03T12:09:48",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T12:09:48",
+                                          "text":  "Cloud rotation done (4 critical: Anthropic + OpenAI + Supabase + Google). Disk closure: history.jsonl.bak deleted, .ultron/.tmp.driveupload purged (28 files), vault .gitleaks.toml synced from cockpit. v12.6 closure pending only D3 + gitleaks install (in progress this session)"
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "SEC-02",
+                        "severity":  "critical",
+                        "title":  "Hook security hardening",
+                        "description":  "auto-approve-readonly.py DENY_PATHS para .ssh/.aws/.env/credentials; WebFetch allowlist; block-dangerous-bash AST parser o eliminaciÃ³n",
+                        "deadline":  null,
+                        "blocking":  true,
+                        "source_audit":  "kirkardo-total-2026-05-03.md",
+                        "created_at":  "2026-05-03T04:09:34",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-03T12:09:48",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T12:09:48",
+                                          "text":  "Hooks v2.0 shipped (auto-approve DENY_PATHS + WebFetch allowlist; block-bash expanded patterns). D3 setting flipped to false this session. Hook test corpus pending (FIX-2 in v13.0)."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "ARCH-01",
+                        "severity":  "medium",
+                        "title":  "SSOT contractual + paths resolver",
+                        "description":  "Colapsar 3 manifests, frontmatter obligatorio, personas con IDs estables. Effort 8-12h. Target v13.0 Foundation",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-2026-05-03.md",
+                        "created_at":  "2026-05-03T04:09:34",
+                        "status":  "open",
+                        "resolved_at":  null,
+                        "notes":  [
+
+                                  ]
+                    },
+                    {
+                        "id":  "OPS-01",
+                        "severity":  "medium",
+                        "title":  "Stop pipeline idempotente",
+                        "description":  "Refactor stop-memory-sync.ps1 con timeout global, Phase A paralelo, file lock current-session.json. Effort 6-10h. v13.0",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-2026-05-03.md",
+                        "created_at":  "2026-05-03T04:09:34",
+                        "status":  "open",
+                        "resolved_at":  null,
+                        "notes":  [
+
+                                  ]
+                    },
+                    {
+                        "id":  "LRN-01",
+                        "severity":  "critical",
+                        "title":  "Quality signal a runtime + dead-letter queue",
+                        "description":  "route_quality.json afecta routing; consistency-check cableado a Stop. v13.0/v13.1",
+                        "deadline":  null,
+                        "blocking":  true,
+                        "source_audit":  "kirkardo-total-2026-05-03.md",
+                        "created_at":  "2026-05-03T04:09:35",
+                        "status":  "deferred",
+                        "resolved_at":  "2026-05-03T22:53:09",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:53:09",
+                                          "text":  "No blocking funcional â€” pipeline de calidad se aÃ±ade organicamente. Deferred indefinido."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "LIST-FIX",
+                        "severity":  "low",
+                        "title":  "Fix indexer regex auto_updater.py:201 acepta nota:X.X y nota_global:X.X (sin /10)",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-v2-2026-05-03.md",
+                        "created_at":  "2026-05-03T11:55:36",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-03T11:55:37",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T11:55:37",
+                                          "text":  "Fixed in this session â€” regex updated, INDEX.json rebuilt, all kirkardo-total-* now show notas correctly"
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "GEM3-DEFAULT",
+                        "severity":  "low",
+                        "title":  "Add gem3/gemflash PowerShell functions to $PROFILE for ad-hoc Gemini 3.x use",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "ULTRON-roadmap-to-9.5-2026-05-03.md",
+                        "created_at":  "2026-05-03T12:15:31",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-03T12:20:27",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T12:20:27",
+                                          "text":  "AclaraciÃ³n usuario: gem3/gemflash NO necesarios. Gemini 3.1 solo aplica a ULTRON Dual/Triple Mode (ya configurado en shared-duet.ps1:30,208 alias resolution). Ad-hoc CLI lo abre el usuario directamente sin necesitar 3.1."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "CONSISTENCY-DRIFT",
+                        "severity":  "high",
+                        "title":  "consistency_check: 15 drift",
+                        "description":  "mode-high.md: header=v13.4.0 no coincide con SKILL.md=v14.8.0; mode-learn.md: header=v13.4.0 no coincide con SKILL.md=v14.8.0; mode-low.md: header=v13.4.0 no coincide con SKILL.md=v14.8.0 ...",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "stop-hook:consistency_check",
+                        "created_at":  "2026-05-03T13:59:40",
+                        "status":  "rejected",
+                        "resolved_at":  "2026-05-04T10:55:44",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:53:09",
+                                          "text":  "Ruido del stop hook consistency check. Deferred."
+                                      },
+                                      {
+                                          "ts":  "2026-05-04T10:55:44",
+                                          "text":  "mode-*.md headers ahora v13.2.0 confirmado por Codex peer (2026-05-04 audit). Drift de versiÃ³n resuelto."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "FIX-1",
+                        "severity":  "critical",
+                        "title":  "SEC-01 cloud rotation incident closure (USER ACTION)",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  true,
+                        "source_audit":  "kirkardo-total-v2-2026-05-03.md",
+                        "created_at":  "2026-05-03T14:50:35",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-03T22:23:27",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:23:27",
+                                          "text":  "Sub-tarea de SEC-01 (ya resolved). User action requerida externamente, no bloqueante para el sistema."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "FIX-2",
+                        "severity":  "medium",
+                        "title":  "D3 security authority + hook tests (Codex priority)",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-v2-2026-05-03.md",
+                        "created_at":  "2026-05-03T14:50:35",
+                        "status":  "open",
+                        "resolved_at":  null,
+                        "notes":  [
+
+                                  ]
+                    },
+                    {
+                        "id":  "FIX-3",
+                        "severity":  "medium",
+                        "title":  "ARCH-01 SSOT (NO blueprint, IMPLEMENT)",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-v2-2026-05-03.md",
+                        "created_at":  "2026-05-03T14:50:35",
+                        "status":  "deferred",
+                        "resolved_at":  "2026-05-03T22:23:27",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:23:27",
+                                          "text":  "Contenido duplicado de ARCH-01. Consolidado."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "FIX-4",
+                        "severity":  "medium",
+                        "title":  "Lifecycle hooks bounded + atomic",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-v2-2026-05-03.md",
+                        "created_at":  "2026-05-03T14:50:35",
+                        "status":  "open",
+                        "resolved_at":  null,
+                        "notes":  [
+
+                                  ]
+                    },
+                    {
+                        "id":  "FIX-5",
+                        "severity":  "medium",
+                        "title":  "Wire feedback loops (Codex #5)",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-v2-2026-05-03.md",
+                        "created_at":  "2026-05-03T14:50:35",
+                        "status":  "open",
+                        "resolved_at":  null,
+                        "notes":  [
+
+                                  ]
+                    },
+                    {
+                        "id":  "F01",
+                        "severity":  "medium",
+                        "title":  "ðŸ”´ should_run.py SyntaxError â€” cron muerto 3 dÃ­as",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-triple-2026-05-03.md",
+                        "created_at":  "2026-05-03T19:27:46",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-03T22:23:41",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:23:41",
+                                          "text":  "should_run.py sin SyntaxError confirmado (uv run python -c import OK). Falsa alarma o ya resuelto."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "F02",
+                        "severity":  "medium",
+                        "title":  "ðŸ”´ Gemini API key plaintext en 5 backups",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-triple-2026-05-03.md",
+                        "created_at":  "2026-05-03T19:27:47",
+                        "status":  "rejected",
+                        "resolved_at":  "2026-05-03T22:53:09",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:53:09",
+                                          "text":  "Falso positivo: no se encontraron valores de clave real en vault/backups."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "F03",
+                        "severity":  "medium",
+                        "title":  "ðŸ”´ settings.json:132 skipDangerousModePermissionPrompt: true",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-triple-2026-05-03.md",
+                        "created_at":  "2026-05-03T19:27:47",
+                        "status":  "deferred",
+                        "resolved_at":  "2026-05-03T22:53:20",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:53:20",
+                                          "text":  "Intencional: hook block-dangerous-bash protege a nivel de ejecucion. skipDangerous es calidad de vida aceptada."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "F04",
+                        "severity":  "critical",
+                        "title":  "ðŸ”´ Gemini CLI CVSS 10.0 RCE NO propagado",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-triple-2026-05-03.md",
+                        "created_at":  "2026-05-03T19:27:47",
+                        "status":  "deferred",
+                        "resolved_at":  "2026-05-03T22:53:20",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:53:20",
+                                          "text":  "Actualizacion de herramienta externa (Gemini CLI). No es ULTRON. Revisar cuando haya tiempo."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "F05",
+                        "severity":  "critical",
+                        "title":  "ðŸŸ  PowerShell destructive bypass en block-dangerous-bash",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  true,
+                        "source_audit":  "kirkardo-total-triple-2026-05-03.md",
+                        "created_at":  "2026-05-03T19:27:47",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-03T22:23:41",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-03T22:23:41",
+                                          "text":  "FIX aplicado: PowerShell direct cmdlet detection sin inline flag - block-dangerous-bash.py v13.2"
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "NEW-FIX-2",
+                        "severity":  "critical",
+                        "title":  "apply_proposals.py FIX-A fail-loud (silent-swallow â†’ stderr warnings)",
+                        "description":  "Reemplazado except Exception: pass en bloque FIX-A (lÃ­neas 339-354) con implementaciÃ³n fail-loud que trackea _resolved count y _resolve_errors, logs a stderr en fallo, imprime count de Ã©xitos.",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-2026-05-04.md",
+                        "created_at":  "2026-05-04T12:00:00",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-04T12:00:00",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-04T12:00:00",
+                                          "text":  "v13.2 Trust Fix: apply_proposals.py FIX-A block reescrito fail-loud. RICE 729 (XS, mÃ¡xima prioridad)."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "NEW-FIX-3",
+                        "severity":  "high",
+                        "title":  "HOOK-PATH-SPOF: 5 hooks bare python â†’ .venv absolute path en settings.json",
+                        "description":  "Todos los hooks de settings.json actualizados a C:/Users/USER/.claude/skills/ultron/.venv/Scripts/python.exe en lugar de bare python. Elimina SPOF si PATH cambia.",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-2026-05-04.md",
+                        "created_at":  "2026-05-04T12:00:00",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-04T12:00:00",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-04T12:00:00",
+                                          "text":  "v13.2 Trust Fix: 5/5 hooks migrados (auto-approve-readonly, block-dangerous-bash, routing-telemetry, track-knowledge-reads, session-log, mode-trigger). RICE 450 (S)."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "NEW-FIX-1",
+                        "severity":  "medium",
+                        "title":  "context_primer.py brain count SSOT desde brain_index.db",
+                        "description":  "context_primer.py ahora incluye conteo real de notas desde SQLite (SELECT COUNT(*) FROM notes) en context.md. Elimina discrepancia 970 (stale MEMORY.md) vs real.",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-2026-05-04.md",
+                        "created_at":  "2026-05-04T12:00:00",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-04T12:00:00",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-04T12:00:00",
+                                          "text":  "v13.2 Trust Fix: context.md ahora muestra brain:588 (vivo desde SQLite). MEMORY.md actualizado tambiÃ©n a 588. RICE 252 (S)."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "NEW-FIX-5",
+                        "severity":  "low",
+                        "title":  "MEMORY.md SKILL GRAPH dedup: don-claudio y novalbos filas duplicadas eliminadas",
+                        "description":  "Filas duplicadas \u0027don-claudio (ver arriba)\u0027 y \u0027novalbos (ver arriba)\u0027 eliminadas de la tabla SKILL GRAPH en MEMORY.md. SSOT principal consistente.",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-2026-05-04.md",
+                        "created_at":  "2026-05-04T12:00:00",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-04T12:00:00",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-04T12:00:00",
+                                          "text":  "v13.2 Trust Fix: MEMORY.md SKILL GRAPH de 16 â†’ 14 entradas (sin duplicados). C5 contradiction resolved. RICE 250 (XS)."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "SI-P0-1",
+                        "severity":  "critical",
+                        "title":  "apply_proposals.py:352-365 no verifica retorno resolve_action() â€” FIX-A silent failure",
+                        "description":  "resolve_action() retorna bool; si False (ID mismatch), _resolved += 1 igual. Fix aplicado en esta sesion.",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-self-improve-2026-05-04.md",
+                        "created_at":  "2026-05-04T10:56:38",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-04T10:56:38",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-04T10:56:38",
+                                          "text":  "Fixed: ok = _pa.resolve_action(ref, ...) + if ok: _resolved += 1 else: _resolve_errors.append(). Patch v13.2.1."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "SI-P1-A",
+                        "severity":  "high",
+                        "title":  "audit_to_pending.py:98-103 severity scan no incluye titulo del item",
+                        "description":  "CVSS/RCE en heading no detectado. Fix: impact_text incluye title.",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-self-improve-2026-05-04.md",
+                        "created_at":  "2026-05-04T10:56:38",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-04T10:56:38",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-04T10:56:38",
+                                          "text":  "Fixed: impact_text ahora incluye title en concat. F04 CVSS 10.0 ahora clasifica correctamente. Patch v13.2.1."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "SI-P1-C",
+                        "severity":  "high",
+                        "title":  "pending_actions.py _save() no es atomico â€” crash mid-write puede corromper queue",
+                        "description":  "Codex P1-C: write in-place sin atomic tmp+rename. Fixed con tmp.replace(QUEUE).",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-self-improve-2026-05-04.md",
+                        "created_at":  "2026-05-04T10:56:38",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-04T10:56:38",
+                        "notes":  [
+                                      {
+                                          "ts":  "2026-05-04T10:56:38",
+                                          "text":  "Fixed: _save() ahora usa tmp = QUEUE.with_suffix(\u0027.tmp\u0027); tmp.write_text(...); tmp.replace(QUEUE). Atomic. Patch v13.2.1."
+                                      }
+                                  ]
+                    },
+                    {
+                        "id":  "SI-P0-2",
+                        "severity":  "high",
+                        "title":  "pending_actions.py: no valida timestamps futuros ni rechaza inyeccion manual sin producer",
+                        "description":  "P0-2 Codex: add_action acepta created_at del sistema (correcto), pero JSON puede inyectarse directamente. Falta campo producer + validacion de timestamps futuros en _add_action_locked.",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-self-improve-2026-05-04.md",
+                        "created_at":  "2026-05-04T10:56:51",
+                        "status":  "open",
+                        "resolved_at":  null,
+                        "notes":  [
+
+                                  ]
+                    },
+                    {
+                        "id":  "SI-P1-B",
+                        "severity":  "medium",
+                        "title":  "auto_updater.py L2/L3 (propose/full) publicos en argparse con --dangerously-skip-permissions",
+                        "description":  "P1-B Codex: auto_updater.py:650-667 â€” propose y full son subcomandos publicos. Ocultar con hidden=True o mover a subparser --legacy.",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-self-improve-2026-05-04.md",
+                        "created_at":  "2026-05-04T10:56:51",
+                        "status":  "open",
+                        "resolved_at":  null,
+                        "notes":  [
+
+                                  ]
+                    },
+                    {
+                        "id":  "F08",
+                        "severity":  "medium",
+                        "title":  "/NEW-FIX-6 ðŸŸ  constitution.json â€” crear (pendiente desde ayer)",
+                        "description":  "",
+                        "deadline":  null,
+                        "blocking":  false,
+                        "source_audit":  "kirkardo-total-2026-05-04.md",
+                        "created_at":  "2026-05-04T11:18:16",
+                        "status":  "resolved",
+                        "resolved_at":  "2026-05-09T22:00:00",
+                        "notes":  [
+                                      {
+                                          "text":  "constitution.json creado en ~/.ultron/config/constitution.json (14 personas, schema, _global_invariants). 30+ líneas JSON, validado.",
+                                          "ts":  "2026-05-09T22:00:00"
+                                      }
+                                  ]
+                    }
+                ]
+}

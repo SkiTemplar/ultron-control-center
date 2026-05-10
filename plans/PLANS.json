@@ -1,0 +1,650 @@
+{
+  "version": "1.0",
+  "updated_at": "2026-05-10T13:02:03+02:00",
+  "_comment": "Single source of truth â€” administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
+  "items": [
+    {
+      "id": "v15.0-installer",
+      "kind": "sprint",
+      "title": "Publicar ULTRON en GitHub + instalador personalizable",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        10,
+        14
+      ],
+      "tags": [
+        "release",
+        "installer",
+        "open-source"
+      ],
+      "spec_path": "~/.ultron/plans/specs/v15.0-installer.md",
+      "description": "REDEFINIDO 2026-05-09 (USER): el viejo 'web pÃºblica showcase' se difiere. Foco real = preparar el sistema para que terceros puedan clonar el repo, ejecutar un instalador con menÃº interactivo (quÃ© skills, quÃ© hooks, quÃ© MCPs, dÃ³nde poner los paths), y que les funcione out-of-box. Incluye: README maestro, install.ps1/install.sh con prompts interactivos, sanitizer de paths absolutos hardcodeados, secret-strip en SKILL.md/ULTRON config, smoke-test post-install. Web pÃºblica es solo doc + landing simple del repo.",
+      "created_at": "2026-05-09T22:30:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "v14.9-structure",
+      "kind": "sprint",
+      "title": "Migrar scripts/tests/hooks de .claude a .ultron",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        2,
+        3
+      ],
+      "tags": [
+        "structure",
+        "migration"
+      ],
+      "spec_path": "~/.ultron/plans/2026-05-09-v14.9-STRUCTURE.md",
+      "description": "Sprint estructural: dejar .claude/skills/ultron/ como pure skill definition (~5 MB, solo .md), mover scripts/cockpit, scripts/hooks, tests, .venv a ~/.ultron/. Spec completo en archivo referenciado. Riesgo moderado â€” backup pre-fase obligatorio.",
+      "created_at": "2026-05-09T13:34:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "v15.1-bus-foundation",
+      "kind": "new-direction",
+      "title": "Cross-session bus: MCP server + mailbox + registry",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        32,
+        40
+      ],
+      "tags": [
+        "automation",
+        "cross-session",
+        "bus"
+      ],
+      "spec_path": null,
+      "description": "Foundation para que Claude sessions hablen entre sÃ­: ultron-bus MCP con tools (send/read/list_sessions/subscribe), mailbox file-based, registry de sesiones live, hooks SessionStart/Stop registrando + drainando.",
+      "created_at": "2026-05-09T22:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T22:30:00",
+          "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        }
+      ]
+    },
+    {
+      "id": "v15.2-supervisor",
+      "kind": "new-direction",
+      "title": "Supervisor daemon que lanza sesiones desde queue",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        24,
+        32
+      ],
+      "tags": [
+        "automation",
+        "cross-session"
+      ],
+      "spec_path": null,
+      "description": "Long-running daemon que consume ~/.ultron/queue.jsonl y lanza sesiones con `claude -p \"<task>\"`. Reacciona a 'task done' events. FIFO simple en MVP.",
+      "created_at": "2026-05-09T22:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T22:30:00",
+          "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        }
+      ]
+    },
+    {
+      "id": "v15.3-pipeline",
+      "kind": "new-direction",
+      "title": "DAG scheduler con dependencies (plan YAML)",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        24,
+        32
+      ],
+      "tags": [
+        "automation",
+        "cross-session"
+      ],
+      "spec_path": null,
+      "description": "Pipeline encadenado: research X â†’ implement Y depends-on [research X] â†’ review Z. YAML format + ejecutor + TUI panel.",
+      "created_at": "2026-05-09T22:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T22:30:00",
+          "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        }
+      ]
+    },
+    {
+      "id": "v15.4-overnight",
+      "kind": "new-direction",
+      "title": "Overnight loop timeboxed con kill-switches",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        16,
+        24
+      ],
+      "tags": [
+        "automation",
+        "cross-session",
+        "safety"
+      ],
+      "spec_path": null,
+      "description": "ultron overnight start --until 08:00 --max-sessions 50. Hard caps por hora, dedup mailbox, daily report en /tmp/. Kill-switch + max_tokens_per_session.",
+      "created_at": "2026-05-09T22:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T22:30:00",
+          "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        }
+      ]
+    },
+    {
+      "id": "v15.5-mobile",
+      "kind": "new-direction",
+      "title": "ULTRON Remote â€” PWA mobile via Tailscale",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        40,
+        56
+      ],
+      "tags": [
+        "mobile",
+        "pwa",
+        "remote"
+      ],
+      "spec_path": null,
+      "description": "PWA Next.js + FastAPI backend + Tailscale tunnel. Voice-to-text â†’ push prompt al queue, watch live streaming, push notifications cuando termina overnight. Sinergia con v15.1-15.4 cross-session bus.",
+      "created_at": "2026-05-09T22:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T22:30:00",
+          "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        }
+      ]
+    },
+    {
+      "id": "si-p0-2",
+      "kind": "bug",
+      "title": "pending_actions.py no valida timestamps futuros ni rechaza inyecciÃ³n sin producer",
+      "status": "resolved",
+      "priority": "p0",
+      "effort_hours": [
+        2,
+        4
+      ],
+      "tags": [
+        "security",
+        "hardening",
+        "queue"
+      ],
+      "spec_path": null,
+      "description": "Hardening del propio queue de pending actions. AÃ±adir: validar created_at/resolved_at <= now+5min, rechazar entries sin campo `producer`, schema validate al cargar, tests de inyecciÃ³n.",
+      "created_at": "2026-05-04T00:00:00+02:00",
+      "resolved_at": "2026-05-09T22:56:43+02:00",
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T22:56:43+02:00",
+          "text": "Hardening completo: timestamp futuro rejection (FUTURE_SKEW=300s), producer field obligatorio, schema validate al cargar (NUL/oversized/missing rejected), BOM-tolerant load. 27 tests inyección verdes. Schema bumped v1→v2 con backward-compat (legacy entries reciben producer='legacy')."
+        }
+      ]
+    },
+    {
+      "id": "arch-01-ssot",
+      "kind": "sprint",
+      "title": "SSOT contractual + paths resolver (3 manifests â†’ 1)",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        8,
+        12
+      ],
+      "tags": [
+        "architecture",
+        "refactor"
+      ],
+      "spec_path": null,
+      "description": "Colapsar 3 manifests (skills.manifest.yaml, skill_manifest.json, agent_manifest.json) en uno. Frontmatter obligatorio. Personas con IDs estables. Sin esto, el 50% del polish futuro queda bloqueado.",
+      "created_at": "2026-05-03T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "ops-01-stop-pipeline",
+      "kind": "sprint",
+      "title": "Stop pipeline idempotente (timeout global, file lock)",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        6,
+        10
+      ],
+      "tags": [
+        "hooks",
+        "concurrency"
+      ],
+      "spec_path": null,
+      "description": "Refactor stop-memory-sync.ps1: timeout global, Phase A paralelo, file lock current-session.json. Reduce race conditions con sesiones concurrentes (importante porque hay ~15 procesos claude activos).",
+      "created_at": "2026-05-03T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "fix-2-d3-hook-tests",
+      "kind": "polish",
+      "title": "D3 security authority + hook test corpus",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        4,
+        6
+      ],
+      "tags": [
+        "security",
+        "tests",
+        "hooks"
+      ],
+      "spec_path": null,
+      "description": "Codex priority. Suite de tests para hooks (auto-approve-readonly, block-dangerous-bash, mcp-resilience, etc.) que cubra escenarios attack/normal.",
+      "created_at": "2026-05-03T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "fix-4-lifecycle-hooks",
+      "kind": "polish",
+      "title": "Lifecycle hooks bounded + atomic",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        3,
+        5
+      ],
+      "tags": [
+        "hooks",
+        "atomic"
+      ],
+      "spec_path": null,
+      "description": "Asegurar que SessionStart/Stop/etc. son atÃ³micos (no dejan estado a medias) y bounded (max execution time + cleanup garantizado).",
+      "created_at": "2026-05-03T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "fix-5-feedback-loops",
+      "kind": "polish",
+      "title": "Wire feedback loops (Codex #5)",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        2,
+        4
+      ],
+      "tags": [
+        "feedback",
+        "telemetry"
+      ],
+      "spec_path": null,
+      "description": "Conectar prompt-feedback-capture.py + route_quality_aggregator + auto_updater para cerrar el loop seÃ±al â†’ mejora propuesta â†’ human gate â†’ apply.",
+      "created_at": "2026-05-03T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "si-p1-b-auto-updater",
+      "kind": "polish",
+      "title": "auto_updater.py L2/L3 expuestos con --dangerously-skip-permissions",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        2,
+        3
+      ],
+      "tags": [
+        "auto-updater",
+        "self-improve"
+      ],
+      "spec_path": null,
+      "description": "Subcomandos propose/full hoy ocultos en argparse. Exponerlos pÃºblicamente con flag --dangerously-skip-permissions explÃ­cito (no implÃ­cito).",
+      "created_at": "2026-05-04T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "tui-buttons-meta-prompter",
+      "kind": "polish",
+      "title": "TUI buttons para v14.5 META-PROMPTER (Mejorar / Eval)",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        1,
+        2
+      ],
+      "tags": [
+        "tui",
+        "ux"
+      ],
+      "spec_path": null,
+      "description": "Diferido al ship inicial. AÃ±adir 2 botones a la TUI que invoquen `ultron prompts improve preview` y `ultron prompts eval cache-stats`.",
+      "created_at": "2026-05-09T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "doctor-warns-cleanup",
+      "kind": "polish",
+      "title": "Reducir las 47 warnings restantes de doctor (deadwood, drifts misc)",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        1,
+        2
+      ],
+      "tags": [
+        "doctor",
+        "cleanup"
+      ],
+      "spec_path": null,
+      "description": "Tras bulk waiver hoy: 172 â†’ 47. Resto: 6 deadwood (STUB_DISPATCH, removed_in_v), 1 missing_skill (my-synced-skill), provenance drift puntuales, alerts viejos sin ack. Triaje + ack/cleanup.",
+      "created_at": "2026-05-09T22:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "scan-projects-claude-md",
+      "kind": "research",
+      "title": "scan_projects: heurÃ­stica para carpetas-contenedoras CLAUDE.md",
+      "status": "deferred",
+      "priority": "p2",
+      "effort_hours": [
+        2,
+        3
+      ],
+      "tags": [
+        "scanner",
+        "ux"
+      ],
+      "spec_path": null,
+      "description": "Investigar aÃ±adir CLAUDE.md como PROJECT_MARKER sin romper descenso a sub-proyectos NPM. Posible: marker condicional (solo si no hay ningÃºn PROJECT_MARKER estÃ¡ndar en subdirs). Workaround actual: aÃ±adir manual con status='manual' (preservado por el scan).",
+      "created_at": "2026-05-09T22:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": "Workaround manual funciona. No bloquea. Reabrir si aÃ±ades >5 carpetas-CLAUDE.md.",
+      "notes": []
+    },
+    {
+      "id": "gemini-mcp-rate-limit",
+      "kind": "research",
+      "title": "Gemini Pro MCP rate-limit en API key plana",
+      "status": "deferred",
+      "priority": "p2",
+      "effort_hours": [
+        0,
+        1
+      ],
+      "tags": [
+        "mcp",
+        "gemini"
+      ],
+      "spec_path": null,
+      "description": "El MCP `gemini` (gemini-3.1-pro-preview) da 429 en free tier. Fallback wired: `ultron gemini` (CLI con OAuth). Resolver requiere subir plan en AI Studio o esperar reset 24h. No es bug.",
+      "created_at": "2026-05-09T22:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": "Fallback `ultron gemini` CLI ya cubre el caso. Subir tier es decisiÃ³n de USER.",
+      "notes": []
+    },
+    {
+      "id": "v15.0-spec-doc",
+      "kind": "sprint",
+      "title": "v15.0 spec ya escrito",
+      "status": "resolved",
+      "priority": "p1",
+      "effort_hours": [
+        0,
+        1
+      ],
+      "tags": [
+        "doc spec"
+      ],
+      "spec_path": null,
+      "description": "Documentar el v15.0 spec (ya hecho)",
+      "created_at": "2026-05-09T21:54:06+02:00",
+      "resolved_at": "2026-05-09T21:54:06+02:00",
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T21:54:06+02:00",
+          "text": "spec creado en specs/v15.0-installer.md"
+        }
+      ]
+    },
+    {
+      "id": "intent-rules-precision",
+      "kind": "sprint",
+      "title": "Refactor intent-rules.yaml: word-boundaries + contexto exigido para todas las reglas",
+      "status": "resolved",
+      "priority": "p1",
+      "effort_hours": [
+        3,
+        5
+      ],
+      "tags": [
+        "routing detection precision"
+      ],
+      "spec_path": null,
+      "description": "Auditar las ~50 reglas de intent-rules.yaml. Aplicar mismo refactor que tio-gilito (2026-05-09): \\\\b boundaries, eliminar comodines ., exigir contexto multi-palabra (no triggers de 1 sustantivo comÃºn). AÃ±adir test corpus en tests/test_intent_rules.py con 30+ pares (prompt â†’ expected_skill_or_none). Sprint motivado por falso positivo gasto-de-tokens â†’ tio-gilito.",
+      "created_at": "2026-05-09T22:09:43+02:00",
+      "resolved_at": "2026-05-09T22:25:36+02:00",
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T22:25:36+02:00",
+          "text": "55 reglas auditadas, 9 refactorizadas con boundaries y multi-keyword. Test corpus 60 casos en tests/test_intent_rules.py — 60/60 verde. 87 tests routing verdes (T09 incluido)."
+        }
+      ]
+    },
+    {
+      "id": "ultron-skill-md-budget",
+      "kind": "polish",
+      "title": "SKILL.md de ULTRON excede budget de tokens (3850 > 3000)",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        1,
+        2
+      ],
+      "tags": [
+        "tokens skill-md budget"
+      ],
+      "spec_path": null,
+      "description": "Test pre-existente test_skill_md_within_token_budget en rojo. SKILL.md 3850 tokens, budget 3000. NO causado por sesión 2026-05-09.",
+      "created_at": "2026-05-09T22:25:36+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "pi013-encoded-injection",
+      "kind": "sprint",
+      "title": "Detector PI013: prompt injection en encodings (Morse, base64, ZWSP, ROT13, hex)",
+      "status": "resolved",
+      "priority": "p1",
+      "effort_hours": [
+        3,
+        5
+      ],
+      "tags": [
+        "security skill-scan prompt-injection"
+      ],
+      "spec_path": null,
+      "description": "Noticias recientes confirman PI vector via codigo Morse y otros encodings ofuscados. Anadir detector al skill_sync_security.py: deteccion de bloques Morse (>20 dot-dash chars), base64 sospechoso (>200 chars sin contexto), zero-width chars (U+200B U+200C U+200D U+FEFF), ROT13 patterns, hex blocks largos. Tests en tests/test_skill_security_pi013.py.",
+      "created_at": "2026-05-09T23:31:02+02:00",
+      "resolved_at": "2026-05-09T23:34:47+02:00",
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T23:34:47+02:00",
+          "text": "Detector implementado: Morse (>20 chars dot-dash density >85%) + zero-width Unicode (>=3 chars). Wired al pipeline scan_skill. 12 tests verdes (FP guards: HR markdown, table borders, single ZWSP). Suite global 1005/1006."
+        }
+      ]
+    },
+    {
+      "id": "research-ai-auto-systems",
+      "kind": "research",
+      "title": "Investigacion: metodos publicos de auto-AI systems (research)",
+      "status": "resolved",
+      "priority": "p1",
+      "effort_hours": [
+        2,
+        3
+      ],
+      "tags": [
+        "research ia automation inspiration"
+      ],
+      "spec_path": null,
+      "description": "Buscar en internet (papers, blog posts, GitHub trending) como otros han construido sistemas IA automatizados similares a ULTRON. Cubrir: agent frameworks (CrewAI, AutoGen, LangGraph), self-improving systems, persistent memory architectures, cross-session bus patterns, mobile-first AI assistants. Output: synthesis markdown en ~/.ultron-vault/10_KNOWLEDGE/ai-systems-landscape.md.",
+      "created_at": "2026-05-09T23:31:02+02:00",
+      "resolved_at": "2026-05-09T23:42:01+02:00",
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-09T23:42:01+02:00",
+          "text": "Research generado en ~/.ultron-vault/10_KNOWLEDGE/ai-systems-landscape.md (8KB, español, gemini-3.1-pro-preview vía CLI). Cubre 5 ejes: frameworks agénticos (LangGraph/CrewAI/Smol), memoria multi-capa L0-L4, MCP estándar, Tailscale+móvil, lessons learned. TL;DR aplicable a ULTRON: bus encadenado, sleep pattern consolidación, presupuestos por persona, memoria procedimental."
+        }
+      ]
+    },
+    {
+      "id": "v15.6-web-refresh",
+      "kind": "sprint",
+      "title": "Web ULTRON: rediseno con Mike Tyson + traduccion ES + auto-update + actualizar contenido",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        6,
+        10
+      ],
+      "tags": [
+        "web marketing showcase mike-tyson"
+      ],
+      "spec_path": null,
+      "description": "La web actual ~/.ultron/web (HTML estatico, 26KB index, 8KB CSS) esta desactualizada (v14.8.0 hardcoded, 1157 tests, 708 notas, 56 reglas; reales son 1005/711/55). Plan: 1) Mike Tyson rediseno completo. 2) Traduccion ES. 3) Pipeline auto-update: doctor genera datos -> script renderea HTML -> commit. 4) Anadir secciones que faltan: PI013, ultron plans, gemini wrapper, constitution.json, backup mirror, mobile roadmap. NO precios. Solo presentacion + showcase. Backup index.html.bak ya existe.",
+      "created_at": "2026-05-09T23:36:39+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "v15.7-anti-hallucination",
+      "kind": "sprint",
+      "title": "v15.7 Anti-hallucination layer (semantic entropy + cross-model verification + tool-result grounding)",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        12,
+        18
+      ],
+      "tags": [
+        "security ai-safety verification"
+      ],
+      "spec_path": "~/.ultron/plans/specs/v15.7-anti-hallucination.md",
+      "description": "Aplicar al sistema ULTRON las técnicas SOTA 2025-2026 de antialucinación: (1) self-consistency hook que tira N llamadas en paralelo + voto mayoritario para outputs críticos, (2) semantic-entropy probe sobre respuestas factuales, (3) tool-result grounding obligatorio en personas que ejecutan acciones (terry, alfred), (4) provenance tracking en memoria (de qué fuente sale cada hecho), (5) extended /dual con explicit cross-verification cuando se detecta baja confianza. Spec en specs/v15.7-anti-hallucination.md. Investigación base en 10_KNOWLEDGE/anti-hallucination-techniques.md.",
+      "created_at": "2026-05-10T00:06:24+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "apps-inventory-script-tui-view-weekly-scheduler",
+      "kind": "polish",
+      "title": "Apps inventory: script + TUI view + weekly scheduler",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        2,
+        3
+      ],
+      "tags": [
+        "inventory",
+        "tui",
+        "scheduler",
+        "security"
+      ],
+      "spec_path": null,
+      "description": "apps_inventory.py (registry + winget list + Get-AppxPackage) -> ~/.ultron/system_inventory/apps.json + apps-history.jsonl. Nueva view TUI tecla a (lista buscable + diff). Tarea Apps-Inventory-Weekly (domingos). Boton refresh on-demand. Detecta software nuevo inesperado (security signal). Diseno propuesto en sesion 2026-05-10.",
+      "created_at": "2026-05-10T12:56:38+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "ultron-arranque-ligero-reducir-overhead-6k-2k-toke",
+      "kind": "sprint",
+      "title": "ULTRON arranque ligero: reducir overhead 6k -> 2k tokens iniciales",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        4,
+        6
+      ],
+      "tags": [
+        "tokens",
+        "optimization",
+        "skill-budget",
+        "memory"
+      ],
+      "spec_path": null,
+      "description": "Hoy ULTRON gasta ~6k tokens fijos al arrancar (SKILL.md 3.8k + 2 CLAUDE.md + MEMORY.md + context.md). Plan original era arranque ligero con recuperacion automatizada. Acciones: (1) extraer Layer 1 personas table de SKILL.md a referencia lazy-loaded solo en routing ambiguo. (2) deduplicar CLAUDE.md global vs skill (overlap detectado). (3) MEMORY.md auto-generado desde Qdrant top-N (evita 820 tokens fijos). (4) context.md ya OK ~280 tok. Target: <2k tokens iniciales.",
+      "created_at": "2026-05-10T13:01:58+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "memoria-automatizada-qdrant-embedding-pipeline-rec",
+      "kind": "sprint",
+      "title": "Memoria automatizada Qdrant: embedding pipeline + recall semantico + auto-MEMORY.md",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        6,
+        8
+      ],
+      "tags": [
+        "memory",
+        "qdrant",
+        "automation",
+        "docker"
+      ],
+      "spec_path": null,
+      "description": "Activar el sistema docker+Qdrant que estaba planeado pero nunca se completo (qdrant_storage vacio). Acciones: (1) Stop hook indexa vault notes nuevas en Qdrant automaticamente (768d MPNet). (2) context_primer query Qdrant top-N antes de generar context.md, enriquece con notas semanticas relevantes a session pinned. (3) MEMORY.md se regenera desde top-N notas Qdrant en lugar de manual. (4) Recall por concepto (no solo keyword) via /recall <topic> en TUI. Bloquea: necesita Docker daemon + Qdrant container live.",
+      "created_at": "2026-05-10T13:02:03+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    }
+  ]
+}

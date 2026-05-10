@@ -1,0 +1,66 @@
+{
+  "version": "1.0",
+  "updated": "2026-05-10T00:12:57.590601",
+  "agents": {
+    "ultron-arch": {
+      "name": "ultron-arch",
+      "description": "ULTRON Phase 0b diagnostic. Analyzes architecture for high coupling, low cohesion, SOLID violations, cyclomatic complexity, and missing abstractions. Requires synthesis across module boundaries. Returns structured JSON diagnostic. Read-only.",
+      "tools": "Read, Glob, Grep",
+      "model": "claude-sonnet-4-6",
+      "category": "diagnostic",
+      "phase": "Phase 0b",
+      "run_order": 1,
+      "file": "C:\\Users\\USER\\.claude\\agents\\ultron-arch.md",
+      "last_seen": "2026-04-30T14:13:58.967282",
+      "status": "active"
+    },
+    "ultron-context": {
+      "name": "ultron-context",
+      "description": "ULTRON Phase 0b diagnostic for large codebases (>50 files). Compresses architecture, entry points, key files, and external dependencies into a structured JSON summary. Provides context window for Codex in /maxdual when codebase exceeds direct reading capacity. Read-only.",
+      "tools": "Read, Glob, Grep",
+      "model": "claude-sonnet-4-6",
+      "category": "diagnostic",
+      "phase": "Phase 0b",
+      "run_order": 1,
+      "file": "C:\\Users\\USER\\.claude\\agents\\ultron-context.md",
+      "last_seen": "2026-04-30T14:14:10.966726",
+      "status": "active"
+    },
+    "ultron-metadata": {
+      "name": "ultron-metadata",
+      "description": "ULTRON Phase 0a diagnostic. Collects git history, file inventory, and dependency manifests to build repo metadata used by specialist diagnostic agents in /maxdual Phase 0. Always run before ultron-security, ultron-arch, ultron-perf.",
+      "tools": "Glob, Read, Bash",
+      "model": "claude-haiku-4-5-20251001",
+      "category": "diagnostic",
+      "phase": "Phase 0a",
+      "run_order": 0,
+      "file": "C:\\Users\\USER\\.claude\\agents\\ultron-metadata.md",
+      "last_seen": "2026-04-30T14:13:35.244748",
+      "status": "active"
+    },
+    "ultron-perf": {
+      "name": "ultron-perf",
+      "description": "ULTRON Phase 0b diagnostic. Scans code for performance anti-patterns — O(n²) algorithms, N+1 queries, sync I/O in hot paths, unbounded memory growth, missing caching. Returns structured JSON diagnostic. Read-only.",
+      "tools": "Read, Glob, Grep",
+      "model": "claude-haiku-4-5-20251001",
+      "category": "diagnostic",
+      "phase": "Phase 0b",
+      "run_order": 1,
+      "file": "C:\\Users\\USER\\.claude\\agents\\ultron-perf.md",
+      "last_seen": "2026-04-30T14:13:46.803578",
+      "status": "active"
+    },
+    "ultron-security": {
+      "name": "ultron-security",
+      "description": "ULTRON Phase 0b diagnostic. Scans code for OWASP vulnerabilities, hardcoded secrets, auth issues, injection risks, and insecure configurations. Returns structured JSON diagnostic for /maxdual pre-analysis. Read-only.",
+      "tools": "Read, Glob, Grep",
+      "model": "claude-haiku-4-5-20251001",
+      "category": "diagnostic",
+      "phase": "Phase 0b",
+      "run_order": 1,
+      "file": "C:\\Users\\USER\\.claude\\agents\\ultron-security.md",
+      "last_seen": "2026-04-30T14:13:36.242670",
+      "status": "active"
+    }
+  }
+}

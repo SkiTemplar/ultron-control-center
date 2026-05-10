@@ -1,0 +1,20 @@
+{
+  "desync":       "desync OR replication OR NetUpdate OR RPC OR sync",
+  "lag":          "lag OR replication OR netcode OR latency OR RTT",
+  "multiplayer":  "multiplayer OR replication OR netcode OR session OR listen",
+  "rollback":     "rollback OR netcode OR desync OR replication",
+  "ability":      "ability OR GAS OR GameplayAbility OR ASC OR AttributeSet",
+  "attribute":    "attribute OR AttributeSet OR GAS OR GameplayEffect",
+  "input":        "input OR InputAction OR IMC OR EnhancedInput OR mapping",
+  "crash":        "crash OR assert OR ensure OR UFUNCTION OR nullptr",
+  "package":      "package OR uv OR pip OR pyproject OR dependency",
+  "lint":         "lint OR ruff OR mypy OR ty OR format",
+  "test":         "test OR pytest OR hypothesis OR coverage OR fixture",
+  "auth":         "auth OR supabase OR GoTrue OR RLS OR cookie OR session",
+  "ssr":          "ssr OR nextjs OR ServerComponent OR ServerAction OR hydration",
+  "database":     "database OR supabase OR RLS OR migration OR schema OR SQL",
+  "skill":        "skill OR SKILL OR persona OR routing OR ULTRON",
+  "hook":         "hook OR SessionStart OR PostToolUse OR Stop OR UserPrompt",
+  "memory":       "memory OR vault OR brain OR INDEX OR decay OR session",
+  "agent":        "agent OR subagent OR dispatch OR parallel OR fork"
+}

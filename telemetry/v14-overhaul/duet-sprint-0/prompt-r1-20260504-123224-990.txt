@@ -1,0 +1,21 @@
+ULTRON v14 overhaul Sprint 0 just completed. Validate as critical peer:
+
+DELIVERABLES TO REVIEW:
+- ~/.claude/settings.json (current state -- 13 plugins, 8 MCPs)
+- ~/.ultron/backups/2026-05-04-pre-S0/rollback.ps1 (1872 bytes)
+- ~/.ultron/telemetry/v14-overhaul/sprint-0-diff.md
+- ~/.claude/skills/ultron/references/changelog.md (latest entry, v13.3.0)
+
+VALIDATE:
+1. settings.json valid JSON, no orphaned references to removed plugins/MCP
+2. Removed plugins (claude-mem@thedotmack, pensyve@major7apps-pensyve, code-simplifier@claude-plugins-official, context7@claude-plugins-official) don't have transitive dependents in active scripts
+3. MCP memory removal doesn't break wired-up tooling
+4. Cruft deletes match what was zipped in backup (no false positives, no missing safeguards)
+5. rollback.ps1 logic is correct -- would actually restore everything if invoked
+6. Changelog entry is accurate and complete
+
+REPORT FORMAT:
+- Verdict: GREEN-LIGHT | CONCERNS | BLOCKERS
+- For each of the 6 validation points: PASS / FAIL / N/A with one-line reason
+- Concerns or blockers: list with file:line citations where applicable
+- Recommendation for Sprint 1

@@ -1,0 +1,185 @@
+# ULTRON Decision Log — decisiones tomadas + alternativas descartadas + razón
+# IDs nunca se reutilizan. Si cambias de opinión, crea una nueva con `supersedes: D-XXX`.
+
+schema_version: 1
+last_updated: 2026-05-09
+
+decisions:
+  - id: D-001
+    date: 2026-05-09
+    title: "Vault stays markdown — NO migrar a Docker"
+    chosen: "~/.ultron-vault/ permanece como markdown filesystem"
+    alternatives_considered:
+      - option: "Mover vault a Docker volume (igual que Qdrant)"
+        why_rejected: |
+          Rompería: Obsidian-future-edit, git versioning, grep, fastembed
+          read access, robocopy weekly backup, L0 context.md primer.
+      - option: "Junction symlink ~/.ultron/code → skill scripts"
+        why_rejected: "Cosmético, no resuelve organización mental real"
+    rationale: |
+      Docker es ideal para SERVICIOS (Qdrant). Vault es CONTENIDO. Nunca
+      se ponen archivos source en contenedores en arquitectura sana.
+      La separación code/state/knowledge es XDG-correct.
+    affects: [U-007]
+    revisit_if: "Si USER empieza Obsidian heavy use o vault >10 GB"
+
+  - id: D-002
+    date: 2026-05-09
+    title: "Cockpit migration via script out-of-band, NO live"
+    chosen: "migrate-v14.9.ps1 ejecutado fuera de Claude Code"
+    alternatives_considered:
+      - option: "Ejecutar migración live durante sesión activa"
+        why_rejected: |
+          Windows file locks en .venv/Scripts/python.exe — cualquier hook
+          en vivo bloquea move. Stop hook al cierre rompería.
+      - option: "Migración manual paso a paso interactiva"
+        why_rejected: "Frágil, no atómica, no rollback claro"
+    rationale: |
+      Script atómico con backup tar + 6 fases + rollback de 1 línea.
+      Pre-flight detecta procesos locked y aborta antes de tocar nada.
+    affects: [U-020]
+    revisit_if: "Cuando sea necesario hacer migration similar futura"
+
+  - id: D-003
+    date: 2026-05-09
+    title: "pythonw.exe para hooks invisibles (no python.exe)"
+    chosen: "pythonw.exe (Windows subsystem) + STARTUPINFO SW_HIDE"
+    alternatives_considered:
+      - option: "subprocess.Popen CREATE_NO_WINDOW solo"
+        why_rejected: |
+          python.exe es console subsystem y briefly allocates console
+          aún con el flag. Causa focus-steal en juegos fullscreen.
+      - option: "Start-Process -WindowStyle Hidden solo"
+        why_rejected: |
+          Funciona para parent pero no propaga al child cuando es
+          uv → python (proceso intermedio).
+    rationale: |
+      pythonw.exe es Windows subsystem — NUNCA allocates consola.
+      Eliminado focus-steal completo en sesiones de gaming.
+    affects: [U-011]
+
+  - id: D-004
+    date: 2026-05-09
+    title: "Vault folders nuevas para AI-write-mostly use case"
+    chosen: "60_BUGS/ + 70_ERRORS/ + 80_ACADEMIC/ creadas"
+    alternatives_considered:
+      - option: "Reusar 30_PATTERNS/ para todo"
+        why_rejected: "Mezcla bugs concretos con patrones abstractos"
+      - option: "Una sola folder LOG/ con tagging"
+        why_rejected: "Sin estructura, brain_index pierde el filtrado por tipo"
+    rationale: |
+      USER NO abre Obsidian — vault es AI-write. Folders deben mapear
+      categorías que ULTRON detecta en conversación, no taxonomía
+      humana clásica.
+    affects: [U-008, U-010]
+
+  - id: D-005
+    date: 2026-05-09
+    title: "memory/L1/ packets → vault/00_INDEX/_packets/"
+    chosen: "Pre-rendered packets viven en vault, no en .ultron state"
+    alternatives_considered:
+      - option: "Mantener en ~/.ultron/memory/L1/"
+        why_rejected: |
+          Aislaba el folder, conceptualmente desordenado: markdown content
+          dentro de state mutable.
+      - option: "Embedido en brain_index.db como blobs"
+        why_rejected: "Rompería human-readability"
+    rationale: |
+      Packets son markdown content derivado. El vault ya tiene zona
+      00_INDEX para meta-content. _packets/ es subfolder natural.
+      brain_index.py MEMORY_L1_DIR actualizado, transparente al runtime.
+    affects: [U-009]
+
+  - id: D-006
+    date: 2026-05-09
+    title: "Version SSOT vía SKILL.md frontmatter parsing"
+    chosen: "read_ultron_version() en cockpit_base.py parsea YAML frontmatter"
+    alternatives_considered:
+      - option: "Constante hardcoded en cockpit_base.py"
+        why_rejected: "Mismo problema que ya tenía tui.py — drift en N sitios"
+      - option: "version.txt en skill root"
+        why_rejected: "Otro archivo más; SKILL.md frontmatter ya existe"
+    rationale: |
+      SKILL.md frontmatter es el SSOT lógico (lo que Claude Code lee
+      para activar skill). Que el código lea de ahí elimina drift.
+    affects: [U-001]
+
+  - id: D-007
+    date: 2026-05-09
+    title: "Triple mode (Codex + Gemini paralelo) candidato a deprecation"
+    chosen: "Mantener por ahora, evaluar uso real durante próximos 30d"
+    alternatives_considered:
+      - option: "Deprecar inmediatamente, colapsar a Dual"
+        why_rejected: "Sin métricas de uso real, prematuro"
+      - option: "Convertir a flag --triple en /maxdual"
+        why_rejected: "Mantener opcionalidad pero medir antes"
+    rationale: |
+      Complejidad alta, ratio uso probablemente bajo. Decisión real
+      requiere route_quality data. Re-evaluar cuando v15.0 cierre.
+    affects: [U-102]
+    revisit_if: "30 días con métricas, o sprint v15.2 PUBLIC-SPLIT"
+
+  - id: D-008
+    date: 2026-05-09
+    title: "Backlog system YAML-based (no JSON, no DB)"
+    chosen: "~/.ultron/roadmap/{backlog,decisions}.yaml + Python CLI"
+    alternatives_considered:
+      - option: "SQLite con schema relacional"
+        why_rejected: |
+          Overkill para un backlog personal. No human-editable a vista.
+          Migrate path complica si stack cambia.
+      - option: "JSON con script wrapper"
+        why_rejected: |
+          JSON sin comentarios, edición manual peor. YAML + comentarios
+          es mejor balance human/machine.
+      - option: "Markdown con front-matter por item"
+        why_rejected: |
+          File-per-item se desorganiza. Single-file YAML es navegable.
+    rationale: |
+      Edición a mano + CLI ergonómico = mejor adopción. YAML carga
+      con pyyaml ya en venv. Parseable + comentarios + IDs estables.
+    affects: [U-022, U-023]
+
+  - id: D-009
+    date: 2026-05-09
+    title: "Public/private split deferred a v15.2"
+    chosen: "Hacer ULTRON.io v15.0 primero, luego decidir si publicar"
+    alternatives_considered:
+      - option: "Empezar PUBLIC-SPLIT inmediato"
+        why_rejected: |
+          Mucho trabajo si al final no se publica. Web showcase v15.0
+          da credibilidad sin commit a publicar código.
+    rationale: |
+      Web pública es bajo riesgo (showcase). Code public es alto
+      compromiso (mantenimiento, support, community). Validar
+      con showcase antes.
+    affects: [U-041, U-045]
+
+  - id: D-010
+    date: 2026-05-09
+    title: "skill_truncation threshold 200 → 700"
+    chosen: "Bumped a 700 (660 skills actuales con headroom)"
+    alternatives_considered:
+      - option: "Mantener 200 (warning permanente)"
+        why_rejected: "Falsa señal — v14.4 lazy loader resolvió truncation"
+      - option: "Threshold dinámico = N_actual * 1.1"
+        why_rejected: "Sobrecogniciado para un warning"
+    rationale: |
+      v14.4 skill_lazy_loader desacopló descriptions del system prompt.
+      Threshold 200 era válido pre-v14.4. Comentario en doctor-rules.yaml
+      explica el cambio para futuro.
+    affects: []
+
+  - id: D-011
+    date: 2026-05-09
+    title: "Auto-recall hook fires every prompt aún con Qdrant down"
+    chosen: "Mantener hook, fail silently cuando Qdrant unreachable"
+    alternatives_considered:
+      - option: "Detectar Qdrant up al SessionStart, skip si down"
+        why_rejected: "Flaky — Docker puede arrancar mid-session"
+      - option: "Reintentar inscripción en cola si Qdrant down"
+        why_rejected: "Complejidad sin valor — context se pierde igual"
+    rationale: |
+      Defensive design: hook nunca bloquea, exit 0 silent si infra falta.
+      Cuando Qdrant despierta, próximo prompt funciona sin intervención.
+    affects: [U-012]

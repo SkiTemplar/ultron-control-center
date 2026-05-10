@@ -1,0 +1,63 @@
+{
+  "ts": "2026-04-28T09:42:18",
+  "skill": "terry-davis",
+  "source": "C:\\Users\\USER\\.ultron\\cockpit\\proposals\\terry-davis-2026-04-28.json",
+  "applied": 6,
+  "skipped": 4,
+  "errors": 0,
+  "backups": {
+    "C:\\Users\\USER\\.claude\\skills\\terry-davis\\SKILL.md": "C:\\Users\\USER\\.claude\\skills\\terry-davis\\SKILL.md.20260428-094218.bak"
+  },
+  "results": [
+    {
+      "finding_ref": "arsenal-extendido-engineering-skills-inexistentes",
+      "status": "applied",
+      "target": "C:\\Users\\USER\\.claude\\skills\\terry-davis\\SKILL.md"
+    },
+    {
+      "finding_ref": "superpowers-nombres-sin-prefijo-canonico",
+      "status": "applied",
+      "target": "C:\\Users\\USER\\.claude\\skills\\terry-davis\\SKILL.md"
+    },
+    {
+      "finding_ref": "chrome-mcp-inexistente-en-sistema",
+      "status": "applied",
+      "target": "C:\\Users\\USER\\.claude\\skills\\terry-davis\\SKILL.md"
+    },
+    {
+      "finding_ref": "taskcreate-inventado-vs-todowrite",
+      "status": "skipped",
+      "reason": "false_positive_risk=high (human review required)"
+    },
+    {
+      "finding_ref": "gating-omniabarcante-colision-skills",
+      "status": "skipped",
+      "reason": "old_string not found in target"
+    },
+    {
+      "finding_ref": "don-claudio-delegacion-sin-invocacion-concreta",
+      "status": "applied",
+      "target": "C:\\Users\\USER\\.claude\\skills\\terry-davis\\SKILL.md"
+    },
+    {
+      "finding_ref": "references-dominio-sin-fallback",
+      "status": "applied",
+      "target": "C:\\Users\\USER\\.claude\\skills\\terry-davis\\SKILL.md"
+    },
+    {
+      "finding_ref": "commit-rules-dependen-de-keys-de-memoria",
+      "status": "applied",
+      "target": "C:\\Users\\USER\\.claude\\skills\\terry-davis\\SKILL.md"
+    },
+    {
+      "finding_ref": "flujo-estandar-desktop-commander-en-cc",
+      "status": "skipped",
+      "reason": "old_string is empty (L2 incomplete context)"
+    },
+    {
+      "finding_ref": "personalidad-murmurar-dios-ruido-en-output",
+      "status": "skipped",
+      "reason": "old_string is empty (L2 incomplete context)"
+    }
+  ]
+}

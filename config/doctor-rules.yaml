@@ -1,0 +1,55 @@
+# ULTRON doctor — retention + staleness + token thresholds (S5-B).
+#
+# Loaded by ~/.claude/skills/ultron/scripts/cockpit/doctor.py at run time.
+# Missing keys fall back to the defaults baked into doctor.py — partial
+# overrides are valid (you only need to specify what you want to change).
+
+retention:
+  # Session log files (~/.ultron-vault/50_SESSIONS_LOG/auto-*.md and
+  # ~/.claude/projects/*/sessions/*.jsonl) older than this are flagged.
+  session_logs_days: 30
+
+  # Backup snapshot directories under ~/.ultron/backups/<dir>/ older than
+  # this are flagged.
+  backups_days: 90
+
+  # Telemetry JSONL files under ~/.ultron/telemetry/ older than this are flagged.
+  telemetry_days: 180
+
+  # Hard cap on alerts.jsonl size before doctor proposes a purge.
+  alerts_max_size_mb: 10
+
+staleness:
+  # context.md (L0 wake-up cache) older than this triggers a stale warning.
+  l0_max_hours: 4
+
+  # brain_index/index.db (ZTMSI) older than this triggers an info-level
+  # finding. The Stop hook auto-updates it; this is mostly useful for
+  # detecting stuck SessionStart hooks.
+  ztmsi_max_hours: 4
+
+  # D17_DEADWOOD: deadwood scanner sidecar JSON
+  # (~/.ultron/.tmp/deadwood.json) older than this triggers an INFO
+  # finding suggesting a fresh scan. sync-all step 7 refreshes it.
+  deadwood_max_hours: 24
+
+thresholds:
+  # E1 gate: combined token weight of context.md + MEMORY.md +
+  # global CLAUDE.md, measured at session start.
+  token_overhead_tokens: 1500
+
+  # D18_SKILL_TRUNCATION: total skill catalog (root + plugin + bundle)
+  # exceeding this count emits a WARN. The Claude Code harness
+  # truncates skill descriptions at ~120 entries on a 1% budget.
+  # Bumped 200 -> 700 (2026-05-09): v14.4 skill_lazy_loader.py
+  # decoupled descriptions from the system prompt, so 660+ skills
+  # no longer degrade intent routing. Re-evaluate if lazy loader
+  # ever regresses or harness behavior changes.
+  skill_truncation_warn_at: 700
+
+# Set to true to opt in to weekly auto-doctor in the Stop hook.
+# Default OFF — must be flipped explicitly. When true, the Stop hook fires
+# `doctor.py --quiet --json` once every 7 days (tracked via
+# ~/.ultron/.tmp/doctor-last-run.txt) and writes the result to
+# ~/.ultron/.tmp/doctor-weekly.json.
+auto_doctor: false
