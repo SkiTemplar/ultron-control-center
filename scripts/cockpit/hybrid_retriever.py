@@ -25,7 +25,9 @@ import argparse
 import json
 import sqlite3
 import sys
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,41 @@ def _user_home() -> Path:
 
 def _brain_db() -> Path:
     return _user_home() / ".ultron" / "brain_index" / "index.db"
+
+
+def _telemetry_path() -> Path:
+    return _user_home() / ".ultron" / "telemetry" / "recall-events.jsonl"
+
+
+def _record_telemetry(query: str, mode: str, hits: list, latency_ms: float) -> None:
+    """Append one JSONL event to recall-events.jsonl. Failures are silent."""
+    try:
+        path = _telemetry_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        scores = [round(float(h.score), 4) for h in hits]
+        sources = []
+        for h in hits:
+            if h.fts_rank is not None and h.vector_rank is not None:
+                sources.append("both")
+            elif h.fts_rank is not None:
+                sources.append("fts")
+            elif h.vector_rank is not None:
+                sources.append("vec")
+            else:
+                sources.append("?")
+        event = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "query": query,
+            "mode": mode,
+            "hits": len(hits),
+            "scores": scores,
+            "sources": sources,
+            "latency_ms": round(latency_ms, 1),
+        }
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(event, ensure_ascii=False) + "\n")
+    except Exception:
+        pass
 
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -288,7 +325,11 @@ def hybrid_query(
 
 
 def _cmd_query(args: argparse.Namespace) -> int:
+    t0 = time.perf_counter()
     hits = hybrid_query(args.text, mode=args.mode, top=args.top, rerank=args.rerank)
+    latency_ms = (time.perf_counter() - t0) * 1000
+    if not getattr(args, "no_telemetry", False):
+        _record_telemetry(args.text, args.mode, hits, latency_ms)
     if getattr(args, "format", "json") == "human":
         return _print_human(args.text, args.mode, hits)
     payload = {
@@ -335,6 +376,57 @@ def _print_human(query: str, mode: str, hits: list[HybridHit]) -> int:
     return 0
 
 
+def _cmd_stats(args: argparse.Namespace) -> int:
+    """Aggregate recall-events.jsonl over the last N days."""
+    from collections import Counter
+    from datetime import timedelta
+
+    path = _telemetry_path()
+    if not path.exists():
+        print(f"[recall stats] {path} not found — no events yet")
+        return 0
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=args.days)
+    events: list[dict] = []
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if not raw.strip():
+            continue
+        try:
+            ev = json.loads(raw)
+            ts = datetime.fromisoformat(ev.get("ts", ""))
+            if ts >= cutoff:
+                events.append(ev)
+        except (json.JSONDecodeError, ValueError):
+            continue
+
+    if not events:
+        print(f"[recall stats] no events in last {args.days}d")
+        return 0
+
+    total = len(events)
+    with_hits = sum(1 for e in events if e.get("hits", 0) > 0)
+    hit_rate = with_hits / total
+    by_mode = Counter(e.get("mode", "?") for e in events)
+    all_scores = [s for e in events for s in (e.get("scores") or [])]
+    avg_score = (sum(all_scores) / len(all_scores)) if all_scores else 0.0
+    all_sources = [s for e in events for s in (e.get("sources") or [])]
+    by_source = Counter(all_sources)
+    avg_latency = sum(e.get("latency_ms", 0) for e in events) / total
+    top_q = Counter(e.get("query", "?") for e in events).most_common(args.top_queries)
+
+    print(f"[recall stats] window={args.days}d · events={total}")
+    print(f"  hit_rate           {hit_rate:.1%}  ({with_hits}/{total})")
+    print(f"  avg_score          {avg_score:.4f}")
+    print(f"  avg_latency_ms     {avg_latency:.0f}")
+    print(f"  by_mode            " + ", ".join(f"{m}={c}" for m, c in by_mode.most_common()))
+    print(f"  by_source          " + ", ".join(f"{s}={c}" for s, c in by_source.most_common()))
+    print(f"  top_queries (top {args.top_queries}):")
+    for q, c in top_q:
+        q_short = q if len(q) <= 60 else q[:57] + "..."
+        print(f"    {c}× {q_short}")
+    return 0
+
+
 def _cmd_status(args: argparse.Namespace) -> int:
     payload: dict[str, Any] = {
         "fts_db": str(_brain_db()),
@@ -371,7 +463,14 @@ def main(argv: list[str] | None = None) -> int:
                      help="apply cross-encoder re-rank before truncating to --top")
     p_q.add_argument("--format", choices=("json", "human"), default="json",
                      help="output format (default json; 'human' for interactive use)")
+    p_q.add_argument("--no-telemetry", action="store_true", dest="no_telemetry",
+                     help="skip writing recall-events.jsonl entry")
     p_q.set_defaults(func=_cmd_query)
+
+    p_stats = sub.add_parser("stats", help="aggregate telemetry from recall-events.jsonl")
+    p_stats.add_argument("--days", type=int, default=14, help="window in days (default 14)")
+    p_stats.add_argument("--top-queries", type=int, default=5, dest="top_queries")
+    p_stats.set_defaults(func=_cmd_stats)
 
     p_s = sub.add_parser("status", help="health of both retrievers")
     p_s.set_defaults(func=_cmd_status)
