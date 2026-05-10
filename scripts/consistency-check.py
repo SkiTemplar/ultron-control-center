@@ -22,8 +22,18 @@ from pathlib import Path
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-ULTRON_DIR = Path(__file__).parent.parent
-KNOWLEDGE_DIR = Path.home() / ".ultron" / "knowledge"
+ULTRON_DIR = Path.home() / ".claude" / "skills" / "ultron"  # skill markdown root (post-v14.9)
+ULTRON_HOME = Path.home() / ".ultron"  # runtime + code root (post-v14.9)
+KNOWLEDGE_DIR = ULTRON_HOME / "knowledge"
+
+
+def _resolve(rel: str) -> Path:
+    """Resolve a relative artifact path: scripts/ and tests/ live under ~/.ultron,
+    everything else (references/, agents/, *.md) under the skill markdown folder."""
+    norm = rel.replace("\\", "/")
+    if norm.startswith(("scripts/", "tests/")):
+        return ULTRON_HOME / rel
+    return ULTRON_DIR / rel
 
 EXPECTED_PERSONA_COUNT = 14  # Actualizar si se añaden/eliminan personas
 
@@ -320,7 +330,7 @@ def check_triple_mode_artifacts() -> list[str]:
         "tests/shared-duet.Tests.ps1":            "Pester unit tests shared helper (reemplaza gemini-duet.Tests.ps1)",
     }
     for rel, desc in required.items():
-        p = ULTRON_DIR / rel
+        p = _resolve(rel)
         if not p.exists():
             issues.append(f"{rel} no existe ({desc})")
         else:
@@ -350,7 +360,7 @@ def check_triple_mode_artifacts() -> list[str]:
 def check_pester_gemini_tests(timeout_sec: int = 60) -> list[str]:
     """v9.0 / v12.2.2: shared-duet.Tests.ps1 covers Gemini + Codex helper (gemini-duet.Tests.ps1 removed)."""
     issues = []
-    tests_file = ULTRON_DIR / "tests" / "shared-duet.Tests.ps1"
+    tests_file = ULTRON_HOME / "tests" / "shared-duet.Tests.ps1"
     if not tests_file.exists():
         return [f"tests/shared-duet.Tests.ps1 not found at {tests_file}"]
 
@@ -381,7 +391,7 @@ def check_pester_vault_tests(timeout_sec: int = 60) -> list[str]:
     return []
     timeout_sec = timeout_sec  # keep param to avoid removing the function signature
     issues = []
-    tests_file = ULTRON_DIR / "tests" / "auth-vault.Tests.ps1"
+    tests_file = ULTRON_HOME / "tests" / "auth-vault.Tests.ps1"
     if not tests_file.exists():
         return []
 
@@ -424,7 +434,7 @@ def check_cockpit_artifacts() -> list[str]:
         "scripts/cockpit/tui.py":              "Interactive TUI textual (v10.1)",
     }
     for rel, desc in required.items():
-        p = ULTRON_DIR / rel
+        p = _resolve(rel)
         if not p.exists():
             issues.append(f"{rel} no existe ({desc})")
         else:
@@ -462,7 +472,7 @@ def check_dual_mode_artifacts() -> list[str]:
     }
 
     for rel_path, desc in required.items():
-        path = ULTRON_DIR / rel_path
+        path = _resolve(rel_path)
         if not path.exists():
             issues.append(f"{rel_path} no encontrado ({desc})")
         elif path.stat().st_size < 200:
@@ -498,7 +508,7 @@ def section(title: str):
 def check_pester_unit_tests(timeout_sec: int = 60) -> list[str]:
     """v8.1.0 / v12.2.2: Pester tests for shared-duet.ps1 (codex-duet.Tests.ps1 removed)."""
     issues = []
-    tests_file = ULTRON_DIR / "tests" / "shared-duet.Tests.ps1"
+    tests_file = ULTRON_HOME / "tests" / "shared-duet.Tests.ps1"
     if not tests_file.exists():
         return [f"tests/shared-duet.Tests.ps1 not found at {tests_file}"]
 
@@ -587,7 +597,7 @@ def check_codex_mcp_server_registered() -> list[str]:
 def check_dual_mode_live(timeout_sec: int = 300) -> list[str]:
     """v8.0.1: optional live test against Codex CLI via dual-mode-test-runner.ps1."""
     issues = []
-    runner = ULTRON_DIR / "scripts" / "dual-mode-test-runner.ps1"
+    runner = ULTRON_HOME / "scripts" / "dual-mode-test-runner.ps1"
     if not runner.exists():
         return [f"dual-mode-test-runner.ps1 not found at {runner}"]
 

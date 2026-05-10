@@ -267,7 +267,7 @@ def check_consistency() -> Check:
 
     Avoids the 'ALL GREEN with 2 problems detected' inconsistency.
     """
-    script = ULTRON_SKILL_DIR / "scripts" / "consistency-check.py"
+    script = Path.home() / ".ultron" / "scripts" / "consistency-check.py"
     if not script.exists():
         return Check("consistency", "warn", "consistency-check.py missing")
     try:
