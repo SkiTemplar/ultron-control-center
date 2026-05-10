@@ -122,7 +122,7 @@ $phaseAScripts = @(
     @{ Name = 'brain_index';              Script = "$cockpit\brain_index.py";              Args = @('update') }
     @{ Name = 'route_quality_aggregator'; Script = "$cockpit\route_quality_aggregator.py"; Args = @('aggregate', '--today') }
     @{ Name = 'decay_queue';              Script = "$cockpit\decay_queue.py";              Args = @('prime', '--output', "$env:USERPROFILE\.ultron\.tmp\decay-prime.json") }
-    @{ Name = 'consistency_check';        Script = "$env:USERPROFILE\.claude\skills\ultron\scripts\consistency_check.py"; Args = @('--quiet') }
+    @{ Name = 'consistency_check';        Script = "$env:USERPROFILE\.ultron\scripts\consistency_check.py"; Args = @('--quiet') }
     # v14.6 PERFECT MEMORY: keep Qdrant in sync. Best-effort — if Qdrant is
     # down (Docker not yet up post-boot, container stopped), the script exits
     # non-zero and the parallel batch logs not-OK but never blocks Stop.
