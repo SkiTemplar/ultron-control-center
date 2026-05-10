@@ -141,6 +141,10 @@ $phaseAScripts = @(
     # (version, test count, indexed notes, release date) using the snapshot
     # written above. Reads the just-written snapshot to substitute markers.
     @{ Name = 'web_publisher';            Script = "$cockpit\web_publisher.py";            Args = @('refresh', '--quiet') }
+    # F4 (pre-v15 token efficiency): regenerate MEMORY.md from live state
+    # (projects.json + skill_graph.json + brain_index count). Was manually
+    # maintained — now auto-generated, ~463 tok vs 990 pre-F4 (-53%).
+    @{ Name = 'memory_md_generator';      Script = "$cockpit\memory_md_generator.py";      Args = @('generate') }
 )
 
 $phaseAJobs = @()
