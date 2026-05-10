@@ -472,16 +472,21 @@ switch ($Command.ToLower()) {
 
     "recall" {
         # v14.6 PERFECT MEMORY: hybrid retrieval over the vault.
+        # F6 (pre-v15): default to --format=human for interactive readability.
+        # Pass --format=json explicitly if you want machine output.
         if (-not $Rest -or $Rest.Count -eq 0) {
-            Write-Host "Usage: ultron recall <text> [--top N] [--mode hybrid|fts|vector]"
+            Write-Host "Usage: ultron recall <text> [--top N] [--mode hybrid|fts|vector] [--format human|json]"
             Write-Host "       ultron recall status"
             return
         }
-        # Allow `ultron recall status` shortcut
         if ($Rest[0] -eq "status") {
             Invoke-Py "hybrid_retriever.py" @("status")
         } else {
             $forwarded = @("query") + $Rest
+            # Inject --format=human if user did not request a format already.
+            if (-not ($Rest -match '^--format')) {
+                $forwarded = $forwarded + @("--format", "human")
+            }
             Invoke-Py "hybrid_retriever.py" $forwarded
         }
     }

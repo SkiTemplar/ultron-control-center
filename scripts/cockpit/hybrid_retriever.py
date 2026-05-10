@@ -289,6 +289,8 @@ def hybrid_query(
 
 def _cmd_query(args: argparse.Namespace) -> int:
     hits = hybrid_query(args.text, mode=args.mode, top=args.top, rerank=args.rerank)
+    if getattr(args, "format", "json") == "human":
+        return _print_human(args.text, args.mode, hits)
     payload = {
         "query": args.text,
         "mode": args.mode,
@@ -296,6 +298,40 @@ def _cmd_query(args: argparse.Namespace) -> int:
         "results": [h.to_dict() for h in hits],
     }
     print(json.dumps(payload, indent=2, ensure_ascii=False))
+    return 0
+
+
+def _short_path(path: str) -> str:
+    """Trim home prefix and noisy intermediate dirs for a compact display."""
+    if not path:
+        return ""
+    home = str(Path.home())
+    if path.startswith(home):
+        path = "~" + path[len(home):]
+    return path.replace("\\", "/")
+
+
+def _print_human(query: str, mode: str, hits: list[HybridHit]) -> int:
+    """Print results as a compact, human-readable table (no JSON)."""
+    if not hits:
+        print(f"[recall] no matches for {query!r} (mode={mode})")
+        return 0
+    print(f"[recall · mode={mode}] {len(hits)} hit(s) for {query!r}\n")
+    for i, h in enumerate(hits, 1):
+        # Source signal: where did this hit come from?
+        src_bits = []
+        if h.fts_rank is not None:
+            src_bits.append(f"fts#{h.fts_rank}")
+        if h.vector_rank is not None:
+            src_bits.append(f"vec#{h.vector_rank}")
+        src = "·".join(src_bits) if src_bits else "?"
+        snippet = (h.snippet or "").replace("\n", " ").strip()[:120]
+        if snippet.startswith("---"):
+            snippet = snippet.lstrip("- ").strip()[:120]
+        print(f"  {i}. score={h.score:.4f}  [{src}]  {_short_path(h.path)}")
+        if snippet:
+            print(f"     › {snippet}")
+        print()
     return 0
 
 
@@ -333,6 +369,8 @@ def main(argv: list[str] | None = None) -> int:
     p_q.add_argument("--top", type=int, default=5)
     p_q.add_argument("--rerank", action="store_true",
                      help="apply cross-encoder re-rank before truncating to --top")
+    p_q.add_argument("--format", choices=("json", "human"), default="json",
+                     help="output format (default json; 'human' for interactive use)")
     p_q.set_defaults(func=_cmd_query)
 
     p_s = sub.add_parser("status", help="health of both retrievers")
