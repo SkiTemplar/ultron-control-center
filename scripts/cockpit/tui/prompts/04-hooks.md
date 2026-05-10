@@ -13,10 +13,10 @@ CONTEXT:
 
 INPUTS (read in this order):
 - ~/.claude/settings.json (canonical hook registry)
-- ~/.claude/skills/ultron/hooks/*.py (skill-resident hooks)
-- ~/.ultron/hooks/*.ps1 (home-resident hooks)
-- ~/.claude/skills/ultron/scripts/cockpit/hook_input_validator.py
-- ~/.claude/skills/ultron/scripts/cockpit/{intent_dispatcher,routing_decide,silent_exec}.py
+- ~/.ultron/scripts/hooks/*.py (Python hooks, post-v14.9)
+- ~/.ultron/scripts/hooks/*.ps1 (PowerShell hooks, post-v14.9)
+- ~/.ultron/scripts/cockpit/hook_input_validator.py
+- ~/.ultron/scripts/cockpit/{intent_dispatcher,routing_decide,silent_exec}.py
 - ~/.claude/skills/ultron/CLAUDE.md (declared hook count)
 - ~/.claude/skills/ultron/references/changelog.md
 

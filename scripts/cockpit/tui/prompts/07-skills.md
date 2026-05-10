@@ -14,7 +14,7 @@ CONTEXT:
 INPUTS (read in this order):
 - ~/.claude/skills/<persona>/SKILL.md (every persona — see MEMORY.md skill graph table for the canonical list)
 - ~/.ultron/cockpit/skill_graph.json (persona ↔ persona edges)
-- ~/.claude/skills/ultron/scripts/cockpit/personas_ssot.py
+- ~/.ultron/scripts/cockpit/personas_ssot.py
 - ~/.ultron/knowledge/ (per-persona knowledge dirs referenced by SKILL.md frontmatter)
 - ~/.claude/skills/ultron/MEMORY.md (skill graph table, lines 30-50)
 

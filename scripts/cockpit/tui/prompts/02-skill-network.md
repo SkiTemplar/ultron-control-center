@@ -16,7 +16,7 @@ INPUTS (read in this order):
 - ~/.ultron/manifest.cache.json (cached, consumed by dispatcher)
 - ~/.ultron/cockpit/skill_graph.json (persona ↔ skill graph)
 - ~/.claude/skills/*/SKILL.md (every disk-resident skill)
-- ~/.claude/skills/ultron/scripts/cockpit/{skill_manifest,skill_graph,registry_sync,intent_dispatcher,skill_summarizer}.py
+- ~/.ultron/scripts/cockpit/{skill_manifest,skill_graph,registry_sync,intent_dispatcher,skill_summarizer}.py
 - ~/.claude/skills/ultron/references/changelog.md (declared counts)
 
 CHECKS:

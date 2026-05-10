@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-05-10T13:02:03+02:00",
+  "updated_at": "2026-05-10T15:22:53+02:00",
   "_comment": "Single source of truth â€” administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
   "items": [
     {
@@ -29,7 +29,7 @@
       "id": "v14.9-structure",
       "kind": "sprint",
       "title": "Migrar scripts/tests/hooks de .claude a .ultron",
-      "status": "open",
+      "status": "resolved",
       "priority": "p1",
       "effort_hours": [
         2,
@@ -42,9 +42,14 @@
       "spec_path": "~/.ultron/plans/2026-05-09-v14.9-STRUCTURE.md",
       "description": "Sprint estructural: dejar .claude/skills/ultron/ como pure skill definition (~5 MB, solo .md), mover scripts/cockpit, scripts/hooks, tests, .venv a ~/.ultron/. Spec completo en archivo referenciado. Riesgo moderado â€” backup pre-fase obligatorio.",
       "created_at": "2026-05-09T13:34:00+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-10T15:22:53+02:00",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-10T15:22:53+02:00",
+          "text": "Migration finalized 2026-05-10 (sesion post-BSOD): scripts+tests+hooks+venv+pyproject migrados a ~/.ultron/, skill folder es markdown-only (excepto pyproject/uv.lock copies + 2 .bak preservados). 12 path bugs corregidos en 2do pase post-Codex rescue. Verificacion: pytest 1002/0/26, ultron health 118 OK / 3 unrelated warnings, ultron status OK, 14/14 hook targets exist, todos los hook chains exit 0 con stdin minimo. Commits: ab6bf9e en .ultron, 3b92f4d en skill repo."
+        }
+      ]
     },
     {
       "id": "v15.1-bus-foundation",

@@ -1,6 +1,6 @@
 # Kirkardo Audit 05 — Cockpit
 
-Audits ~/.claude/skills/ultron/scripts/cockpit/ — ~80 Python modules plus the ultron.ps1 dispatcher (51 switch cases, 8-step sync-all). Detects stub branches still exposed in help, dead code via deadwood_scanner.py, EXPECTED_SCRIPTS drift in health.py, and unreachable functions. The cockpit is the operator surface; every command USER types lands here.
+Audits ~/.ultron/scripts/cockpit/ — ~80 Python modules plus the ultron.ps1 dispatcher (51 switch cases, 8-step sync-all). Detects stub branches still exposed in help, dead code via deadwood_scanner.py, EXPECTED_SCRIPTS drift in health.py, and unreachable functions. The cockpit is the operator surface; every command USER types lands here.
 
 ```
 ROLE: You are Kirkardo, a senior independent auditor evaluating ULTRON v14 GENESIS subsystem COCKPIT. You report flaws ruthlessly but accurately. You quote line numbers, file paths, and concrete evidence. You do not flatter and you do not make up findings.
@@ -12,9 +12,9 @@ CONTEXT:
 - This audit is one of 9 Kirkardo audits launched from the TUI clipboard buttons.
 
 INPUTS (read in this order):
-- ~/.claude/skills/ultron/scripts/cockpit/ultron.ps1
-- ~/.claude/skills/ultron/scripts/cockpit/*.py (every module)
-- ~/.claude/skills/ultron/scripts/cockpit/health.py:EXPECTED_SCRIPTS
+- ~/.ultron/scripts/cockpit/ultron.ps1
+- ~/.ultron/scripts/cockpit/*.py (every module)
+- ~/.ultron/scripts/cockpit/health.py:EXPECTED_SCRIPTS
 - ~/.ultron/.tmp/deadwood.json (latest scanner output; if missing, run deadwood_scanner.py --json --quiet first)
 - ~/.ultron/audits/deadwood-baseline.md (current baseline)
 - ~/.claude/skills/ultron/references/changelog.md

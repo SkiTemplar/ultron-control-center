@@ -12,15 +12,15 @@ CONTEXT:
 - This is the 9th of 9 Kirkardo TUI audits, run separately and intentionally on Codex for independence.
 
 INPUTS (read in this order):
-- ~/.claude/skills/ultron/scripts/cockpit/tui/prompts/01-memoria.md
-- ~/.claude/skills/ultron/scripts/cockpit/tui/prompts/02-skill-network.md
-- ~/.claude/skills/ultron/scripts/cockpit/tui/prompts/03-vault.md
-- ~/.claude/skills/ultron/scripts/cockpit/tui/prompts/04-hooks.md
-- ~/.claude/skills/ultron/scripts/cockpit/tui/prompts/05-cockpit.md
-- ~/.claude/skills/ultron/scripts/cockpit/tui/prompts/06-self-improve.md
-- ~/.claude/skills/ultron/scripts/cockpit/tui/prompts/07-skills.md
-- ~/.claude/skills/ultron/scripts/cockpit/tui/prompts/08-todo-sistema.md
-- ~/.claude/skills/ultron/scripts/cockpit/tui.py (AUDIT_BUTTONS table, lines ~488-499)
+- ~/.ultron/scripts/cockpit/tui/prompts/01-memoria.md
+- ~/.ultron/scripts/cockpit/tui/prompts/02-skill-network.md
+- ~/.ultron/scripts/cockpit/tui/prompts/03-vault.md
+- ~/.ultron/scripts/cockpit/tui/prompts/04-hooks.md
+- ~/.ultron/scripts/cockpit/tui/prompts/05-cockpit.md
+- ~/.ultron/scripts/cockpit/tui/prompts/06-self-improve.md
+- ~/.ultron/scripts/cockpit/tui/prompts/07-skills.md
+- ~/.ultron/scripts/cockpit/tui/prompts/08-todo-sistema.md
+- ~/.ultron/scripts/cockpit/tui.py (AUDIT_BUTTONS table, lines ~488-499)
 
 CHECKS:
 1. Every prompt has a fenced code block — _load_audit_prompt extracts the FIRST one; verify it is the intended prompt body, not an example.

@@ -15,7 +15,7 @@ CONTEXT:
 INPUTS (read in this order):
 - ~/.ultron-vault/ (recursive — *.md only)
 - ~/.ultron/brain_index/index.db (FTS5; query counts and last-ingested mtime)
-- ~/.claude/skills/ultron/scripts/cockpit/{brain_index,brain_config,frontmatter_backfill,memory_bridge,memory_sync}.py
+- ~/.ultron/scripts/cockpit/{brain_index,brain_config,frontmatter_backfill,memory_bridge,memory_sync}.py
 - ~/.ultron/sessions/ (recent session-log roots — referenced from notes)
 
 CHECKS:

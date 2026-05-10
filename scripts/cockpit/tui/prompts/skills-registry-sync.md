@@ -32,7 +32,7 @@ INSTRUCTIONS:
    - `sync_group`: ultron-core | personas | layer2 | community
    Fill missing fields conservatively; do not overwrite existing values.
 4. Write the updated manifest atomically (tmp → fsync → replace).
-5. Run `uv run python ~/.claude/skills/ultron/scripts/cockpit/registry_sync.py update-manifest` to refresh the cache.
+5. Run `uv run python ~/.ultron/scripts/cockpit/registry_sync.py update-manifest` to refresh the cache.
 
 OUTPUT (single concise report):
 - Counts: synced=N, exclusive_skipped=M, errors=K

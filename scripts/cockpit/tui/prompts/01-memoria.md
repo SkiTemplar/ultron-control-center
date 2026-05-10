@@ -17,7 +17,7 @@ INPUTS (read in this order):
 - ~/.ultron/MEMORY.md (orientation root, ≤200 lines)
 - ~/.ultron/brain_index/index.db (FTS5 — query counts via brain_index.py status)
 - ~/.ultron-vault/ (L2 markdown notes)
-- ~/.claude/skills/ultron/scripts/cockpit/{generate_L0,context_primer,memory_sync,memory_bridge,token_budget}.py
+- ~/.ultron/scripts/cockpit/{generate_L0,context_primer,memory_sync,memory_bridge,token_budget}.py
 - ~/.claude/CLAUDE.md (declares the wake-up protocol)
 
 CHECKS:

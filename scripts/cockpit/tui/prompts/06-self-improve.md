@@ -12,10 +12,10 @@ CONTEXT:
 - This audit is one of 9 Kirkardo audits launched from the TUI clipboard buttons.
 
 INPUTS (read in this order):
-- ~/.claude/skills/ultron/scripts/cockpit/auto_updater.py
-- ~/.claude/skills/ultron/scripts/cockpit/persona_audit.py
-- ~/.claude/skills/ultron/scripts/cockpit/apply_proposals.py
-- ~/.claude/skills/ultron/scripts/cockpit/audit_to_pending.py
+- ~/.ultron/scripts/cockpit/auto_updater.py
+- ~/.ultron/scripts/cockpit/persona_audit.py
+- ~/.ultron/scripts/cockpit/apply_proposals.py
+- ~/.ultron/scripts/cockpit/audit_to_pending.py
 - ~/.ultron/audits/ (recent persona-audit outputs, *.md)
 - ~/.ultron/proposals/ (cmd_propose outputs, *.json)
 - ~/.claude/skills/ultron/references/changelog.md (Sprint 5 + Sprint 6 entries)

@@ -29,7 +29,7 @@ Editar `~/.claude/settings.json` añadiendo el bloque `hooks`:
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/USER/.claude/skills/ultron/hooks/auto-approve-readonly.py"
+            "command": "python C:/Users/USER/.ultron/scripts/hooks/auto-approve-readonly.py"
           }
         ]
       },
@@ -38,7 +38,7 @@ Editar `~/.claude/settings.json` añadiendo el bloque `hooks`:
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/USER/.claude/skills/ultron/hooks/block-dangerous-bash.py"
+            "command": "python C:/Users/USER/.ultron/scripts/hooks/block-dangerous-bash.py"
           }
         ]
       }
@@ -48,7 +48,7 @@ Editar `~/.claude/settings.json` añadiendo el bloque `hooks`:
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/USER/.claude/skills/ultron/hooks/session-log.py"
+            "command": "python C:/Users/USER/.ultron/scripts/hooks/session-log.py"
           }
         ]
       }
@@ -70,7 +70,7 @@ echo '{
   "hook_event_name": "PreToolUse",
   "tool_name": "Read",
   "tool_input": {"file_path": "test.txt"}
-}' | python ~/.claude/skills/ultron/hooks/auto-approve-readonly.py
+}' | python ~/.ultron/scripts/hooks/auto-approve-readonly.py
 ```
 
 Salida esperada (auto-approve):
