@@ -83,7 +83,7 @@ $Script:RollbackActions = @()
 
 function Add-Rollback {
     param(
-        [Parameter(Mandatory)][ValidateSet('restore_file','remove_dir','remove_file','restore_dir','custom')][string]$Kind,
+        [Parameter(Mandatory)][ValidateSet('restore_file','remove_dir','remove_file','restore_dir','move_back')][string]$Kind,
         [string]$Source,
         [string]$Target,
         [string]$Note
@@ -137,6 +137,19 @@ function Invoke-Rollback {
                     if (Test-Path -LiteralPath $a.target) {
                         Remove-Item -LiteralPath $a.target -Force -ErrorAction SilentlyContinue
                         Write-Host "    removed $($a.target)" -ForegroundColor DarkGray
+                    }
+                }
+                'move_back' {
+                    # Inverse of Move-Item. $a.source = current location (post-mutation),
+                    # $a.target = original location (pre-mutation). Move back.
+                    if (Test-Path -LiteralPath $a.source) {
+                        if (Test-Path -LiteralPath $a.target) {
+                            # Target slot occupied — refuse to overwrite during rollback
+                            Write-Host "    [WARN] move_back skipped: $($a.target) exists" -ForegroundColor Yellow
+                        } else {
+                            Move-Item -LiteralPath $a.source -Destination $a.target -Force -ErrorAction SilentlyContinue
+                            Write-Host "    moved back $($a.source) -> $($a.target)" -ForegroundColor DarkGray
+                        }
                     }
                 }
             }
@@ -354,7 +367,7 @@ function Move-WithVerify {
     if ($srcDrive -eq $dstDrive) {
         # Same drive: rename is atomic
         Move-Item -LiteralPath $Source -Destination $Target -Force
-        Add-Rollback -Kind 'custom' -Source $Target -Target $Source -Note "move back $Label"
+        Add-Rollback -Kind 'move_back' -Source $Target -Target $Source -Note "move back $Label"
         Ok "$Label moved (rename) -> $Target"
     } else {
         # Cross-drive: copy, verify file count, then delete source
@@ -377,7 +390,7 @@ Move-WithVerify -Source "$SkillRoot\scripts\cockpit" -Target $NewCockpitDir -Lab
 $sharedDuetSrc = "$SkillRoot\scripts\shared-duet.ps1"
 if (Test-Path $sharedDuetSrc) {
     Move-Item -LiteralPath $sharedDuetSrc -Destination "$NewScripts\shared-duet.ps1" -Force
-    Add-Rollback -Kind 'custom' -Source "$NewScripts\shared-duet.ps1" -Target $sharedDuetSrc -Note "move back shared-duet.ps1"
+    Add-Rollback -Kind 'move_back' -Source "$NewScripts\shared-duet.ps1" -Target $sharedDuetSrc -Note "move back shared-duet.ps1"
     Ok "shared-duet.ps1 -> $NewScripts"
 }
 
@@ -436,8 +449,17 @@ Ok "__pycache__ purged (recursive, both trees)"
 Step 4 "Recreate .venv (clean, validated)"
 
 if (Test-Path -LiteralPath $NewVenv) {
-    Warn "Existing .venv at $NewVenv — removing for clean recreate"
-    Remove-Item -LiteralPath $NewVenv -Recurse -Force
+    # Pre-existing .venv at target: backup via rename (atomic) so it can be
+    # restored if uv venv/sync fails later. Cheaper than copy on 800MB+ tree.
+    if (-not $SkipBackup) {
+        $venvBak = "$BackupDir\.venv-pre-recreate"
+        Warn "Existing .venv at $NewVenv — moving to $venvBak (rollback target)"
+        Move-Item -LiteralPath $NewVenv -Destination $venvBak -Force
+        Add-Rollback -Kind 'move_back' -Source $venvBak -Target $NewVenv -Note "restore pre-existing .venv at .ultron"
+    } else {
+        Warn "Existing .venv at $NewVenv — removing (no backup, SkipBackup set)"
+        Remove-Item -LiteralPath $NewVenv -Recurse -Force
+    }
 }
 
 # Old skill .venv (the 871 MB one) — leave it; we'll delete after Step 8 verify
@@ -719,17 +741,20 @@ try {
     if ($pytestExit -eq 0) {
         Ok "pytest: $summaryLine"
     } else {
-        Warn "pytest exit=$pytestExit — $summaryLine"
-        Warn "Inspect with: cd $UltronRoot ; uv run pytest tests/ -v"
-        # Don't auto-fail: pytest may have unrelated failures pre-existing baseline
+        # Hard-fail: preserve rollback target. If pre-existing baseline failures
+        # were known, user can skip Step 9 cleanup manually after inspection.
+        Fail "pytest exit=$pytestExit - $summaryLine. Aborting to preserve rollback target. Inspect: cd $UltronRoot ; uv run pytest tests/ -v"
     }
 
     # Smoke import each rewritten cockpit module
     $smokeMods = @('cockpit_base','tui','memory_bridge','on_wake','skill_manifest_to_routing','intent_dispatcher')
     $importStmt = ($smokeMods | ForEach-Object { "import $_" }) -join "; "
     $smoke = & uv run python -c "import sys; sys.path.insert(0, r'$NewCockpitDir'); $importStmt; print('all imports ok')" 2>&1
-    if ($LASTEXITCODE -eq 0) { Ok "Cockpit module imports: $smoke" }
-    else                     { Warn "Module import smoke failed: $smoke" }
+    if ($LASTEXITCODE -eq 0) {
+        Ok "Cockpit module imports: $smoke"
+    } else {
+        Fail "Module import smoke failed: $smoke. Aborting to preserve rollback target."
+    }
 }
 finally { Pop-Location }
 
