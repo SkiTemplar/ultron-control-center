@@ -39,7 +39,7 @@ layers:
           v14.4 P1 froze it via skillOverrides — subsequent sessions see a
           consistent listing until overrides change.
       - name: session_start_output
-        source: ~/.ultron/hooks/session-init.ps1
+        source: ~/.ultron/scripts/hooks/session-init.ps1
         stability: stable_post_v14.4_p2
         notes: |
           Refactored 2026-05-08: stdout now emits a deterministic line
@@ -56,8 +56,8 @@ layers:
         notes: New every turn by definition.
       - name: user_prompt_submit_hooks
         sources:
-          - ~/.claude/skills/ultron/hooks/mode-trigger.py
-          - ~/.claude/skills/ultron/hooks/intent-dispatcher.py
+          - ~/.ultron/scripts/hooks/mode-trigger.py
+          - ~/.ultron/scripts/hooks/intent-dispatcher.py
         stability: volatile
         notes: |
           Per-turn output (mode register + dispatcher signal). Located AFTER

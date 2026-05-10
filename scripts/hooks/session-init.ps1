@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$SessionId = "",
     [string]$Mode = "MEDIUM"
 )
@@ -15,7 +15,7 @@ try {
             }
         }
     }
-} catch { <# stdin parse failure — continue with fallback #> }
+} catch { <# stdin parse failure â€” continue with fallback #> }
 
 # Fallback: generate a short GUID if we still have no session_id
 if ($SessionId -eq "") {
@@ -47,11 +47,11 @@ if (Test-Path $modeFile) {
 # v12 BRAIN: drain any pending vault pushes that the previous Stop hook
 # couldn't deliver (offline, conflict). Best-effort, never blocks startup.
 # Sprint 1.4 (Kirkardo TOTAL v2 2026-05-03): wrapped in Start-Job with 5s
-# timeout — push-queue is a git network call and was breaking the "pure no
+# timeout â€” push-queue is a git network call and was breaking the "pure no
 # tool calls" contract from CLAUDE.md (drift detected by HOOKS audit).
-# If timeout, items stay queued for next SessionStart retry — same semantics,
+# If timeout, items stay queued for next SessionStart retry â€” same semantics,
 # no SessionStart hang.
-$syncScript = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\memory_sync.py"
+$syncScript = "$env:USERPROFILE\.ultron\scripts\cockpit\memory_sync.py"
 if (Test-Path $syncScript) {
     $useUv = [bool] (Get-Command uv -ErrorAction SilentlyContinue)
     $pushJob = Start-Job -Name 'ultron-push-queue' -ArgumentList $syncScript, $useUv -ScriptBlock {
@@ -78,15 +78,15 @@ if (Test-Path $decayCache) {
                                               [System.Text.Encoding]::UTF8)
         $sessionData["StaleNotes"] = $raw | ConvertFrom-Json
     } catch {
-        # ignore parse errors — never block session start
+        # ignore parse errors â€” never block session start
     }
 }
 
 # v12.5.0-fix2 (F4): surface critical pending actions from dead-letter queue.
 # pending_actions prime writes top-N critical/blocking actions to JSON; we
 # inline them in current-session.json so the agent sees them in turn 0
-# (closes the audit→fix manual loop — SI-CRIT-1 of Kirkardo TOTAL).
-$pendingScript = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\pending_actions.py"
+# (closes the auditâ†’fix manual loop â€” SI-CRIT-1 of Kirkardo TOTAL).
+$pendingScript = "$env:USERPROFILE\.ultron\scripts\cockpit\pending_actions.py"
 $pendingCache  = Join-Path $tmpDir "pending-actions-primed.json"
 if (Test-Path $pendingScript) {
     try {
@@ -94,7 +94,7 @@ if (Test-Path $pendingScript) {
             New-Item -Path $tmpDir -ItemType Directory -Force | Out-Null
         }
         # Sprint 1.4 (Kirkardo TOTAL v2 2026-05-03): wrapped in Start-Job with
-        # 3s timeout — pending_actions prime is local SQLite read, normally <500ms,
+        # 3s timeout â€” pending_actions prime is local SQLite read, normally <500ms,
         # but defensive bound prevents SessionStart hang on any pathological case.
         $useUvP = [bool] (Get-Command uv -ErrorAction SilentlyContinue)
         $pendJob = Start-Job -Name 'ultron-pending-prime' -ArgumentList $pendingScript, $pendingCache, $useUvP -ScriptBlock {
@@ -157,6 +157,7 @@ if (Test-Path $vaultLog) {
 }
 
 $sessionTmp = Join-Path $tmpDir "current-session.json"
+$contextMd = Join-Path $tmpDir "context.md"
 if (-not (Test-Path $tmpDir)) {
     New-Item -Path $tmpDir -ItemType Directory -Force | Out-Null
 }
@@ -165,10 +166,10 @@ $jsonText = $sessionData | ConvertTo-Json -Depth 5
 $utf8 = New-Object System.Text.UTF8Encoding $false
 [System.IO.File]::WriteAllText($sessionTmp, $jsonText, $utf8)
 
-# v13.2 context_primer: generate context.md (≤400 tokens) for Claude READ PATH.
+# v13.2 context_primer: generate context.md (â‰¤400 tokens) for Claude READ PATH.
 # This is THE missing cable: Claude reads context.md at session start per CLAUDE.md.
-# Best-effort: wrapped in job with 8s timeout — primer reads JSON files, normally <1s.
-$primerScript = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\context_primer.py"
+# Best-effort: wrapped in job with 8s timeout â€” primer reads JSON files, normally <1s.
+$primerScript = "$env:USERPROFILE\.ultron\scripts\cockpit\context_primer.py"
 if (Test-Path $primerScript) {
     $useUvPr = [bool] (Get-Command uv -ErrorAction SilentlyContinue)
     $primerJob = Start-Job -Name 'ultron-context-primer' -ArgumentList $primerScript, $useUvPr -ScriptBlock {
@@ -193,9 +194,9 @@ Write-Host "[OK] Session ready - primed (see ~/.ultron/.tmp/current-session.json
 # v13.4 Sprint 1: Pilar B Alerts Bus integration. After context_primer has
 # regenerated context.md, fold in any unacked warn+blocking alerts so the
 # user (and Claude) sees them in turn 0. Best-effort: silent failure must
-# never block session start. Wrapped in Start-Job with 4s timeout — alerts
+# never block session start. Wrapped in Start-Job with 4s timeout â€” alerts
 # read is local jsonl + small JSON, normally <500ms.
-$alertsScript = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\alerts.py"
+$alertsScript = "$env:USERPROFILE\.ultron\scripts\cockpit\alerts.py"
 if ((Test-Path $alertsScript) -and (Test-Path $contextMd)) {
     $useUvA = [bool] (Get-Command uv -ErrorAction SilentlyContinue)
     $alertsJob = Start-Job -Name 'ultron-alerts-read' -ArgumentList $alertsScript, $useUvA -ScriptBlock {
@@ -221,9 +222,9 @@ if ((Test-Path $alertsScript) -and (Test-Path $contextMd)) {
 }
 
 # Helper: launch a Python script fully invisibly (no focus steal during gaming).
-# Uses pythonw.exe (Windows subsystem) when available — guaranteed no console window.
+# Uses pythonw.exe (Windows subsystem) when available â€” guaranteed no console window.
 # Falls back to python.exe with -WindowStyle Hidden if pythonw missing (rare).
-$VenvDir   = "$env:USERPROFILE\.claude\skills\ultron\.venv\Scripts"
+$VenvDir   = "$env:USERPROFILE\.ultron\.venv\Scripts"
 $VenvPyW   = "$VenvDir\pythonw.exe"
 $VenvPy    = "$VenvDir\python.exe"
 $SilentExe = if (Test-Path $VenvPyW) { $VenvPyW } else { $VenvPy }
@@ -242,40 +243,41 @@ function Start-SilentPython {
         -ErrorAction SilentlyContinue | Out-Null
 }
 
-# S2-A: Brain index staleness check (>4h → incremental update in background).
+# S2-A: Brain index staleness check (>4h â†’ incremental update in background).
 try {
     $indexDb = "$env:USERPROFILE\.ultron\brain_index\index.db"
     if (Test-Path $indexDb) {
         $ageHours = ((Get-Date) - (Get-Item $indexDb).LastWriteTime).TotalHours
         if ($ageHours -gt 4) {
-            $brainScript = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\brain_index.py"
+            $brainScript = "$env:USERPROFILE\.ultron\scripts\cockpit\brain_index.py"
             if (Test-Path $brainScript) {
                 Start-SilentPython -Script $brainScript -ScriptArgs @("update") -LogBase "brain_update"
             }
         }
     }
 } catch {
-    # brain index update is non-fatal — never block session start
+    # brain index update is non-fatal â€” never block session start
 }
 
 # S3-A: Generate L0 pinned context for this session.
 try {
-    $genL0 = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\generate_L0.py"
+    $genL0 = "$env:USERPROFILE\.ultron\scripts\cockpit\generate_L0.py"
     if (Test-Path $genL0) {
         Start-SilentPython -Script $genL0 -ScriptArgs @() -LogBase "generate_L0"
     }
 } catch {
-    # L0 generation is non-fatal — never block session start
+    # L0 generation is non-fatal â€” never block session start
 }
 
 # S5 Sub-pilar A: Probe MCP servers and refresh ~/.ultron/.tmp/mcp-health.json.
 try {
-    $mcpHealth = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\mcp_health_check.py"
+    $mcpHealth = "$env:USERPROFILE\.ultron\scripts\cockpit\mcp_health_check.py"
     if (Test-Path $mcpHealth) {
         Start-SilentPython -Script $mcpHealth -ScriptArgs @("--quiet") -LogBase "mcp_health"
     }
 } catch {
-    # MCP health check is non-fatal — never block session start
+    # MCP health check is non-fatal â€” never block session start
 }
 
 exit 0
+

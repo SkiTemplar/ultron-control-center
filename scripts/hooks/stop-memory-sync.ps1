@@ -25,9 +25,9 @@ try {
 } catch { <# stdin parse failure — continue without session_id #> }
 
 $vault = "$env:USERPROFILE\.ultron-vault"
-$logFile = "$env:USERPROFILE\.ultron\hooks\stop-memory-sync.log"
-$syncScript = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\memory_sync.py"
-$cockpit = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit"
+$logFile = "$env:USERPROFILE\.ultron\logs\stop-memory-sync.log"
+$syncScript = "$env:USERPROFILE\.ultron\scripts\cockpit\memory_sync.py"
+$cockpit = "$env:USERPROFILE\.ultron\scripts\cockpit"
 
 function Write-Log {
     param($msg)
@@ -180,7 +180,7 @@ if ($phaseAJobs.Count -gt 0) {
 # Always runs after Phase A (cheap local read ≤1s). Ensures that the next
 # SessionStart has a fresh context.md ≤400 tokens without waiting for the
 # SessionStart hook to prime it (which would delay session open).
-$primerScript = "$env:USERPROFILE\.claude\skills\ultron\scripts\cockpit\context_primer.py"
+$primerScript = "$env:USERPROFILE\.ultron\scripts\cockpit\context_primer.py"
 if (Test-Path $primerScript) {
     $primerJob = Start-Job -Name 'ultron-stop-primer' -ArgumentList $primerScript, $useUv -ScriptBlock {
         param($Script, $UseUv)
@@ -379,3 +379,5 @@ try {
 
 # Always succeed — never block Stop event
 exit 0
+
+
