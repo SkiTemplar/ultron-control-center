@@ -1,4 +1,4 @@
-# ULTRON v14.9 STRUCTURE — Cockpit Migration Script (v3)
+﻿# ULTRON v14.9 STRUCTURE — Cockpit Migration Script (v3)
 #
 # REWRITTEN from v2 after Codex peer review (verdict: BLOCK).
 # v3 fixes ALL 9 critical blockers + the high-severity items:
@@ -585,11 +585,13 @@ foreach ($f in $hookPyNew) {
     #  use Path(__file__).parent.parent / "cockpit" which from .ultron/scripts/hooks/ = scripts/cockpit)
     $c = $c -replace 'Path\(__file__\)\.resolve\(\)\.parents\[1\]\s*/\s*"scripts"\s*/\s*"cockpit"',
                      'Path(__file__).resolve().parent.parent / "cockpit"'
-    # Pattern C: os.path.expanduser("~/.claude/skills/ultron/...")
-    $c = $c -replace 'os\.path\.expanduser\(\s*"~/\.claude/skills/ultron/scripts/cockpit',
-                     'os.path.expanduser("~/.ultron/scripts/cockpit'
-    $c = $c -replace 'os\.path\.expanduser\(\s*"~/\.claude/skills/ultron/hooks',
-                     'os.path.expanduser("~/.ultron/scripts/hooks'
+    # Pattern C: os.path.expanduser("~/.claude/skills/ultron/...") — both quote styles
+    $expanduserCockpitOld = 'os\.path\.expanduser\(\s*["'']~/\.claude/skills/ultron/scripts/cockpit'
+    $expanduserCockpitNew = 'os.path.expanduser("~/.ultron/scripts/cockpit'
+    $expanduserHooksOld   = 'os\.path\.expanduser\(\s*["'']~/\.claude/skills/ultron/hooks'
+    $expanduserHooksNew   = 'os.path.expanduser("~/.ultron/scripts/hooks'
+    $c = $c -replace $expanduserCockpitOld, $expanduserCockpitNew
+    $c = $c -replace $expanduserHooksOld,   $expanduserHooksNew
     if ($c -ne $orig) {
         $bak = "$BackupDir\hook.$($f.Name).before-5c"
         Copy-Item -LiteralPath $f.FullName -Destination $bak -Force
@@ -669,6 +671,98 @@ if ($globalMd -ne $globalOrig) {
     Ok "global CLAUDE.md context_primer.py path updated"
 } else {
     Info "global CLAUDE.md: no context_primer.py reference found — nothing to update"
+}
+
+# ════════════════ STEP 5g — $PROFILE PowerShell ultron alias ══════════════
+Step "5g" "Update PowerShell `$PROFILE 'function ultron' alias"
+
+if (Test-Path -LiteralPath $PROFILE) {
+    $profContent = Read-Utf8 $PROFILE
+    $profOrig = $profContent
+    # Replace the function ultron line — match both forward and back slashes
+    $profContent = $profContent -replace `
+        '(?i)\$env:USERPROFILE[\\/]\.claude[\\/]skills[\\/]ultron[\\/]scripts[\\/]cockpit[\\/]ultron\.ps1', `
+        '$env:USERPROFILE\.ultron\scripts\cockpit\ultron.ps1'
+    if ($profContent -ne $profOrig) {
+        $profBak = "$BackupDir\PROFILE.ps1.before-5g"
+        Copy-Item -LiteralPath $PROFILE -Destination $profBak -Force
+        Add-Rollback -Kind 'restore_file' -Source $profBak -Target $PROFILE
+        Write-AtomicUtf8NoBom $PROFILE $profContent
+        Ok "PROFILE 'function ultron' updated"
+    } else {
+        Info "PROFILE: no ultron alias matching old path (already updated or different layout?)"
+    }
+} else {
+    Info "No `$PROFILE file at $PROFILE — nothing to update"
+}
+
+# ════════════════ STEP 5h — Desktop shortcut "ULTRON Cockpit.lnk" ═════════
+Step "5h" "Update Desktop shortcut 'ULTRON Cockpit.lnk'"
+
+$desktopDir = [Environment]::GetFolderPath('Desktop')
+$lnkPath    = Join-Path $desktopDir 'ULTRON Cockpit.lnk'
+if (Test-Path -LiteralPath $lnkPath) {
+    try {
+        $sh  = New-Object -ComObject WScript.Shell
+        $lnk = $sh.CreateShortcut($lnkPath)
+        $oldArgs = $lnk.Arguments
+        $oldWd   = $lnk.WorkingDirectory
+        $newArgs = $oldArgs -replace `
+            '(?i)C:[\\/]Users[\\/]USER[\\/]\.claude[\\/]skills[\\/]ultron', `
+            'C:\Users\USER\.ultron'
+        $newWd   = $oldWd   -replace `
+            '(?i)C:[\\/]Users[\\/]USER[\\/]\.claude[\\/]skills[\\/]ultron', `
+            'C:\Users\USER\.ultron'
+        if ($newArgs -ne $oldArgs -or $newWd -ne $oldWd) {
+            # Backup metadata as text so rollback can restore strings
+            $lnkMetaBak = "$BackupDir\desktop-lnk-meta.json"
+            @{
+                target_path       = $lnk.TargetPath
+                arguments_old     = $oldArgs
+                arguments_new     = $newArgs
+                working_directory_old = $oldWd
+                working_directory_new = $newWd
+                lnk_path          = $lnkPath
+            } | ConvertTo-Json | Set-Content -LiteralPath $lnkMetaBak -Encoding UTF8 -Force
+            $lnk.Arguments        = $newArgs
+            $lnk.WorkingDirectory = $newWd
+            $lnk.Save()
+            # No standard rollback kind for COM shortcut edits — log as note
+            Add-Rollback -Kind 'restore_file' -Source $lnkMetaBak -Target $lnkMetaBak `
+                          -Note "Manual: re-edit ULTRON Cockpit.lnk to restore old Args/WorkDir"
+            Ok "Desktop shortcut updated (Arguments + WorkingDirectory)"
+            Info "  Args:    $($oldArgs.Length) chars -> $($newArgs.Length) chars"
+            Info "  WorkDir: $oldWd -> $newWd"
+        } else {
+            Info "Desktop shortcut: nothing to update (already pointing to .ultron?)"
+        }
+    } catch {
+        Warn "Desktop shortcut update failed: $_"
+    }
+} else {
+    Info "No 'ULTRON Cockpit.lnk' on Desktop — skipping"
+}
+
+# ════════════════ STEP 5i — Re-register Windows Scheduled Tasks ═══════════
+Step "5i" "Re-register Windows Scheduled Tasks (5 ultron tasks point to old .venv)"
+
+# install-scheduler.ps1 is portable: uses $PSScriptRoot, so it'll resolve to
+# the new ~/.ultron/scripts/cockpit/ when invoked from there.
+$installScheduler = "$NewCockpitDir\install-scheduler.ps1"
+if (Test-Path -LiteralPath $installScheduler) {
+    Info "Invoking install-scheduler.ps1 from new location ($NewCockpitDir)"
+    $schedOut = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScheduler 2>&1
+    $schedExit = $LASTEXITCODE
+    if ($schedExit -eq 0) {
+        Ok "Scheduled tasks re-registered with new paths"
+        $schedOut | Where-Object { $_ -match '\[OK\]|\[Cockpit\]|registered|Updated' } | ForEach-Object { Info "  $_" }
+    } else {
+        Warn "install-scheduler exit=$schedExit — manual re-register needed:"
+        $schedOut | Select-Object -Last 10 | ForEach-Object { Write-Host "    $_" -ForegroundColor DarkGray }
+        Warn "  Run later: pwsh -ExecutionPolicy Bypass -File '$installScheduler'"
+    }
+} else {
+    Warn "install-scheduler.ps1 not found at $installScheduler — manual task re-register needed"
 }
 
 # ════════════════ STEP 6 — git rm --cached (using ls-files, not Test-Path) ══
