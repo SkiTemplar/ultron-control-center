@@ -74,21 +74,28 @@ def check_mode_headers() -> list[str]:
 
 
 def check_persona_count() -> list[str]:
-    """Count de personas debe ser consistente entre frontmatter, Layer 1 y JERARQUÍA."""
+    """Count de personas debe ser consistente entre frontmatter, Layer 1 y JERARQUÍA.
+
+    Post-v14.9.x token-efficiency: la tabla Layer 1 vive en references/routing-tables.md
+    (extraída de SKILL.md para reducir boot tokens). El frontmatter ya no incluye
+    'enruta a N personas' — el header del tabla ('Layer 1 — Personas (N)') es la SSOT."""
     issues = []
     skill_md = (ULTRON_DIR / "SKILL.md").read_text(encoding="utf-8")
+    routing_tables = (ULTRON_DIR / "references" / "routing-tables.md").read_text(encoding="utf-8")
 
     fm_m = re.search(r"enruta a (\d+) personas", skill_md)
     fm_count = int(fm_m.group(1)) if fm_m else None
 
-    l1_start = skill_md.find("### Layer 1 — Personas")
-    l1_end = skill_md.find("### Confidence reporting")
-    l1_section = skill_md[l1_start:l1_end] if l1_start != -1 and l1_end != -1 else ""
+    l1_start = routing_tables.find("## Layer 1 — Personas")
+    l1_end = routing_tables.find("### Confidence reporting")
+    l1_section = routing_tables[l1_start:l1_end] if l1_start != -1 and l1_end != -1 else ""
     l1_rows = re.findall(r"^\|\s*[^|]+\|\s*\*\*[\w-]+\*\*\s*\|", l1_section, re.MULTILINE)
     l1_count = len(l1_rows)
 
-    j_m = re.search(r"(\d+) especialistas", skill_md)
-    j_count = int(j_m.group(1)) if j_m else None
+    # JERARQUÍA en SKILL.md ya no lista las personas (movido a routing-tables.md);
+    # solo dice "L1 PERSONAS 14". Leemos el número como referencia secundaria.
+    j_m = re.search(r"L1 PERSONAS\s+(\d+)|(\d+) especialistas", skill_md)
+    j_count = int((j_m.group(1) or j_m.group(2))) if j_m else None
 
     print(f"  Frontmatter 'enruta a N personas': {fm_count if fm_count else '(no encontrado)'}")
     print(f"  Filas en Layer 1 tabla:            {l1_count}")
