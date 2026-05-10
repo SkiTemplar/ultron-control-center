@@ -147,8 +147,17 @@ function Invoke-Rollback {
                             # Target slot occupied — refuse to overwrite during rollback
                             Write-Host "    [WARN] move_back skipped: $($a.target) exists" -ForegroundColor Yellow
                         } else {
-                            Move-Item -LiteralPath $a.source -Destination $a.target -Force -ErrorAction SilentlyContinue
-                            Write-Host "    moved back $($a.source) -> $($a.target)" -ForegroundColor DarkGray
+                            # Ensure parent dir exists (Step 3 may have removed scripts/ etc.)
+                            $parent = Split-Path -Parent $a.target
+                            if ($parent -and -not (Test-Path -LiteralPath $parent)) {
+                                New-Item -ItemType Directory -Path $parent -Force -ErrorAction SilentlyContinue | Out-Null
+                            }
+                            try {
+                                Move-Item -LiteralPath $a.source -Destination $a.target -Force
+                                Write-Host "    moved back $($a.source) -> $($a.target)" -ForegroundColor DarkGray
+                            } catch {
+                                Write-Host "    [WARN] move_back FAILED: $_" -ForegroundColor Yellow
+                            }
                         }
                     }
                 }
@@ -240,10 +249,13 @@ if ($DryRun) {
 # ════════════════ STEP 1 — Backup (atomic, paranoid) ══════════════════════
 Step 1 "Backup (atomic, paranoid)"
 
-if (-not $SkipBackup) {
-    New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
-    Ok "BackupDir: $BackupDir"
+# BackupDir always exists — even with -SkipBackup, Step 5 writes per-file
+# rollback backups under it. Codex review #3: with -SkipBackup the dir
+# was missing, crashing Step 5.
+New-Item -ItemType Directory -Path $BackupDir -Force | Out-Null
+Ok "BackupDir: $BackupDir"
 
+if (-not $SkipBackup) {
     # 1a. settings.json
     Copy-Item -LiteralPath $SettingsFile -Destination "$BackupDir\settings.json" -Force
     Add-Rollback -Kind 'restore_file' -Source "$BackupDir\settings.json" -Target $SettingsFile
@@ -737,7 +749,10 @@ try {
     # Use uv per repo policy
     $pytestOut = & uv run pytest tests/ -q --no-header 2>&1
     $pytestExit = $LASTEXITCODE
-    $summaryLine = ($pytestOut | Select-String 'passed|failed|error' | Select-Object -Last 1).ToString().Trim()
+    # Null-safe summary extraction (Codex review #2: .ToString() on $null throws
+    # before the intended Fail call, bypassing rollback)
+    $summaryMatch = $pytestOut | Select-String 'passed|failed|error' | Select-Object -Last 1
+    $summaryLine  = if ($summaryMatch) { $summaryMatch.ToString().Trim() } else { '<no pytest summary line found>' }
     if ($pytestExit -eq 0) {
         Ok "pytest: $summaryLine"
     } else {
