@@ -48,3 +48,6 @@ audits/*.log
 # Telemetry runtime data
 telemetry/*.jsonl
 telemetry/*.db
+
+# Bus runtime data (v15.1) — sessions, mailboxes, dedup ring; never tracked
+bus/
