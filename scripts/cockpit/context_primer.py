@@ -52,6 +52,67 @@ MAX_PROJECTS  = 4
 MAX_HIGHLIGHTS= 4
 MAX_STALE     = 3
 MAX_SKILL_MAP = 5
+MAX_RECALL    = 3  # F3: semantic recall hits via brain_index FTS5
+
+# F3: FTS5 query sanitizer. Strips punctuation that FTS5 treats as syntax
+# (.,:; -()*+"!? etc.) keeping ASCII + Spanish accented letters. Used to
+# build a recall query from highlights/projects without crashing the parser.
+_FTS_PUNCT = re.compile(r"[^\w\s áéíóúüñÁÉÍÓÚÜÑ]", re.UNICODE)
+_FTS_STOPWORDS = {
+    "que", "para", "como", "este", "esta", "estos", "estas", "una", "uno",
+    "del", "las", "los", "por", "con", "sin", "the", "and", "for", "with",
+    "ultron", "session", "claude",  # too common, drown signal
+}
+
+
+def _sanitize_fts(text: str, max_terms: int = 8) -> str:
+    """Sanitize free text into an FTS5-safe OR'd term list."""
+    cleaned = _FTS_PUNCT.sub(" ", text.lower())
+    terms = [
+        t for t in cleaned.split()
+        if len(t) >= 4 and t not in _FTS_STOPWORDS
+    ]
+    return " ".join(terms[:max_terms])
+
+
+def _recall_via_fts5(seed_text: str, *, top_n: int = MAX_RECALL,
+                     exclude_paths: set[str] | None = None) -> list[dict]:
+    """Return top-N notes from brain_index FTS5 matching the seed.
+
+    Best-effort: returns [] if the DB is missing, the query fails, or the
+    sanitized query is empty. Excludes paths already shown in highlights to
+    avoid duplication. Total cost ~10 ms (no embeddings, no MPNet load)."""
+    import sqlite3
+    db = ULTRON_HOME / "brain_index" / "index.db"
+    if not db.exists():
+        return []
+    query = _sanitize_fts(seed_text)
+    if not query:
+        return []
+    sql = (
+        "SELECT notes.path, notes.title, "
+        "snippet(notes_fts, 1, '«', '»', '…', 8) AS snippet, "
+        "bm25(notes_fts) AS rank "
+        "FROM notes_fts JOIN notes ON notes_fts.rowid = notes.id "
+        "WHERE notes_fts MATCH ? "
+        "ORDER BY rank LIMIT ?"
+    )
+    excluded = exclude_paths or set()
+    out: list[dict] = []
+    try:
+        conn = sqlite3.connect(str(db))
+        try:
+            for path, title, snippet, _rank in conn.execute(sql, (query, top_n * 2)):
+                if path in excluded:
+                    continue
+                out.append({"path": path, "title": title or "", "snippet": snippet or ""})
+                if len(out) >= top_n:
+                    break
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return []
+    return out
 
 
 def _load_json(path: Path) -> object:
@@ -196,6 +257,39 @@ def build_context() -> tuple[str, dict]:
             lines.append(f"- {title} · {days:.0f}d")
         lines.append("")
         data["stale_count"] = len(stale_items)
+
+    # ── RECALL (F3) — top-N notas semantically relevantes via FTS5 ───────
+    # Construye seed text combinando últimos highlights + active projects, y
+    # consulta brain_index FTS5 (BM25 ranking). Excluye paths que YA aparecen
+    # en RECENT SESSIONS para no duplicar.
+    seed_parts: list[str] = []
+    excluded_paths: set[str] = set()
+    if highlights and isinstance(highlights, list):
+        for h in highlights[:2]:
+            preview = h.get("preview", h.get("summary", "")) or ""
+            for ln in preview.splitlines():
+                ln = ln.strip()
+                if ln and not ln.startswith("#") and len(ln) > 10:
+                    seed_parts.append(ln[:140])
+                    break
+            hp = h.get("path") or h.get("file") or ""
+            if hp:
+                excluded_paths.add(hp)
+    for p in active_projects[:2]:
+        name = p.get("name", "")
+        if name:
+            seed_parts.append(name)
+    seed_text = " ".join(seed_parts)
+    recall = _recall_via_fts5(seed_text, top_n=MAX_RECALL,
+                              exclude_paths=excluded_paths)
+    if recall:
+        lines.append(f"## 📚 RECALL (top-{len(recall)} brain_index)")
+        for r in recall:
+            title = (r.get("title") or Path(r.get("path", "")).stem)[:48]
+            snip = (r.get("snippet") or "").replace("\n", " ").strip()[:70]
+            lines.append(f"- {title} — {snip}")
+        lines.append("")
+        data["recall_count"] = len(recall)
 
     # ── SKILL MEMORY MAP ─────────────────────────────────────────────────
     # v14.8 D22 fix: collapsed from N persona-with-paths lines to a single
