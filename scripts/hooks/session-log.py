@@ -9,7 +9,7 @@ Uso en ~/.claude/settings.json:
     "Stop": [{
       "hooks": [{
         "type": "command",
-        "command": "python C:/Users/USER/.claude/skills/ultron/hooks/session-log.py"
+        "command": "python C:/Users/USER/.ultron/scripts/hooks/session-log.py"
       }]
     }]
   }

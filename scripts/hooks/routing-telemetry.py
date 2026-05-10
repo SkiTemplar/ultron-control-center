@@ -16,7 +16,7 @@ Uso en ~/.claude/settings.json:
       "matcher": "Skill|Agent",
       "hooks": [{
         "type": "command",
-        "command": "python C:/Users/USER/.claude/skills/ultron/hooks/routing-telemetry.py"
+        "command": "python C:/Users/USER/.ultron/scripts/hooks/routing-telemetry.py"
       }]
     }]
   }

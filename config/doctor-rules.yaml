@@ -1,6 +1,6 @@
 # ULTRON doctor — retention + staleness + token thresholds (S5-B).
 #
-# Loaded by ~/.claude/skills/ultron/scripts/cockpit/doctor.py at run time.
+# Loaded by ~/.ultron/scripts/cockpit/doctor.py at run time.
 # Missing keys fall back to the defaults baked into doctor.py — partial
 # overrides are valid (you only need to specify what you want to change).
 

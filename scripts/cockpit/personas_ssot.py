@@ -6,11 +6,11 @@ Single source of truth for the persona list. Derives from `skill_manifest.json`
 (which itself is the canonical SSOT post-Sprint-2).
 
 Before Sprint 2 there were FIVE persona-list sources:
-  1. ~/.claude/skills/ultron/hooks/routing-telemetry.py:41-46 (set)
-  2. ~/.claude/skills/ultron/scripts/cockpit/skill_manifest.py:42-46 (set)
+  1. ~/.ultron/scripts/hooks/routing-telemetry.py:41-46 (set)
+  2. ~/.ultron/scripts/cockpit/skill_manifest.py:42-46 (set)
   3. ~/.ultron/skill_manifest.json (category=persona entries — 13 items)
   4. ~/.claude/skills/ultron/references/routing-tables.md (markdown table)
-  5. ~/.claude/skills/ultron/scripts/cockpit/tui.py:1140 LAYER1_PERSONAS
+  5. ~/.ultron/scripts/cockpit/tui.py:1140 LAYER1_PERSONAS
 
 After Sprint 2 there is ONE: this module reads (3) and consumers (1, 2, 4, 5)
 import from here.

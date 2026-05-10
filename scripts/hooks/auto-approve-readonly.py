@@ -22,7 +22,7 @@ Uso en ~/.claude/settings.json:
       "matcher": "Read|Glob|Grep|WebFetch|WebSearch",
       "hooks": [{
         "type": "command",
-        "command": "python C:/Users/USER/.claude/skills/ultron/hooks/auto-approve-readonly.py"
+        "command": "python C:/Users/USER/.ultron/scripts/hooks/auto-approve-readonly.py"
       }]
     }]
   }

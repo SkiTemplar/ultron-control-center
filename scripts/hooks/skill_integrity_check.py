@@ -14,7 +14,7 @@ Decision logic:
     breaking workflow; hard-block can be enabled via ULTRON_INTEGRITY=strict)
 
 Re-establish baseline after legitimate edits:
-  uv run python ~/.claude/skills/ultron/scripts/cockpit/registry_sync.py
+  uv run python ~/.ultron/scripts/cockpit/registry_sync.py
 """
 from __future__ import annotations
 
