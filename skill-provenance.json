@@ -1,5 +1,5 @@
 {
-  "last_updated": "2026-05-09T21:34:29Z",
+  "last_updated": "2026-05-10T21:50:01Z",
   "schema_version": "1",
   "skills": {
     "academic-deep-research": {
@@ -2175,7 +2175,7 @@
     "my-synced-skill": {
       "declared_source": null,
       "installed_at": "2026-05-07T23:12:18Z",
-      "last_scanned": "2026-05-09T21:34:29Z",
+      "last_scanned": "2026-05-10T21:50:01Z",
       "scan_decision": "allow",
       "skill_md_sha1": "",
       "source_kind": "local",
