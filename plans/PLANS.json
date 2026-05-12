@@ -782,6 +782,10 @@
         {
           "ts": "2026-05-12T14:10:00+02:00",
           "text": "WS7 (parte skills) HECHO: embed_skills.py vault-aware (state active/plugin/vaulted, --rebuild, query --state). ultron_skills reconstruida 429 pts. ultron skills vault search = semantico Qdrant-first + fallback keyword. context.md muestra estado Qdrant. HF_HUB_OFFLINE en embed_*. Limpiado contenedor qdrant huerfano. VERIFICADO que el sistema Qdrant esta vivo (Docker autostart, ultron-qdrant up, colecciones ultron_vault 308 + ultron_skills 429, hooks Stop->embed_* y UserPromptSubmit->auto-recall operativos). PENDIENTE: routing-telemetry usage_count por skill, registro 4->1 (WS6), WS3 MCP audit, WS5 quick wins (SessionStart using-superpowers, trims), enhancement auto-recall.py para loguear cuando Qdrant esta down."
+        },
+        {
+          "ts": "2026-05-12T14:45:00+02:00",
+          "text": "PROGRESO 2026-05-12 (cont.): merge-candidates (Qdrant pairwise cosine) anadido a skill_vault. auto-recall.py: skill sugerida muestra state + hint de restore si vaulted (la auto-deteccion semantica de skills via auto-recall YA estaba wired - query ultron_vault + ultron_skills cada primer turno con fastembed). WS3 MCP audit hecho: firebase/n8n-mcp fuera (settings.json + codex config). Los conectores claude.ai (~14 remotos: Booking/Spotify/Figma/Notion/Gmail/Drive/Calendar/Vercel/Supabase/Railway/Tripadvisor/Trivago/Kiwi/lastminute/UberEats) son el grueso del peso MCP pero se gestionan en claude.ai web, fuera de scope local. PENDIENTE de v15.0b: WS5 trim CLAUDE.md/SYSTEM-MAP/MEMORY · WS6 consolidar registro skills 4->1 · brain_index indexar el vault · merge powershell 5.1+7 (decidir)."
         }
       ]
     },

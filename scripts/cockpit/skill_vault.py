@@ -253,6 +253,41 @@ def _semantic_search(query: str, k: int):
         return None
 
 
+def cmd_merge_candidates(args) -> int:
+    """Pares de skills (state filtrable) con coseno > umbral en Qdrant — candidatas a fusionar."""
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import embed_skills  # type: ignore
+        client = embed_skills._get_qdrant()
+        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+        qf = Filter(must=[FieldCondition(key="state", match=MatchValue(value=args.state))]) if args.state != "all" else None
+        pts, _ = client.scroll(collection_name=embed_skills.COLLECTION, scroll_filter=qf,
+                               with_vectors=True, with_payload=True, limit=2000)
+    except Exception as exc:
+        print(f"  Qdrant no disponible o sin colección: {exc!r}"); return 1
+    items = [(p.payload.get("name", "?"), p.vector) for p in pts if p.vector]
+    n = len(items)
+    if n < 2:
+        print(f"  solo {n} skill(s) con vector — nada que comparar"); return 0
+    thr = args.threshold
+    pairs = []
+    for i in range(n):
+        ni, vi = items[i]
+        for j in range(i + 1, n):
+            nj, vj = items[j]
+            dot = sum(a * b for a, b in zip(vi, vj))  # vectores normalizados → cos = dot
+            if dot >= thr:
+                pairs.append((round(dot, 4), ni, nj))
+    pairs.sort(reverse=True)
+    if not pairs:
+        print(f"  sin pares con coseno ≥ {thr} (state={args.state}, n={n})"); return 0
+    print(f"  Candidatas a merge (coseno ≥ {thr}, state={args.state}, {n} skills, {len(pairs)} pares):")
+    for sc, a, b in pairs[: args.k]:
+        print(f"  [{sc:.3f}] {a}  ⇄  {b}")
+    print("\n  (revisar manualmente — fusionar = quedarse una, ampliar su description, vaultear/borrar la otra)")
+    return 0
+
+
 def cmd_search(args) -> int:
     idx = _load_index()
     # 1) intento semántico (Qdrant)
@@ -309,6 +344,7 @@ def main() -> int:
     l = sub.add_parser("list"); l.add_argument("--active", action="store_true"); l.add_argument("--vaulted", action="store_true"); l.set_defaults(func=cmd_list)
     s = sub.add_parser("status"); s.set_defaults(func=cmd_status)
     st = sub.add_parser("stats"); st.set_defaults(func=cmd_stats)
+    mc = sub.add_parser("merge-candidates"); mc.add_argument("--state", choices=["active", "vaulted", "plugin", "all"], default="active"); mc.add_argument("--threshold", type=float, default=0.90); mc.add_argument("-k", type=int, default=25); mc.set_defaults(func=cmd_merge_candidates)
     se = sub.add_parser("search"); se.add_argument("query"); se.add_argument("-k", type=int, default=10); se.add_argument("--no-semantic", action="store_true", help="solo keyword sobre INDEX.json"); se.set_defaults(func=cmd_search)
     r = sub.add_parser("restore"); r.add_argument("names", nargs="+"); r.set_defaults(func=cmd_restore)
     args = ap.parse_args()

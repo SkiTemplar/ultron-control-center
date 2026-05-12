@@ -189,17 +189,24 @@ def _format_reminder(
         name = skill_match.get("name")
         score = skill_match.get("score", 0.0)
         kind = skill_match.get("kind", "")
+        state = skill_match.get("state", "")
         desc = (skill_match.get("description") or "").replace("\n", " ").strip()
         if len(desc) > 160:
             desc = desc[:160] + "..."
         lines.append("Suggested skill (semantic match against the skills catalog):")
-        lines.append(f"  → {name} (kind={kind}, similarity {score:.2f})")
+        lines.append(f"  → {name} (kind={kind}, state={state or '?'}, similarity {score:.2f})")
         if desc:
             lines.append(f"  {desc}")
-        lines.append(
-            "  Invoke via the Skill tool ONLY if it actually fits — this is a "
-            "suggestion based on semantic match, not a strict route."
-        )
+        if state == "vaulted":
+            lines.append(
+                f"  NOTE: `{name}` is in the skill VAULT (not loaded). If it fits, "
+                f"restore it: `ultron skills vault restore {name}` (effective next session / /reload-plugins)."
+            )
+        else:
+            lines.append(
+                "  Invoke via the Skill tool ONLY if it actually fits — this is a "
+                "suggestion based on semantic match, not a strict route."
+            )
         lines.append("")
 
     lines.append("</ultron-recall>")
@@ -235,6 +242,7 @@ def _do_skill_match(client, vector: list[float]) -> dict | None:
         "name": payload.get("name", ""),
         "score": round(score, 4),
         "kind": payload.get("kind", ""),
+        "state": payload.get("state", ""),     # active | vaulted | plugin (v15.0b)
         "tier": payload.get("tier", ""),
         "description": (payload.get("description") or "")[:300],
         "tags": payload.get("tags") or [],
