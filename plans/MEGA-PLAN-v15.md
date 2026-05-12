@@ -83,9 +83,10 @@ Antes de v15, el sistema cuenta con las siguientes capas operativas:
 | **v14.9** | Structure migration (prerequisito) | 2-3 h | A | — | ✅ resolved 2026-05-10 |
 | ~~v15.0~~ | ~~GitHub Release + Installer~~ → **DEFERIDO** | 10-14 h | C (era A) | sistema pulido | **p3 deferred** (era p1) |
 | **v15.6** | Web Showcase Refresh → **Dashboard personal** (auto-update) | 6-10 h | A | v14.9 | **p1 — siguiente** |
-| **v15.0b** | **Memory & Context Overhaul** — skill-vault + Qdrant lazy-loading + registro unificado + MCP audit | 20-30 h | A | + `memoria-qdrant` | **p1 — antes de v15.1** |
+| **v15.0b** | **Memory & Context Overhaul** — skill-vault (380→46) + Qdrant + registro unificado + MCP audit + OSINT | 20-30 h | A | + `memoria-qdrant` | ✅ **resolved 2026-05-12** |
 | ~~`arranque-ligero`~~ | ~~Reducir overhead 6k→2k~~ → **absorbido en v15.0b** | — | — | — | deferred (superseded) |
-| `memoria-qdrant` | Pipeline embedding + recall semántico (Qdrant sigue VACÍO 2026-05-12) — **emparejado con v15.0b** | 6-8 h | A | — | **p1** |
+| `skill-registry-finish` | Remate WS6: migrar consumers al registro v2 · brain_index↔vault · osint diff · trim CLAUDE.md | 4-6 h | A | v15.0b | p2 — polish |
+| `memoria-qdrant` | Pipeline embedding + recall semántico — **verificado vivo** (ultron_vault 308 + ultron_skills 429 pts; hooks Stop→embed_* y auto-recall operativos) | 6-8 h | A | — | mayormente hecho (queda RRF híbrido + auto-mejora) |
 | **v15.0.1** | **Dual Mode v2** — adoptar `codex-plugin-cc` + Gemini CLI vía suscripción (sin API key) | 8-12 h | A | — | **p1 — antes de v15.1** |
 | **v15.1** | Bus Foundation | 32-40 h | B | v14.9 + v15.0b (token diet) | p1 |
 | **v15.2** | Supervisor Daemon | 24-32 h | B | v15.1 | p1 |
