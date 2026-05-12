@@ -1,4 +1,4 @@
-﻿# ULTRON v14.4.0 "GENESIS" CORE - Central command
+﻿# ULTRON v14.9.0 "GENESIS" CORE - Central command
 # Single entry point for the cockpit. Subcommands:
 #   ultron tui                     - launch TUI cockpit (default)
 #   ultron status                  - text dashboard
@@ -102,6 +102,10 @@ function Show-Help {
     Write-Host "  app <name> [args]        Launch GUI app (claude-desktop, chatgpt, spotify, ...)"
     Write-Host "  apps [list|discover|add|remove]"
     Write-Host "                           Manage GUI app registry"
+    Write-Host "  inventory [--filter X] [--json] [--md PATH] [--source <all|registry|winget>]"
+    Write-Host "                           List ALL installed Windows apps (registry + winget)"
+    Write-Host "  verify [--json] [--doc PATH] [--strict]"
+    Write-Host "                           Run [verify: cmd] [expect: regex] claims in critical docs"
     Write-Host "  audit list               List personas/skills available for audit"
     Write-Host "  audit run <persona> [--quick]"
     Write-Host "                           Kirkardo independent audit (Opus full / Sonnet quick)"
@@ -878,6 +882,22 @@ switch ($Command.ToLower()) {
         }
     }
 
+    "inventory" {
+        # ultron inventory [--filter X] [--json] [--md PATH] [--source registry|winget|all]
+        # Lists ALL Windows apps via registry + winget. Distinct from `apps`
+        # (GUI launcher registry). Use for system audit, backup planning,
+        # Drive sync exclusion decisions.
+        Invoke-Py "installed_apps.py" $Rest
+    }
+
+    "verify" {
+        # ultron verify [--json] [--doc PATH] [--strict]
+        # Parses [verify: <cmd>] [expect: <regex>] claims in critical docs
+        # (SYSTEM-MAP.md, system-state.md) and runs each cmd. Reports
+        # PASS/FAIL/ERROR with evidence. Read-only: never modifies docs.
+        Invoke-Py "verify_claims.py" $Rest
+    }
+
     "audit" {
         # ultron audit list  -or-  ultron audit run <persona>
         if (-not $Rest -or $Rest.Count -eq 0) {
@@ -940,12 +960,21 @@ switch ($Command.ToLower()) {
             Write-Host "                                    Install cached skill to ~/.claude/skills/"
             Write-Host "  ultron skills discover clean [--days N]"
             Write-Host "                                    Remove old unreviewed cached skills"
+            Write-Host ""
+            Write-Host "  ultron skills vault status              Active vs vaulted counts"
+            Write-Host "  ultron skills vault list [--active|--vaulted]"
+            Write-Host "  ultron skills vault search `"<query>`"    Find a vaulted skill (keyword over INDEX.json)"
+            Write-Host "  ultron skills vault restore <name>...   Bring skill(s) back to ~/.claude/skills/"
+            Write-Host "  ultron skills vault migrate --keep-file <path> [--dry-run]"
+            Write-Host "                                    One-time: move non-keep skills to the vault"
             exit 1
         }
         $action = ([string]$Rest[0]).ToLower()
         $remaining = @(if ($Rest.Count -gt 1) { $Rest[1..($Rest.Count-1)] } else { @() })
         if ($action -eq "registry") {
             Invoke-Py "registry_sync.py" $remaining
+        } elseif ($action -eq "vault") {
+            Invoke-Py "skill_vault.py" $remaining
         } elseif ($action -eq "discover") {
             Invoke-Py "skill_discover.py" $remaining
         } elseif ($action -eq "manifest") {

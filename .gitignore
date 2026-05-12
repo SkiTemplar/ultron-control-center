@@ -51,3 +51,8 @@ telemetry/*.db
 
 # Bus runtime data (v15.1) — sessions, mailboxes, dedup ring; never tracked
 bus/
+
+# Skill vault (v15.0b) — skill dirs live on disk, not in git; only INDEX + keep-list tracked
+skill-vault/*
+!skill-vault/INDEX.json
+!skill-vault/keep-list.txt

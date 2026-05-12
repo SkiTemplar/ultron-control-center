@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-05-12T12:38:30+02:00",
+  "updated_at": "2026-05-12T13:11:02+02:00",
   "_comment": "Single source of truth — administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
   "items": [
     {
@@ -770,6 +770,10 @@
         {
           "ts": "2026-05-12T12:10:00+02:00",
           "text": "Scope ampliado (USER 2026-05-12): + WS6 consolidación del registro de skills (4 fuentes → 1) + WS7 poblar Qdrant / auto-mejora de embeddings / verificar que el hook Stop captura todas las sesiones. HALLAZGO: qdrant_storage está vacío, Docker apagado — la capa semántica no existe aún, sólo brain_index FTS5. Ejecutar emparejado con `memoria-automatizada-qdrant-embedding-pipeline-rec`. Objetivo conjunto = 'memory & context overhaul' antes de v15.1-bus. Keep-list (~48 skills) en el spec."
+        },
+        {
+          "ts": "2026-05-12T13:45:00+02:00",
+          "text": "PROGRESO 2026-05-12: WS1+WS2 hechos — skill_vault.py creado; 334 skills movidas a ~/.ultron/skill-vault/ (+limpieza mirrors agents/codex); ~/.claude/skills/ 380->46; INDEX.json con metadata; ultron skills vault status|list|search|restore|migrate wired; keep-list.txt persistida. registry_sync update-manifest -> 46. Ahorro contexto efectivo en la proxima sesion (~-26k). PENDIENTE: WS3 MCP audit, WS5 quick wins (SessionStart using-superpowers, trims), WS6 consolidacion registro 4->1, WS7 Qdrant ultron_skills (bloqueado: Docker abajo) + routing-telemetry usage_count."
         }
       ]
     },
@@ -777,7 +781,7 @@
       "id": "v15.0.1-dual-mode-v2",
       "kind": "sprint",
       "title": "Dual Mode v2: adoptar codex-plugin-cc + Gemini CLI via suscripcion (sin API key)",
-      "status": "open",
+      "status": "resolved",
       "priority": "p1",
       "effort_hours": [
         8,
@@ -793,9 +797,14 @@
       "spec_path": "~/.ultron/plans/specs/v15.0.1-dual-mode-v2.md",
       "description": "v15.0.1 (entre v15.0b y v15.1-bus). Modernizar el sistema multi-modelo peer. (1) Adoptar el plugin oficial openai/codex-plugin-cc (/codex:review, /codex:adversarial-review, /codex:rescue, status/result/cancel; auth via suscripcion ChatGPT, no API key; config.toml para modelo+effort). Migrar el plumbing casero shared-duet.ps1/codex-duet.ps1 -> mapear sub-modos ULTRON /minidual /dual /maxdual sobre los comandos del plugin; mantener capa conceptual (LOW prohibe Dual, Codex read-only salvo /codex:rescue con confirmacion, rounds acotados, review-gate desactivado para evitar bucles). (2) Gemini via suscripcion: usar el CLI gemini ya instalado con un prompt que escriba su output a un archivo .md que Claude lee desde fuera; QUITAR GEMINI_API_KEY del MCP/settings por completo; el flujo second-opinion pasa a ser 'gemini -p ... > archivo.md -> Read'. (3) Seguridad: pin model+reasoning_effort en ~/.codex/config.toml, auditar config.toml como vector (ya no aplica --ignore-user-config con el plugin). (4) Doc: reescribir references/dual-mode-protocol.md + seccion Dual de CLAUDE.md; deprecar .ps1 caseros (fallback opcional). (5) SINCRONIZAR TODO: registry_sync, version_propagate, SYSTEM-MAP, context_primer, manifests. DONE: /codex:review funciona desde suscripcion; /dual lanza plugin por debajo; Gemini Pro responde via CLI sin API key con output a archivo; protocolo documentado; cero bucles automaticos sin limite.",
       "created_at": "2026-05-12T12:38:30+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-12T13:11:02+02:00",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-12T13:05:00+02:00",
+          "text": "Cerrado 2026-05-12: plugin codex@openai-codex instalado+setup (gpt-5.5/high, review-gate off, auth chatgpt verificada); MCP gemini/gemini-flash eliminados de settings.json; gemini-peer.ps1 creado; shared-duet.ps1 -> _legacy/; dual-mode-protocol.md v2.0 + CLAUDE.md reescritos; sync+commit 3552e52. PENDIENTE menor (follow-up): probar gemini-peer.ps1 end-to-end y confirmar si la suscripcion Google da gemini-3.1-pro por CLI o degrada a Flash."
+        }
+      ]
     }
   ]
 }

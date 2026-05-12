@@ -1,6 +1,6 @@
 {
   "version": "1",
-  "updated": "2026-05-08T16:35:07",
+  "updated": "2026-05-12T13:32:11",
   "claude_exclusive": [
     "claude-skills",
     "code-review-excellence",
@@ -2585,23 +2585,23 @@
     },
     "academic-deep-research": {
       "registries": [
+        "agents",
         "claude",
-        "codex",
-        "agents"
+        "codex"
       ]
     },
     "academic-paper-reviewer": {
       "registries": [
+        "agents",
         "claude",
-        "codex",
-        "agents"
+        "codex"
       ]
     },
     "academic-pipeline": {
       "registries": [
+        "agents",
         "claude",
-        "codex",
-        "agents"
+        "codex"
       ]
     },
     "ci-cd-debugger": {
@@ -2634,23 +2634,23 @@
     },
     "humanizer": {
       "registries": [
+        "agents",
         "claude",
-        "codex",
-        "agents"
+        "codex"
       ]
     },
     "ln-310-multi-agent-validator": {
       "registries": [
+        "agents",
         "claude",
-        "codex",
-        "agents"
+        "codex"
       ]
     },
     "ln-627-observability-auditor": {
       "registries": [
+        "agents",
         "claude",
-        "codex",
-        "agents"
+        "codex"
       ]
     },
     "openapi-validator": {
@@ -2662,9 +2662,9 @@
     },
     "hiper-plans": {
       "registries": [
+        "agents",
         "claude",
-        "codex",
-        "agents"
+        "codex"
       ]
     }
   }
