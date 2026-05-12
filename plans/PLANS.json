@@ -740,6 +740,10 @@
         {
           "ts": "2026-05-12T12:10:00+02:00",
           "text": "VERIFICADO 2026-05-12: qdrant_storage SIGUE vacío (0 bytes) y Docker apagado — este pipeline nunca llegó a ejecutarse. brain_index FTS5 sí funciona (733 notas, 10824 chunks, 1.48M tok). Se ejecuta emparejado con `token-diet-skill-vault-...` (v15.0b): aquel hace el diet de contexto, éste construye la capa semántica. Juntos = bloque 'memory & context overhaul' que precede a v15.1-bus."
+        },
+        {
+          "ts": "2026-05-12T14:10:00+02:00",
+          "text": "CORRECCION 2026-05-12: el pipeline SI estaba funcionando — la nota previa de qdrant_storage vacio era falso positivo (los datos viven en D:\\Qdrant\\data, no en ~/.ultron/qdrant_storage que es un dir vestigial vacio; ademas Docker no habia booteado aun al verificar). Colecciones ultron_vault (308 pts) + ultron_skills (429 pts, ahora vault-aware). Hooks Stop->embed_vault/embed_skills y UserPromptSubmit->auto-recall ya wired. Lo que queda de este item: busqueda hibrida FTS5+Qdrant en ultron recall (verificar RRF), backfill brain_index->ultron_vault si falta, auto-mejora de embeddings (re-embed/merge/archive). Considerar mergear este item en v15.0b."
         }
       ]
     },
@@ -774,6 +778,10 @@
         {
           "ts": "2026-05-12T13:45:00+02:00",
           "text": "PROGRESO 2026-05-12: WS1+WS2 hechos — skill_vault.py creado; 334 skills movidas a ~/.ultron/skill-vault/ (+limpieza mirrors agents/codex); ~/.claude/skills/ 380->46; INDEX.json con metadata; ultron skills vault status|list|search|restore|migrate wired; keep-list.txt persistida. registry_sync update-manifest -> 46. Ahorro contexto efectivo en la proxima sesion (~-26k). PENDIENTE: WS3 MCP audit, WS5 quick wins (SessionStart using-superpowers, trims), WS6 consolidacion registro 4->1, WS7 Qdrant ultron_skills (bloqueado: Docker abajo) + routing-telemetry usage_count."
+        },
+        {
+          "ts": "2026-05-12T14:10:00+02:00",
+          "text": "WS7 (parte skills) HECHO: embed_skills.py vault-aware (state active/plugin/vaulted, --rebuild, query --state). ultron_skills reconstruida 429 pts. ultron skills vault search = semantico Qdrant-first + fallback keyword. context.md muestra estado Qdrant. HF_HUB_OFFLINE en embed_*. Limpiado contenedor qdrant huerfano. VERIFICADO que el sistema Qdrant esta vivo (Docker autostart, ultron-qdrant up, colecciones ultron_vault 308 + ultron_skills 429, hooks Stop->embed_* y UserPromptSubmit->auto-recall operativos). PENDIENTE: routing-telemetry usage_count por skill, registro 4->1 (WS6), WS3 MCP audit, WS5 quick wins (SessionStart using-superpowers, trims), enhancement auto-recall.py para loguear cuando Qdrant esta down."
         }
       ]
     },

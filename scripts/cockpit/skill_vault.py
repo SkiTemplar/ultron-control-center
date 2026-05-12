@@ -179,8 +179,28 @@ def cmd_status(args) -> int:
     return 0
 
 
+def _semantic_search(query: str, k: int):
+    """Qdrant (ultron_skills, state=vaulted) — devuelve [(score, name, desc)] o None si no disponible."""
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import embed_skills  # type: ignore
+        rows = embed_skills.query_skills(query, top_n=k, state="vaulted")
+        return [(r["score"], r["name"], r["description"]) for r in rows]
+    except Exception:
+        return None
+
+
 def cmd_search(args) -> int:
     idx = _load_index()
+    # 1) intento semántico (Qdrant)
+    sem = None if getattr(args, "no_semantic", False) else _semantic_search(args.query, args.k)
+    if sem:
+        print(f"  vault matches (semántico) para '{args.query}':")
+        for score, name, desc in sem:
+            print(f"  [{score:.3f}] {name:<32} {desc[:70]}")
+        print(f"\n  restaurar: ultron skills vault restore <name>")
+        return 0
+    # 2) fallback keyword sobre INDEX.json (Qdrant caído / sin modelo)
     terms = [t.lower() for t in re.split(r"\s+", args.query.strip()) if t]
     scored = []
     for name, d in idx["skills"].items():
@@ -190,11 +210,11 @@ def cmd_search(args) -> int:
             scored.append((score, name, d))
     scored.sort(reverse=True)
     if not scored:
-        print(f"  sin resultados en el vault para: {args.query}"); return 0
-    print(f"  vault matches para '{args.query}':")
+        print(f"  sin resultados en el vault para: {args.query}  (Qdrant no disponible — fallback keyword)"); return 0
+    print(f"  vault matches (keyword · Qdrant offline) para '{args.query}':")
     for score, name, d in scored[: args.k]:
         print(f"  [{score:>3}] {name:<32} {d['description'][:70]}")
-    print(f"\n  restaurar: skill_vault.py restore <name>")
+    print(f"\n  restaurar: ultron skills vault restore <name>")
     return 0
 
 
@@ -225,7 +245,7 @@ def main() -> int:
     m = sub.add_parser("migrate"); m.add_argument("--keep-file", required=True); m.add_argument("--dry-run", action="store_true"); m.set_defaults(func=cmd_migrate)
     l = sub.add_parser("list"); l.add_argument("--active", action="store_true"); l.add_argument("--vaulted", action="store_true"); l.set_defaults(func=cmd_list)
     s = sub.add_parser("status"); s.set_defaults(func=cmd_status)
-    se = sub.add_parser("search"); se.add_argument("query"); se.add_argument("-k", type=int, default=10); se.set_defaults(func=cmd_search)
+    se = sub.add_parser("search"); se.add_argument("query"); se.add_argument("-k", type=int, default=10); se.add_argument("--no-semantic", action="store_true", help="solo keyword sobre INDEX.json"); se.set_defaults(func=cmd_search)
     r = sub.add_parser("restore"); r.add_argument("names", nargs="+"); r.set_defaults(func=cmd_restore)
     args = ap.parse_args()
     return args.func(args)

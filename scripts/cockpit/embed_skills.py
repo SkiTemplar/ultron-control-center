@@ -45,6 +45,13 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8")
 
+# Modelo de embeddings ya cacheado localmente — no consultar el HF Hub
+# (evita el warning "unauthenticated requests" que PowerShell trata como error).
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+
 
 def _user_home() -> Path:
     return Path.home()
@@ -67,6 +74,14 @@ def _local_skills_dir() -> Path:
 
 def _plugins_root() -> Path:
     return _user_home() / ".claude" / "plugins" / "cache"
+
+
+def _vault_dir() -> Path:
+    return _user_home() / ".ultron" / "skill-vault"
+
+
+# kind -> state en el payload (active = cargada en contexto; vaulted = en el vault; plugin = de un plugin)
+_KIND_STATE = {"local": "active", "plugin": "plugin", "vaulted": "vaulted"}
 
 
 def _state_file() -> Path:
@@ -96,6 +111,7 @@ class SkillMeta:
             "tags": self.tags,
             "tier": self.tier,
             "kind": self.kind,
+            "state": _KIND_STATE.get(self.kind, self.kind),
             "path": self.path,
             "desc_sha1": self.desc_sha1,
             "indexed_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -206,6 +222,19 @@ def walk_plugin_skills() -> Iterable[Path]:
     yield from sorted(root.rglob("SKILL.md"))
 
 
+def walk_vaulted_skills() -> Iterable[Path]:
+    """Skills movidas al vault (v15.0b) — no cargan en contexto pero sí se indexan."""
+    root = _vault_dir()
+    if not root.exists():
+        return
+    for d in sorted(root.iterdir()):
+        if not d.is_dir() or d.name.startswith("."):
+            continue
+        skill_md = d / "SKILL.md"
+        if skill_md.exists():
+            yield skill_md
+
+
 # ── State + Qdrant client ─────────────────────────────────────────────────────
 
 
@@ -251,10 +280,13 @@ def _get_qdrant():
     return QdrantClient(url=QDRANT_URL)
 
 
-def ensure_collection() -> dict[str, Any]:
+def ensure_collection(*, rebuild: bool = False) -> dict[str, Any]:
     from qdrant_client.http.models import Distance, VectorParams
     client = _get_qdrant()
     existing = {c.name for c in client.get_collections().collections}
+    if COLLECTION in existing and rebuild:
+        client.delete_collection(collection_name=COLLECTION)
+        existing.discard(COLLECTION)
     if COLLECTION in existing:
         return {"created": False, "name": COLLECTION}
     client.create_collection(
@@ -317,21 +349,25 @@ class IndexReport:
     failed: int
     duration_s: float
     full_rebuild: bool
+    total_vaulted: int = 0
+    rebuilt: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
-def index_skills(*, full_rebuild: bool = False) -> IndexReport:
+def index_skills(*, full_rebuild: bool = False, rebuild: bool = False) -> IndexReport:
     import time
     start = time.perf_counter()
-    ensure_collection()
+    ensure_collection(rebuild=rebuild)
+    if rebuild:
+        full_rebuild = True          # colección nueva → re-embeber todo
 
     state = {} if full_rebuild else load_state()
     new_state: dict[str, dict[str, Any]] = {}
     to_upsert: list[SkillMeta] = []
     failed = skipped = 0
-    total_local = total_plugin = 0
+    total_local = total_plugin = total_vaulted = 0
 
     for path in walk_local_skills():
         total_local += 1
@@ -363,28 +399,50 @@ def index_skills(*, full_rebuild: bool = False) -> IndexReport:
         to_upsert.append(meta)
         new_state[key] = {"desc_sha1": meta.desc_sha1, "path": meta.path}
 
+    for path in walk_vaulted_skills():
+        total_vaulted += 1
+        meta = extract_skill_meta(path, kind="vaulted")
+        if meta is None:
+            failed += 1
+            continue
+        key = f"{meta.kind}::{meta.name}"
+        prior = state.get(key)
+        if prior and prior.get("desc_sha1") == meta.desc_sha1 and not full_rebuild:
+            skipped += 1
+            new_state[key] = prior
+            continue
+        to_upsert.append(meta)
+        new_state[key] = {"desc_sha1": meta.desc_sha1, "path": meta.path}
+
     indexed = upsert_skills(to_upsert) if to_upsert else 0
     save_state(new_state)
 
     return IndexReport(
         total_local=total_local,
         total_plugin=total_plugin,
+        total_vaulted=total_vaulted,
         indexed=indexed,
         skipped=skipped,
         failed=failed,
         duration_s=round(time.perf_counter() - start, 2),
         full_rebuild=full_rebuild,
+        rebuilt=rebuild,
     )
 
 
-def query_skills(text: str, *, top_n: int = 5) -> list[dict[str, Any]]:
+def query_skills(text: str, *, top_n: int = 5, state: str | None = None) -> list[dict[str, Any]]:
     client = _get_qdrant()
     vec = embed_texts([text])[0]
+    qfilter = None
+    if state:
+        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
+        qfilter = Filter(must=[FieldCondition(key="state", match=MatchValue(value=state))])
     results = client.query_points(
         collection_name=COLLECTION,
         query=vec,
         limit=top_n,
         with_payload=True,
+        query_filter=qfilter,
     ).points
     out = []
     for r in results:
@@ -393,6 +451,7 @@ def query_skills(text: str, *, top_n: int = 5) -> list[dict[str, Any]]:
             "score": round(float(r.score), 4),
             "name": payload.get("name", ""),
             "kind": payload.get("kind", ""),
+            "state": payload.get("state", ""),
             "tier": payload.get("tier", ""),
             "tags": payload.get("tags", []),
             "description": payload.get("description", "")[:200],
@@ -409,13 +468,13 @@ def _cmd_init(args: argparse.Namespace) -> int:
 
 
 def _cmd_index(args: argparse.Namespace) -> int:
-    report = index_skills(full_rebuild=args.full)
+    report = index_skills(full_rebuild=args.full, rebuild=args.rebuild)
     print(json.dumps(report.to_dict(), indent=2))
     return 0
 
 
 def _cmd_query(args: argparse.Namespace) -> int:
-    rows = query_skills(args.text, top_n=args.top)
+    rows = query_skills(args.text, top_n=args.top, state=args.state)
     print(json.dumps(rows, indent=2, ensure_ascii=False))
     return 0
 
@@ -459,12 +518,14 @@ def main(argv: list[str] | None = None) -> int:
     p_init.set_defaults(func=_cmd_init)
 
     p_idx = sub.add_parser("index", help="incremental sync skills → Qdrant")
-    p_idx.add_argument("--full", action="store_true")
+    p_idx.add_argument("--full", action="store_true", help="re-embed todo (ignora state cache)")
+    p_idx.add_argument("--rebuild", action="store_true", help="borra la colección y la reconstruye (purga huérfanos)")
     p_idx.set_defaults(func=_cmd_index)
 
     p_q = sub.add_parser("query", help="semantic skill match")
     p_q.add_argument("text")
     p_q.add_argument("--top", type=int, default=5)
+    p_q.add_argument("--state", choices=["active", "vaulted", "plugin"], default=None, help="filtra por estado")
     p_q.set_defaults(func=_cmd_query)
 
     p_s = sub.add_parser("status", help="collection + state info")

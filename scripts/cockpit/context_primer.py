@@ -145,7 +145,8 @@ def build_context() -> tuple[str, dict]:
 
     # ── HEADER ───────────────────────────────────────────────────────────
     lines.append(f"# ULTRON CONTEXT · {now.strftime('%Y-%m-%d %H:%M')}")
-    lines.append("> Lee MEMORY.md para orientación completa · brain_index.py query para deep dive")
+    lines.append("> Rutas del sistema: `~/.ultron/SYSTEM-MAP.md` (cockpit · brain · vault · skills · MCP)")
+    lines.append("> Orientación completa: `~/.ultron/MEMORY.md` · deep dive: `brain_index.py query \"<topic>\"`")
     lines.append("")
 
     # ── BLOCKING / CRITICAL PENDING ──────────────────────────────────────
@@ -324,6 +325,30 @@ def build_context() -> tuple[str, dict]:
         lines.append(f"## 🧠 BRAIN: {brain_count} notas indexadas")
         lines.append("")
         data["brain_count"] = brain_count
+
+    # ── QDRANT HEALTH (memoria semántica) ────────────────────────────────
+    # Si Docker/Qdrant no está vivo, los hooks embed_*/auto-recall hacen no-op
+    # silencioso — esta línea hace visible el estado en cada arranque.
+    try:
+        import urllib.request as _u, json as _j
+        qstat = []
+        for _c in ("ultron_vault", "ultron_skills"):
+            try:
+                with _u.urlopen(f"http://localhost:6333/collections/{_c}", timeout=1.5) as _r:
+                    _pc = _j.load(_r)["result"].get("points_count", "?")
+                qstat.append(f"{_c.replace('ultron_','')}={_pc}")
+            except Exception:
+                qstat.append(f"{_c.replace('ultron_','')}=?")
+        ok = all("=?" not in s for s in qstat)
+        if ok:
+            lines.append(f"## 🟢 QDRANT: {' · '.join(qstat)} pts")
+            data["qdrant"] = {"up": True, "collections": qstat}
+        else:
+            lines.append("## 🔴 QDRANT DOWN — recall degradado a FTS5 (¿Docker arrancando? `! docker desktop start`)")
+            data["qdrant"] = {"up": False, "collections": qstat}
+        lines.append("")
+    except Exception:
+        pass
 
     # ── FOOTER ───────────────────────────────────────────────────────────
     lines.append("---")
