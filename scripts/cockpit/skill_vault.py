@@ -179,6 +179,69 @@ def cmd_status(args) -> int:
     return 0
 
 
+def _routing_usage() -> dict[str, int]:
+    """Agrega ~/.ultron/sessions/*/routing.jsonl -> {skill_name: n_invocaciones}."""
+    counts: dict[str, int] = {}
+    sdir = HOME / ".ultron" / "sessions"
+    if not sdir.exists():
+        return counts
+    for day in sdir.iterdir():
+        rj = day / "routing.jsonl"
+        if not rj.exists():
+            continue
+        try:
+            for ln in rj.read_text(encoding="utf-8").splitlines():
+                ln = ln.strip()
+                if not ln:
+                    continue
+                e = json.loads(ln)
+                if e.get("tool") == "Skill" and e.get("target"):
+                    counts[e["target"]] = counts.get(e["target"], 0) + 1
+        except (OSError, json.JSONDecodeError):
+            continue
+    return counts
+
+
+def cmd_stats(args) -> int:
+    """Uso real de skills (routing.jsonl) cruzado con active/vaulted. Persiste usage_count en INDEX.json."""
+    idx = _load_index()
+    usage = _routing_usage()
+    active = {p.name for p in PRIMARY.iterdir() if _is_skill_dir(p)} if PRIMARY.exists() else set()
+    vaulted = set(idx["skills"])
+    # persistir usage_count en el INDEX para las vaulteadas
+    changed = False
+    for name in vaulted:
+        u = usage.get(name, 0)
+        if idx["skills"][name].get("usage_count", 0) != u:
+            idx["skills"][name]["usage_count"] = u
+            changed = True
+    if changed:
+        _save_index(idx)
+    # informe
+    used = sorted(usage.items(), key=lambda kv: kv[1], reverse=True)
+    print(f"Skill usage (de routing.jsonl)  ·  active={len(active)}  vaulted={len(vaulted)}")
+    print(f"  Top usadas:")
+    for name, n in used[:12]:
+        loc = "active" if name in active else ("vaulted" if name in vaulted else "plugin/?")
+        print(f"    {n:>4}×  {name:<32} [{loc}]")
+    cold_active = sorted(a for a in active if usage.get(a, 0) == 0)
+    if cold_active:
+        print(f"\n  ❄ Active sin uso registrado ({len(cold_active)}) — candidatas a vault:")
+        print("    " + " · ".join(cold_active))
+    hot_vaulted = sorted(((n, usage[n]) for n in vaulted if usage.get(n, 0) > 0), key=lambda kv: kv[1], reverse=True)
+    if hot_vaulted:
+        print(f"\n  🔥 Vaulteadas que se siguen invocando ({len(hot_vaulted)}) — candidatas a promover:")
+        for n, c in hot_vaulted:
+            print(f"    {c}×  {n}")
+    restored = sorted(((n, d.get("restored_count", 0)) for n, d in idx["skills"].items() if d.get("restored_count", 0)), key=lambda kv: kv[1], reverse=True)
+    if restored:
+        print(f"\n  ↩ Vaulteadas más restauradas:")
+        for n, c in restored[:8]:
+            print(f"    {c}×  {n}")
+    print(f"\n  (cold-active 0 usos puede ser ruido si el historial es corto — revisar antes de demote)")
+    return 0
+
+
 def _semantic_search(query: str, k: int):
     """Qdrant (ultron_skills, state=vaulted) — devuelve [(score, name, desc)] o None si no disponible."""
     try:
@@ -245,6 +308,7 @@ def main() -> int:
     m = sub.add_parser("migrate"); m.add_argument("--keep-file", required=True); m.add_argument("--dry-run", action="store_true"); m.set_defaults(func=cmd_migrate)
     l = sub.add_parser("list"); l.add_argument("--active", action="store_true"); l.add_argument("--vaulted", action="store_true"); l.set_defaults(func=cmd_list)
     s = sub.add_parser("status"); s.set_defaults(func=cmd_status)
+    st = sub.add_parser("stats"); st.set_defaults(func=cmd_stats)
     se = sub.add_parser("search"); se.add_argument("query"); se.add_argument("-k", type=int, default=10); se.add_argument("--no-semantic", action="store_true", help="solo keyword sobre INDEX.json"); se.set_defaults(func=cmd_search)
     r = sub.add_parser("restore"); r.add_argument("names", nargs="+"); r.set_defaults(func=cmd_restore)
     args = ap.parse_args()
