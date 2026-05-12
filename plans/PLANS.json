@@ -1,14 +1,14 @@
 {
   "version": "1.0",
-  "updated_at": "2026-05-10T15:22:53+02:00",
-  "_comment": "Single source of truth â€” administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
+  "updated_at": "2026-05-12T12:38:30+02:00",
+  "_comment": "Single source of truth — administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
   "items": [
     {
       "id": "v15.0-installer",
       "kind": "sprint",
       "title": "Publicar ULTRON en GitHub + instalador personalizable",
       "status": "open",
-      "priority": "p1",
+      "priority": "p3",
       "effort_hours": [
         10,
         14
@@ -16,14 +16,20 @@
       "tags": [
         "release",
         "installer",
-        "open-source"
+        "open-source",
+        "deferred-until-system-polished"
       ],
       "spec_path": "~/.ultron/plans/specs/v15.0-installer.md",
-      "description": "REDEFINIDO 2026-05-09 (USER): el viejo 'web pÃºblica showcase' se difiere. Foco real = preparar el sistema para que terceros puedan clonar el repo, ejecutar un instalador con menÃº interactivo (quÃ© skills, quÃ© hooks, quÃ© MCPs, dÃ³nde poner los paths), y que les funcione out-of-box. Incluye: README maestro, install.ps1/install.sh con prompts interactivos, sanitizer de paths absolutos hardcodeados, secret-strip en SKILL.md/ULTRON config, smoke-test post-install. Web pÃºblica es solo doc + landing simple del repo.",
+      "description": "REDEFINIDO 2026-05-09 (USER): foco = instalador para terceros (clone + install.ps1/install.sh interactivo + sanitizer paths + secret-strip + smoke-test). REDEFINIDO 2026-05-11 (USER): se RETRASA hasta que el sistema esté completamente pulido. El installer es trabajo de distribución para terceros y va al FINAL del ciclo v15; antes hay que cerrar arranque-ligero (p1), memoria-automatizada-qdrant (p1), web-progress-dashboard (era v15.6-web-refresh, ahora p1 y precede al installer). Ver MEGA-PLAN-v15 § X RENUMERACIÓN PROPUESTA.",
       "created_at": "2026-05-09T22:30:00+02:00",
       "resolved_at": null,
-      "deferred_reason": null,
-      "notes": []
+      "deferred_reason": "Sistema no suficientemente pulido para distribución pública. Bloquea hasta resolver: arranque-ligero, memoria-qdrant pipeline, web-progress-dashboard. Decisión USER 2026-05-11.",
+      "notes": [
+        {
+          "ts": "2026-05-11T00:00:00+02:00",
+          "text": "Priority p1 → p3. La decisión real (no registrada en sesiones previas) es que el installer va al final del ciclo v15, después de pulir el sistema. La 'web' que precede no es el installer ni el viejo showcase público — es un dashboard personal de progreso (item v15.6-web-refresh, ahora elevado en orden de ejecución)."
+        }
+      ]
     },
     {
       "id": "v14.9-structure",
@@ -545,19 +551,100 @@
     {
       "id": "v15.6-web-refresh",
       "kind": "sprint",
-      "title": "Web ULTRON: rediseno con Mike Tyson + traduccion ES + auto-update + actualizar contenido",
-      "status": "open",
+      "title": "Web ULTRON: pipeline auto-update + métricas frescas",
+      "status": "resolved",
       "priority": "p1",
       "effort_hours": [
         6,
         10
       ],
       "tags": [
-        "web marketing showcase mike-tyson"
+        "web",
+        "dashboard",
+        "personal",
+        "auto-update"
       ],
       "spec_path": null,
-      "description": "La web actual ~/.ultron/web (HTML estatico, 26KB index, 8KB CSS) esta desactualizada (v14.8.0 hardcoded, 1157 tests, 708 notas, 56 reglas; reales son 1005/711/55). Plan: 1) Mike Tyson rediseno completo. 2) Traduccion ES. 3) Pipeline auto-update: doctor genera datos -> script renderea HTML -> commit. 4) Anadir secciones que faltan: PI013, ultron plans, gemini wrapper, constitution.json, backup mirror, mobile roadmap. NO precios. Solo presentacion + showcase. Backup index.html.bak ya existe.",
+      "description": "Pipeline auto-update de la web ~/.ultron/web/ desde el cockpit: web_publisher.py refresh integrado en Stop hook chain. Mantiene placeholders (version, tests, notas) frescos desde system-snapshot.json + git. Verificado 2026-05-11: index.html sirve v14.9.0 sin intervención manual.",
       "created_at": "2026-05-09T23:36:39+02:00",
+      "resolved_at": "2026-05-11T00:00:00+02:00",
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-11T00:00:00+02:00",
+          "text": "Resolved. Pipeline auto-update funcional (web_publisher.py), web sirve v14.9.0. Pendientes polish (traducción ES, rediseño Mike Tyson, fix contadores '1157 tests'/'584 / 584' descalibrados) movidos a nuevo item `web-polish-es-redesign-fixes` (p2)."
+        }
+      ]
+    },
+    {
+      "id": "web-polish-es-redesign-fixes",
+      "kind": "polish",
+      "title": "Web polish: ES + Mike Tyson redesign + fix contadores",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        3,
+        5
+      ],
+      "tags": [
+        "web",
+        "polish",
+        "i18n",
+        "design"
+      ],
+      "spec_path": null,
+      "description": "Pendientes del v15.6-web-refresh (resolved 2026-05-11) que no estaban en el alcance crítico del pipeline auto-update: 1) Traducción ES de ~/.ultron/web/index.html (sigue en inglés, ver line 31, 491). 2) Rediseño visual completo vía skill mike-tyson — dashboard layout, no landing. 3) Fix contadores descalibrados: line 43 dice '1157 tests passing' pero pytest real = 1027; line 381 dice '584 / 584' (placeholder no se actualiza desde fuente real). 4) Añadir secciones que faltan: PI013, ultron plans, gemini wrapper, constitution.json, backup mirror, mobile roadmap.",
+      "created_at": "2026-05-11T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "tui-command-buttons-systems-view",
+      "kind": "polish",
+      "title": "TUI: botones de comandos críticos en vista System/Inventory",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        3,
+        5
+      ],
+      "tags": [
+        "tui",
+        "cockpit",
+        "ux",
+        "discoverability"
+      ],
+      "spec_path": null,
+      "description": "USER pide que los comandos más importantes del cockpit (verify, inventory, propagate-version, brain query, health, doctor, etc.) tengan botones clicables en la TUI — más fácil que recordar la sintaxis CLI. Añadir botones a la vista System (tecla 4) o crear sub-vista en Inventory (tecla 0). Análisis previo: hacer ranking de los comandos más usados/críticos (verify, inventory, propagate-version, brain query, doctor, memory sync, plans status, mcp list). Cada botón ejecuta el comando y muestra output en panel adyacente. IMPORTANTE: documentar cada comando de forma que Claude (sesiones futuras) sepa usarlo — referencia en SYSTEM-MAP.md o protocols.md.",
+      "created_at": "2026-05-11T00:00:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-11T00:00:00+02:00",
+          "text": "Idea original USER: 'que tú [Claude] sepas también usarlas' — el item incluye documentación de los comandos en lugar accesible para futuros agents."
+        }
+      ]
+    },
+    {
+      "id": "gemini-mcp-reinstall-and-debug",
+      "kind": "fix",
+      "title": "Gemini MCP: reinstalar + investigar por qué falla npx subprocess",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        1,
+        3
+      ],
+      "tags": [
+        "mcp",
+        "gemini",
+        "infra"
+      ],
+      "spec_path": null,
+      "description": "Gemini MCP fue removido 2026-05-11 (`claude mcp remove gemini`) tras detectar 'Failed to connect' transitorio. NO se ha re-añadido. Para reinstalar: `claude mcp add gemini -- npx -y @rlabs-inc/gemini-mcp`. Investigar en internet por qué npx crashea (causa raíz desconocida — daemon timeout? path issues? @rlabs-inc/gemini-mcp version bug?). Sin Gemini, el sistema pierde: Dual/Triple mode peer review, long-context analysis (>80k tokens), image gen via Veo, embeddings.",
+      "created_at": "2026-05-11T00:00:00+02:00",
       "resolved_at": null,
       "deferred_reason": null,
       "notes": []
@@ -609,7 +696,7 @@
       "id": "ultron-arranque-ligero-reducir-overhead-6k-2k-toke",
       "kind": "sprint",
       "title": "ULTRON arranque ligero: reducir overhead 6k -> 2k tokens iniciales",
-      "status": "open",
+      "status": "deferred",
       "priority": "p1",
       "effort_hours": [
         4,
@@ -625,7 +712,7 @@
       "description": "Hoy ULTRON gasta ~6k tokens fijos al arrancar (SKILL.md 3.8k + 2 CLAUDE.md + MEMORY.md + context.md). Plan original era arranque ligero con recuperacion automatizada. Acciones: (1) extraer Layer 1 personas table de SKILL.md a referencia lazy-loaded solo en routing ambiguo. (2) deduplicar CLAUDE.md global vs skill (overlap detectado). (3) MEMORY.md auto-generado desde Qdrant top-N (evita 820 tokens fijos). (4) context.md ya OK ~280 tok. Target: <2k tokens iniciales.",
       "created_at": "2026-05-10T13:01:58+02:00",
       "resolved_at": null,
-      "deferred_reason": null,
+      "deferred_reason": "Superseded por token-diet-skill-vault-qdrant-lazy-loading-mcp-tok (2026-05-12). El item original sólo atacaba ~6k (SKILL.md+CLAUDE.md+MEMORY.md); el problema real es 33.8k de metadata de 380 skills. Absorbido en el nuevo spec v15.0b-token-diet.md.",
       "notes": []
     },
     {
@@ -647,6 +734,65 @@
       "spec_path": null,
       "description": "Activar el sistema docker+Qdrant que estaba planeado pero nunca se completo (qdrant_storage vacio). Acciones: (1) Stop hook indexa vault notes nuevas en Qdrant automaticamente (768d MPNet). (2) context_primer query Qdrant top-N antes de generar context.md, enriquece con notas semanticas relevantes a session pinned. (3) MEMORY.md se regenera desde top-N notas Qdrant en lugar de manual. (4) Recall por concepto (no solo keyword) via /recall <topic> en TUI. Bloquea: necesita Docker daemon + Qdrant container live.",
       "created_at": "2026-05-10T13:02:03+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-12T12:10:00+02:00",
+          "text": "VERIFICADO 2026-05-12: qdrant_storage SIGUE vacío (0 bytes) y Docker apagado — este pipeline nunca llegó a ejecutarse. brain_index FTS5 sí funciona (733 notas, 10824 chunks, 1.48M tok). Se ejecuta emparejado con `token-diet-skill-vault-...` (v15.0b): aquel hace el diet de contexto, éste construye la capa semántica. Juntos = bloque 'memory & context overhaul' que precede a v15.1-bus."
+        }
+      ]
+    },
+    {
+      "id": "token-diet-skill-vault-qdrant-lazy-loading-mcp-tok",
+      "kind": "sprint",
+      "title": "Token diet: skill-vault + Qdrant lazy-loading + MCP token audit",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        20,
+        30
+      ],
+      "tags": [
+        "context-budget",
+        "skills",
+        "qdrant",
+        "mcp",
+        "arranque-ligero",
+        "pre-bus"
+      ],
+      "spec_path": "~/.ultron/plans/specs/v15.0b-token-diet.md",
+      "description": "Reducir overhead fijo de contexto de ~56k a <20k. Causa raiz: 380 skills en ~/.claude/skills/ -> 33.8k tokens de metadata cargada SIEMPRE (no lo arreglan los hooks; es plataforma). Plan: (1) skill-vault: dejar activas ~30-50 skills (codigo + investigacion/academicas + finanzas + personas ULTRON + superpowers core), mover el resto a ~/.ultron/skill-vault/ indexadas en Qdrant con restore on-demand. (2) routing-telemetry extendido: contador de uso por skill -> ranking -> auto-promote/demote + deteccion de skills duplicadas (embedding similarity) -> propuesta de merge. (3) MCP token audit: investigar si los servers MCP pueden quedar registrados sin gastar tokens (deferred tool-names + instruction blocks); toggle ultron mcp enable/disable si no es nativo. (4) SessionStart hook deja de inyectar el cuerpo completo de using-superpowers. (5) trim CLAUDE.md global + SYSTEM-MAP + MEMORY.md. (6) ultron skills vault add/restore/list + doctor check de budget. SUPERSEDE/absorbe el item ultron-arranque-ligero-reducir-overhead-6k-2k-toke. Va ANTES de v15.1-bus-foundation en el roadmap.",
+      "created_at": "2026-05-12T11:42:37+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": [
+        {
+          "ts": "2026-05-12T12:10:00+02:00",
+          "text": "Scope ampliado (USER 2026-05-12): + WS6 consolidación del registro de skills (4 fuentes → 1) + WS7 poblar Qdrant / auto-mejora de embeddings / verificar que el hook Stop captura todas las sesiones. HALLAZGO: qdrant_storage está vacío, Docker apagado — la capa semántica no existe aún, sólo brain_index FTS5. Ejecutar emparejado con `memoria-automatizada-qdrant-embedding-pipeline-rec`. Objetivo conjunto = 'memory & context overhaul' antes de v15.1-bus. Keep-list (~48 skills) en el spec."
+        }
+      ]
+    },
+    {
+      "id": "v15.0.1-dual-mode-v2",
+      "kind": "sprint",
+      "title": "Dual Mode v2: adoptar codex-plugin-cc + Gemini CLI via suscripcion (sin API key)",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        8,
+        12
+      ],
+      "tags": [
+        "dual-mode",
+        "codex",
+        "gemini",
+        "pre-bus",
+        "v15.0.1"
+      ],
+      "spec_path": "~/.ultron/plans/specs/v15.0.1-dual-mode-v2.md",
+      "description": "v15.0.1 (entre v15.0b y v15.1-bus). Modernizar el sistema multi-modelo peer. (1) Adoptar el plugin oficial openai/codex-plugin-cc (/codex:review, /codex:adversarial-review, /codex:rescue, status/result/cancel; auth via suscripcion ChatGPT, no API key; config.toml para modelo+effort). Migrar el plumbing casero shared-duet.ps1/codex-duet.ps1 -> mapear sub-modos ULTRON /minidual /dual /maxdual sobre los comandos del plugin; mantener capa conceptual (LOW prohibe Dual, Codex read-only salvo /codex:rescue con confirmacion, rounds acotados, review-gate desactivado para evitar bucles). (2) Gemini via suscripcion: usar el CLI gemini ya instalado con un prompt que escriba su output a un archivo .md que Claude lee desde fuera; QUITAR GEMINI_API_KEY del MCP/settings por completo; el flujo second-opinion pasa a ser 'gemini -p ... > archivo.md -> Read'. (3) Seguridad: pin model+reasoning_effort en ~/.codex/config.toml, auditar config.toml como vector (ya no aplica --ignore-user-config con el plugin). (4) Doc: reescribir references/dual-mode-protocol.md + seccion Dual de CLAUDE.md; deprecar .ps1 caseros (fallback opcional). (5) SINCRONIZAR TODO: registry_sync, version_propagate, SYSTEM-MAP, context_primer, manifests. DONE: /codex:review funciona desde suscripcion; /dual lanza plugin por debajo; Gemini Pro responde via CLI sin API key con output a archivo; protocolo documentado; cero bucles automaticos sin limite.",
+      "created_at": "2026-05-12T12:38:30+02:00",
       "resolved_at": null,
       "deferred_reason": null,
       "notes": []

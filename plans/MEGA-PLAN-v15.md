@@ -9,6 +9,24 @@ specs_directorio: specs/
 
 # ULTRON — Macro Roadmap v15
 
+> **REDEFINIDO 2026-05-11 (USER):** el orden de ejecución cambia.
+> El **`v15.0-installer`** se RETRASA hasta que el sistema esté pulido
+> (priority p3, `deferred_reason` documentada en PLANS.json). Es trabajo de
+> distribución para terceros y va al final del ciclo v15.
+>
+> La **web (`v15.6-web-refresh`)** se mueve AL FRENTE — no es un showcase
+> público sino un **dashboard personal de progreso** auto-actualizable
+> desde el cockpit. Junto con `arranque-ligero` y `memoria-qdrant`
+> (ambos p1) forma el camino al "sistema pulido" antes del installer.
+>
+> **Decisión USER 2026-05-11 (delegada a Claude):** los slugs/tags
+> permanecen estables (`v15.0-installer`, `v15.6-web-refresh`, etc.). NO se
+> renumera. Razón: estabilidad para `ultron verify`, referencias en specs y
+> changelog se mantienen, reversibilidad si cambia la prioridad otra vez.
+> **El orden de ejecución vive en `priority:` y `deferred_reason:` de
+> `PLANS.json`, NO en el número de version.** Esta nota es la fuente de
+> verdad sobre por qué v15.0 va al final aunque se llame v15.0.
+
 ## Propósito
 
 Documento maestro del macro plan v15. Define las **8 sub-versiones** que
@@ -60,17 +78,21 @@ Antes de v15, el sistema cuenta con las siguientes capas operativas:
 
 # II · LAS 8 SUB-VERSIONES
 
-| Sub | Nombre | Effort | Bloque | Dependencias |
-|---|---|---|---|---|
-| **v14.9** | Structure migration (prerequisito) | 2-3 h | A | — |
-| **v15.0** | GitHub Release + Installer | 10-14 h | A | v14.9 |
-| **v15.1** | Bus Foundation | 32-40 h | B | v14.9 |
-| **v15.2** | Supervisor Daemon | 24-32 h | B | v15.1 |
-| **v15.3** | Pipeline DAG | 24-32 h | B | v15.2 |
-| **v15.4** | Overnight Loop | 16-24 h | B | v15.2, v15.3 |
-| **v15.5** | Mobile Remote (PWA) | 40-56 h | B | v15.2 (MVP-29h posible antes que v15.3-v15.4) |
-| **v15.6** | Web Showcase Refresh | 6-10 h | A | v15.0 |
-| **v15.7** | Anti-Hallucination Layer | 12-18 h | C | v15.1 (helpful, no blocking) |
+| Sub | Nombre | Effort | Bloque | Dependencias | Prioridad real |
+|---|---|---|---|---|---|
+| **v14.9** | Structure migration (prerequisito) | 2-3 h | A | — | ✅ resolved 2026-05-10 |
+| ~~v15.0~~ | ~~GitHub Release + Installer~~ → **DEFERIDO** | 10-14 h | C (era A) | sistema pulido | **p3 deferred** (era p1) |
+| **v15.6** | Web Showcase Refresh → **Dashboard personal** (auto-update) | 6-10 h | A | v14.9 | **p1 — siguiente** |
+| **v15.0b** | **Memory & Context Overhaul** — skill-vault + Qdrant lazy-loading + registro unificado + MCP audit | 20-30 h | A | + `memoria-qdrant` | **p1 — antes de v15.1** |
+| ~~`arranque-ligero`~~ | ~~Reducir overhead 6k→2k~~ → **absorbido en v15.0b** | — | — | — | deferred (superseded) |
+| `memoria-qdrant` | Pipeline embedding + recall semántico (Qdrant sigue VACÍO 2026-05-12) — **emparejado con v15.0b** | 6-8 h | A | — | **p1** |
+| **v15.0.1** | **Dual Mode v2** — adoptar `codex-plugin-cc` + Gemini CLI vía suscripción (sin API key) | 8-12 h | A | — | **p1 — antes de v15.1** |
+| **v15.1** | Bus Foundation | 32-40 h | B | v14.9 + v15.0b (token diet) | p1 |
+| **v15.2** | Supervisor Daemon | 24-32 h | B | v15.1 | p1 |
+| **v15.3** | Pipeline DAG | 24-32 h | B | v15.2 | p2 |
+| **v15.4** | Overnight Loop | 16-24 h | B | v15.2, v15.3 | p2 |
+| **v15.5** | Mobile Remote (PWA) | 40-56 h | B | v15.2 (MVP-29h posible antes que v15.3-v15.4) | p2 |
+| **v15.7** | Anti-Hallucination Layer | 12-18 h | C | v15.1 (helpful, no blocking) | p2 |
 
 **Total estimado:** 166-229 h (~21-29 días calendar a 8h/día).
 
@@ -200,6 +222,61 @@ el sistema funcional sin pasos manuales.
 
 ### Spec completa
 `~/.ultron/plans/specs/v15.0-installer.md`
+
+---
+
+## v15.0b · TOKEN DIET (arranque ligero — versión correcta)
+
+### Definición
+Reducir el overhead fijo de contexto de una sesión ULTRON de **~56k tokens** a **<22k**, atacando la causa raíz: las **380 skills** en `~/.claude/skills/` aportan **33.8k tokens** de metadata cargada en *cada* sesión (comportamiento de plataforma — los hooks no lo pueden evitar).
+
+### Por qué
+- El item antiguo `arranque-ligero` apuntaba a ~6k (SKILL.md+CLAUDE.md+MEMORY.md) — 5× más pequeño que el problema real. Queda **superseded** por este.
+- Bloquea la sensación de "sistema pulido" y encarece toda interacción. Va **antes de v15.1-bus** porque el bus multiplica sesiones → multiplica el coste fijo.
+
+### Componentes
+1. **Skill-vault** — ~40-50 skills activas (código + investigación/académicas + finanzas + personas ULTRON + superpowers core); el resto → `~/.ultron/skill-vault/`, indexadas en Qdrant (`ultron_skills`), restore on-demand.
+2. **Router Qdrant** — si la query no matchea skill activa, busca en `ultron_skills` y surfacea la vaulteada relevante.
+3. **Telemetría** — `routing-telemetry.py` extendido: usage_count por skill → `ultron skills stats` (cold/hot) + `merge-candidates` (similitud embedding > 0.92).
+4. **MCP token audit** — medir coste de los 12 servers; aplicar disabled-registered o `ultron mcp enable/disable`.
+5. **Quick wins** — SessionStart deja de inyectar el cuerpo de `using-superpowers`; trim CLAUDE.md global / SYSTEM-MAP / MEMORY.md; auditar agentes de plugins (pr-review-toolkit ×6, feature-dev ×3).
+
+### Acceptance criteria
+- `~/.claude/skills/` ≤50 carpetas; medidor Skills <8k; overhead fijo total <22k.
+- `ultron skills search "<tema>"` + `restore <name>` funcionan.
+- `ultron skills stats` con usage_count real del hook.
+- MCP: coste medido + mejor opción aplicada.
+
+### Spec completa
+`~/.ultron/plans/specs/v15.0b-token-diet.md`
+
+---
+
+## v15.0.1 · DUAL MODE v2 (codex-plugin-cc + Gemini CLI)
+
+### Definición
+Modernizar el sistema multi-modelo peer. Adoptar el plugin oficial `openai/codex-plugin-cc` (marzo 2026) en lugar del plumbing casero (`shared-duet.ps1`), y pasar Gemini a CLI-vía-suscripción con output a archivo, eliminando `GEMINI_API_KEY`.
+
+### Por qué
+- El Dual actual vuelca el output de Codex como resultado de Bash → contamina el contexto principal. El plugin usa background jobs + subagente `codex:codex-rescue` → la salida queda fuera de tu ventana.
+- Auth Codex pasa a ser tu suscripción ChatGPT (no API key). Gemini igual: CLI con OAuth, sin API key, output a `.md` legible.
+- Va **antes de v15.1-bus**: el bus multiplica sesiones que usan Dual; mejor tener el plumbing limpio antes.
+
+### Componentes
+1. Instalar `codex-plugin-cc` (USER ejecuta los `/plugin …`); `~/.codex/config.toml` con `model`+`model_reasoning_effort` pin; review-gate desactivado.
+2. Mapear `/minidual`→`/codex:review`, `/dual`→`/codex:adversarial-review` acotado, `/maxdual`→ + `/codex:rescue` con confirmación. Mantener: LOW prohíbe Dual, Codex read-only salvo rescue, Claude escribe.
+3. `gemini-peer.ps1`: `gemini -m <Pro> -p "...; escribe en <ruta>.md"` → Claude `Read`. Quitar `GEMINI_API_KEY` de `settings.json`.
+4. Seguridad: `--ignore-user-config` ya no aplica → auditar `config.toml` como vector; repos untrusted por defecto.
+5. Doc: reescribir `references/dual-mode-protocol.md` + `CLAUDE.md` § Dual; deprecar `.ps1` caseros.
+6. Sincronizar todo (registry_sync, version_propagate, SYSTEM-MAP, context_primer, verify, changelog, commit).
+
+### Acceptance criteria
+- `/codex:review` funciona desde suscripción; `/dual` lanza el plugin por debajo respetando rounds y la regla LOW.
+- `gemini-peer.ps1` deja output en `.md`; `GEMINI_API_KEY` eliminado.
+- Review-gate sin bucle infinito; doc reescrita; `.ps1` deprecados; `ultron verify` OK.
+
+### Spec completa
+`~/.ultron/plans/specs/v15.0.1-dual-mode-v2.md`
 
 ---
 
@@ -934,12 +1011,12 @@ Cada uno con ID propio en `ultron plans show <id>`.
 | ID en PLANS.json | Prioridad | Effort | Por qué surgió |
 |---|---|---|---|
 | `apps-inventory-script-tui-view-weekly-scheduler` | p2 | 2-3h | USER quiere control de programas instalados visible en TUI con auto-update semanal |
-| `ultron-arranque-ligero-reducir-overhead-6k-2k-toke` | **p1** | 4-6h | ULTRON gasta ~6k tokens fijos al arrancar (medido 2026-05-10). Plan original era arranque ligero con recall automatizado. Target: <2k iniciales. |
+| `token-diet-skill-vault-qdrant-lazy-loading-mcp-tok` | **p1** | 12-18h | **v15.0b.** Overhead fijo ~56k → <22k. Causa raíz: 380 skills = 33.8k de metadata cargada siempre. Skill-vault + Qdrant lazy-loading + telemetría + MCP audit. Spec: `specs/v15.0b-token-diet.md`. **SUPERSEDE** `ultron-arranque-ligero-...` (deferred 2026-05-12 — sólo atacaba ~6k). |
 | `memoria-automatizada-qdrant-embedding-pipeline-rec` | **p1** | 6-8h | `qdrant_storage` estaba vacío hasta hoy. Activar pipeline embedding + recall semántico + auto-MEMORY.md desde Qdrant top-N. Bloquea: necesita Docker+Qdrant live (CONFIRMADO operativo 2026-05-10). |
 
 **Relación con sub-versiones existentes:**
 
-- `ultron-arranque-ligero` y `memoria-automatizada-qdrant` son **prerequisitos blandos** de cualquier v15.x — reducen el coste por sesión de TODO el sistema. Sugerido ejecutar entre Bloque A (v14.9 + v15.0) y Bloque B (bus + supervisor).
+- `token-diet` (v15.0b) y `memoria-automatizada-qdrant` son **prerequisitos blandos** de cualquier v15.x — reducen el coste por sesión de TODO el sistema. Ejecutar **antes de v15.1-bus** (el bus multiplica sesiones → multiplica el overhead fijo).
 - `apps-inventory` es independiente del macro plan — encaja como polish entre sprints.
 
 **Estado infra al cierre de sesión 2026-05-10 11:55:**
