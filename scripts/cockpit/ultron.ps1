@@ -364,6 +364,7 @@ switch ($Command.ToLower()) {
             Write-Host "Usage:" -ForegroundColor Yellow
             Write-Host "  ultron osint scan <username> [--all]   Sherlock — ~400 sitios por username"
             Write-Host "  ultron osint email <email>             holehe   — ~120 sitios donde ese email está registrado"
+            Write-Host "  ultron osint diff [username]           cuentas nuevas/desaparecidas entre los 2 últimos escaneos"
             Write-Host "  ultron osint last                      último escaneo"
             Write-Host "  (ambas gratis vía uvx, sin API key, sin tokens. Resultados en ~/.ultron/.tmp/osint/)" -ForegroundColor Gray
             exit 1

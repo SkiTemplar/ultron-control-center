@@ -133,6 +133,9 @@ $phaseAScripts = @(
     # best-effort guarantees as embed_vault. Cold path with model already
     # warm from embed_vault: ~30s for first run, <1s incremental.
     @{ Name = 'embed_skills';             Script = "$cockpit\embed_skills.py";             Args = @('index') }
+    # v15.0b WS6: regenerate the unified skills registry (~/.ultron/skills/registry.json)
+    # from live disk state (active 46 + vault 334 + plugin) — SSOT go-forward. Cheap (~1s).
+    @{ Name = 'skill_vault_registry';     Script = "$cockpit\skill_vault.py";              Args = @('registry') }
     # v14.8 P2A: refresh system snapshot so the TUI Dashboard reads the
     # latest state on next session. --skip-doctor keeps it under ~3s
     # (full doctor invocation costs ~30s and Phase A has a 30s ceiling).

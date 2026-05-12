@@ -53,7 +53,9 @@ MEMORY_L1_DIR = Path.home() / ".ultron-vault" / "00_INDEX" / "_packets"  # S3-B:
 ULTRON_DIR = Path.home() / ".ultron"
 PROJECTS_DIR = ULTRON_DIR / "projects"
 SESSIONS_DIR = ULTRON_DIR / "sessions"
+ARCHIVE_DIR = ULTRON_DIR / "archive"  # cold but searchable: deferred plans, retired sessions
 CLAUDE_SKILLS_DIR = Path.home() / ".claude" / "skills"
+VAULT_SKILLS_DIR = ULTRON_DIR / "skill-vault"  # v15.0b: skills fuera del contexto, pero indexables para recall
 
 INDEX_DIR = ULTRON_DIR / "brain_index"
 INDEX_PATH = INDEX_DIR / "index.db"
@@ -86,7 +88,9 @@ SESSION_LOOKBACK_DAYS = _session_lookback_days()
 SKIP_DIRS = frozenset({
     ".git", ".obsidian", "__pycache__", ".tmp",
     "deprecated-memory-system", "40_SKILLS", "_archive",
-    "v6.x-legacy",  # subdir of `archive/`, kept for safety
+    "v6.x-legacy",       # subdir of `archive/`, kept for safety
+    "skill_cache",       # retired SKILL.md copies, no value indexing
+    ".pytest_cache", ".venv", ".uv-cache-rescue", "node_modules",
 })
 
 
@@ -213,6 +217,16 @@ def discover_sources() -> list[Source]:
                 continue
             out.append(Source(md, "L1-sessions", "sessions"))
 
+    # L2-archive: cold but searchable. Includes deferred plans, retired sessions,
+    # migration handovers. Excludes skill_cache (retired SKILL.md copies) and
+    # v6.x-legacy via SKIP_DIRS. Indexed so historical context is queryable
+    # without manual file hunting.
+    if ARCHIVE_DIR.exists():
+        for md in ARCHIVE_DIR.rglob("*.md"):
+            if _is_skipped(md):
+                continue
+            out.append(Source(md, "L2-archive", "archive"))
+
     if CLAUDE_SKILLS_DIR.exists():
         for skill_dir in CLAUDE_SKILLS_DIR.iterdir():
             if not skill_dir.is_dir() or skill_dir.name.startswith("."):
@@ -224,6 +238,16 @@ def discover_sources() -> list[Source]:
             if refs_dir.is_dir():
                 for ref_md in refs_dir.glob("*.md"):
                     out.append(Source(ref_md, "L1-skills-ref", "skill-ref"))
+
+    # v15.0b: skills vaulteadas — no cargan en contexto, pero su SKILL.md se
+    # indexa en FTS5 para que `ultron recall "<topic>"` cubra también su contenido.
+    if VAULT_SKILLS_DIR.exists():
+        for skill_dir in VAULT_SKILLS_DIR.iterdir():
+            if not skill_dir.is_dir() or skill_dir.name.startswith("."):
+                continue
+            skill_md = skill_dir / "SKILL.md"
+            if skill_md.exists():
+                out.append(Source(skill_md, "L1-skills-vault", "skill-vault"))
 
     return out
 

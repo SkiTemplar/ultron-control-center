@@ -43,6 +43,7 @@ CONTEXT_MD = TMP_DIR / "context.md"
 MEMORY_MD = ULTRON_DIR / "MEMORY.md"
 GLOBAL_CLAUDE_MD = USER_HOME / ".claude" / "CLAUDE.md"
 MANIFEST_CACHE = ULTRON_DIR / "manifest.cache.json"
+SKILLS_REGISTRY_V2 = ULTRON_DIR / "skills" / "registry.json"  # v15.0b WS6 SSOT
 
 JSON_OUT = TMP_DIR / "token-baseline.json"
 
@@ -95,12 +96,33 @@ def _read_safe(path: Path) -> str:
 
 
 def _estimate_skill_listing() -> str:
-    """Best-effort approximation of skill listing block.
+    """Approximate the harness "Skills" context block.
 
-    The harness injects skill name + description for ~1% of context window
-    (default skillListingBudgetFraction). We approximate by reading the
-    manifest cache and rendering name + description per skill.
+    The harness loads `name + description` of every skill it can SEE — i.e. the
+    active skills in ~/.claude/skills/ plus plugin skills. NOT the vaulted ones
+    (v15.0b moved 334 out of the loaded set). We render from the unified registry
+    (~/.ultron/skills/registry.json) filtering to state in {active, plugin}; fall
+    back to manifest.cache.json (excluding deprecated entries) if it's missing.
     """
+    # Preferred: unified registry v2 (SSOT, real descriptions, state-aware)
+    if SKILLS_REGISTRY_V2.exists():
+        try:
+            data = json.loads(SKILLS_REGISTRY_V2.read_text(encoding="utf-8-sig"))
+            skills = data.get("skills") or {}
+            lines = []
+            for e in (skills.values() if isinstance(skills, dict) else skills):
+                if not isinstance(e, dict):
+                    continue
+                if e.get("state") not in ("active", "plugin"):
+                    continue
+                name = e.get("name") or ""
+                if name:
+                    lines.append(f"- {name}: {e.get('description', '')}")
+            if lines:
+                return "\n".join(lines)
+        except (json.JSONDecodeError, OSError):
+            pass
+    # Fallback: manifest cache, skipping deprecated
     if not MANIFEST_CACHE.exists():
         return ""
     try:
@@ -113,6 +135,8 @@ def _estimate_skill_listing() -> str:
     lines = []
     for entry in skills:
         if not isinstance(entry, dict):
+            continue
+        if entry.get("deprecated") or entry.get("status") == "deprecated":
             continue
         name = entry.get("name") or entry.get("id") or ""
         desc = entry.get("description") or ""

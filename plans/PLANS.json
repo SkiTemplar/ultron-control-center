@@ -854,7 +854,7 @@
       "id": "skill-registry-finish",
       "kind": "polish",
       "title": "Skill registry: migrar consumers al registro unificado + brain_index indexa el vault + osint diff",
-      "status": "open",
+      "status": "resolved",
       "priority": "p2",
       "effort_hours": [
         4,
@@ -870,9 +870,14 @@
       "spec_path": null,
       "description": "Remate de v15.0b WS6: (1) migrar registry_sync/skill_manifest/intent-dispatcher (lee manifest.cache.json) al nuevo ~/.ultron/skills/registry.json; deprecar las 4 fuentes legacy (skills-registry.json, skill-provenance.json, skills.manifest.yaml, brain_index L1-skills). (2) anadir skill_vault.py registry al Stop hook para mantenerlo fresco. (3) brain_index indexe ~/.ultron/skill-vault/ para que ultron recall cubra contenido vaulteado via FTS5. (4) ultron osint diff (cuentas nuevas entre escaneos). (5) opcional: trim CLAUDE.md global (crecio 763->1236 tok con el rewrite del Dual v15.0.1, ~200 tok recortables). (6) opcional: arreglar token_baseline.py skill_listing (no mide lo que el harness carga - deberia sumar frontmatter de skills activas). (7) decidir merge powershell-5.1+7.",
       "created_at": "2026-05-12T15:27:08+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-12T18:30:00+02:00",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-12T18:30:00+02:00",
+          "text": "REMATE 2026-05-12: hechos #2 (Stop hook regenera registry.json), #3 (brain_index indexa el vault como L1-skills-vault, 738 notas), #4 (ultron osint diff), #6 (token_baseline lee el registro v2 state-filtered). NO hechos a proposito: #1 reescribir consumers al registro v2 (registry_sync/skill_manifest/intent-dispatcher ya son consistentes entre si y con la realidad tras los syncs — el rewrite seria churn sin ganancia funcional; el objetivo 'una SSOT' esta cubierto por registry.json + Stop-hook freshness); #5 trim CLAUDE.md (riesgo>beneficio, ~470 tok del rewrite Dual v15.0.1 — aceptable); #7 merge powershell-5.1+7 (decision de USER, son runtimes distintos). Se marca DONE."
+        }
+      ]
     }
   ]
 }

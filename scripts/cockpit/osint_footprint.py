@@ -132,6 +132,41 @@ def _show_last() -> int:
     return 0
 
 
+def _csv_accounts(path: Path) -> set[str]:
+    try:
+        rows = list(csv.DictReader(path.read_text(encoding="utf-8", errors="replace").splitlines()))
+    except OSError:
+        return set()
+    out = set()
+    for r in rows:
+        status = (r.get("exists") or r.get("status") or "").lower()
+        if status.startswith(("claimed", "true", "yes")):
+            out.add(r.get("name") or r.get("site") or r.get("url_user") or r.get("url") or "?")
+    return out
+
+
+def _cmd_diff(target: str | None) -> int:
+    if not OUT_DIR.exists():
+        print("[osint] sin escaneos."); return 0
+    pat = f"{target}.csv" if target else "*.csv"
+    csvs = sorted(OUT_DIR.glob(pat), key=lambda p: p.stat().st_mtime, reverse=True)
+    csvs = [p for p in csvs if not p.name.startswith("_")]
+    if len(csvs) < 2:
+        print(f"[osint] necesito ≥2 escaneos{' de '+target if target else ''} para comparar (hay {len(csvs)})."); return 0
+    new, old = csvs[0], csvs[1]
+    a_new, a_old = _csv_accounts(new), _csv_accounts(old)
+    added = sorted(a_new - a_old)
+    removed = sorted(a_old - a_new)
+    print(f"[osint] diff  {old.name} ({datetime.fromtimestamp(old.stat().st_mtime):%Y-%m-%d %H:%M})  →  {new.name} ({datetime.fromtimestamp(new.stat().st_mtime):%Y-%m-%d %H:%M})")
+    if added:
+        print(f"  ➕ cuentas nuevas ({len(added)}): " + " · ".join(added))
+    if removed:
+        print(f"  ➖ ya no aparecen ({len(removed)}): " + " · ".join(removed))
+    if not added and not removed:
+        print("  = sin cambios")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(prog="osint_footprint")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -140,12 +175,16 @@ def main() -> int:
     sc.add_argument("--all", action="store_true", help="incluir sitios donde NO se encontró")
     em = sub.add_parser("email", help="comprobar en qué sitios está registrado un email (holehe)")
     em.add_argument("address")
+    df = sub.add_parser("diff", help="comparar los 2 escaneos más recientes (cuentas nuevas/desaparecidas)")
+    df.add_argument("target", nargs="?", default=None, help="username concreto (opcional)")
     sub.add_parser("last", help="mostrar el último escaneo")
     args = ap.parse_args()
     if args.cmd == "scan":
         return _run_sherlock(args.usernames, args.all)
     if args.cmd == "email":
         return _run_holehe(args.address)
+    if args.cmd == "diff":
+        return _cmd_diff(args.target)
     return _show_last()
 
 
