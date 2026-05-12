@@ -357,6 +357,17 @@ switch ($Command.ToLower()) {
     "scan"      { Invoke-Py "scan_projects.py" $Rest }
     "retention" { Invoke-Py "retention.py" $Rest }
 
+    "osint" {
+        # Auditoría de huella digital propia (Sherlock vía uvx — nada permanente).
+        # ultron osint scan <username> [--all]   ·   ultron osint last
+        if (-not $Rest -or $Rest.Count -eq 0) {
+            Write-Host "Usage: ultron osint scan <username> [--all]   |   ultron osint last" -ForegroundColor Yellow
+            Write-Host "  Busca tu username en ~400 redes/sitios. Resultados en ~/.ultron/.tmp/osint/" -ForegroundColor Gray
+            exit 1
+        }
+        Invoke-Py "osint_footprint.py" $Rest
+    }
+
     "standup" {
         if ($Rest -and $Rest -contains "--print") {
             Invoke-Py "ai_standup.py" @("--print")

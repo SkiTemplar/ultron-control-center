@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-05-12T13:11:02+02:00",
+  "updated_at": "2026-05-12T14:20:02+02:00",
   "_comment": "Single source of truth — administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
   "items": [
     {
@@ -817,6 +817,29 @@
           "text": "Cerrado 2026-05-12: plugin codex@openai-codex instalado+setup (gpt-5.5/high, review-gate off, auth chatgpt verificada); MCP gemini/gemini-flash eliminados de settings.json; gemini-peer.ps1 creado; shared-duet.ps1 -> _legacy/; dual-mode-protocol.md v2.0 + CLAUDE.md reescritos; sync+commit 3552e52. PENDIENTE menor (follow-up): probar gemini-peer.ps1 end-to-end y confirmar si la suscripcion Google da gemini-3.1-pro por CLI o degrada a Flash."
         }
       ]
+    },
+    {
+      "id": "osint-digital-footprint",
+      "kind": "polish",
+      "title": "Auditoria de huella digital (Sherlock + futuro HIBP)",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        2,
+        4
+      ],
+      "tags": [
+        "osint",
+        "privacy",
+        "sherlock",
+        "cockpit"
+      ],
+      "spec_path": null,
+      "description": "ultron osint scan <username> -> Sherlock (uvx, sin instalacion permanente, sin skill al contexto) busca username en ~400 redes; resultados en ~/.ultron/.tmp/osint/. Hecho: wrapper osint_footprint.py + comando ultron osint. PENDIENTE: integrar HaveIBeenPwned (brechas de email, requiere API key de pago) · opcional: vista TUI · opcional: scheduler mensual auto-scan de los usernames habituales · opcional: diff entre escaneos (cuentas nuevas). Caso de uso: USER audita SU propia huella, no terceros.",
+      "created_at": "2026-05-12T14:20:02+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
     }
   ]
 }
