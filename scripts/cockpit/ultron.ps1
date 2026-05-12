@@ -361,8 +361,11 @@ switch ($Command.ToLower()) {
         # Auditoría de huella digital propia (Sherlock vía uvx — nada permanente).
         # ultron osint scan <username> [--all]   ·   ultron osint last
         if (-not $Rest -or $Rest.Count -eq 0) {
-            Write-Host "Usage: ultron osint scan <username> [--all]   |   ultron osint last" -ForegroundColor Yellow
-            Write-Host "  Busca tu username en ~400 redes/sitios. Resultados en ~/.ultron/.tmp/osint/" -ForegroundColor Gray
+            Write-Host "Usage:" -ForegroundColor Yellow
+            Write-Host "  ultron osint scan <username> [--all]   Sherlock — ~400 sitios por username"
+            Write-Host "  ultron osint email <email>             holehe   — ~120 sitios donde ese email está registrado"
+            Write-Host "  ultron osint last                      último escaneo"
+            Write-Host "  (ambas gratis vía uvx, sin API key, sin tokens. Resultados en ~/.ultron/.tmp/osint/)" -ForegroundColor Gray
             exit 1
         }
         Invoke-Py "osint_footprint.py" $Rest

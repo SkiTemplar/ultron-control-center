@@ -6,16 +6,18 @@ Envuelve Sherlock (sherlock-project) para localizar en qué redes/sitios
 existe un username dado. Pensado para que USER audite SU PROPIA presencia
 online (privacidad / OPSEC), no para terceros.
 
-  uv run python osint_footprint.py scan <username> [<username2> ...]
-  uv run python osint_footprint.py scan <username> --all      # imprime también los no-encontrados
-  uv run python osint_footprint.py last                       # muestra el último escaneo
+  uv run python osint_footprint.py scan <username> [<username2> ...]   # Sherlock (~400 sitios por username)
+  uv run python osint_footprint.py scan <username> --all               # incluye los no-encontrados
+  uv run python osint_footprint.py email <email>                       # holehe (~120 sitios donde ese email está registrado)
+  uv run python osint_footprint.py last                                # muestra el último escaneo
 
-Resultados en ~/.ultron/.tmp/osint/<username>.csv (+ resumen en stdout).
-Sherlock se ejecuta vía `uvx --from sherlock-project sherlock` — no se instala
-nada permanente ni se mete una skill al contexto.
+Resultados en ~/.ultron/.tmp/osint/ (+ resumen en stdout).
+Sherlock/holehe se ejecutan vía `uvx` — no se instala nada permanente ni se
+mete una skill al contexto (0 tokens). Ambas son gratuitas, sin API key.
 
-NOTA: esto sólo cubre cuentas basadas en username. Para brechas de datos
-(emails filtrados) haría falta HaveIBeenPwned API (de pago) — pendiente.
+NOTA: `scan` (Sherlock) = cuentas por username. `email` (holehe) = sitios donde
+ese email tiene cuenta. Para brechas/leaks de datos haría falta HaveIBeenPwned
+(API de pago) — USER prefiere no pagar, así que holehe es el sustituto gratis.
 """
 from __future__ import annotations
 
@@ -77,6 +79,37 @@ def _run_sherlock(usernames: list[str], print_all: bool) -> int:
     return proc.returncode
 
 
+def _run_holehe(email: str) -> int:
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    csv_path = OUT_DIR / f"email_{email.replace('@', '_at_').replace('.', '_')}.csv"
+    cmd = ["uvx", "holehe", "--only-used", "--no-clear", "--no-color", "-C", "-T", "10", email]
+    print(f"[osint] holehe {email}  → {OUT_DIR}")
+    try:
+        proc = subprocess.run(cmd, text=True, capture_output=True, timeout=600, cwd=str(OUT_DIR))
+    except FileNotFoundError:
+        print("[osint] 'uvx' no encontrado en PATH."); return 2
+    except subprocess.TimeoutExpired:
+        print("[osint] holehe timeout."); return 124
+    if proc.stdout:
+        print(proc.stdout.rstrip())
+    if proc.returncode != 0 and proc.stderr:
+        print(proc.stderr.rstrip(), file=sys.stderr)
+    # holehe escribe holehe_<ts>_out.csv en cwd; renómbralo a algo estable
+    try:
+        for produced in OUT_DIR.glob("holehe_*_out.csv"):
+            produced.replace(csv_path)
+            print(f"\n[osint] {email}: resultados en {csv_path}")
+            break
+    except OSError:
+        pass
+    try:
+        (OUT_DIR / "_runs.log").open("a", encoding="utf-8").write(
+            f"{datetime.now().isoformat(timespec='seconds')}  email {email}  rc={proc.returncode}\n")
+    except OSError:
+        pass
+    return proc.returncode
+
+
 def _show_last() -> int:
     if not OUT_DIR.exists():
         print("[osint] sin escaneos previos."); return 0
@@ -105,10 +138,14 @@ def main() -> int:
     sc = sub.add_parser("scan", help="buscar username(s) en redes con Sherlock")
     sc.add_argument("usernames", nargs="+")
     sc.add_argument("--all", action="store_true", help="incluir sitios donde NO se encontró")
+    em = sub.add_parser("email", help="comprobar en qué sitios está registrado un email (holehe)")
+    em.add_argument("address")
     sub.add_parser("last", help="mostrar el último escaneo")
     args = ap.parse_args()
     if args.cmd == "scan":
         return _run_sherlock(args.usernames, args.all)
+    if args.cmd == "email":
+        return _run_holehe(args.address)
     return _show_last()
 
 
