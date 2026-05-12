@@ -56,3 +56,6 @@ bus/
 skill-vault/*
 !skill-vault/INDEX.json
 !skill-vault/keep-list.txt
+
+# Skills unified registry (v15.0b WS6) — generado por `skill_vault.py registry`, regenerable
+skills/registry.json

@@ -36,7 +36,18 @@ REGISTRIES = [HOME / ".claude" / "skills", HOME / ".agents" / "skills", HOME / "
 PRIMARY = REGISTRIES[0]                       # ~/.claude/skills es la fuente canonica del move
 VAULT_DIR = HOME / ".ultron" / "skill-vault"
 INDEX_PATH = VAULT_DIR / "INDEX.json"
+PLUGINS_ROOT = HOME / ".claude" / "plugins" / "cache"
+# WS6 (v15.0b): registro unificado — SSOT go-forward que reemplaza a las 4
+# fuentes legacy (skills-registry.json, skill-provenance.json, skills.manifest.yaml,
+# brain_index L1-skills). De momento se GENERA; la migración de los consumers
+# (registry_sync, skill_manifest, intent-dispatcher) es trabajo pendiente.
+REGISTRY_V2 = HOME / ".ultron" / "skills" / "registry.json"
 _NON_SKILL = {"ultron"}                       # nunca tocar (por si acaso)
+
+
+def _embedding_id(kind: str, name: str) -> str:
+    import hashlib
+    return hashlib.md5(f"{kind}::{name}".encode("utf-8")).hexdigest()
 
 
 def _is_skill_dir(p: Path) -> bool:
@@ -242,6 +253,65 @@ def cmd_stats(args) -> int:
     return 0
 
 
+def cmd_registry(args) -> int:
+    """WS6: genera el registro unificado de skills (~/.ultron/skills/registry.json).
+
+    SSOT go-forward: 1 entrada por skill con state (active|vaulted|plugin), source,
+    path, description, tags, usage_count (de routing.jsonl), embedding_id (= point id
+    en Qdrant ultron_skills). Reemplaza a las 4 fuentes legacy — la migración de los
+    consumers (registry_sync/skill_manifest/intent-dispatcher) es pendiente.
+    """
+    idx = _load_index()
+    usage = _routing_usage()
+    entries: dict[str, dict] = {}
+
+    def _add(name, state, source, path, desc, tags, kind_for_id):
+        entries[f"{state}::{name}"] = {
+            "name": name, "state": state, "source": source, "path": str(path),
+            "description": (desc or "")[:600], "tags": tags or [],
+            "usage_count": usage.get(name, 0),
+            "embedding_id": _embedding_id(kind_for_id, name),
+        }
+
+    # active — ~/.claude/skills/
+    if PRIMARY.exists():
+        for d in sorted(PRIMARY.iterdir()):
+            if _is_skill_dir(d):
+                meta = _parse_frontmatter(d / "SKILL.md")
+                _add(d.name, "active", "local", d, meta["description"], meta["tags"], "local")
+    # vaulted — desde INDEX.json (autoritativo) + verifica que el dir exista
+    for name, d in idx["skills"].items():
+        path = VAULT_DIR / name
+        _add(name, "vaulted", d.get("source", "bulk-import"), path, d.get("description", ""), d.get("tags", []), "vaulted")
+        entries[f"vaulted::{name}"]["restored_count"] = d.get("restored_count", 0)
+        entries[f"vaulted::{name}"]["vaulted_at"] = d.get("vaulted_at")
+        entries[f"vaulted::{name}"]["on_disk"] = path.exists()
+    # plugin — ~/.claude/plugins/cache/.../skills/
+    if PLUGINS_ROOT.exists():
+        for sm in sorted(PLUGINS_ROOT.rglob("SKILL.md")):
+            meta = _parse_frontmatter(sm)
+            _add(meta["name"] or sm.parent.name, "plugin", "plugin", sm.parent, meta["description"], meta["tags"], "plugin")
+
+    by_state: dict[str, int] = {}
+    for e in entries.values():
+        by_state[e["state"]] = by_state.get(e["state"], 0) + 1
+    out = {
+        "schema_version": 1,
+        "generated_at": _now(),
+        "note": "SSOT go-forward (v15.0b WS6). Legacy: skills-registry.json, skill-provenance.json, skills.manifest.yaml, brain_index L1-skills — aún consumidos por registry_sync/skill_manifest/intent-dispatcher (migración pendiente).",
+        "counts": by_state,
+        "skills": entries,
+    }
+    if args.dry_run:
+        print(json.dumps({"counts": by_state, "total": len(entries), "would_write": str(REGISTRY_V2)}, indent=2, ensure_ascii=False))
+        return 0
+    REGISTRY_V2.parent.mkdir(parents=True, exist_ok=True)
+    REGISTRY_V2.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"[skill_vault] registro unificado escrito: {REGISTRY_V2}")
+    print(f"  {len(entries)} skills  ·  " + " · ".join(f"{k}={v}" for k, v in sorted(by_state.items())))
+    return 0
+
+
 def _semantic_search(query: str, k: int):
     """Qdrant (ultron_skills, state=vaulted) — devuelve [(score, name, desc)] o None si no disponible."""
     try:
@@ -344,6 +414,7 @@ def main() -> int:
     l = sub.add_parser("list"); l.add_argument("--active", action="store_true"); l.add_argument("--vaulted", action="store_true"); l.set_defaults(func=cmd_list)
     s = sub.add_parser("status"); s.set_defaults(func=cmd_status)
     st = sub.add_parser("stats"); st.set_defaults(func=cmd_stats)
+    rg = sub.add_parser("registry"); rg.add_argument("--dry-run", action="store_true"); rg.set_defaults(func=cmd_registry)
     mc = sub.add_parser("merge-candidates"); mc.add_argument("--state", choices=["active", "vaulted", "plugin", "all"], default="active"); mc.add_argument("--threshold", type=float, default=0.90); mc.add_argument("-k", type=int, default=25); mc.set_defaults(func=cmd_merge_candidates)
     se = sub.add_parser("search"); se.add_argument("query"); se.add_argument("-k", type=int, default=10); se.add_argument("--no-semantic", action="store_true", help="solo keyword sobre INDEX.json"); se.set_defaults(func=cmd_search)
     r = sub.add_parser("restore"); r.add_argument("names", nargs="+"); r.set_defaults(func=cmd_restore)

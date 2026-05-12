@@ -786,6 +786,10 @@
         {
           "ts": "2026-05-12T14:45:00+02:00",
           "text": "PROGRESO 2026-05-12 (cont.): merge-candidates (Qdrant pairwise cosine) anadido a skill_vault. auto-recall.py: skill sugerida muestra state + hint de restore si vaulted (la auto-deteccion semantica de skills via auto-recall YA estaba wired - query ultron_vault + ultron_skills cada primer turno con fastembed). WS3 MCP audit hecho: firebase/n8n-mcp fuera (settings.json + codex config). Los conectores claude.ai (~14 remotos: Booking/Spotify/Figma/Notion/Gmail/Drive/Calendar/Vercel/Supabase/Railway/Tripadvisor/Trivago/Kiwi/lastminute/UberEats) son el grueso del peso MCP pero se gestionan en claude.ai web, fuera de scope local. PENDIENTE de v15.0b: WS5 trim CLAUDE.md/SYSTEM-MAP/MEMORY · WS6 consolidar registro skills 4->1 · brain_index indexar el vault · merge powershell 5.1+7 (decidir)."
+        },
+        {
+          "ts": "2026-05-12T17:30:00+02:00",
+          "text": "WS5 hecho: SYSTEM-MAP.md tensado 6006->4101 chars (fuera QUICK COMMANDS, actualizado a v15.0b), ultron verify 10/10 PASS, settings_integrity baseline nuevo (MCP firebase/n8n/gemini* quitados a proposito). WS6 (foundation): skill_vault.py registry -> ~/.ultron/skills/registry.json unificado (429 skills: 46 active+334 vault+49 plugin con state/source/usage_count/embedding_id). PENDIENTE WS6: migrar consumers (registry_sync/skill_manifest/intent-dispatcher) al registro v2 + build en Stop hook + deprecar las 4 fuentes legacy. PENDIENTE resto v15.0b: brain_index indexe el vault · ultron osint diff · merge powershell 5.1+7 (decision) · cerrar v15.0b en PLANS."
         }
       ]
     },
