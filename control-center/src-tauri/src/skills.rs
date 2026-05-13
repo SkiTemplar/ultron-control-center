@@ -14,6 +14,7 @@
 //   plugin   → installed as Claude Code plugin
 //   vaulted  → ~/.ultron/skill-vault/<name>/SKILL.md
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -30,10 +31,14 @@ pub struct SkillInfo {
     pub usage_count: u64,
 }
 
+// registry.json shape (v2): "skills" is a *map* keyed by composite ids like
+// "active::academic-deep-research" / "plugin::commit" / "vaulted::xyz". The
+// values carry the canonical "name" and "state" fields so we discard the
+// map key when flattening to a Vec.
 #[derive(Debug, Deserialize)]
 struct RegistryRoot {
     #[serde(default)]
-    skills: Vec<RegistrySkill>,
+    skills: BTreeMap<String, RegistrySkill>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,8 +71,13 @@ pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
         serde_json::from_str(&raw).map_err(|e| format!("parse registry.json: {}", e))?;
 
     let mut out: Vec<SkillInfo> = Vec::with_capacity(root.skills.len());
-    for s in root.skills.into_iter() {
-        let Some(name) = s.name else { continue };
+    for (key, s) in root.skills.into_iter() {
+        // Prefer the explicit "name" field; fall back to the suffix of the
+        // composite key ("active::foo" → "foo") when missing.
+        let name = match s.name {
+            Some(n) => n,
+            None => key.split("::").nth(1).unwrap_or(&key).to_string(),
+        };
         out.push(SkillInfo {
             name,
             state: s.state.unwrap_or_else(|| "unknown".to_string()),
