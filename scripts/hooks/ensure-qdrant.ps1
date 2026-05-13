@@ -1,4 +1,4 @@
-param(
+﻿param(
     [int]$MaxWaitSec = 60,
     [int]$PollSec = 3
 )
@@ -91,11 +91,34 @@ if (-not $daemonUp) {
 
 $state = docker ps -a --filter 'name=^ultron-qdrant$' --format '{{.State}}' 2>$null
 if (-not $state) {
-    Write-State -Status 'container-missing' -Message 'ultron-qdrant container does not exist - run setup' -ElapsedSec $elapsed
-    exit 2
-}
+    # v15.0.2: self-healing. Container is the engine, data lives in
+    # ~/.ultron/qdrant_storage on C:\. If the engine is gone we recreate it
+    # bound to the existing data — user sees no panel, system just works.
+    $storageDir = "$env:USERPROFILE\.ultron\qdrant_storage"
+    if (-not (Test-Path $storageDir)) {
+        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
+    }
 
-if ($state -ne 'running') {
+    # Convert Windows path to Docker-compatible mount syntax (Docker on
+    # Windows accepts C:\foo or /c/foo; using the raw Windows path works.)
+    $createOut = docker run -d `
+        --name ultron-qdrant `
+        --restart unless-stopped `
+        -p 6333:6333 -p 6334:6334 `
+        -v "${storageDir}:/qdrant/storage" `
+        qdrant/qdrant 2>&1
+    $createExit = $LASTEXITCODE
+
+    if ($createExit -ne 0) {
+        $createMsg = ($createOut | Out-String).Trim()
+        Write-State -Status 'container-create-failed' -Message "docker run failed: $createMsg" -ElapsedSec $elapsed
+        exit 2
+    }
+
+    # Container created. Give it a moment to come up before probing healthz.
+    Start-Sleep -Seconds 4
+    $state = 'running'
+} elseif ($state -ne 'running') {
     $null = docker start ultron-qdrant 2>$null
     Start-Sleep -Seconds 3
 }

@@ -282,28 +282,20 @@ try {
 # v15.0.x: Qdrant ensure — keep semantic recall available across sessions.
 # Background fire-and-forget; never blocks session start. Reports status to
 # ~/.ultron/.tmp/qdrant-health.json which context_primer reads next turn.
-# v15.0.2: chained with qdrant-notify so failures surface as actionable toast.
+# v15.0.2: the user-facing retry panel now lives in the ULTRON-QdrantBoot
+# scheduled task (LogonTrigger). SessionStart only refreshes health.json
+# so context_primer has current state — no panel here (would be noisy).
 try {
     $qdrantScript = "$env:USERPROFILE\.ultron\scripts\hooks\ensure-qdrant.ps1"
-    $notifyScript = "$env:USERPROFILE\.ultron\scripts\hooks\qdrant-notify.ps1"
     if (Test-Path $qdrantScript) {
-        # Build a single command that runs ensure-qdrant, waits a beat for the
-        # health JSON to land on disk, then invokes notify. Both stay in the
-        # same hidden background process so we don't race the JSON write.
-        $chainParts = @("& `"$qdrantScript`"")
-        if (Test-Path $notifyScript) {
-            $chainParts += "Start-Sleep -Seconds 1"
-            $chainParts += "& `"$notifyScript`""
-        }
-        $chain = $chainParts -join "; "
         Start-Process -FilePath "powershell.exe" -ArgumentList @(
             "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
             "-ExecutionPolicy", "Bypass",
-            "-Command", $chain
+            "-File", $qdrantScript
         ) -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
     }
 } catch {
-    # ensure-qdrant chain is non-fatal — never block session start
+    # ensure-qdrant is non-fatal — never block session start
 }
 
 exit 0

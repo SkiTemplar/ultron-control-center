@@ -1,21 +1,20 @@
-param(
+﻿param(
     [switch]$SuccessOnRetry
 )
 
-# qdrant-notify.ps1 - reads qdrant-health.json and shows a floating WinForm
-# panel when Qdrant is not OK. Companion to ensure-qdrant.ps1 (v15.0.2).
+# qdrant-notify.ps1 - reads qdrant-health.json and shows a persistent floating
+# WinForm panel when Qdrant is not OK. Companion to ensure-qdrant.ps1 (v15.0.2).
 #
-# Why a WinForm and not a native Windows toast: BurntToast respects Windows
-# notification settings. If USER has Focus Assist on or notifications
-# globally disabled, toasts are swallowed silently. A WinForm is a regular
-# top-most window — always visible.
+# Design notes:
+# - WinForms (not BurntToast): Windows native toasts are silently swallowed
+#   when notifications/Focus Assist are off. WinForm TopMost is always shown.
+# - Persistent: NO auto-close. Stays visible until user clicks a button or
+#   the X. Anti-spam per session via qdrant-toast-state.json.
+# - Triggered from ULTRON-QdrantBoot scheduled task at user logon (v15.0.2),
+#   not only from Claude SessionStart hook.
 #
-# Triggered from session-init.ps1 after ensure-qdrant has finished, and from
-# the panel's "Reintentar" button after a manual retry (with -SuccessOnRetry
-# to surface a confirmation panel).
-#
-# Hard rule: never block, never throw, never produce visible errors. Failures
-# fall back to alerts.jsonl and exit 0.
+# Hard rule: never throw, never produce visible errors. Failures fall back
+# to alerts.jsonl and exit 0.
 
 $ErrorActionPreference = 'Continue'
 
@@ -44,10 +43,7 @@ function Write-Alert {
     } catch { }
 }
 
-# --- Read current health state ---
-if (-not (Test-Path $health)) {
-    exit 0
-}
+if (-not (Test-Path $health)) { exit 0 }
 
 try {
     $rawHealth = [System.IO.File]::ReadAllText($health, [System.Text.Encoding]::UTF8)
@@ -62,9 +58,7 @@ $msg    = if ($hs.message) { [string]$hs.message } else { '' }
 
 $state = $null
 if (Test-Path $stateFile) {
-    try {
-        $state = Get-Content -Raw $stateFile | ConvertFrom-Json -ErrorAction Stop
-    } catch { $state = $null }
+    try { $state = Get-Content -Raw $stateFile | ConvertFrom-Json -ErrorAction Stop } catch { $state = $null }
 }
 
 function Save-State {
@@ -79,13 +73,17 @@ function Save-State {
     } catch { }
 }
 
-# --- WinForm panel builder ---
+# All user-facing strings use ASCII only to survive PS5.1 cp1252 fallback
+# if the script is somehow read without BOM. The bullet between ULTRON and
+# the message is a plain ASCII pipe.
+
 function Show-UltronPanel {
     param(
         [string]$Title,
         [string]$Body,
         [bool]$ShowRetry = $true,
-        [bool]$SuccessVariant = $false
+        [bool]$SuccessVariant = $false,
+        [bool]$ShowSetup = $false
     )
 
     try {
@@ -96,12 +94,11 @@ function Show-UltronPanel {
         return $null
     }
 
-    # Colors: ULTRON dark theme.
     $bgColor      = [System.Drawing.Color]::FromArgb(255, 22, 24, 32)
     $borderColor  = if ($SuccessVariant) {
-                        [System.Drawing.Color]::FromArgb(255, 56, 178, 110)   # green
+                        [System.Drawing.Color]::FromArgb(255, 56, 178, 110)
                     } else {
-                        [System.Drawing.Color]::FromArgb(255, 232, 89, 89)    # red
+                        [System.Drawing.Color]::FromArgb(255, 232, 89, 89)
                     }
     $titleColor   = [System.Drawing.Color]::FromArgb(255, 230, 232, 240)
     $bodyColor    = [System.Drawing.Color]::FromArgb(255, 168, 172, 184)
@@ -113,194 +110,198 @@ function Show-UltronPanel {
 
     $form              = New-Object System.Windows.Forms.Form
     $form.Text         = 'ULTRON'
-    $form.Size         = New-Object System.Drawing.Size(420, 170)
+    $form.Size         = New-Object System.Drawing.Size(480, 200)
     $form.FormBorderStyle = 'None'
     $form.StartPosition   = 'Manual'
     $form.TopMost      = $true
     $form.ShowInTaskbar = $false
     $form.BackColor    = $bgColor
-    $form.Padding      = New-Object System.Windows.Forms.Padding(2)
 
-    # Position bottom-right of primary screen with a 24px margin.
     $screen = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
     $form.Location = New-Object System.Drawing.Point(
-        ($screen.Right  - $form.Width  - 24),
-        ($screen.Bottom - $form.Height - 24)
+        ($screen.Right  - $form.Width  - 20),
+        ($screen.Bottom - $form.Height - 20)
     )
 
-    # Colored top border strip (signals severity).
-    $strip          = New-Object System.Windows.Forms.Panel
-    $strip.Height   = 3
-    $strip.Dock     = 'Top'
-    $strip.BackColor = $borderColor
-    $form.Controls.Add($strip)
+    # Outer 1px frame (border feel without window chrome).
+    $outerFrame              = New-Object System.Windows.Forms.Panel
+    $outerFrame.Dock         = 'Fill'
+    $outerFrame.BackColor    = [System.Drawing.Color]::FromArgb(255, 60, 64, 80)
+    $outerFrame.Padding      = New-Object System.Windows.Forms.Padding(1)
+    $form.Controls.Add($outerFrame)
+
+    $inner               = New-Object System.Windows.Forms.Panel
+    $inner.Dock          = 'Fill'
+    $inner.BackColor     = $bgColor
+    $outerFrame.Controls.Add($inner)
+
+    # Top colored strip (severity signal).
+    $strip               = New-Object System.Windows.Forms.Panel
+    $strip.Height        = 4
+    $strip.Dock          = 'Top'
+    $strip.BackColor     = $borderColor
+    $inner.Controls.Add($strip)
+
+    # Close X.
+    $btnClose            = New-Object System.Windows.Forms.Label
+    $btnClose.Text       = 'x'
+    $btnClose.Font       = New-Object System.Drawing.Font('Segoe UI', 11, [System.Drawing.FontStyle]::Bold)
+    $btnClose.ForeColor  = $bodyColor
+    $btnClose.BackColor  = [System.Drawing.Color]::Transparent
+    $btnClose.Size       = New-Object System.Drawing.Size(28, 24)
+    $btnClose.Location   = New-Object System.Drawing.Point(444, 8)
+    $btnClose.TextAlign  = 'MiddleCenter'
+    $btnClose.Cursor     = [System.Windows.Forms.Cursors]::Hand
+    $btnClose.Add_Click({ $form.Close() })
+    $btnClose.Add_MouseEnter({ $btnClose.ForeColor = $titleColor })
+    $btnClose.Add_MouseLeave({ $btnClose.ForeColor = $bodyColor })
+    $inner.Controls.Add($btnClose)
+    $btnClose.BringToFront()
 
     # Title.
     $lblTitle             = New-Object System.Windows.Forms.Label
     $lblTitle.Text        = $Title
     $lblTitle.ForeColor   = $titleColor
-    $lblTitle.Font        = New-Object System.Drawing.Font('Segoe UI Semibold', 11)
-    $lblTitle.Location    = New-Object System.Drawing.Point(18, 14)
-    $lblTitle.Size        = New-Object System.Drawing.Size(360, 22)
+    $lblTitle.Font        = New-Object System.Drawing.Font('Segoe UI Semibold', 12)
+    $lblTitle.Location    = New-Object System.Drawing.Point(20, 18)
+    $lblTitle.Size        = New-Object System.Drawing.Size(420, 24)
     $lblTitle.BackColor   = [System.Drawing.Color]::Transparent
-    $form.Controls.Add($lblTitle)
+    $inner.Controls.Add($lblTitle)
 
     # Body.
     $lblBody              = New-Object System.Windows.Forms.Label
     $lblBody.Text         = $Body
     $lblBody.ForeColor    = $bodyColor
-    $lblBody.Font         = New-Object System.Drawing.Font('Segoe UI', 9)
-    $lblBody.Location     = New-Object System.Drawing.Point(18, 40)
-    $lblBody.Size         = New-Object System.Drawing.Size(384, 62)
+    $lblBody.Font         = New-Object System.Drawing.Font('Segoe UI', 10)
+    $lblBody.Location     = New-Object System.Drawing.Point(20, 48)
+    $lblBody.Size         = New-Object System.Drawing.Size(444, 86)
     $lblBody.BackColor    = [System.Drawing.Color]::Transparent
-    $form.Controls.Add($lblBody)
-
-    # Close X (top-right).
-    $btnClose             = New-Object System.Windows.Forms.Label
-    $btnClose.Text        = '×'
-    $btnClose.Font        = New-Object System.Drawing.Font('Segoe UI', 12, [System.Drawing.FontStyle]::Bold)
-    $btnClose.ForeColor   = $bodyColor
-    $btnClose.BackColor   = [System.Drawing.Color]::Transparent
-    $btnClose.Size        = New-Object System.Drawing.Size(24, 24)
-    $btnClose.Location    = New-Object System.Drawing.Point(388, 8)
-    $btnClose.TextAlign   = 'MiddleCenter'
-    $btnClose.Cursor      = [System.Windows.Forms.Cursors]::Hand
-    $btnClose.Add_Click({ $form.Close() })
-    $btnClose.Add_MouseEnter({ $btnClose.ForeColor = $titleColor })
-    $btnClose.Add_MouseLeave({ $btnClose.ForeColor = $bodyColor })
-    $form.Controls.Add($btnClose)
+    $inner.Controls.Add($lblBody)
 
     # Buttons row.
-    $btnY = 110
+    $btnY = 142
+    $btnW = 110
+    $rightEdge = 460
+    $cursorX = $rightEdge
 
-    if ($ShowRetry -and -not $SuccessVariant) {
-        $btnRetry             = New-Object System.Windows.Forms.Button
-        $btnRetry.Text        = 'Reintentar'
-        $btnRetry.Size        = New-Object System.Drawing.Size(110, 32)
-        $btnRetry.Location    = New-Object System.Drawing.Point(186, $btnY)
-        $btnRetry.FlatStyle   = 'Flat'
-        $btnRetry.BackColor   = $accentBg
-        $btnRetry.ForeColor   = $titleColor
-        $btnRetry.Font        = New-Object System.Drawing.Font('Segoe UI', 9, [System.Drawing.FontStyle]::Regular)
-        $btnRetry.FlatAppearance.BorderSize = 0
-        $btnRetry.FlatAppearance.MouseOverBackColor = $accentHover
-        $btnRetry.Cursor      = [System.Windows.Forms.Cursors]::Hand
-        $btnRetry.Add_Click({
-            $form.Tag = 'retry'
-            $form.Close()
-        })
-        $form.Controls.Add($btnRetry)
-
-        $btnSilence           = New-Object System.Windows.Forms.Button
-        $btnSilence.Text      = 'Silenciar'
-        $btnSilence.Size      = New-Object System.Drawing.Size(100, 32)
-        $btnSilence.Location  = New-Object System.Drawing.Point(302, $btnY)
-        $btnSilence.FlatStyle = 'Flat'
-        $btnSilence.BackColor = $btnBg
-        $btnSilence.ForeColor = $btnText
-        $btnSilence.Font      = New-Object System.Drawing.Font('Segoe UI', 9)
-        $btnSilence.FlatAppearance.BorderSize = 0
-        $btnSilence.FlatAppearance.MouseOverBackColor = $btnHover
-        $btnSilence.Cursor    = [System.Windows.Forms.Cursors]::Hand
-        $btnSilence.Add_Click({
-            $form.Tag = 'silence'
-            $form.Close()
-        })
-        $form.Controls.Add($btnSilence)
-    } elseif ($SuccessVariant) {
-        $btnOk             = New-Object System.Windows.Forms.Button
-        $btnOk.Text        = 'OK'
-        $btnOk.Size        = New-Object System.Drawing.Size(90, 32)
-        $btnOk.Location    = New-Object System.Drawing.Point(312, $btnY)
-        $btnOk.FlatStyle   = 'Flat'
-        $btnOk.BackColor   = $btnBg
-        $btnOk.ForeColor   = $btnText
-        $btnOk.Font        = New-Object System.Drawing.Font('Segoe UI', 9)
-        $btnOk.FlatAppearance.BorderSize = 0
-        $btnOk.FlatAppearance.MouseOverBackColor = $btnHover
-        $btnOk.Cursor      = [System.Windows.Forms.Cursors]::Hand
-        $btnOk.Add_Click({ $form.Close() })
-        $form.Controls.Add($btnOk)
+    function New-FlatBtn {
+        param([string]$Text, [object]$Bg, [object]$HoverBg, [object]$Fg)
+        $b = New-Object System.Windows.Forms.Button
+        $b.Text = $Text
+        $b.Size = New-Object System.Drawing.Size($btnW, 32)
+        $b.FlatStyle = 'Flat'
+        $b.BackColor = $Bg
+        $b.ForeColor = $Fg
+        $b.Font = New-Object System.Drawing.Font('Segoe UI', 9)
+        $b.FlatAppearance.BorderSize = 0
+        $b.FlatAppearance.MouseOverBackColor = $HoverBg
+        $b.Cursor = [System.Windows.Forms.Cursors]::Hand
+        return $b
     }
 
-    # Auto-close timer: 60s for failures, 6s for success.
-    $timer = New-Object System.Windows.Forms.Timer
-    $timer.Interval = if ($SuccessVariant) { 6000 } else { 60000 }
-    $timer.Add_Tick({
-        $timer.Stop()
-        if ($form -and -not $form.IsDisposed) { $form.Close() }
-    })
-    $timer.Start()
+    if ($SuccessVariant) {
+        $cursorX -= $btnW
+        $btnOk = New-FlatBtn 'OK' $btnBg $btnHover $btnText
+        $btnOk.Location = New-Object System.Drawing.Point($cursorX, $btnY)
+        $btnOk.Add_Click({ $form.Close() })
+        $inner.Controls.Add($btnOk)
+    } else {
+        # Always show Silenciar so the panel can always be dismissed via button.
+        $cursorX -= $btnW
+        $btnSil = New-FlatBtn 'Silenciar' $btnBg $btnHover $btnText
+        $btnSil.Location = New-Object System.Drawing.Point($cursorX, $btnY)
+        $btnSil.Add_Click({ $form.Tag = 'silence'; $form.Close() })
+        $inner.Controls.Add($btnSil)
 
-    # Set icon if available.
+        if ($ShowRetry) {
+            $cursorX -= ($btnW + 8)
+            $btnRetry = New-FlatBtn 'Reintentar' $accentBg $accentHover $titleColor
+            $btnRetry.Location = New-Object System.Drawing.Point($cursorX, $btnY)
+            $btnRetry.Add_Click({ $form.Tag = 'retry'; $form.Close() })
+            $inner.Controls.Add($btnRetry)
+        }
+
+        if ($ShowSetup) {
+            $cursorX -= ($btnW + 8)
+            $btnSetup = New-FlatBtn 'Copiar setup' $accentBg $accentHover $titleColor
+            $btnSetup.Location = New-Object System.Drawing.Point($cursorX, $btnY)
+            $btnSetup.Add_Click({
+                param($sender, $eventArgs)
+                try {
+                    Set-Clipboard -Value 'ultron qdrant setup'
+                    $sender.Text = 'Copiado!'
+                    $okColor = [System.Drawing.Color]::FromArgb(255, 56, 178, 110)
+                    $sender.BackColor = $okColor
+                    $sender.FlatAppearance.MouseOverBackColor = $okColor
+                    $sender.Enabled = $false
+                    # Re-enable visual contrast on disabled state.
+                    $sender.ForeColor = [System.Drawing.Color]::White
+                } catch {
+                    $sender.Text = 'Error copiando'
+                    $errColor = [System.Drawing.Color]::FromArgb(255, 232, 89, 89)
+                    $sender.BackColor = $errColor
+                    $sender.FlatAppearance.MouseOverBackColor = $errColor
+                }
+            })
+            $inner.Controls.Add($btnSetup)
+        }
+    }
+
     if (Test-Path $iconPath) {
         try { $form.Icon = New-Object System.Drawing.Icon($iconPath) } catch { }
     }
 
     [void]$form.ShowDialog()
-    $timer.Stop(); $timer.Dispose()
 
     return $form.Tag
 }
 
-# --- Success-on-retry branch ---
 if ($SuccessOnRetry) {
     if ($status -eq 'up') {
-        Show-UltronPanel -Title 'ULTRON · Qdrant up' `
-                         -Body 'Recall semántico de vuelta. Todo OK.' `
+        Show-UltronPanel -Title 'ULTRON | Qdrant up' `
+                         -Body 'Recall semantico de vuelta. Todo OK.' `
                          -ShowRetry $false `
                          -SuccessVariant $true | Out-Null
         Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
         exit 0
     }
-    # Retry failed: fall through to normal failure panel.
 }
 
-# --- Status=up → silent ---
 if ($status -eq 'up') {
     Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
     exit 0
 }
 
-# --- Anti-spam check ---
-if ($state -and $state.notified_status -eq $status) {
-    exit 0
-}
+if ($state -and $state.notified_status -eq $status) { exit 0 }
 
-# --- Status → (title, body) mapping ---
 $statusMap = @{
-    'disk-missing'      = @{ Title = 'ULTRON · Qdrant offline';       Body = 'Drive D:\ no detectado. Conecta el USB o monta el disco y reintenta.' }
-    'container-missing' = @{ Title = 'ULTRON · Qdrant setup';         Body = 'Contenedor ultron-qdrant no existe. Ejecuta ultron qdrant setup en una terminal.' }
-    'daemon-down'       = @{ Title = 'ULTRON · Docker no responde';   Body = 'Docker daemon no arrancó. Comprueba Docker Desktop y reintenta.' }
-    'unhealthy'         = @{ Title = 'ULTRON · Qdrant degradado';     Body = "Qdrant up pero healthz responde mal. $msg" }
-    'unreachable'       = @{ Title = 'ULTRON · Qdrant inalcanzable';  Body = "Container up pero healthz no responde. $msg" }
+    'disk-missing'             = @{ Title = 'ULTRON | Qdrant offline';      Body = 'Drive D:\ no detectado. Conecta el USB o monta el disco y pulsa Reintentar.';            Retry = $true;  Setup = $false }
+    'container-create-failed'  = @{ Title = 'ULTRON | Qdrant no arranca';   Body = "Intente crear el contenedor automaticamente y fallo. Probablemente Docker no puede descargar la imagen qdrant/qdrant (sin internet?). Detalle: $msg"; Retry = $true; Setup = $false }
+    'container-missing'        = @{ Title = 'ULTRON | Qdrant setup';        Body = 'Contenedor ultron-qdrant no existe. Pulsa Reintentar para intentar recrearlo solo.';     Retry = $true;  Setup = $false }
+    'daemon-down'              = @{ Title = 'ULTRON | Docker no responde'; Body = 'Docker daemon no arranco. Comprueba Docker Desktop y pulsa Reintentar.';                  Retry = $true;  Setup = $false }
+    'unhealthy'                = @{ Title = 'ULTRON | Qdrant degradado';   Body = "Qdrant esta up pero healthz responde mal. $msg";                                          Retry = $true;  Setup = $false }
+    'unreachable'              = @{ Title = 'ULTRON | Qdrant inalcanzable'; Body = "Container up pero healthz no responde. $msg";                                            Retry = $true;  Setup = $false }
 }
 
 if (-not $statusMap.ContainsKey($status)) {
-    $cfg = @{ Title = 'ULTRON · Qdrant'; Body = "Estado inesperado: $status. $msg" }
+    $cfg = @{ Title = 'ULTRON | Qdrant'; Body = "Estado inesperado: $status. $msg"; Retry = $true; Setup = $false }
 } else {
     $cfg = $statusMap[$status]
 }
 
-# container-missing: no retry button (user must run setup command manually).
-$showRetry = ($status -ne 'container-missing')
-
-# Persist state BEFORE showing dialog (so even if user kills the process
-# mid-dialog, anti-spam still kicks in next time).
 Save-State -NotifiedStatus $status
 
-$choice = Show-UltronPanel -Title $cfg.Title -Body $cfg.Body -ShowRetry $showRetry
+$choice = Show-UltronPanel -Title $cfg.Title -Body $cfg.Body `
+                           -ShowRetry $cfg.Retry -ShowSetup $cfg.Setup
 
 if ($choice -eq 'retry') {
     $ensure = Join-Path $hooksDir 'ensure-qdrant.ps1'
     $notify = $MyInvocation.MyCommand.Path
     if ((Test-Path $ensure) -and (Test-Path $notify)) {
-        # Clear state so the success path (or new failure) can fire.
         Remove-Item $stateFile -Force -ErrorAction SilentlyContinue
         $chain = "& `"$ensure`"; Start-Sleep -Seconds 1; & `"$notify`" -SuccessOnRetry"
         Start-Process -FilePath 'powershell.exe' -ArgumentList @(
-            '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden',
-            '-ExecutionPolicy', 'Bypass',
+            '-NoProfile', '-Sta', '-ExecutionPolicy', 'Bypass',
             '-Command', $chain
         ) -WindowStyle Hidden -ErrorAction SilentlyContinue | Out-Null
     }

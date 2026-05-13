@@ -25,14 +25,14 @@
 - Global CLAUDE.md:      `~/.claude/CLAUDE.md`  ·  Settings: `~/.claude/settings.json` (hooks · MCP · permissions)
 - Skills activas:        `~/.claude/skills/<name>/SKILL.md` (~46) · mirror `~/.agents/skills/` · vault `~/.ultron/skill-vault/` (~334)
 - ULTRON skill spec:     `~/.claude/skills/ultron/{SKILL.md,protocols.md,memory.md,mode-*.md,references/*}`
-- Hooks:                 `~/.ultron/scripts/hooks/{session-init,stop-memory-sync,session-cleanup}.ps1` + `*.py` (auto-recall, intent-dispatcher, routing-telemetry, …) · Qdrant: `ensure-qdrant.ps1` + `qdrant-notify.ps1` (WinForm flotante bottom-right v15.0.2, no depende de Windows notifications)
+- Hooks:                 `~/.ultron/scripts/hooks/{session-init,stop-memory-sync,session-cleanup}.ps1` + `*.py` (auto-recall, intent-dispatcher, routing-telemetry, …) · Qdrant: `ensure-qdrant.ps1` (probe) + `qdrant-notify.ps1` (WinForm flotante bottom-right, persistente) + `install-qdrant-bootcheck.ps1` (registra scheduled task `ULTRON-QdrantBoot` @ LogonTrigger, v15.0.2) [verify: powershell -NoProfile -Command "(Get-ScheduledTask -TaskName ULTRON-QdrantBoot -EA SilentlyContinue).State"] [expect: Ready]
 
 ## INFRA — peers / externos
 - Codex (peer):          plugin oficial `codex@openai-codex` (`codex-plugin-cc`). Auth = suscripción ChatGPT. Modelo pin en `~/.codex/config.toml` (`gpt-5.5` / `high`). Comandos `/codex:review|adversarial-review|rescue`. Legacy: `~/.ultron/scripts/_legacy/shared-duet.ps1` (deprecado). [verify: codex --version] [expect: \d+\.\d+]
 - Gemini (peer):         CLI vía OAuth/suscripción (sin `GEMINI_API_KEY`). Helper `~/.ultron/scripts/gemini-peer.ps1` → output a `.md`.
 - GitHub MCP:            `github-pat` en settings.json [verify: claude mcp list] [expect: github-pat.*Connected]
 - Qdrant MCP:            `uvx mcp-server-qdrant` [verify: claude mcp list] [expect: qdrant.*Connected]
-- Docker:                Docker Desktop autostart (HKCU\...\Run) [verify: docker ps --filter "name=qdrant" --format "{{.Status}}"] [expect: ^Up]. Fallos arranque (D:\ no montado / daemon-down) → WinForm flotante bottom-right con botones Reintentar/Silenciar (v15.0.2). No depende de notification settings de Windows.
+- Docker:                Docker Desktop autostart (HKCU\...\Run) [verify: docker ps --filter "name=qdrant" --format "{{.Status}}"] [expect: ^Up]. Fallos arranque (D:\ no montado / daemon-down / container-missing) → scheduled task `ULTRON-QdrantBoot` dispara WinForm persistente bottom-right con Reintentar/Silenciar/Copiar-setup (v15.0.2). Independiente de notifications settings de Windows. Setup: `& ~/.ultron/scripts/hooks/install-qdrant-bootcheck.ps1 install`.
 - UV (Python):           SIEMPRE `uv run python <script>` · `uv pip install` (nunca raw python) [verify: uv --version] [expect: uv \d+]
 - Backup task:           UltronBackup-Weekly, lunes 09:00 [verify: powershell -NoProfile -Command "(Get-ScheduledTask -TaskName UltronBackup-Weekly).State"] [expect: Ready]
 
