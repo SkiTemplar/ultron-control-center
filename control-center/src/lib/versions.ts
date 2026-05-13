@@ -24,7 +24,9 @@ export type VersionGroup = {
   internal: ChangelogEntry[];
 };
 
-const VERSION_RE = /v(\d+)[.\-_](\d+)(?:[.\-_](\d+))?(?:[.\-_]([a-z]+\d*))?/i;
+// Patch component restricted to 1-2 digits so dates like "2026" in synthetic
+// ids ("hist-v14.2-2026-05-09-...") aren't misparsed as a patch number.
+const VERSION_RE = /v(\d+)[.\-_](\d+)(?:[.\-_](\d{1,2})(?!\d))?(?:[.\-_]([a-z]+\d*))?/i;
 
 export function extractVersion(entry: ChangelogEntry): VersionId | null {
   for (const source of [entry.id, entry.title, ...(entry.related_ids ?? [])]) {
