@@ -47,6 +47,18 @@ export type GlobalStatus = "ok" | "warn" | "down" | "loading";
 
 export type McpStatus = "ok" | "degraded" | "missing" | "unknown" | string;
 
+export type SkillState = "active" | "plugin" | "vaulted" | string;
+
+export type SkillInfo = {
+  name: string;
+  state: SkillState;
+  source: string | null;
+  description: string | null;
+  tags: string[];
+  path: string | null;
+  usage_count: number;
+};
+
 export type McpInfo = {
   name: string;
   transport: string; // "stdio" | "http" | "sse"

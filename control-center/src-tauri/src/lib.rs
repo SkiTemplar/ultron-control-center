@@ -6,6 +6,7 @@
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
 mod mcps;
+mod skills;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -133,6 +134,20 @@ async fn list_mcps() -> Result<Vec<mcps::McpInfo>, String> {
 
 /// Run mcp_health_check.py and return the updated list of MCPs.
 /// Honors the user's CLAUDE.md rule of always invoking python via `uv run`.
+// ---------------------------------------------------------------------------
+// Skill commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn list_skills() -> Result<Vec<skills::SkillInfo>, String> {
+    skills::list_skills_inner()
+}
+
+#[tauri::command]
+async fn read_skill_md(name: String) -> Result<String, String> {
+    skills::read_skill_md_inner(&name)
+}
+
 #[tauri::command]
 async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::McpInfo>, String> {
     let script_path = ultron_root()?.join("scripts/cockpit/mcp_health_check.py");
@@ -189,7 +204,9 @@ pub fn run() {
             read_alerts,
             read_changelog,
             list_mcps,
-            run_mcp_health_check
+            run_mcp_health_check,
+            list_skills,
+            read_skill_md
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
