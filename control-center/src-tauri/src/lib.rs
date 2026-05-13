@@ -5,6 +5,8 @@
 //   - read_changelog: parse ~/.ultron/cockpit/changelog.ndjson into entries
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
+mod mcps;
+
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
@@ -121,6 +123,38 @@ async fn read_changelog(limit: Option<usize>) -> Result<Vec<serde_json::Value>, 
 }
 
 // ---------------------------------------------------------------------------
+// MCP commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn list_mcps() -> Result<Vec<mcps::McpInfo>, String> {
+    mcps::list_mcps_inner()
+}
+
+/// Run mcp_health_check.py and return the updated list of MCPs.
+/// Honors the user's CLAUDE.md rule of always invoking python via `uv run`.
+#[tauri::command]
+async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::McpInfo>, String> {
+    let script_path = ultron_root()?.join("scripts/cockpit/mcp_health_check.py");
+    let script_str = script_path.to_string_lossy().to_string();
+
+    // Use uv run python for project-managed env (per CLAUDE.md global rule).
+    let output = app
+        .shell()
+        .command("uv")
+        .args(["run", "python", &script_str, "--quiet"])
+        .output()
+        .await
+        .map_err(|e| format!("spawn uv: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("health check failed (exit {:?}): {}", output.status.code(), stderr));
+    }
+    mcps::list_mcps_inner()
+}
+
+// ---------------------------------------------------------------------------
 // Window management
 // ---------------------------------------------------------------------------
 
@@ -153,7 +187,9 @@ pub fn run() {
             ultron_status,
             qdrant_health,
             read_alerts,
-            read_changelog
+            read_changelog,
+            list_mcps,
+            run_mcp_health_check
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;

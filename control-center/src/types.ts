@@ -44,3 +44,18 @@ export type Health = {
 };
 
 export type GlobalStatus = "ok" | "warn" | "down" | "loading";
+
+export type McpStatus = "ok" | "degraded" | "missing" | "unknown" | string;
+
+export type McpInfo = {
+  name: string;
+  transport: string; // "stdio" | "http" | "sse"
+  command: string | null;
+  args_preview: string | null;
+  url: string | null;
+  status: McpStatus;
+  last_checked: string | null;
+  fallback_message: string | null;
+  alert_severity: string | null;
+  expected_offline: boolean;
+};

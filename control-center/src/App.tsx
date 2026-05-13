@@ -4,6 +4,7 @@ import { Sidebar, type Tab } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { Changelog } from "./components/Changelog";
 import { Notifications } from "./components/Notifications";
+import { MCPs } from "./components/MCPs";
 import { computeGlobalStatus } from "./lib/status";
 import type { QdrantHealth, AlertEntry, ChangelogEntry } from "./types";
 
@@ -60,6 +61,7 @@ export default function App() {
         )}
         {tab === "notifications" && <Notifications alerts={alerts} />}
         {tab === "changelog" && <Changelog entries={changelog} />}
+        {tab === "mcps" && <MCPs />}
       </main>
     </div>
   );

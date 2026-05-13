@@ -30,6 +30,16 @@
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\ultron\\.ps1$" },
             "status"
           ]
+        },
+        {
+          "name": "mcp-health",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\mcp_health_check\\.py$" },
+            "--quiet"
+          ]
         }
       ]
     }
