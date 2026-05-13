@@ -10,6 +10,7 @@ mod memory;
 mod projects;
 mod sessions;
 mod skills;
+mod usage;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -179,6 +180,11 @@ async fn memory_action(
 }
 
 #[tauri::command]
+async fn claude_usage() -> Result<usage::UsageReport, String> {
+    usage::claude_usage_inner()
+}
+
+#[tauri::command]
 async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
     projects::list_projects_inner()
 }
@@ -273,7 +279,8 @@ pub fn run() {
             list_projects,
             brain_query,
             read_vault_note,
-            memory_action
+            memory_action,
+            claude_usage
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;

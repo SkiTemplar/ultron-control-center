@@ -8,6 +8,7 @@ import { MCPs } from "./components/MCPs";
 import { Skills } from "./components/Skills";
 import { Memory } from "./components/Memory";
 import { Sessions } from "./components/Sessions";
+import { Usage } from "./components/Usage";
 import { computeGlobalStatus } from "./lib/status";
 import type { QdrantHealth, AlertEntry, ChangelogEntry } from "./types";
 
@@ -68,6 +69,7 @@ export default function App() {
         {tab === "skills" && <Skills />}
         {tab === "memory" && <Memory />}
         {tab === "sessions" && <Sessions />}
+        {tab === "usage" && <Usage />}
       </main>
     </div>
   );

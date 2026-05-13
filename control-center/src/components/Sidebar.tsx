@@ -11,6 +11,7 @@ export type Tab =
   | "changelog"
   | "notifications"
   | "sessions"
+  | "usage"
   | "logs"
   | "settings";
 
@@ -25,6 +26,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     heading: "Overview",
     items: [
       { id: "dashboard", label: "Dashboard", available: true },
+      { id: "usage", label: "Usage", available: true },
       { id: "notifications", label: "Notifications", available: true },
       { id: "changelog", label: "Changelog", available: true },
     ],
