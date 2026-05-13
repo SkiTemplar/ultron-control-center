@@ -309,6 +309,83 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
+def cmd_upsert(args: argparse.Namespace) -> int:
+    """Append bullets to an existing entry for the given version, or create
+    one if none exists yet.
+
+    Use this when you finish a feature inside an ongoing version cycle: the
+    changelog stays at one entry per release with growing bullet list,
+    instead of one entry per commit.
+    """
+    new_bullets = [b.strip() for b in (args.bullet or []) if b.strip()]
+    if not new_bullets and not args.title:
+        print("[changelog_tool] nothing to upsert (no --bullet/--title)", flush=True)
+        return 1
+
+    entries = read_entries()
+    target = args.version.lstrip("v")
+    target_id = f"v{target.replace('.', '-')}"
+
+    # Locate existing entry by id or by related_ids match
+    existing_idx = None
+    for i, e in enumerate(entries):
+        eid = str(e.get("id", ""))
+        rids = [str(r) for r in (e.get("related_ids") or [])]
+        if eid == target_id or f"v{target}" in rids:
+            existing_idx = i
+            break
+
+    if existing_idx is None:
+        # Create a fresh entry
+        entry = {
+            "id": target_id,
+            "ts": _now_iso(),
+            "type": args.type or "feat",
+            "scope": args.scope or "control-center",
+            "title": args.title or f"v{target}",
+            "body": "\n".join(f"- {b}" for b in new_bullets[:MAX_BULLETS]),
+            "related_ids": [f"v{target}"],
+            "applied_by": args.applied_by or "claude",
+        }
+        entries.append(entry)
+        write_entries(entries)
+        print(f"[changelog_tool] created new entry {target_id} with {len(new_bullets)} bullets", flush=True)
+        return 0
+
+    # Merge into existing
+    e = entries[existing_idx]
+    body = e.get("body", "") or ""
+    existing_bullets: list[str] = []
+    for line in body.split("\n"):
+        s = line.strip()
+        if s.startswith("- "):
+            existing_bullets.append(s[2:])
+
+    # Dedupe (case-insensitive) before deciding to add
+    seen = {b.lower() for b in existing_bullets}
+    for nb in new_bullets:
+        if nb.lower() not in seen:
+            existing_bullets.append(nb)
+            seen.add(nb.lower())
+
+    # Trim oversize: keep up to args.max bullets if specified, else no cap
+    cap = args.max if args.max else None
+    if cap and len(existing_bullets) > cap:
+        existing_bullets = existing_bullets[-cap:]
+
+    e["body"] = "\n".join(f"- {b}" for b in existing_bullets)
+    e["ts"] = _now_iso()
+    if args.title:
+        e["title"] = args.title
+    if args.scope:
+        e["scope"] = args.scope
+    if args.type:
+        e["type"] = args.type
+    write_entries(entries)
+    print(f"[changelog_tool] merged {len(new_bullets)} bullets into {e['id']} (now {len(existing_bullets)} total)", flush=True)
+    return 0
+
+
 def cmd_add(args: argparse.Namespace) -> int:
     bullets = [b.strip() for b in (args.bullet or []) if b.strip()]
     body = "\n".join(f"- {b}" for b in bullets[:MAX_BULLETS])
@@ -349,6 +426,22 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("list", help="One-line per entry")
     sp.set_defaults(func=cmd_list)
+
+    sp = sub.add_parser(
+        "upsert",
+        help="Add bullets to an existing version entry (or create it)",
+    )
+    sp.add_argument("--version", required=True, help="e.g. 15.1 or v15.1")
+    sp.add_argument("--bullet", action="append", help="Repeatable.")
+    sp.add_argument("--title")
+    sp.add_argument("--scope")
+    sp.add_argument(
+        "--type", choices=["feat", "fix", "chore", "refactor", "docs"], default=None
+    )
+    sp.add_argument("--max", type=int, default=None,
+                    help="Truncate to N most recent bullets (default no cap)")
+    sp.add_argument("--applied-by")
+    sp.set_defaults(func=cmd_upsert)
 
     sp = sub.add_parser("add", help="Append a new entry")
     sp.add_argument("--type", required=True, choices=["feat", "fix", "chore", "refactor", "docs"])

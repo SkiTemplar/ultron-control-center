@@ -24,16 +24,42 @@ function shortModel(m: string): string {
 // Weekly reset countdown — Friday 03:00 local time
 // ---------------------------------------------------------------------------
 
-function nextWeeklyReset(now: Date = new Date()): Date {
-  const target = new Date(now);
-  target.setHours(3, 0, 0, 0);
-  const dow = target.getDay(); // 0 Sun … 5 Fri … 6 Sat
-  let daysUntilFriday = (5 - dow + 7) % 7;
-  // If today is Friday and we're already past 03:00, jump to next Friday.
-  if (daysUntilFriday === 0 && now.getTime() >= target.getTime()) {
-    daysUntilFriday = 7;
+// Reset config persisted in localStorage so the user can adjust if the
+// Anthropic plan rolls over a different time/day.
+type ResetConfig = { weekday: number; hour: number; minute: number };
+const RESET_KEY = "ultron.cc.weekly_reset.v1";
+const DEFAULT_RESET: ResetConfig = { weekday: 5, hour: 3, minute: 0 }; // Fri 03:00
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function loadResetConfig(): ResetConfig {
+  try {
+    const raw = localStorage.getItem(RESET_KEY);
+    if (!raw) return DEFAULT_RESET;
+    const parsed = JSON.parse(raw) as Partial<ResetConfig>;
+    return {
+      weekday: typeof parsed.weekday === "number" ? parsed.weekday : DEFAULT_RESET.weekday,
+      hour: typeof parsed.hour === "number" ? parsed.hour : DEFAULT_RESET.hour,
+      minute: typeof parsed.minute === "number" ? parsed.minute : DEFAULT_RESET.minute,
+    };
+  } catch {
+    return DEFAULT_RESET;
   }
-  target.setDate(target.getDate() + daysUntilFriday);
+}
+function saveResetConfig(c: ResetConfig) {
+  try {
+    localStorage.setItem(RESET_KEY, JSON.stringify(c));
+  } catch {}
+}
+
+function nextWeeklyReset(cfg: ResetConfig, now: Date = new Date()): Date {
+  const target = new Date(now);
+  target.setHours(cfg.hour, cfg.minute, 0, 0);
+  const dow = target.getDay();
+  let daysUntil = (cfg.weekday - dow + 7) % 7;
+  if (daysUntil === 0 && now.getTime() >= target.getTime()) {
+    daysUntil = 7;
+  }
+  target.setDate(target.getDate() + daysUntil);
   return target;
 }
 
@@ -50,11 +76,16 @@ function formatCountdown(ms: number): string {
 
 function WeeklyResetCard() {
   const [nowMs, setNowMs] = useState(Date.now());
+  const [cfg, setCfg] = useState<ResetConfig>(() => loadResetConfig());
+  const [editing, setEditing] = useState(false);
+
   useEffect(() => {
     const t = setInterval(() => setNowMs(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
-  const target = nextWeeklyReset(new Date(nowMs));
+  useEffect(() => saveResetConfig(cfg), [cfg]);
+
+  const target = nextWeeklyReset(cfg, new Date(nowMs));
   const remaining = target.getTime() - nowMs;
   const targetLabel = target.toLocaleString(undefined, {
     weekday: "short",
@@ -63,6 +94,9 @@ function WeeklyResetCard() {
     hour: "2-digit",
     minute: "2-digit",
   });
+
+  const hint = `${WEEKDAY_LABELS[cfg.weekday].toLowerCase()} ${String(cfg.hour).padStart(2, "0")}:${String(cfg.minute).padStart(2, "0")}`;
+
   return (
     <div
       className="rounded p-4"
@@ -78,9 +112,15 @@ function WeeklyResetCard() {
         >
           Weekly reset
         </div>
-        <span className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>
-          fri 03:00
-        </span>
+        <button
+          type="button"
+          onClick={() => setEditing(!editing)}
+          className="text-[10px] transition-colors"
+          style={{ color: "var(--color-text-faint)" }}
+          title="Configure reset day/time"
+        >
+          {hint} ✎
+        </button>
       </div>
       <div className="mt-2 text-[22px] font-semibold tabular-nums leading-tight">
         {formatCountdown(remaining)}
@@ -88,6 +128,105 @@ function WeeklyResetCard() {
       <div className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
         until {targetLabel}
       </div>
+
+      {editing && (
+        <div
+          className="mt-3 rounded p-2.5"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <label
+              className="text-[10px] uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Day
+            </label>
+            <select
+              value={cfg.weekday}
+              onChange={(e) =>
+                setCfg({ ...cfg, weekday: parseInt(e.target.value, 10) })
+              }
+              className="rounded px-1.5 py-0.5 text-[11px]"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {WEEKDAY_LABELS.map((l, i) => (
+                <option key={i} value={i}>
+                  {l}
+                </option>
+              ))}
+            </select>
+            <label
+              className="text-[10px] uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Hour
+            </label>
+            <input
+              type="number"
+              min={0}
+              max={23}
+              value={cfg.hour}
+              onChange={(e) =>
+                setCfg({
+                  ...cfg,
+                  hour: Math.max(0, Math.min(23, parseInt(e.target.value, 10) || 0)),
+                })
+              }
+              className="w-12 rounded px-1.5 py-0.5 text-[11px] tabular-nums"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+              }}
+            />
+            <span style={{ color: "var(--color-text-tertiary)" }}>:</span>
+            <input
+              type="number"
+              min={0}
+              max={59}
+              value={cfg.minute}
+              onChange={(e) =>
+                setCfg({
+                  ...cfg,
+                  minute: Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0)),
+                })
+              }
+              className="w-12 rounded px-1.5 py-0.5 text-[11px] tabular-nums"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => setCfg(DEFAULT_RESET)}
+              className="ml-auto text-[10px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+              title="Reset to Fri 03:00"
+            >
+              default
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="text-[10px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              done
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
