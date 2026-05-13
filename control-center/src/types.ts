@@ -199,6 +199,12 @@ export type ProjectActionResult = {
   exit_code: number | null;
 };
 
+export type CreateProjectResult = {
+  success: boolean;
+  id: string;
+  message: string;
+};
+
 export type SkillInfo = {
   name: string;
   state: SkillState;

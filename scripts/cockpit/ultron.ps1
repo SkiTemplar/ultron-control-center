@@ -1,4 +1,4 @@
-﻿# ULTRON v14.9.0 "GENESIS" CORE - Central command
+﻿# ULTRON v15.1.0 "CONTROL CENTER" CORE - Central command
 # Single entry point for the cockpit. Subcommands:
 #   ultron tui                     - launch TUI cockpit (default)
 #   ultron status                  - text dashboard

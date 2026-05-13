@@ -217,6 +217,23 @@ async fn scan_projects(
     projects::scan_projects_inner(&app).await
 }
 
+#[tauri::command]
+async fn create_project(
+    name: String,
+    path: String,
+    ide: Option<String>,
+    language: Option<String>,
+    tags: Option<Vec<String>>,
+) -> Result<projects::CreateProjectResult, String> {
+    projects::create_project_inner(projects::CreateProjectPayload {
+        name,
+        path,
+        ide,
+        language,
+        tags,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Session commands
 // ---------------------------------------------------------------------------
@@ -307,6 +324,7 @@ pub fn run() {
             list_projects,
             open_project,
             scan_projects,
+            create_project,
             brain_query,
             read_vault_note,
             memory_action,
