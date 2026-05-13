@@ -15,6 +15,8 @@
     "opener:default",
     "notification:default",
     "notification:allow-notify",
+    "dialog:default",
+    "dialog:allow-open",
     {
       "identifier": "shell:allow-execute",
       "allow": [
@@ -53,7 +55,7 @@
             "-NoExit",
             "-NoProfile",
             "-Command",
-            { "validator": "^(claude|gemini|codex)$" }
+            { "validator": "^(Set-Location -LiteralPath '[^\\r\\n]{0,500}'; )?(claude|gemini|codex)( -p)?( '[\\s\\S]{0,8000}')?$" }
           ]
         },
         {
@@ -64,6 +66,42 @@
             "python",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\gemini_cli\\.py$" },
             "--model",
+            { "validator": "^[a-zA-Z0-9.\\-]+$" },
+            { "validator": "^[\\s\\S]+$" }
+          ]
+        },
+        {
+          "name": "claude-inline",
+          "cmd": "claude",
+          "args": [
+            "-p",
+            { "validator": "^[\\s\\S]+$" }
+          ]
+        },
+        {
+          "name": "claude-inline-model",
+          "cmd": "claude",
+          "args": [
+            "-p",
+            { "validator": "^[\\s\\S]+$" },
+            "--model",
+            { "validator": "^[a-zA-Z0-9.\\-]+$" }
+          ]
+        },
+        {
+          "name": "codex-inline",
+          "cmd": "codex",
+          "args": [
+            "exec",
+            { "validator": "^[\\s\\S]+$" }
+          ]
+        },
+        {
+          "name": "codex-inline-model",
+          "cmd": "codex",
+          "args": [
+            "exec",
+            "-m",
             { "validator": "^[a-zA-Z0-9.\\-]+$" },
             { "validator": "^[\\s\\S]+$" }
           ]

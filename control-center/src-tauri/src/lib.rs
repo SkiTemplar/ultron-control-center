@@ -163,17 +163,20 @@ async fn memory_status() -> Result<memory::MemoryStatus, String> {
 async fn spawn_session(
     app: tauri::AppHandle,
     provider: String,
+    prompt: Option<String>,
+    cwd: Option<String>,
 ) -> Result<sessions::SpawnResult, String> {
-    sessions::spawn_session_inner(&app, provider).await
+    sessions::spawn_session_inner(&app, provider, prompt, cwd).await
 }
 
 #[tauri::command]
-async fn run_gemini(
+async fn run_inline(
     app: tauri::AppHandle,
-    model: String,
+    provider: String,
+    model: Option<String>,
     prompt: String,
-) -> Result<sessions::GeminiResult, String> {
-    sessions::run_gemini_inner(&app, model, prompt).await
+) -> Result<sessions::InlineResult, String> {
+    sessions::run_inline_inner(&app, provider, model, prompt).await
 }
 
 #[tauri::command]
@@ -226,6 +229,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             ultron_status,
             qdrant_health,
@@ -237,7 +241,7 @@ pub fn run() {
             read_skill_md,
             memory_status,
             spawn_session,
-            run_gemini
+            run_inline
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;

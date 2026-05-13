@@ -89,12 +89,14 @@ export type SpawnResult = {
   provider: string;
 };
 
-export type GeminiResult = {
+export type InlineResult = {
   success: boolean;
   stdout: string;
   stderr: string;
   exit_code: number | null;
 };
+
+export type SessionProvider = "claude" | "gemini" | "codex";
 
 export type SkillInfo = {
   name: string;
