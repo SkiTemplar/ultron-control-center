@@ -1,0 +1,37 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the ULTRON Control Center main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-close",
+    "core:window:allow-minimize",
+    "core:window:allow-set-focus",
+    "core:app:allow-app-show",
+    "core:app:allow-app-hide",
+    "opener:default",
+    "notification:default",
+    "notification:allow-notify",
+    {
+      "identifier": "shell:allow-execute",
+      "allow": [
+        {
+          "name": "ultron-status",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\ultron\\.ps1$" },
+            "status"
+          ]
+        }
+      ]
+    }
+  ]
+}

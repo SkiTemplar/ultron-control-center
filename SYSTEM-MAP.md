@@ -8,7 +8,8 @@
 - SSOT version: v14.9.0 GENESIS [verify: uv run python C:\Users\USER\.ultron\scripts\cockpit\version_propagate.py --check] [expect: OK]
 
 ## CORE — cockpit
-- Dispatcher PS1:        `~/.ultron/scripts/cockpit/ultron.ps1`  ·  TUI: `tui.py`
+- Dispatcher PS1:        `~/.ultron/scripts/cockpit/ultron.ps1` (90 subcomandos · 1376 líneas)  ·  TUI legacy: `tui.py` (deprecada en v15.1)
+- **Control Center (v15.1):** `~/.ultron/control-center/` (Tauri 2 + React + TS + Tailwind v4 · dark theme ULTRON · tray icon + ventana visual · sidecar a ultron.ps1). Dev: `cd control-center && npm run tauri dev` · Build: `npm run tauri build`. Spec: `plans/specs/v15.1-control-center.md`.
 - Cockpit Python tools:  `~/.ultron/scripts/cockpit/*.py` (brain_index, registry_sync, context_primer, doctor, embed_vault, embed_skills, skill_vault, osint_footprint, gemini-peer …)
 - Cockpit data:          `~/.ultron/cockpit/{audits,news,standup,DASHBOARD.md,changelog.ndjson}`  ·  Icons: `~/.ultron/cockpit/icons/{01-10}-*.ico`
 

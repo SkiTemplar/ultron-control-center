@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+/*
+ * ULTRON dark theme — palette aligned with the WinForms notification panel
+ * from v15.0.2 so the whole system feels cohesive.
+ */
+@theme {
+  --color-ultron-bg: #161820;
+  --color-ultron-surface: #1d2030;
+  --color-ultron-surface-hover: #262a36;
+  --color-ultron-border: #3c4050;
+  --color-ultron-text: #e6e8f0;
+  --color-ultron-text-dim: #a8acb8;
+  --color-ultron-text-faint: #6e7286;
+  --color-ultron-accent: #586eff;
+  --color-ultron-accent-hover: #6c82ff;
+  --color-ultron-success: #38b26e;
+  --color-ultron-warn: #f5a524;
+  --color-ultron-danger: #e85959;
+  --color-ultron-purple: #a875ff;
+
+  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Code", "Consolas", "JetBrains Mono", monospace;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-ultron-bg);
+  color: var(--color-ultron-text);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Scrollbar dark */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-ultron-bg);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-ultron-border);
+  border-radius: 5px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ultron-surface-hover);
+}
