@@ -57,6 +57,45 @@
           ]
         },
         {
+          "name": "memory-vault-sync",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\memory_sync\\.py$" },
+            "sync"
+          ]
+        },
+        {
+          "name": "memory-brain-update",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\brain_index\\.py$" },
+            "update"
+          ]
+        },
+        {
+          "name": "memory-qdrant-reembed",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\embed_vault\\.py$" },
+            "index"
+          ]
+        },
+        {
+          "name": "memory-skills-reembed",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\embed_skills\\.py$" }
+          ]
+        },
+        {
           "name": "wt-spawn",
           "cmd": "wt.exe",
           "args": [

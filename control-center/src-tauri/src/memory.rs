@@ -13,7 +13,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct MemoryStatus {
@@ -333,7 +333,7 @@ pub fn memory_status_inner() -> MemoryStatus {
 // brain_index.py query passthrough
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BrainResult {
     #[serde(default)]
     pub id: i64,
@@ -397,6 +397,66 @@ pub async fn brain_query_inner(
     let parsed: BrainQueryOutput =
         serde_json::from_str(&stdout).map_err(|e| format!("parse output: {}", e))?;
     Ok(parsed.results)
+}
+
+// ---------------------------------------------------------------------------
+// Memory actions — invoke the sync/index scripts via shell sidecar
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ActionResult {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+    pub action: String,
+}
+
+/// Dispatch one of the known memory maintenance actions. We keep the script
+/// names hardcoded on the Rust side so the capability validator can pin the
+/// exact paths it allows.
+pub async fn memory_action_inner(
+    app: &tauri::AppHandle,
+    action: String,
+) -> Result<ActionResult, String> {
+    use tauri_plugin_shell::ShellExt;
+    let scripts_dir = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit");
+
+    // Each action maps to a (script, args) pair.
+    let (script_name, args): (&str, Vec<&str>) = match action.as_str() {
+        "vault-sync" => ("memory_sync.py", vec!["sync"]),
+        "brain-update" => ("brain_index.py", vec!["update"]),
+        "qdrant-reembed" => ("embed_vault.py", vec!["index"]),
+        "skills-reembed" => ("embed_skills.py", vec![]),
+        _ => return Err(format!("unknown memory action '{}'", action)),
+    };
+
+    let script_path = scripts_dir.join(script_name);
+    let script_str = script_path.to_string_lossy().to_string();
+
+    let mut full_args: Vec<String> = vec!["run".into(), "python".into(), script_str.clone()];
+    for a in &args {
+        full_args.push((*a).to_string());
+    }
+    let str_args: Vec<&str> = full_args.iter().map(String::as_str).collect();
+
+    let output = app
+        .shell()
+        .command("uv")
+        .args(str_args)
+        .output()
+        .await
+        .map_err(|e| format!("spawn uv: {}", e))?;
+
+    Ok(ActionResult {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: output.status.code(),
+        action,
+    })
 }
 
 // ---------------------------------------------------------------------------

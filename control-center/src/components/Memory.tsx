@@ -1,6 +1,11 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { BrainResult, MemoryStatusInfo } from "../types";
+import type {
+  BrainResult,
+  MemoryActionKey,
+  MemoryActionResult,
+  MemoryStatusInfo,
+} from "../types";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -279,6 +284,36 @@ function NotePreview({ path }: { path: string }) {
 // Main
 // ---------------------------------------------------------------------------
 
+type ActionDef = {
+  key: MemoryActionKey;
+  label: string;
+  hint: string;
+  destructive?: boolean;
+};
+
+const ACTIONS: ActionDef[] = [
+  {
+    key: "vault-sync",
+    label: "Sync vault",
+    hint: "Git stage + commit + push de ~/.ultron-vault. Lo que el Stop hook hace al cerrar Claude.",
+  },
+  {
+    key: "brain-update",
+    label: "Update brain",
+    hint: "FTS5 incremental: indexa cambios sin tocar lo ya indexado.",
+  },
+  {
+    key: "qdrant-reembed",
+    label: "Re-embed Qdrant",
+    hint: "Vuelve a calcular embeddings del vault y los empuja a la colección ultron_vault.",
+  },
+  {
+    key: "skills-reembed",
+    label: "Re-embed skills",
+    hint: "Re-genera embeddings de las skills (active + plugin + vault).",
+  },
+];
+
 export function Memory() {
   const [data, setData] = useState<MemoryStatusInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -289,6 +324,9 @@ export function Memory() {
   const [searching, setSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+
+  const [runningAction, setRunningAction] = useState<MemoryActionKey | null>(null);
+  const [actionOutput, setActionOutput] = useState<MemoryActionResult | null>(null);
 
   async function load() {
     setRefreshing(true);
@@ -320,6 +358,27 @@ export function Memory() {
       setResults([]);
     } finally {
       setSearching(false);
+    }
+  }
+
+  async function runAction(key: MemoryActionKey) {
+    setRunningAction(key);
+    setActionOutput(null);
+    try {
+      const r = (await invoke("memory_action", { action: key })) as MemoryActionResult;
+      setActionOutput(r);
+      // Refresh status afterwards — sync/index actions likely changed something.
+      load();
+    } catch (e) {
+      setActionOutput({
+        success: false,
+        stdout: "",
+        stderr: String(e),
+        exit_code: null,
+        action: key,
+      });
+    } finally {
+      setRunningAction(null);
     }
   }
 
@@ -369,6 +428,87 @@ export function Memory() {
         {data && (
           <StatusRow vault={data.vault} brain={data.brain} qdrant={data.qdrant} />
         )}
+
+        {/* Actions */}
+        <div className="mt-5">
+          <div
+            className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Maintenance actions
+          </div>
+          <div className="grid grid-cols-4 gap-2">
+            {ACTIONS.map((a) => {
+              const busy = runningAction === a.key;
+              const anyBusy = runningAction !== null;
+              return (
+                <button
+                  key={a.key}
+                  type="button"
+                  onClick={() => runAction(a.key)}
+                  disabled={anyBusy}
+                  className="rounded p-3 text-left transition-colors disabled:opacity-50"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!anyBusy)
+                      (e.currentTarget as HTMLButtonElement).style.background =
+                        "var(--color-surface-3)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      "var(--color-surface-2)";
+                  }}
+                  title={a.hint}
+                >
+                  <div className="text-[12px] font-medium" style={{ color: "var(--color-text)" }}>
+                    {busy ? `${a.label}…` : a.label}
+                  </div>
+                  <div
+                    className="mt-1 text-[10.5px] leading-snug"
+                    style={{
+                      color: "var(--color-text-tertiary)",
+                      display: "-webkit-box",
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: "vertical",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {a.hint}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+
+          {actionOutput && (
+            <pre
+              className="mt-3 max-h-60 overflow-auto rounded p-3 text-[11px] leading-relaxed"
+              style={{
+                background: "var(--color-surface-1)",
+                border: `1px solid ${actionOutput.success ? "var(--color-border)" : "rgba(248, 81, 73, 0.22)"}`,
+                fontFamily: "var(--font-mono)",
+                color: actionOutput.success
+                  ? "var(--color-text-secondary)"
+                  : "var(--color-danger)",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              <div
+                className="mb-2 text-[10px] uppercase tracking-wide"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {actionOutput.action}
+                {actionOutput.exit_code !== null && (
+                  <span className="ml-2">exit {actionOutput.exit_code}</span>
+                )}
+              </div>
+              {actionOutput.stdout || actionOutput.stderr || "(no output)"}
+            </pre>
+          )}
+        </div>
 
         {/* Search */}
         <div className="mt-5 flex items-center gap-2">

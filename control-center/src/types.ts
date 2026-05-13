@@ -93,6 +93,20 @@ export type BrainResult = {
   rank: number;
 };
 
+export type MemoryActionResult = {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  action: string;
+};
+
+export type MemoryActionKey =
+  | "vault-sync"
+  | "brain-update"
+  | "qdrant-reembed"
+  | "skills-reembed";
+
 export type SkillState = "active" | "plugin" | "vaulted" | string;
 
 export type SpawnResult = {

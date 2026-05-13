@@ -171,6 +171,14 @@ async fn read_vault_note(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn memory_action(
+    app: tauri::AppHandle,
+    action: String,
+) -> Result<memory::ActionResult, String> {
+    memory::memory_action_inner(&app, action).await
+}
+
+#[tauri::command]
 async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
     projects::list_projects_inner()
 }
@@ -264,7 +272,8 @@ pub fn run() {
             run_inline,
             list_projects,
             brain_query,
-            read_vault_note
+            read_vault_note,
+            memory_action
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
