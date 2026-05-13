@@ -192,6 +192,13 @@ export type ProjectInfo = {
   tags: string[];
 };
 
+export type ProjectActionResult = {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+};
+
 export type SkillInfo = {
   name: string;
   state: SkillState;

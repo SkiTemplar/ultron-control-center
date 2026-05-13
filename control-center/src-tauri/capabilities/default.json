@@ -34,6 +34,33 @@
           ]
         },
         {
+          "name": "ultron-open",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\ultron\\.ps1$" },
+            "open",
+            { "validator": "^[a-zA-Z0-9._\\-]{1,60}$" }
+          ]
+        },
+        {
+          "name": "ultron-scan",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\ultron\\.ps1$" },
+            "scan"
+          ]
+        },
+        {
           "name": "mcp-health",
           "cmd": "uv",
           "args": [

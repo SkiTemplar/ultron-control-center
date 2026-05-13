@@ -202,6 +202,21 @@ async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
     projects::list_projects_inner()
 }
 
+#[tauri::command]
+async fn open_project(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<projects::ProjectActionResult, String> {
+    projects::open_project_inner(&app, id).await
+}
+
+#[tauri::command]
+async fn scan_projects(
+    app: tauri::AppHandle,
+) -> Result<Vec<projects::ProjectInfo>, String> {
+    projects::scan_projects_inner(&app).await
+}
+
 // ---------------------------------------------------------------------------
 // Session commands
 // ---------------------------------------------------------------------------
@@ -290,6 +305,8 @@ pub fn run() {
             spawn_session,
             run_inline,
             list_projects,
+            open_project,
+            scan_projects,
             brain_query,
             read_vault_note,
             memory_action,

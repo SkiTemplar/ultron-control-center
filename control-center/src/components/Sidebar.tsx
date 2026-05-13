@@ -43,7 +43,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     heading: "Workspace",
     items: [
       { id: "sessions", label: "Sessions", available: true },
-      { id: "projects", label: "Projects", available: false },
+      { id: "projects", label: "Projects", available: true },
       { id: "plans", label: "Plans", available: false },
       { id: "logs", label: "Logs", available: false },
     ],
