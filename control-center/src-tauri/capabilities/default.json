@@ -124,6 +124,27 @@
           ]
         },
         {
+          "name": "gaming-enum",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            { "validator": "^[\\s\\S]{1,4000}$" }
+          ]
+        },
+        {
+          "name": "gaming-kill",
+          "cmd": "taskkill.exe",
+          "args": [
+            "/F",
+            { "validator": "^/PID$" },
+            { "validator": "^[0-9]{1,9}$" }
+          ]
+        },
+        {
           "name": "system-tasks-run",
           "cmd": "powershell.exe",
           "args": [

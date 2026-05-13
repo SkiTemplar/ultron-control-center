@@ -14,6 +14,7 @@ export type Tab =
   | "usage"
   | "logs"
   | "system"
+  | "gaming"
   | "settings";
 
 type Item = {
@@ -46,6 +47,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "sessions", label: "Sessions", available: true },
       { id: "projects", label: "Projects", available: true },
+      { id: "gaming", label: "Gaming", available: true },
       { id: "plans", label: "Plans", available: false },
       { id: "logs", label: "Logs", available: false },
     ],

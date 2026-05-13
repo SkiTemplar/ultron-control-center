@@ -5,6 +5,7 @@
 //   - read_changelog: parse ~/.ultron/cockpit/changelog.ndjson into entries
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
+mod gaming;
 mod mcps;
 mod memory;
 mod projects;
@@ -236,6 +237,21 @@ async fn rich_system_info(
 }
 
 #[tauri::command]
+async fn list_killable_processes(
+    app: tauri::AppHandle,
+) -> Result<Vec<gaming::GameProcessInfo>, String> {
+    gaming::list_killable_inner(&app).await
+}
+
+#[tauri::command]
+async fn kill_processes(
+    app: tauri::AppHandle,
+    pids: Vec<i64>,
+) -> Result<gaming::KillResult, String> {
+    gaming::kill_processes_inner(&app, pids).await
+}
+
+#[tauri::command]
 async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
     projects::list_projects_inner()
 }
@@ -390,7 +406,9 @@ pub fn run() {
             run_scheduled_task,
             system_info,
             task_detail,
-            rich_system_info
+            rich_system_info,
+            list_killable_processes,
+            kill_processes
         ])
         .setup(|app| {
             // Register Ctrl+Alt+U global hotkey on startup. If it's already
