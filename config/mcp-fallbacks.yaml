@@ -31,6 +31,12 @@
   fallback_message: "Unity Editor not running or SSE bridge offline. Start the Unity Editor and ensure the ULTRON SSE bridge listens on http://localhost:6402/sse. Verify with `curl http://localhost:6402/sse` (should keep connection open)."
   alert_severity: info
   fallback_skill: null
+  # v15.1 F2.1.d: Unity is expected to be offline most of the time (only up
+  # when the Editor is open). mcp_health_check.py honors this flag and
+  # suppresses repeat info-level alerts for sources marked expected_offline
+  # when one already exists in the last 24h. The MCP itself still works
+  # when Unity boots — this only stops the recurring alert noise.
+  expected_offline: true
 
 - mcp_name: codex
   fallback_message: "Use the codex:rescue subagent or invoke `codex exec` directly. Same backend, no MCP wrapper required for one-shot review."

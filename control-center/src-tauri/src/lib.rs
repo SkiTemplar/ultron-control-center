@@ -1,13 +1,13 @@
-// ULTRON Control Center - Tauri backend
+// ULTRON Control Center — Tauri backend
 //
-// Responsibilities:
-//   - System tray icon with menu (Open / Quit)
-//   - Window show/hide toggle on tray click
-//   - Sidecar invocation of ~/.ultron/scripts/cockpit/ultron.ps1
-//   - Exposes #[tauri::command] handlers callable from React frontend
-//
-// Phase 1 (foundation): minimal subset to prove the IPC path works.
-// Later phases add more commands as we port the 90 CLI subcommands.
+// Phase 2 additions:
+//   - read_alerts: parse ~/.ultron/alerts.jsonl into structured entries
+//   - read_changelog: parse ~/.ultron/cockpit/changelog.ndjson into entries
+//   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
+
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 
 use tauri::{
     menu::{Menu, MenuItem},
@@ -17,7 +17,45 @@ use tauri::{
 use tauri_plugin_shell::ShellExt;
 
 // ---------------------------------------------------------------------------
-// Commands callable from frontend via invoke()
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn ultron_root() -> Result<PathBuf, String> {
+    dirs::home_dir()
+        .map(|h| h.join(".ultron"))
+        .ok_or_else(|| "No HOME dir".to_string())
+}
+
+fn read_jsonl_tail<T>(path: PathBuf, limit: usize) -> Result<Vec<T>, String>
+where
+    T: serde::de::DeserializeOwned,
+{
+    let file = File::open(&path).map_err(|e| format!("open {:?}: {}", path, e))?;
+    let reader = BufReader::new(file);
+    let mut lines: Vec<String> = Vec::new();
+    for line in reader.lines() {
+        let l = line.map_err(|e| format!("read line: {}", e))?;
+        if !l.trim().is_empty() {
+            lines.push(l);
+        }
+    }
+    // Take the last `limit` lines, newest first
+    let n = lines.len();
+    let start = if n > limit { n - limit } else { 0 };
+    let mut out: Vec<T> = Vec::with_capacity(n - start);
+    for l in lines[start..].iter().rev() {
+        if let Ok(parsed) = serde_json::from_str::<T>(l) {
+            out.push(parsed);
+        }
+        // Silently skip malformed lines — alerts.jsonl historically had
+        // some broken entries; we don't want a single bad line to break
+        // the whole list.
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Command types
 // ---------------------------------------------------------------------------
 
 #[derive(serde::Serialize)]
@@ -28,17 +66,13 @@ struct CmdResult {
     exit_code: Option<i32>,
 }
 
-/// Invoke `ultron.ps1 status` via PowerShell.
-/// Returns combined stdout/stderr/exit_code for the frontend to render.
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
 #[tauri::command]
 async fn ultron_status(app: tauri::AppHandle) -> Result<CmdResult, String> {
-    let script_path = dirs::home_dir()
-        .ok_or_else(|| "No HOME dir".to_string())?
-        .join(".ultron")
-        .join("scripts")
-        .join("cockpit")
-        .join("ultron.ps1");
-
+    let script_path = ultron_root()?.join("scripts/cockpit/ultron.ps1");
     let script_str = script_path.to_string_lossy().to_string();
 
     let output = app
@@ -65,22 +99,29 @@ async fn ultron_status(app: tauri::AppHandle) -> Result<CmdResult, String> {
     })
 }
 
-/// Read qdrant-health.json to get current Qdrant status.
 #[tauri::command]
 async fn qdrant_health() -> Result<serde_json::Value, String> {
-    let path = dirs::home_dir()
-        .ok_or_else(|| "No HOME dir".to_string())?
-        .join(".ultron")
-        .join(".tmp")
-        .join("qdrant-health.json");
-
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read failed: {}", e))?;
+    let path = ultron_root()?.join(".tmp/qdrant-health.json");
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("read failed: {}", e))?;
     serde_json::from_str(&content).map_err(|e| format!("parse failed: {}", e))
 }
 
+#[tauri::command]
+async fn read_alerts(limit: Option<usize>) -> Result<Vec<serde_json::Value>, String> {
+    let path = ultron_root()?.join("alerts.jsonl");
+    let lim = limit.unwrap_or(100).max(1).min(2000);
+    read_jsonl_tail::<serde_json::Value>(path, lim)
+}
+
+#[tauri::command]
+async fn read_changelog(limit: Option<usize>) -> Result<Vec<serde_json::Value>, String> {
+    let path = ultron_root()?.join("cockpit/changelog.ndjson");
+    let lim = limit.unwrap_or(100).max(1).min(2000);
+    read_jsonl_tail::<serde_json::Value>(path, lim)
+}
+
 // ---------------------------------------------------------------------------
-// Tray icon + window management
+// Window management
 // ---------------------------------------------------------------------------
 
 fn toggle_window(app: &tauri::AppHandle) {
@@ -98,15 +139,23 @@ fn toggle_window(app: &tauri::AppHandle) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
-        .invoke_handler(tauri::generate_handler![ultron_status, qdrant_health])
+        .invoke_handler(tauri::generate_handler![
+            ultron_status,
+            qdrant_health,
+            read_alerts,
+            read_changelog
+        ])
         .setup(|app| {
-            // Build tray menu: Open / Quit
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open_i, &quit_i])?;
@@ -115,7 +164,7 @@ pub fn run() {
                 .tooltip("ULTRON Control Center")
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
-                .show_menu_on_left_click(false) // left click toggles window
+                .show_menu_on_left_click(false)
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "open" => toggle_window(app),
                     "quit" => app.exit(0),
@@ -133,7 +182,7 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // Hide window when the user closes it (X button) — keep app in tray.
+            // Hide window when user clicks X — keeps app in tray.
             let main = app.get_webview_window("main").unwrap();
             let main_clone = main.clone();
             main.on_window_event(move |event| {

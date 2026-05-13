@@ -1,50 +1,87 @@
 @import "tailwindcss";
 
 /*
- * ULTRON dark theme — palette aligned with the WinForms notification panel
- * from v15.0.2 so the whole system feels cohesive.
+ * ULTRON Control Center — design tokens
+ *
+ * Principios (Mike Tyson):
+ *  - True black (#000) para QD-OLED: píxeles apagados = contraste infinito
+ *  - Monocromático puro + 3 status colors únicos (verde/amarillo/rojo)
+ *  - Sin gradientes decorativos, sin accent azul genérico tech
+ *  - Borders apenas perceptibles (#1a1a1a sobre #000)
+ *  - Tipografía Inter Variable con jerarquía real (400/500/600)
+ *  - Spacing system 4/8/12/16/24/32/48
  */
 @theme {
-  --color-ultron-bg: #161820;
-  --color-ultron-surface: #1d2030;
-  --color-ultron-surface-hover: #262a36;
-  --color-ultron-border: #3c4050;
-  --color-ultron-text: #e6e8f0;
-  --color-ultron-text-dim: #a8acb8;
-  --color-ultron-text-faint: #6e7286;
-  --color-ultron-accent: #586eff;
-  --color-ultron-accent-hover: #6c82ff;
-  --color-ultron-success: #38b26e;
-  --color-ultron-warn: #f5a524;
-  --color-ultron-danger: #e85959;
-  --color-ultron-purple: #a875ff;
+  /* Surfaces - escala monocromática en true black */
+  --color-bg: #000000;
+  --color-surface-1: #0a0a0a;     /* sidebar */
+  --color-surface-2: #111111;     /* cards */
+  --color-surface-3: #1a1a1a;     /* hover */
+  --color-surface-4: #222222;     /* active */
+  --color-border: #1f1f1f;        /* subtle */
+  --color-border-strong: #2a2a2a; /* visible separator */
 
-  --font-sans: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
-  --font-mono: "Cascadia Code", "Consolas", "JetBrains Mono", monospace;
+  /* Text - escala de grises legible */
+  --color-text: #f5f5f5;
+  --color-text-secondary: #a0a0a0;
+  --color-text-tertiary: #6e6e6e;
+  --color-text-faint: #4a4a4a;
+
+  /* Status - solo 3 colores con significado (GitHub-style, WCAG AA verified) */
+  --color-success: #3fb950;
+  --color-warn: #d29922;
+  --color-danger: #f85149;
+
+  /* Subtle accents para el monograma y CTAs primarios = blanco puro */
+  --color-accent: #ffffff;
+  --color-accent-text: #000000;
+
+  /* Tipografía */
+  --font-sans: "Inter Variable", "Inter", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "Consolas", monospace;
+
+  /* Sombras minimal (apenas perceptibles sobre OLED) */
+  --shadow-sm: 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 html, body, #root {
   height: 100%;
   margin: 0;
-  background: var(--color-ultron-bg);
-  color: var(--color-ultron-text);
+  background: var(--color-bg);
+  color: var(--color-text);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.5;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Scrollbar dark */
+/* Scrollbar — minimalista, casi invisible */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
-  background: var(--color-ultron-bg);
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--color-ultron-border);
-  border-radius: 5px;
+  background: var(--color-border-strong);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-ultron-surface-hover);
+  background: var(--color-text-faint);
+}
+
+/* Focus ring consistente */
+*:focus-visible {
+  outline: 1px solid var(--color-text-secondary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Selección de texto sobria */
+::selection {
+  background: var(--color-surface-4);
+  color: var(--color-text);
 }

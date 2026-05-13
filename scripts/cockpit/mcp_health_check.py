@@ -497,6 +497,11 @@ def emit_alerts(results: dict[str, str],
     check-then-write is delegated to :func:`alerts.write_dedupe` so it
     happens inside a single lock — two concurrent health-checks cannot
     both write a duplicate (Codex S5-A H2 fix).
+
+    v15.1 F2.1.d: MCPs with ``expected_offline: true`` in mcp-fallbacks.yaml
+    get a 24h dedupe window instead of the default. Unity is the canonical
+    case — its Editor is offline most of the time, and an alert every
+    session was just noise drowning out actionable signal.
     """
     written = 0
     for name, status in results.items():
@@ -510,13 +515,21 @@ def emit_alerts(results: dict[str, str],
         # Trim very long fallback messages so the alerts table stays readable.
         if len(msg) > 240:
             msg = msg[:237] + "..."
+
+        # Suppress recurring info alerts for MCPs that are expected offline.
+        expected_offline = bool(meta.get("expected_offline"))
+        if expected_offline and severity == "info":
+            window = max(dedupe_window_seconds, 24 * 3600)
+        else:
+            window = dedupe_window_seconds
+
         try:
             aid = _alerts.write_dedupe(
                 severity=severity,
                 source="mcp_health_check.py",
                 message=f"MCP '{name}' status={status}. {msg}",
                 dedupe_tag=f"mcp:{name}",
-                window_seconds=dedupe_window_seconds,
+                window_seconds=window,
                 tags=[f"status:{status}", "s5"],
             )
             if aid is not None:
