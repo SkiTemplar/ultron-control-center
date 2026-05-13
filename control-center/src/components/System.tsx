@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  RichSystemInfo,
   RunTaskResult,
   ScheduledTaskInfo,
-  SystemInfo,
+  TaskDetail,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -26,7 +27,6 @@ function formatRelativeIso(iso: string | null | undefined): string {
   if (isNaN(d.getTime())) return iso;
   const diff = Date.now() - d.getTime();
   if (diff < 0) {
-    // Future date
     const ahead = -diff;
     if (ahead < 60_000) return "in <1m";
     if (ahead < 3_600_000) return `in ${Math.floor(ahead / 60_000)}m`;
@@ -39,110 +39,562 @@ function formatRelativeIso(iso: string | null | undefined): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function taskStateBadge(state: string, lastResult: number): {
-  color: string;
-  label: string;
-} {
-  if (state === "Running") return { color: "var(--color-warn)", label: "running" };
-  if (state === "Disabled") return { color: "var(--color-text-tertiary)", label: "disabled" };
-  if (lastResult !== 0 && lastResult !== 267011 /* never run */) {
-    return { color: "var(--color-danger)", label: `last result 0x${lastResult.toString(16)}` };
+/**
+ * Translate Windows Task Scheduler result codes into a human-readable
+ * description. Only the most common values are mapped; unknown codes
+ * fall back to the hex representation.
+ */
+function explainTaskResult(code: number): { label: string; severity: "ok" | "warn" | "error" | "neutral" } {
+  switch (code) {
+    case 0:
+      return { label: "OK (last run succeeded)", severity: "ok" };
+    case 0x1:
+      return { label: "0x1 — generic error / non-zero exit from action", severity: "error" };
+    case 0x2:
+      return { label: "0x2 — file not found", severity: "error" };
+    case 0x10:
+      return { label: "0x10 — terminated unexpectedly", severity: "error" };
+    case 0x41300:
+      return { label: "0x41300 — task is ready (not yet run)", severity: "neutral" };
+    case 0x41301:
+      return { label: "0x41301 — task is currently running", severity: "warn" };
+    case 0x41302:
+      return { label: "0x41302 — task is disabled", severity: "neutral" };
+    case 0x41303:
+      return { label: "0x41303 — task has not yet run", severity: "neutral" };
+    case 0x41304:
+      return { label: "0x41304 — no more runs scheduled", severity: "neutral" };
+    case 0x41306:
+      return { label: "0x41306 — task terminated by user", severity: "warn" };
+    case 0x80041309:
+      return { label: "0x80041309 — task not registered", severity: "error" };
+    default:
+      return { label: `0x${code.toString(16)} — non-zero exit (see history below)`, severity: "error" };
   }
-  return { color: "var(--color-success)", label: state.toLowerCase() };
+}
+
+function taskDot(state: string, code: number): string {
+  if (state === "Running") return "var(--color-warn)";
+  if (state === "Disabled") return "var(--color-text-tertiary)";
+  const sev = explainTaskResult(code).severity;
+  if (sev === "error") return "var(--color-danger)";
+  if (sev === "warn") return "var(--color-warn)";
+  return "var(--color-success)";
 }
 
 // ---------------------------------------------------------------------------
-// Scheduled task row
+// Detail panel (expanded under a task)
 // ---------------------------------------------------------------------------
 
-function TaskRow({
-  task,
-  busy,
-  onRun,
-}: {
-  task: ScheduledTaskInfo;
-  busy: boolean;
-  onRun: () => void;
-}) {
-  const b = taskStateBadge(task.state, task.last_result);
+function DetailPanel({ name }: { name: string }) {
+  const [detail, setDetail] = useState<TaskDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    invoke<TaskDetail>("task_detail", { name })
+      .then((d) => {
+        if (!cancelled) setDetail(d);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [name]);
+
+  if (loading) {
+    return (
+      <div className="mt-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+        Loading detail…
+      </div>
+    );
+  }
+  if (error) {
+    return (
+      <div
+        className="mt-2 rounded p-2 text-[11.5px]"
+        style={{
+          background: "rgba(248, 81, 73, 0.06)",
+          border: "1px solid rgba(248, 81, 73, 0.22)",
+          color: "var(--color-danger)",
+        }}
+      >
+        {error}
+      </div>
+    );
+  }
+  if (!detail) return null;
+
+  const resultExplain = explainTaskResult(detail.last_result);
+
   return (
     <div
-      className="flex items-start gap-3 rounded p-3"
+      className="mt-3 space-y-3 rounded p-3"
       style={{
-        background: "var(--color-surface-2)",
+        background: "var(--color-surface-1)",
         border: "1px solid var(--color-border)",
       }}
     >
-      <span
-        className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full"
-        style={{ background: b.color }}
-      />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
-            {task.name}
-          </span>
-          <span
-            className="text-[10.5px] uppercase tracking-wide"
-            style={{ color: b.color }}
-          >
-            {b.label}
-          </span>
+      {/* Result explained */}
+      <div>
+        <SectionLabel>Last result</SectionLabel>
+        <div
+          className="mt-1 text-[12px]"
+          style={{
+            color:
+              resultExplain.severity === "error"
+                ? "var(--color-danger)"
+                : resultExplain.severity === "warn"
+                  ? "var(--color-warn)"
+                  : "var(--color-text)",
+          }}
+        >
+          {resultExplain.label}
         </div>
-        {task.description && (
-          <div
-            className="mt-1 text-[11.5px] leading-relaxed"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            {task.description}
+        {detail.missed_runs > 0 && (
+          <div className="mt-1 text-[11px]" style={{ color: "var(--color-warn)" }}>
+            {detail.missed_runs} missed run(s)
           </div>
         )}
-        <div
-          className="mt-1.5 flex flex-wrap items-baseline gap-3 text-[11px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          <span>
-            <span style={{ color: "var(--color-text-faint)" }}>last</span>{" "}
-            {formatRelativeIso(task.last_run)}
-          </span>
-          <span>
-            <span style={{ color: "var(--color-text-faint)" }}>next</span>{" "}
-            {formatRelativeIso(task.next_run)}
-          </span>
-          <span>
-            <span style={{ color: "var(--color-text-faint)" }}>result</span> 0x
-            {task.last_result.toString(16)}
-          </span>
+      </div>
+
+      {/* Principal & runlevel */}
+      <div>
+        <SectionLabel>Principal</SectionLabel>
+        <div className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
+          {detail.principal_user} · {detail.principal_logon} · run as {detail.run_level}
         </div>
       </div>
-      <button
-        type="button"
-        onClick={onRun}
-        disabled={busy}
-        className="shrink-0 rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
-        style={{
-          background: "var(--color-accent)",
-          color: "var(--color-accent-text)",
-        }}
-        title="Trigger the task now via Start-ScheduledTask"
-      >
-        {busy ? "Running…" : "Run now"}
-      </button>
+
+      {/* Triggers */}
+      {detail.triggers.length > 0 && (
+        <div>
+          <SectionLabel>Triggers</SectionLabel>
+          <ul className="mt-1 space-y-1">
+            {detail.triggers.map((t, i) => (
+              <li key={i} className="text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
+                <span style={{ color: "var(--color-text)" }}>{t.kind || "Trigger"}</span>
+                {t.enabled ? "" : " (disabled)"}
+                {t.start && (
+                  <>
+                    {" "}
+                    · starts <span className="tabular-nums">{t.start}</span>
+                  </>
+                )}
+                {t.extra && <> · {t.extra}</>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Actions */}
+      {detail.actions.length > 0 && (
+        <div>
+          <SectionLabel>Action</SectionLabel>
+          {detail.actions.map((a, i) => (
+            <div key={i} className="mt-1">
+              <div
+                className="truncate text-[11px]"
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--color-text)",
+                }}
+                title={`${a.execute} ${a.arguments}`}
+              >
+                {a.execute}
+              </div>
+              {a.arguments && (
+                <div
+                  className="mt-0.5 truncate text-[10.5px]"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--color-text-tertiary)",
+                  }}
+                  title={a.arguments}
+                >
+                  {a.arguments}
+                </div>
+              )}
+              {a.working && (
+                <div
+                  className="text-[10.5px]"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--color-text-faint)",
+                  }}
+                >
+                  cwd: {a.working}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* History */}
+      {detail.history.length > 0 && (
+        <div>
+          <SectionLabel>Recent events (last 14 days)</SectionLabel>
+          <ul className="mt-1 space-y-1">
+            {detail.history.slice(0, 8).map((e, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-2 text-[10.5px]"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
+                <span
+                  className="shrink-0 tabular-nums"
+                  style={{ color: "var(--color-text-faint)", minWidth: 130 }}
+                >
+                  {e.time.replace("T", " ").replace("Z", "")}
+                </span>
+                <span
+                  className="shrink-0"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  #{e.event_id}
+                </span>
+                <span
+                  className="line-clamp-2"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {e.message}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div
+      className="text-[10px] font-medium uppercase tracking-[0.06em]"
+      style={{ color: "var(--color-text-tertiary)" }}
+    >
+      {children}
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// System info card
+// Task row
 // ---------------------------------------------------------------------------
 
-function SystemInfoCard({ info }: { info: SystemInfo }) {
-  const diskPctColor =
-    info.disk_c_pct_used > 90
+function TaskRow({
+  task,
+  busy,
+  expanded,
+  onRun,
+  onToggle,
+}: {
+  task: ScheduledTaskInfo;
+  busy: boolean;
+  expanded: boolean;
+  onRun: () => void;
+  onToggle: () => void;
+}) {
+  const dot = taskDot(task.state, task.last_result);
+  const resultLabel = explainTaskResult(task.last_result).label;
+
+  return (
+    <div
+      className="rounded p-3"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <span
+          className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+          style={{ background: dot }}
+        />
+        <button
+          type="button"
+          onClick={onToggle}
+          className="min-w-0 flex-1 text-left"
+        >
+          <div className="flex items-baseline gap-2">
+            <span className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+              {task.name}
+            </span>
+            <span
+              className="text-[10.5px] uppercase tracking-wide"
+              style={{ color: dot }}
+            >
+              {task.state.toLowerCase()}
+            </span>
+          </div>
+          {task.description && (
+            <div
+              className="mt-1 text-[11.5px] leading-snug"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {task.description}
+            </div>
+          )}
+          <div
+            className="mt-1.5 flex flex-wrap items-baseline gap-3 text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            <span>
+              <span style={{ color: "var(--color-text-faint)" }}>last</span>{" "}
+              {formatRelativeIso(task.last_run)}
+            </span>
+            <span>
+              <span style={{ color: "var(--color-text-faint)" }}>next</span>{" "}
+              {formatRelativeIso(task.next_run)}
+            </span>
+            <span title={resultLabel}>
+              <span style={{ color: "var(--color-text-faint)" }}>result</span>{" "}
+              <span
+                style={{
+                  color:
+                    explainTaskResult(task.last_result).severity === "error"
+                      ? "var(--color-danger)"
+                      : "var(--color-text-secondary)",
+                }}
+              >
+                0x{task.last_result.toString(16)}
+              </span>
+            </span>
+            <span
+              className="ml-auto text-[10px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              {expanded ? "Hide details" : "Show details"}
+            </span>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={onRun}
+          disabled={busy}
+          className="shrink-0 rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+          title="Trigger the task now via Start-ScheduledTask"
+        >
+          {busy ? "Running…" : "Run now"}
+        </button>
+      </div>
+      {expanded && <DetailPanel name={task.name} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rich system info cards
+// ---------------------------------------------------------------------------
+
+function MeterBar({ pct, dangerOver = 85 }: { pct: number; dangerOver?: number }) {
+  const color =
+    pct >= dangerOver
       ? "var(--color-danger)"
-      : info.disk_c_pct_used > 80
+      : pct >= 70
         ? "var(--color-warn)"
         : "var(--color-success)";
+  return (
+    <div
+      className="h-1.5 w-full overflow-hidden rounded-full"
+      style={{ background: "var(--color-surface-3)" }}
+    >
+      <div
+        style={{
+          width: `${Math.max(0, Math.min(100, pct))}%`,
+          height: "100%",
+          background: color,
+          transition: "width 250ms ease",
+        }}
+      />
+    </div>
+  );
+}
+
+function RichInfo({ info }: { info: RichSystemInfo }) {
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {/* Host / OS */}
+      <Card title="Host">
+        <KV label="Computer" v={`${info.hostname} · ${info.user}`} />
+        <KV label="OS" v={`${info.os_name} (${info.os_version})`} />
+        <KV label="Uptime" v={formatUptime(info.uptime_seconds)} />
+      </Card>
+
+      {/* CPU */}
+      <Card title="CPU">
+        <KV label="Model" v={info.cpu_name} mono />
+        <KV
+          label="Cores"
+          v={`${info.cpu_cores} physical · ${info.cpu_threads} threads`}
+        />
+        {info.cpu_load_pct !== null && (
+          <div className="mt-2">
+            <div className="mb-1 flex items-baseline justify-between text-[11px]">
+              <span style={{ color: "var(--color-text-tertiary)" }}>Load</span>
+              <span className="tabular-nums" style={{ color: "var(--color-text)" }}>
+                {info.cpu_load_pct}%
+              </span>
+            </div>
+            <MeterBar pct={info.cpu_load_pct} />
+          </div>
+        )}
+      </Card>
+
+      {/* Memory */}
+      <Card title="Memory">
+        <div className="flex items-baseline justify-between text-[12px]">
+          <span style={{ color: "var(--color-text-tertiary)" }}>RAM</span>
+          <span className="tabular-nums" style={{ color: "var(--color-text)" }}>
+            {info.ram_used_gb} / {info.ram_total_gb} GB
+            <span className="ml-2" style={{ color: "var(--color-text-tertiary)" }}>
+              {info.ram_pct_used}%
+            </span>
+          </span>
+        </div>
+        <div className="mt-1.5">
+          <MeterBar pct={info.ram_pct_used} />
+        </div>
+        <div className="mt-3 flex items-baseline justify-between text-[12px]">
+          <span style={{ color: "var(--color-text-tertiary)" }}>Disk C:\</span>
+          <span className="tabular-nums" style={{ color: "var(--color-text)" }}>
+            {(info.disk_c_total_gb - info.disk_c_free_gb).toFixed(1)} / {info.disk_c_total_gb} GB
+            <span className="ml-2" style={{ color: "var(--color-text-tertiary)" }}>
+              {info.disk_c_pct_used}%
+            </span>
+          </span>
+        </div>
+        <div className="mt-1.5">
+          <MeterBar pct={info.disk_c_pct_used} dangerOver={90} />
+        </div>
+      </Card>
+
+      {/* GPU */}
+      <Card title="GPU">
+        {info.gpus.length === 0 ? (
+          <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+            No GPU detected.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {info.gpus.map((g, i) => (
+              <div key={i}>
+                <div className="flex items-baseline justify-between gap-2 text-[12px]">
+                  <span className="truncate" style={{ color: "var(--color-text)" }} title={g.name}>
+                    {g.name}
+                  </span>
+                  {g.temp_c !== null && (
+                    <span className="tabular-nums" style={{ color: "var(--color-text-tertiary)" }}>
+                      {g.temp_c}°C
+                    </span>
+                  )}
+                </div>
+                {g.util_pct !== null && (
+                  <div className="mt-1">
+                    <div className="mb-0.5 flex items-baseline justify-between text-[10.5px]">
+                      <span style={{ color: "var(--color-text-tertiary)" }}>GPU util</span>
+                      <span className="tabular-nums" style={{ color: "var(--color-text)" }}>
+                        {g.util_pct}%
+                      </span>
+                    </div>
+                    <MeterBar pct={g.util_pct} />
+                  </div>
+                )}
+                {g.mem_used_mb !== null && g.mem_total_mb !== null && g.mem_total_mb > 0 && (
+                  <div className="mt-1.5">
+                    <div className="mb-0.5 flex items-baseline justify-between text-[10.5px]">
+                      <span style={{ color: "var(--color-text-tertiary)" }}>VRAM</span>
+                      <span className="tabular-nums" style={{ color: "var(--color-text)" }}>
+                        {(g.mem_used_mb / 1024).toFixed(1)} / {(g.mem_total_mb / 1024).toFixed(1)} GB
+                      </span>
+                    </div>
+                    <MeterBar pct={(g.mem_used_mb / g.mem_total_mb) * 100} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      {/* Battery / Network — combined small card */}
+      <Card title="Power & network">
+        {info.battery ? (
+          <>
+            <div className="flex items-baseline justify-between text-[12px]">
+              <span style={{ color: "var(--color-text-tertiary)" }}>
+                Battery {info.battery.plugged_in ? "(plugged)" : "(on battery)"}
+              </span>
+              <span className="tabular-nums" style={{ color: "var(--color-text)" }}>
+                {info.battery.percent}%
+              </span>
+            </div>
+            <div className="mt-1.5">
+              <MeterBar pct={100 - info.battery.percent} dangerOver={80} />
+            </div>
+          </>
+        ) : (
+          <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+            No battery (desktop).
+          </div>
+        )}
+        {info.network && (
+          <div className="mt-3 space-y-1 text-[11.5px]">
+            <KV label="Iface" v={info.network.interface} />
+            <KV label="IPv4" v={info.network.ipv4 || "—"} mono />
+            <KV label="Gateway" v={info.network.gateway || "—"} mono />
+            {info.network.dns && <KV label="DNS" v={info.network.dns} mono />}
+          </div>
+        )}
+      </Card>
+
+      {/* Top processes */}
+      <Card title="Top processes (RAM)">
+        {info.top_procs.length === 0 ? (
+          <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+            —
+          </div>
+        ) : (
+          <ul className="space-y-1">
+            {info.top_procs.map((p) => (
+              <li
+                key={`${p.name}-${p.pid}`}
+                className="flex items-baseline justify-between text-[11.5px]"
+              >
+                <span style={{ color: "var(--color-text)" }}>{p.name}</span>
+                <span
+                  className="tabular-nums"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {p.ram_mb >= 1024
+                    ? `${(p.ram_mb / 1024).toFixed(1)} GB`
+                    : `${p.ram_mb.toFixed(0)} MB`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section
       className="rounded p-4"
@@ -151,42 +603,34 @@ function SystemInfoCard({ info }: { info: SystemInfo }) {
         border: "1px solid var(--color-border)",
       }}
     >
-      <h2 className="text-[13px] font-semibold">System</h2>
-      <div className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-[12px]">
-        <Field label="Hostname" value={info.hostname} />
-        <Field label="User" value={info.user} />
-        <Field label="OS" value={`${info.os_name} (${info.os_version})`} />
-        <Field label="Uptime" value={formatUptime(info.uptime_seconds)} />
-        <Field
-          label="C:\ free"
-          value={
-            <span>
-              <span className="tabular-nums">{info.disk_c_free_gb}</span> /
-              <span className="tabular-nums"> {info.disk_c_total_gb}</span> GB
-              <span
-                className="ml-2 tabular-nums"
-                style={{ color: diskPctColor }}
-              >
-                {info.disk_c_pct_used}% used
-              </span>
-            </span>
-          }
-        />
-      </div>
+      <h2 className="mb-3 text-[12px] font-semibold uppercase tracking-[0.06em]" style={{ color: "var(--color-text-secondary)" }}>
+        {title}
+      </h2>
+      {children}
     </section>
   );
 }
 
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
+function KV({ label, v, mono = false }: { label: string; v: React.ReactNode; mono?: boolean }) {
   return (
-    <div className="flex items-baseline gap-3">
+    <div className="flex items-baseline gap-3 text-[12px]">
       <span
-        className="w-20 shrink-0 text-[10px] uppercase tracking-wide"
+        className="w-16 shrink-0 text-[10px] uppercase tracking-wide"
         style={{ color: "var(--color-text-tertiary)" }}
       >
         {label}
       </span>
-      <span style={{ color: "var(--color-text)" }}>{value}</span>
+      <span
+        className="min-w-0 flex-1 truncate"
+        style={{
+          color: "var(--color-text)",
+          fontFamily: mono ? "var(--font-mono)" : undefined,
+          fontSize: mono ? 11 : undefined,
+        }}
+        title={typeof v === "string" ? v : undefined}
+      >
+        {v}
+      </span>
     </div>
   );
 }
@@ -197,21 +641,22 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export function System() {
   const [tasks, setTasks] = useState<ScheduledTaskInfo[]>([]);
-  const [info, setInfo] = useState<SystemInfo | null>(null);
+  const [rich, setRich] = useState<RichSystemInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [runningName, setRunningName] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<RunTaskResult | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      const [t, i] = await Promise.all([
+      const [t, r] = await Promise.all([
         invoke<ScheduledTaskInfo[]>("list_scheduled_tasks"),
-        invoke<SystemInfo>("system_info"),
+        invoke<RichSystemInfo>("rich_system_info"),
       ]);
       setTasks(t);
-      setInfo(i);
+      setRich(r);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -226,7 +671,6 @@ export function System() {
     try {
       const r = (await invoke("run_scheduled_task", { name })) as RunTaskResult;
       setLastRun(r);
-      // Refresh after a brief moment to pick up new LastRun
       setTimeout(load, 1500);
     } catch (e) {
       setLastRun({ success: false, name, stderr: String(e) });
@@ -250,7 +694,7 @@ export function System() {
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Scheduled tasks · backups · system info — refresh cada 60s
+            Scheduled tasks · CPU/RAM/GPU/network live · refresh cada 60s
           </p>
         </div>
         <button
@@ -299,41 +743,37 @@ export function System() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4">
-        {/* Scheduled tasks — spans 2 cols */}
-        <section className="col-span-2">
-          <h2 className="mb-2 text-[13px] font-semibold">Scheduled tasks</h2>
-          {tasks.length === 0 && !loading && (
-            <div
-              className="rounded p-6 text-center text-[12.5px]"
-              style={{
-                background: "var(--color-surface-2)",
-                border: "1px solid var(--color-border)",
-                color: "var(--color-text-secondary)",
-              }}
-            >
-              No ULTRON-* tasks registered. Install with{" "}
-              <span style={{ fontFamily: "var(--font-mono)" }}>
-                ultron schedule install
-              </span>
-              .
-            </div>
-          )}
-          <div className="space-y-2">
-            {tasks.map((t) => (
-              <TaskRow
-                key={t.name}
-                task={t}
-                busy={runningName === t.name}
-                onRun={() => run(t.name)}
-              />
-            ))}
+      {/* Scheduled tasks (full width) */}
+      <section className="mb-6">
+        <h2 className="mb-2 text-[13px] font-semibold">Scheduled tasks</h2>
+        {tasks.length === 0 && !loading && (
+          <div
+            className="rounded p-6 text-center text-[12.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            No ULTRON-* tasks registered.
           </div>
-        </section>
+        )}
+        <div className="space-y-2">
+          {tasks.map((t) => (
+            <TaskRow
+              key={t.name}
+              task={t}
+              busy={runningName === t.name}
+              expanded={expanded === t.name}
+              onToggle={() => setExpanded(expanded === t.name ? null : t.name)}
+              onRun={() => run(t.name)}
+            />
+          ))}
+        </div>
+      </section>
 
-        {/* System info */}
-        <div>{info && <SystemInfoCard info={info} />}</div>
-      </div>
+      {/* Rich system info */}
+      {rich && <RichInfo info={rich} />}
     </div>
   );
 }

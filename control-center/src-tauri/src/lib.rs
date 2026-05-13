@@ -219,6 +219,21 @@ async fn system_info(app: tauri::AppHandle) -> Result<system::SystemInfo, String
 }
 
 #[tauri::command]
+async fn task_detail(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<system::TaskDetail, String> {
+    system::task_detail_inner(&app, name).await
+}
+
+#[tauri::command]
+async fn rich_system_info(
+    app: tauri::AppHandle,
+) -> Result<system::RichSystemInfo, String> {
+    system::rich_system_info_inner(&app).await
+}
+
+#[tauri::command]
 async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
     projects::list_projects_inner()
 }
@@ -354,7 +369,9 @@ pub fn run() {
             settings_save,
             list_scheduled_tasks,
             run_scheduled_task,
-            system_info
+            system_info,
+            task_detail,
+            rich_system_info
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;

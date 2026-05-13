@@ -89,6 +89,36 @@
           ]
         },
         {
+          "name": "system-tasks-richinfo",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            "-Action",
+            "richinfo"
+          ]
+        },
+        {
+          "name": "system-tasks-detail",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            "-Action",
+            "detail",
+            "-Name",
+            { "validator": "^(ULTRON|Ultron)[A-Za-z0-9._\\-]{1,80}$" }
+          ]
+        },
+        {
           "name": "system-tasks-run",
           "cmd": "powershell.exe",
           "args": [

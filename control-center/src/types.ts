@@ -176,6 +176,93 @@ export type SystemInfo = {
   disk_c_pct_used: number;
 };
 
+export type TaskTrigger = {
+  kind: string;
+  start: string;
+  enabled: boolean;
+  extra: string;
+};
+
+export type TaskAction = {
+  execute: string;
+  arguments: string;
+  working: string;
+};
+
+export type TaskEvent = {
+  time: string;
+  event_id: number;
+  message: string;
+};
+
+export type TaskDetail = {
+  name: string;
+  description: string | null;
+  author: string | null;
+  state: string;
+  last_run: string;
+  next_run: string;
+  last_result: number;
+  missed_runs: number;
+  principal_user: string;
+  principal_logon: string;
+  run_level: string;
+  triggers: TaskTrigger[];
+  actions: TaskAction[];
+  history: TaskEvent[];
+};
+
+export type GpuInfo = {
+  name: string;
+  util_pct: number | null;
+  mem_used_mb: number | null;
+  mem_total_mb: number | null;
+  temp_c: number | null;
+  vendor: string;
+};
+
+export type BatteryInfo = {
+  percent: number;
+  status: number;
+  plugged_in: boolean;
+};
+
+export type NetworkInfo = {
+  interface: string;
+  ipv4: string;
+  gateway: string;
+  dns: string;
+};
+
+export type ProcInfo = {
+  name: string;
+  pid: number;
+  ram_mb: number;
+};
+
+export type RichSystemInfo = {
+  hostname: string;
+  user: string;
+  os_name: string;
+  os_version: string;
+  uptime_seconds: number;
+  cpu_name: string;
+  cpu_cores: number;
+  cpu_threads: number;
+  cpu_load_pct: number | null;
+  ram_total_gb: number;
+  ram_free_gb: number;
+  ram_used_gb: number;
+  ram_pct_used: number;
+  disk_c_total_gb: number;
+  disk_c_free_gb: number;
+  disk_c_pct_used: number;
+  gpus: GpuInfo[];
+  battery: BatteryInfo | null;
+  network: NetworkInfo | null;
+  top_procs: ProcInfo[];
+};
+
 export type UsageReport = {
   last_computed_date: string | null;
   cache_age_days: number | null;
