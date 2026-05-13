@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { InlineResult, SessionProvider } from "../types";
+import type { InlineResult, ProjectInfo, SessionProvider } from "../types";
 
 // ---------------------------------------------------------------------------
 // Provider catalogue
@@ -123,13 +123,30 @@ function saveCwd(v: string) {
 function WorkspacePicker({
   cwd,
   onChange,
+  projects,
 }: {
   cwd: string;
   onChange: (v: string) => void;
+  projects: ProjectInfo[];
 }) {
+  const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [search, setSearch] = useState("");
+  const popRef = useRef<HTMLDivElement | null>(null);
 
-  async function pick() {
+  // Close on outside click.
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (popRef.current && !popRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+
+  async function pickCustom() {
     setBusy(true);
     try {
       const path = await openDialog({
@@ -139,11 +156,19 @@ function WorkspacePicker({
       });
       if (typeof path === "string" && path) {
         onChange(path);
+        setOpen(false);
       }
     } catch {
-      // dialog cancelled or failed — ignore
+      // dialog cancelled — ignore
     } finally {
       setBusy(false);
+    }
+  }
+
+  function pickProject(p: ProjectInfo) {
+    if (p.path) {
+      onChange(p.path);
+      setOpen(false);
     }
   }
 
@@ -151,19 +176,33 @@ function WorkspacePicker({
     onChange("");
   }
 
+  // Filter projects by search; show last_active first (already sorted in Rust).
+  const q = search.trim().toLowerCase();
+  const filteredProjects = q
+    ? projects.filter(
+        (p) =>
+          p.id.toLowerCase().includes(q) ||
+          (p.name ?? "").toLowerCase().includes(q) ||
+          (p.path ?? "").toLowerCase().includes(q),
+      )
+    : projects;
+
+  const currentLabel = cwd
+    ? projects.find((p) => p.path === cwd)?.id ?? cwd
+    : null;
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="relative flex flex-wrap items-center gap-2" ref={popRef}>
       <button
         type="button"
-        onClick={pick}
-        disabled={busy}
+        onClick={() => setOpen(!open)}
         className="rounded px-2.5 py-1 text-[11.5px] transition-colors"
         style={{
           background: "var(--color-surface-3)",
           color: "var(--color-text-secondary)",
           border: "1px solid var(--color-border-strong)",
         }}
-        title="Choose a working directory the session will cd into before launching"
+        title="Pick from registered projects or choose any directory"
       >
         {cwd ? "Change workspace" : "Choose workspace"}
       </button>
@@ -178,7 +217,7 @@ function WorkspacePicker({
             }}
             title={cwd}
           >
-            {cwd}
+            {currentLabel}
           </span>
           <button
             type="button"
@@ -189,6 +228,140 @@ function WorkspacePicker({
             clear
           </button>
         </>
+      )}
+
+      {open && (
+        <div
+          className="absolute right-0 top-full z-50 mt-2 w-[420px] rounded shadow-lg"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border-strong)",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
+          }}
+        >
+          <div
+            className="border-b px-3 py-2"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <input
+              type="text"
+              placeholder="Search projects…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              autoFocus
+              className="w-full rounded px-2 py-1 text-[12px]"
+              style={{
+                background: "var(--color-surface-1)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+              }}
+            />
+          </div>
+
+          <div className="max-h-72 overflow-auto px-2 py-2">
+            <div
+              className="px-2 pb-1 text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Registered projects {projects.length > 0 && `(${projects.length})`}
+            </div>
+            {filteredProjects.length === 0 && (
+              <div
+                className="px-2 py-3 text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {projects.length === 0
+                  ? "No projects in registry. Run `ultron scan`."
+                  : "No match."}
+              </div>
+            )}
+            {filteredProjects.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => pickProject(p)}
+                disabled={!p.path}
+                className="flex w-full items-baseline gap-3 rounded px-2 py-1.5 text-left transition-colors disabled:opacity-50"
+                style={{
+                  background: cwd === p.path ? "var(--color-surface-3)" : "transparent",
+                }}
+                onMouseEnter={(e) => {
+                  if (cwd !== p.path)
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      "var(--color-surface-2)";
+                }}
+                onMouseLeave={(e) => {
+                  if (cwd !== p.path)
+                    (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+                }}
+              >
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="truncate text-[12.5px] font-medium"
+                    style={{ color: "var(--color-text)" }}
+                  >
+                    {p.id}
+                  </div>
+                  {p.path && (
+                    <div
+                      className="truncate text-[10.5px]"
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        color: "var(--color-text-faint)",
+                      }}
+                    >
+                      {p.path}
+                    </div>
+                  )}
+                </div>
+                {p.ide && (
+                  <span
+                    className="shrink-0 text-[10px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {p.ide}
+                  </span>
+                )}
+                {p.last_active && (
+                  <span
+                    className="shrink-0 tabular-nums text-[10px]"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    {p.last_active}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          <div
+            className="flex items-center justify-between border-t px-3 py-2"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <button
+              type="button"
+              onClick={pickCustom}
+              disabled={busy}
+              className="rounded px-2 py-1 text-[11.5px] transition-colors disabled:opacity-50"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {busy ? "Opening…" : "Choose custom directory…"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setOpen(false)}
+              className="text-[11px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              cancel
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -206,6 +379,7 @@ export function Sessions() {
   const [output, setOutput] = useState<InlineResult | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
 
   useEffect(() => saveCwd(cwd), [cwd]);
 
@@ -214,6 +388,12 @@ export function Sessions() {
     setModel(PROVIDERS[provider].defaultModel);
     setOutput(null);
   }, [provider]);
+
+  useEffect(() => {
+    invoke<ProjectInfo[]>("list_projects")
+      .then((list) => setProjects(list))
+      .catch(() => setProjects([]));
+  }, []);
 
   async function runInline() {
     if (!prompt.trim()) return;
@@ -273,7 +453,7 @@ export function Sessions() {
         {/* Provider tabs + workspace + model */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <ProviderTabs active={provider} onChange={setProvider} />
-          <WorkspacePicker cwd={cwd} onChange={setCwd} />
+          <WorkspacePicker cwd={cwd} onChange={setCwd} projects={projects} />
         </div>
 
         {meta.acceptsModel && (

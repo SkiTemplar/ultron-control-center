@@ -98,6 +98,18 @@ export type InlineResult = {
 
 export type SessionProvider = "claude" | "gemini" | "codex";
 
+export type ProjectInfo = {
+  id: string;
+  name: string | null;
+  path: string | null;
+  ide: string | null;
+  language: string | null;
+  type_: string | null;
+  status: string | null;
+  last_active: string | null;
+  tags: string[];
+};
+
 export type SkillInfo = {
   name: string;
   state: SkillState;

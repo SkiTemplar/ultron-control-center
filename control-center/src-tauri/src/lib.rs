@@ -7,6 +7,7 @@
 
 mod mcps;
 mod memory;
+mod projects;
 mod sessions;
 mod skills;
 
@@ -155,6 +156,11 @@ async fn memory_status() -> Result<memory::MemoryStatus, String> {
     Ok(memory::memory_status_inner())
 }
 
+#[tauri::command]
+async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
+    projects::list_projects_inner()
+}
+
 // ---------------------------------------------------------------------------
 // Session commands
 // ---------------------------------------------------------------------------
@@ -241,7 +247,8 @@ pub fn run() {
             read_skill_md,
             memory_status,
             spawn_session,
-            run_inline
+            run_inline,
+            list_projects
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
