@@ -17,7 +17,7 @@
 - L1 brain index (FTS5): `~/.ultron/brain_index/index.db` [verify: if exist "%USERPROFILE%\.ultron\brain_index\index.db" echo OK] [expect: OK]
 - L2 vault local:        `~/.ultron-vault/...`  ·  Archive (indexed): `~/.ultron/archive/`
 - L3 remote:             `github.com/SkiTemplar/ultron-memory` (push automático en HIGH+)
-- Qdrant (semántico):    contenedor `ultron-qdrant`, datos en `D:\Qdrant\data`. Colecciones: `ultron_vault` (notas), `ultron_skills` (skills active+plugin+vaulted con `state`). Sync vía Stop hook (`embed_vault.py` / `embed_skills.py`). Recall: `ultron recall "<q>"` (híbrido) · auto-recall hook (UserPromptSubmit). [verify: curl -sf http://localhost:6333/healthz]
+- Qdrant (semántico):    contenedor `ultron-qdrant`. Motor Docker en `D:\Docker\DockerDesktopWSL\` (VM WSL). Datos persistentes vía bind-mount en `~/.ultron/qdrant_storage\` (C:). Colecciones: `ultron_vault` (notas), `ultron_skills` (skills active+plugin+vaulted con `state`). Sync vía Stop hook (`embed_vault.py` / `embed_skills.py`, exit 2 si Qdrant down). Recall: `ultron recall "<q>"` (híbrido) · auto-recall hook (UserPromptSubmit) · MCP `mcp__qdrant__qdrant-find`. Auto-restart vía `ensure-qdrant.ps1` (SessionStart, background). [verify: curl -sf http://localhost:6333/healthz]
 - Skill-vault:           `~/.ultron/skill-vault/` (334 skills fuera del contexto · `INDEX.json` · `ultron skills vault search|restore|stats|merge-candidates`)
 - Per-project memory:    `~/.claude/projects/<encoded-path>/memory/`  ·  Per-project context: `<project>/.claude/context.md`
 
@@ -25,14 +25,14 @@
 - Global CLAUDE.md:      `~/.claude/CLAUDE.md`  ·  Settings: `~/.claude/settings.json` (hooks · MCP · permissions)
 - Skills activas:        `~/.claude/skills/<name>/SKILL.md` (~46) · mirror `~/.agents/skills/` · vault `~/.ultron/skill-vault/` (~334)
 - ULTRON skill spec:     `~/.claude/skills/ultron/{SKILL.md,protocols.md,memory.md,mode-*.md,references/*}`
-- Hooks:                 `~/.ultron/scripts/hooks/{session-init,stop-memory-sync,session-cleanup}.ps1` + `*.py` (auto-recall, intent-dispatcher, routing-telemetry, …)
+- Hooks:                 `~/.ultron/scripts/hooks/{session-init,stop-memory-sync,session-cleanup}.ps1` + `*.py` (auto-recall, intent-dispatcher, routing-telemetry, …) · Qdrant: `ensure-qdrant.ps1` + `qdrant-notify.ps1` (WinForm flotante bottom-right v15.0.2, no depende de Windows notifications)
 
 ## INFRA — peers / externos
 - Codex (peer):          plugin oficial `codex@openai-codex` (`codex-plugin-cc`). Auth = suscripción ChatGPT. Modelo pin en `~/.codex/config.toml` (`gpt-5.5` / `high`). Comandos `/codex:review|adversarial-review|rescue`. Legacy: `~/.ultron/scripts/_legacy/shared-duet.ps1` (deprecado). [verify: codex --version] [expect: \d+\.\d+]
 - Gemini (peer):         CLI vía OAuth/suscripción (sin `GEMINI_API_KEY`). Helper `~/.ultron/scripts/gemini-peer.ps1` → output a `.md`.
 - GitHub MCP:            `github-pat` en settings.json [verify: claude mcp list] [expect: github-pat.*Connected]
 - Qdrant MCP:            `uvx mcp-server-qdrant` [verify: claude mcp list] [expect: qdrant.*Connected]
-- Docker:                Docker Desktop autostart (HKCU\...\Run) [verify: docker ps --filter "name=qdrant" --format "{{.Status}}"] [expect: ^Up]
+- Docker:                Docker Desktop autostart (HKCU\...\Run) [verify: docker ps --filter "name=qdrant" --format "{{.Status}}"] [expect: ^Up]. Fallos arranque (D:\ no montado / daemon-down) → WinForm flotante bottom-right con botones Reintentar/Silenciar (v15.0.2). No depende de notification settings de Windows.
 - UV (Python):           SIEMPRE `uv run python <script>` · `uv pip install` (nunca raw python) [verify: uv --version] [expect: uv \d+]
 - Backup task:           UltronBackup-Weekly, lunes 09:00 [verify: powershell -NoProfile -Command "(Get-ScheduledTask -TaskName UltronBackup-Weekly).State"] [expect: Ready]
 

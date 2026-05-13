@@ -168,10 +168,22 @@ if ($phaseAJobs.Count -gt 0) {
     $phaseAStart = Get-Date
     $allDone = Wait-Job -Job $phaseAJobs.Job -Timeout 30
     $phaseAElapsed = [int]((Get-Date) - $phaseAStart).TotalSeconds
+    # Scripts that report a structured `qdrant_unreachable` field in stdout
+    # when Qdrant is down. We surface that as a distinct log status so the
+    # silent-desync class of bug stays visible.
+    $qdrantSensitive = @('embed_vault', 'embed_skills')
     foreach ($entry in $phaseAJobs) {
         $j = $entry.Job
         if ($j.State -eq 'Completed') {
-            Write-Log "phase-A $($entry.Name) ok"
+            $output = $null
+            if ($entry.Name -in $qdrantSensitive) {
+                $output = (Receive-Job -Job $j -ErrorAction SilentlyContinue) -join "`n"
+            }
+            if ($output -and $output -match '"qdrant_unreachable":\s*true') {
+                Write-Log "phase-A $($entry.Name) qdrant-down (state intact)"
+            } else {
+                Write-Log "phase-A $($entry.Name) ok"
+            }
         } elseif ($j.State -eq 'Running') {
             Stop-Job -Job $j -ErrorAction SilentlyContinue
             Write-Log "phase-A $($entry.Name) TIMEOUT"
