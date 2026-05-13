@@ -83,20 +83,21 @@ fn strip_non_latin(s: &str) -> String {
         .collect();
 
     // Collapse double spaces and orphan punctuation that the strip leaves
-    // behind (e.g. "research, 研究, deep" → "research, , deep" → "research, deep").
+    // behind (e.g. "research, 研究, deep" → "research,  , deep" → "research, deep").
     let mut out = replaced;
-    while out.contains("  ") {
+    // Iterative cleanup with a hard cap so a pathological input can never spin.
+    for _ in 0..6 {
+        let before = out.len();
         out = out.replace("  ", " ");
-    }
-    for pat in &[",  ,", ", ,", " ,", ", ", ",,"] {
-        while out.contains(pat) {
-            out = out.replace(",,", ",");
-            out = out.replace(", ,", ",");
-            out = out.replace(" ,", ",");
+        out = out.replace(" ,", ",");
+        out = out.replace(",,", ",");
+        if out.len() == before {
+            break;
         }
     }
-    // Re-space after commas for readability
+    // Restore a single space after each comma for readability.
     out = out.replace(",", ", ");
+    // Final whitespace collapse (bounded — no while).
     while out.contains("  ") {
         out = out.replace("  ", " ");
     }

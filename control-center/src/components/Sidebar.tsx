@@ -33,7 +33,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "mcps", label: "MCPs", available: true },
       { id: "skills", label: "Skills", available: true },
-      { id: "memory", label: "Memory", available: false },
+      { id: "memory", label: "Memory", available: true },
     ],
   },
   {

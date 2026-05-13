@@ -6,6 +6,7 @@ import { Changelog } from "./components/Changelog";
 import { Notifications } from "./components/Notifications";
 import { MCPs } from "./components/MCPs";
 import { Skills } from "./components/Skills";
+import { Memory } from "./components/Memory";
 import { computeGlobalStatus } from "./lib/status";
 import type { QdrantHealth, AlertEntry, ChangelogEntry } from "./types";
 
@@ -64,6 +65,7 @@ export default function App() {
         {tab === "changelog" && <Changelog entries={changelog} />}
         {tab === "mcps" && <MCPs />}
         {tab === "skills" && <Skills />}
+        {tab === "memory" && <Memory />}
       </main>
     </div>
   );

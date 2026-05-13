@@ -6,6 +6,7 @@
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
 mod mcps;
+mod memory;
 mod skills;
 
 use std::fs::File;
@@ -149,6 +150,11 @@ async fn read_skill_md(name: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn memory_status() -> Result<memory::MemoryStatus, String> {
+    Ok(memory::memory_status_inner())
+}
+
+#[tauri::command]
 async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::McpInfo>, String> {
     let script_path = ultron_root()?.join("scripts/cockpit/mcp_health_check.py");
     let script_str = script_path.to_string_lossy().to_string();
@@ -206,7 +212,8 @@ pub fn run() {
             list_mcps,
             run_mcp_health_check,
             list_skills,
-            read_skill_md
+            read_skill_md,
+            memory_status
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;

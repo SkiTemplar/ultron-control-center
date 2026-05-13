@@ -47,6 +47,41 @@ export type GlobalStatus = "ok" | "warn" | "down" | "loading";
 
 export type McpStatus = "ok" | "degraded" | "missing" | "unknown" | string;
 
+export type VaultStatus = {
+  exists: boolean;
+  path: string | null;
+  note_count: number;
+  size_bytes: number;
+  last_modified: string | null;
+};
+
+export type BrainStatus = {
+  exists: boolean;
+  path: string | null;
+  size_bytes: number;
+  last_modified: string | null;
+  age_hours: number | null;
+};
+
+export type QdrantCollection = {
+  name: string;
+  points_count: number | null;
+  vectors_count: number | null;
+  status: string | null;
+};
+
+export type QdrantMemoryStatus = {
+  up: boolean;
+  error: string | null;
+  collections: QdrantCollection[];
+};
+
+export type MemoryStatusInfo = {
+  vault: VaultStatus;
+  brain: BrainStatus;
+  qdrant: QdrantMemoryStatus;
+};
+
 export type SkillState = "active" | "plugin" | "vaulted" | string;
 
 export type SkillInfo = {

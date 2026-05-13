@@ -277,6 +277,9 @@ export function Skills() {
   const [states, setStates] = useState<Set<StateKey>>(() => new Set(["active", "plugin"]));
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [onlyUsed, setOnlyUsed] = useState(false);
+  const [tagFilter, setTagFilter] = useState<Set<string>>(() => new Set());
+  const [showAllTags, setShowAllTags] = useState(false);
 
   useEffect(() => {
     invoke<SkillInfo[]>("list_skills")
@@ -296,10 +299,35 @@ export function Skills() {
     return c;
   }, [skills]);
 
+  // Top tags computed once, ranked by frequency
+  const allTags = useMemo(() => {
+    const freq = new Map<string, number>();
+    for (const s of skills) {
+      if (!states.has(s.state as StateKey)) continue;
+      for (const t of s.tags) {
+        if (!t) continue;
+        freq.set(t, (freq.get(t) ?? 0) + 1);
+      }
+    }
+    return Array.from(freq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([tag, n]) => ({ tag, n }));
+  }, [skills, states]);
+
+  const usedCount = useMemo(
+    () => skills.filter((s) => s.usage_count > 0 && states.has(s.state as StateKey)).length,
+    [skills, states],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return skills
       .filter((s) => states.has(s.state as StateKey))
+      .filter((s) => !onlyUsed || s.usage_count > 0)
+      .filter((s) => {
+        if (tagFilter.size === 0) return true;
+        return s.tags.some((t) => tagFilter.has(t));
+      })
       .filter((s) => {
         if (!q) return true;
         if (s.name.toLowerCase().includes(q)) return true;
@@ -308,14 +336,15 @@ export function Skills() {
         return false;
       })
       .sort((a, b) => {
-        // active first, then plugin, then vaulted, then by name
         const order = { active: 0, plugin: 1, vaulted: 2 } as Record<string, number>;
         const oa = order[a.state] ?? 3;
         const ob = order[b.state] ?? 3;
         if (oa !== ob) return oa - ob;
+        // Within same state, used skills first
+        if (a.usage_count !== b.usage_count) return b.usage_count - a.usage_count;
         return a.name.localeCompare(b.name);
       });
-  }, [skills, states, query]);
+  }, [skills, states, query, onlyUsed, tagFilter]);
 
   const selectedSkill = useMemo(
     () => skills.find((s) => s.name === selected) ?? null,
@@ -330,6 +359,13 @@ export function Skills() {
       next.add(k);
     }
     setStates(next);
+  }
+
+  function toggleTag(t: string) {
+    const next = new Set(tagFilter);
+    if (next.has(t)) next.delete(t);
+    else next.add(t);
+    setTagFilter(next);
   }
 
   return (
@@ -367,6 +403,13 @@ export function Skills() {
               active={states.has("vaulted")}
               onClick={() => toggleState("vaulted")}
             />
+            <span className="mx-1 my-auto h-4 w-px" style={{ background: "var(--color-border-strong)" }} />
+            <Pill
+              label="Used"
+              count={usedCount}
+              active={onlyUsed}
+              onClick={() => setOnlyUsed(!onlyUsed)}
+            />
           </div>
 
           <input
@@ -382,6 +425,69 @@ export function Skills() {
               outline: "none",
             }}
           />
+
+          {/* Tag filter chips */}
+          {allTags.length > 0 && (
+            <div className="mt-3">
+              <div className="mb-1.5 flex items-baseline justify-between">
+                <span
+                  className="text-[10px] font-medium uppercase tracking-[0.06em]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Tags {tagFilter.size > 0 && `· ${tagFilter.size} selected`}
+                </span>
+                {tagFilter.size > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTagFilter(new Set())}
+                    className="text-[10px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    clear
+                  </button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {(showAllTags ? allTags : allTags.slice(0, 14)).map(({ tag, n }) => {
+                  const active = tagFilter.has(tag);
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => toggleTag(tag)}
+                      className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors"
+                      style={{
+                        background: active ? "var(--color-surface-3)" : "transparent",
+                        color: active ? "var(--color-text)" : "var(--color-text-tertiary)",
+                        border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}`,
+                      }}
+                    >
+                      {tag}
+                      <span
+                        className="ml-1 tabular-nums"
+                        style={{ color: active ? "var(--color-text-secondary)" : "var(--color-text-faint)" }}
+                      >
+                        {n}
+                      </span>
+                    </button>
+                  );
+                })}
+                {allTags.length > 14 && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAllTags(!showAllTags)}
+                    className="rounded px-1.5 py-0.5 text-[10.5px]"
+                    style={{
+                      color: "var(--color-text-tertiary)",
+                      border: "1px dashed var(--color-border)",
+                    }}
+                  >
+                    {showAllTags ? `less` : `+${allTags.length - 14} more`}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </header>
 
         <div className="flex-1 overflow-auto px-2 py-2">
