@@ -50,7 +50,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   },
   {
     heading: "",
-    items: [{ id: "settings", label: "Settings", available: false }],
+    items: [{ id: "settings", label: "Settings", available: true }],
   },
 ];
 

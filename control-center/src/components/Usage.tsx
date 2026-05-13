@@ -21,6 +21,78 @@ function shortModel(m: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Weekly reset countdown — Friday 03:00 local time
+// ---------------------------------------------------------------------------
+
+function nextWeeklyReset(now: Date = new Date()): Date {
+  const target = new Date(now);
+  target.setHours(3, 0, 0, 0);
+  const dow = target.getDay(); // 0 Sun … 5 Fri … 6 Sat
+  let daysUntilFriday = (5 - dow + 7) % 7;
+  // If today is Friday and we're already past 03:00, jump to next Friday.
+  if (daysUntilFriday === 0 && now.getTime() >= target.getTime()) {
+    daysUntilFriday = 7;
+  }
+  target.setDate(target.getDate() + daysUntilFriday);
+  return target;
+}
+
+function formatCountdown(ms: number): string {
+  if (ms <= 0) return "now";
+  const totalMinutes = Math.floor(ms / 60_000);
+  const days = Math.floor(totalMinutes / (60 * 24));
+  const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}d ${hours}h`;
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function WeeklyResetCard() {
+  const [nowMs, setNowMs] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+  const target = nextWeeklyReset(new Date(nowMs));
+  const remaining = target.getTime() - nowMs;
+  const targetLabel = target.toLocaleString(undefined, {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return (
+    <div
+      className="rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-baseline justify-between">
+        <div
+          className="text-[10px] font-medium uppercase tracking-[0.06em]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Weekly reset
+        </div>
+        <span className="text-[10px]" style={{ color: "var(--color-text-faint)" }}>
+          fri 03:00
+        </span>
+      </div>
+      <div className="mt-2 text-[22px] font-semibold tabular-nums leading-tight">
+        {formatCountdown(remaining)}
+      </div>
+      <div className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+        until {targetLabel}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Window card (today / 7d / 30d)
 // ---------------------------------------------------------------------------
 
@@ -369,11 +441,12 @@ export function Usage() {
             )}
           </div>
 
-          {/* Window cards */}
-          <div className="grid grid-cols-3 gap-3">
+          {/* Window cards + Weekly reset countdown */}
+          <div className="grid grid-cols-4 gap-3">
             <WindowCard title="Today" hint="24h" w={data.today} />
             <WindowCard title="This week" hint="7 days" w={data.last_7_days} emphasized />
             <WindowCard title="30 days" hint="month" w={data.last_30_days} />
+            <WeeklyResetCard />
           </div>
 
           {/* Daily bars */}

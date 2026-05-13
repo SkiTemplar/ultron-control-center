@@ -9,6 +9,7 @@ mod mcps;
 mod memory;
 mod projects;
 mod sessions;
+mod settings;
 mod skills;
 mod usage;
 
@@ -185,6 +186,18 @@ async fn claude_usage() -> Result<usage::UsageReport, String> {
 }
 
 #[tauri::command]
+async fn settings_read() -> Result<settings::SettingsSnapshot, String> {
+    settings::settings_read_inner()
+}
+
+#[tauri::command]
+async fn settings_save(
+    content: serde_json::Value,
+) -> Result<settings::SettingsSaveResult, String> {
+    settings::settings_save_inner(settings::SettingsSavePayload { content })
+}
+
+#[tauri::command]
 async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
     projects::list_projects_inner()
 }
@@ -280,7 +293,9 @@ pub fn run() {
             brain_query,
             read_vault_note,
             memory_action,
-            claude_usage
+            claude_usage,
+            settings_read,
+            settings_save
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;

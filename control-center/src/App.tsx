@@ -9,6 +9,7 @@ import { Skills } from "./components/Skills";
 import { Memory } from "./components/Memory";
 import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
+import { Settings } from "./components/Settings";
 import { computeGlobalStatus } from "./lib/status";
 import type { QdrantHealth, AlertEntry, ChangelogEntry } from "./types";
 
@@ -70,6 +71,7 @@ export default function App() {
         {tab === "memory" && <Memory />}
         {tab === "sessions" && <Sessions />}
         {tab === "usage" && <Usage />}
+        {tab === "settings" && <Settings />}
       </main>
     </div>
   );
