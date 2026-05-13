@@ -17,7 +17,7 @@
 - L1 brain index (FTS5): `~/.ultron/brain_index/index.db` [verify: if exist "%USERPROFILE%\.ultron\brain_index\index.db" echo OK] [expect: OK]
 - L2 vault local:        `~/.ultron-vault/...`  ·  Archive (indexed): `~/.ultron/archive/`
 - L3 remote:             `github.com/SkiTemplar/ultron-memory` (push automático en HIGH+)
-- Qdrant (semántico):    contenedor `ultron-qdrant`. Motor Docker en `D:\Docker\DockerDesktopWSL\` (VM WSL). Datos persistentes vía bind-mount en `~/.ultron/qdrant_storage\` (C:). Colecciones: `ultron_vault` (notas), `ultron_skills` (skills active+plugin+vaulted con `state`). Sync vía Stop hook (`embed_vault.py` / `embed_skills.py`, exit 2 si Qdrant down). Recall: `ultron recall "<q>"` (híbrido) · auto-recall hook (UserPromptSubmit) · MCP `mcp__qdrant__qdrant-find`. Auto-restart vía `ensure-qdrant.ps1` (SessionStart, background). [verify: curl -sf http://localhost:6333/healthz]
+- Qdrant (semántico):    **nativo primary**: `~/.ultron/qdrant-native/qdrant.exe` v1.18.0 (v15.0.2 — sin Docker). Config: `qdrant-native/config/production.yaml` apuntando a `~/.ultron/qdrant_storage` (C:). Docker fallback: contenedor `ultron-qdrant` con bind-mount al mismo storage. Colecciones: `ultron_vault` (notas), `ultron_skills` (active+plugin+vaulted). Sync vía Stop hook (`embed_vault.py` / `embed_skills.py`). Recall: `ultron recall "<q>"` (híbrido FTS5+Qdrant; FTS5 funciona aunque Qdrant esté down). Auto-start: `ensure-qdrant.ps1` prueba healthz primero, si KO lanza nativo (60s timeout), si no hay nativo fallback Docker. [verify: curl -sf http://localhost:6333/healthz]
 - Skill-vault:           `~/.ultron/skill-vault/` (334 skills fuera del contexto · `INDEX.json` · `ultron skills vault search|restore|stats|merge-candidates`)
 - Per-project memory:    `~/.claude/projects/<encoded-path>/memory/`  ·  Per-project context: `<project>/.claude/context.md`
 
@@ -32,7 +32,7 @@
 - Gemini (peer):         CLI vía OAuth/suscripción (sin `GEMINI_API_KEY`). Helper `~/.ultron/scripts/gemini-peer.ps1` → output a `.md`.
 - GitHub MCP:            `github-pat` en settings.json [verify: claude mcp list] [expect: github-pat.*Connected]
 - Qdrant MCP:            `uvx mcp-server-qdrant` [verify: claude mcp list] [expect: qdrant.*Connected]
-- Docker:                Docker Desktop autostart (HKCU\...\Run) [verify: docker ps --filter "name=qdrant" --format "{{.Status}}"] [expect: ^Up]. Fallos arranque (D:\ no montado / daemon-down / container-missing) → scheduled task `ULTRON-QdrantBoot` dispara WinForm persistente bottom-right con Reintentar/Silenciar/Copiar-setup (v15.0.2). Independiente de notifications settings de Windows. Setup: `& ~/.ultron/scripts/hooks/install-qdrant-bootcheck.ps1 install`.
+- Docker:                Docker Desktop autostart (HKCU\...\Run) — **opcional desde v15.0.2** (Qdrant ya no lo requiere). Si está roto o ausente, ULTRON sigue funcionando vía qdrant.exe nativo. Panel WinForm persistente bottom-right ante fallos (`disk-missing` / `daemon-down` / `native-failed`): scheduled task `ULTRON-QdrantBoot` dispara via VBS wrapper (cero flash terminal). Setup: `& ~/.ultron/scripts/hooks/install-qdrant-bootcheck.ps1 install`.
 - UV (Python):           SIEMPRE `uv run python <script>` · `uv pip install` (nunca raw python) [verify: uv --version] [expect: uv \d+]
 - Backup task:           UltronBackup-Weekly, lunes 09:00 [verify: powershell -NoProfile -Command "(Get-ScheduledTask -TaskName UltronBackup-Weekly).State"] [expect: Ready]
 

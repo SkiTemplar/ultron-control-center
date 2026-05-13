@@ -3,18 +3,31 @@
     [int]$PollSec = 3
 )
 
-# ensure-qdrant.ps1 - background hook called from session-init.
-# Goal: when Claude opens a session, guarantee Qdrant is up *eventually*,
-# without blocking SessionStart. Writes status to
-# ~/.ultron/.tmp/qdrant-health.json for context_primer to read next turn.
+# ensure-qdrant.ps1 - background hook called from the ULTRON-QdrantBoot
+# scheduled task (and SessionStart). Goal: when the user logs in, guarantee
+# Qdrant is up *eventually*, without blocking. Status to
+# ~/.ultron/.tmp/qdrant-health.json for the panel + context_primer.
+#
+# v15.0.2 strategy (native-first, Docker fallback):
+#   1. Probe http://localhost:6333/healthz directly. If anything is already
+#      serving on 6333 (native qdrant.exe, Docker container, whatever) we
+#      are done.
+#   2. If no one answers and we have a native binary at
+#      ~/.ultron/qdrant-native/qdrant.exe → launch it hidden and wait for
+#      healthz. This is the primary path now — Docker is not required.
+#   3. If native binary missing AND Docker daemon is reachable → fall back
+#      to the legacy Docker flow (existing container OR recreate it with
+#      the bind-mount).
+#   4. If both paths fail, write a status the panel can surface.
 #
 # Exit codes:
-#   0  up                - daemon UP, container running, healthz 200
-#   1  daemon-down       - Docker daemon never came up within MaxWaitSec
-#   2  container-missing - ultron-qdrant does not exist (setup needed)
-#   3  unhealthy         - healthz returned non-200
-#   4  unreachable       - healthz network error
-#   5  disk-missing      - Docker config points WSL distro to a drive that is not mounted
+#   0 up                     - healthz 200 from somebody
+#   1 daemon-down            - neither native nor Docker can be used
+#   2 container-create-failed- Docker available but `docker run` failed
+#   3 unhealthy              - service answered but not 200
+#   4 unreachable            - service not responding after launch attempt
+#   5 disk-missing           - Docker WSL distro on unmounted drive (legacy)
+#   6 native-failed          - native binary present but won't start
 
 $tmpDir = "$env:USERPROFILE\.ultron\.tmp"
 if (-not (Test-Path $tmpDir)) {
@@ -38,14 +51,77 @@ function Write-State {
     [System.IO.File]::WriteAllText($out, $obj, $utf8)
 }
 
-$elapsed = 0
-$daemonUp = $false
+function Test-Healthz {
+    param([int]$TimeoutSec = 3)
+    try {
+        $r = Invoke-WebRequest -Uri 'http://localhost:6333/healthz' -UseBasicParsing -TimeoutSec $TimeoutSec -ErrorAction Stop
+        return ($r.StatusCode -eq 200)
+    } catch {
+        return $false
+    }
+}
 
-# Pre-flight: if Docker is configured to put the WSL distro on a secondary
-# drive (e.g. D:\Docker), verify that drive is mounted BEFORE launching Docker.
-# Skipping this check is how we lost the engine this morning: D: was unmounted,
-# Docker booted, the daemon crashed silently on `mkdir D:\Docker`, and the only
-# evidence was a GitHub-issue-style error buried in logs.
+# ========================================================================
+# Phase 1: probe healthz first. If anyone's already serving, we're done.
+# ========================================================================
+if (Test-Healthz) {
+    Write-State -Status 'up' -Message 'Qdrant healthz OK (already running)' -ElapsedSec 0
+    exit 0
+}
+
+# ========================================================================
+# Phase 2: try native qdrant.exe (primary path post-v15.0.2).
+# ========================================================================
+$nativeDir = "$env:USERPROFILE\.ultron\qdrant-native"
+$nativeExe = Join-Path $nativeDir 'qdrant.exe'
+$nativeCfg = 'config\production.yaml'
+
+if (Test-Path $nativeExe) {
+    # Kill any lingering qdrant.exe that may be in a bad state.
+    $stale = Get-Process -Name 'qdrant' -ErrorAction SilentlyContinue
+    if ($stale) {
+        $stale | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+    }
+
+    $logFile = Join-Path $tmpDir 'qdrant-native.log'
+    $errFile = Join-Path $tmpDir 'qdrant-native.err'
+
+    try {
+        Start-Process -FilePath $nativeExe `
+            -WorkingDirectory $nativeDir `
+            -ArgumentList '--config-path', $nativeCfg `
+            -RedirectStandardOutput $logFile `
+            -RedirectStandardError  $errFile `
+            -WindowStyle Hidden -ErrorAction Stop | Out-Null
+    } catch {
+        Write-State -Status 'native-failed' -Message "Start-Process failed: $($_.Exception.Message)" -ElapsedSec 0
+        exit 6
+    }
+
+    # Wait up to 60s for the native binary to start serving. The binary
+    # itself boots in <1s per its own logs, but Windows + AV scanning + first
+    # JIT can stretch first-boot end-to-end visible time. 60s is generous
+    # margin; the scheduled task ExecutionTimeLimit is 5min so no risk.
+    $elapsed = 0
+    while ($elapsed -lt 60) {
+        Start-Sleep -Seconds 2
+        $elapsed += 2
+        if (Test-Healthz -TimeoutSec 2) {
+            Write-State -Status 'up' -Message "Qdrant native binary up (${elapsed}s warm-up)" -ElapsedSec $elapsed
+            exit 0
+        }
+    }
+
+    Write-State -Status 'native-failed' -Message "Native qdrant.exe launched but healthz unreachable after ${elapsed}s. See $logFile" -ElapsedSec $elapsed
+    exit 6
+}
+
+# ========================================================================
+# Phase 3: Docker fallback (legacy path).
+# ========================================================================
+
+# Pre-flight: Docker WSL distro on a secondary drive that's unmounted?
 try {
     $dockerCfg = "$env:APPDATA\Docker\settings-store.json"
     if (Test-Path $dockerCfg) {
@@ -61,11 +137,9 @@ try {
             }
         }
     }
-} catch {
-    # Config read failure is non-fatal — proceed to standard flow.
-}
+} catch { }
 
-# Single attempt to launch Docker Desktop if not running. Spam-launch guard.
+# Try to launch Docker Desktop if not running.
 $dockerProc = Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue
 if (-not $dockerProc) {
     $exe = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
@@ -74,33 +148,35 @@ if (-not $dockerProc) {
     }
 }
 
+# Wait for daemon.
+$elapsed = 0
+$daemonUp = $false
 while ($elapsed -lt $MaxWaitSec) {
     $null = docker info --format '{{.ServerVersion}}' 2>$null
     if ($LASTEXITCODE -eq 0) {
-        $daemonUp = $true
-        break
+        # docker info can return exit 0 with body 500. Probe for a real OK.
+        $probeOut = docker info --format '{{.ServerVersion}}' 2>&1
+        if ($probeOut -notmatch '500') {
+            $daemonUp = $true
+            break
+        }
     }
     Start-Sleep -Seconds $PollSec
     $elapsed += $PollSec
 }
 
 if (-not $daemonUp) {
-    Write-State -Status 'daemon-down' -Message "Docker daemon not ready after ${MaxWaitSec}s" -ElapsedSec $elapsed
+    Write-State -Status 'daemon-down' -Message "Docker daemon not ready after ${MaxWaitSec}s (and no native binary at $nativeExe)" -ElapsedSec $elapsed
     exit 1
 }
 
 $state = docker ps -a --filter 'name=^ultron-qdrant$' --format '{{.State}}' 2>$null
 if (-not $state) {
-    # v15.0.2: self-healing. Container is the engine, data lives in
-    # ~/.ultron/qdrant_storage on C:\. If the engine is gone we recreate it
-    # bound to the existing data — user sees no panel, system just works.
     $storageDir = "$env:USERPROFILE\.ultron\qdrant_storage"
     if (-not (Test-Path $storageDir)) {
         New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
     }
 
-    # Convert Windows path to Docker-compatible mount syntax (Docker on
-    # Windows accepts C:\foo or /c/foo; using the raw Windows path works.)
     $createOut = docker run -d `
         --name ultron-qdrant `
         --restart unless-stopped `
@@ -115,7 +191,6 @@ if (-not $state) {
         exit 2
     }
 
-    # Container created. Give it a moment to come up before probing healthz.
     Start-Sleep -Seconds 4
     $state = 'running'
 } elseif ($state -ne 'running') {
@@ -123,28 +198,10 @@ if (-not $state) {
     Start-Sleep -Seconds 3
 }
 
-$probeOk = $false
-$probeMsg = ''
-$probeCode = 0
-try {
-    $r = Invoke-WebRequest -Uri 'http://localhost:6333/healthz' -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-    $probeCode = [int]$r.StatusCode
-    if ($probeCode -eq 200) {
-        $probeOk = $true
-    } else {
-        $probeMsg = 'healthz returned ' + $probeCode
-    }
-} catch {
-    $probeMsg = 'healthz unreachable: ' + $_.Exception.Message
-}
-
-if ($probeOk) {
-    Write-State -Status 'up' -Message 'Qdrant healthz OK' -ElapsedSec $elapsed
+if (Test-Healthz -TimeoutSec 5) {
+    Write-State -Status 'up' -Message 'Qdrant via Docker container' -ElapsedSec $elapsed
     exit 0
 }
-if ($probeCode -gt 0) {
-    Write-State -Status 'unhealthy' -Message $probeMsg -ElapsedSec $elapsed
-    exit 3
-}
-Write-State -Status 'unreachable' -Message $probeMsg -ElapsedSec $elapsed
+
+Write-State -Status 'unreachable' -Message 'Docker container up but healthz not responding' -ElapsedSec $elapsed
 exit 4

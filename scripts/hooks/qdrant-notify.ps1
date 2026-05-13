@@ -275,12 +275,13 @@ if ($status -eq 'up') {
 if ($state -and $state.notified_status -eq $status) { exit 0 }
 
 $statusMap = @{
-    'disk-missing'             = @{ Title = 'ULTRON | Qdrant offline';      Body = 'Drive D:\ no detectado. Conecta el USB o monta el disco y pulsa Reintentar.';            Retry = $true;  Setup = $false }
-    'container-create-failed'  = @{ Title = 'ULTRON | Qdrant no arranca';   Body = "Intente crear el contenedor automaticamente y fallo. Probablemente Docker no puede descargar la imagen qdrant/qdrant (sin internet?). Detalle: $msg"; Retry = $true; Setup = $false }
-    'container-missing'        = @{ Title = 'ULTRON | Qdrant setup';        Body = 'Contenedor ultron-qdrant no existe. Pulsa Reintentar para intentar recrearlo solo.';     Retry = $true;  Setup = $false }
-    'daemon-down'              = @{ Title = 'ULTRON | Docker no responde'; Body = 'Docker daemon no arranco. Comprueba Docker Desktop y pulsa Reintentar.';                  Retry = $true;  Setup = $false }
-    'unhealthy'                = @{ Title = 'ULTRON | Qdrant degradado';   Body = "Qdrant esta up pero healthz responde mal. $msg";                                          Retry = $true;  Setup = $false }
-    'unreachable'              = @{ Title = 'ULTRON | Qdrant inalcanzable'; Body = "Container up pero healthz no responde. $msg";                                            Retry = $true;  Setup = $false }
+    'disk-missing'             = @{ Title = 'ULTRON | Qdrant offline';        Body = 'Drive D:\ no detectado. Conecta el USB o monta el disco y pulsa Reintentar.';                                            Retry = $true;  Setup = $false }
+    'native-failed'            = @{ Title = 'ULTRON | Qdrant nativo';         Body = "Qdrant nativo (qdrant.exe) intento arrancar y fallo. Sistema en modo degraded (recall por FTS5 keyword sigue OK). Detalle: $msg"; Retry = $true; Setup = $false }
+    'container-create-failed'  = @{ Title = 'ULTRON | Qdrant no arranca';     Body = "Ni el binario nativo ni Docker pudieron arrancar Qdrant. Sistema en modo degraded (recall keyword OK, semantico no). Detalle: $msg"; Retry = $true; Setup = $false }
+    'container-missing'        = @{ Title = 'ULTRON | Qdrant setup';          Body = 'Contenedor ultron-qdrant no existe. Pulsa Reintentar para recrearlo automaticamente.';                                   Retry = $true;  Setup = $false }
+    'daemon-down'              = @{ Title = 'ULTRON | Docker zombi';          Body = 'Docker Desktop no responde y no hay binario nativo de Qdrant. ULTRON puede seguir con recall keyword (sin semantico).'; Retry = $true;  Setup = $false }
+    'unhealthy'                = @{ Title = 'ULTRON | Qdrant degradado';      Body = "Qdrant esta up pero healthz responde mal. $msg";                                                                         Retry = $true;  Setup = $false }
+    'unreachable'              = @{ Title = 'ULTRON | Qdrant inalcanzable';   Body = "Servicio up pero healthz no responde. $msg";                                                                             Retry = $true;  Setup = $false }
 }
 
 if (-not $statusMap.ContainsKey($status)) {

@@ -59,3 +59,9 @@ skill-vault/*
 
 # Skills unified registry (v15.0b WS6) — generado por `skill_vault.py registry`, regenerable
 skills/registry.json
+
+# v15.0.2: qdrant native binary + logs (downloadable, not vendored in git)
+qdrant-native/qdrant.exe
+qdrant-native/config/config
+qdrant-native/config/development
+qdrant_storage/
