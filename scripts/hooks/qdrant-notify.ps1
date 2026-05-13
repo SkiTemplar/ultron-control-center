@@ -43,6 +43,56 @@ function Write-Alert {
     } catch { }
 }
 
+# Fullscreen detection: if a fullscreen-exclusive app (game) is in foreground,
+# DO NOT show the panel at all — even a non-activating window forces Windows
+# to switch out of exclusive mode. Just write an alert and exit silently.
+# Next trigger (next logon or run-now) will surface the panel when the user
+# is back at the desktop.
+function Test-ForegroundFullscreen {
+    try {
+        if (-not ('UltronFsCheck' -as [type])) {
+            Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public class UltronFsCheck {
+    [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+    [DllImport("user32.dll")] public static extern IntPtr GetShellWindow();
+    [DllImport("user32.dll")] public static extern IntPtr GetDesktopWindow();
+    [StructLayout(LayoutKind.Sequential)]
+    public struct RECT { public int Left, Top, Right, Bottom; }
+}
+'@
+        }
+        $hwnd = [UltronFsCheck]::GetForegroundWindow()
+        if ($hwnd -eq [IntPtr]::Zero) { return $false }
+        $shell   = [UltronFsCheck]::GetShellWindow()
+        $desktop = [UltronFsCheck]::GetDesktopWindow()
+        if ($hwnd -eq $shell -or $hwnd -eq $desktop) { return $false }
+
+        $rect = New-Object 'UltronFsCheck+RECT'
+        if (-not [UltronFsCheck]::GetWindowRect($hwnd, [ref]$rect)) { return $false }
+
+        Add-Type -AssemblyName System.Windows.Forms -ErrorAction SilentlyContinue
+        $bounds  = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+        $working = [System.Windows.Forms.Screen]::PrimaryScreen.WorkingArea
+        $w = $rect.Right - $rect.Left
+        $h = $rect.Bottom - $rect.Top
+
+        # Maximizada = cubre WorkingArea (sin tocar zona de taskbar).
+        # Fullscreen exclusiva/borderless = cubre Bounds completo (incluye
+        # la franja de la taskbar). Solo yield en el segundo caso.
+        # Tolerancia de 4px por DPI scaling.
+        $isFullScreen = ($w -ge ($bounds.Width - 4) -and
+                         $h -ge ($bounds.Height - 4) -and
+                         $h -gt ($working.Height + 4))
+
+        return $isFullScreen
+    } catch {
+        return $false
+    }
+}
+
 if (-not (Test-Path $health)) { exit 0 }
 
 try {
@@ -307,6 +357,14 @@ if ($status -eq 'up') {
 }
 
 if ($state -and $state.notified_status -eq $status) { exit 0 }
+
+# Yield to fullscreen games / immersive apps. NOTE: we do NOT save state
+# here, so the next trigger (logon, run-now, retry) will try again — the
+# user only sees the panel when they're actually at the desktop.
+if (Test-ForegroundFullscreen) {
+    Write-Alert -Severity 'info' -Status $status -Msg "Panel skipped: foreground app is fullscreen. Will retry on next trigger."
+    exit 0
+}
 
 $statusMap = @{
     'disk-missing'             = @{ Title = 'ULTRON | Qdrant offline';        Body = 'Drive D:\ no detectado. Conecta el USB o monta el disco y pulsa Reintentar.';                                            Retry = $true;  Setup = $false }
