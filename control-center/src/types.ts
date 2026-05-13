@@ -82,6 +82,17 @@ export type MemoryStatusInfo = {
   qdrant: QdrantMemoryStatus;
 };
 
+export type BrainResult = {
+  id: number;
+  path: string;
+  layer: string;
+  category: string;
+  domain: string;
+  title: string;
+  snippet: string;
+  rank: number;
+};
+
 export type SkillState = "active" | "plugin" | "vaulted" | string;
 
 export type SpawnResult = {

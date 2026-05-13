@@ -234,7 +234,7 @@ fn read_qdrant() -> QdrantStatus {
     let mut status = QdrantStatus::default();
 
     let resp = match ureq::get("http://localhost:6333/collections")
-        .timeout(std::time::Duration::from_secs(2))
+        .timeout(std::time::Duration::from_secs(8))
         .call()
     {
         Ok(r) => r,
@@ -278,7 +278,7 @@ fn read_qdrant() -> QdrantStatus {
     for c in collections {
         // Fetch per-collection details for points_count
         let detail = ureq::get(&format!("http://localhost:6333/collections/{}", c.name))
-            .timeout(std::time::Duration::from_secs(2))
+            .timeout(std::time::Duration::from_secs(8))
             .call();
         let (points, vectors, st) = match detail {
             Ok(r) => match r.into_string() {
@@ -327,4 +327,116 @@ pub fn memory_status_inner() -> MemoryStatus {
         brain: read_brain(),
         qdrant: read_qdrant(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// brain_index.py query passthrough
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Serialize, serde::Deserialize, Clone)]
+pub struct BrainResult {
+    #[serde(default)]
+    pub id: i64,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub layer: String,
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub domain: String,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub snippet: String,
+    #[serde(default)]
+    pub rank: f64,
+}
+
+#[derive(serde::Deserialize)]
+struct BrainQueryOutput {
+    #[serde(default)]
+    results: Vec<BrainResult>,
+}
+
+pub async fn brain_query_inner(
+    app: &tauri::AppHandle,
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<BrainResult>, String> {
+    use tauri_plugin_shell::ShellExt;
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let script = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/brain_index.py");
+    let script_str = script.to_string_lossy().to_string();
+    let lim = limit.unwrap_or(20).min(50).to_string();
+
+    let output = app
+        .shell()
+        .command("uv")
+        .args([
+            "run",
+            "python",
+            &script_str,
+            "query",
+            &query,
+            "--limit",
+            &lim,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("spawn uv: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("brain_index query failed: {}", stderr));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let parsed: BrainQueryOutput =
+        serde_json::from_str(&stdout).map_err(|e| format!("parse output: {}", e))?;
+    Ok(parsed.results)
+}
+
+// ---------------------------------------------------------------------------
+// Read note from vault (filesystem, sanitized path)
+// ---------------------------------------------------------------------------
+
+/// Read a markdown note. Only paths inside the trusted memory roots are
+/// allowed so a renegade caller can't read arbitrary files via this command.
+pub fn read_vault_note_inner(path: String) -> Result<String, String> {
+    use std::path::Path;
+    let Some(home) = dirs::home_dir() else {
+        return Err("no HOME".to_string());
+    };
+    let allowed_roots = [
+        home.join(".ultron-vault"),
+        home.join(".ultron/sessions"),
+        home.join(".ultron/cockpit/news"),
+        home.join(".ultron/plans"),
+        home.join(".ultron/archive"),
+        home.join(".ultron/audits"),
+        home.join(".ultron/cockpit/audits"),
+    ];
+    let candidate = Path::new(&path);
+    let canonical = match candidate.canonicalize() {
+        Ok(p) => p,
+        Err(e) => return Err(format!("canonicalize: {}", e)),
+    };
+    let inside_allowed = allowed_roots.iter().any(|root| {
+        root.canonicalize()
+            .map(|c| canonical.starts_with(c))
+            .unwrap_or(false)
+    });
+    if !inside_allowed {
+        return Err(format!(
+            "path '{}' is outside allowed memory roots",
+            canonical.display()
+        ));
+    }
+    if canonical.extension().and_then(|e| e.to_str()) != Some("md") {
+        return Err("only .md files allowed".to_string());
+    }
+    std::fs::read_to_string(&canonical).map_err(|e| format!("read: {}", e))
 }

@@ -1,6 +1,10 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { MemoryStatusInfo } from "../types";
+import type { BrainResult, MemoryStatusInfo } from "../types";
+
+// ---------------------------------------------------------------------------
+// Formatting helpers
+// ---------------------------------------------------------------------------
 
 function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`;
@@ -20,71 +24,271 @@ function formatRelativeIso(iso: string | null): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function Section({
-  title,
-  status,
-  detail,
-  children,
+// ---------------------------------------------------------------------------
+// Status cards (compact row)
+// ---------------------------------------------------------------------------
+
+function StatusRow({
+  vault,
+  brain,
+  qdrant,
 }: {
-  title: string;
-  status: "ok" | "warn" | "down" | "neutral";
-  detail?: string;
-  children?: React.ReactNode;
+  vault: MemoryStatusInfo["vault"];
+  brain: MemoryStatusInfo["brain"];
+  qdrant: MemoryStatusInfo["qdrant"];
 }) {
-  const dotColor =
-    status === "ok"
-      ? "var(--color-success)"
-      : status === "warn"
-        ? "var(--color-warn)"
-        : status === "down"
-          ? "var(--color-danger)"
-          : "var(--color-text-tertiary)";
+  const brainStatus =
+    !brain.exists
+      ? { dot: "var(--color-danger)", label: "missing" }
+      : brain.age_hours !== null && brain.age_hours > 24
+        ? { dot: "var(--color-warn)", label: `stale ${Math.floor(brain.age_hours)}h` }
+        : { dot: "var(--color-success)", label: brain.age_hours !== null ? `fresh ${Math.floor(brain.age_hours)}h` : "fresh" };
+
+  const cardCls = "rounded p-4";
+  const cardStyle: React.CSSProperties = {
+    background: "var(--color-surface-2)",
+    border: "1px solid var(--color-border)",
+  };
+  const labelCls = "text-[10px] font-medium uppercase tracking-[0.06em]";
+
   return (
-    <section
-      className="rounded p-5"
-      style={{
-        background: "var(--color-surface-2)",
-        border: "1px solid var(--color-border)",
-      }}
-    >
-      <header className="flex items-baseline justify-between">
+    <div className="grid grid-cols-3 gap-3">
+      {/* Vault */}
+      <div className={cardCls} style={cardStyle}>
         <div className="flex items-baseline gap-2">
           <span
             className="inline-block h-1.5 w-1.5 rounded-full"
-            style={{ background: dotColor }}
+            style={{ background: vault.exists ? "var(--color-success)" : "var(--color-danger)" }}
           />
-          <h2 className="text-[14px] font-semibold">{title}</h2>
+          <div className={labelCls} style={{ color: "var(--color-text-tertiary)" }}>
+            Vault (L2)
+          </div>
         </div>
-        {detail && (
-          <span className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
-            {detail}
+        <div className="mt-2 text-[18px] font-semibold tabular-nums leading-tight">
+          {vault.note_count.toLocaleString()}
+          <span className="ml-1 text-[12px] font-normal" style={{ color: "var(--color-text-tertiary)" }}>
+            notes
           </span>
-        )}
-      </header>
-      <div className="mt-3">{children}</div>
-    </section>
-  );
-}
+        </div>
+        <div className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+          {formatBytes(vault.size_bytes)} · {formatRelativeIso(vault.last_modified)}
+        </div>
+      </div>
 
-function Field({ label, value }: { label: string; value: React.ReactNode }) {
-  return (
-    <div className="flex items-baseline justify-between py-1 text-[12px]">
-      <span style={{ color: "var(--color-text-tertiary)" }}>{label}</span>
-      <span
-        className="tabular-nums"
-        style={{ color: "var(--color-text)", maxWidth: "60%", textAlign: "right" }}
-      >
-        {value}
-      </span>
+      {/* Brain */}
+      <div className={cardCls} style={cardStyle}>
+        <div className="flex items-baseline gap-2">
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: brainStatus.dot }}
+          />
+          <div className={labelCls} style={{ color: "var(--color-text-tertiary)" }}>
+            Brain index (L1)
+          </div>
+        </div>
+        <div className="mt-2 text-[18px] font-semibold tabular-nums leading-tight">
+          {formatBytes(brain.size_bytes)}
+        </div>
+        <div className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+          SQLite FTS5 · {brainStatus.label}
+        </div>
+      </div>
+
+      {/* Qdrant */}
+      <div className={cardCls} style={cardStyle}>
+        <div className="flex items-baseline gap-2">
+          <span
+            className="inline-block h-1.5 w-1.5 rounded-full"
+            style={{ background: qdrant.up ? "var(--color-success)" : "var(--color-danger)" }}
+          />
+          <div className={labelCls} style={{ color: "var(--color-text-tertiary)" }}>
+            Qdrant (semantic)
+          </div>
+        </div>
+        {qdrant.up ? (
+          <>
+            <div className="mt-2 text-[18px] font-semibold tabular-nums leading-tight">
+              {qdrant.collections.reduce((acc, c) => acc + (c.points_count ?? 0), 0).toLocaleString()}
+              <span className="ml-1 text-[12px] font-normal" style={{ color: "var(--color-text-tertiary)" }}>
+                points
+              </span>
+            </div>
+            <div className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+              {qdrant.collections.length} collections
+            </div>
+          </>
+        ) : (
+          <div className="mt-2 text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+            {qdrant.error ?? "down"}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 
-export function Memory() {
-  const [data, setData] = useState<MemoryStatusInfo | null>(null);
+// ---------------------------------------------------------------------------
+// Search (FTS5 via brain_index.py query)
+// ---------------------------------------------------------------------------
+
+function layerBadge(layer: string): { color: string; label: string } {
+  if (layer.startsWith("L2")) return { color: "var(--color-success)", label: "vault" };
+  if (layer.includes("session")) return { color: "var(--color-warn)", label: "session" };
+  if (layer.startsWith("L1")) return { color: "var(--color-text-secondary)", label: "L1" };
+  return { color: "var(--color-text-tertiary)", label: layer };
+}
+
+function ResultRow({
+  r,
+  selected,
+  onClick,
+}: {
+  r: BrainResult;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  const b = layerBadge(r.layer);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="block w-full rounded px-3 py-2 text-left transition-colors"
+      style={{
+        background: selected ? "var(--color-surface-3)" : "transparent",
+        border: `1px solid ${selected ? "var(--color-border-strong)" : "transparent"}`,
+      }}
+      onMouseEnter={(e) => {
+        if (!selected)
+          (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)";
+      }}
+      onMouseLeave={(e) => {
+        if (!selected) (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+      }}
+    >
+      <div className="flex items-baseline gap-2">
+        <span
+          className="rounded px-1.5 py-px text-[9px] font-medium uppercase tracking-wide"
+          style={{
+            color: b.color,
+            background: "var(--color-surface-3)",
+          }}
+        >
+          {b.label}
+        </span>
+        <span
+          className="truncate text-[12.5px] font-medium"
+          style={{ color: "var(--color-text)" }}
+        >
+          {r.title || r.path.split(/[\\/]/).pop()}
+        </span>
+        {r.category && (
+          <span
+            className="ml-auto shrink-0 text-[10px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {r.category}
+          </span>
+        )}
+      </div>
+      {r.snippet && (
+        <div
+          className="mt-1 truncate text-[11.5px]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          {r.snippet}
+        </div>
+      )}
+    </button>
+  );
+}
+
+function NotePreview({ path }: { path: string }) {
+  const [content, setContent] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setContent("");
+    setError(null);
+    invoke<string>("read_vault_note", { path })
+      .then((c) => {
+        if (!cancelled) setContent(c);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden">
+      <header
+        className="border-b px-4 py-3"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        <div
+          className="truncate text-[10.5px]"
+          style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}
+          title={path}
+        >
+          {path}
+        </div>
+      </header>
+      <div className="flex-1 overflow-auto px-4 py-3">
+        {loading && (
+          <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+            Loading…
+          </div>
+        )}
+        {error && (
+          <div
+            className="rounded p-3 text-[11.5px]"
+            style={{
+              background: "rgba(248, 81, 73, 0.06)",
+              border: "1px solid rgba(248, 81, 73, 0.22)",
+              color: "var(--color-danger)",
+            }}
+          >
+            {error}
+          </div>
+        )}
+        {!loading && !error && (
+          <pre
+            className="whitespace-pre-wrap text-[11.5px] leading-relaxed"
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            {content}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+export function Memory() {
+  const [data, setData] = useState<MemoryStatusInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<BrainResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   async function load() {
     setRefreshing(true);
@@ -95,8 +299,27 @@ export function Memory() {
     } catch (e) {
       setError(String(e));
     } finally {
-      setLoading(false);
       setRefreshing(false);
+    }
+  }
+
+  async function runSearch() {
+    if (!query.trim()) {
+      setResults([]);
+      setSelectedPath(null);
+      return;
+    }
+    setSearching(true);
+    setSearchError(null);
+    try {
+      const r = (await invoke("brain_query", { query, limit: 30 })) as BrainResult[];
+      setResults(r);
+      setSelectedPath(r[0]?.path ?? null);
+    } catch (e) {
+      setSearchError(String(e));
+      setResults([]);
+    } finally {
+      setSearching(false);
     }
   }
 
@@ -106,173 +329,123 @@ export function Memory() {
     return () => clearInterval(t);
   }, []);
 
-  const vaultStatus = !data
-    ? "neutral"
-    : data.vault.exists
-      ? "ok"
-      : "down";
-  const brainStatus = !data
-    ? "neutral"
-    : !data.brain.exists
-      ? "down"
-      : data.brain.age_hours !== null && data.brain.age_hours > 24
-        ? "warn"
-        : "ok";
-  const qdrantStatus = !data
-    ? "neutral"
-    : data.qdrant.up
-      ? "ok"
-      : "down";
-
   return (
-    <div className="px-10 py-8">
-      <header className="mb-6 flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-[20px] font-semibold leading-tight">Memory</h1>
-          <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-            Vault · Brain index FTS5 · Qdrant collections
+    <div className="flex h-full flex-col overflow-hidden">
+      <div className="shrink-0 px-10 py-6">
+        <header className="mb-5 flex items-baseline justify-between gap-4">
+          <div>
+            <h1 className="text-[20px] font-semibold leading-tight">Memory</h1>
+            <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
+              Vault · Brain index · Qdrant · live search across the 3 layers
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={load}
+            disabled={refreshing}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {refreshing ? "Refreshing…" : "Refresh status"}
+          </button>
+        </header>
+
+        {error && (
+          <div
+            className="mb-4 rounded p-3 text-[12.5px]"
+            style={{
+              background: "rgba(248, 81, 73, 0.06)",
+              border: "1px solid rgba(248, 81, 73, 0.22)",
+              color: "var(--color-danger)",
+            }}
+          >
+            {error}
+          </div>
+        )}
+
+        {data && (
+          <StatusRow vault={data.vault} brain={data.brain} qdrant={data.qdrant} />
+        )}
+
+        {/* Search */}
+        <div className="mt-5 flex items-center gap-2">
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") runSearch();
+            }}
+            placeholder="Search vault + sessions + projects…  (Enter)"
+            className="flex-1 rounded px-3 py-2 text-[12.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+              outline: "none",
+            }}
+          />
+          <button
+            type="button"
+            onClick={runSearch}
+            disabled={searching || !query.trim()}
+            className="rounded px-3 py-2 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {searching ? "Searching…" : "Search"}
+          </button>
+        </div>
+        {searchError && (
+          <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-danger)" }}>
+            {searchError}
           </p>
-        </div>
-        <button
-          type="button"
-          onClick={load}
-          disabled={refreshing}
-          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-          style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
-          }}
-        >
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
-      </header>
+        )}
+      </div>
 
-      {error && (
-        <div
-          className="mb-4 rounded p-3 text-[12.5px]"
-          style={{
-            background: "rgba(248, 81, 73, 0.06)",
-            border: "1px solid rgba(248, 81, 73, 0.22)",
-            color: "var(--color-danger)",
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      {loading && !data && (
-        <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Loading…
-        </div>
-      )}
-
-      {data && (
-        <div className="grid grid-cols-2 gap-4">
-          {/* Vault */}
-          <Section
-            title="Vault (L2)"
-            status={vaultStatus}
-            detail={data.vault.exists ? "filesystem" : "not found"}
+      {/* Results split */}
+      {(results.length > 0 || (searching && !error)) && (
+        <div className="flex flex-1 overflow-hidden border-t" style={{ borderColor: "var(--color-border)" }}>
+          <div
+            className="w-[44%] min-w-[420px] overflow-auto border-r px-3 py-3"
+            style={{ borderColor: "var(--color-border)" }}
           >
-            <Field label="Notes" value={data.vault.note_count.toLocaleString()} />
-            <Field label="Size" value={formatBytes(data.vault.size_bytes)} />
-            <Field label="Last write" value={formatRelativeIso(data.vault.last_modified)} />
-            {data.vault.path && (
-              <div
-                className="mt-2 truncate text-[10.5px]"
-                style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}
-                title={data.vault.path}
-              >
-                {data.vault.path}
-              </div>
-            )}
-          </Section>
-
-          {/* Brain */}
-          <Section
-            title="Brain index (L1)"
-            status={brainStatus}
-            detail={
-              data.brain.age_hours !== null
-                ? data.brain.age_hours > 24
-                  ? `stale ${Math.floor(data.brain.age_hours)}h`
-                  : `fresh ${Math.floor(data.brain.age_hours)}h`
-                : "—"
-            }
-          >
-            <Field label="Size" value={formatBytes(data.brain.size_bytes)} />
-            <Field label="Last update" value={formatRelativeIso(data.brain.last_modified)} />
-            <Field
-              label="Engine"
-              value={<span style={{ fontFamily: "var(--font-mono)" }}>SQLite FTS5</span>}
-            />
-            {data.brain.path && (
-              <div
-                className="mt-2 truncate text-[10.5px]"
-                style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}
-                title={data.brain.path}
-              >
-                {data.brain.path}
-              </div>
-            )}
-          </Section>
-
-          {/* Qdrant */}
-          <Section
-            title="Qdrant (semantic)"
-            status={qdrantStatus}
-            detail={data.qdrant.up ? "localhost:6333" : data.qdrant.error ?? "down"}
-          >
-            {data.qdrant.up && data.qdrant.collections.length === 0 && (
-              <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-                No collections yet.
-              </div>
-            )}
-            {data.qdrant.collections.map((c) => (
-              <div
-                key={c.name}
-                className="flex items-baseline justify-between py-1 text-[12px]"
-              >
-                <span style={{ color: "var(--color-text)" }}>{c.name}</span>
-                <span
-                  className="tabular-nums"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  {c.points_count !== null ? c.points_count.toLocaleString() : "—"} points
-                  {c.status && (
-                    <span
-                      className="ml-2 rounded px-1 py-px text-[10px] uppercase"
-                      style={{
-                        background: "var(--color-surface-3)",
-                        color: "var(--color-text-secondary)",
-                      }}
-                    >
-                      {c.status}
-                    </span>
-                  )}
-                </span>
-              </div>
-            ))}
-            {data.qdrant.error && !data.qdrant.up && (
-              <div className="mt-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-                {data.qdrant.error}
-              </div>
-            )}
-          </Section>
-
-          {/* Actions placeholder */}
-          <Section
-            title="Actions"
-            status="neutral"
-            detail="phase 8"
-          >
-            <p
-              className="text-[12px] leading-relaxed"
+            <div
+              className="mb-2 flex items-baseline justify-between px-2"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Sync vault · push memory · brain query · recall — controles unificados llegan en la pestaña Settings (Fase 8) para tener edición de scripts y configs en un solo sitio.
-            </p>
-          </Section>
+              <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
+                {results.length} results
+              </span>
+            </div>
+            <div className="space-y-px">
+              {results.map((r) => (
+                <ResultRow
+                  key={r.id}
+                  r={r}
+                  selected={selectedPath === r.path}
+                  onClick={() => setSelectedPath(r.path)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            {selectedPath ? (
+              <NotePreview path={selectedPath} />
+            ) : (
+              <div
+                className="flex h-full items-center justify-center text-[12.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Select a result to preview the note
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

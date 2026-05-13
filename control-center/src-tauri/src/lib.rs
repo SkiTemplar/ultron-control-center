@@ -157,6 +157,20 @@ async fn memory_status() -> Result<memory::MemoryStatus, String> {
 }
 
 #[tauri::command]
+async fn brain_query(
+    app: tauri::AppHandle,
+    query: String,
+    limit: Option<u32>,
+) -> Result<Vec<memory::BrainResult>, String> {
+    memory::brain_query_inner(&app, query, limit).await
+}
+
+#[tauri::command]
+async fn read_vault_note(path: String) -> Result<String, String> {
+    memory::read_vault_note_inner(path)
+}
+
+#[tauri::command]
 async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
     projects::list_projects_inner()
 }
@@ -248,7 +262,9 @@ pub fn run() {
             memory_status,
             spawn_session,
             run_inline,
-            list_projects
+            list_projects,
+            brain_query,
+            read_vault_note
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
