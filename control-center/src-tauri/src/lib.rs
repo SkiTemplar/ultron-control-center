@@ -23,6 +23,8 @@ use tauri::{
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     Manager,
 };
+use tauri_plugin_autostart::MacosLauncher;
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
 
 // ---------------------------------------------------------------------------
@@ -345,6 +347,23 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            MacosLauncher::LaunchAgent,
+            Some(vec!["--from-autostart"]),
+        ))
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, shortcut, event| {
+                    // Toggle the main window on press of any registered shortcut.
+                    // We only register one (Ctrl+Alt+U) so this handler is dedicated
+                    // to that — if you add more, branch on `shortcut`.
+                    if event.state() == ShortcutState::Pressed {
+                        let _ = shortcut; // future: differentiate shortcuts
+                        toggle_window(app);
+                    }
+                })
+                .build(),
+        )
         .invoke_handler(tauri::generate_handler![
             ultron_status,
             qdrant_health,
@@ -374,6 +393,15 @@ pub fn run() {
             rich_system_info
         ])
         .setup(|app| {
+            // Register Ctrl+Alt+U global hotkey on startup. If it's already
+            // bound by another app the call returns Err — we log and carry
+            // on so the rest of the app keeps working.
+            let shortcut_handle = app.global_shortcut();
+            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyU);
+            if let Err(e) = shortcut_handle.register(shortcut) {
+                eprintln!("[ultron] global shortcut register failed: {}", e);
+            }
+
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
             let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open_i, &quit_i])?;

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import type { SettingsSaveResult, SettingsSnapshot } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -111,13 +112,144 @@ function JsonPreview({ obj }: { obj: unknown }) {
 // Main
 // ---------------------------------------------------------------------------
 
-type Section = "mcps" | "raw" | "backups";
+type Section = "general" | "mcps" | "raw" | "backups";
+
+function GeneralSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    isAutostartEnabled()
+      .then(setEnabled)
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  async function toggle() {
+    if (enabled === null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      if (enabled) {
+        await disableAutostart();
+        setEnabled(false);
+      } else {
+        await enableAutostart();
+        setEnabled(true);
+      }
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Autostart with Windows */}
+      <div
+        className="flex items-start gap-3 rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={busy || enabled === null}
+          className="mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50"
+          style={{
+            background: enabled
+              ? "var(--color-success)"
+              : "var(--color-surface-3)",
+            border: "1px solid var(--color-border-strong)",
+            padding: "1px",
+          }}
+          title={
+            enabled
+              ? "Click to stop launching ULTRON at Windows logon"
+              : "Click to launch ULTRON at Windows logon"
+          }
+        >
+          <span
+            className="block h-3.5 w-3.5 rounded-full transition-transform"
+            style={{
+              background: "var(--color-text)",
+              transform: enabled ? "translateX(16px)" : "translateX(0)",
+            }}
+          />
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+            Start with Windows
+          </div>
+          <p
+            className="mt-1 text-[12px] leading-relaxed"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Adds <span style={{ fontFamily: "var(--font-mono)" }}>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</span>{" "}
+            entry so the Control Center launches on logon with{" "}
+            <span style={{ fontFamily: "var(--font-mono)" }}>--from-autostart</span>.
+            The app stays in the tray on start.
+          </p>
+        </div>
+      </div>
+
+      {/* Global hotkey */}
+      <div
+        className="rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+          Global hotkey
+        </div>
+        <p
+          className="mt-1 text-[12px] leading-relaxed"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Press{" "}
+          <kbd
+            className="rounded px-1.5 py-0.5 text-[11px]"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            Ctrl + Alt + U
+          </kbd>{" "}
+          anywhere on Windows to toggle the Control Center. Registered once at
+          launch. If another app already grabs that combo, the registration is
+          skipped and only the tray icon works.
+        </p>
+      </div>
+
+      {error && (
+        <div
+          className="rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Settings() {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("mcps");
+  const [section, setSection] = useState<Section>("general");
   const [dirty, setDirty] = useState(false);
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -253,6 +385,7 @@ export function Settings() {
         }}
       >
         {[
+          { id: "general" as Section, label: "General" },
           { id: "mcps" as Section, label: "MCPs" },
           { id: "raw" as Section, label: "Raw JSON" },
           { id: "backups" as Section, label: "Backups" },
@@ -302,6 +435,7 @@ export function Settings() {
       )}
 
       <div className="mt-5">
+        {section === "general" && <GeneralSection />}
         {section === "mcps" && (
           <>
             <p
