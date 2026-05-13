@@ -327,25 +327,62 @@ def build_context() -> tuple[str, dict]:
         data["brain_count"] = brain_count
 
     # ── QDRANT HEALTH (memoria semántica) ────────────────────────────────
-    # Si Docker/Qdrant no está vivo, los hooks embed_*/auto-recall hacen no-op
-    # silencioso — esta línea hace visible el estado en cada arranque.
+    # Three sources, in order of authority:
+    #   1. qdrant-health.json (written by ensure-qdrant hook — knows about
+    #      disk-missing, container-missing, daemon-down with specific causes)
+    #   2. /healthz live probe (200 = daemon reachable)
+    #   3. /collections/<name> per collection (200 = exists, points_count)
     try:
         import urllib.request as _u, json as _j
-        qstat = []
-        for _c in ("ultron_vault", "ultron_skills"):
-            try:
-                with _u.urlopen(f"http://localhost:6333/collections/{_c}", timeout=1.5) as _r:
-                    _pc = _j.load(_r)["result"].get("points_count", "?")
-                qstat.append(f"{_c.replace('ultron_','')}={_pc}")
-            except Exception:
-                qstat.append(f"{_c.replace('ultron_','')}=?")
-        ok = all("=?" not in s for s in qstat)
-        if ok:
-            lines.append(f"## 🟢 QDRANT: {' · '.join(qstat)} pts")
-            data["qdrant"] = {"up": True, "collections": qstat}
+        _hook_status = None
+        _hook_msg = ""
+        try:
+            from pathlib import Path as _P
+            _hf = _P.home() / ".ultron" / ".tmp" / "qdrant-health.json"
+            if _hf.exists():
+                _hd = _j.loads(_hf.read_text(encoding="utf-8"))
+                _hook_status = _hd.get("status")
+                _hook_msg = _hd.get("message", "")
+        except Exception:
+            pass
+
+        # Hook says disk-missing → don't even probe; surface the actionable msg.
+        if _hook_status == "disk-missing":
+            lines.append("## 🔴 QDRANT BLOCKED — disco WSL de Docker no montado · " + _hook_msg)
+            data["qdrant"] = {"up": False, "reason": "disk-missing", "message": _hook_msg}
+            _daemon_up = False
+            _skip_probe = True
         else:
-            lines.append("## 🔴 QDRANT DOWN — recall degradado a FTS5 (¿Docker arrancando? `! docker desktop start`)")
-            data["qdrant"] = {"up": False, "collections": qstat}
+            _skip_probe = False
+            try:
+                with _u.urlopen("http://localhost:6333/healthz", timeout=1.5) as _r:
+                    _daemon_up = _r.status == 200
+            except Exception:
+                _daemon_up = False
+
+        if _skip_probe:
+            pass  # disk-missing already reported above
+        elif not _daemon_up:
+            _hint = _hook_msg if _hook_msg else "recall degradado a FTS5 (qdrant.exe nativo no responde — revisar ~/.ultron/qdrant-native/)"
+            lines.append("## 🔴 QDRANT DOWN — " + _hint)
+            data["qdrant"] = {"up": False, "collections": []}
+        else:
+            qstat = []
+            missing = []
+            for _c in ("ultron_vault", "ultron_skills"):
+                try:
+                    with _u.urlopen(f"http://localhost:6333/collections/{_c}", timeout=1.5) as _r:
+                        _pc = _j.load(_r)["result"].get("points_count", 0)
+                    qstat.append(f"{_c.replace('ultron_','')}={_pc}")
+                except Exception:
+                    missing.append(_c.replace("ultron_", ""))
+            if missing and not qstat:
+                lines.append(f"## 🟡 QDRANT UP — colecciones ausentes ({', '.join(missing)}) · embeddings pendientes")
+            elif missing:
+                lines.append(f"## 🟢 QDRANT: {' · '.join(qstat)} pts · falta: {', '.join(missing)}")
+            else:
+                lines.append(f"## 🟢 QDRANT: {' · '.join(qstat)} pts")
+            data["qdrant"] = {"up": True, "collections": qstat, "missing": missing}
         lines.append("")
     except Exception:
         pass

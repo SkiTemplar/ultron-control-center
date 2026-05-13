@@ -367,13 +367,9 @@ if (Test-ForegroundFullscreen) {
 }
 
 $statusMap = @{
-    'disk-missing'             = @{ Title = 'ULTRON | Qdrant offline';        Body = 'Drive D:\ no detectado. Conecta el USB o monta el disco y pulsa Reintentar.';                                            Retry = $true;  Setup = $false }
-    'native-failed'            = @{ Title = 'ULTRON | Qdrant nativo';         Body = "Qdrant nativo (qdrant.exe) intento arrancar y fallo. Sistema en modo degraded (recall por FTS5 keyword sigue OK). Detalle: $msg"; Retry = $true; Setup = $false }
-    'container-create-failed'  = @{ Title = 'ULTRON | Qdrant no arranca';     Body = "Ni el binario nativo ni Docker pudieron arrancar Qdrant. Sistema en modo degraded (recall keyword OK, semantico no). Detalle: $msg"; Retry = $true; Setup = $false }
-    'container-missing'        = @{ Title = 'ULTRON | Qdrant setup';          Body = 'Contenedor ultron-qdrant no existe. Pulsa Reintentar para recrearlo automaticamente.';                                   Retry = $true;  Setup = $false }
-    'daemon-down'              = @{ Title = 'ULTRON | Docker zombi';          Body = 'Docker Desktop no responde y no hay binario nativo de Qdrant. ULTRON puede seguir con recall keyword (sin semantico).'; Retry = $true;  Setup = $false }
-    'unhealthy'                = @{ Title = 'ULTRON | Qdrant degradado';      Body = "Qdrant esta up pero healthz responde mal. $msg";                                                                         Retry = $true;  Setup = $false }
-    'unreachable'              = @{ Title = 'ULTRON | Qdrant inalcanzable';   Body = "Servicio up pero healthz no responde. $msg";                                                                             Retry = $true;  Setup = $false }
+    'native-failed'   = @{ Title = 'ULTRON | Qdrant nativo';      Body = "Qdrant nativo (qdrant.exe) no arranca. Sistema en modo degraded (recall por FTS5 keyword sigue OK). Detalle: $msg"; Retry = $true; Setup = $false }
+    'native-missing'  = @{ Title = 'ULTRON | Qdrant no instalado'; Body = "Binario nativo qdrant.exe ausente. Recall semantico desactivado (FTS5 keyword sigue OK). Reinstala el v1.18.0 windows zip."; Retry = $false; Setup = $false }
+    'unhealthy'       = @{ Title = 'ULTRON | Qdrant degradado';   Body = "Qdrant esta up pero healthz responde mal. $msg"; Retry = $true; Setup = $false }
 }
 
 if (-not $statusMap.ContainsKey($status)) {

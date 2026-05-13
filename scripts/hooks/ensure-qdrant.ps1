@@ -8,26 +8,17 @@
 # Qdrant is up *eventually*, without blocking. Status to
 # ~/.ultron/.tmp/qdrant-health.json for the panel + context_primer.
 #
-# v15.0.2 strategy (native-first, Docker fallback):
-#   1. Probe http://localhost:6333/healthz directly. If anything is already
-#      serving on 6333 (native qdrant.exe, Docker container, whatever) we
-#      are done.
-#   2. If no one answers and we have a native binary at
-#      ~/.ultron/qdrant-native/qdrant.exe → launch it hidden and wait for
-#      healthz. This is the primary path now — Docker is not required.
-#   3. If native binary missing AND Docker daemon is reachable → fall back
-#      to the legacy Docker flow (existing container OR recreate it with
-#      the bind-mount).
-#   4. If both paths fail, write a status the panel can surface.
+# Strategy (v15.0.2+: Docker eliminado):
+#   1. Probe http://localhost:6333/healthz. Si responde, done.
+#   2. Si no, lanzar el binario nativo ~/.ultron/qdrant-native/qdrant.exe
+#      hidden y esperar healthz (60s).
+#   3. Si el binario no existe o no arranca → status native-failed/missing.
 #
 # Exit codes:
-#   0 up                     - healthz 200 from somebody
-#   1 daemon-down            - neither native nor Docker can be used
-#   2 container-create-failed- Docker available but `docker run` failed
-#   3 unhealthy              - service answered but not 200
-#   4 unreachable            - service not responding after launch attempt
-#   5 disk-missing           - Docker WSL distro on unmounted drive (legacy)
-#   6 native-failed          - native binary present but won't start
+#   0 up             - healthz 200 from someone
+#   3 unhealthy      - service answered but not 200
+#   6 native-failed  - native binary present but won't start
+#   7 native-missing - native binary not installed at all
 
 $tmpDir = "$env:USERPROFILE\.ultron\.tmp"
 if (-not (Test-Path $tmpDir)) {
@@ -118,90 +109,7 @@ if (Test-Path $nativeExe) {
 }
 
 # ========================================================================
-# Phase 3: Docker fallback (legacy path).
+# Phase 3: No native binary installed.
 # ========================================================================
-
-# Pre-flight: Docker WSL distro on a secondary drive that's unmounted?
-try {
-    $dockerCfg = "$env:APPDATA\Docker\settings-store.json"
-    if (Test-Path $dockerCfg) {
-        $cfgObj = Get-Content $dockerCfg -Raw | ConvertFrom-Json
-        $wslDir = $cfgObj.CustomWslDistroDir
-        if ($wslDir) {
-            $driveLetter = (Split-Path -Qualifier $wslDir).TrimEnd(':')
-            $driveRoot = $driveLetter + ':\'
-            if (-not (Test-Path $driveRoot)) {
-                $msg = "Docker config points WSL distro to '" + $wslDir + "' but drive " + $driveRoot + " is not mounted. Mount the drive and re-run."
-                Write-State -Status 'disk-missing' -Message $msg -ElapsedSec 0
-                exit 5
-            }
-        }
-    }
-} catch { }
-
-# Try to launch Docker Desktop if not running.
-$dockerProc = Get-Process 'Docker Desktop' -ErrorAction SilentlyContinue
-if (-not $dockerProc) {
-    $exe = 'C:\Program Files\Docker\Docker\Docker Desktop.exe'
-    if (Test-Path $exe) {
-        Start-Process $exe -WindowStyle Hidden -ErrorAction SilentlyContinue
-    }
-}
-
-# Wait for daemon.
-$elapsed = 0
-$daemonUp = $false
-while ($elapsed -lt $MaxWaitSec) {
-    $null = docker info --format '{{.ServerVersion}}' 2>$null
-    if ($LASTEXITCODE -eq 0) {
-        # docker info can return exit 0 with body 500. Probe for a real OK.
-        $probeOut = docker info --format '{{.ServerVersion}}' 2>&1
-        if ($probeOut -notmatch '500') {
-            $daemonUp = $true
-            break
-        }
-    }
-    Start-Sleep -Seconds $PollSec
-    $elapsed += $PollSec
-}
-
-if (-not $daemonUp) {
-    Write-State -Status 'daemon-down' -Message "Docker daemon not ready after ${MaxWaitSec}s (and no native binary at $nativeExe)" -ElapsedSec $elapsed
-    exit 1
-}
-
-$state = docker ps -a --filter 'name=^ultron-qdrant$' --format '{{.State}}' 2>$null
-if (-not $state) {
-    $storageDir = "$env:USERPROFILE\.ultron\qdrant_storage"
-    if (-not (Test-Path $storageDir)) {
-        New-Item -ItemType Directory -Path $storageDir -Force | Out-Null
-    }
-
-    $createOut = docker run -d `
-        --name ultron-qdrant `
-        --restart unless-stopped `
-        -p 6333:6333 -p 6334:6334 `
-        -v "${storageDir}:/qdrant/storage" `
-        qdrant/qdrant 2>&1
-    $createExit = $LASTEXITCODE
-
-    if ($createExit -ne 0) {
-        $createMsg = ($createOut | Out-String).Trim()
-        Write-State -Status 'container-create-failed' -Message "docker run failed: $createMsg" -ElapsedSec $elapsed
-        exit 2
-    }
-
-    Start-Sleep -Seconds 4
-    $state = 'running'
-} elseif ($state -ne 'running') {
-    $null = docker start ultron-qdrant 2>$null
-    Start-Sleep -Seconds 3
-}
-
-if (Test-Healthz -TimeoutSec 5) {
-    Write-State -Status 'up' -Message 'Qdrant via Docker container' -ElapsedSec $elapsed
-    exit 0
-}
-
-Write-State -Status 'unreachable' -Message 'Docker container up but healthz not responding' -ElapsedSec $elapsed
-exit 4
+Write-State -Status 'native-missing' -Message "Native qdrant.exe not found at $nativeExe. Reinstall with the v15.0.2 setup steps (download v1.18.0 windows zip)." -ElapsedSec 0
+exit 7
