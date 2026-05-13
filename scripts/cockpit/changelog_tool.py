@@ -163,6 +163,92 @@ def write_entries(entries: list[dict]) -> None:
 # Subcommands
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Normalization — strip pre-release tags and clean up titles
+# ---------------------------------------------------------------------------
+
+# Matches a leading version prefix in a title like "v15.0.2 ", "v15.1 Fase 2 —",
+# possibly with the trailing "Fase N" / "Phase N" / "phase-N" filler.
+_TITLE_VERSION_PREFIX = re.compile(
+    r"^\s*v?\d+(?:\.\d+){1,2}[a-z]*\d*\s*"  # v15.0.2 or v15.0b
+    r"(?:[-—:]\s*)?"                          # optional separator after version
+    r"(?:(?:fase|phase)\s*\d+\s*[-—:]?\s*)?"   # optional "Fase N — "
+    r"(?:foundation|changelog)?\s*"            # filler words
+    r"(?:[-—:]\s*)?",                          # second optional separator
+    re.IGNORECASE,
+)
+
+# Standalone "changelog" word filler when not at the start
+_CHANGELOG_FILLER = re.compile(r"\s*\bchangelog\b\s*", re.IGNORECASE)
+
+# Pre-release tag at end of version: v15.0b, v15.0-rc1
+_VERSION_TAG = re.compile(r"^(\d+(?:\.\d+){1,2})([a-z]+\d*)$", re.IGNORECASE)
+
+
+def strip_tag(version: str) -> str:
+    """v15.0b → v15.0, v15.0-rc1 → v15.0, v15.0.2 → v15.0.2."""
+    m = _VERSION_TAG.match(version)
+    return m.group(1) if m else version
+
+
+def clean_title(title: str) -> str:
+    """Drop redundant version prefix + "Fase N — " + "changelog" filler."""
+    if not title:
+        return title
+    out = _TITLE_VERSION_PREFIX.sub("", title, count=1)
+    # Drop a "Foundation —" left over after Fase strip
+    out = re.sub(r"^\s*foundation\s*[-—:]\s*", "", out, count=1, flags=re.IGNORECASE)
+    # Squash double separators and trim
+    out = re.sub(r"\s*[-—:]\s*[-—:]\s*", " — ", out)
+    out = out.strip(" -—:")
+    if out and out[0].islower():
+        out = out[0].upper() + out[1:]
+    return out
+
+
+def cmd_normalize(args: argparse.Namespace) -> int:
+    """Strip pre-release tags from versions and clean titles for all entries."""
+    entries = read_entries()
+    if not entries:
+        print("[changelog_tool] no entries", flush=True)
+        return 0
+
+    title_changed = 0
+    version_changed = 0
+    for e in entries:
+        # related_ids: drop tag
+        rids = e.get("related_ids") or []
+        new_rids = []
+        for r in rids:
+            s = str(r)
+            m = re.match(r"^v?(\d+(?:\.\d+){1,2})[a-z]*\d*$", s, re.IGNORECASE)
+            if m:
+                stripped = f"v{m.group(1)}"
+                new_rids.append(stripped)
+            else:
+                new_rids.append(r)
+        if new_rids != rids:
+            e["related_ids"] = new_rids
+            version_changed += 1
+
+        # id: replace tag occurrences like "v15-0-b" → "v15-0"
+        eid = str(e.get("id", ""))
+        new_id = re.sub(r"(v\d+(?:[-_.]\d+){1,2})[-_]?[a-z]+\d*", r"\1", eid, count=1, flags=re.IGNORECASE)
+        if new_id != eid:
+            e["id"] = new_id
+
+        # title
+        old_title = e.get("title", "") or ""
+        new_title = clean_title(old_title)
+        if new_title and new_title != old_title:
+            e["title"] = new_title
+            title_changed += 1
+
+    write_entries(entries)
+    print(f"[changelog_tool] normalized: {version_changed} versions, {title_changed} titles", flush=True)
+    return 0
+
+
 def cmd_compact(args: argparse.Namespace) -> int:
     entries = read_entries()
     if not entries:
@@ -250,6 +336,9 @@ def cmd_add(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="changelog_tool")
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    sp = sub.add_parser("normalize", help="Drop tags (b/rc) + clean titles")
+    sp.set_defaults(func=cmd_normalize)
 
     sp = sub.add_parser("compact", help="Rewrite bodies to bullet format")
     sp.set_defaults(func=cmd_compact)

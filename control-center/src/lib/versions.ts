@@ -38,38 +38,32 @@ export function extractVersion(entry: ChangelogEntry): VersionId | null {
       const major = m[1];
       const minor = m[2];
       const patch = m[3];
-      const tag = m[4]; // e.g. "b" in v15.0b
-      // Treat trailing ".0" patch as no-patch so "v12.4" and "v12.4.0"
-      // collapse into the same group key.
+      // Drop pre-release tag suffix (v15.0b -> v15.0) — USER wants only
+      // pure MAJOR.MINOR.PATCH. Also collapse trailing ".0" patch into the
+      // bare "X.Y" form (v12.4.0 == v12.4).
       const usePatch = patch && patch !== "0";
-      const base = usePatch ? `${major}.${minor}.${patch}` : `${major}.${minor}`;
-      return tag ? `${base}${tag}` : base;
+      return usePatch ? `${major}.${minor}.${patch}` : `${major}.${minor}`;
     }
   }
   return null;
 }
 
 /**
- * Semver-aware descending compare. "15.1" > "15.0.3" > "15.0.2" > "15.0.2b".
- * Suffix tags ("b", "rc", etc) compare alphabetically — good enough for
- * the lightweight scheme ULTRON uses.
+ * Semver-aware descending compare. "15.1" > "15.0.3" > "15.0.2" > "15.0.0".
+ * Pre-release tags are stripped by extractVersion so we only ever compare
+ * pure MAJOR.MINOR.PATCH triples.
  */
 export function compareVersionsDesc(a: VersionId, b: VersionId): number {
-  const parse = (v: string): [number, number, number, string] => {
-    const m = v.match(/^(\d+)\.(\d+)(?:\.(\d+))?([a-z]+\d*)?$/i);
-    if (!m) return [0, 0, 0, ""];
-    return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3] ?? "0", 10), m[4] ?? ""];
+  const parse = (v: string): [number, number, number] => {
+    const m = v.match(/^(\d+)\.(\d+)(?:\.(\d+))?$/);
+    if (!m) return [0, 0, 0];
+    return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3] ?? "0", 10)];
   };
-  const [aM, am, ap, at] = parse(a);
-  const [bM, bm, bp, bt] = parse(b);
+  const [aM, am, ap] = parse(a);
+  const [bM, bm, bp] = parse(b);
   if (aM !== bM) return bM - aM;
   if (am !== bm) return bm - am;
-  if (ap !== bp) return bp - ap;
-  // empty tag (released) > tag (beta/rc)
-  if (at === bt) return 0;
-  if (at === "") return -1;
-  if (bt === "") return 1;
-  return bt.localeCompare(at);
+  return bp - ap;
 }
 
 export function groupByVersion(entries: ChangelogEntry[]): {
