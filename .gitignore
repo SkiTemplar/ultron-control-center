@@ -65,3 +65,6 @@ qdrant-native/qdrant.exe
 qdrant-native/config/config
 qdrant-native/config/development
 qdrant_storage/
+
+# v15.0.3: rotated alerts archive (rebuildable, 1.3MB+)
+alerts.jsonl.archive

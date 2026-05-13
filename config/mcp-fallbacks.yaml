@@ -1,4 +1,4 @@
-# ULTRON v14 Sprint 5 — MCP Resilience fallback registry.
+# ULTRON Sprint 5 — MCP Resilience fallback registry.
 #
 # One entry per MCP server defined in ~/.claude/settings.json mcpServers.
 # When mcp_health_check.py determines an MCP is "degraded" or "missing", the
@@ -13,30 +13,9 @@
 #                    health-check alerts; warn surfaces in context.md
 #   fallback_skill   optional skill id to suggest (or null)
 #
-# Severity policy (S5 Sub-pilar A):
-#   warn     → frequently used MCPs whose absence degrades a flow we run daily
-#              (gemini, codex, playwright)
-#   info     → MCPs that are nice-to-have or have trivial native fallbacks
-
-- mcp_name: sequential-thinking
-  fallback_message: "Use Claude's native step-by-step reasoning (chain-of-thought, /thinking overlay). The sequential-thinking MCP only adds an explicit structured-planning surface; nothing is lost functionally."
-  alert_severity: info
-  fallback_skill: null
-
-- mcp_name: n8n-mcp
-  fallback_message: "n8n workflow MCP unavailable. Verify the n8n-mcp module is installed under %APPDATA%/npm/node_modules/n8n-mcp; reinstall with `npm i -g n8n-mcp` if missing. No native fallback for n8n workflows."
-  alert_severity: info
-  fallback_skill: null
-
-- mcp_name: gemini
-  fallback_message: "Use `ultron gemini \"<prompt>\"` (wrapper limpio sobre el CLI con OAuth, sin rate-limits del API key plano). Para batch use `--file <path>` o `--json`. Path: scripts/cockpit/gemini_cli.py."
-  alert_severity: info  # downgraded 2026-05-09: ultron gemini wrapper confirms CLI works reliably; MCP degradation no longer blocking
-  fallback_skill: second-opinion
-
-- mcp_name: gemini-flash
-  fallback_message: "Use shared-duet.ps1 -Provider gemini -Model gemini-3.1-flash-lite for fast iteration, or the `gemini` CLI with --model flag. Falls back to the same backend as the gemini MCP."
-  alert_severity: info
-  fallback_skill: second-opinion
+# v15.0.3 cleanup: removed entries for MCPs no longer in settings.json:
+#   sequential-thinking (eliminado, Claude nativo lo sustituye)
+#   n8n-mcp, gemini, gemini-flash, firebase (nunca estuvieron tras refactor)
 
 - mcp_name: context7
   fallback_message: "Documentation lookup unavailable. Rely on web-search, the brain_index FTS5 query (`uv run python brain_index.py query \"<topic>\"`), or cached knowledge in ~/.ultron/knowledge/."
@@ -48,17 +27,17 @@
   alert_severity: warn
   fallback_skill: webapp-testing
 
-- mcp_name: firebase
-  fallback_message: "Use the firebase CLI directly: `firebase deploy`, `firebase functions:log`, `firebase emulators:start`. The MCP is just a thin RPC over the same CLI binary."
-  alert_severity: info
-  fallback_skill: null
-
 - mcp_name: unity
   fallback_message: "Unity Editor not running or SSE bridge offline. Start the Unity Editor and ensure the ULTRON SSE bridge listens on http://localhost:6402/sse. Verify with `curl http://localhost:6402/sse` (should keep connection open)."
   alert_severity: info
   fallback_skill: null
 
 - mcp_name: codex
-  fallback_message: "Use shared-duet.ps1 -Provider codex (forces --sandbox read-only --ignore-user-config), or invoke `codex exec` directly from a terminal. Same backend, no MCP wrapper required for one-shot review."
+  fallback_message: "Use the codex:rescue subagent or invoke `codex exec` directly. Same backend, no MCP wrapper required for one-shot review."
   alert_severity: warn
   fallback_skill: second-opinion
+
+- mcp_name: qdrant
+  fallback_message: "Qdrant semantic recall unavailable. Use FTS5 keyword fallback: `uv run python brain_index.py query \"<topic>\"`. Vault/skills data intact in ~/.ultron/qdrant_storage."
+  alert_severity: warn
+  fallback_skill: null
