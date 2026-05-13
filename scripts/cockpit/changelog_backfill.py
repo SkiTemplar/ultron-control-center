@@ -26,20 +26,41 @@ from pathlib import Path
 
 ULTRON = Path.home() / ".ultron"
 CHANGELOG = ULTRON / "cockpit" / "changelog.ndjson"
-ARCHIVE = ULTRON / "plans" / "_archive"
-SPECS = ULTRON / "plans" / "specs"
+
+# Sources to scan for versioned markdown, in *preference order*. When a
+# version is found in multiple sources, the first one wins (so spec > plan
+# archive > migration handover > audit). Each entry is a (label, glob_root)
+# pair — the glob is applied recursively for .md files.
+SOURCES: tuple[tuple[str, Path], ...] = (
+    ("spec", ULTRON / "plans" / "specs"),
+    ("plan-archive", ULTRON / "plans" / "_archive"),
+    ("plan", ULTRON / "plans"),
+    ("migration", ULTRON / "archive"),
+    ("audit", ULTRON / "audits"),
+    ("audit", ULTRON / "cockpit" / "audits"),
+)
 
 # Matches v15, v15.0, v15.0.2, v15.0b, v15.0.2-rc1, with dot/dash separators
-VERSION_RE = re.compile(r"v(\d+)[.\-_](\d+)(?:[.\-_](\d{1,2})(?!\d))?([a-z]+\d*)?", re.IGNORECASE)
+# Stricter version regex: each component capped at 2 digits so "v2-2026-05"
+# (kirkardo audit revision + date) doesn't get misparsed as a v2.2026.05
+# release. Pre-v100 ULTRON is the only target — bump the limits if that
+# changes.
+VERSION_RE = re.compile(
+    r"v(\d{1,2})(?!\d)[.\-_](\d{1,2})(?!\d)(?:[.\-_](\d{1,2})(?!\d))?([a-z]+\d*)?",
+    re.IGNORECASE,
+)
 # Matches a leading YYYY-MM-DD prefix in archive filenames
 DATE_PREFIX_RE = re.compile(r"^(\d{4}-\d{2}-\d{2})")
 
 
 def normalize_version(m: re.Match) -> str:
-    """Match → '15.0.2' / '15.0' / '15.0b' format used by the frontend."""
+    """Match -> '15.0.2' / '15.0' / '15.0b' format used by the frontend.
+
+    Drops trailing '.0' patch so v12.4 and v12.4.0 collapse to the same key.
+    """
     major, minor, patch, tag = m.group(1), m.group(2), m.group(3), m.group(4)
     base = f"{major}.{minor}"
-    if patch:
+    if patch and patch != "0":
         base = f"{base}.{patch}"
     if tag:
         base = f"{base}{tag.lower()}"
@@ -72,12 +93,24 @@ def existing_versions() -> set[str]:
     return versions
 
 
-def candidate_files() -> list[Path]:
-    """All markdown files in archive + specs."""
-    files: list[Path] = []
-    for d in (ARCHIVE, SPECS):
-        if d.exists():
-            files.extend(sorted(d.glob("*.md")))
+def candidate_files() -> list[tuple[Path, str]]:
+    """Return (path, source_label) pairs from every configured source.
+
+    Recursive .md scan. Order matters: SOURCES is tried in priority order
+    so when a version appears in multiple sources, the highest-priority
+    file (spec > plan-archive > plan > migration > audit) is selected
+    by the caller's dedup logic.
+    """
+    files: list[tuple[Path, str]] = []
+    seen_paths: set[Path] = set()
+    for label, root in SOURCES:
+        if not root.exists():
+            continue
+        for p in sorted(root.rglob("*.md")):
+            if p in seen_paths:
+                continue
+            seen_paths.add(p)
+            files.append((p, label))
     return files
 
 
@@ -143,7 +176,7 @@ def file_timestamp(path: Path) -> str:
     return mtime.strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def build_entry(path: Path, version: str) -> dict:
+def build_entry(path: Path, version: str, source_label: str) -> dict:
     text = path.read_text(encoding="utf-8", errors="replace")
     title = extract_title(text, fallback=path.stem.replace("-", " "))
     body = extract_body(text)
@@ -151,7 +184,7 @@ def build_entry(path: Path, version: str) -> dict:
         "id": f"hist-v{version}-{path.stem}",
         "ts": file_timestamp(path),
         "type": "feat",
-        "scope": "historical",
+        "scope": f"historical/{source_label}",
         "title": f"v{version} — {title}" if not title.lower().startswith(f"v{version.lower()}") else title,
         "body": body,
         "related_ids": [f"v{version}"],
@@ -165,36 +198,36 @@ def main() -> int:
         return 1
 
     have = existing_versions()
-    files = candidate_files()
+    candidates = candidate_files()
     seen_versions: set[str] = set()
     new_entries: list[dict] = []
 
-    for path in files:
+    # Build version → best-candidate map in priority order. Since SOURCES is
+    # ordered and candidate_files() preserves that order, the *first* time
+    # we encounter a version, that file is the best source.
+    for path, label in candidates:
         v = extract_version_from_name(path)
         if not v:
             continue
-        # Skip if we already have any entry for this version
-        if v in have:
+        if v in have or v in seen_versions:
             continue
-        # Skip if we already emitted a synthetic entry for this version in
-        # this run (prefer the first file alphabetically per version)
-        if v in seen_versions:
-            continue
-        entry = build_entry(path, v)
+        entry = build_entry(path, v, label)
         new_entries.append(entry)
         seen_versions.add(v)
 
     if not new_entries:
-        print("[backfill] no new versions to add (changelog already covers all archive)", flush=True)
+        print("[backfill] no new versions to add", flush=True)
         return 0
 
     with CHANGELOG.open("a", encoding="utf-8", newline="\n") as f:
         for entry in new_entries:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
+    # ASCII-only output to avoid cp1252 stdout issues on Windows shells.
     print(f"[backfill] appended {len(new_entries)} historical entries:", flush=True)
     for entry in new_entries:
-        print(f"  v{entry['related_ids'][0][1:]:<10s} {entry['title'][:80]}", flush=True)
+        scope = entry["scope"].split("/")[-1] if "/" in entry["scope"] else entry["scope"]
+        print(f"  v{entry['related_ids'][0][1:]:<10s} [{scope:<14s}] {entry['title'][:70]}", flush=True)
     return 0
 
 

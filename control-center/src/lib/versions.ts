@@ -24,9 +24,11 @@ export type VersionGroup = {
   internal: ChangelogEntry[];
 };
 
-// Patch component restricted to 1-2 digits so dates like "2026" in synthetic
-// ids ("hist-v14.2-2026-05-09-...") aren't misparsed as a patch number.
-const VERSION_RE = /v(\d+)[.\-_](\d+)(?:[.\-_](\d{1,2})(?!\d))?(?:[.\-_]([a-z]+\d*))?/i;
+// Stricter regex: each numeric component capped at 2 digits so dates like
+// "2026" (in synthetic ids hist-v14.2-2026-05-09-...) or audit revisions
+// like "v2-2026-05" aren't misparsed as version components.
+const VERSION_RE =
+  /v(\d{1,2})(?!\d)[.\-_](\d{1,2})(?!\d)(?:[.\-_](\d{1,2})(?!\d))?(?:[.\-_]([a-z]+\d*))?/i;
 
 export function extractVersion(entry: ChangelogEntry): VersionId | null {
   for (const source of [entry.id, entry.title, ...(entry.related_ids ?? [])]) {
@@ -37,7 +39,10 @@ export function extractVersion(entry: ChangelogEntry): VersionId | null {
       const minor = m[2];
       const patch = m[3];
       const tag = m[4]; // e.g. "b" in v15.0b
-      const base = patch ? `${major}.${minor}.${patch}` : `${major}.${minor}`;
+      // Treat trailing ".0" patch as no-patch so "v12.4" and "v12.4.0"
+      // collapse into the same group key.
+      const usePatch = patch && patch !== "0";
+      const base = usePatch ? `${major}.${minor}.${patch}` : `${major}.${minor}`;
       return tag ? `${base}${tag}` : base;
     }
   }
