@@ -94,6 +94,34 @@ function Show-UltronPanel {
         return $null
     }
 
+    # Subclase de Form que se muestra SIN robar foco. Critica para que el
+    # panel no saque al usuario de un juego en modo borderless. En juegos
+    # fullscreen exclusivo Windows siempre va a interrumpir (limitacion del
+    # OS, no nuestra) — para esos casos el usuario tendra que cerrar el
+    # juego para ver el panel.
+    if (-not ('UltronNoActivateForm' -as [type])) {
+        Add-Type -ReferencedAssemblies System.Windows.Forms -TypeDefinition @'
+using System;
+using System.Windows.Forms;
+public class UltronNoActivateForm : Form {
+    protected override bool ShowWithoutActivation { get { return true; } }
+    protected override CreateParams CreateParams {
+        get {
+            // WS_EX_NOACTIVATE = 0x08000000  (no robar foco al aparecer)
+            // WS_EX_TOPMOST    = 0x00000008  (siempre encima)
+            // WS_EX_TOOLWINDOW = 0x00000080  (no entry en Alt+Tab)
+            const int WS_EX_NOACTIVATE = 0x08000000;
+            const int WS_EX_TOPMOST    = 0x00000008;
+            const int WS_EX_TOOLWINDOW = 0x00000080;
+            CreateParams cp = base.CreateParams;
+            cp.ExStyle |= WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_TOOLWINDOW;
+            return cp;
+        }
+    }
+}
+'@ -ErrorAction SilentlyContinue
+    }
+
     $bgColor      = [System.Drawing.Color]::FromArgb(255, 22, 24, 32)
     $borderColor  = if ($SuccessVariant) {
                         [System.Drawing.Color]::FromArgb(255, 56, 178, 110)
@@ -108,7 +136,13 @@ function Show-UltronPanel {
     $accentBg     = [System.Drawing.Color]::FromArgb(255, 88, 110, 255)
     $accentHover  = [System.Drawing.Color]::FromArgb(255, 108, 130, 255)
 
-    $form              = New-Object System.Windows.Forms.Form
+    # Usa la subclase NoActivate si esta disponible; si no (fallo de Add-Type)
+    # cae a Form normal — sigue funcional pero robaria foco en juegos.
+    if ('UltronNoActivateForm' -as [type]) {
+        $form = New-Object UltronNoActivateForm
+    } else {
+        $form = New-Object System.Windows.Forms.Form
+    }
     $form.Text         = 'ULTRON'
     $form.Size         = New-Object System.Drawing.Size(480, 200)
     $form.FormBorderStyle = 'None'
