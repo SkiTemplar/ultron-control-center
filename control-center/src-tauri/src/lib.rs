@@ -11,6 +11,7 @@ mod projects;
 mod sessions;
 mod settings;
 mod skills;
+mod system;
 mod usage;
 
 use std::fs::File;
@@ -198,6 +199,26 @@ async fn settings_save(
 }
 
 #[tauri::command]
+async fn list_scheduled_tasks(
+    app: tauri::AppHandle,
+) -> Result<Vec<system::ScheduledTaskInfo>, String> {
+    system::list_tasks_inner(&app).await
+}
+
+#[tauri::command]
+async fn run_scheduled_task(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<system::RunTaskResult, String> {
+    system::run_task_inner(&app, name).await
+}
+
+#[tauri::command]
+async fn system_info(app: tauri::AppHandle) -> Result<system::SystemInfo, String> {
+    system::system_info_inner(&app).await
+}
+
+#[tauri::command]
 async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
     projects::list_projects_inner()
 }
@@ -330,7 +351,10 @@ pub fn run() {
             memory_action,
             claude_usage,
             settings_read,
-            settings_save
+            settings_save,
+            list_scheduled_tasks,
+            run_scheduled_task,
+            system_info
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;

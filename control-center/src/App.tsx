@@ -11,6 +11,7 @@ import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
 import { Settings } from "./components/Settings";
 import { Projects } from "./components/Projects";
+import { System } from "./components/System";
 import { computeGlobalStatus } from "./lib/status";
 import type { QdrantHealth, AlertEntry, ChangelogEntry } from "./types";
 
@@ -74,6 +75,7 @@ export default function App() {
         {tab === "usage" && <Usage />}
         {tab === "settings" && <Settings />}
         {tab === "projects" && <Projects />}
+        {tab === "system" && <System />}
       </main>
     </div>
   );

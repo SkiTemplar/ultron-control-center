@@ -61,6 +61,50 @@
           ]
         },
         {
+          "name": "system-tasks-list",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            "-Action",
+            "list"
+          ]
+        },
+        {
+          "name": "system-tasks-info",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            "-Action",
+            "info"
+          ]
+        },
+        {
+          "name": "system-tasks-run",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            "-Action",
+            "run",
+            "-Name",
+            { "validator": "^(ULTRON|Ultron)[A-Za-z0-9._\\-]{1,80}$" }
+          ]
+        },
+        {
           "name": "mcp-health",
           "cmd": "uv",
           "args": [

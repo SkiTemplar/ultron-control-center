@@ -13,6 +13,7 @@ export type Tab =
   | "sessions"
   | "usage"
   | "logs"
+  | "system"
   | "settings";
 
 type Item = {
@@ -34,6 +35,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "System",
     items: [
+      { id: "system", label: "System", available: true },
       { id: "mcps", label: "MCPs", available: true },
       { id: "skills", label: "Skills", available: true },
       { id: "memory", label: "Memory", available: true },

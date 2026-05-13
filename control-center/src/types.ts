@@ -150,6 +150,32 @@ export type SettingsSaveResult = {
   new_size_bytes: number;
 };
 
+export type ScheduledTaskInfo = {
+  name: string;
+  state: string;
+  last_run: string;
+  next_run: string;
+  last_result: number;
+  description: string | null;
+};
+
+export type RunTaskResult = {
+  success: boolean;
+  name: string;
+  stderr: string;
+};
+
+export type SystemInfo = {
+  hostname: string;
+  user: string;
+  os_name: string;
+  os_version: string;
+  uptime_seconds: number;
+  disk_c_total_gb: number;
+  disk_c_free_gb: number;
+  disk_c_pct_used: number;
+};
+
 export type UsageReport = {
   last_computed_date: string | null;
   cache_age_days: number | null;
