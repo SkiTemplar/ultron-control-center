@@ -63,6 +63,47 @@ fn registry_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron/skills/registry.json"))
 }
 
+/// Strip non-Latin characters (CJK, Cyrillic, Hebrew, Arabic, …) from a
+/// string while preserving ASCII + Latin Extended (so Spanish accents
+/// like á é í ó ú ñ are kept). Collapses leftover whitespace and orphan
+/// punctuation introduced by the strip.
+fn strip_non_latin(s: &str) -> String {
+    let replaced: String = s
+        .chars()
+        .map(|c| {
+            let cp = c as u32;
+            // ASCII (0x00–0x7F), Latin-1 Supplement + Latin Extended-A + B
+            // (0xC0–0x24F), plus a few Latin Extended Additional (0x1E00–0x1EFF).
+            if cp < 0x80 || (0xC0..=0x24F).contains(&cp) || (0x1E00..=0x1EFF).contains(&cp) {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+
+    // Collapse double spaces and orphan punctuation that the strip leaves
+    // behind (e.g. "research, 研究, deep" → "research, , deep" → "research, deep").
+    let mut out = replaced;
+    while out.contains("  ") {
+        out = out.replace("  ", " ");
+    }
+    for pat in &[",  ,", ", ,", " ,", ", ", ",,"] {
+        while out.contains(pat) {
+            out = out.replace(",,", ",");
+            out = out.replace(", ,", ",");
+            out = out.replace(" ,", ",");
+        }
+    }
+    // Re-space after commas for readability
+    out = out.replace(",", ", ");
+    while out.contains("  ") {
+        out = out.replace("  ", " ");
+    }
+    out.trim_matches(|c: char| c == ',' || c.is_whitespace())
+        .to_string()
+}
+
 pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
     let path = registry_path().ok_or_else(|| "no HOME".to_string())?;
     let raw = fs::read_to_string(&path)
@@ -78,12 +119,19 @@ pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
             Some(n) => n,
             None => key.split("::").nth(1).unwrap_or(&key).to_string(),
         };
+        let cleaned_desc = s.description.map(|d| strip_non_latin(&d));
+        let cleaned_tags: Vec<String> = s
+            .tags
+            .into_iter()
+            .map(|t| strip_non_latin(&t))
+            .filter(|t| !t.is_empty())
+            .collect();
         out.push(SkillInfo {
             name,
             state: s.state.unwrap_or_else(|| "unknown".to_string()),
             source: s.source,
-            description: s.description,
-            tags: s.tags,
+            description: cleaned_desc.filter(|d| !d.is_empty()),
+            tags: cleaned_tags,
             path: s.path,
             usage_count: s.usage_count,
         });
@@ -99,7 +147,16 @@ pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
 ///   1. registry-recorded path (if present and points to a dir)
 ///   2. ~/.claude/skills/<name>/SKILL.md  (active layer)
 ///   3. ~/.ultron/skill-vault/<name>/SKILL.md  (vault layer)
+/// Same Latin-only sanitization for SKILL.md preview content.
+pub fn read_skill_md_inner_raw(name: &str) -> Result<String, String> {
+    read_skill_md_internal(name)
+}
+
 pub fn read_skill_md_inner(name: &str) -> Result<String, String> {
+    read_skill_md_internal(name).map(|c| strip_non_latin(&c))
+}
+
+fn read_skill_md_internal(name: &str) -> Result<String, String> {
     // 1. registry path
     let Some(home) = dirs::home_dir() else {
         return Err("no HOME".to_string());
