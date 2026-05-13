@@ -84,6 +84,18 @@ export type MemoryStatusInfo = {
 
 export type SkillState = "active" | "plugin" | "vaulted" | string;
 
+export type SpawnResult = {
+  launched: boolean;
+  provider: string;
+};
+
+export type GeminiResult = {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+};
+
 export type SkillInfo = {
   name: string;
   state: SkillState;

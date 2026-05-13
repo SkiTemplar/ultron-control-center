@@ -7,6 +7,7 @@
 
 mod mcps;
 mod memory;
+mod sessions;
 mod skills;
 
 use std::fs::File;
@@ -154,6 +155,27 @@ async fn memory_status() -> Result<memory::MemoryStatus, String> {
     Ok(memory::memory_status_inner())
 }
 
+// ---------------------------------------------------------------------------
+// Session commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn spawn_session(
+    app: tauri::AppHandle,
+    provider: String,
+) -> Result<sessions::SpawnResult, String> {
+    sessions::spawn_session_inner(&app, provider).await
+}
+
+#[tauri::command]
+async fn run_gemini(
+    app: tauri::AppHandle,
+    model: String,
+    prompt: String,
+) -> Result<sessions::GeminiResult, String> {
+    sessions::run_gemini_inner(&app, model, prompt).await
+}
+
 #[tauri::command]
 async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::McpInfo>, String> {
     let script_path = ultron_root()?.join("scripts/cockpit/mcp_health_check.py");
@@ -213,7 +235,9 @@ pub fn run() {
             run_mcp_health_check,
             list_skills,
             read_skill_md,
-            memory_status
+            memory_status,
+            spawn_session,
+            run_gemini
         ])
         .setup(|app| {
             let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;

@@ -40,6 +40,33 @@
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\mcp_health_check\\.py$" },
             "--quiet"
           ]
+        },
+        {
+          "name": "wt-spawn",
+          "cmd": "wt.exe",
+          "args": [
+            "new-tab",
+            "--title",
+            { "validator": "^ULTRON · (claude|gemini|codex)$" },
+            "--",
+            "powershell.exe",
+            "-NoExit",
+            "-NoProfile",
+            "-Command",
+            { "validator": "^(claude|gemini|codex)$" }
+          ]
+        },
+        {
+          "name": "gemini-inline",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\gemini_cli\\.py$" },
+            "--model",
+            { "validator": "^[a-zA-Z0-9.\\-]+$" },
+            { "validator": "^[\\s\\S]+$" }
+          ]
         }
       ]
     }

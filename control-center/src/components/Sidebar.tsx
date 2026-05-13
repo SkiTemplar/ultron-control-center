@@ -10,6 +10,7 @@ export type Tab =
   | "plans"
   | "changelog"
   | "notifications"
+  | "sessions"
   | "logs"
   | "settings";
 
@@ -39,6 +40,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "Workspace",
     items: [
+      { id: "sessions", label: "Sessions", available: true },
       { id: "projects", label: "Projects", available: false },
       { id: "plans", label: "Plans", available: false },
       { id: "logs", label: "Logs", available: false },
