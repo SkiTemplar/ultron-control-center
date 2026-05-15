@@ -7,6 +7,7 @@ import type {
   SkillState,
   SkillUpdateResult,
 } from "../types";
+import { SkillRichView } from "./SkillRichView";
 
 // Default body when creating a new skill. Keeps the user oriented without
 // overwhelming the textarea.
@@ -195,6 +196,7 @@ function HeaderBtn({
 }
 
 type PreviewMode = "view" | "edit" | "confirm-delete";
+type ViewKind = "rich" | "raw";
 
 function Preview({
   skill,
@@ -212,6 +214,7 @@ function Preview({
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<PreviewMode>("view");
+  const [view, setView] = useState<ViewKind>("rich");
 
   useEffect(() => {
     let cancelled = false;
@@ -298,6 +301,25 @@ function Preview({
           <div className="ml-auto flex items-center gap-1.5">
             {mode === "view" && (
               <>
+                <div
+                  className="flex items-center overflow-hidden rounded text-[10.5px]"
+                  style={{ border: "1px solid var(--color-border-strong)" }}
+                >
+                  {(["rich", "raw"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setView(v)}
+                      className="px-2 py-1 uppercase tracking-wide"
+                      style={{
+                        background: view === v ? "var(--color-surface-3)" : "transparent",
+                        color: view === v ? "var(--color-text)" : "var(--color-text-tertiary)",
+                      }}
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
                 <HeaderBtn label="Edit" onClick={() => setMode("edit")} disabled={busy || loading} />
                 <HeaderBtn
                   label="Delete"
@@ -421,7 +443,10 @@ function Preview({
             }}
           />
         )}
-        {!loading && mode !== "edit" && (
+        {!loading && mode !== "edit" && view === "rich" && (
+          <SkillRichView raw={content} />
+        )}
+        {!loading && mode !== "edit" && view === "raw" && (
           <pre
             className="whitespace-pre-wrap text-[11.5px] leading-relaxed"
             style={{
