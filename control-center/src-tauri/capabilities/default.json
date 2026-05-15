@@ -131,8 +131,8 @@
             "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
-            "-Command",
-            { "validator": "^[\\s\\S]{1,4000}$" }
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\gaming-enum\\.ps1$" }
           ]
         },
         {
@@ -289,7 +289,7 @@
             "-File",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\run-inline\\.ps1$" },
             "-Payload",
-            { "validator": "^[A-Za-z0-9+/=]{4,20000}$" }
+            { "validator": "^[A-Za-z0-9+/=]{4,100000}$" }
           ]
         },
         {
@@ -347,59 +347,7 @@
             "-File",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\spawn-claude-session\\.ps1$" },
             "-Payload",
-            { "validator": "^[A-Za-z0-9+/=]{4,16000}$" }
-          ]
-        },
-        {
-          "name": "gemini-inline",
-          "cmd": "uv",
-          "args": [
-            "run",
-            "python",
-            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\gemini_cli\\.py$" },
-            "--model",
-            { "validator": "^[a-zA-Z0-9.\\-]+$" },
-            { "validator": "^[\\s\\S]+$" }
-          ]
-        },
-        {
-          "name": "claude-inline-cmd",
-          "cmd": "cmd.exe",
-          "args": [
-            "/C",
-            { "validator": "^claude -p \"[\\s\\S]{1,8000}\"( --model [a-zA-Z0-9.\\-]+)?$" }
-          ]
-        },
-        {
-          "name": "codex-inline-cmd",
-          "cmd": "cmd.exe",
-          "args": [
-            "/C",
-            { "validator": "^codex exec (-m [a-zA-Z0-9.\\-]+ )?\"[\\s\\S]{1,8000}\"$" }
-          ]
-        },
-        {
-          "name": "auth-status-claude",
-          "cmd": "cmd.exe",
-          "args": [
-            "/C",
-            "claude --version"
-          ]
-        },
-        {
-          "name": "auth-status-codex",
-          "cmd": "cmd.exe",
-          "args": [
-            "/C",
-            "codex --version"
-          ]
-        },
-        {
-          "name": "auth-status-gemini",
-          "cmd": "cmd.exe",
-          "args": [
-            "/C",
-            "gemini --version"
+            { "validator": "^[A-Za-z0-9+/=]{4,100000}$" }
           ]
         },
         {
@@ -409,14 +357,6 @@
             "run",
             "python",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\doctor_check\\.py$" }
-          ]
-        },
-        {
-          "name": "codex-adversarial",
-          "cmd": "cmd.exe",
-          "args": [
-            "/C",
-            { "validator": "^codex exec \"[\\s\\S]{1,8000}\"$" }
           ]
         }
       ]

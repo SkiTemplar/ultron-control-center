@@ -169,19 +169,13 @@ pub async fn list_killable_inner(
     //     [PSCustomObject]@{ name=$_.Name; ram=($_.Group | Measure -Sum WorkingSet64).Sum;
     //                        pids=($_.Group.Id -join ',') }
     //   } | ConvertTo-Json -Compress
-    let cmd = r#"
-$rows = Get-Process -ErrorAction SilentlyContinue | Group-Object ProcessName | ForEach-Object {
-    $totalRam = ($_.Group | Measure-Object -Property WorkingSet64 -Sum).Sum
-    [PSCustomObject]@{
-        name = $_.Name
-        ram  = [int64]$totalRam
-        pid  = ($_.Group | Sort-Object -Property WorkingSet64 -Descending | Select-Object -First 1).Id
-    }
-}
-if ($rows.Count -eq 0) { '[]' }
-elseif ($rows.Count -eq 1) { ConvertTo-Json @($rows) -Compress }
-else { ConvertTo-Json $rows -Compress }
-"#;
+    // Script extracted to scripts/cockpit/gaming-enum.ps1 so the capability
+    // can pin the script by path instead of allowing arbitrary -Command up
+    // to 4000 chars.
+    let script = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/gaming-enum.ps1");
+    let script_str = script.to_string_lossy().to_string();
     let output = app
         .shell()
         .command("powershell.exe")
@@ -190,8 +184,8 @@ else { ConvertTo-Json $rows -Compress }
             "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
-            "-Command",
-            cmd,
+            "-File",
+            &script_str,
         ])
         .output()
         .await

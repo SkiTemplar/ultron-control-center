@@ -13,6 +13,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
 
 # --- helpers ----------------------------------------------------------------
 

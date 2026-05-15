@@ -17,6 +17,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Force UTF-8 stdout / stderr — required for serde to parse Spanish accents
+# coming back through Tauri's shell plugin without U+FFFD substitution.
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
+
 # --- Parse payload ----------------------------------------------------------
 # Payload arrives base64-encoded so double-quotes in the JSON survive PowerShell
 # command-line argument parsing. Empty base64 -> error before we touch wt.
@@ -63,7 +67,23 @@ function Quote-Single([string]$s) {
 $inner = ""
 
 if ($cwd -and $cwd.Trim().Length -gt 0) {
-    $inner += "Set-Location -LiteralPath " + (Quote-Single $cwd.Trim()) + "; "
+    $trimmedCwd = $cwd.Trim()
+    # Validate the cwd before baking it into the inner-command. If it
+    # doesn't exist we skip the Set-Location entirely so the spawn still
+    # succeeds (Claude lands in the default cwd). Previously a missing
+    # path (resume on a renamed project) killed the whole spawn under
+    # $ErrorActionPreference = Stop.
+    if (Test-Path -LiteralPath $trimmedCwd) {
+        # Reject UNC for the same reason create_project_inner does — defense
+        # in depth against a crafted projects.json or session record.
+        if ($trimmedCwd.StartsWith('\\')) {
+            [Console]::Error.WriteLine("[spawn-claude-session] cwd is UNC, dropping: $trimmedCwd")
+        } else {
+            $inner += "Set-Location -LiteralPath " + (Quote-Single $trimmedCwd) + "; "
+        }
+    } else {
+        [Console]::Error.WriteLine("[spawn-claude-session] cwd missing on disk, falling back to default: $trimmedCwd")
+    }
 }
 
 $inner += $provider

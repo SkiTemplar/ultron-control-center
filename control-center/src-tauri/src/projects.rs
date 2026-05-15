@@ -209,11 +209,33 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         return Err("path is empty".to_string());
     }
     let path = Path::new(&p.path);
-    // We accept directories (classic project folders) AND files. A `.exe`,
-    // `.lnk`, `.bat` or `.url` opens via Start-Process so the registry can
-    // host games and standalone apps next to dev projects.
+    // Reject UNC and exotic prefixes — only local drive paths. UNC opens the
+    // door to "create project pointing at \\\\evil.example.com\\share\\stage.exe"
+    // and then "Open" runs the remote binary via Start-Process. Defense in
+    // depth on top of the registry write being authenticated.
+    let path_str = path.to_string_lossy();
+    if path_str.starts_with(r"\\") || path_str.starts_with("//") {
+        return Err("UNC paths are not allowed".into());
+    }
     if !path.is_dir() && !path.is_file() {
         return Err(format!("path does not exist: {}", p.path));
+    }
+    // For file entries, restrict the extension to the known launcher types.
+    // Anything else (.dll, .vbs, .ps1, etc.) is suspicious in this context.
+    if path.is_file() {
+        let allowed_ext = ["exe", "lnk", "bat", "cmd", "url", "html", "pdf"];
+        let ext = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .unwrap_or_default();
+        if !allowed_ext.contains(&ext.as_str()) {
+            return Err(format!(
+                "file extension '{}' not allowed for project path (allowed: {})",
+                ext,
+                allowed_ext.join(", ")
+            ));
+        }
     }
     let base_id = slugify(&p.name);
     if base_id.is_empty() {

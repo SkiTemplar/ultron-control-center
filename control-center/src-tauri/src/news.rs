@@ -217,9 +217,14 @@ pub async fn summarize_news_inner(
         return Err("only .html newsletters can be summarised".into());
     }
     let raw = fs::read_to_string(&canon_p).map_err(|e| format!("read: {}", e))?;
-    // Cap to 200 KB then strip tags, then cap to ~10 KB of prose so we stay
-    // well inside the LLM prompt budget.
-    let bounded = if raw.len() > 200_000 { &raw[..200_000] } else { &raw[..] };
+    // Cap to ~200K chars (newsletters with Spanish accents have multi-byte
+    // chars; slicing by byte index would panic at non-char boundaries).
+    let bounded_owned: String = if raw.chars().count() > 200_000 {
+        raw.chars().take(200_000).collect()
+    } else {
+        raw
+    };
+    let bounded = bounded_owned.as_str();
     let title = extract_title(bounded).unwrap_or_else(|| {
         canon_p
             .file_stem()
@@ -285,11 +290,12 @@ pub fn list_news_inner() -> Result<Vec<NewsEntry>, String> {
             .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
             .map(|d| iso_pretty(d.as_secs()));
 
-        // Read at most 200 KB for excerpt extraction — newsletters are
-        // typically <80 KB; capping protects us from a runaway file.
+        // Read at most ~200K chars for excerpt extraction — newsletters are
+        // typically <80K chars; capping protects us from a runaway file.
+        // Char-aware truncation so Spanish accents don't crash the slice.
         let raw = fs::read_to_string(&p).unwrap_or_default();
-        let truncated = if raw.len() > 200_000 {
-            raw[..200_000].to_string()
+        let truncated = if raw.chars().count() > 200_000 {
+            raw.chars().take(200_000).collect()
         } else {
             raw
         };

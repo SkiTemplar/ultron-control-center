@@ -16,6 +16,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
 
 if ([string]::IsNullOrWhiteSpace($Payload)) {
     throw "Empty payload"
@@ -44,8 +45,8 @@ if ($provider -notin @("claude", "codex", "gemini")) {
 if ([string]::IsNullOrWhiteSpace($prompt)) {
     throw "Prompt is empty"
 }
-if ($prompt.Length -gt 12000) {
-    $prompt = $prompt.Substring(0, 12000)
+if ($prompt.Length -gt 60000) {
+    $prompt = $prompt.Substring(0, 60000)
 }
 
 # Each provider has its own CLI shape. We call them directly with -p / exec

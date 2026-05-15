@@ -271,21 +271,58 @@ pub fn self_improve_report_inner() -> Result<SelfImproveReport, String> {
 pub async fn run_codex_adversarial_review_inner(
     app: &tauri::AppHandle,
 ) -> Result<ReviewResult, String> {
-    // Codex CLI invocation routed through cmd.exe /C for PATHEXT resolution.
-    // The /codex:adversarial-review slash is a Claude Code plugin command —
-    // here we mimic it with a one-shot exec prompt that loads the current
-    // git diff and asks Codex to attack the design.
-    let cmdline = "codex exec \"Read the current git diff in this repo (run `git diff --stat HEAD~10` if needed). Challenge the most recent design decisions: name 3 risks I'm probably missing, and 1 thing I should reverse. Stay read-only.\"".to_string();
+    // Route through run-inline.ps1 so the prompt isn't subject to cmd.exe
+    // quoting weirdness. Codex needs to run with cwd = ~/.ultron so
+    // `git diff` sees the actual repo (previously inherited the Tauri exe
+    // cwd which is the WindowsApps install dir → "not a git repository").
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let ultron_repo = home.join(".ultron");
+    let script = home.join(".ultron/scripts/cockpit/run-inline.ps1");
+    let prompt = "Read the current git diff in this repo (run `git diff --stat HEAD~10` if needed). Challenge the most recent design decisions: name 3 risks I'm probably missing, and 1 thing I should reverse. Stay read-only.";
+    let payload_json = serde_json::json!({
+        "provider": "codex",
+        "prompt": prompt,
+        "model": "",
+    })
+    .to_string();
+    let payload = crate::sessions::base64_encode(&payload_json);
+    let script_str = script.to_string_lossy().to_string();
+    let ultron_str = ultron_repo.to_string_lossy().to_string();
+
     let output = app
         .shell()
-        .command("cmd.exe")
-        .args(["/C", &cmdline])
+        .command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script_str,
+            "-Payload",
+            &payload,
+        ])
+        .current_dir(&ultron_str)
         .output()
         .await
-        .map_err(|e| format!("spawn cmd: {}", e))?;
-    Ok(ReviewResult {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-    })
+        .map_err(|e| format!("spawn powershell: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // run-inline.ps1 emits a JSON object; if parsing fails fall back to the
+    // raw text so the user still sees something.
+    #[derive(serde::Deserialize)]
+    struct Inner { success: bool, stdout: String, stderr: String }
+    match serde_json::from_str::<Inner>(stdout.trim()) {
+        Ok(i) => Ok(ReviewResult {
+            success: i.success,
+            stdout: i.stdout,
+            stderr: i.stderr,
+        }),
+        Err(_) => Ok(ReviewResult {
+            success: output.status.success(),
+            stdout,
+            stderr,
+        }),
+    }
 }

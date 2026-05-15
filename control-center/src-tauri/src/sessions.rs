@@ -22,7 +22,11 @@ use std::path::PathBuf;
 
 use tauri_plugin_shell::ShellExt;
 
-const PROMPT_CAP: usize = 4000;
+// Char-based cap (not bytes) so UTF-8 doesn't underflow. 32k chars is
+// enough for the diagnose/summarize/Codex-assist prompts that pack a full
+// settings.json or system event dump; the wrapper PS script (run-inline.ps1)
+// caps at 12000 for individual CLI invocations which still cover most.
+const PROMPT_CAP: usize = 32_000;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct SpawnResult {
@@ -80,7 +84,7 @@ pub struct SpawnFlags {
 /// Minimal stdlib-only base64 encoder. We use it to carry the JSON payload
 /// across the powershell.exe argument boundary without dealing with quote
 /// escaping. Encoding is RFC 4648 standard alphabet with `=` padding.
-fn base64_encode(input: &str) -> String {
+pub fn base64_encode(input: &str) -> String {
     const ALPH: &[u8; 64] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes = input.as_bytes();

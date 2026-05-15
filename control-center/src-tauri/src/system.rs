@@ -201,8 +201,18 @@ pub async fn list_tasks_inner(
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
-    serde_json::from_str::<Vec<ScheduledTaskInfo>>(trimmed)
-        .map_err(|e| format!("parse tasks json: {} (output: {})", e, trimmed))
+    // Tolerant parse: ConvertTo-Json in PS 5.1 collapses single-element
+    // arrays to objects unless you wrap in @(). If we ever land in that
+    // shape we re-wrap before deserialising so the UI still gets a list.
+    let parsed: serde_json::Value =
+        serde_json::from_str(trimmed).map_err(|e| format!("parse tasks json: {} (output: {})", e, trimmed))?;
+    let arr_value = if parsed.is_array() {
+        parsed
+    } else {
+        serde_json::Value::Array(vec![parsed])
+    };
+    serde_json::from_value::<Vec<ScheduledTaskInfo>>(arr_value)
+        .map_err(|e| format!("parse tasks json (normalised): {}", e))
 }
 
 pub async fn run_task_inner(

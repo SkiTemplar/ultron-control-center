@@ -277,13 +277,108 @@ where
     })
 }
 
+// Hard allowlist of MCP launcher commands. Anything else is rejected before
+// write so a compromised webview / SKILL.md crafted / future generate-from-
+// prompt path can't slip a `powershell.exe -EncodedCommand <payload>` into
+// settings.json — which Claude Code would happily run on next session start
+// (persistent RCE, no UI feedback).
+const MCP_COMMAND_ALLOWLIST: &[&str] = &[
+    "npx", "npm", "node", "uvx", "uv", "python", "python.exe", "deno", "bun",
+    "cargo", "go", "ruby", "java", "java.exe",
+];
+
+const MCP_FORBIDDEN_ARG_FRAGMENTS: &[&str] = &[
+    "-EncodedCommand",
+    "-encodedcommand",
+    "-Command",
+    "Invoke-Expression",
+    "iex ",
+    "DownloadString",
+    "wget ",
+    "curl -",
+];
+
+fn validate_mcp_config(config: &serde_json::Value) -> Result<(), String> {
+    let obj = config
+        .as_object()
+        .ok_or_else(|| "config must be a JSON object".to_string())?;
+
+    // Two shapes are valid: launcher-style with `command` + optional `args`
+    // (most common) OR `url` for SSE MCPs. Anything else is rejected so we
+    // don't silently accept `Invoke-Expression` payloads.
+    let has_command = obj.contains_key("command");
+    let has_url = obj.contains_key("url");
+    if !has_command && !has_url {
+        return Err("config must have either 'command' or 'url'".into());
+    }
+    if has_command && has_url {
+        return Err("config cannot have both 'command' and 'url'".into());
+    }
+
+    if let Some(cmd) = obj.get("command").and_then(|v| v.as_str()) {
+        let cmd_trimmed = cmd.trim();
+        if cmd_trimmed.is_empty() {
+            return Err("command is empty".into());
+        }
+        // Reject absolute paths and UNC — only bare executable names from
+        // the allowlist. Forces the user to type `npx` rather than
+        // `C:\Windows\System32\cmd.exe`.
+        if cmd_trimmed.contains('\\') || cmd_trimmed.contains('/') {
+            return Err(format!(
+                "command must be a bare executable name, not a path: '{}'",
+                cmd_trimmed
+            ));
+        }
+        let lower = cmd_trimmed.to_ascii_lowercase();
+        let stripped = lower.strip_suffix(".exe").unwrap_or(&lower);
+        if !MCP_COMMAND_ALLOWLIST.iter().any(|c| *c == stripped) {
+            return Err(format!(
+                "command '{}' is not in the MCP allowlist (allowed: {})",
+                cmd_trimmed,
+                MCP_COMMAND_ALLOWLIST.join(", ")
+            ));
+        }
+    }
+
+    if let Some(args) = obj.get("args") {
+        let arr = args
+            .as_array()
+            .ok_or_else(|| "args must be an array".to_string())?;
+        for (i, a) in arr.iter().enumerate() {
+            let s = a
+                .as_str()
+                .ok_or_else(|| format!("args[{}] must be a string", i))?;
+            for needle in MCP_FORBIDDEN_ARG_FRAGMENTS {
+                if s.contains(needle) {
+                    return Err(format!(
+                        "args[{}] contains forbidden fragment '{}'",
+                        i, needle
+                    ));
+                }
+            }
+        }
+    }
+
+    if let Some(url) = obj.get("url").and_then(|v| v.as_str()) {
+        if !(url.starts_with("http://") || url.starts_with("https://")) {
+            return Err("url must be http(s)://".into());
+        }
+    }
+
+    if let Some(env) = obj.get("env") {
+        if !env.is_object() {
+            return Err("env must be a JSON object".into());
+        }
+    }
+
+    Ok(())
+}
+
 pub fn add_mcp_inner(
     name: String,
     config: serde_json::Value,
 ) -> Result<McpMutationResult, String> {
-    if !config.is_object() {
-        return Err("config must be a JSON object".to_string());
-    }
+    validate_mcp_config(&config)?;
     mutate_mcp_servers(&name, |servers| {
         if servers.contains_key(&name) {
             return Err(format!("mcpServers['{}'] already exists", name));
@@ -297,9 +392,7 @@ pub fn update_mcp_inner(
     name: String,
     config: serde_json::Value,
 ) -> Result<McpMutationResult, String> {
-    if !config.is_object() {
-        return Err("config must be a JSON object".to_string());
-    }
+    validate_mcp_config(&config)?;
     mutate_mcp_servers(&name, |servers| {
         if !servers.contains_key(&name) {
             return Err(format!("mcpServers['{}'] does not exist", name));
