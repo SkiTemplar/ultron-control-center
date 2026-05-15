@@ -248,6 +248,8 @@ const IDE_OPTIONS = [
   "AndroidStudio",
   "UnityHub",
   "Unreal",
+  "External",
+  "Game",
   "Other",
 ];
 
@@ -416,6 +418,20 @@ export function Projects() {
         directory: true,
         multiple: false,
         title: "Project folder",
+      });
+      if (typeof path === "string" && path) setWPath(path);
+    } catch {}
+  }
+
+  async function pickWizardFile() {
+    try {
+      // For External / Game entries the path is a single executable, shortcut,
+      // or browser URL. We don't restrict the extension here — Start-Process
+      // handles .exe/.lnk/.bat/.url natively.
+      const path = await openDialog({
+        directory: false,
+        multiple: false,
+        title: "App / game executable or shortcut",
       });
       if (typeof path === "string" && path) setWPath(path);
     } catch {}
@@ -644,8 +660,22 @@ export function Projects() {
                     color: "var(--color-text-secondary)",
                     border: "1px solid var(--color-border-strong)",
                   }}
+                  title="Pick a folder (classic project)"
                 >
-                  Browse
+                  Folder
+                </button>
+                <button
+                  type="button"
+                  onClick={pickWizardFile}
+                  className="rounded px-2 py-1 text-[11px]"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title="Pick an .exe, .lnk, .bat or .url (app / game / shortcut)"
+                >
+                  App
                 </button>
               </div>
             </div>

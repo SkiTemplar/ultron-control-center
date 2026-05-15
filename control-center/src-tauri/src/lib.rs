@@ -443,6 +443,20 @@ async fn list_news() -> Result<Vec<news::NewsEntry>, String> {
 }
 
 #[tauri::command]
+async fn generate_news(
+    app: tauri::AppHandle,
+    theme: Option<String>,
+    days: Option<u32>,
+) -> Result<news::NewsGenerateResult, String> {
+    news::generate_news_inner(&app, theme, days).await
+}
+
+#[tauri::command]
+async fn delete_news(path: String) -> Result<bool, String> {
+    news::delete_news_inner(path)
+}
+
+#[tauri::command]
 async fn backup_status() -> Result<backup_status::BackupStatusReport, String> {
     backup_status::backup_status_inner()
 }
@@ -783,6 +797,8 @@ pub fn run() {
             get_ultron_mode,
             set_ultron_mode,
             list_news,
+            generate_news,
+            delete_news,
             list_claude_sessions,
             run_diagnose,
             diagnose_with_ai,

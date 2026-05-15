@@ -81,6 +81,63 @@ pub async fn open_project_inner(
     {
         return Err(format!("invalid project id '{}'", id));
     }
+    // Look up the entry first. If `ide` is empty AND path points to a file
+    // (.exe / .lnk / .bat / .url), bypass ultron.ps1 (which assumes an IDE
+    // workflow) and just Start-Process the binary. This lets the registry
+    // hold games, GUI apps, and other arbitrary launchers — not just code
+    // projects.
+    let registry = registry_path().ok_or_else(|| "no HOME".to_string())?;
+    let raw = std::fs::read_to_string(&registry)
+        .map_err(|e| format!("read projects.json: {}", e))?;
+    let root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let entry = root
+        .get("projects")
+        .and_then(|v| v.as_array())
+        .and_then(|arr| {
+            arr.iter().find(|p| p.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+        })
+        .cloned();
+
+    if let Some(entry) = entry {
+        let ide = entry.get("ide").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let path_ref = std::path::Path::new(&path);
+        let is_file = path_ref.is_file();
+        let is_external_kind = matches!(
+            ide.to_lowercase().as_str(),
+            "external" | "app" | "game" | "browser"
+        );
+
+        if !path.is_empty() && (is_file || is_external_kind) {
+            // Start-Process handles .exe, .lnk, .url, .bat, and protocol
+            // handlers via ShellExecute. The arg gets wrapped in single
+            // quotes inside PowerShell to survive paths with spaces.
+            let ps_quoted = format!("'{}'", path.replace('\'', "''"));
+            let cmd = format!("Start-Process -FilePath {}", ps_quoted);
+            let output = app
+                .shell()
+                .command("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &cmd,
+                ])
+                .output()
+                .await
+                .map_err(|e| format!("spawn ps: {}", e))?;
+            return Ok(ProjectActionResult {
+                success: output.status.success(),
+                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                exit_code: output.status.code(),
+            });
+        }
+    }
+
     let ps = ultron_ps1_path().ok_or_else(|| "no HOME".to_string())?;
     let ps_str = ps.to_string_lossy().to_string();
     let output = app
@@ -152,8 +209,11 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         return Err("path is empty".to_string());
     }
     let path = Path::new(&p.path);
-    if !path.is_dir() {
-        return Err(format!("path is not a directory: {}", p.path));
+    // We accept directories (classic project folders) AND files. A `.exe`,
+    // `.lnk`, `.bat` or `.url` opens via Start-Process so the registry can
+    // host games and standalone apps next to dev projects.
+    if !path.is_dir() && !path.is_file() {
+        return Err(format!("path does not exist: {}", p.path));
     }
     let base_id = slugify(&p.name);
     if base_id.is_empty() {

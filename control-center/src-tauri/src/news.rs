@@ -118,6 +118,97 @@ fn extract_title(html: &str) -> Option<String> {
     Some(html[after..end].trim().to_string())
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct NewsGenerateResult {
+    pub success: bool,
+    pub path: Option<String>,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+}
+
+/// Run news_html_generator.py via uv. We invoke with --no-open so the
+/// generator doesn't try to open the file in a browser — the UI handles
+/// presentation. Optional `theme` flows through as --theme.
+pub async fn generate_news_inner(
+    app: &tauri::AppHandle,
+    theme: Option<String>,
+    days: Option<u32>,
+) -> Result<NewsGenerateResult, String> {
+    use tauri_plugin_shell::ShellExt;
+    let script: PathBuf = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/news_html_generator.py");
+    if !script.exists() {
+        return Err(format!("script missing: {}", script.display()));
+    }
+    let script_str = script.to_string_lossy().to_string();
+    let mut args: Vec<String> = vec![
+        "run".into(),
+        "python".into(),
+        script_str,
+        "--no-open".into(),
+    ];
+    if let Some(d) = days {
+        args.push("--days".into());
+        args.push(d.clamp(1, 30).to_string());
+    }
+    if let Some(t) = theme.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        // Reject control characters so we don't smuggle CR/LF into argv.
+        if t.chars().any(|c| matches!(c, '\r' | '\n')) {
+            return Err("theme contains line breaks".into());
+        }
+        args.push("--theme".into());
+        args.push(t.to_string());
+    }
+    let str_args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = app
+        .shell()
+        .command("uv")
+        .args(str_args)
+        .output()
+        .await
+        .map_err(|e| format!("spawn uv: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // The generator prints `[news_html_generator] wrote <path>` on success.
+    // Scrape that path so the UI can scroll to / open the new entry.
+    let written = stdout
+        .lines()
+        .chain(stderr.lines())
+        .find_map(|line| {
+            line.strip_prefix("[news_html_generator] wrote ")
+                .or_else(|| line.split("wrote ").nth(1))
+                .map(|s| s.trim().to_string())
+        });
+
+    Ok(NewsGenerateResult {
+        success: output.status.success(),
+        path: written,
+        stdout,
+        stderr,
+        exit_code: output.status.code(),
+    })
+}
+
+/// Delete a single newsletter HTML file. Strict: only files inside the news
+/// directory with a .html extension are accepted.
+pub fn delete_news_inner(path_str: String) -> Result<bool, String> {
+    let p = std::path::PathBuf::from(&path_str);
+    let dir = news_dir().ok_or_else(|| "no HOME".to_string())?;
+    let canon_p = std::fs::canonicalize(&p).map_err(|e| format!("canonicalize: {}", e))?;
+    let canon_dir = std::fs::canonicalize(&dir).map_err(|e| format!("canonicalize dir: {}", e))?;
+    if !canon_p.starts_with(&canon_dir) {
+        return Err("path is not inside the news directory".into());
+    }
+    if canon_p.extension().and_then(|e| e.to_str()) != Some("html") {
+        return Err("only .html newsletters can be deleted from here".into());
+    }
+    std::fs::remove_file(&canon_p).map_err(|e| format!("remove: {}", e))?;
+    Ok(true)
+}
+
 pub fn list_news_inner() -> Result<Vec<NewsEntry>, String> {
     let dir = news_dir().ok_or_else(|| "no HOME".to_string())?;
     if !dir.exists() {
