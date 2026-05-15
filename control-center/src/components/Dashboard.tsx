@@ -1,6 +1,14 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { CmdResult, QdrantHealth, AlertEntry, ChangelogEntry, GlobalStatus } from "../types";
+import type {
+  CmdResult,
+  QdrantHealth,
+  AlertEntry,
+  ChangelogEntry,
+  GlobalStatus,
+  McpInfo,
+  MemoryStatusInfo,
+} from "../types";
 import { statusColor } from "../lib/status";
 
 type Props = {
@@ -100,6 +108,8 @@ export function Dashboard({
 }: Props) {
   const [statusOutput, setStatusOutput] = useState<CmdResult | null>(null);
   const [statusLoading, setStatusLoading] = useState(false);
+  const [mcps, setMcps] = useState<McpInfo[] | null>(null);
+  const [memory, setMemory] = useState<MemoryStatusInfo | null>(null);
 
   async function runStatus() {
     setStatusLoading(true);
@@ -118,6 +128,30 @@ export function Dashboard({
     }
   }
 
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWidgets() {
+      try {
+        const list = (await invoke("list_mcps")) as McpInfo[];
+        if (!cancelled) setMcps(list);
+      } catch {
+        if (!cancelled) setMcps([]);
+      }
+      try {
+        const mem = (await invoke("memory_status")) as MemoryStatusInfo;
+        if (!cancelled) setMemory(mem);
+      } catch {
+        if (!cancelled) setMemory(null);
+      }
+    }
+    loadWidgets();
+    const t = setInterval(loadWidgets, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
+
   const qdrantDot: GlobalStatus = !qdrant && !qdrantErr ? "loading" : qdrant?.status === "up" ? "ok" : "down";
   const alertsCritical = alerts.filter((a) => a.severity === "critical" || a.severity === "blocking").length;
   const alertsWarn = alerts.filter((a) => a.severity === "warn").length;
@@ -125,6 +159,48 @@ export function Dashboard({
   const alertsEmphasis: "normal" | "warn" | "critical" =
     alertsCritical > 0 ? "critical" : alertsWarn > 0 ? "warn" : "normal";
   const alertsDot: GlobalStatus = alertsCritical > 0 ? "down" : alertsWarn > 0 ? "warn" : "ok";
+
+  // MCPs widget — connected / issues
+  const mcpOk = mcps?.filter((m) => m.status === "ok").length ?? 0;
+  const mcpTotal = mcps?.length ?? 0;
+  const mcpIssues =
+    mcps?.filter(
+      (m) => (m.status === "degraded" || m.status === "missing") && !m.expected_offline,
+    ).length ?? 0;
+  const mcpsDot: GlobalStatus =
+    mcps === null ? "loading" : mcpIssues > 0 ? "warn" : "ok";
+  const mcpsEmphasis: "normal" | "warn" | "critical" =
+    mcpIssues > 0 ? "warn" : "normal";
+
+  // Brain index widget — points + age
+  const brainPoints = memory?.qdrant.collections.reduce(
+    (acc, c) => acc + (c.points_count ?? 0),
+    0,
+  );
+  const brainAge = memory?.brain.age_hours ?? null;
+  const brainDot: GlobalStatus =
+    memory === null
+      ? "loading"
+      : !memory.brain.exists
+        ? "down"
+        : brainAge !== null && brainAge > 24
+          ? "warn"
+          : "ok";
+  const brainLabel =
+    memory === null
+      ? "—"
+      : memory.brain.exists
+        ? `${brainPoints?.toLocaleString() ?? 0}`
+        : "missing";
+  const brainDetail =
+    memory === null
+      ? "loading…"
+      : memory.brain.exists
+        ? brainAge !== null
+          ? `${memory.vault.note_count} notes · ${Math.floor(brainAge)}h old`
+          : `${memory.vault.note_count} notes`
+        : "brain_index.db not found";
+
   const lastChange = changelog[0];
 
   return (
@@ -156,13 +232,22 @@ export function Dashboard({
         />
         <MetricCard
           label="MCPs"
-          value="—"
-          detail="phase 3"
+          value={mcps === null ? "—" : `${mcpOk}/${mcpTotal}`}
+          detail={
+            mcps === null
+              ? "loading…"
+              : mcpIssues === 0
+                ? "all connected"
+                : `${mcpIssues} need attention`
+          }
+          statusDot={mcpsDot}
+          emphasis={mcpsEmphasis}
         />
         <MetricCard
-          label="Brain index"
-          value="—"
-          detail="phase 5"
+          label="Brain · Qdrant"
+          value={brainLabel}
+          detail={brainDetail}
+          statusDot={brainDot}
         />
       </div>
 

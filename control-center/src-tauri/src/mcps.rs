@@ -6,17 +6,19 @@
 //   3. ~/.ultron/config/mcp-fallbacks.yaml      (fallback messages, severity,
 //                                                expected_offline flag)
 //
-// Frontend uses this for the MCPs tab cards. Mutating settings.json is
-// intentionally out of scope here — disable is handled in the UI via a
-// localStorage hide list. Doing the write-through requires a Claude
-// Code restart, which is a deliberate user choice we don't want to
-// trigger from a card button click.
+// Frontend uses this for the MCPs tab cards. CRUD mutations (add/update/
+// delete) round-trip through settings::settings_save_inner so we get the
+// timestamped backup + atomic write for free. A Claude Code restart is
+// still required for the new MCP to actually be spawned — the UI calls
+// this out in the confirmation copy.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+use crate::settings;
 
 // ---------------------------------------------------------------------------
 // Shape returned to the frontend
@@ -205,4 +207,278 @@ pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
         });
     }
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// CRUD mutations on settings.json mcpServers
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+pub struct McpMutationResult {
+    pub success: bool,
+    pub name: String,
+    pub backup_path: Option<String>,
+}
+
+/// Names that round-trip safely as JSON object keys and as mcp ids in
+/// CLI commands. Lower-case kebab/underscore, starts with alnum, 2–61
+/// chars total. Conservative on purpose — matches what Claude Code
+/// itself uses for mcpServers entries.
+fn validate_mcp_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 61 || name.len() < 2 {
+        return Err("name must be 2–61 chars".to_string());
+    }
+    let bytes = name.as_bytes();
+    let first = bytes[0];
+    let first_ok = first.is_ascii_lowercase() || first.is_ascii_digit();
+    if !first_ok {
+        return Err("name must start with a lowercase letter or digit".to_string());
+    }
+    for &b in &bytes[1..] {
+        let ok = b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-';
+        if !ok {
+            return Err(
+                "name may only contain lowercase letters, digits, '_' or '-'".to_string()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Shared mutation core: read settings, mutate mcpServers via `f`, save back.
+fn mutate_mcp_servers<F>(name: &str, f: F) -> Result<McpMutationResult, String>
+where
+    F: FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
+{
+    validate_mcp_name(name)?;
+
+    let snapshot = settings::settings_read_inner()?;
+    let mut content = snapshot.content;
+
+    let root = content
+        .as_object_mut()
+        .ok_or_else(|| "settings.json root is not an object".to_string())?;
+
+    // Ensure mcpServers exists and is an object.
+    let entry = root
+        .entry("mcpServers".to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    let servers = entry
+        .as_object_mut()
+        .ok_or_else(|| "mcpServers is not an object".to_string())?;
+
+    f(servers)?;
+
+    let save = settings::settings_save_inner(settings::SettingsSavePayload { content })?;
+    Ok(McpMutationResult {
+        success: save.success,
+        name: name.to_string(),
+        backup_path: save.backup_path,
+    })
+}
+
+pub fn add_mcp_inner(
+    name: String,
+    config: serde_json::Value,
+) -> Result<McpMutationResult, String> {
+    if !config.is_object() {
+        return Err("config must be a JSON object".to_string());
+    }
+    mutate_mcp_servers(&name, |servers| {
+        if servers.contains_key(&name) {
+            return Err(format!("mcpServers['{}'] already exists", name));
+        }
+        servers.insert(name.clone(), config);
+        Ok(())
+    })
+}
+
+pub fn update_mcp_inner(
+    name: String,
+    config: serde_json::Value,
+) -> Result<McpMutationResult, String> {
+    if !config.is_object() {
+        return Err("config must be a JSON object".to_string());
+    }
+    mutate_mcp_servers(&name, |servers| {
+        if !servers.contains_key(&name) {
+            return Err(format!("mcpServers['{}'] does not exist", name));
+        }
+        servers.insert(name.clone(), config);
+        Ok(())
+    })
+}
+
+pub fn delete_mcp_inner(name: String) -> Result<McpMutationResult, String> {
+    mutate_mcp_servers(&name, |servers| {
+        if servers.remove(&name).is_none() {
+            return Err(format!("mcpServers['{}'] does not exist", name));
+        }
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// AI-driven MCP scaffolding (Claude via cmd.exe /C)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+pub struct McpGenerationResult {
+    pub success: bool,
+    pub name: String,
+    pub config: serde_json::Value,
+    pub raw_output: String,
+}
+
+/// Trim Markdown code fences and pull the largest balanced JSON object out
+/// of an LLM response. Tries, in order:
+///   1. ```json ... ``` fenced block
+///   2. first '{' to last '}' substring
+/// Returns the raw substring without parsing.
+fn extract_json_blob(text: &str) -> Option<String> {
+    // 1. Fenced
+    if let Some(start) = text.find("```json") {
+        let after = &text[start + "```json".len()..];
+        if let Some(end) = after.find("```") {
+            return Some(after[..end].trim().to_string());
+        }
+    }
+    if let Some(start) = text.find("```") {
+        let after = &text[start + 3..];
+        if let Some(end) = after.find("```") {
+            let candidate = after[..end].trim();
+            // Could be ``` ... ``` with a language tag on the first line.
+            let candidate = candidate
+                .split_once('\n')
+                .map(|(_, rest)| rest.trim())
+                .unwrap_or(candidate);
+            if candidate.starts_with('{') {
+                return Some(candidate.to_string());
+            }
+        }
+    }
+    // 2. First { to last }
+    let first = text.find('{')?;
+    let last = text.rfind('}')?;
+    if last <= first {
+        return None;
+    }
+    Some(text[first..=last].to_string())
+}
+
+const MCP_PROMPT_TEMPLATE: &str = r#"You are scaffolding a new MCP (Model Context Protocol) server entry for Claude Code's ~/.claude/settings.json mcpServers object.
+
+The user described what they want:
+---
+{DESCRIPTION}
+---
+
+Respond with ONLY a single JSON object inside a ```json fenced code block. No prose before or after. No commentary.
+
+The JSON object must have this exact shape:
+
+```json
+{
+  "name": "kebab-case-name",
+  "config": {
+    "command": "npx",
+    "args": ["-y", "<package>"],
+    "env": {}
+  }
+}
+```
+
+Rules:
+- "name" is the mcpServers key. Lowercase letters, digits, '-' or '_'. Start with a letter or digit. 2–61 chars.
+- "config" is the value that goes under mcpServers[name].
+- For stdio servers: include "command" (e.g. "npx", "uvx", "node", "python"), "args" array, "env" object (can be empty).
+- For HTTP/SSE servers: include "url" (string) and optionally "type": "sse". Omit command/args/env.
+- Prefer the canonical npm/uvx package for well-known MCPs (e.g. @modelcontextprotocol/server-filesystem, server-github, server-postgres).
+- If credentials are required, put placeholder env vars like "GITHUB_TOKEN": "${GITHUB_TOKEN}" — DO NOT invent secrets.
+- Be conservative with args: include only what's strictly needed to start the server.
+
+Now produce the JSON for the described MCP."#;
+
+pub async fn generate_mcp_from_prompt_inner(
+    app: &tauri::AppHandle,
+    description: String,
+) -> Result<McpGenerationResult, String> {
+    let description = description.trim().to_string();
+    if description.is_empty() {
+        return Err("description is empty".to_string());
+    }
+    let full_prompt = MCP_PROMPT_TEMPLATE.replace("{DESCRIPTION}", &description);
+
+    // Run claude via the same inline pattern as sessions::run_inline_inner.
+    let inline = crate::sessions::run_inline_inner(
+        app,
+        "claude".to_string(),
+        None,
+        full_prompt,
+    )
+    .await?;
+
+    let raw_output = if inline.stdout.trim().is_empty() {
+        inline.stderr.clone()
+    } else {
+        inline.stdout.clone()
+    };
+
+    // Parse the JSON blob out of Claude's response.
+    let blob = match extract_json_blob(&raw_output) {
+        Some(b) => b,
+        None => {
+            return Ok(McpGenerationResult {
+                success: false,
+                name: String::new(),
+                config: serde_json::Value::Null,
+                raw_output,
+            });
+        }
+    };
+
+    let parsed: serde_json::Value = match serde_json::from_str(&blob) {
+        Ok(v) => v,
+        Err(_) => {
+            return Ok(McpGenerationResult {
+                success: false,
+                name: String::new(),
+                config: serde_json::Value::Null,
+                raw_output,
+            });
+        }
+    };
+
+    let obj = match parsed.as_object() {
+        Some(o) => o,
+        None => {
+            return Ok(McpGenerationResult {
+                success: false,
+                name: String::new(),
+                config: serde_json::Value::Null,
+                raw_output,
+            });
+        }
+    };
+
+    let name = obj
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let config = obj
+        .get("config")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+
+    // Soft-validate: if the name doesn't pass, still return success=false but
+    // with the parsed name/config so the frontend can let the user edit.
+    let ok = validate_mcp_name(&name).is_ok() && config.is_object();
+
+    Ok(McpGenerationResult {
+        success: ok,
+        name,
+        config,
+        raw_output,
+    })
 }

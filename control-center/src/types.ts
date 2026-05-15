@@ -347,6 +347,28 @@ export type SkillInfo = {
   usage_count: number;
 };
 
+export type SkillCreateResult = {
+  success: boolean;
+  name: string;
+  path: string;
+  layer: string;
+};
+
+export type SkillUpdateResult = {
+  success: boolean;
+  name: string;
+  path: string;
+  backup_path: string;
+};
+
+export type SkillDeleteResult = {
+  success: boolean;
+  name: string;
+  from_path: string;
+  to_path: string;
+  soft: boolean;
+};
+
 export type McpInfo = {
   name: string;
   transport: string; // "stdio" | "http" | "sse"
@@ -358,4 +380,70 @@ export type McpInfo = {
   fallback_message: string | null;
   alert_severity: string | null;
   expected_offline: boolean;
+};
+
+export type McpMutationResult = {
+  success: boolean;
+  name: string;
+  backup_path: string | null;
+};
+
+export type McpGenerationResult = {
+  success: boolean;
+  name: string;
+  config: Record<string, unknown>;
+  raw_output: string;
+};
+
+// Auth / Mode / News / Self-improve types.
+
+export type AuthStatusEntry = {
+  provider: string;
+  logged_in: boolean;
+  credential_path: string;
+  last_modified: string | null;
+  age_days: number | null;
+  binary_present: boolean;
+  binary_path: string | null;
+  note: string | null;
+};
+
+export type AuthStatusReport = {
+  entries: AuthStatusEntry[];
+};
+
+export type UltronMode = "LOW" | "MEDIUM" | "HIGH" | "ULTRA";
+
+export type ModeInfo = {
+  mode: string | null;
+  raw: Record<string, unknown>;
+};
+
+export type ModeSetResult = {
+  success: boolean;
+  mode: string;
+  path: string;
+};
+
+export type NewsItem = {
+  filename: string;
+  path: string;
+  generated_at: string | null;
+  size_bytes: number;
+  title: string | null;
+  excerpt: string | null;
+};
+
+export type SelfImproveReport = {
+  total_routes: number;
+  matched_routes: number;
+  top_intents: { intent: string; count: number }[];
+  top_skills: { skill: string; count: number }[];
+  recent_errors: { source: string; message: string; ts: string }[];
+};
+
+export type ReviewResult = {
+  success: boolean;
+  stdout: string;
+  stderr: string;
 };

@@ -1,0 +1,264 @@
+import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+
+// Self-improvement panel — surfaces telemetry the system already collects
+// (routing-telemetry.jsonl, skill usage counts, recent errors) and lets
+// the user kick off an adversarial Codex review on the current branch.
+
+export type TelemetryRow = {
+  ts: string;
+  intent: string;
+  routed_to: string;
+  matched: boolean;
+  confidence: number | null;
+};
+
+export type SelfImproveReport = {
+  total_routes: number;
+  matched_routes: number;
+  top_intents: { intent: string; count: number }[];
+  top_skills: { skill: string; count: number }[];
+  recent_errors: { source: string; message: string; ts: string }[];
+};
+
+export function SelfImprove() {
+  const [data, setData] = useState<SelfImproveReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const [reviewOutput, setReviewOutput] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = (await invoke("self_improve_report")) as SelfImproveReport;
+      setData(r);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function runAdversarial() {
+    setReviewBusy(true);
+    setReviewOutput(null);
+    try {
+      const r = (await invoke("run_codex_adversarial_review")) as {
+        success: boolean;
+        stdout: string;
+        stderr: string;
+      };
+      setReviewOutput(r.stdout || r.stderr || "(no output)");
+    } catch (e) {
+      setReviewOutput(`Error: ${e}`);
+    } finally {
+      setReviewBusy(false);
+    }
+  }
+
+  const matchRate = useMemo(() => {
+    if (!data || data.total_routes === 0) return 0;
+    return Math.round((data.matched_routes / data.total_routes) * 100);
+  }, [data]);
+
+  return (
+    <div className="space-y-5">
+      <header>
+        <h3 className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+          Self-improvement signals
+        </h3>
+        <p
+          className="mt-1 text-[11.5px] leading-relaxed"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          What the orchestrator actually picked, which skills carried the load,
+          and which errors keep recurring. The numbers come from the local
+          telemetry the hooks already write — no upload.
+        </p>
+      </header>
+
+      {error && (
+        <div
+          className="rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {data && (
+        <div className="grid grid-cols-3 gap-3">
+          <div
+            className="rounded p-3"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <div
+              className="text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Routing match rate
+            </div>
+            <div className="mt-1 text-[18px] font-semibold tabular-nums">
+              {matchRate}%
+            </div>
+            <div
+              className="mt-1 text-[10.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {data.matched_routes} of {data.total_routes} routes resolved cleanly
+            </div>
+          </div>
+          <div
+            className="rounded p-3"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <div
+              className="text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Top intent
+            </div>
+            <div className="mt-1 truncate text-[14px] font-semibold">
+              {data.top_intents[0]?.intent ?? "—"}
+            </div>
+            <div
+              className="mt-1 text-[10.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {data.top_intents[0]?.count ?? 0} calls
+            </div>
+          </div>
+          <div
+            className="rounded p-3"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <div
+              className="text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Top skill
+            </div>
+            <div className="mt-1 truncate text-[14px] font-semibold">
+              {data.top_skills[0]?.skill ?? "—"}
+            </div>
+            <div
+              className="mt-1 text-[10.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {data.top_skills[0]?.count ?? 0} activations
+            </div>
+          </div>
+        </div>
+      )}
+
+      {data && data.recent_errors.length > 0 && (
+        <div>
+          <div
+            className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Recent errors (last 24h)
+          </div>
+          <div className="space-y-1">
+            {data.recent_errors.slice(0, 6).map((er, i) => (
+              <div
+                key={i}
+                className="rounded px-3 py-2 text-[11.5px]"
+                style={{
+                  background: "rgba(248, 81, 73, 0.04)",
+                  border: "1px solid rgba(248, 81, 73, 0.18)",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                <div
+                  className="mb-1 flex items-baseline gap-2 text-[10px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  <span>{er.source}</span>
+                  <span className="ml-auto tabular-nums">{er.ts.slice(0, 16).replace("T", " ")}</span>
+                </div>
+                <div className="truncate" title={er.message}>
+                  {er.message}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div
+        className="rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <div className="flex items-baseline justify-between gap-3">
+          <div className="min-w-0">
+            <div className="text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
+              Run Codex adversarial review
+            </div>
+            <p
+              className="mt-1 text-[11px] leading-relaxed"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Asks Codex to challenge the recent design decisions on this
+              branch (read-only). Useful as a sanity check after big edits.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={runAdversarial}
+            disabled={reviewBusy}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {reviewBusy ? "Running…" : "Run review"}
+          </button>
+        </div>
+        {reviewOutput && (
+          <pre
+            className="mt-3 max-h-72 overflow-auto rounded p-3 text-[11px] leading-relaxed"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border)",
+              fontFamily: "var(--font-mono)",
+              color: "var(--color-text-secondary)",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {reviewOutput}
+          </pre>
+        )}
+      </div>
+
+      {loading && !data && (
+        <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+          Loading telemetry…
+        </div>
+      )}
+    </div>
+  );
+}

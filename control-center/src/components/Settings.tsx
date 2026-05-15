@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import type { SettingsSaveResult, SettingsSnapshot } from "../types";
+import { AuthStatus } from "./AuthStatus";
+import { ModeSwitcher, useUltronMode } from "./ModeSwitcher";
 
 // ---------------------------------------------------------------------------
 // MCP servers section — toggle enable/disable + show raw config
@@ -112,7 +114,7 @@ function JsonPreview({ obj }: { obj: unknown }) {
 // Main
 // ---------------------------------------------------------------------------
 
-type Section = "general" | "mcps" | "raw" | "backups";
+type Section = "general" | "auth" | "mode" | "mcps" | "raw" | "backups";
 
 function GeneralSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
@@ -191,7 +193,7 @@ function GeneralSection() {
             Adds <span style={{ fontFamily: "var(--font-mono)" }}>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</span>{" "}
             entry so the Control Center launches on logon with{" "}
             <span style={{ fontFamily: "var(--font-mono)" }}>--from-autostart</span>.
-            The app stays in the tray on start.
+            The main window opens automatically and appears in the taskbar.
           </p>
         </div>
       </div>
@@ -240,6 +242,36 @@ function GeneralSection() {
         >
           {error}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ModeSection() {
+  const { mode, refresh } = useUltronMode();
+  return (
+    <div className="space-y-3">
+      <header>
+        <h3 className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+          Orchestration mode
+        </h3>
+        <p
+          className="mt-1 text-[11.5px] leading-relaxed"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          The mode the hook system primes for the next ULTRON session. Source of truth:
+          {" "}
+          <span style={{ fontFamily: "var(--font-mono)" }}>~/.ultron/.tmp/current-session.json</span>.
+        </p>
+      </header>
+      <ModeSwitcher current={mode} onChange={() => refresh()} />
+      {mode && (
+        <p
+          className="text-[11px]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Active: <strong style={{ color: "var(--color-text)" }}>{mode}</strong>
+        </p>
       )}
     </div>
   );
@@ -386,6 +418,8 @@ export function Settings() {
       >
         {[
           { id: "general" as Section, label: "General" },
+          { id: "auth" as Section, label: "Auth" },
+          { id: "mode" as Section, label: "Mode" },
           { id: "mcps" as Section, label: "MCPs" },
           { id: "raw" as Section, label: "Raw JSON" },
           { id: "backups" as Section, label: "Backups" },
@@ -436,6 +470,8 @@ export function Settings() {
 
       <div className="mt-5">
         {section === "general" && <GeneralSection />}
+        {section === "auth" && <AuthStatus />}
+        {section === "mode" && <ModeSection />}
         {section === "mcps" && (
           <>
             <p

@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { SkillInfo, SkillState } from "../types";
+import type {
+  SkillCreateResult,
+  SkillDeleteResult,
+  SkillInfo,
+  SkillState,
+  SkillUpdateResult,
+} from "../types";
+
+// Default body when creating a new skill. Keeps the user oriented without
+// overwhelming the textarea.
+const NEW_SKILL_TEMPLATE = `# Overview\n\nWhat does this skill do?\n\n# When to use\n\n- Trigger phrases\n- Concrete examples\n\n# Notes\n\n- Any constraints, references, follow-up TODOs\n`;
 
 // ---------------------------------------------------------------------------
 // State styling
@@ -154,19 +164,69 @@ function Pill({
 // Preview panel
 // ---------------------------------------------------------------------------
 
-function Preview({ skill }: { skill: SkillInfo }) {
+// Tiny inline icon-buttons for the preview header. Match existing styling.
+function HeaderBtn({
+  label,
+  onClick,
+  disabled,
+  variant = "default",
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  variant?: "default" | "danger";
+}) {
+  const danger = variant === "danger";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className="rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
+      style={{
+        background: "var(--color-surface-2)",
+        color: danger ? "var(--color-danger)" : "var(--color-text-secondary)",
+        border: `1px solid ${danger ? "rgba(248, 81, 73, 0.32)" : "var(--color-border-strong)"}`,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+type PreviewMode = "view" | "edit" | "confirm-delete";
+
+function Preview({
+  skill,
+  onMutated,
+  onDeleted,
+}: {
+  skill: SkillInfo;
+  onMutated: () => void;
+  onDeleted: () => void;
+}) {
   const [content, setContent] = useState<string>("");
+  const [draft, setDraft] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [mode, setMode] = useState<PreviewMode>("view");
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setStatus(null);
+    setMode("view");
     setContent("");
+    setDraft("");
     invoke<string>("read_skill_md", { name: skill.name })
       .then((c) => {
-        if (!cancelled) setContent(c);
+        if (!cancelled) {
+          setContent(c);
+          setDraft(c);
+        }
       })
       .catch((e) => {
         if (!cancelled) setError(String(e));
@@ -178,6 +238,46 @@ function Preview({ skill }: { skill: SkillInfo }) {
       cancelled = true;
     };
   }, [skill.name]);
+
+  function flash(msg: string) {
+    setStatus(msg);
+    window.setTimeout(() => setStatus(null), 2500);
+  }
+
+  async function handleSaveEdit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await invoke<SkillUpdateResult>("update_skill_md", {
+        name: skill.name,
+        content: draft,
+      });
+      setContent(draft);
+      setMode("view");
+      flash(`Saved — backup at ${res.backup_path}`);
+      onMutated();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDelete(soft: boolean) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await invoke<SkillDeleteResult>("delete_skill", {
+        name: skill.name,
+        soft,
+      });
+      flash(soft ? `Demoted to vault: ${res.to_path}` : `Archived: ${res.to_path}`);
+      onDeleted();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  }
 
   const b = stateBadge(skill.state);
 
@@ -195,6 +295,28 @@ function Preview({ skill }: { skill: SkillInfo }) {
             {b.label}
           </span>
           <h2 className="text-[15px] font-semibold leading-none">{skill.name}</h2>
+          <div className="ml-auto flex items-center gap-1.5">
+            {mode === "view" && (
+              <>
+                <HeaderBtn label="Edit" onClick={() => setMode("edit")} disabled={busy || loading} />
+                <HeaderBtn
+                  label="Delete"
+                  variant="danger"
+                  onClick={() => setMode("confirm-delete")}
+                  disabled={busy || loading}
+                />
+              </>
+            )}
+            {mode === "edit" && (
+              <>
+                <HeaderBtn label="Cancel" onClick={() => { setDraft(content); setMode("view"); setError(null); }} disabled={busy} />
+                <HeaderBtn label={busy ? "Saving…" : "Save"} onClick={handleSaveEdit} disabled={busy || draft === content} />
+              </>
+            )}
+            {mode === "confirm-delete" && (
+              <HeaderBtn label="Cancel" onClick={() => { setMode("view"); setError(null); }} disabled={busy} />
+            )}
+          </div>
         </div>
         {skill.description && (
           <p
@@ -229,16 +351,21 @@ function Preview({ skill }: { skill: SkillInfo }) {
             {skill.path}
           </div>
         )}
-      </header>
-      <div className="flex-1 overflow-auto px-5 py-4">
-        {loading && (
-          <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-            Loading SKILL.md…
+        {status && (
+          <div
+            className="mt-2 rounded px-2 py-1 text-[11px]"
+            style={{
+              background: "rgba(63, 185, 80, 0.08)",
+              color: "var(--color-success)",
+              border: "1px solid rgba(63, 185, 80, 0.22)",
+            }}
+          >
+            {status}
           </div>
         )}
         {error && (
           <div
-            className="rounded p-3 text-[12px]"
+            className="mt-2 rounded px-2 py-1 text-[11px]"
             style={{
               background: "rgba(248, 81, 73, 0.06)",
               border: "1px solid rgba(248, 81, 73, 0.22)",
@@ -248,7 +375,53 @@ function Preview({ skill }: { skill: SkillInfo }) {
             {error}
           </div>
         )}
-        {!loading && !error && (
+        {mode === "confirm-delete" && (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-2 rounded p-2 text-[11.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            <span>Confirm: remove this skill?</span>
+            <HeaderBtn
+              label={busy ? "Working…" : "Demote to vault"}
+              onClick={() => handleDelete(true)}
+              disabled={busy}
+            />
+            <HeaderBtn
+              label={busy ? "Working…" : "Move to backup"}
+              variant="danger"
+              onClick={() => handleDelete(false)}
+              disabled={busy}
+            />
+          </div>
+        )}
+      </header>
+      <div className="flex-1 overflow-auto px-5 py-4">
+        {loading && (
+          <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+            Loading SKILL.md…
+          </div>
+        )}
+        {!loading && mode === "edit" && (
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            className="h-full w-full resize-none rounded p-3 text-[11.5px] leading-relaxed"
+            style={{
+              fontFamily: "var(--font-mono)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+              outline: "none",
+              minHeight: 320,
+            }}
+          />
+        )}
+        {!loading && mode !== "edit" && (
           <pre
             className="whitespace-pre-wrap text-[11.5px] leading-relaxed"
             style={{
@@ -265,10 +438,216 @@ function Preview({ skill }: { skill: SkillInfo }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// New-skill modal
 // ---------------------------------------------------------------------------
 
-const STATE_FILTERS: StateKey[] = ["active", "plugin", "vaulted"];
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,60}$/;
+
+function NewSkillModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [body, setBody] = useState(NEW_SKILL_TEMPLATE);
+  const [layer, setLayer] = useState<"active" | "vaulted">("active");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const slugOk = SLUG_RE.test(name);
+  const descOk = description.trim().length > 0 && description.trim().length <= 300;
+  const canSubmit = slugOk && descOk && !busy;
+
+  async function handleSubmit() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await invoke<SkillCreateResult>("create_skill", {
+        name,
+        description: description.trim(),
+        body,
+        layer,
+      });
+      onCreated(res.name);
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center px-6"
+      style={{ background: "rgba(0,0,0,0.55)" }}
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[88vh] w-full max-w-[640px] flex-col overflow-hidden rounded"
+        style={{
+          background: "var(--color-surface-1)",
+          border: "1px solid var(--color-border-strong)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header
+          className="flex items-center justify-between border-b px-5 py-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <h2 className="text-[14px] font-semibold">New skill</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded px-2 py-0.5 text-[12px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </header>
+        <div className="flex-1 space-y-3 overflow-auto px-5 py-4">
+          <div>
+            <label
+              className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Slug
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="my-new-skill"
+              className="w-full rounded px-2.5 py-1.5 text-[12.5px]"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: `1px solid ${name && !slugOk ? "rgba(248, 81, 73, 0.4)" : "var(--color-border-strong)"}`,
+                outline: "none",
+                fontFamily: "var(--font-mono)",
+              }}
+            />
+            <div
+              className="mt-1 text-[10.5px]"
+              style={{ color: name && !slugOk ? "var(--color-danger)" : "var(--color-text-faint)" }}
+            >
+              Lowercase letters, digits, dashes. 2–61 chars. Must start with [a-z0-9].
+            </div>
+          </div>
+
+          <div>
+            <label
+              className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Description
+            </label>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="One-line summary that ends up in the YAML frontmatter."
+              maxLength={300}
+              className="w-full rounded px-2.5 py-1.5 text-[12.5px]"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+              }}
+            />
+            <div
+              className="mt-1 text-[10.5px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              {description.trim().length}/300
+            </div>
+          </div>
+
+          <div>
+            <label
+              className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Layer
+            </label>
+            <div className="flex gap-1.5">
+              {(["active", "vaulted"] as const).map((k) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setLayer(k)}
+                  className="rounded px-2.5 py-1 text-[11px]"
+                  style={{
+                    background: layer === k ? "var(--color-surface-3)" : "transparent",
+                    color: layer === k ? "var(--color-text)" : "var(--color-text-tertiary)",
+                    border: `1px solid ${layer === k ? "var(--color-border-strong)" : "var(--color-border)"}`,
+                  }}
+                >
+                  {k === "active" ? "Active (~/.claude/skills)" : "Vault (~/.ultron/skill-vault)"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label
+              className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Body (frontmatter auto-prepended)
+            </label>
+            <textarea
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              spellCheck={false}
+              className="w-full rounded p-2.5 text-[11.5px] leading-relaxed"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+                fontFamily: "var(--font-mono)",
+                minHeight: 220,
+                resize: "vertical",
+              }}
+            />
+          </div>
+
+          {error && (
+            <div
+              className="rounded p-2 text-[11.5px]"
+              style={{
+                background: "rgba(248, 81, 73, 0.06)",
+                border: "1px solid rgba(248, 81, 73, 0.22)",
+                color: "var(--color-danger)",
+              }}
+            >
+              {error}
+            </div>
+          )}
+        </div>
+        <footer
+          className="flex items-center justify-end gap-2 border-t px-5 py-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <HeaderBtn label="Cancel" onClick={onClose} disabled={busy} />
+          <HeaderBtn
+            label={busy ? "Creating…" : "Create skill"}
+            onClick={handleSubmit}
+            disabled={!canSubmit}
+          />
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
 
 export function Skills() {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
@@ -280,15 +659,24 @@ export function Skills() {
   const [onlyUsed, setOnlyUsed] = useState(false);
   const [tagFilter, setTagFilter] = useState<Set<string>>(() => new Set());
   const [showAllTags, setShowAllTags] = useState(false);
+  const [showNewModal, setShowNewModal] = useState(false);
 
-  useEffect(() => {
-    invoke<SkillInfo[]>("list_skills")
+  function reload(): Promise<SkillInfo[]> {
+    return invoke<SkillInfo[]>("list_skills")
       .then((list) => {
         setSkills(list);
         setError(null);
+        return list;
       })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        setError(String(e));
+        return [] as SkillInfo[];
+      });
+  }
+
+  useEffect(() => {
+    reload().finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const counts = useMemo(() => {
@@ -376,10 +764,26 @@ export function Skills() {
           className="border-b px-5 py-4"
           style={{ borderColor: "var(--color-border)" }}
         >
-          <h1 className="text-[18px] font-semibold leading-tight">Skills</h1>
-          <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
-            {skills.length} total · {filtered.length} shown
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h1 className="text-[18px] font-semibold leading-tight">Skills</h1>
+              <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
+                {skills.length} total · {filtered.length} shown
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowNewModal(true)}
+              className="shrink-0 rounded px-2.5 py-1 text-[11.5px]"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              + New skill
+            </button>
+          </div>
 
           <div className="mt-3 flex flex-wrap gap-1.5">
             <Pill
@@ -529,7 +933,21 @@ export function Skills() {
       {/* Right: preview */}
       <div className="flex-1 overflow-hidden">
         {selectedSkill ? (
-          <Preview skill={selectedSkill} />
+          <Preview
+            key={selectedSkill.name}
+            skill={selectedSkill}
+            onMutated={() => {
+              void reload();
+            }}
+            onDeleted={() => {
+              const removed = selectedSkill.name;
+              void reload().then((list) => {
+                if (!list.some((s) => s.name === removed)) {
+                  setSelected(null);
+                }
+              });
+            }}
+          />
         ) : (
           <div
             className="flex h-full items-center justify-center text-[13px]"
@@ -539,6 +957,16 @@ export function Skills() {
           </div>
         )}
       </div>
+
+      {showNewModal && (
+        <NewSkillModal
+          onClose={() => setShowNewModal(false)}
+          onCreated={(name) => {
+            setShowNewModal(false);
+            void reload().then(() => setSelected(name));
+          }}
+        />
+      )}
     </div>
   );
 }

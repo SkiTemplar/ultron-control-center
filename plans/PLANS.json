@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-05-12T15:27:08+02:00",
+  "updated_at": "2026-05-15T01:25:00+02:00",
   "_comment": "Single source of truth — administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
   "items": [
     {
@@ -849,6 +849,52 @@
           "text": "Anadido ultron osint email <email> -> holehe via uvx (gratis, sin API key, ~120 sitios). Decision USER: NO pagar HIBP -> holehe es el sustituto. Sherlock (usernames) + holehe (email) cubren la auto-auditoria gratis. PENDIENTE opcional: ultron osint diff (cuentas nuevas entre escaneos), vista TUI, scheduler mensual."
         }
       ]
+    },
+    {
+      "id": "ultron-plan-mode",
+      "kind": "feature",
+      "title": "ULTRON PLAN mode — plan-and-execute autónomo sin preguntas",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        3,
+        5
+      ],
+      "tags": [
+        "modes",
+        "orchestration",
+        "autonomy",
+        "session-init"
+      ],
+      "spec_path": null,
+      "description": "Añadir 'PLAN' como modo formal en current-session.json (junto a LOW/MEDIUM/HIGH/ULTRA). Semántica: el agente PLANIFICA y EJECUTA en un solo prompt, sin pedir confirmaciones, asumiendo que la solución óptima propuesta es la correcta. Sirve para sesiones nocturnas o batch: el usuario deja el prompt, el agente trabaja, al final hay deliverable. Tocar: (1) session-init hook reconoce mode=PLAN y exporta SKILL_OVERRIDE='superpowers:hiper-plans + auto-execute'; (2) UI ModeSwitcher.tsx en Control Center añade quinto botón PLAN; (3) mode.rs valida 'PLAN' además de los cuatro existentes; (4) documentar el contrato en plans/specs/v15.2-plan-mode.md (no preguntas + token budget XL + ejecutar tras planificar). Origen: sesión 2026-05-15 ULTRON ULTRA donde USER dejó el prompt corriendo toda la noche para terminar el Control Center.",
+      "created_at": "2026-05-15T01:20:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
+    },
+    {
+      "id": "control-center-v15.1-followups",
+      "kind": "polish",
+      "title": "Control Center v15.1 — followups detectados en sesión 2026-05-15",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        4,
+        6
+      ],
+      "tags": [
+        "control-center",
+        "tauri",
+        "ui",
+        "polish"
+      ],
+      "spec_path": null,
+      "description": "Items pendientes tras la sesión nocturna de Control Center: (1) Plans tab (pendiente desde v15.1) — kanban de PLANS.json. (2) Logs tab — live tail de alerts.jsonl + hooks via file-watcher Rust. (3) Tray icon dinámico por status (verde/amarillo/rojo) — hoy es neutro. (4) Auto-updater Tauri desde release GitHub. (5) Status bar inferior con info real-time (qdrant up, mcps ok, brain age, mode actual). (6) Skill-vault search en UI (hoy solo CLI). (7) Newsletter generator wire desde botón en News tab. (8) MCP edit modal: permitir renombrar (hoy solo delete+add). (9) Empty states con ilustración en cada tab. (10) Onboarding: primera vez detecta si claude/codex/gemini login pendiente. Origen: sesión 2026-05-15 que cerró bugs críticos (Sessions launcher, Dashboard widgets) + añadió Auth/Mode/News/Self-improve.",
+      "created_at": "2026-05-15T01:25:00+02:00",
+      "resolved_at": null,
+      "deferred_reason": null,
+      "notes": []
     },
     {
       "id": "skill-registry-finish",

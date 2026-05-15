@@ -224,8 +224,10 @@
         },
         {
           "name": "wt-spawn",
-          "cmd": "wt.exe",
+          "cmd": "cmd.exe",
           "args": [
+            "/C",
+            "wt.exe",
             "new-tab",
             "--title",
             { "validator": "^ULTRON · (claude|gemini|codex)$" },
@@ -250,39 +252,60 @@
           ]
         },
         {
-          "name": "claude-inline",
-          "cmd": "claude",
+          "name": "claude-inline-cmd",
+          "cmd": "cmd.exe",
           "args": [
-            "-p",
-            { "validator": "^[\\s\\S]+$" }
+            "/C",
+            { "validator": "^claude -p \"[\\s\\S]{1,8000}\"( --model [a-zA-Z0-9.\\-]+)?$" }
           ]
         },
         {
-          "name": "claude-inline-model",
-          "cmd": "claude",
+          "name": "codex-inline-cmd",
+          "cmd": "cmd.exe",
           "args": [
-            "-p",
-            { "validator": "^[\\s\\S]+$" },
-            "--model",
-            { "validator": "^[a-zA-Z0-9.\\-]+$" }
+            "/C",
+            { "validator": "^codex exec (-m [a-zA-Z0-9.\\-]+ )?\"[\\s\\S]{1,8000}\"$" }
           ]
         },
         {
-          "name": "codex-inline",
-          "cmd": "codex",
+          "name": "auth-status-claude",
+          "cmd": "cmd.exe",
           "args": [
-            "exec",
-            { "validator": "^[\\s\\S]+$" }
+            "/C",
+            "claude --version"
           ]
         },
         {
-          "name": "codex-inline-model",
-          "cmd": "codex",
+          "name": "auth-status-codex",
+          "cmd": "cmd.exe",
           "args": [
-            "exec",
-            "-m",
-            { "validator": "^[a-zA-Z0-9.\\-]+$" },
-            { "validator": "^[\\s\\S]+$" }
+            "/C",
+            "codex --version"
+          ]
+        },
+        {
+          "name": "auth-status-gemini",
+          "cmd": "cmd.exe",
+          "args": [
+            "/C",
+            "gemini --version"
+          ]
+        },
+        {
+          "name": "doctor-check",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\doctor_check\\.py$" }
+          ]
+        },
+        {
+          "name": "codex-adversarial",
+          "cmd": "cmd.exe",
+          "args": [
+            "/C",
+            { "validator": "^codex exec \"[\\s\\S]{1,8000}\"$" }
           ]
         }
       ]

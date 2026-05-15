@@ -5,10 +5,14 @@
 //   - read_changelog: parse ~/.ultron/cockpit/changelog.ndjson into entries
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
+mod auth;
 mod gaming;
 mod mcps;
 mod memory;
+mod mode;
+mod news;
 mod projects;
+mod self_improve;
 mod sessions;
 mod settings;
 mod skills;
@@ -155,6 +159,29 @@ async fn list_skills() -> Result<Vec<skills::SkillInfo>, String> {
 #[tauri::command]
 async fn read_skill_md(name: String) -> Result<String, String> {
     skills::read_skill_md_inner(&name)
+}
+
+#[tauri::command]
+async fn create_skill(
+    name: String,
+    description: String,
+    body: String,
+    layer: String,
+) -> Result<skills::SkillCreateResult, String> {
+    skills::create_skill_inner(name, description, body, layer)
+}
+
+#[tauri::command]
+async fn update_skill_md(
+    name: String,
+    content: String,
+) -> Result<skills::SkillUpdateResult, String> {
+    skills::update_skill_md_inner(name, content)
+}
+
+#[tauri::command]
+async fn delete_skill(name: String, soft: bool) -> Result<skills::SkillDeleteResult, String> {
+    skills::delete_skill_inner(name, soft)
 }
 
 #[tauri::command]
@@ -313,6 +340,35 @@ async fn run_inline(
 }
 
 #[tauri::command]
+async fn add_mcp(
+    name: String,
+    config: serde_json::Value,
+) -> Result<mcps::McpMutationResult, String> {
+    mcps::add_mcp_inner(name, config)
+}
+
+#[tauri::command]
+async fn update_mcp(
+    name: String,
+    config: serde_json::Value,
+) -> Result<mcps::McpMutationResult, String> {
+    mcps::update_mcp_inner(name, config)
+}
+
+#[tauri::command]
+async fn delete_mcp(name: String) -> Result<mcps::McpMutationResult, String> {
+    mcps::delete_mcp_inner(name)
+}
+
+#[tauri::command]
+async fn generate_mcp_from_prompt(
+    app: tauri::AppHandle,
+    description: String,
+) -> Result<mcps::McpGenerationResult, String> {
+    mcps::generate_mcp_from_prompt_inner(&app, description).await
+}
+
+#[tauri::command]
 async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::McpInfo>, String> {
     let script_path = ultron_root()?.join("scripts/cockpit/mcp_health_check.py");
     let script_str = script_path.to_string_lossy().to_string();
@@ -331,6 +387,64 @@ async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::McpInfo
         return Err(format!("health check failed (exit {:?}): {}", output.status.code(), stderr));
     }
     mcps::list_mcps_inner()
+}
+
+// ---------------------------------------------------------------------------
+// Auth status / mode / news / self-improve commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn auth_status() -> Result<auth::AuthStatusReport, String> {
+    Ok(auth::auth_status_inner())
+}
+
+#[tauri::command]
+async fn get_ultron_mode() -> Result<mode::ModeInfo, String> {
+    mode::get_mode_inner()
+}
+
+#[tauri::command]
+async fn set_ultron_mode(mode: String) -> Result<mode::ModeSetResult, String> {
+    mode::set_mode_inner(mode::ModeSetPayload { mode })
+}
+
+#[tauri::command]
+async fn list_news() -> Result<Vec<news::NewsEntry>, String> {
+    news::list_news_inner()
+}
+
+#[tauri::command]
+async fn self_improve_report() -> Result<self_improve::SelfImproveReport, String> {
+    self_improve::self_improve_report_inner()
+}
+
+#[tauri::command]
+async fn run_codex_adversarial_review(
+    app: tauri::AppHandle,
+) -> Result<self_improve::ReviewResult, String> {
+    self_improve::run_codex_adversarial_review_inner(&app).await
+}
+
+#[tauri::command]
+async fn run_doctor(app: tauri::AppHandle) -> Result<CmdResult, String> {
+    // Invokes the enhanced doctor script (Python) and returns its full
+    // stdout for the UI to render. Doctor never mutates state — it only
+    // reports findings.
+    let script = ultron_root()?.join("scripts/cockpit/doctor_check.py");
+    let script_str = script.to_string_lossy().to_string();
+    let output = app
+        .shell()
+        .command("uv")
+        .args(["run", "python", &script_str])
+        .output()
+        .await
+        .map_err(|e| format!("spawn uv: {}", e))?;
+    Ok(CmdResult {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: output.status.code(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -387,8 +501,15 @@ pub fn run() {
             read_changelog,
             list_mcps,
             run_mcp_health_check,
+            add_mcp,
+            update_mcp,
+            delete_mcp,
+            generate_mcp_from_prompt,
             list_skills,
             read_skill_md,
+            create_skill,
+            update_skill_md,
+            delete_skill,
             memory_status,
             spawn_session,
             run_inline,
@@ -408,7 +529,14 @@ pub fn run() {
             task_detail,
             rich_system_info,
             list_killable_processes,
-            kill_processes
+            kill_processes,
+            auth_status,
+            get_ultron_mode,
+            set_ultron_mode,
+            list_news,
+            self_improve_report,
+            run_codex_adversarial_review,
+            run_doctor
         ])
         .setup(|app| {
             // Register Ctrl+Alt+U global hotkey on startup. If it's already

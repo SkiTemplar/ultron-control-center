@@ -15,6 +15,8 @@ export type Tab =
   | "logs"
   | "system"
   | "gaming"
+  | "news"
+  | "self-improve"
   | "settings";
 
 type Item = {
@@ -31,6 +33,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "usage", label: "Usage", available: true },
       { id: "notifications", label: "Notifications", available: true },
       { id: "changelog", label: "Changelog", available: true },
+      { id: "news", label: "News", available: true },
     ],
   },
   {
@@ -50,6 +53,12 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "gaming", label: "Gaming", available: true },
       { id: "plans", label: "Plans", available: false },
       { id: "logs", label: "Logs", available: false },
+    ],
+  },
+  {
+    heading: "Meta",
+    items: [
+      { id: "self-improve", label: "Self-improve", available: true },
     ],
   },
   {

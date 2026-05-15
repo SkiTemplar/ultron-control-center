@@ -1,15 +1,21 @@
 // ULTRON Control Center — Sessions & quick actions.
 //
-// Three interaction modes:
+// Two interaction modes:
 //   1. run_inline       — batch invocation that returns stdout in-app.
-//                         Uses claude -p / codex exec / ultron gemini.
-//   2. spawn_session    — opens Windows Terminal with provider CLI.
-//                         Optional initial prompt + optional working dir.
+//                         Uses cmd.exe /C as a uniform launcher so .cmd
+//                         shims (codex, gemini via npm) and reparse-point
+//                         binaries (claude in ~/.local/bin) resolve via
+//                         the user's PATH and PATHEXT.
+//   2. spawn_session    — opens Windows Terminal (wt.exe) with the chosen
+//                         provider CLI. wt.exe lives in the WindowsApps
+//                         reparse-point directory, so we go through
+//                         cmd.exe /C wt.exe ... to dodge the launcher
+//                         quirks Rust's Command::new exhibits on those
+//                         pseudo-executables.
 //
-// PowerShell quoting: we wrap user prompts in single-quoted PS strings and
-// escape the apostrophes by doubling them ('foo'bar' → 'foo''bar'). The
-// command string that we hand to wt.exe goes through the Tauri capabilities
-// validator, so anything that doesn't match the regex is rejected.
+// PowerShell quoting: prompts are single-quoted and apostrophes doubled
+// ('foo'bar' → 'foo''bar'). The argument that reaches wt.exe goes through
+// the capability validator regex, so anything off-grammar is rejected.
 
 use serde::Serialize;
 use std::path::PathBuf;
@@ -71,6 +77,9 @@ pub async fn run_inline_inner(
 
     let output = match provider {
         "gemini" => {
+            // Gemini goes through our Python helper so the model selection
+            // and stdout layout match the rest of the system. uv resolves
+            // via PATH, no shim trickery needed.
             let script: PathBuf = dirs::home_dir()
                 .ok_or_else(|| "no HOME".to_string())?
                 .join(".ultron/scripts/cockpit/gemini_cli.py");
@@ -86,36 +95,36 @@ pub async fn run_inline_inner(
                 .map_err(|e| format!("spawn uv: {}", e))?
         }
         "claude" => {
-            // claude -p "<prompt>" — print mode, batch, exits when done.
-            let mut args = vec!["-p".to_string(), prompt.clone()];
+            // Wrap via cmd.exe /C so .exe / .cmd resolution stays uniform.
+            // Frontend passes the prompt + optional model; we build a single
+            // shell line and let cmd parse it.
+            let mut cmdline = String::from("claude -p ");
+            cmdline.push_str(&ps_quote_cmd(&prompt));
             if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
-                // Claude accepts --model <id>
-                args.push("--model".to_string());
-                args.push(m);
+                cmdline.push_str(" --model ");
+                cmdline.push_str(&m);
             }
-            let str_args: Vec<&str> = args.iter().map(String::as_str).collect();
             app.shell()
-                .command("claude")
-                .args(str_args)
+                .command("cmd.exe")
+                .args(["/C", &cmdline])
                 .output()
                 .await
-                .map_err(|e| format!("spawn claude: {}", e))?
+                .map_err(|e| format!("spawn cmd: {}", e))?
         }
         "codex" => {
-            // codex exec "<prompt>" — non-interactive batch.
-            let mut args = vec!["exec".to_string()];
+            let mut cmdline = String::from("codex exec ");
             if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
-                args.push("-m".to_string());
-                args.push(m);
+                cmdline.push_str("-m ");
+                cmdline.push_str(&m);
+                cmdline.push(' ');
             }
-            args.push(prompt.clone());
-            let str_args: Vec<&str> = args.iter().map(String::as_str).collect();
+            cmdline.push_str(&ps_quote_cmd(&prompt));
             app.shell()
-                .command("codex")
-                .args(str_args)
+                .command("cmd.exe")
+                .args(["/C", &cmdline])
                 .output()
                 .await
-                .map_err(|e| format!("spawn codex: {}", e))?
+                .map_err(|e| format!("spawn cmd: {}", e))?
         }
         _ => unreachable!(),
     };
@@ -128,12 +137,24 @@ pub async fn run_inline_inner(
     })
 }
 
+/// Quote a value for inclusion inside a cmd.exe /C line. Strategy: wrap in
+/// double quotes and escape internal double-quotes/backslashes for CMD's
+/// quirky parser. We keep the prompt single-line by replacing CR/LF with
+/// spaces — anything multi-line should use spawn_session instead.
+fn ps_quote_cmd(s: &str) -> String {
+    let collapsed = s.replace('\r', " ").replace('\n', " ");
+    let escaped = collapsed.replace('"', "\\\"");
+    format!("\"{}\"", escaped)
+}
+
 // ---------------------------------------------------------------------------
 // spawn_session
 // ---------------------------------------------------------------------------
 
-/// Build the PowerShell -Command string that wt.exe will run inside the
-/// new tab. Layered as: `Set-Location ...; <provider> [args]`.
+/// Build the PowerShell -Command string that wt.exe runs inside the new tab.
+/// Layered as `Set-Location ...; <provider> [args]`. Inputs are pre-quoted
+/// with single quotes (PowerShell literal strings) so user content never
+/// gets re-parsed.
 fn build_inner_command(provider: &str, prompt: Option<&str>, cwd: Option<&str>) -> String {
     let mut cmd = String::new();
     if let Some(dir) = cwd {
@@ -144,8 +165,8 @@ fn build_inner_command(provider: &str, prompt: Option<&str>, cwd: Option<&str>) 
         let capped = cap_prompt(p);
         match provider {
             "gemini" => cmd.push_str(&format!(" -p {}", ps_quote(&capped))),
-            // Claude + Codex both accept the prompt as a single positional arg
-            // for an interactive session that bootstraps with that message.
+            // Claude + Codex both accept the prompt as a single positional
+            // arg that bootstraps an interactive session.
             _ => cmd.push_str(&format!(" {}", ps_quote(&capped))),
         }
     }
@@ -171,10 +192,15 @@ pub async fn spawn_session_inner(
     let inner = build_inner_command(provider, prompt_ref, cwd_ref);
     let title = format!("ULTRON · {}", provider);
 
+    // Route through cmd.exe /C wt.exe — wt.exe lives in WindowsApps reparse
+    // points and Rust's Command::new can fail to launch it directly, while
+    // cmd.exe resolves it the same way the user's terminal does.
     let output = app
         .shell()
-        .command("wt.exe")
+        .command("cmd.exe")
         .args([
+            "/C",
+            "wt.exe",
             "new-tab",
             "--title",
             &title,
@@ -187,7 +213,7 @@ pub async fn spawn_session_inner(
         ])
         .output()
         .await
-        .map_err(|e| format!("spawn wt: {}", e))?;
+        .map_err(|e| format!("spawn cmd/wt: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         return Err(format!("wt new-tab failed: {}", stderr));
