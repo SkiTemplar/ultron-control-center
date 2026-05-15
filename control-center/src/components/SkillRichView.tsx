@@ -22,6 +22,8 @@ export type Frontmatter = {
   // YAML key from Claude Code skill spec — `allowed-tools` / `allowedTools` /
   // `tools` are all recognised. Stored normalised here.
   allowedTools?: string[];
+  // Per spec: when true, model cannot autoinvoke this skill — only user can.
+  disableModelInvocation?: boolean;
   // Anthropic skills sometimes carry these:
   visibility?: string;
   category?: string;
@@ -110,8 +112,22 @@ function assignKey(fm: Frontmatter, key: string, value: string | string[]) {
     return;
   }
   if (lowered === "allowed-tools" || lowered === "allowedtools" || lowered === "tools") {
-    const arr = Array.isArray(value) ? value : value.split(",").map((s) => s.trim()).filter(Boolean);
+    // Per spec the value may be either a comma-separated list ("Read, Grep")
+    // or whitespace-separated ("Read Grep"). Both shapes get normalised.
+    let arr: string[];
+    if (Array.isArray(value)) {
+      arr = value;
+    } else if (value.includes(",")) {
+      arr = value.split(",").map((s) => s.trim()).filter(Boolean);
+    } else {
+      arr = value.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+    }
     fm.allowedTools = arr;
+    return;
+  }
+  if (lowered === "disable-model-invocation" || lowered === "disablemodelinvocation") {
+    const v = Array.isArray(value) ? value[0] : value;
+    fm.disableModelInvocation = String(v).toLowerCase() === "true";
     return;
   }
   if (lowered === "visibility") {
@@ -503,6 +519,19 @@ function FrontmatterCard({ fm }: { fm: Frontmatter }) {
             title="visibility"
           >
             {fm.visibility}
+          </span>
+        )}
+        {fm.disableModelInvocation && (
+          <span
+            className="rounded px-1.5 py-px text-[10.5px]"
+            style={{
+              background: "rgba(210, 153, 34, 0.08)",
+              color: "var(--color-warn)",
+              border: "1px solid rgba(210, 153, 34, 0.22)",
+            }}
+            title="Model cannot auto-invoke this skill — user-only"
+          >
+            user-only
           </span>
         )}
         {fm.category && (

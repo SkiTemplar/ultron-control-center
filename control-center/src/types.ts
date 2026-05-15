@@ -246,6 +246,7 @@ export type GameProcessInfo = {
   ram_mb: number;
   category: string;
   suggested: boolean;
+  keep_default: boolean;
 };
 
 export type KillFailure = {

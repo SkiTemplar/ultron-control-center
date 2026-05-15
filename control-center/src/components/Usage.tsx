@@ -87,6 +87,10 @@ function WeeklyResetCard() {
 
   const target = nextWeeklyReset(cfg, new Date(nowMs));
   const remaining = target.getTime() - nowMs;
+  // Percentage of the weekly window still ahead — assumes a 7-day cadence,
+  // which matches the Anthropic billing reset and the default cfg above.
+  const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+  const pctRemaining = Math.max(0, Math.min(100, (remaining / WEEK_MS) * 100));
   const targetLabel = target.toLocaleString(undefined, {
     weekday: "short",
     day: "2-digit",
@@ -122,10 +126,37 @@ function WeeklyResetCard() {
           {hint} ✎
         </button>
       </div>
-      <div className="mt-2 text-[22px] font-semibold tabular-nums leading-tight">
-        {formatCountdown(remaining)}
+      <div className="mt-2 flex items-baseline justify-between gap-3">
+        <div className="text-[22px] font-semibold tabular-nums leading-tight">
+          {formatCountdown(remaining)}
+        </div>
+        <div
+          className="text-[12.5px] font-semibold tabular-nums"
+          style={{ color: "var(--color-text-secondary)" }}
+          title="Percentage of the weekly window remaining"
+        >
+          {pctRemaining.toFixed(1)}%
+        </div>
       </div>
-      <div className="mt-1 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+      {/* Progress strip — full bar = week ahead, empty bar = reset due. */}
+      <div
+        className="mt-2 h-1 w-full overflow-hidden rounded-full"
+        style={{ background: "var(--color-surface-3)" }}
+      >
+        <div
+          className="h-full rounded-full transition-all"
+          style={{
+            width: `${pctRemaining}%`,
+            background:
+              pctRemaining < 15
+                ? "var(--color-danger)"
+                : pctRemaining < 35
+                  ? "var(--color-warn)"
+                  : "var(--color-success)",
+          }}
+        />
+      </div>
+      <div className="mt-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
         until {targetLabel}
       </div>
 

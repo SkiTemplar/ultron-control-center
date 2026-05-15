@@ -151,8 +151,12 @@ export function Gaming() {
     setSelected(new Set());
   }
 
-  const suggestedCount = procs.filter((p) => p.suggested).length;
-  const otherCount = procs.length - suggestedCount;
+  const suggestedProcs = procs.filter((p) => p.suggested);
+  const keepProcs = procs.filter((p) => p.keep_default);
+  const otherProcs = procs.filter((p) => !p.suggested && !p.keep_default);
+  const suggestedCount = suggestedProcs.length;
+  const keepCount = keepProcs.length;
+  const otherCount = otherProcs.length;
   const ramSelected = useMemo(
     () =>
       procs
@@ -160,9 +164,6 @@ export function Gaming() {
         .reduce((acc, p) => acc + p.ram_mb, 0),
     [procs, selected],
   );
-
-  const suggestedProcs = procs.filter((p) => p.suggested);
-  const otherProcs = procs.filter((p) => !p.suggested);
 
   return (
     <div className="px-10 py-8">
@@ -304,17 +305,53 @@ export function Gaming() {
         </div>
       )}
 
-      {/* Suggested first */}
+      {/* Dispensable / bloat — pre-checked */}
       {suggestedProcs.length > 0 && (
         <section className="mb-6">
           <h2
             className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Suggested background apps ({suggestedProcs.length})
+            Dispensable background apps ({suggestedCount})
           </h2>
+          <p
+            className="mb-2 text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Updaters, cloud sync, OEM suites and orphan webviews — safe to
+            evict before launching a game.
+          </p>
           <div className="space-y-1.5">
             {suggestedProcs.map((p) => (
+              <Row
+                key={p.pid}
+                p={p}
+                checked={selected.has(p.pid)}
+                onToggle={() => toggle(p.pid)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Communication / music — kept by default */}
+      {keepProcs.length > 0 && (
+        <section className="mb-6">
+          <h2
+            className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            Keep open by default ({keepCount})
+          </h2>
+          <p
+            className="mb-2 text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Discord, Spotify, voice/video — left running so you can keep
+            talking to friends. Tick to kill only if you really want silence.
+          </p>
+          <div className="space-y-1.5">
+            {keepProcs.map((p) => (
               <Row
                 key={p.pid}
                 p={p}

@@ -32,6 +32,10 @@ pub struct GameProcessInfo {
     /// True when the process matches the curated "kill before gaming" list.
     /// The UI uses this to pre-check the row.
     pub suggested: bool,
+    /// Tier-2 known app that we recognise but explicitly keep open by
+    /// default — communication apps the user wants while gaming. UI still
+    /// shows it but unchecked.
+    pub keep_default: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -81,53 +85,72 @@ const HARD_BLACKLIST: &[&str] = &[
 ];
 
 /// Curated suggestions: processes that are typically safe to close before
-/// gaming. Lowercased substring match against the process name.
+/// gaming. Lowercased substring match against the process name. The `keep`
+/// flag distinguishes apps the user usually wants alive *while* gaming —
+/// chat clients, calls, voice — from straightforward bloat to evict.
 struct Suggested {
     needles: &'static [&'static str],
     category: &'static str,
+    /// When true the row is recognised but UI does NOT pre-check it. User
+    /// keeps comms alive unless they explicitly opt in to kill.
+    keep: bool,
 }
 
 const SUGGESTED: &[Suggested] = &[
-    Suggested { needles: &["discord", "discordcanary", "discordptb"], category: "discord" },
-    Suggested { needles: &["spotify"], category: "spotify" },
-    Suggested { needles: &["slack"], category: "slack" },
-    Suggested { needles: &["teams"], category: "teams" },
-    Suggested { needles: &["onedrive"], category: "onedrive" },
-    Suggested { needles: &["googledrivefs", "googledrive"], category: "google-drive" },
-    Suggested { needles: &["dropbox"], category: "dropbox" },
-    Suggested { needles: &["telegram"], category: "telegram" },
-    Suggested { needles: &["whatsapp"], category: "whatsapp" },
-    Suggested { needles: &["zoom"], category: "zoom" },
-    Suggested { needles: &["obs"], category: "obs" },
-    // IObit family
-    Suggested { needles: &["iobit", "driverbooster", "advancedsystemcare", "imf", "iobitsoftware"], category: "iobit" },
-    // OEM bloat / updaters
-    Suggested { needles: &["razersynapse", "razer central", "razerappengine"], category: "razer" },
-    Suggested { needles: &["logitech", "lghub", "logioptions"], category: "logitech" },
-    Suggested { needles: &["msedgewebview2"], category: "edge-webview-orphan" },
-    Suggested { needles: &["googleupdater"], category: "google-updater" },
-    Suggested { needles: &["edgeupdate"], category: "edge-updater" },
-    Suggested { needles: &["adobeupdate", "adobenotificationclient", "creativecloud"], category: "adobe" },
-    Suggested { needles: &["epicgameslauncher", "epicwebhelper"], category: "epic" },
-    Suggested { needles: &["origin", "easanticheat"], category: "origin" },
+    // ---- Communication / voice / video — KEEP ALIVE by default ----------
+    Suggested { needles: &["discord", "discordcanary", "discordptb"], category: "discord", keep: true },
+    Suggested { needles: &["slack"], category: "slack", keep: true },
+    Suggested { needles: &["teams"], category: "teams", keep: true },
+    Suggested { needles: &["telegram"], category: "telegram", keep: true },
+    Suggested { needles: &["whatsapp"], category: "whatsapp", keep: true },
+    Suggested { needles: &["zoom"], category: "zoom", keep: true },
+    Suggested { needles: &["element"], category: "element", keep: true },
+    Suggested { needles: &["signal"], category: "signal", keep: true },
+    // Music players — usually kept, can stream while gaming
+    Suggested { needles: &["spotify"], category: "spotify", keep: true },
+    // Streaming / recording — keep, user is often deliberate about these
+    Suggested { needles: &["obs"], category: "obs", keep: true },
+
+    // ---- Dispensable / bloat — KILL by default --------------------------
+    // Cloud sync clients (heavy, IO churn, user can resume after)
+    Suggested { needles: &["onedrive"], category: "onedrive", keep: false },
+    Suggested { needles: &["googledrivefs", "googledrive"], category: "google-drive", keep: false },
+    Suggested { needles: &["dropbox"], category: "dropbox", keep: false },
+    // IObit family — known fan-spinners
+    Suggested { needles: &["iobit", "driverbooster", "advancedsystemcare", "imf", "iobitsoftware"], category: "iobit", keep: false },
+    // OEM peripheral suites — fine to relaunch, save battery/CPU mid-game
+    Suggested { needles: &["razersynapse", "razer central", "razerappengine"], category: "razer", keep: false },
+    Suggested { needles: &["logitech", "lghub", "logioptions"], category: "logitech", keep: false },
+    // Orphan webviews and silent updaters
+    Suggested { needles: &["msedgewebview2"], category: "edge-webview-orphan", keep: false },
+    Suggested { needles: &["googleupdater"], category: "google-updater", keep: false },
+    Suggested { needles: &["edgeupdate"], category: "edge-updater", keep: false },
+    Suggested { needles: &["adobeupdate", "adobenotificationclient", "creativecloud"], category: "adobe", keep: false },
+    // Game store launchers — yes, even before launching a game, you don't
+    // need ALL of them resident.
+    Suggested { needles: &["epicgameslauncher", "epicwebhelper"], category: "epic", keep: false },
+    Suggested { needles: &["origin", "easanticheat"], category: "origin", keep: false },
     // Cluttery Windows extras
-    Suggested { needles: &["onedrivesetup"], category: "onedrive-setup" },
-    Suggested { needles: &["yourphone"], category: "phone-link" },
+    Suggested { needles: &["onedrivesetup"], category: "onedrive-setup", keep: false },
+    Suggested { needles: &["yourphone"], category: "phone-link", keep: false },
     // Background browsers we didn't ask for
-    Suggested { needles: &["chrome", "msedge"], category: "browser-bg" },
+    Suggested { needles: &["chrome", "msedge"], category: "browser-bg", keep: false },
 ];
 
 fn is_blacklisted(name_lower: &str) -> bool {
     HARD_BLACKLIST.iter().any(|b| name_lower == *b)
 }
 
-fn category_for(name_lower: &str) -> (bool, &'static str) {
+/// Returns `(matched, category, keep_default)`. `matched` is true when the
+/// process is in our curated SUGGESTED table at all; `keep_default` tells
+/// the UI to NOT pre-check it.
+fn category_for(name_lower: &str) -> (bool, &'static str, bool) {
     for s in SUGGESTED {
         if s.needles.iter().any(|n| name_lower.contains(n)) {
-            return (true, s.category);
+            return (true, s.category, s.keep);
         }
     }
-    (false, "")
+    (false, "", false)
 }
 
 // ---------------------------------------------------------------------------
@@ -201,19 +224,31 @@ else { ConvertTo-Json $rows -Compress }
         if is_blacklisted(&name_lower) {
             continue;
         }
-        let (suggested, category) = category_for(&name_lower);
+        let (recognised, category, keep_default) = category_for(&name_lower);
+        // `suggested` (pre-check) = recognised AND not flagged as keep.
+        let suggested = recognised && !keep_default;
         out.push(GameProcessInfo {
             pid: r.pid,
             name: r.name,
             ram_mb: (ram_mb * 10.0).round() / 10.0,
             category: category.to_string(),
             suggested,
+            keep_default,
         });
     }
-    // Suggested first, then by RAM desc
+    // Sort order:
+    //   1. suggested-kill rows first (dispensables)
+    //   2. then keep-default known apps (comms / spotify / OBS)
+    //   3. then everything else
+    // Within each group, by RAM desc.
     out.sort_by(|a, b| {
-        b.suggested
-            .cmp(&a.suggested)
+        let group = |g: &GameProcessInfo| {
+            if g.suggested { 0 }
+            else if g.keep_default { 1 }
+            else { 2 }
+        };
+        group(a)
+            .cmp(&group(b))
             .then_with(|| b.ram_mb.partial_cmp(&a.ram_mb).unwrap_or(std::cmp::Ordering::Equal))
     });
     Ok(out)
