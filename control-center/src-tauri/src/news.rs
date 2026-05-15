@@ -316,11 +316,17 @@ pub async fn summarize_news_inner(
         title, plain
     );
 
-    let r = crate::sessions::run_inline_inner(app, "codex".into(), None, prompt).await?;
-    if !r.success {
-        return Err(if !r.stderr.is_empty() { r.stderr } else { r.stdout });
-    }
-    Ok(r.stdout.trim().to_string())
+    // Route via spawn_session_inner so we hit the clipboard path (the
+    // newsletter body contains `⌬`, em-dashes and `'` which Codex's
+    // .cmd shim rejects as "unexpected argument <body>" when passed
+    // inline). spawn_session_inner copies the prompt to clipboard for
+    // any payload with newlines or >1200 chars.
+    crate::sessions::spawn_session_inner(app, "codex".into(), Some(prompt), None, None)
+        .await
+        .map_err(|e| e)?;
+    Ok(
+        "Sesion Codex abierta en wt.exe. El prompt (newsletter strip + instruccion) esta en tu clipboard; pulsa Ctrl+V alli.".to_string(),
+    )
 }
 
 /// Delete a single newsletter HTML file. Strict: only files inside the news

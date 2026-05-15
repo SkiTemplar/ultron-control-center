@@ -111,9 +111,11 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
               </div>
             )}
             <div className="space-y-px">
-              {section.items.map((item) => {
+              {section.items
+                .filter((item) => item.available)
+                .map((item) => {
                 const isActive = active === item.id;
-                const dim = !item.available;
+                const dim = false;
                 return (
                   <button
                     key={item.id}
