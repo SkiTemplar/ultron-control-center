@@ -15,6 +15,7 @@ import { System } from "./components/System";
 import { Gaming } from "./components/Gaming";
 import { Logs } from "./components/Logs";
 import { News } from "./components/News";
+import { Personal } from "./components/Personal";
 import { Plans } from "./components/Plans";
 import { SelfImprove } from "./components/SelfImprove";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
@@ -56,6 +57,41 @@ export default function App() {
     refreshAll();
     const t = setInterval(refreshAll, 15_000);
     return () => clearInterval(t);
+  }, []);
+
+  // Capture frontend errors and pipe them into alerts.jsonl so the
+  // Notifications tab surfaces them alongside backend issues. Without
+  // this, JS exceptions / unhandled rejections die silently in the
+  // webview and the user has no idea something broke.
+  useEffect(() => {
+    let lastFingerprint = "";
+    let lastTs = 0;
+    function report(severity: "warn" | "critical", source: string, message: string) {
+      const trimmed = message.slice(0, 600);
+      const fingerprint = `${source}::${trimmed}`;
+      const now = Date.now();
+      // Throttle identical errors — Tauri devtools can chain the same
+      // exception multiple times.
+      if (fingerprint === lastFingerprint && now - lastTs < 5000) return;
+      lastFingerprint = fingerprint;
+      lastTs = now;
+      invoke("record_ui_alert", { severity, source, message: trimmed }).catch(() => {});
+    }
+    const onError = (e: ErrorEvent) => {
+      const msg = e.message || (e.error && String(e.error)) || "unknown error";
+      report("critical", "ui.error", `${msg} @ ${e.filename}:${e.lineno}`);
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      const reason = e.reason;
+      const msg = reason instanceof Error ? `${reason.name}: ${reason.message}` : String(reason);
+      report("warn", "ui.promise", msg);
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
   }, []);
 
   // In-app keyboard shortcuts. The OS-wide Ctrl+Alt+U lives in the Rust
@@ -157,6 +193,7 @@ export default function App() {
         {tab === "news" && <News />}
         {tab === "plans" && <Plans />}
         {tab === "logs" && <Logs />}
+        {tab === "personal" && <Personal />}
         {tab === "self-improve" && (
           <div className="px-10 py-8">
             <header className="mb-6">

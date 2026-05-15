@@ -36,12 +36,27 @@ pub struct ErrorEntry {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct SessionMetric {
+    pub label: String,
+    pub value: f64,
+    pub unit: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct SelfImproveReport {
     pub total_routes: u64,
     pub matched_routes: u64,
     pub top_intents: Vec<IntentCount>,
     pub top_skills: Vec<SkillCount>,
     pub recent_errors: Vec<ErrorEntry>,
+    /// Session usage rollups computed from ~/.claude/projects/*.jsonl.
+    /// Includes counts, average session duration, top-active days.
+    #[serde(default)]
+    pub session_metrics: Vec<SessionMetric>,
+    /// Top-N memory notes by recent access (mtime). Surfaces what the user
+    /// actually reads vs. what gets indexed but never opened.
+    #[serde(default)]
+    pub recent_memory_paths: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -255,13 +270,233 @@ pub fn self_improve_report_inner() -> Result<SelfImproveReport, String> {
     let (total_routes, matched_routes, top_intents) = read_routing(&root);
     let top_skills = read_skill_usage(&root);
     let recent_errors = read_recent_errors(&root);
+    let session_metrics = compute_session_metrics().unwrap_or_default();
+    let recent_memory_paths = recent_memory_paths(10);
     Ok(SelfImproveReport {
         total_routes,
         matched_routes,
         top_intents,
         top_skills,
         recent_errors,
+        session_metrics,
+        recent_memory_paths,
     })
+}
+
+/// Scan ~/.claude/projects/*.jsonl to compute aggregate session metrics:
+/// total sessions, total messages, avg session duration (between first and
+/// last timestamp in a transcript), and last-7-days activity. All bounded
+/// reads — we only peek first/last line per file.
+fn compute_session_metrics() -> Option<Vec<SessionMetric>> {
+    let dir = dirs::home_dir()?.join(".claude/projects");
+    if !dir.exists() {
+        return None;
+    }
+    let mut sessions: u64 = 0;
+    let mut total_messages: u64 = 0;
+    let mut total_minutes: f64 = 0.0;
+    let mut sessions_with_duration: u64 = 0;
+    let now_iso = chrono_today_iso();
+    let week_ago = days_ago_iso(7);
+    let mut last_week_sessions: u64 = 0;
+
+    for project in std::fs::read_dir(&dir).ok()?.flatten() {
+        let project_path = project.path();
+        if !project_path.is_dir() {
+            continue;
+        }
+        let Ok(rd) = std::fs::read_dir(&project_path) else { continue };
+        for f in rd.flatten() {
+            let p = f.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            if p.parent()
+                .and_then(|x| x.file_name())
+                .map(|n| n == "subagents")
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            sessions += 1;
+            // Count lines = upper bound on messages. Bounded read at 5MB
+            // for big transcripts.
+            let raw = match std::fs::read_to_string(&p) {
+                Ok(s) if s.len() <= 5_000_000 => s,
+                Ok(s) => s.chars().take(2_000_000).collect(),
+                Err(_) => continue,
+            };
+            let mut first_ts: Option<String> = None;
+            let mut last_ts: Option<String> = None;
+            let mut msg_count: u64 = 0;
+            for line in raw.lines() {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                    let typ = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
+                    if typ == "user" || typ == "assistant" {
+                        msg_count += 1;
+                    }
+                    if let Some(ts) = v.get("timestamp").and_then(|x| x.as_str()) {
+                        if first_ts.is_none() {
+                            first_ts = Some(ts.to_string());
+                        }
+                        last_ts = Some(ts.to_string());
+                    }
+                }
+            }
+            total_messages += msg_count;
+            if let (Some(a), Some(b)) = (first_ts.as_deref(), last_ts.as_deref()) {
+                if let (Some(ta), Some(tb)) = (parse_iso_secs(a), parse_iso_secs(b)) {
+                    let mins = ((tb.saturating_sub(ta)) as f64) / 60.0;
+                    if mins > 0.0 && mins < 24.0 * 60.0 {
+                        total_minutes += mins;
+                        sessions_with_duration += 1;
+                    }
+                }
+                if a.starts_with(&week_ago[..10]) || a > week_ago.as_str() {
+                    last_week_sessions += 1;
+                }
+            }
+        }
+    }
+    let avg_dur = if sessions_with_duration > 0 {
+        total_minutes / sessions_with_duration as f64
+    } else {
+        0.0
+    };
+    let avg_msgs = if sessions > 0 {
+        total_messages as f64 / sessions as f64
+    } else {
+        0.0
+    };
+    Some(vec![
+        SessionMetric {
+            label: "Total sessions".into(),
+            value: sessions as f64,
+            unit: "".into(),
+        },
+        SessionMetric {
+            label: "Sessions last 7d".into(),
+            value: last_week_sessions as f64,
+            unit: "".into(),
+        },
+        SessionMetric {
+            label: "Total messages".into(),
+            value: total_messages as f64,
+            unit: "".into(),
+        },
+        SessionMetric {
+            label: "Avg messages per session".into(),
+            value: (avg_msgs * 10.0).round() / 10.0,
+            unit: "msgs".into(),
+        },
+        SessionMetric {
+            label: "Avg session duration".into(),
+            value: (avg_dur * 10.0).round() / 10.0,
+            unit: "min".into(),
+        },
+        SessionMetric {
+            label: "Today".into(),
+            value: now_iso[..10].parse::<f64>().unwrap_or(0.0),
+            unit: "".into(),
+        },
+    ])
+}
+
+fn recent_memory_paths(limit: usize) -> Vec<String> {
+    let dir = match dirs::home_dir().map(|h| h.join(".ultron-vault")) {
+        Some(d) if d.exists() => d,
+        _ => return Vec::new(),
+    };
+    let mut entries: Vec<(SystemTime, PathBuf)> = Vec::new();
+    fn walk(root: &PathBuf, vault: &PathBuf, out: &mut Vec<(SystemTime, PathBuf)>) {
+        let Ok(rd) = std::fs::read_dir(root) else { return };
+        for f in rd.flatten() {
+            let p = f.path();
+            // Skip dotfile children of the vault.
+            if let Some(name) = p.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with('.') && p != *vault {
+                    continue;
+                }
+            }
+            if p.is_dir() {
+                walk(&p, vault, out);
+            } else if p.extension().and_then(|e| e.to_str()) == Some("md") {
+                if let Ok(meta) = f.metadata() {
+                    if let Ok(t) = meta.modified() {
+                        out.push((t, p));
+                    }
+                }
+            }
+        }
+    }
+    walk(&dir, &dir, &mut entries);
+    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries
+        .into_iter()
+        .take(limit)
+        .filter_map(|(_, p)| {
+            p.strip_prefix(&dir)
+                .ok()
+                .map(|rel| rel.to_string_lossy().to_string())
+        })
+        .collect()
+}
+
+fn chrono_today_iso() -> String {
+    let secs = now_secs();
+    iso_from_secs(secs)
+}
+
+fn days_ago_iso(days: u64) -> String {
+    let secs = now_secs().saturating_sub(days * 86_400);
+    iso_from_secs(secs)
+}
+
+fn iso_from_secs(secs: u64) -> String {
+    let mut days = (secs / 86_400) as i64;
+    let secs_in_day = (secs % 86_400) as u32;
+    let h = secs_in_day / 3600;
+    let m = (secs_in_day % 3600) / 60;
+    let s = secs_in_day % 60;
+    let mut year = 1970i32;
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let yd: i64 = if leap { 366 } else { 365 };
+        if days < yd { break; }
+        days -= yd;
+        year += 1;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let mdays: [i64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 0usize;
+    while month < 12 && days >= mdays[month] { days -= mdays[month]; month += 1; }
+    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, h, m, s)
+}
+
+fn parse_iso_secs(s: &str) -> Option<u64> {
+    // Minimal YYYY-MM-DDTHH:MM:SS parser. Tolerant to fractional seconds
+    // and Z suffix.
+    if s.len() < 19 { return None; }
+    let y: i64 = s.get(0..4)?.parse().ok()?;
+    let mo: i64 = s.get(5..7)?.parse().ok()?;
+    let d: i64 = s.get(8..10)?.parse().ok()?;
+    let hh: i64 = s.get(11..13)?.parse().ok()?;
+    let mm: i64 = s.get(14..16)?.parse().ok()?;
+    let ss: i64 = s.get(17..19)?.parse().ok()?;
+    // Days since 1970-01-01
+    let mut days: i64 = 0;
+    for year in 1970..y {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        days += if leap { 366 } else { 365 };
+    }
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let mdays: [i64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    for m in 0..(mo as usize - 1).min(11) {
+        days += mdays[m];
+    }
+    days += d - 1;
+    let secs = (days as u64) * 86_400 + (hh as u64) * 3600 + (mm as u64) * 60 + ss as u64;
+    Some(secs)
 }
 
 // ---------------------------------------------------------------------------

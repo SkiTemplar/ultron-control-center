@@ -19,6 +19,8 @@ export type SelfImproveReport = {
   top_intents: { intent: string; count: number }[];
   top_skills: { skill: string; count: number }[];
   recent_errors: { source: string; message: string; ts: string }[];
+  session_metrics?: { label: string; value: number; unit: string }[];
+  recent_memory_paths?: string[];
 };
 
 export function SelfImprove() {
@@ -163,6 +165,86 @@ export function SelfImprove() {
               {data.top_skills[0]?.count ?? 0} activations
             </div>
           </div>
+        </div>
+      )}
+
+      {data && data.session_metrics && data.session_metrics.length > 0 && (
+        <div>
+          <div
+            className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Session activity (from ~/.claude/projects)
+          </div>
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+            {data.session_metrics
+              .filter((m) => m.label !== "Today")
+              .map((m) => (
+                <div
+                  key={m.label}
+                  className="rounded p-2.5"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  <div
+                    className="text-[9.5px] font-medium uppercase tracking-[0.06em]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {m.label}
+                  </div>
+                  <div
+                    className="mt-0.5 text-[15px] font-semibold tabular-nums leading-tight"
+                    style={{ color: "var(--color-text)" }}
+                  >
+                    {Number.isInteger(m.value)
+                      ? m.value.toLocaleString()
+                      : m.value.toFixed(1)}{" "}
+                    {m.unit && (
+                      <span
+                        className="text-[10px] font-normal"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                      >
+                        {m.unit}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
+
+      {data && data.recent_memory_paths && data.recent_memory_paths.length > 0 && (
+        <div>
+          <div
+            className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Memory notes accessed recently
+          </div>
+          <ul
+            className="rounded text-[11.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {data.recent_memory_paths.slice(0, 8).map((p, i) => (
+              <li
+                key={p}
+                className="px-3 py-1.5"
+                style={{
+                  borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
+                  color: "var(--color-text-secondary)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {p}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

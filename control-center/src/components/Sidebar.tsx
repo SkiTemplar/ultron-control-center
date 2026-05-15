@@ -16,6 +16,7 @@ export type Tab =
   | "system"
   | "gaming"
   | "news"
+  | "personal"
   | "self-improve"
   | "settings";
 
@@ -59,6 +60,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     heading: "Meta",
     items: [
       { id: "self-improve", label: "Stats", available: true },
+      { id: "personal", label: "Personal", available: true },
     ],
   },
   {
