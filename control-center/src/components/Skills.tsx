@@ -897,18 +897,47 @@ export function Skills() {
                 {skills.length} total · {filtered.length} shown
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => setShowNewModal(true)}
-              className="shrink-0 rounded px-2.5 py-1 text-[11.5px]"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-              }}
-            >
-              + New skill
-            </button>
+            <div className="flex shrink-0 gap-1.5">
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const instr = (await invoke("instruction_path", {
+                      kind: "skills",
+                    })) as string;
+                    await invoke("spawn_session", {
+                      provider: "claude",
+                      prompt:
+                        "Vamos a crear un nuevo skill para Claude Code. Lee el GUIDE.md de esta carpeta para conocer el schema YAML, allowed-tools, layers (active/vault) y post-creation. Después pregúntame slug, descripción y triggers, y genera el SKILL.md completo en ~/.claude/skills/<slug>/ o ~/.ultron/skill-vault/<slug>/ según indique.",
+                      cwd: instr,
+                      flags: { dangerouslySkipPermissions: false },
+                    });
+                  } catch (e) {
+                    console.error("create skill with AI failed", e);
+                  }
+                }}
+                className="rounded px-2.5 py-1 text-[11.5px] font-medium"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+                title="Sesión Claude con cwd=instructions/skills/ y GUIDE.md auto-cargado"
+              >
+                AI
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNewModal(true)}
+                className="rounded px-2.5 py-1 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                + New
+              </button>
+            </div>
           </div>
 
           <div className="mt-3 flex flex-wrap gap-1.5">

@@ -80,9 +80,12 @@ pub async fn run_diagnose_inner(
     })
 }
 
-/// Sends the raw report to Claude (via run_inline) and asks for a diagnostic
-/// summary. We keep the prompt in Spanish to match the user's language and
-/// constrain output length so the UI doesn't get swamped.
+/// Spawns a Claude wt.exe session with the diagnostic report preseeded as
+/// the first message. We use a session (not run_inline) for two reasons:
+/// (1) Claude inline kept producing empty stdout for prompts of this size
+/// even after the PROMPT_CAP bump — likely the shim swallowing output;
+/// (2) USER wants interactive follow-up ("dime cómo arreglo esto"),
+/// which the inline path doesn't support.
 pub async fn diagnose_with_ai_inner(
     app: &tauri::AppHandle,
     report_json: String,
@@ -91,24 +94,43 @@ pub async fn diagnose_with_ai_inner(
     if report_json.trim().is_empty() {
         return Err("report is empty — run diagnose first".to_string());
     }
-    // Cap to ~28 KB so we don't blow past Claude's prompt budget while
-    // leaving headroom for the system instructions.
+    // Cap to ~28 KB so we don't bloat the wt.exe command line. The base64
+    // payload + capability validator gives us ~100 KB headroom but Claude
+    // doesn't need the whole thing to start reasoning.
     let mut report_capped = report_json;
-    if report_capped.len() > 28_000 {
-        report_capped.truncate(28_000);
+    if report_capped.chars().count() > 28_000 {
+        report_capped = report_capped.chars().take(28_000).collect();
         report_capped.push_str("\n\n[truncated]");
     }
-    let system = "Eres un ingeniero de soporte de Windows. Recibirás un JSON con eventos del Event Viewer, procesos top y métricas de salud. Analiza qué pudo causar lentitud, congelaciones o crashes recientes. Responde en ESPAÑOL, con tres secciones cortas:\n1. RESUMEN (2–3 líneas con la hipótesis principal).\n2. EVIDENCIAS (bullets con los eventos / patrones que la apoyan, citando event IDs cuando sean clave).\n3. ACCIONES (3–6 pasos concretos en orden, primero los más seguros).\nSé directo, no especules sin evidencia, y si no hay señal clara dilo.";
-    let user = format!(
-        "{}\n\n---\n\nReporte JSON:\n```json\n{}\n```",
+    let system = "Eres un ingeniero de soporte de Windows. Te paso un JSON con eventos del Event Viewer, procesos top y metricas de salud. Analiza que pudo causar lentitud, congelaciones o crashes recientes. Responde en ESPANOL con tres secciones cortas:\n1. RESUMEN (2-3 lineas con la hipotesis principal).\n2. EVIDENCIAS (bullets con los eventos/patrones que la apoyan, citando event IDs cuando sean clave).\n3. ACCIONES (3-6 pasos concretos en orden, primero los mas seguros).\nSe directo, no especules sin evidencia, y si no hay senal clara dilo.";
+    let prompt = format!(
+        "{}\n\nReporte JSON:\n```json\n{}\n```",
         system, report_capped
     );
 
     let provider = provider.as_deref().unwrap_or("claude").to_string();
-    let r = crate::sessions::run_inline_inner(app, provider, None, user).await?;
-    Ok(AiDiagnoseResult {
-        success: r.success,
-        analysis: if r.success { r.stdout } else { r.stderr.clone() },
-        stderr: r.stderr,
-    })
+    let spawn = crate::sessions::spawn_session_inner(
+        app,
+        provider.clone(),
+        Some(prompt),
+        None,
+        None,
+    )
+    .await;
+
+    match spawn {
+        Ok(_) => Ok(AiDiagnoseResult {
+            success: true,
+            analysis: format!(
+                "Sesion {} abierta en wt.exe con el reporte como primer prompt. Continua el diagnostico alli — Claude/Codex tienen el JSON entero y pueden iterar sobre las recomendaciones contigo.",
+                provider
+            ),
+            stderr: String::new(),
+        }),
+        Err(e) => Ok(AiDiagnoseResult {
+            success: false,
+            analysis: String::new(),
+            stderr: e,
+        }),
+    }
 }

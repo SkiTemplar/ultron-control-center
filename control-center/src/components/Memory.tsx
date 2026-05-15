@@ -438,18 +438,48 @@ export function Memory() {
               Vault · Brain index · Qdrant · live search across the 3 layers
             </p>
           </div>
-          <button
-            type="button"
-            onClick={load}
-            disabled={refreshing}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-          >
-            {refreshing ? "Refreshing…" : "Refresh status"}
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const instr = (await invoke("instruction_path", {
+                    kind: "memory",
+                  })) as string;
+                  await invoke("spawn_session", {
+                    provider: "claude",
+                    prompt:
+                      "Vamos a escribir una nueva nota para el vault Obsidian (~/.ultron-vault). Lee el GUIDE.md de esta carpeta para conocer la estructura PARA (10_KNOWLEDGE, 20_PROJECTS...), frontmatter requerido y convenciones. Pregúntame el tema, propon ubicación y título, escribe la nota y luego corre brain_index.py update + embed_vault.py index.",
+                    cwd: instr,
+                    flags: { dangerouslySkipPermissions: false },
+                  });
+                } catch (e) {
+                  console.error("create memory with AI failed", e);
+                }
+              }}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+              title="Sesión Claude con cwd=instructions/memory/ y GUIDE.md auto-cargado"
+            >
+              New note with AI
+            </button>
+            <button
+              type="button"
+              onClick={load}
+              disabled={refreshing}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-accent-text)",
+              }}
+            >
+              {refreshing ? "Refreshing…" : "Refresh status"}
+            </button>
+          </div>
         </header>
 
         {error && (

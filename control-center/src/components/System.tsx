@@ -745,7 +745,36 @@ export function System() {
 
       {/* Scheduled tasks (full width) */}
       <section className="mb-6">
-        <h2 className="mb-2 text-[13px] font-semibold">Scheduled tasks</h2>
+        <div className="mb-2 flex items-baseline justify-between">
+          <h2 className="text-[13px] font-semibold">Scheduled tasks</h2>
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const instr = (await invoke("instruction_path", {
+                  kind: "tasks",
+                })) as string;
+                await invoke("spawn_session", {
+                  provider: "claude",
+                  prompt:
+                    "Vamos a registrar una nueva scheduled task de Windows. Lee el GUIDE.md de esta carpeta para conocer la convención (prefix ULTRON-, wrapper PowerShell, exit-swallow, log en cockpit/scheduler-logs/). Después pregúntame qué quiero programar y prepara el New-ScheduledTaskAction completo, lo registramos y validamos con Get-ScheduledTaskInfo.",
+                  cwd: instr,
+                  flags: { dangerouslySkipPermissions: false },
+                });
+              } catch (e) {
+                console.error("create task with AI failed", e);
+              }
+            }}
+            className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+            title="Abre sesión Claude en instructions/tasks/ con el GUIDE.md auto-cargado"
+          >
+            Create with AI
+          </button>
+        </div>
         {tasks.length === 0 && !loading && (
           <div
             className="rounded p-6 text-center text-[12.5px]"

@@ -90,6 +90,8 @@ export function News() {
     load();
   }, []);
 
+  // @ts-expect-error retained as a callable for power-user JS console / future debugging
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async function generate() {
     setGenerating(true);
     setError(null);
@@ -250,23 +252,9 @@ export function News() {
                     background: "var(--color-accent)",
                     color: "var(--color-accent-text)",
                   }}
-                  title="Recommended: copia prompt al clipboard + abre Gemini wt.exe para que tu pegues"
+                  title="Copia prompt al clipboard + abre sesión Gemini en wt.exe (pega allí con Ctrl+V)"
                 >
                   {generating ? "Spawning Gemini..." : "Open Gemini session"}
-                </button>
-                <button
-                  type="button"
-                  onClick={generate}
-                  disabled={generating}
-                  className="rounded px-3 py-1 text-[12px] transition-colors disabled:opacity-50"
-                  style={{
-                    background: "var(--color-surface-3)",
-                    color: "var(--color-text-secondary)",
-                    border: "1px solid var(--color-border-strong)",
-                  }}
-                  title="Modo headless (puede fallar si la CLI no acepta el prompt)"
-                >
-                  Headless attempt
                 </button>
               </div>
               <p

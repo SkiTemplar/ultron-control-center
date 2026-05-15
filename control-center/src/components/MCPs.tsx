@@ -823,6 +823,33 @@ export function MCPs() {
           </button>
           <button
             type="button"
+            onClick={async () => {
+              try {
+                const instr = (await invoke("instruction_path", {
+                  kind: "mcps",
+                })) as string;
+                await invoke("spawn_session", {
+                  provider: "claude",
+                  prompt:
+                    "Vamos a añadir un MCP server a ~/.claude/settings.json. Lee el GUIDE.md de esta carpeta para conocer la allowlist de commands, fragmentos prohibidos en args y el shape esperado. Después pregúntame nombre, comando, args y env, valida con la allowlist y registra el MCP (espera mi OK antes de escribir). Tras añadir, ejecuta mcp_health_check.py.",
+                  cwd: instr,
+                  flags: { dangerouslySkipPermissions: false },
+                });
+              } catch (e) {
+                console.error("create mcp with AI failed", e);
+              }
+            }}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+            title="Sesión Claude con cwd=instructions/mcps/ y GUIDE.md auto-cargado"
+          >
+            Add with AI
+          </button>
+          <button
+            type="button"
             onClick={runProbe}
             disabled={probing}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
