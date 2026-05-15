@@ -285,6 +285,36 @@
           ]
         },
         {
+          "name": "windows-tweaks-status",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\windows-tweaks\\.ps1$" },
+            "-Action",
+            { "validator": "^status$" }
+          ]
+        },
+        {
+          "name": "windows-tweaks-apply",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\windows-tweaks\\.ps1$" },
+            "-Action",
+            { "validator": "^(apply|revert)$" },
+            "-Key",
+            { "validator": "^(game-dvr|game-mode|power-plan|focus-assist)$" }
+          ]
+        },
+        {
           "name": "system-diagnose",
           "cmd": "powershell.exe",
           "args": [

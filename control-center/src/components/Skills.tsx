@@ -195,7 +195,7 @@ function HeaderBtn({
   );
 }
 
-type PreviewMode = "view" | "edit" | "confirm-delete";
+type PreviewMode = "view" | "edit" | "ai-edit" | "confirm-delete";
 type ViewKind = "rich" | "raw";
 
 function Preview({
@@ -215,6 +215,8 @@ function Preview({
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<PreviewMode>("view");
   const [view, setView] = useState<ViewKind>("rich");
+  const [aiInstruction, setAiInstruction] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,6 +265,43 @@ function Preview({
       setError(String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleAiEdit() {
+    if (!aiInstruction.trim()) return;
+    setAiBusy(true);
+    setError(null);
+    try {
+      // Spawn a Claude session in ~/.claude/skills/<name>/ with a prompt
+      // that loads SKILL.md and applies the user's instruction. We use the
+      // skill folder so Claude's auto-discovery picks up SKILL.md and any
+      // sibling files (mode-*.md, references/, etc.) without us reading
+      // them ourselves. The session lives in wt.exe so the user can iterate
+      // turn-by-turn (Claude proposes a diff, user accepts / refines).
+      const promptText = [
+        `Quiero editar este skill (~/.claude/skills/${skill.name}/SKILL.md).`,
+        "",
+        "Instrucción:",
+        aiInstruction.trim(),
+        "",
+        "Lee primero el SKILL.md actual y los archivos hermanos si son relevantes. Propon el cambio como diff antes de escribir. Mantén el frontmatter YAML válido.",
+      ].join("\n");
+      const skillDir =
+        skill.path ?? `C:\\Users\\USER\\.claude\\skills\\${skill.name}`;
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: promptText,
+        cwd: skillDir,
+        flags: { dangerouslySkipPermissions: false },
+      });
+      setMode("view");
+      setAiInstruction("");
+      flash("Claude session abierta en wt.exe para editar este skill.");
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -322,6 +361,11 @@ function Preview({
                 </div>
                 <HeaderBtn label="Edit" onClick={() => setMode("edit")} disabled={busy || loading} />
                 <HeaderBtn
+                  label="AI"
+                  onClick={() => setMode("ai-edit")}
+                  disabled={busy || loading}
+                />
+                <HeaderBtn
                   label="Delete"
                   variant="danger"
                   onClick={() => setMode("confirm-delete")}
@@ -334,6 +378,17 @@ function Preview({
                 <HeaderBtn label="Cancel" onClick={() => { setDraft(content); setMode("view"); setError(null); }} disabled={busy} />
                 <HeaderBtn label={busy ? "Saving…" : "Save"} onClick={handleSaveEdit} disabled={busy || draft === content} />
               </>
+            )}
+            {mode === "ai-edit" && (
+              <HeaderBtn
+                label="Cancel"
+                onClick={() => {
+                  setMode("view");
+                  setAiInstruction("");
+                  setError(null);
+                }}
+                disabled={aiBusy}
+              />
             )}
             {mode === "confirm-delete" && (
               <HeaderBtn label="Cancel" onClick={() => { setMode("view"); setError(null); }} disabled={busy} />
@@ -418,6 +473,52 @@ function Preview({
               onClick={() => handleDelete(false)}
               disabled={busy}
             />
+          </div>
+        )}
+        {mode === "ai-edit" && (
+          <div
+            className="mt-3 rounded p-3"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+          >
+            <div
+              className="text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Edit con Claude
+            </div>
+            <p
+              className="mt-1 text-[11.5px] leading-relaxed"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Spawnea una sesion Claude en la carpeta del skill con SKILL.md
+              precargada. Claude proposa un diff antes de escribir, tu lo
+              aceptas/rechazas en wt.exe.
+            </p>
+            <textarea
+              value={aiInstruction}
+              onChange={(e) => setAiInstruction(e.target.value)}
+              placeholder="Ej: anade un bloque triggers para 'modo nocturno', mantiene el resto intacto"
+              className="mt-2 w-full rounded p-2 text-[12px] leading-relaxed"
+              style={{
+                fontFamily: "var(--font-mono)",
+                background: "var(--color-surface-1)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+                minHeight: 90,
+                resize: "vertical",
+              }}
+            />
+            <div className="mt-2 flex items-center justify-end gap-2">
+              <HeaderBtn
+                label={aiBusy ? "Spawning..." : "Open Claude session"}
+                onClick={handleAiEdit}
+                disabled={aiBusy || !aiInstruction.trim()}
+              />
+            </div>
           </div>
         )}
       </header>

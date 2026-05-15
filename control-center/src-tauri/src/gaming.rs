@@ -14,7 +14,8 @@
 
 use std::collections::BTreeSet;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use tauri_plugin_shell::ShellExt;
 
 // ---------------------------------------------------------------------------
@@ -344,4 +345,86 @@ pub async fn kill_processes_inner(
         failed,
         freed_mb_estimate: (freed_mb * 10.0).round() / 10.0,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Windows tweaks (registry + powercfg, user-level only)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct WindowsTweak {
+    pub key: String,
+    pub label: String,
+    pub enabled: bool,
+    pub description: String,
+    #[serde(default)]
+    pub active_guid: String,
+    #[serde(default)]
+    pub active_name: String,
+}
+
+fn tweaks_script() -> Result<PathBuf, String> {
+    let p = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/windows-tweaks.ps1");
+    if !p.exists() {
+        return Err(format!("script missing: {}", p.display()));
+    }
+    Ok(p)
+}
+
+async fn run_tweaks(
+    app: &tauri::AppHandle,
+    action: &str,
+    key: Option<&str>,
+) -> Result<Vec<WindowsTweak>, String> {
+    let script = tweaks_script()?;
+    let script_str = script.to_string_lossy().to_string();
+    let mut args: Vec<String> = vec![
+        "-NoProfile".into(),
+        "-NonInteractive".into(),
+        "-ExecutionPolicy".into(),
+        "Bypass".into(),
+        "-File".into(),
+        script_str,
+        "-Action".into(),
+        action.to_string(),
+    ];
+    if let Some(k) = key {
+        if !matches!(k, "game-dvr" | "game-mode" | "power-plan" | "focus-assist") {
+            return Err(format!("invalid tweak key '{}'", k));
+        }
+        args.push("-Key".into());
+        args.push(k.to_string());
+    }
+    let str_args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = app
+        .shell()
+        .command("powershell.exe")
+        .args(str_args)
+        .output()
+        .await
+        .map_err(|e| format!("spawn ps: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("windows-tweaks failed: {}", stderr.trim()));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    serde_json::from_str::<Vec<WindowsTweak>>(stdout.trim())
+        .map_err(|e| format!("parse output: {} (raw={})", e, stdout))
+}
+
+pub async fn windows_tweaks_status_inner(
+    app: &tauri::AppHandle,
+) -> Result<Vec<WindowsTweak>, String> {
+    run_tweaks(app, "status", None).await
+}
+
+pub async fn windows_tweak_set_inner(
+    app: &tauri::AppHandle,
+    key: String,
+    enabled: bool,
+) -> Result<Vec<WindowsTweak>, String> {
+    let action = if enabled { "apply" } else { "revert" };
+    run_tweaks(app, action, Some(&key)).await
 }

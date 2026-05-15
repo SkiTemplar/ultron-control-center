@@ -13,6 +13,7 @@ import { Settings } from "./components/Settings";
 import { Projects } from "./components/Projects";
 import { System } from "./components/System";
 import { Gaming } from "./components/Gaming";
+import { Logs } from "./components/Logs";
 import { News } from "./components/News";
 import { Plans } from "./components/Plans";
 import { SelfImprove } from "./components/SelfImprove";
@@ -127,6 +128,7 @@ export default function App() {
         {tab === "gaming" && <Gaming />}
         {tab === "news" && <News />}
         {tab === "plans" && <Plans />}
+        {tab === "logs" && <Logs />}
         {tab === "self-improve" && (
           <div className="px-10 py-8">
             <header className="mb-6">

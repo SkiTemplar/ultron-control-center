@@ -314,6 +314,27 @@ const ACTIONS: ActionDef[] = [
   },
 ];
 
+type RecentNote = {
+  path: string;
+  relative: string;
+  title: string | null;
+  size_bytes: number;
+  last_modified: string | null;
+};
+
+function relTime(iso: string | null): string {
+  if (!iso) return "-";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return iso;
+  const m = Math.floor((Date.now() - t) / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
 export function Memory() {
   const [data, setData] = useState<MemoryStatusInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -327,6 +348,9 @@ export function Memory() {
 
   const [runningAction, setRunningAction] = useState<MemoryActionKey | null>(null);
   const [actionOutput, setActionOutput] = useState<MemoryActionResult | null>(null);
+
+  const [recent, setRecent] = useState<RecentNote[]>([]);
+  const [recentLoading, setRecentLoading] = useState(true);
 
   async function load() {
     setRefreshing(true);
@@ -382,9 +406,25 @@ export function Memory() {
     }
   }
 
+  async function loadRecent() {
+    setRecentLoading(true);
+    try {
+      const r = (await invoke("list_recent_vault_notes", { limit: 20 })) as RecentNote[];
+      setRecent(r);
+    } catch {
+      setRecent([]);
+    } finally {
+      setRecentLoading(false);
+    }
+  }
+
   useEffect(() => {
     load();
-    const t = setInterval(load, 30_000);
+    loadRecent();
+    const t = setInterval(() => {
+      load();
+      loadRecent();
+    }, 30_000);
     return () => clearInterval(t);
   }, []);
 
@@ -545,6 +585,90 @@ export function Memory() {
           <p className="mt-2 text-[11.5px]" style={{ color: "var(--color-danger)" }}>
             {searchError}
           </p>
+        )}
+
+        {/* Recent vault notes — read-only quick-jump. Only shown when the
+            user isn't actively searching, to keep the pane light. */}
+        {results.length === 0 && !searching && (
+          <div className="mt-6">
+            <div
+              className="mb-2 flex items-baseline justify-between"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
+                Recent vault notes
+              </span>
+              <button
+                type="button"
+                onClick={loadRecent}
+                disabled={recentLoading}
+                className="text-[10.5px] transition-colors disabled:opacity-50"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                {recentLoading ? "Loading..." : "Refresh"}
+              </button>
+            </div>
+            {recent.length === 0 && !recentLoading && (
+              <div
+                className="rounded p-4 text-[12px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                Vault vacío o no encontrado.
+              </div>
+            )}
+            <div
+              className="rounded"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {recent.map((n, i) => (
+                <button
+                  key={n.path}
+                  type="button"
+                  onClick={() => setSelectedPath(n.path)}
+                  className="block w-full px-3 py-2 text-left transition-colors"
+                  style={{
+                    borderTop:
+                      i === 0 ? "none" : "1px solid var(--color-border)",
+                    background:
+                      selectedPath === n.path
+                        ? "var(--color-surface-3)"
+                        : "transparent",
+                  }}
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="truncate text-[12px] font-medium"
+                      style={{ color: "var(--color-text)" }}
+                    >
+                      {n.title ?? n.relative}
+                    </span>
+                    <span
+                      className="ml-auto shrink-0 text-[10px] tabular-nums"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      {relTime(n.last_modified)}
+                    </span>
+                  </div>
+                  <div
+                    className="mt-0.5 truncate text-[10.5px]"
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--color-text-tertiary)",
+                    }}
+                  >
+                    {n.relative}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
 

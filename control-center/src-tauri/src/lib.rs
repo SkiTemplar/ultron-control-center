@@ -8,6 +8,7 @@
 mod auth;
 mod backup_status;
 mod claude_sessions;
+mod logs;
 mod gaming;
 mod mcps;
 mod memory;
@@ -216,6 +217,13 @@ async fn memory_action(
 }
 
 #[tauri::command]
+async fn list_recent_vault_notes(
+    limit: Option<usize>,
+) -> Result<Vec<memory::RecentNote>, String> {
+    memory::list_recent_vault_notes_inner(limit)
+}
+
+#[tauri::command]
 async fn claude_usage() -> Result<usage::UsageReport, String> {
     usage::claude_usage_inner()
 }
@@ -280,6 +288,22 @@ async fn kill_processes(
     pids: Vec<i64>,
 ) -> Result<gaming::KillResult, String> {
     gaming::kill_processes_inner(&app, pids).await
+}
+
+#[tauri::command]
+async fn windows_tweaks_status(
+    app: tauri::AppHandle,
+) -> Result<Vec<gaming::WindowsTweak>, String> {
+    gaming::windows_tweaks_status_inner(&app).await
+}
+
+#[tauri::command]
+async fn windows_tweak_set(
+    app: tauri::AppHandle,
+    key: String,
+    enabled: bool,
+) -> Result<Vec<gaming::WindowsTweak>, String> {
+    gaming::windows_tweak_set_inner(&app, key, enabled).await
 }
 
 #[tauri::command]
@@ -459,6 +483,19 @@ async fn delete_news(path: String) -> Result<bool, String> {
 #[tauri::command]
 async fn backup_status() -> Result<backup_status::BackupStatusReport, String> {
     backup_status::backup_status_inner()
+}
+
+#[tauri::command]
+async fn list_logs() -> Result<Vec<logs::LogSource>, String> {
+    logs::list_logs_inner()
+}
+
+#[tauri::command]
+async fn tail_log(
+    source_id: String,
+    lines: Option<usize>,
+) -> Result<logs::LogTail, String> {
+    logs::tail_log_inner(source_id, lines)
 }
 
 #[tauri::command]
@@ -783,6 +820,7 @@ pub fn run() {
             brain_query,
             read_vault_note,
             memory_action,
+            list_recent_vault_notes,
             claude_usage,
             settings_read,
             settings_save,
@@ -793,6 +831,8 @@ pub fn run() {
             rich_system_info,
             list_killable_processes,
             kill_processes,
+            windows_tweaks_status,
+            windows_tweak_set,
             auth_status,
             get_ultron_mode,
             set_ultron_mode,
@@ -803,6 +843,8 @@ pub fn run() {
             run_diagnose,
             diagnose_with_ai,
             backup_status,
+            list_logs,
+            tail_log,
             list_plans,
             patch_plan_status,
             add_plan,

@@ -330,6 +330,100 @@ pub fn memory_status_inner() -> MemoryStatus {
 }
 
 // ---------------------------------------------------------------------------
+// Recent vault notes — mtime-sorted preview list
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+pub struct RecentNote {
+    pub path: String,
+    pub relative: String,
+    pub title: Option<String>,
+    pub size_bytes: u64,
+    pub last_modified: Option<String>,
+}
+
+/// Walk the vault and return the most recently modified `limit` .md notes.
+/// We use the walkdir helper already in this module (bounded to ~25k files
+/// in check_vault, but for "recent" we keep going since the cost is one
+/// metadata syscall per file).
+pub fn list_recent_vault_notes_inner(limit: Option<usize>) -> Result<Vec<RecentNote>, String> {
+    let vault = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron-vault");
+    if !vault.exists() {
+        return Ok(Vec::new());
+    }
+    let base_parts: std::collections::HashSet<std::ffi::OsString> =
+        vault.iter().map(|s| s.to_os_string()).collect();
+    let mut entries: Vec<(PathBuf, SystemTime, u64)> = Vec::new();
+    for entry in walkdir(&vault) {
+        let path = entry.path().clone();
+        // Skip the vault's own dotfile children (e.g., .obsidian) but not
+        // the vault root itself (its name starts with a dot).
+        let extra: Vec<&std::ffi::OsStr> = path
+            .iter()
+            .filter(|p| !base_parts.contains(p.to_os_string().as_os_str()))
+            .collect();
+        if extra
+            .iter()
+            .any(|p| p.to_string_lossy().starts_with('.'))
+        {
+            continue;
+        }
+        if path.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            if let Ok(mtime) = meta.modified() {
+                entries.push((path, mtime, meta.len()));
+            }
+        }
+    }
+    entries.sort_by(|a, b| b.1.cmp(&a.1));
+    let n = limit.unwrap_or(20).clamp(1, 100);
+    let mut out: Vec<RecentNote> = Vec::with_capacity(n);
+    for (path, mtime, size) in entries.into_iter().take(n) {
+        let relative = path
+            .strip_prefix(&vault)
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| path.to_string_lossy().to_string());
+        let title = read_md_title(&path);
+        out.push(RecentNote {
+            path: path.to_string_lossy().to_string(),
+            relative,
+            title,
+            size_bytes: size,
+            last_modified: system_time_to_iso(mtime),
+        });
+    }
+    Ok(out)
+}
+
+/// First non-empty heading or filename minus extension. Bounded read.
+fn read_md_title(path: &PathBuf) -> Option<String> {
+    let head = fs::read_to_string(path).ok()?;
+    let head = head.chars().take(2_000).collect::<String>();
+    for raw in head.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with("---") {
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("# ") {
+            return Some(rest.trim().to_string());
+        }
+        // Stop at the first non-frontmatter content line so we don't
+        // mistakenly grab YAML key-values.
+        if line.contains(':') && !line.starts_with('#') {
+            continue;
+        }
+        break;
+    }
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_string())
+}
+
+// ---------------------------------------------------------------------------
 // brain_index.py query passthrough
 // ---------------------------------------------------------------------------
 

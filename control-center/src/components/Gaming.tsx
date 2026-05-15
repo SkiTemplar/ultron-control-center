@@ -2,6 +2,163 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { GameProcessInfo, KillResult } from "../types";
 
+type WindowsTweak = {
+  key: string;
+  label: string;
+  enabled: boolean;
+  description: string;
+  active_guid?: string;
+  active_name?: string;
+};
+
+function WindowsTweaksSection() {
+  const [tweaks, setTweaks] = useState<WindowsTweak[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = (await invoke("windows_tweaks_status")) as WindowsTweak[];
+      setTweaks(r);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function toggle(t: WindowsTweak) {
+    setBusy(t.key);
+    setError(null);
+    try {
+      const r = (await invoke("windows_tweak_set", {
+        key: t.key,
+        enabled: !t.enabled,
+      })) as WindowsTweak[];
+      setTweaks(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="mt-8">
+      <h2
+        className="mb-2 text-[11px] font-medium uppercase tracking-[0.06em]"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
+        Windows tweaks
+      </h2>
+      <p
+        className="mb-3 text-[11px]"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        Cambios reversibles user-level (registro HKCU + powercfg). Sin admin.
+        Cada toggle aplica el cambio en el momento y guarda el estado.
+      </p>
+      {error && (
+        <div
+          className="mb-3 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {loading && tweaks.length === 0 && (
+        <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+          Loading tweaks...
+        </div>
+      )}
+      <div className="space-y-2">
+        {tweaks.map((t) => (
+          <div
+            key={t.key}
+            className="flex items-start gap-3 rounded p-3 transition-colors"
+            style={{
+              background: t.enabled
+                ? "rgba(63, 185, 80, 0.05)"
+                : "var(--color-surface-2)",
+              border: `1px solid ${
+                t.enabled ? "rgba(63, 185, 80, 0.22)" : "var(--color-border)"
+              }`,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => toggle(t)}
+              disabled={busy === t.key}
+              className="mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50"
+              style={{
+                background: t.enabled
+                  ? "var(--color-success)"
+                  : "var(--color-surface-3)",
+                border: "1px solid var(--color-border-strong)",
+                padding: "1px",
+              }}
+              title={t.enabled ? "Click to revert" : "Click to apply"}
+            >
+              <span
+                className="block h-3.5 w-3.5 rounded-full transition-transform"
+                style={{
+                  background: "var(--color-text)",
+                  transform: t.enabled ? "translateX(16px)" : "translateX(0)",
+                }}
+              />
+            </button>
+            <div className="min-w-0 flex-1">
+              <div
+                className="text-[12.5px] font-medium"
+                style={{ color: "var(--color-text)" }}
+              >
+                {t.label}
+              </div>
+              <div
+                className="mt-0.5 text-[11px] leading-relaxed"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {t.description}
+              </div>
+              {t.active_name && (
+                <div
+                  className="mt-0.5 text-[10.5px]"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  active: {t.active_name}
+                </div>
+              )}
+            </div>
+            <span
+              className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+              style={{
+                background: t.enabled
+                  ? "rgba(63, 185, 80, 0.1)"
+                  : "var(--color-surface-3)",
+                color: t.enabled
+                  ? "var(--color-success)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {t.enabled ? "on" : "off"}
+            </span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Formatters
 // ---------------------------------------------------------------------------
@@ -384,6 +541,8 @@ export function Gaming() {
           </div>
         </section>
       )}
+
+      <WindowsTweaksSection />
     </div>
   );
 }
