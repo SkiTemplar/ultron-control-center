@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-05-15T19:53:18",
+  "updated_at": "2026-05-15T20:39:30",
   "_comment": "Single source of truth — administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
   "items": [
     {
@@ -1023,6 +1023,27 @@
       "spec_path": "~/.ultron/plans/specs/v15.1.2-plans-ai.md",
       "description": "Plans tab gana boton AI brainstorm: textarea con goal description, llama a Claude inline pidiendo lista estructurada de plans, parsea y los upserta via add_plan. Lanes de priority dentro de cada status column. Dreams-local: variante simplificada del Anthropic Managed Agents Dreams (long-running background agent) usando Claude CLI + queue local en lugar de la API.",
       "created_at": "2026-05-15T19:53:18",
+      "resolved_at": null
+    },
+    {
+      "id": "v15.1.3-personal-and-instructions",
+      "kind": "sprint",
+      "title": "Personal section + per-project hotkeys + Memory visual + AI-create instruction folders",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        20,
+        32
+      ],
+      "tags": [
+        "control-center",
+        "personal",
+        "memory",
+        "plans"
+      ],
+      "spec_path": "~/.ultron/plans/specs/v15.1.3-personal.md",
+      "description": "Sprint que cubre el resto de feedback de USER antes del public release:\n1) Personal section: textarea + brain_index que aprende patrón de prompts, escritura y uso para personalizar respuestas.\n2) Per-project hotkeys: cada proyecto puede tener una combo (ej Shift+G+1) que lo abre con N apps configuradas.\n3) Multi-action per project: cada proyecto puede tener N actions (folder/file/claude-session/codex-session) y un \"Open all\".\n4) Memory visual: vista Qdrant 2D de la base vectorial.\n5) AI-create instruction folders: ~/.ultron/instructions/{skills,mcps,plans,tasks,memory}/ con SKILL-CREATE-GUIDE.md etc., y cada \"Crear nuevo X\" abre sesión con cwd = carpeta correspondiente.\n6) Stats++: skills más usadas, memorias accedidas, sesiones de uso, tiempo.\n7) Settings: editor hotkeys multi + memory verbosity + system tasks AI-create.\n8) Notifications absorbe errores de UI (replace Logs).\n9) News generator via sesión Gemini 3.1 (no API).\n",
+      "created_at": "2026-05-15T20:39:30",
       "resolved_at": null
     }
   ]
