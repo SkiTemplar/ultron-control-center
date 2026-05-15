@@ -199,9 +199,9 @@ pub async fn generate_news_inner(
 
 /// Build a concise AI summary of a newsletter HTML. We strip the HTML
 /// locally so the LLM call gets prose only (no inline CSS / scripts), then
-/// route through `sessions::run_inline_inner` with provider=claude. Claude
-/// is the faster path for short summaries; Gemini is the generator and
-/// re-summarising with the same engine would waste a turn.
+/// route through `sessions::run_inline_inner` with provider=codex. Codex
+/// is much cheaper than Claude for short throw-away summaries; the user
+/// asked specifically to keep Claude tokens for interactive work.
 pub async fn summarize_news_inner(
     app: &tauri::AppHandle,
     path_str: String,
@@ -241,7 +241,7 @@ pub async fn summarize_news_inner(
         title, plain
     );
 
-    let r = crate::sessions::run_inline_inner(app, "claude".into(), None, prompt).await?;
+    let r = crate::sessions::run_inline_inner(app, "codex".into(), None, prompt).await?;
     if !r.success {
         return Err(if !r.stderr.is_empty() { r.stderr } else { r.stdout });
     }

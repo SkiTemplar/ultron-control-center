@@ -52,7 +52,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "projects", label: "Projects", available: true },
       { id: "gaming", label: "Gaming", available: true },
       { id: "plans", label: "Plans", available: true },
-      { id: "logs", label: "Logs", available: true },
+      { id: "logs", label: "Logs", available: false },
     ],
   },
   {

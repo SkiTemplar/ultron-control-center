@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type {
   ClaudeSession,
-  InlineResult,
   ProjectInfo,
   SessionProvider,
   SpawnFlags,
@@ -433,8 +432,6 @@ export function Sessions() {
   const [model, setModel] = useState<string>(PROVIDERS["claude"].defaultModel);
   const [prompt, setPrompt] = useState("");
   const [cwd, setCwd] = useState<string>(() => loadCwd());
-  const [output, setOutput] = useState<InlineResult | null>(null);
-  const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [presets, setPresets] = useState<Presets>(() => loadPresets());
@@ -469,7 +466,6 @@ export function Sessions() {
   // When provider changes, default the model to the provider's default.
   useEffect(() => {
     setModel(PROVIDERS[provider].defaultModel);
-    setOutput(null);
   }, [provider]);
 
   useEffect(() => {
@@ -478,29 +474,6 @@ export function Sessions() {
       .catch(() => setProjects([]));
   }, []);
 
-  async function runInline() {
-    if (!prompt.trim()) return;
-    setRunning(true);
-    setError(null);
-    setOutput(null);
-    try {
-      const r = (await invoke("run_inline", {
-        provider,
-        model: model || null,
-        prompt,
-      })) as InlineResult;
-      setOutput(r);
-    } catch (e) {
-      setOutput({
-        success: false,
-        stdout: "",
-        stderr: String(e),
-        exit_code: null,
-      });
-    } finally {
-      setRunning(false);
-    }
-  }
 
   function flagsForProvider(extra: Partial<SpawnFlags> = {}): SpawnFlags | null {
     if (provider !== "claude") return null;
@@ -754,12 +727,12 @@ export function Sessions() {
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder={`Prompt for ${meta.label}…  (Ctrl+Enter to run inline)`}
+          placeholder={`Prompt for ${meta.label}…  (Ctrl+Enter to open session with prompt)`}
           rows={6}
           onKeyDown={(e) => {
             if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
               e.preventDefault();
-              runInline();
+              if (prompt.trim()) openSession(true);
             }
           }}
           className="mt-3 w-full rounded px-3 py-2 text-[12.5px] leading-relaxed"
@@ -776,51 +749,21 @@ export function Sessions() {
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <button
             type="button"
-            onClick={runInline}
-            disabled={running || !prompt.trim()}
+            onClick={() => openSession(true)}
+            disabled={!prompt.trim()}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
             style={{
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-          >
-            {running ? "Running…" : "Run inline"}
-          </button>
-          <button
-            type="button"
-            onClick={() => openSession(true)}
-            disabled={!prompt.trim()}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-            }}
             title="Open a new terminal session pre-populated with this prompt"
           >
             Open session with prompt
           </button>
-          <button
-            type="button"
-            onClick={() => openSession(false)}
-            className="rounded px-3 py-1.5 text-[12px] transition-colors"
-            style={{
-              background: "transparent",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Open an empty interactive session (no prompt sent)"
-          >
-            Open empty session
-          </button>
           <div className="ml-auto flex gap-2">
             <button
               type="button"
-              onClick={() => {
-                setPrompt("");
-                setOutput(null);
-              }}
-              disabled={running}
+              onClick={() => setPrompt("")}
               className="rounded px-2 py-1.5 text-[11px] transition-colors"
               style={{
                 background: "transparent",
@@ -830,20 +773,6 @@ export function Sessions() {
             >
               Clear
             </button>
-            {output && output.stdout && (
-              <button
-                type="button"
-                onClick={() => navigator.clipboard.writeText(output.stdout)}
-                className="rounded px-2 py-1.5 text-[11px] transition-colors"
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text-secondary)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                Copy output
-              </button>
-            )}
           </div>
         </div>
 
@@ -853,25 +782,6 @@ export function Sessions() {
           </p>
         )}
 
-        {output && (
-          <pre
-            className="mt-4 max-h-[420px] overflow-auto rounded p-3 text-[11.5px] leading-relaxed"
-            style={{
-              background: "var(--color-surface-1)",
-              border: `1px solid ${output.success ? "var(--color-border)" : "rgba(248, 81, 73, 0.22)"}`,
-              fontFamily: "var(--font-mono)",
-              color: output.success ? "var(--color-text)" : "var(--color-danger)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {output.stdout || output.stderr || "(no output)"}
-            {output.exit_code !== null && output.exit_code !== 0 && (
-              <div className="mt-2" style={{ color: "var(--color-text-tertiary)" }}>
-                — exit {output.exit_code}
-              </div>
-            )}
-          </pre>
-        )}
         </>)}
       </section>
 

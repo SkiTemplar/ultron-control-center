@@ -342,22 +342,55 @@ pub fn delete_plan_inner(id: String) -> Result<PlanMutateResult, String> {
     })
 }
 
-/// Drop every item with status == "resolved". Returns the count removed.
+/// Archive every item with status == "resolved" to
+/// `plans/_archive/resolved-YYYY-MM.json` and drop them from PLANS.json.
+/// Returns the count moved. We never delete history — the user explicitly
+/// asked for Resolved not to grow unbounded but also not to be discarded.
 pub fn clean_resolved_plans_inner() -> Result<u64, String> {
     let (path, mut root) = read_plans_root()?;
     let items = root
         .get_mut("items")
         .and_then(|v| v.as_array_mut())
         .ok_or_else(|| "no items[]".to_string())?;
-    let before = items.len() as u64;
-    items.retain(|v| {
-        v.get("status").and_then(|x| x.as_str()) != Some("resolved")
-    });
-    let removed = before - items.len() as u64;
-    if removed > 0 {
-        write_plans_root(&path, &root)?;
+
+    // Split into kept + archived.
+    let mut archived: Vec<serde_json::Value> = Vec::new();
+    let mut kept: Vec<serde_json::Value> = Vec::with_capacity(items.len());
+    for item in items.drain(..) {
+        if item.get("status").and_then(|x| x.as_str()) == Some("resolved") {
+            archived.push(item);
+        } else {
+            kept.push(item);
+        }
     }
-    Ok(removed)
+    *items = kept;
+    let moved = archived.len() as u64;
+    if moved == 0 {
+        return Ok(0);
+    }
+
+    // Append to the monthly archive file, atomically.
+    let archive_dir = path.parent().unwrap_or(&path).join("_archive");
+    fs::create_dir_all(&archive_dir).map_err(|e| format!("mkdir archive: {}", e))?;
+    let now = now_iso();
+    let ym = &now[..7]; // YYYY-MM
+    let archive_path = archive_dir.join(format!("resolved-{}.json", ym));
+
+    let mut existing: Vec<serde_json::Value> = if archive_path.exists() {
+        let raw = fs::read_to_string(&archive_path).unwrap_or_else(|_| "[]".into());
+        serde_json::from_str(&raw).unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    existing.extend(archived);
+    let serialized =
+        serde_json::to_string_pretty(&existing).map_err(|e| format!("serialize: {}", e))?;
+    let tmp = archive_path.with_extension("json.tmp");
+    fs::write(&tmp, &serialized).map_err(|e| format!("write archive: {}", e))?;
+    fs::rename(&tmp, &archive_path).map_err(|e| format!("rename archive: {}", e))?;
+
+    write_plans_root(&path, &root)?;
+    Ok(moved)
 }
 
 fn format_unix_iso(secs: u64) -> String {

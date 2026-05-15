@@ -471,6 +471,11 @@ export function Plans() {
   const [pendingClean, setPendingClean] = useState(false);
   const [cleanBusy, setCleanBusy] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiGoal, setAiGoal] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiPreview, setAiPreview] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -549,11 +554,82 @@ export function Plans() {
     }
   }
 
+  // AI brainstorm: send the goal to Codex, parse the structured response
+  // and bulk-add plans. We use Codex (not Claude) per USER to conserve
+  // Claude tokens for interactive sessions.
+  async function aiBrainstorm() {
+    const goal = aiGoal.trim();
+    if (!goal) return;
+    setAiBusy(true);
+    setAiError(null);
+    setAiPreview(null);
+    try {
+      const sys = [
+        "Eres un planificador. Devuelve EXCLUSIVAMENTE un array JSON con planes accionables.",
+        "Cada item: { title (imperativo, <80 chars), priority ('p1'|'p2'|'p3'), kind ('task'|'sprint'|'patch'|'bug'|'research'), description (1-2 parrafos), tags (array de strings cortos) }.",
+        "No prefijos, no markdown fences, no texto extra. Si el goal es vago, propon 3-5 planes que lo cubran de mayor a menor prioridad.",
+      ].join("\n");
+      const prompt = `${sys}\n\nGoal del usuario:\n${goal}`;
+      const r = (await invoke("run_inline", {
+        provider: "codex",
+        model: null,
+        prompt,
+      })) as { success: boolean; stdout: string; stderr: string };
+      if (!r.success) {
+        setAiError(r.stderr || "Codex falló");
+        return;
+      }
+      // Strip optional ```json fences.
+      const raw = r.stdout.trim();
+      const fenced = raw.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+      const candidate = fenced ? fenced[1].trim() : raw;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(candidate);
+      } catch {
+        setAiError("Codex no devolvió JSON parseable. Respuesta:\n" + raw.slice(0, 800));
+        return;
+      }
+      if (!Array.isArray(parsed)) {
+        setAiError("Respuesta no es un array JSON.");
+        return;
+      }
+      setAiPreview(JSON.stringify(parsed, null, 2));
+      let added = 0;
+      for (const item of parsed as Array<Record<string, unknown>>) {
+        try {
+          await invoke("add_plan", {
+            title: String(item.title ?? ""),
+            priority: (item.priority as string) || "p3",
+            status: "open",
+            kind: (item.kind as string) || "task",
+            description: (item.description as string) || "",
+            tags: Array.isArray(item.tags)
+              ? (item.tags as string[]).filter(Boolean)
+              : null,
+          });
+          added += 1;
+        } catch (e) {
+          setAiError(`add_plan falló en item "${item.title}": ${String(e)}`);
+        }
+      }
+      setInfo(`AI brainstorm añadió ${added} plan${added === 1 ? "" : "es"}.`);
+      window.setTimeout(() => setInfo(null), 4000);
+      setAiOpen(false);
+      setAiGoal("");
+      await load();
+    } catch (e) {
+      setAiError(String(e));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   async function cleanResolved() {
     setCleanBusy(true);
     try {
       const n = (await invoke("clean_resolved_plans")) as number;
-      setInfo(`Removed ${n} resolved plan${n === 1 ? "" : "s"}.`);
+      setInfo(`Archived ${n} resolved plan${n === 1 ? "" : "s"} to plans/_archive/.`);
       window.setTimeout(() => setInfo(null), 3000);
       setPendingClean(false);
       await load();
@@ -695,17 +771,30 @@ export function Plans() {
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Drop all resolved plans (atomic; backed by tmp+rename)"
+            title="Mueve resolved a plans/_archive (no destructivo; atómico)"
           >
-            Clean resolved ({resolvedCount})
+            Archive resolved ({resolvedCount})
+          </button>
+          <button
+            type="button"
+            onClick={() => setAiOpen(true)}
+            className="rounded px-3 py-1.5 text-[12px] font-semibold transition-colors"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+            title="Pide a Codex que genere planes desde un goal en lenguaje natural"
+          >
+            AI Brainstorm
           </button>
           <button
             type="button"
             onClick={startNew}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+            className="rounded px-3 py-1.5 text-[12px] transition-colors"
             style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
+              background: "var(--color-surface-3)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
             }}
           >
             New plan
@@ -858,6 +947,103 @@ export function Plans() {
         ))}
       </div>
 
+      {aiOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+          onClick={() => !aiBusy && setAiOpen(false)}
+        >
+          <div
+            className="w-full max-w-[600px] rounded p-5"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-[14px] font-semibold">AI Brainstorm</h3>
+            <p
+              className="mt-1 text-[11.5px] leading-relaxed"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Codex genera planes accionables desde un goal. Cada plan vuelve
+              con title / priority / kind / description / tags y se inserta
+              vía add_plan. Usa Codex (no Claude) para no quemar tokens
+              interactivos.
+            </p>
+            <textarea
+              value={aiGoal}
+              onChange={(e) => setAiGoal(e.target.value)}
+              placeholder="Ej: Quiero refactorizar el sistema de memoria para que cargue lazy y use Qdrant native, sin perder compatibilidad con FTS5."
+              spellCheck={false}
+              className="mt-3 w-full rounded p-2.5 text-[12px] leading-relaxed"
+              style={{
+                fontFamily: "var(--font-mono)",
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+                minHeight: 120,
+                resize: "vertical",
+              }}
+            />
+            {aiError && (
+              <div
+                className="mt-2 rounded p-2 text-[11.5px]"
+                style={{
+                  background: "rgba(248, 81, 73, 0.06)",
+                  border: "1px solid rgba(248, 81, 73, 0.22)",
+                  color: "var(--color-danger)",
+                  whiteSpace: "pre-wrap",
+                }}
+              >
+                {aiError}
+              </div>
+            )}
+            {aiPreview && !aiError && (
+              <pre
+                className="mt-2 max-h-48 overflow-auto rounded p-2 text-[10.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-secondary)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {aiPreview}
+              </pre>
+            )}
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setAiOpen(false)}
+                disabled={aiBusy}
+                className="rounded px-3 py-1.5 text-[12px]"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={aiBrainstorm}
+                disabled={aiBusy || !aiGoal.trim()}
+                className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                {aiBusy ? "Codex pensando..." : "Brainstorm"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modalState && (
         <PlanModal
           state={modalState}
@@ -937,15 +1123,14 @@ export function Plans() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-[14px] font-semibold">Clean resolved</h3>
+            <h3 className="text-[14px] font-semibold">Archive resolved</h3>
             <p
               className="mt-2 text-[12.5px] leading-relaxed"
               style={{ color: "var(--color-text-secondary)" }}
             >
-              Drop los {resolvedCount} planes con status="resolved" de
-              PLANS.json. El cambio es atómico y reescribe el archivo.
-              Para recuperarlos despues hace falta historico (no lo
-              guardamos automatico — usa git si lo necesitas).
+              Mueve los {resolvedCount} planes con status="resolved" a
+              plans/_archive/resolved-YYYY-MM.json y los quita de PLANS.json.
+              Se conservan en disco — no se borran. Atómico (tmp+rename).
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
@@ -971,7 +1156,7 @@ export function Plans() {
                   color: "#fff",
                 }}
               >
-                {cleanBusy ? "Cleaning..." : `Drop ${resolvedCount}`}
+                {cleanBusy ? "Archiving..." : `Archive ${resolvedCount}`}
               </button>
             </div>
           </div>
