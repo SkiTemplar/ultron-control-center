@@ -223,20 +223,31 @@
           ]
         },
         {
-          "name": "wt-spawn",
-          "cmd": "cmd.exe",
+          "name": "system-diagnose",
+          "cmd": "powershell.exe",
           "args": [
-            "/C",
-            "wt.exe",
-            "new-tab",
-            "--title",
-            { "validator": "^ULTRON · (claude|gemini|codex)$" },
-            "--",
-            "powershell.exe",
-            "-NoExit",
             "-NoProfile",
-            "-Command",
-            { "validator": "^(Set-Location -LiteralPath '[^\\r\\n]{0,500}'; )?(claude|gemini|codex)( --dangerously-skip-permissions)?( -c)?( --fork-session)?( --model [a-zA-Z0-9._\\-]{1,80})?( --effort (low|medium|high|xhigh|max))?( -n '[^\\r\\n']{1,60}')?( -r [a-f0-9\\-]{1,80})?( -p)?( '[\\s\\S]{0,8000}')?$" }
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_diagnose\\.ps1$" },
+            "-Hours",
+            { "validator": "^[0-9]{1,3}$" }
+          ]
+        },
+        {
+          "name": "session-launcher",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\spawn-claude-session\\.ps1$" },
+            "-Payload",
+            { "validator": "^[A-Za-z0-9+/=]{4,16000}$" }
           ]
         },
         {

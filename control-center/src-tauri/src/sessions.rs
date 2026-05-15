@@ -74,61 +74,41 @@ pub struct SpawnFlags {
     pub resume_id: Option<String>,
 }
 
-fn ps_quote_optional(s: &str) -> String {
-    ps_quote(s)
-}
+// Flag validation now lives in spawn-claude-session.ps1 — the wrapper
+// script handles building the inner command line natively in PowerShell.
 
-/// Validate and serialise a SpawnFlags into the trailing-args portion of a
-/// PowerShell -Command string. Returns `String::new()` if there's nothing
-/// to add. Each value is checked against a narrow character set so the
-/// capability regex doesn't have to.
-fn flags_to_pwsh_args(f: &SpawnFlags) -> Result<String, String> {
-    let mut out = String::new();
-    if f.dangerously_skip_permissions {
-        out.push_str(" --dangerously-skip-permissions");
+/// Minimal stdlib-only base64 encoder. We use it to carry the JSON payload
+/// across the powershell.exe argument boundary without dealing with quote
+/// escaping. Encoding is RFC 4648 standard alphabet with `=` padding.
+fn base64_encode(input: &str) -> String {
+    const ALPH: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(((bytes.len() + 2) / 3) * 4);
+    let mut i = 0;
+    while i + 3 <= bytes.len() {
+        let n = ((bytes[i] as u32) << 16) | ((bytes[i + 1] as u32) << 8) | (bytes[i + 2] as u32);
+        out.push(ALPH[((n >> 18) & 0x3F) as usize] as char);
+        out.push(ALPH[((n >> 12) & 0x3F) as usize] as char);
+        out.push(ALPH[((n >> 6) & 0x3F) as usize] as char);
+        out.push(ALPH[(n & 0x3F) as usize] as char);
+        i += 3;
     }
-    if f.continue_last {
-        out.push_str(" -c");
+    let rem = bytes.len() - i;
+    if rem == 1 {
+        let n = (bytes[i] as u32) << 16;
+        out.push(ALPH[((n >> 18) & 0x3F) as usize] as char);
+        out.push(ALPH[((n >> 12) & 0x3F) as usize] as char);
+        out.push('=');
+        out.push('=');
+    } else if rem == 2 {
+        let n = ((bytes[i] as u32) << 16) | ((bytes[i + 1] as u32) << 8);
+        out.push(ALPH[((n >> 18) & 0x3F) as usize] as char);
+        out.push(ALPH[((n >> 12) & 0x3F) as usize] as char);
+        out.push(ALPH[((n >> 6) & 0x3F) as usize] as char);
+        out.push('=');
     }
-    if f.fork_session {
-        out.push_str(" --fork-session");
-    }
-    if let Some(m) = f.model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        if !m.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_') {
-            return Err("invalid model id".into());
-        }
-        out.push_str(&format!(" --model {}", m));
-    }
-    if let Some(e) = f.effort.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        if !matches!(e, "low" | "medium" | "high" | "xhigh" | "max") {
-            return Err(format!("invalid effort '{}'", e));
-        }
-        out.push_str(&format!(" --effort {}", e));
-    }
-    if let Some(n) = f.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        if n.chars().any(|c| matches!(c, '\r' | '\n' | '\'')) {
-            return Err("session name contains illegal chars".into());
-        }
-        if n.chars().count() > 60 {
-            return Err("session name too long (max 60 chars)".into());
-        }
-        out.push_str(&format!(" -n {}", ps_quote_optional(n)));
-    }
-    if let Some(r) = f
-        .resume_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-    {
-        if !r.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
-            return Err("invalid resume id".into());
-        }
-        if r.len() > 80 {
-            return Err("resume id too long".into());
-        }
-        out.push_str(&format!(" -r {}", r));
-    }
-    Ok(out)
+    out
 }
 
 fn validate_provider(p: &str) -> Result<&'static str, String> {
@@ -148,9 +128,6 @@ fn cap_prompt(p: &str) -> String {
     }
 }
 
-fn ps_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
 
 // ---------------------------------------------------------------------------
 // run_inline
@@ -244,43 +221,6 @@ fn ps_quote_cmd(s: &str) -> String {
 // spawn_session
 // ---------------------------------------------------------------------------
 
-/// Build the PowerShell -Command string that wt.exe runs inside the new tab.
-/// Layered as `Set-Location ...; <provider> [flags] [args]`. Inputs are
-/// pre-quoted with single quotes (PowerShell literal strings) so user content
-/// never gets re-parsed. Flags only apply to `claude`; `gemini` and `codex`
-/// ignore them.
-fn build_inner_command(
-    provider: &str,
-    prompt: Option<&str>,
-    cwd: Option<&str>,
-    flags: &SpawnFlags,
-) -> Result<String, String> {
-    let mut cmd = String::new();
-    if let Some(dir) = cwd {
-        cmd.push_str(&format!("Set-Location -LiteralPath {}; ", ps_quote(dir)));
-    }
-    cmd.push_str(provider);
-
-    if provider == "claude" {
-        cmd.push_str(&flags_to_pwsh_args(flags)?);
-    }
-
-    // When the user asked for --continue or -r, Claude resumes its own
-    // conversation; in that case we don't append a free-text prompt because
-    // it would be appended as a fresh user message after the resume.
-    let resume_active =
-        provider == "claude" && (flags.continue_last || flags.resume_id.is_some());
-
-    if let Some(p) = prompt.filter(|_| !resume_active) {
-        let capped = cap_prompt(p);
-        match provider {
-            "gemini" => cmd.push_str(&format!(" -p {}", ps_quote(&capped))),
-            _ => cmd.push_str(&format!(" {}", ps_quote(&capped))),
-        }
-    }
-    Ok(cmd)
-}
-
 pub async fn spawn_session_inner(
     app: &tauri::AppHandle,
     provider: String,
@@ -292,41 +232,71 @@ pub async fn spawn_session_inner(
     let prompt_ref = prompt
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     let cwd_ref = cwd
         .as_deref()
         .map(str::trim)
-        .filter(|s| !s.is_empty());
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string());
     let flags = flags.unwrap_or_default();
 
-    let inner = build_inner_command(provider, prompt_ref, cwd_ref, &flags)?;
-    let title = format!("ULTRON · {}", provider);
+    // We used to chain cmd.exe /C wt.exe ... -- powershell.exe -Command "...".
+    // That broke under PowerShell's argument parsing when extra flags were
+    // present — it concatenated leftover args after -Command into a single
+    // string with a leading space, so PowerShell tried to invoke a program
+    // literally named `" claude -r <id>"` and CreateProcess returned
+    // ERROR_FILE_NOT_FOUND. The new approach: a PowerShell wrapper script
+    // (`scripts/cockpit/spawn-claude-session.ps1`) does the wt.exe call via
+    // Start-Process. PowerShell parameter binding makes quoting trivial.
 
-    // Route through cmd.exe /C wt.exe — wt.exe lives in WindowsApps reparse
-    // points and Rust's Command::new can fail to launch it directly, while
-    // cmd.exe resolves it the same way the user's terminal does.
+    let script: PathBuf = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/spawn-claude-session.ps1");
+    let script_str = script.to_string_lossy().to_string();
+
+    // Build a JSON payload then base64-encode it so the double-quotes in
+    // the JSON survive PowerShell's command-line arg parsing intact. The
+    // capability validator only needs to allow a single base64-ish arg.
+    let payload_json = serde_json::json!({
+        "provider": provider,
+        "cwd": cwd_ref.unwrap_or_default(),
+        "prompt": prompt_ref.unwrap_or_default(),
+        "model": flags.model.clone().unwrap_or_default(),
+        "effort": flags.effort.clone().unwrap_or_default(),
+        "name": flags.name.clone().unwrap_or_default(),
+        "resumeId": flags.resume_id.clone().unwrap_or_default(),
+        "dangerous": flags.dangerously_skip_permissions,
+        "continueLast": flags.continue_last,
+        "forkSession": flags.fork_session,
+    })
+    .to_string();
+    let payload = base64_encode(&payload_json);
+
     let output = app
         .shell()
-        .command("cmd.exe")
+        .command("powershell.exe")
         .args([
-            "/C",
-            "wt.exe",
-            "new-tab",
-            "--title",
-            &title,
-            "--",
-            "powershell.exe",
-            "-NoExit",
             "-NoProfile",
-            "-Command",
-            &inner,
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script_str,
+            "-Payload",
+            &payload,
         ])
         .output()
         .await
-        .map_err(|e| format!("spawn cmd/wt: {}", e))?;
+        .map_err(|e| format!("spawn powershell: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("wt new-tab failed: {}", stderr));
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        return Err(format!(
+            "spawn-claude-session.ps1 failed: {}\nstdout: {}",
+            stderr.trim(),
+            stdout.trim()
+        ));
     }
     Ok(SpawnResult {
         launched: true,

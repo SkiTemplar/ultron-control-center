@@ -18,6 +18,7 @@ mod sessions;
 mod settings;
 mod skills;
 mod system;
+mod system_diagnose;
 mod usage;
 
 use std::fs::File;
@@ -416,6 +417,23 @@ async fn list_news() -> Result<Vec<news::NewsEntry>, String> {
 }
 
 #[tauri::command]
+async fn run_diagnose(
+    app: tauri::AppHandle,
+    hours: Option<u32>,
+) -> Result<system_diagnose::DiagnoseResult, String> {
+    system_diagnose::run_diagnose_inner(&app, hours).await
+}
+
+#[tauri::command]
+async fn diagnose_with_ai(
+    app: tauri::AppHandle,
+    report_json: String,
+    provider: Option<String>,
+) -> Result<system_diagnose::AiDiagnoseResult, String> {
+    system_diagnose::diagnose_with_ai_inner(&app, report_json, provider).await
+}
+
+#[tauri::command]
 async fn list_claude_sessions(
     limit: Option<usize>,
 ) -> Result<Vec<claude_sessions::ClaudeSession>, String> {
@@ -544,6 +562,8 @@ pub fn run() {
             set_ultron_mode,
             list_news,
             list_claude_sessions,
+            run_diagnose,
+            diagnose_with_ai,
             self_improve_report,
             run_codex_adversarial_review,
             run_doctor

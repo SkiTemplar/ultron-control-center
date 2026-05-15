@@ -172,19 +172,30 @@ public class UltronNoActivateForm : Form {
 '@ -ErrorAction SilentlyContinue
     }
 
-    $bgColor      = [System.Drawing.Color]::FromArgb(255, 22, 24, 32)
+    # Match ULTRON Control Center palette (src/styles.css) so the panel feels
+    # like the same product, not a separate utility:
+    #   --color-bg              #000000   (OLED true black)
+    #   --color-surface-2       #111111   (cards)
+    #   --color-surface-3       #1a1a1a   (hover)
+    #   --color-text            #f5f5f5
+    #   --color-text-secondary  #a0a0a0
+    #   --color-accent          #ffffff
+    #   --color-danger          #f85149
+    #   --color-success         #3fb950
+    $bgColor      = [System.Drawing.Color]::FromArgb(255, 17, 17, 17)
     $borderColor  = if ($SuccessVariant) {
-                        [System.Drawing.Color]::FromArgb(255, 56, 178, 110)
+                        [System.Drawing.Color]::FromArgb(255, 63, 185, 80)
                     } else {
-                        [System.Drawing.Color]::FromArgb(255, 232, 89, 89)
+                        [System.Drawing.Color]::FromArgb(255, 248, 81, 73)
                     }
-    $titleColor   = [System.Drawing.Color]::FromArgb(255, 230, 232, 240)
-    $bodyColor    = [System.Drawing.Color]::FromArgb(255, 168, 172, 184)
-    $btnBg        = [System.Drawing.Color]::FromArgb(255, 38, 42, 54)
-    $btnHover     = [System.Drawing.Color]::FromArgb(255, 56, 60, 76)
-    $btnText      = [System.Drawing.Color]::FromArgb(255, 230, 232, 240)
-    $accentBg     = [System.Drawing.Color]::FromArgb(255, 88, 110, 255)
-    $accentHover  = [System.Drawing.Color]::FromArgb(255, 108, 130, 255)
+    $titleColor   = [System.Drawing.Color]::FromArgb(255, 245, 245, 245)
+    $bodyColor    = [System.Drawing.Color]::FromArgb(255, 160, 160, 160)
+    $btnBg        = [System.Drawing.Color]::FromArgb(255, 26, 26, 26)
+    $btnHover     = [System.Drawing.Color]::FromArgb(255, 34, 34, 34)
+    $btnText      = [System.Drawing.Color]::FromArgb(255, 245, 245, 245)
+    $accentBg     = [System.Drawing.Color]::FromArgb(255, 245, 245, 245)
+    $accentHover  = [System.Drawing.Color]::FromArgb(255, 255, 255, 255)
+    $accentText   = [System.Drawing.Color]::FromArgb(255, 0, 0, 0)
 
     # Usa la subclase NoActivate si esta disponible; si no (fallo de Add-Type)
     # cae a Form normal — sigue funcional pero robaria foco en juegos.
@@ -207,10 +218,11 @@ public class UltronNoActivateForm : Form {
         ($screen.Bottom - $form.Height - 20)
     )
 
-    # Outer 1px frame (border feel without window chrome).
+    # Outer 1px frame (border feel without window chrome). Matches
+    # --color-border-strong (#2a2a2a).
     $outerFrame              = New-Object System.Windows.Forms.Panel
     $outerFrame.Dock         = 'Fill'
-    $outerFrame.BackColor    = [System.Drawing.Color]::FromArgb(255, 60, 64, 80)
+    $outerFrame.BackColor    = [System.Drawing.Color]::FromArgb(255, 42, 42, 42)
     $outerFrame.Padding      = New-Object System.Windows.Forms.Padding(1)
     $form.Controls.Add($outerFrame)
 
@@ -299,7 +311,7 @@ public class UltronNoActivateForm : Form {
 
         if ($ShowRetry) {
             $cursorX -= ($btnW + 8)
-            $btnRetry = New-FlatBtn 'Reintentar' $accentBg $accentHover $titleColor
+            $btnRetry = New-FlatBtn 'Reintentar' $accentBg $accentHover $accentText
             $btnRetry.Location = New-Object System.Drawing.Point($cursorX, $btnY)
             $btnRetry.Add_Click({ $form.Tag = 'retry'; $form.Close() })
             $inner.Controls.Add($btnRetry)
@@ -307,7 +319,7 @@ public class UltronNoActivateForm : Form {
 
         if ($ShowSetup) {
             $cursorX -= ($btnW + 8)
-            $btnSetup = New-FlatBtn 'Copiar setup' $accentBg $accentHover $titleColor
+            $btnSetup = New-FlatBtn 'Copiar setup' $accentBg $accentHover $accentText
             $btnSetup.Location = New-Object System.Drawing.Point($cursorX, $btnY)
             $btnSetup.Add_Click({
                 param($sender, $eventArgs)
