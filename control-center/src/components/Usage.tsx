@@ -530,7 +530,17 @@ export function Usage() {
   useEffect(() => {
     load();
     const t = setInterval(load, 60_000);
-    return () => clearInterval(t);
+    // Auto-refresh when the window gets focus — typical scenario: the user
+    // came back from a Claude /usage terminal tab and expects the panel to
+    // reflect whatever the session just wrote into stats-cache.json.
+    const onFocus = () => {
+      load();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+    };
   }, []);
 
   return (

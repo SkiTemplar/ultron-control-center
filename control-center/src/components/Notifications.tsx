@@ -68,9 +68,9 @@ const DATE_LABEL: Record<DateFilter, string> = {
 
 function passesDateFilter(ts: string, filter: DateFilter): boolean {
   if (filter === "all") return true;
-  if (!ts) return filter === "all";
+  if (!ts) return false;
   const t = new Date(ts).getTime();
-  if (isNaN(t)) return filter === "all";
+  if (isNaN(t)) return false;
   const delta = Date.now() - t;
   switch (filter) {
     case "1h":
@@ -133,6 +133,22 @@ function dedupe(alerts: AlertEntry[]): Grouped[] {
 // ---------------------------------------------------------------------------
 
 const MUTE_KEY = "ultron.cc.muted_sources.v1";
+const DISMISSED_KEY = "ultron.cc.dismissed_fingerprints.v1";
+
+function loadDismissed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DISMISSED_KEY);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+function saveDismissed(d: Set<string>) {
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify(Array.from(d)));
+  } catch {}
+}
 const SEV_KEY = "ultron.cc.sev_filters.v1";
 const DATE_KEY = "ultron.cc.date_filter.v1";
 
@@ -299,10 +315,16 @@ export function Notifications({ alerts }: Props) {
   const [sevFilters, setSevFilters] = useState<Set<SevKey>>(() => loadSevFilters());
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => loadDateFilter());
   const [showMuteList, setShowMuteList] = useState(false);
+  // Client-side "I've already seen this" set. Dismissed alerts disappear
+  // from view until a new alert with a different fingerprint shows up. This
+  // is non-destructive — alerts.jsonl on disk is untouched, so we can also
+  // offer an "Undo dismiss" affordance.
+  const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
 
   useEffect(() => saveMutes(mutes), [mutes]);
   useEffect(() => saveSevFilters(sevFilters), [sevFilters]);
   useEffect(() => saveDateFilter(dateFilter), [dateFilter]);
+  useEffect(() => saveDismissed(dismissed), [dismissed]);
 
   // Stats per severity (after date filter, before dedupe — counts raw alerts)
   const dateFiltered = useMemo(
@@ -331,17 +353,23 @@ export function Notifications({ alerts }: Props) {
     return Array.from(set).sort();
   }, [allGroups]);
 
+  // Compute group fingerprint the same way dedupe does so dismissed-set
+  // lookups line up.
+  const groupKey = (g: { source: string; message: string }) =>
+    `${g.source}::${(g.message ?? "").trim().replace(/\s+/g, " ").slice(0, 80)}`;
+
   const visibleGroups = useMemo(
     () =>
       allGroups
         .filter((g) => sevFilters.has(severityStyle(g.severity).key))
         .filter((g) => !mutes.has(g.source))
+        .filter((g) => !dismissed.has(groupKey(g)))
         .sort(
           (a, b) =>
             severityStyle(b.severity).weight - severityStyle(a.severity).weight ||
             b.count - a.count,
         ),
-    [allGroups, sevFilters, mutes],
+    [allGroups, sevFilters, mutes, dismissed],
   );
 
   const visibleTotal = visibleGroups.reduce((acc, g) => acc + g.count, 0);
@@ -409,7 +437,40 @@ export function Notifications({ alerts }: Props) {
           />
         ))}
 
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {(() => {
+            const infoVisible = visibleGroups.filter(
+              (g) => severityStyle(g.severity).key === "info",
+            );
+            return (
+              <button
+                type="button"
+                onClick={() => {
+                  if (infoVisible.length === 0) return;
+                  const next = new Set(dismissed);
+                  for (const g of infoVisible) next.add(groupKey(g));
+                  setDismissed(next);
+                }}
+                disabled={infoVisible.length === 0}
+                title="Marca como vistas las notificaciones info actualmente visibles"
+                className="text-[11px] transition-colors disabled:opacity-30"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Clear info ({infoVisible.length})
+              </button>
+            );
+          })()}
+          {dismissed.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setDismissed(new Set())}
+              title="Restaura todas las notificaciones descartadas"
+              className="text-[11px] transition-colors"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              Undo ({dismissed.size})
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setShowMuteList(!showMuteList)}

@@ -56,56 +56,57 @@ fn iso_pretty(secs: u64) -> String {
 }
 
 /// Strip HTML tags and collapse whitespace to extract a readable excerpt.
+///
+/// Implementation note: we operate on the original `&str` via `char_indices`
+/// so we never slice on a byte index that may fall mid-char (Spanish
+/// newsletters routinely include á, é, ñ, etc.). Earlier versions sliced a
+/// pre-lowercased `String` by raw byte position, which panicked on the
+/// first non-ASCII char and dangled the Tauri promise.
 fn strip_tags(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
-    let mut in_tag = false;
-    let mut in_script = false;
-    let lower = html.to_ascii_lowercase();
-    let mut i = 0;
-    let bytes = html.as_bytes();
-    while i < bytes.len() {
-        let c = bytes[i] as char;
-        if !in_tag && c == '<' {
-            // Detect <script> and <style> blocks — skip everything until close.
-            if lower[i..].starts_with("<script") {
-                if let Some(end) = lower[i..].find("</script>") {
-                    i += end + "</script>".len();
-                    in_script = false;
+    let mut chars = html.char_indices().peekable();
+    while let Some((i, c)) = chars.next() {
+        if c == '<' {
+            // Look-ahead for <script> / <style> blocks using a case-insensitive
+            // ASCII match — both delimiters are pure-ASCII so we can compare
+            // raw bytes safely.
+            let remaining = &html[i..];
+            if remaining.len() >= 7
+                && remaining.as_bytes()[..7].eq_ignore_ascii_case(b"<script")
+            {
+                if let Some(end) = remaining.to_ascii_lowercase().find("</script>") {
+                    let skip_to = i + end + "</script>".len();
+                    while let Some(&(j, _)) = chars.peek() {
+                        if j >= skip_to { break; }
+                        chars.next();
+                    }
                     continue;
-                } else {
-                    break;
                 }
+                break;
             }
-            if lower[i..].starts_with("<style") {
-                if let Some(end) = lower[i..].find("</style>") {
-                    i += end + "</style>".len();
+            if remaining.len() >= 6
+                && remaining.as_bytes()[..6].eq_ignore_ascii_case(b"<style")
+            {
+                if let Some(end) = remaining.to_ascii_lowercase().find("</style>") {
+                    let skip_to = i + end + "</style>".len();
+                    while let Some(&(j, _)) = chars.peek() {
+                        if j >= skip_to { break; }
+                        chars.next();
+                    }
                     continue;
-                } else {
-                    break;
                 }
+                break;
             }
-            in_tag = true;
-            i += 1;
+            // Generic tag — eat through `>`.
+            for (_, ch) in chars.by_ref() {
+                if ch == '>' { break; }
+            }
+            out.push(' ');
             continue;
         }
-        if in_tag {
-            if c == '>' {
-                in_tag = false;
-                out.push(' ');
-            }
-            i += 1;
-            continue;
-        }
-        if !in_script {
-            out.push(c);
-        }
-        i += 1;
+        out.push(c);
     }
-    let collapsed: String = out
-        .split_whitespace()
-        .collect::<Vec<&str>>()
-        .join(" ");
-    collapsed
+    out.split_whitespace().collect::<Vec<&str>>().join(" ")
 }
 
 /// Pull <title>...</title> from the head if present, otherwise None.
@@ -153,10 +154,12 @@ pub fn list_news_inner() -> Result<Vec<NewsEntry>, String> {
         let title = extract_title(&truncated);
         let excerpt = {
             let plain = strip_tags(&truncated);
-            if plain.len() > 280 {
-                Some(format!("{}…", plain[..280].trim_end()))
-            } else if plain.is_empty() {
+            if plain.is_empty() {
                 None
+            } else if plain.chars().count() > 280 {
+                // Char-aware truncation to avoid splitting Spanish accents.
+                let cut: String = plain.chars().take(280).collect();
+                Some(format!("{}…", cut.trim_end()))
             } else {
                 Some(plain)
             }
