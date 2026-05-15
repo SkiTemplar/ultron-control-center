@@ -589,6 +589,54 @@ async fn patch_plan_status(id: String, status: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+async fn add_plan(
+    title: String,
+    priority: Option<String>,
+    status: Option<String>,
+    kind: Option<String>,
+    description: Option<String>,
+    tags: Option<Vec<String>>,
+) -> Result<plans::PlanMutateResult, String> {
+    plans::add_plan_inner(plans::CreatePlanPayload {
+        title,
+        priority,
+        status,
+        kind,
+        description,
+        tags,
+    })
+}
+
+#[tauri::command]
+async fn update_plan(
+    id: String,
+    title: Option<String>,
+    priority: Option<String>,
+    kind: Option<String>,
+    description: Option<String>,
+    tags: Option<Vec<String>>,
+) -> Result<plans::PlanMutateResult, String> {
+    plans::update_plan_inner(plans::UpdatePlanPayload {
+        id,
+        title,
+        priority,
+        kind,
+        description,
+        tags,
+    })
+}
+
+#[tauri::command]
+async fn delete_plan(id: String) -> Result<plans::PlanMutateResult, String> {
+    plans::delete_plan_inner(id)
+}
+
+#[tauri::command]
+async fn clean_resolved_plans() -> Result<u64, String> {
+    plans::clean_resolved_plans_inner()
+}
+
+#[tauri::command]
 async fn run_diagnose(
     app: tauri::AppHandle,
     hours: Option<u32>,
@@ -741,6 +789,10 @@ pub fn run() {
             backup_status,
             list_plans,
             patch_plan_status,
+            add_plan,
+            update_plan,
+            delete_plan,
+            clean_resolved_plans,
             get_global_hotkey,
             set_global_hotkey,
             self_improve_report,

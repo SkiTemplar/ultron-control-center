@@ -130,9 +130,10 @@ export default function App() {
         {tab === "self-improve" && (
           <div className="px-10 py-8">
             <header className="mb-6">
-              <h1 className="text-[20px] font-semibold leading-tight">Self-improvement</h1>
+              <h1 className="text-[20px] font-semibold leading-tight">Stats</h1>
               <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-                Routing telemetry · skill usage · recent errors · adversarial review
+                Routing telemetry, skill usage, recent errors, adversarial review,
+                repo evaluation.
               </p>
             </header>
             <SelfImprove />

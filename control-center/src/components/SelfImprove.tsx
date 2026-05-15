@@ -24,20 +24,16 @@ export type SelfImproveReport = {
 export function SelfImprove() {
   const [data, setData] = useState<SelfImproveReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewOutput, setReviewOutput] = useState<string | null>(null);
 
   async function load() {
-    setLoading(true);
     try {
       const r = (await invoke("self_improve_report")) as SelfImproveReport;
       setData(r);
       setError(null);
     } catch (e) {
       setError(String(e));
-    } finally {
-      setLoading(false);
     }
   }
 
@@ -235,7 +231,7 @@ export function SelfImprove() {
               color: "var(--color-accent-text)",
             }}
           >
-            {reviewBusy ? "Running…" : "Run review"}
+            {reviewBusy ? "Running..." : "Run review"}
           </button>
         </div>
         {reviewOutput && (
@@ -254,9 +250,100 @@ export function SelfImprove() {
         )}
       </div>
 
-      {loading && !data && (
-        <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Loading telemetry…
+      <KirkardoCard />
+    </div>
+  );
+}
+
+function KirkardoCard() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+
+  async function runKirkardo() {
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      // Spawns a fresh Claude session that activates the repo-evaluator
+      // skill (alias "Kirkardo"). Claude opens in a wt.exe tab; the user
+      // continues the conversation there. We don't capture the full
+      // evaluation inline because Kirkardo expects multi-turn dialogue.
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt:
+          "Kirkardo, evalua este repo (~/.ultron) al estilo de un profesor estricto: arquitectura, tests, docs, riesgos, dependencias, y dame nota final con justificacion. Empieza por la fase 0 de inventario.",
+        cwd: null,
+        flags: { dangerouslySkipPermissions: false },
+      });
+      setInfo("Kirkardo session abierta en wt.exe. Continua la evaluacion alli.");
+      window.setTimeout(() => setInfo(null), 4000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
+            Run Kirkardo (repo-evaluator) review
+          </div>
+          <p
+            className="mt-1 text-[11px] leading-relaxed"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Abre una sesion Claude que activa la skill repo-evaluator: corrige
+            la entrega como un profesor estricto, arquitectura + tests + docs +
+            riesgos + nota final. La sesion se abre en wt.exe para que sigas la
+            conversacion alli.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={runKirkardo}
+          disabled={busy}
+          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          {busy ? "Abriendo..." : "Run Kirkardo"}
+        </button>
+      </div>
+      {error && (
+        <div
+          className="mt-2 rounded p-2 text-[11.5px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {info && (
+        <div
+          className="mt-2 rounded p-2 text-[11.5px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.08)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {info}
         </div>
       )}
     </div>

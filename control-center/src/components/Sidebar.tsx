@@ -58,7 +58,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "Meta",
     items: [
-      { id: "self-improve", label: "Self-improve", available: true },
+      { id: "self-improve", label: "Stats", available: true },
     ],
   },
   {

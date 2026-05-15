@@ -163,6 +163,203 @@ pub fn patch_plan_status_inner(id: String, new_status: String) -> Result<bool, S
     Ok(true)
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreatePlanPayload {
+    pub title: String,
+    pub priority: Option<String>,
+    pub status: Option<String>,
+    pub kind: Option<String>,
+    pub description: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePlanPayload {
+    pub id: String,
+    pub title: Option<String>,
+    pub priority: Option<String>,
+    pub kind: Option<String>,
+    pub description: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct PlanMutateResult {
+    pub success: bool,
+    pub id: String,
+}
+
+fn slugify(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut last_dash = false;
+    for c in s.trim().chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+fn now_iso() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format_unix_iso(secs)
+}
+
+fn read_plans_root() -> Result<(PathBuf, serde_json::Value), String> {
+    let path = plans_path().ok_or_else(|| "no HOME".to_string())?;
+    let raw = fs::read_to_string(&path).map_err(|e| format!("read: {}", e))?;
+    let root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    Ok((path, root))
+}
+
+fn write_plans_root(path: &PathBuf, root: &serde_json::Value) -> Result<(), String> {
+    let mut value = root.clone();
+    if let Some(obj) = value.as_object_mut() {
+        obj.insert(
+            "updated_at".to_string(),
+            serde_json::Value::String(now_iso()),
+        );
+    }
+    let serialized =
+        serde_json::to_string_pretty(&value).map_err(|e| format!("serialize: {}", e))?;
+    let tmp = path.with_extension("json.tmp");
+    fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
+    fs::rename(&tmp, path).map_err(|e| format!("rename: {}", e))?;
+    Ok(())
+}
+
+pub fn add_plan_inner(p: CreatePlanPayload) -> Result<PlanMutateResult, String> {
+    let title = p.title.trim();
+    if title.is_empty() {
+        return Err("title is empty".into());
+    }
+    let (path, mut root) = read_plans_root()?;
+    let items = root
+        .get_mut("items")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "no items[]".to_string())?;
+    let existing: std::collections::HashSet<String> = items
+        .iter()
+        .filter_map(|v| v.get("id").and_then(|x| x.as_str()).map(String::from))
+        .collect();
+    let base = slugify(title);
+    let base = if base.is_empty() { "plan".to_string() } else { base };
+    let mut id = base.clone();
+    let mut i = 2u32;
+    while existing.contains(&id) {
+        id = format!("{}-{}", base, i);
+        i += 1;
+    }
+    let priority = p.priority.as_deref().unwrap_or("p3").to_string();
+    let status = p.status.as_deref().unwrap_or("open").to_string();
+    let kind = p.kind.as_deref().unwrap_or("task").to_string();
+    let entry = serde_json::json!({
+        "id": id,
+        "kind": kind,
+        "title": title,
+        "status": status,
+        "priority": priority,
+        "tags": p.tags.unwrap_or_default(),
+        "description": p.description.unwrap_or_default(),
+        "created_at": now_iso(),
+        "resolved_at": serde_json::Value::Null,
+    });
+    items.push(entry);
+    write_plans_root(&path, &root)?;
+    Ok(PlanMutateResult { success: true, id })
+}
+
+pub fn update_plan_inner(p: UpdatePlanPayload) -> Result<PlanMutateResult, String> {
+    if p.id.trim().is_empty() {
+        return Err("id is empty".into());
+    }
+    let (path, mut root) = read_plans_root()?;
+    let items = root
+        .get_mut("items")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "no items[]".to_string())?;
+    let target = items.iter_mut().find(|v| {
+        v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone())
+    });
+    let entry = target.ok_or_else(|| format!("plan '{}' not found", p.id))?;
+    if let Some(title) = p.title.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        entry["title"] = serde_json::Value::String(title.to_string());
+    }
+    if let Some(priority) = p.priority.as_deref().filter(|s| !s.is_empty()) {
+        entry["priority"] = serde_json::Value::String(priority.to_string());
+    }
+    if let Some(kind) = p.kind.as_deref().filter(|s| !s.is_empty()) {
+        entry["kind"] = serde_json::Value::String(kind.to_string());
+    }
+    if let Some(desc) = p.description.as_deref() {
+        entry["description"] = serde_json::Value::String(desc.to_string());
+    }
+    if let Some(tags) = p.tags.as_ref() {
+        let arr: Vec<serde_json::Value> = tags
+            .iter()
+            .filter_map(|t| {
+                let t = t.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::Value::String(t.to_string()))
+                }
+            })
+            .collect();
+        entry["tags"] = serde_json::Value::Array(arr);
+    }
+    write_plans_root(&path, &root)?;
+    Ok(PlanMutateResult {
+        success: true,
+        id: p.id,
+    })
+}
+
+pub fn delete_plan_inner(id: String) -> Result<PlanMutateResult, String> {
+    if id.trim().is_empty() {
+        return Err("id is empty".into());
+    }
+    let (path, mut root) = read_plans_root()?;
+    let items = root
+        .get_mut("items")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "no items[]".to_string())?;
+    let before = items.len();
+    items.retain(|v| v.get("id").and_then(|x| x.as_str()) != Some(id.as_str()));
+    let after = items.len();
+    write_plans_root(&path, &root)?;
+    Ok(PlanMutateResult {
+        success: before != after,
+        id,
+    })
+}
+
+/// Drop every item with status == "resolved". Returns the count removed.
+pub fn clean_resolved_plans_inner() -> Result<u64, String> {
+    let (path, mut root) = read_plans_root()?;
+    let items = root
+        .get_mut("items")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "no items[]".to_string())?;
+    let before = items.len() as u64;
+    items.retain(|v| {
+        v.get("status").and_then(|x| x.as_str()) != Some("resolved")
+    });
+    let removed = before - items.len() as u64;
+    if removed > 0 {
+        write_plans_root(&path, &root)?;
+    }
+    Ok(removed)
+}
+
 fn format_unix_iso(secs: u64) -> String {
     let mut days = (secs / 86_400) as i64;
     let secs_in_day = (secs % 86_400) as u32;
