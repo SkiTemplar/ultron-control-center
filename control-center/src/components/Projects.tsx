@@ -58,12 +58,16 @@ function Row({
   onClick,
   onOpen,
   opening,
+  onEdit,
+  onDelete,
 }: {
   p: ProjectInfo;
   selected: boolean;
   onClick: () => void;
   onOpen: () => void;
   opening: boolean;
+  onEdit: () => void;
+  onDelete: () => void;
 }) {
   const b = statusBadge(p.status);
   return (
@@ -145,19 +149,47 @@ function Row({
             {p.last_active}
           </span>
         )}
-        <button
-          type="button"
-          onClick={onOpen}
-          disabled={opening || !p.path}
-          className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
-          style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
-          }}
-          title={p.path ? `Open ${p.id} in ${p.ide ?? "default IDE"}` : "No path on file"}
-        >
-          {opening ? "Opening…" : "Open"}
-        </button>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded px-2 py-1 text-[10.5px] transition-colors"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Edit project metadata"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded px-2 py-1 text-[10.5px] transition-colors"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-danger)",
+              border: "1px solid rgba(248, 81, 73, 0.32)",
+            }}
+            title="Remove from registry (no files touched)"
+          >
+            ×
+          </button>
+          <button
+            type="button"
+            onClick={onOpen}
+            disabled={opening || !p.path}
+            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+            title={p.path ? `Open ${p.id} in ${p.ide ?? "default IDE"}` : "No path on file"}
+          >
+            {opening ? "Opening…" : "Open"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -237,8 +269,11 @@ export function Projects() {
   const [scanning, setScanning] = useState(false);
   const [lastAction, setLastAction] = useState<ProjectActionResult | null>(null);
 
-  // New-project wizard state
+  // New/edit project wizard state — same form for both flows; `editingId`
+  // distinguishes create vs update so the modal can call the right command
+  // and the submit button can reflect the action.
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [wName, setWName] = useState("");
   const [wPath, setWPath] = useState("");
   const [wIde, setWIde] = useState("");
@@ -246,6 +281,8 @@ export function Projects() {
   const [wTags, setWTags] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -295,7 +332,28 @@ export function Projects() {
     load();
   }, []);
 
-  async function createProject() {
+  function resetWizard() {
+    setWName("");
+    setWPath("");
+    setWIde("");
+    setWLang("");
+    setWTags("");
+    setEditingId(null);
+    setCreateError(null);
+  }
+
+  function startEdit(p: ProjectInfo) {
+    setEditingId(p.id);
+    setWName(p.name ?? "");
+    setWPath(p.path ?? "");
+    setWIde(p.ide ?? "");
+    setWLang(p.language ?? "");
+    setWTags(p.tags.join(", "));
+    setCreateError(null);
+    setWizardOpen(true);
+  }
+
+  async function saveProject() {
     setCreating(true);
     setCreateError(null);
     try {
@@ -303,28 +361,52 @@ export function Projects() {
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
-      const r = (await invoke("create_project", {
-        name: wName,
-        path: wPath,
-        ide: wIde || null,
-        language: wLang || null,
-        tags: tagList.length > 0 ? tagList : null,
-      })) as CreateProjectResult;
-      if (r.success) {
-        setWName("");
-        setWPath("");
-        setWIde("");
-        setWLang("");
-        setWTags("");
+      if (editingId) {
+        await invoke("update_project", {
+          id: editingId,
+          name: wName || null,
+          path: wPath || null,
+          ide: wIde || null,
+          language: wLang || null,
+          tags: tagList,
+        });
+        resetWizard();
         setWizardOpen(false);
         await load();
       } else {
-        setCreateError(r.message);
+        const r = (await invoke("create_project", {
+          name: wName,
+          path: wPath,
+          ide: wIde || null,
+          language: wLang || null,
+          tags: tagList.length > 0 ? tagList : null,
+        })) as CreateProjectResult;
+        if (r.success) {
+          resetWizard();
+          setWizardOpen(false);
+          await load();
+        } else {
+          setCreateError(r.message);
+        }
       }
     } catch (e) {
       setCreateError(String(e));
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    setDeleteBusy(true);
+    try {
+      await invoke("delete_project", { id: pendingDelete.id });
+      setPendingDelete(null);
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDeleteBusy(false);
     }
   }
 
@@ -456,7 +538,15 @@ export function Projects() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setWizardOpen(!wizardOpen)}
+            onClick={() => {
+              if (wizardOpen) {
+                setWizardOpen(false);
+                resetWizard();
+              } else {
+                resetWizard();
+                setWizardOpen(true);
+              }
+            }}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
             style={{
               background: "var(--color-accent)",
@@ -505,7 +595,7 @@ export function Projects() {
           }}
         >
           <div className="mb-3 text-[12px] font-medium" style={{ color: "var(--color-text)" }}>
-            New project
+            {editingId ? `Edit project: ${editingId}` : "New project"}
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -625,7 +715,7 @@ export function Projects() {
           <div className="mt-3 flex items-center gap-2">
             <button
               type="button"
-              onClick={createProject}
+              onClick={saveProject}
               disabled={creating || !wName.trim() || !wPath.trim()}
               className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
               style={{
@@ -633,11 +723,17 @@ export function Projects() {
                 color: "var(--color-accent-text)",
               }}
             >
-              {creating ? "Creating…" : "Create"}
+              {creating
+                ? editingId
+                  ? "Saving…"
+                  : "Creating…"
+                : editingId
+                  ? "Save"
+                  : "Create"}
             </button>
             <button
               type="button"
-              onClick={() => setWizardOpen(false)}
+              onClick={() => { setWizardOpen(false); resetWizard(); }}
               className="rounded px-3 py-1.5 text-[12px]"
               style={{
                 background: "transparent",
@@ -855,12 +951,68 @@ export function Projects() {
                   onClick={() => setSelected(p.id)}
                   onOpen={() => open(p.id)}
                   opening={opening === p.id}
+                  onEdit={() => startEdit(p)}
+                  onDelete={() => setPendingDelete(p)}
                 />
               ))}
             </div>
           </div>
         ))}
       </div>
+
+      {pendingDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+          onClick={() => !deleteBusy && setPendingDelete(null)}
+        >
+          <div
+            className="w-full max-w-[420px] rounded p-5"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-[14px] font-semibold">Borrar del registro</h3>
+            <p
+              className="mt-2 text-[12.5px] leading-relaxed"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              ¿Quitar <b>{pendingDelete.name ?? pendingDelete.id}</b> de
+              projects.json? No se tocan archivos en disco — solo se
+              elimina la entrada del registro.
+            </p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                disabled={deleteBusy}
+                className="rounded px-3 py-1.5 text-[12px]"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteBusy}
+                className="rounded px-3 py-1.5 text-[12px] font-medium"
+                style={{
+                  background: "var(--color-danger)",
+                  color: "#fff",
+                }}
+              >
+                {deleteBusy ? "Borrando…" : "Borrar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -6,6 +6,7 @@
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
 mod auth;
+mod backup_status;
 mod claude_sessions;
 mod gaming;
 mod mcps;
@@ -317,6 +318,30 @@ async fn create_project(
     })
 }
 
+#[tauri::command]
+async fn update_project(
+    id: String,
+    name: Option<String>,
+    path: Option<String>,
+    ide: Option<String>,
+    language: Option<String>,
+    tags: Option<Vec<String>>,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::update_project_inner(projects::UpdateProjectPayload {
+        id,
+        name,
+        path,
+        ide,
+        language,
+        tags,
+    })
+}
+
+#[tauri::command]
+async fn delete_project(id: String) -> Result<projects::DeleteProjectResult, String> {
+    projects::delete_project_inner(id)
+}
+
 // ---------------------------------------------------------------------------
 // Session commands
 // ---------------------------------------------------------------------------
@@ -414,6 +439,11 @@ async fn set_ultron_mode(mode: String) -> Result<mode::ModeSetResult, String> {
 #[tauri::command]
 async fn list_news() -> Result<Vec<news::NewsEntry>, String> {
     news::list_news_inner()
+}
+
+#[tauri::command]
+async fn backup_status() -> Result<backup_status::BackupStatusReport, String> {
+    backup_status::backup_status_inner()
 }
 
 #[tauri::command]
@@ -544,6 +574,8 @@ pub fn run() {
             open_project,
             scan_projects,
             create_project,
+            update_project,
+            delete_project,
             brain_query,
             read_vault_note,
             memory_action,
@@ -564,6 +596,7 @@ pub fn run() {
             list_claude_sessions,
             run_diagnose,
             diagnose_with_ai,
+            backup_status,
             self_improve_report,
             run_codex_adversarial_review,
             run_doctor

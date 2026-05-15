@@ -105,7 +105,9 @@ if ($promptText -and $promptText.Trim().Length -gt 0 -and -not $resumeActive) {
 
 # --- Spawn wt.exe via Start-Process ---------------------------------------
 
-$title = "ULTRON | $provider"
+# wt.exe parses `|` and `;` in unquoted positions as tab/pane separators
+# even when the value is wrapped in `--title`. Use a dash to be safe.
+$title = "ULTRON-$provider"
 $wtArgs = @(
     "new-tab",
     "--title", $title,

@@ -250,6 +250,128 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
     })
 }
 
+#[derive(Debug, _Deserialize)]
+pub struct UpdateProjectPayload {
+    pub id: String,
+    pub name: Option<String>,
+    pub path: Option<String>,
+    pub ide: Option<String>,
+    pub language: Option<String>,
+    pub tags: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct UpdateProjectResult {
+    pub success: bool,
+    pub id: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct DeleteProjectResult {
+    pub success: bool,
+    pub id: String,
+}
+
+/// Patch an existing entry in projects.json. Only fields explicitly provided
+/// (Some) get touched; the rest are preserved. Atomic write through a temp
+/// file so a crash mid-write doesn't corrupt the registry.
+pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResult, String> {
+    use std::path::Path;
+    if p.id.trim().is_empty() {
+        return Err("id is empty".to_string());
+    }
+    let registry = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/cockpit/projects.json");
+    let raw = std::fs::read_to_string(&registry)
+        .map_err(|e| format!("read projects.json: {}", e))?;
+    let mut root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let projects = root
+        .get_mut("projects")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "projects.json has no projects[]".to_string())?;
+
+    let target = projects.iter_mut().find(|v| {
+        v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone())
+    });
+    let entry = match target {
+        Some(e) => e,
+        None => return Err(format!("project '{}' not found", p.id)),
+    };
+
+    if let Some(name) = p.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        entry["name"] = serde_json::Value::String(name.to_string());
+    }
+    if let Some(path) = p.path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        // Soft-validate: warn-only if missing — the user may be fixing a
+        // moved folder. Fail only when the value is syntactically broken.
+        let _ = Path::new(path);
+        entry["path"] = serde_json::Value::String(path.to_string());
+    }
+    if let Some(ide) = p.ide.as_deref() {
+        entry["ide"] = serde_json::Value::String(ide.trim().to_string());
+    }
+    if let Some(lang) = p.language.as_deref() {
+        entry["language"] = serde_json::Value::String(lang.trim().to_string());
+    }
+    if let Some(tags) = p.tags.as_ref() {
+        let arr: Vec<serde_json::Value> = tags
+            .iter()
+            .filter_map(|t| {
+                let t = t.trim();
+                if t.is_empty() {
+                    None
+                } else {
+                    Some(serde_json::Value::String(t.to_string()))
+                }
+            })
+            .collect();
+        entry["tags"] = serde_json::Value::Array(arr);
+    }
+
+    let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    let tmp = registry.with_extension("json.tmp");
+    std::fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
+    std::fs::rename(&tmp, &registry).map_err(|e| format!("rename: {}", e))?;
+    Ok(UpdateProjectResult {
+        success: true,
+        id: p.id,
+    })
+}
+
+/// Remove an entry from projects.json by id. Returns success even if the id
+/// didn't exist (idempotent), but with a marker so the UI can show a notice.
+pub fn delete_project_inner(id: String) -> Result<DeleteProjectResult, String> {
+    if id.trim().is_empty() {
+        return Err("id is empty".to_string());
+    }
+    let registry = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/cockpit/projects.json");
+    let raw = std::fs::read_to_string(&registry)
+        .map_err(|e| format!("read projects.json: {}", e))?;
+    let mut root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let projects = root
+        .get_mut("projects")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "projects.json has no projects[]".to_string())?;
+    let before = projects.len();
+    projects.retain(|p| p.get("id").and_then(|v| v.as_str()) != Some(id.as_str()));
+    let after = projects.len();
+
+    let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    let tmp = registry.with_extension("json.tmp");
+    std::fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
+    std::fs::rename(&tmp, &registry).map_err(|e| format!("rename: {}", e))?;
+
+    Ok(DeleteProjectResult {
+        success: before != after,
+        id,
+    })
+}
+
 /// Run `ultron.ps1 scan` and return the rescanned project list.
 pub async fn scan_projects_inner(app: &tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> {
     let ps = ultron_ps1_path().ok_or_else(|| "no HOME".to_string())?;

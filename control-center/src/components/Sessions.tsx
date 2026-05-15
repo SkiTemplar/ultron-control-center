@@ -18,14 +18,12 @@ type Presets = {
   dangerouslySkipPermissions: boolean;
   effort: "" | "low" | "medium" | "high" | "xhigh" | "max";
   name: string;
-  forkSession: boolean;
 };
 
 const DEFAULT_PRESETS: Presets = {
   dangerouslySkipPermissions: false,
   effort: "",
   name: "",
-  forkSession: false,
 };
 
 function loadPresets(): Presets {
@@ -510,7 +508,6 @@ export function Sessions() {
     if (provider !== "claude") return null;
     return {
       dangerouslySkipPermissions: presets.dangerouslySkipPermissions,
-      forkSession: presets.forkSession,
       effort: presets.effort ? presets.effort : null,
       model: model || null,
       name: presets.name.trim() ? presets.name.trim() : null,
@@ -549,19 +546,6 @@ export function Sessions() {
     }
   }
 
-  async function continueLastInCwd() {
-    setError(null);
-    try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt: null,
-        cwd: cwd || null,
-        flags: flagsForProvider({ continueLast: true }),
-      });
-    } catch (e) {
-      setError(String(e));
-    }
-  }
 
   const meta = PROVIDERS[provider];
 
@@ -692,36 +676,6 @@ export function Sessions() {
                 </div>
               </label>
 
-              <label
-                className="flex items-start gap-2 rounded p-2.5 transition-colors"
-                style={{
-                  background: presets.forkSession
-                    ? "var(--color-surface-3)"
-                    : "var(--color-surface-2)",
-                  border: "1px solid var(--color-border)",
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={presets.forkSession}
-                  onChange={(e) =>
-                    setPresets({ ...presets, forkSession: e.target.checked })
-                  }
-                  className="mt-0.5 h-3.5 w-3.5"
-                />
-                <div className="min-w-0">
-                  <div className="text-[12.5px] font-medium">--fork-session</div>
-                  <div
-                    className="mt-0.5 text-[11px]"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    Al reanudar (-r / --continue), crea una rama nueva en
-                    lugar de seguir escribiendo en la sesión original.
-                  </div>
-                </div>
-              </label>
-
               <div>
                 <label
                   className="block text-[10px] uppercase tracking-wide"
@@ -782,24 +736,12 @@ export function Sessions() {
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={continueLastInCwd}
-                className="rounded px-3 py-1.5 text-[12px] transition-colors"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-                title="claude -c · reanuda la última conversación en el workspace seleccionado"
-              >
-                Continue last in cwd
-              </button>
               <span
                 className="text-[10.5px]"
                 style={{ color: "var(--color-text-faint)" }}
               >
-                cwd: {cwd || "(none)"}
+                cwd: {cwd || "(none)"} · Open new session lanza una sesión
+                limpia · Resume en la lista de abajo reanuda una específica.
               </span>
             </div>
           </div>
