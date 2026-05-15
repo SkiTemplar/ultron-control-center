@@ -42,6 +42,18 @@ export function News() {
   const [pendingDelete, setPendingDelete] = useState<NewsEntry | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
+  // Summary cache lives in localStorage so we don't burn LLM turns each
+  // time the user revisits a newsletter. Keyed by absolute path.
+  const SUMMARY_KEY = "ultron.cc.news_summaries.v1";
+  const [summaries, setSummaries] = useState<Record<string, string>>(() => {
+    try {
+      const raw = localStorage.getItem(SUMMARY_KEY);
+      if (raw) return JSON.parse(raw) as Record<string, string>;
+    } catch {}
+    return {};
+  });
+  const [summarizing, setSummarizing] = useState(false);
+
   async function load() {
     setLoading(true);
     try {
@@ -53,6 +65,24 @@ export function News() {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function summarize(path: string) {
+    if (summaries[path] || summarizing) return;
+    setSummarizing(true);
+    setError(null);
+    try {
+      const r = (await invoke("summarize_news", { path })) as string;
+      const next = { ...summaries, [path]: r };
+      setSummaries(next);
+      try {
+        localStorage.setItem(SUMMARY_KEY, JSON.stringify(next));
+      } catch {}
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSummarizing(false);
     }
   }
 
@@ -352,11 +382,71 @@ export function News() {
             </header>
             <div className="flex-1 overflow-auto px-5 py-4">
               <p
-                className="text-[12.5px] leading-relaxed"
-                style={{ color: "var(--color-text-secondary)" }}
+                className="text-[12px] leading-relaxed"
+                style={{ color: "var(--color-text-tertiary)" }}
               >
                 {sel.excerpt ?? "No excerpt extracted yet. Open the file in a browser to read."}
               </p>
+
+              <div
+                className="mt-5 flex items-baseline justify-between gap-2 border-t pt-3"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <h3 className="text-[11px] font-medium uppercase tracking-[0.06em]"
+                  style={{ color: "var(--color-text-secondary)" }}
+                >
+                  AI summary
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => summarize(sel.path)}
+                  disabled={summarizing || !!summaries[sel.path]}
+                  className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+                  style={{
+                    background: summaries[sel.path]
+                      ? "var(--color-surface-2)"
+                      : "var(--color-accent)",
+                    color: summaries[sel.path]
+                      ? "var(--color-text-tertiary)"
+                      : "var(--color-accent-text)",
+                    border: summaries[sel.path]
+                      ? "1px solid var(--color-border)"
+                      : "none",
+                  }}
+                  title={
+                    summaries[sel.path]
+                      ? "Already summarised (cached)"
+                      : "Resume con Claude (6 bullets + conclusion)"
+                  }
+                >
+                  {summarizing
+                    ? "Summarising..."
+                    : summaries[sel.path]
+                      ? "Cached"
+                      : "Summarise"}
+                </button>
+              </div>
+              {summaries[sel.path] ? (
+                <pre
+                  className="mt-2 text-[12.5px] leading-relaxed"
+                  style={{
+                    color: "var(--color-text-secondary)",
+                    whiteSpace: "pre-wrap",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  {summaries[sel.path]}
+                </pre>
+              ) : (
+                <p
+                  className="mt-2 text-[11.5px]"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  Pulsa Summarise para que Claude resuma esta newsletter en 6
+                  bullets. El resumen se cachea local para no gastar turnos al
+                  revisitarla.
+                </p>
+              )}
             </div>
           </div>
         ) : (

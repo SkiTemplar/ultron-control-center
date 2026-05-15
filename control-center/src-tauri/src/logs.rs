@@ -20,6 +20,9 @@ pub struct LogSource {
     pub last_modified: Option<String>,
     /// Mime-like hint so the UI can choose monospace vs. JSON pretty.
     pub kind: String,
+    /// One-sentence description so the user knows what the source is for
+    /// without opening the file. Renders under the label in the UI.
+    pub description: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -38,74 +41,97 @@ fn home_join(rel: &str) -> Option<PathBuf> {
 /// Curated list of log sources. Each tuple is (id, label, relative-path, kind).
 /// Adding a new one is intentionally cheap — the UI just renders whatever
 /// comes back from list_logs_inner.
-fn catalog() -> Vec<(&'static str, &'static str, &'static str, &'static str)> {
+/// Each entry: (id, label, relative-path, kind, description).
+/// Notifications shows curated alerts (one per row, deduped, with severity);
+/// Logs is the raw fire-hose where you go *when something in Notifications
+/// doesn't tell you why*. This catalog leans on background-task logs that
+/// Notifications would never surface (doctor stdout, backup robocopy output,
+/// etc.).
+fn catalog() -> Vec<(&'static str, &'static str, &'static str, &'static str, &'static str)> {
     vec![
-        ("alerts", "Alerts (jsonl)", ".ultron/alerts.jsonl", "jsonl"),
+        (
+            "alerts",
+            "Alerts (raw jsonl)",
+            ".ultron/alerts.jsonl",
+            "jsonl",
+            "Mismo archivo que alimenta la pestaña Notifications, pero sin dedupe ni filtros. Útil para ver el orden cronológico exacto.",
+        ),
         (
             "doctor",
             "Doctor (weekly task)",
             ".ultron/cockpit/scheduler-logs/doctor.log",
             "text",
+            "Stdout del scheduled task UltronDoctor-Weekly. Aquí es donde aparece la causa real cuando el task muestra 0x1 en System.",
         ),
         (
             "backup",
             "Backup weekly",
             ".ultron/cockpit/scheduler-logs/backup-weekly.log",
             "text",
+            "Robocopy /MIR output del mirror semanal a D:\\USER\\BACKUP. Aquí ves qué archivos copia y cuáles se saltan.",
         ),
         (
             "retention",
             "Retention",
             ".ultron/cockpit/scheduler-logs/retention.log",
             "text",
+            "Limpieza periódica de archivos antiguos: cuántos puntos de qdrant se purgaron, qué notas vault se rotaron.",
         ),
         (
             "ai-standup",
             "AI standup",
             ".ultron/cockpit/scheduler-logs/ai_standup.log",
             "text",
+            "Briefing matinal generado por IA con qué pasó ayer / qué toca hoy. Sólo útil si el standup falla y no recibes el resumen.",
         ),
         (
             "research",
             "Research",
             ".ultron/cockpit/scheduler-logs/research.log",
             "text",
+            "Background research jobs (arxiv, papers). Aquí ves errores de fetch o de parsing.",
         ),
         (
             "github-trending",
             "GitHub trending",
             ".ultron/cockpit/scheduler-logs/github_trending.log",
             "text",
+            "Snapshot diario del trending de GitHub para el feed de news.",
         ),
         (
             "mcp-audit",
             "MCP audit (jsonl)",
             ".ultron/cockpit/mcp-audit.jsonl",
             "jsonl",
+            "Cada enable/disable/edit de un MCP server queda registrado aquí (quién, cuándo, qué cambió).",
         ),
         (
             "auto-updater",
             "Auto-updater (jsonl)",
             ".ultron/cockpit/auto_updater.jsonl",
             "jsonl",
+            "Resultado del proceso de auto-update de ULTRON: qué versión se aplicó, qué falló.",
         ),
         (
             "token-usage",
             "Token usage (jsonl)",
             ".ultron/.tmp/token-usage.jsonl",
             "jsonl",
+            "Tokens crudos por turno (modelo, input/output/cache). La pestaña Usage agrega esto; aquí ves la entrada bruta.",
         ),
         (
             "prompt-feedback",
             "Prompt feedback (jsonl)",
             ".ultron/.tmp/prompt-feedback.jsonl",
             "jsonl",
+            "Telemetría de skill activations + match score por turno. Lo que come la tab Stats.",
         ),
         (
             "mcp-health",
             "MCP health (json)",
             ".ultron/.tmp/mcp-health.json",
             "json",
+            "Snapshot del último health-check de los MCP servers. La tab MCPs renderiza una versión bonita; aquí está el JSON crudo.",
         ),
     ]
 }
@@ -142,7 +168,7 @@ fn iso_from_systime(t: SystemTime) -> Option<String> {
 
 pub fn list_logs_inner() -> Result<Vec<LogSource>, String> {
     let mut out: Vec<LogSource> = Vec::new();
-    for (id, label, rel, kind) in catalog() {
+    for (id, label, rel, kind, desc) in catalog() {
         let path = match home_join(rel) {
             Some(p) => p,
             None => continue,
@@ -167,6 +193,7 @@ pub fn list_logs_inner() -> Result<Vec<LogSource>, String> {
             size_bytes,
             last_modified,
             kind: kind.to_string(),
+            description: desc.to_string(),
         });
     }
     Ok(out)
@@ -178,7 +205,7 @@ pub fn tail_log_inner(source_id: String, lines: Option<usize>) -> Result<LogTail
     let cat = catalog();
     let entry = cat
         .iter()
-        .find(|(id, _, _, _)| *id == source_id.as_str())
+        .find(|(id, _, _, _, _)| *id == source_id.as_str())
         .ok_or_else(|| format!("unknown log source '{}'", source_id))?;
     let path = home_join(entry.2).ok_or_else(|| "no HOME".to_string())?;
     let n = lines.unwrap_or(200).clamp(1, 2000);

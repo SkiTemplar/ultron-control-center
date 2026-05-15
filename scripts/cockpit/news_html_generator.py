@@ -44,7 +44,7 @@ from cockpit_base import NEWS_DIR  # noqa: E402
 SKILL_PATH = Path.home() / ".claude" / "skills" / "news-publisher" / "SKILL.md"
 NEWS_CATEGORIES_FILE = NEWS_DIR.parent / "news_categories.json"
 
-DEFAULT_MODEL = "gemini-2.5-pro"
+DEFAULT_MODEL = "gemini-3.1-pro"
 GEMINI_TIMEOUT_SEC = 600
 DEDUP_DAYS = 7
 DEDUP_MAX_URLS = 80

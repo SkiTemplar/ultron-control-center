@@ -548,44 +548,13 @@ export function Sessions() {
 
   return (
     <div className="px-10 py-8">
-      <header className="mb-6 flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-[20px] font-semibold leading-tight">Sessions</h1>
-          <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-            Abre una sesión Claude/Gemini/Codex con flags y workspace, o reanuda una anterior.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => openSession(false)}
-            className="rounded px-4 py-1.5 text-[12.5px] font-semibold transition-colors"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-            title="Lanza una sesión nueva en wt.exe con la configuración actual"
-          >
-            New Session
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              document
-                .getElementById("session-history")
-                ?.scrollIntoView({ behavior: "smooth", block: "start" });
-            }}
-            className="rounded px-4 py-1.5 text-[12.5px] font-semibold transition-colors"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Salta a la lista de sesiones del workspace"
-          >
-            Resume Session
-          </button>
-        </div>
+      <header className="mb-6">
+        <h1 className="text-[20px] font-semibold leading-tight">Sessions</h1>
+        <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
+          Abre una sesión Claude/Gemini/Codex en el workspace activo, o reanuda
+          una anterior. Los botones primarios están abajo, dentro del bloque
+          de presets.
+        </p>
       </header>
 
       <section
@@ -727,13 +696,43 @@ export function Sessions() {
 
             </div>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2">
+            <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              <button
+                type="button"
+                onClick={() => openSession(false)}
+                className="rounded px-4 py-2 text-[13px] font-semibold transition-colors"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+                title={`Lanza una sesión Claude limpia en ${cwd || "(no workspace)"}`}
+              >
+                New Session
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  document
+                    .getElementById("session-history")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                className="rounded px-4 py-2 text-[13px] font-semibold transition-colors"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+                title="Salta a la lista de sesiones existentes en este workspace"
+              >
+                Resume Session
+              </button>
               <span
-                className="text-[10.5px]"
+                className="ml-auto text-[10.5px]"
                 style={{ color: "var(--color-text-faint)" }}
               >
-                cwd: {cwd || "(none)"} · Open new session lanza una sesión
-                limpia · Resume en la lista de abajo reanuda una específica.
+                cwd: {cwd || "(none)"}
               </span>
             </div>
           </div>
@@ -747,7 +746,7 @@ export function Sessions() {
             style={{ color: "var(--color-text-tertiary)" }}
             title="Modo inline: ejecuta un prompt batch sin abrir terminal — útil para queries one-shot"
           >
-            {showInline ? "▾ Hide inline / quick prompt" : "▸ Show inline / quick prompt (advanced)"}
+            {showInline ? "Hide quick prompt" : "Show quick prompt"}
           </button>
         </div>
 

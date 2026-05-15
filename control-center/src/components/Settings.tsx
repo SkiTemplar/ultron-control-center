@@ -803,6 +803,63 @@ function GeneralSection() {
       {/* Global hotkey */}
       <HotkeyEditor />
 
+      {/* In-app keyboard map — read-only reference. The bindings live in
+          src/App.tsx (Alt+digit) and CommandPalette (Ctrl+K). When we add
+          custom bindings the helper here should grow to reflect them. */}
+      <div
+        className="rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+          In-app shortcuts
+        </div>
+        <p
+          className="mt-1 text-[11.5px] leading-relaxed"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Atajos dentro del Control Center. Alt+digit no roba teclas si
+          estas escribiendo en un input.
+        </p>
+        <div
+          className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11.5px]"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          {[
+            ["Ctrl + K", "Command palette"],
+            ["Ctrl + ,", "Settings"],
+            ["Ctrl + R", "Refresh top-level state"],
+            ["Alt + 1", "Dashboard"],
+            ["Alt + 2", "Usage"],
+            ["Alt + 3", "Notifications"],
+            ["Alt + 4", "Sessions"],
+            ["Alt + 5", "Projects"],
+            ["Alt + 6", "Plans"],
+            ["Alt + 7", "Memory"],
+            ["Alt + 8", "Skills"],
+            ["Alt + 9", "Logs"],
+            ["Alt + 0", "Settings"],
+          ].map(([k, label]) => (
+            <div key={k} className="flex items-baseline justify-between gap-2">
+              <kbd
+                className="rounded px-1.5 py-px text-[10.5px]"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {k}
+              </kbd>
+              <span style={{ color: "var(--color-text-tertiary)" }}>{label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
 
       {error && (
         <div

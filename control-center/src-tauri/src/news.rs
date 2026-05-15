@@ -143,11 +143,16 @@ pub async fn generate_news_inner(
         return Err(format!("script missing: {}", script.display()));
     }
     let script_str = script.to_string_lossy().to_string();
+    // USER wants Gemini 3.1 hard-pinned for the newsletter quality. We
+    // always pass --model even if the script's DEFAULT_MODEL already matches
+    // so the choice is visible in the audit trail.
     let mut args: Vec<String> = vec![
         "run".into(),
         "python".into(),
         script_str,
         "--no-open".into(),
+        "--model".into(),
+        "gemini-3.1-pro".into(),
     ];
     if let Some(d) = days {
         args.push("--days".into());
@@ -190,6 +195,52 @@ pub async fn generate_news_inner(
         stderr,
         exit_code: output.status.code(),
     })
+}
+
+/// Build a concise AI summary of a newsletter HTML. We strip the HTML
+/// locally so the LLM call gets prose only (no inline CSS / scripts), then
+/// route through `sessions::run_inline_inner` with provider=claude. Claude
+/// is the faster path for short summaries; Gemini is the generator and
+/// re-summarising with the same engine would waste a turn.
+pub async fn summarize_news_inner(
+    app: &tauri::AppHandle,
+    path_str: String,
+) -> Result<String, String> {
+    let p = std::path::PathBuf::from(&path_str);
+    let dir = news_dir().ok_or_else(|| "no HOME".to_string())?;
+    let canon_p = std::fs::canonicalize(&p).map_err(|e| format!("canonicalize: {}", e))?;
+    let canon_dir = std::fs::canonicalize(&dir).map_err(|e| format!("canonicalize dir: {}", e))?;
+    if !canon_p.starts_with(&canon_dir) {
+        return Err("path is not inside the news directory".into());
+    }
+    if canon_p.extension().and_then(|e| e.to_str()) != Some("html") {
+        return Err("only .html newsletters can be summarised".into());
+    }
+    let raw = fs::read_to_string(&canon_p).map_err(|e| format!("read: {}", e))?;
+    // Cap to 200 KB then strip tags, then cap to ~10 KB of prose so we stay
+    // well inside the LLM prompt budget.
+    let bounded = if raw.len() > 200_000 { &raw[..200_000] } else { &raw[..] };
+    let title = extract_title(bounded).unwrap_or_else(|| {
+        canon_p
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Newsletter")
+            .to_string()
+    });
+    let mut plain = strip_tags(bounded);
+    if plain.chars().count() > 6_000 {
+        plain = plain.chars().take(6_000).collect();
+    }
+    let prompt = format!(
+        "Resume esta newsletter en máximo 6 bullets en español, una línea cada uno, con la idea principal sin adornos. Después añade una línea final con la conclusión más relevante en una frase. No incluyas el título ni la fecha en la salida.\n\nTítulo: {}\n\nContenido:\n{}",
+        title, plain
+    );
+
+    let r = crate::sessions::run_inline_inner(app, "claude".into(), None, prompt).await?;
+    if !r.success {
+        return Err(if !r.stderr.is_empty() { r.stderr } else { r.stdout });
+    }
+    Ok(r.stdout.trim().to_string())
 }
 
 /// Delete a single newsletter HTML file. Strict: only files inside the news

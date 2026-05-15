@@ -13,7 +13,21 @@ type LogSource = {
   size_bytes: number;
   last_modified: string | null;
   kind: string;
+  description: string;
 };
+
+// Severity classification — substring match against the raw line. Kept
+// pragmatic: same words the underlying Python / PS scripts emit.
+const ERROR_RE = /\b(error|critical|fatal|exception|traceback|fail(ed|ure)?|0xc[0-9a-f]+)\b/i;
+const WARN_RE = /\b(warn(ing)?|deprecated|skipped|retr(y|ying)|timeout)\b/i;
+
+type LineSeverity = "error" | "warn" | "info";
+
+function classifyLine(line: string): LineSeverity {
+  if (ERROR_RE.test(line)) return "error";
+  if (WARN_RE.test(line)) return "warn";
+  return "info";
+}
 
 type LogTail = {
   source_id: string;
@@ -54,7 +68,8 @@ export function Logs() {
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [search, setSearch] = useState("");
-  const preRef = useRef<HTMLPreElement | null>(null);
+  const [errorsOnly, setErrorsOnly] = useState(false);
+  const preRef = useRef<HTMLDivElement | null>(null);
 
   async function loadSources() {
     try {
@@ -109,12 +124,30 @@ export function Logs() {
     }
   }, [tail]);
 
+  const classified = useMemo(() => {
+    if (!tail) return [] as { line: string; severity: LineSeverity }[];
+    return tail.tail.map((l) => ({ line: l, severity: classifyLine(l) }));
+  }, [tail]);
+
   const filteredLines = useMemo(() => {
-    if (!tail) return [] as string[];
-    if (!search.trim()) return tail.tail;
-    const q = search.toLowerCase();
-    return tail.tail.filter((l) => l.toLowerCase().includes(q));
-  }, [tail, search]);
+    if (classified.length === 0) return [];
+    const q = search.trim().toLowerCase();
+    return classified.filter((entry) => {
+      if (errorsOnly && entry.severity === "info") return false;
+      if (!q) return true;
+      return entry.line.toLowerCase().includes(q);
+    });
+  }, [classified, search, errorsOnly]);
+
+  const counts = useMemo(() => {
+    let errors = 0;
+    let warns = 0;
+    for (const c of classified) {
+      if (c.severity === "error") errors += 1;
+      else if (c.severity === "warn") warns += 1;
+    }
+    return { errors, warns };
+  }, [classified]);
 
   const sourcesSorted = useMemo(
     () =>
@@ -206,6 +239,14 @@ export function Logs() {
         >
           <div className="min-w-0 flex-1">
             <div className="text-[13px] font-semibold">{sel?.label ?? "-"}</div>
+            {sel?.description && (
+              <div
+                className="mt-0.5 text-[11px] leading-relaxed"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {sel.description}
+              </div>
+            )}
             <div
               className="mt-0.5 truncate text-[10.5px]"
               style={{
@@ -245,6 +286,21 @@ export function Logs() {
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            onClick={() => setErrorsOnly(!errorsOnly)}
+            className="rounded px-2.5 py-1 text-[11.5px] transition-colors"
+            style={{
+              background: errorsOnly
+                ? "rgba(248, 81, 73, 0.08)"
+                : "transparent",
+              color: errorsOnly ? "var(--color-danger)" : "var(--color-text-tertiary)",
+              border: `1px solid ${errorsOnly ? "rgba(248, 81, 73, 0.22)" : "var(--color-border-strong)"}`,
+            }}
+            title="Show only lines classified as error or warning"
+          >
+            {errorsOnly ? "Errors only" : "All lines"}
+          </button>
           <button
             type="button"
             onClick={() => setAutoRefresh(!autoRefresh)}
@@ -298,6 +354,16 @@ export function Logs() {
             <span>
               {filteredLines.length} / {tail.total_lines.toLocaleString()} lines
             </span>
+            {counts.errors > 0 && (
+              <span style={{ color: "var(--color-danger)" }}>
+                {counts.errors} error{counts.errors === 1 ? "" : "s"}
+              </span>
+            )}
+            {counts.warns > 0 && (
+              <span style={{ color: "var(--color-warn)" }}>
+                {counts.warns} warn
+              </span>
+            )}
             {tail.truncated && (
               <span style={{ color: "var(--color-warn)" }}>
                 large file - tail read from end
@@ -306,28 +372,53 @@ export function Logs() {
           </div>
         )}
 
-        <pre
+        <div
           ref={preRef}
           className="flex-1 overflow-auto px-4 py-3 text-[11px] leading-relaxed"
           style={{
             background: "var(--color-surface-1)",
             fontFamily: "var(--font-mono)",
-            color: "var(--color-text-secondary)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-word",
           }}
         >
           {filteredLines.length === 0 && !loading && (
             <span style={{ color: "var(--color-text-faint)" }}>
               {sel?.exists === false
                 ? "Log file does not exist yet."
-                : search
+                : search || errorsOnly
                   ? "No lines match the filter."
                   : "Empty."}
             </span>
           )}
-          {filteredLines.join("\n")}
-        </pre>
+          {filteredLines.map((entry, i) => {
+            const color =
+              entry.severity === "error"
+                ? "var(--color-danger)"
+                : entry.severity === "warn"
+                  ? "var(--color-warn)"
+                  : "var(--color-text-secondary)";
+            const bg =
+              entry.severity === "error"
+                ? "rgba(248, 81, 73, 0.04)"
+                : entry.severity === "warn"
+                  ? "rgba(210, 153, 34, 0.03)"
+                  : "transparent";
+            return (
+              <div
+                key={i}
+                style={{
+                  color,
+                  background: bg,
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                  padding: bg === "transparent" ? "0" : "0 4px",
+                  borderRadius: 2,
+                }}
+              >
+                {entry.line || " "}
+              </div>
+            );
+          })}
+        </div>
       </main>
     </div>
   );

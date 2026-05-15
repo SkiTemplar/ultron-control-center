@@ -481,6 +481,11 @@ async fn delete_news(path: String) -> Result<bool, String> {
 }
 
 #[tauri::command]
+async fn summarize_news(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    news::summarize_news_inner(&app, path).await
+}
+
+#[tauri::command]
 async fn backup_status() -> Result<backup_status::BackupStatusReport, String> {
     backup_status::backup_status_inner()
 }
@@ -839,6 +844,7 @@ pub fn run() {
             list_news,
             generate_news,
             delete_news,
+            summarize_news,
             list_claude_sessions,
             run_diagnose,
             diagnose_with_ai,

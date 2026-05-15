@@ -60,6 +60,8 @@ function Row({
   opening,
   onEdit,
   onDelete,
+  onOpenClaude,
+  onOpenCombo,
 }: {
   p: ProjectInfo;
   selected: boolean;
@@ -68,6 +70,8 @@ function Row({
   opening: boolean;
   onEdit: () => void;
   onDelete: () => void;
+  onOpenClaude: () => void;
+  onOpenCombo: () => void;
 }) {
   const b = statusBadge(p.status);
   return (
@@ -175,6 +179,34 @@ function Row({
             title="Remove from registry (no files touched)"
           >
             ×
+          </button>
+          <button
+            type="button"
+            onClick={onOpenClaude}
+            disabled={!p.path}
+            className="rounded px-2 py-1 text-[10.5px] transition-colors disabled:opacity-40"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title={p.path ? `Claude session en ${p.path}` : "No path"}
+          >
+            +Claude
+          </button>
+          <button
+            type="button"
+            onClick={onOpenCombo}
+            disabled={opening || !p.path}
+            className="rounded px-2 py-1 text-[10.5px] transition-colors disabled:opacity-40"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Abre el IDE + lanza una sesión Claude (lo que tu tools toy hace con O+C)"
+          >
+            Open+Claude
           </button>
           <button
             type="button"
@@ -328,6 +360,35 @@ export function Projects() {
     } finally {
       setOpening(null);
     }
+  }
+
+  // Spawn a Claude session whose cwd is the project's path. Doesn't go
+  // through ultron.ps1 — directly hits sessions::spawn_session so the user
+  // gets a wt.exe tab in the right folder, ready to type.
+  async function openClaude(p: ProjectInfo) {
+    if (!p.path) return;
+    setLastAction(null);
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: null,
+        cwd: p.path,
+        flags: { dangerouslySkipPermissions: false },
+      });
+    } catch (e) {
+      setLastAction({
+        success: false,
+        stdout: "",
+        stderr: String(e),
+        exit_code: null,
+      });
+    }
+  }
+
+  // Combo: open the IDE (or app, if it's an external project) AND fire a
+  // Claude session in parallel. Mirrors the "O+C" hotkey from the toy CLI.
+  async function openCombo(p: ProjectInfo) {
+    await Promise.allSettled([open(p.id), openClaude(p)]);
   }
 
   useEffect(() => {
@@ -983,6 +1044,8 @@ export function Projects() {
                   opening={opening === p.id}
                   onEdit={() => startEdit(p)}
                   onDelete={() => setPendingDelete(p)}
+                  onOpenClaude={() => openClaude(p)}
+                  onOpenCombo={() => openCombo(p)}
                 />
               ))}
             </div>

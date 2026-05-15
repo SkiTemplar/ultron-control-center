@@ -220,7 +220,9 @@
             "run",
             "python",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\news_html_generator\\.py$" },
-            "--no-open"
+            "--no-open",
+            "--model",
+            { "validator": "^gemini-[0-9]\\.[0-9]+-(pro|flash|flash-lite)(-preview)?$" }
           ]
         },
         {
@@ -231,6 +233,8 @@
             "python",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\news_html_generator\\.py$" },
             "--no-open",
+            "--model",
+            { "validator": "^gemini-[0-9]\\.[0-9]+-(pro|flash|flash-lite)(-preview)?$" },
             "--days",
             { "validator": "^[0-9]{1,2}$" }
           ]
@@ -243,6 +247,8 @@
             "python",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\news_html_generator\\.py$" },
             "--no-open",
+            "--model",
+            { "validator": "^gemini-[0-9]\\.[0-9]+-(pro|flash|flash-lite)(-preview)?$" },
             "--theme",
             { "validator": "^[^\\r\\n]{1,200}$" }
           ]
@@ -255,6 +261,8 @@
             "python",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\news_html_generator\\.py$" },
             "--no-open",
+            "--model",
+            { "validator": "^gemini-[0-9]\\.[0-9]+-(pro|flash|flash-lite)(-preview)?$" },
             "--days",
             { "validator": "^[0-9]{1,2}$" },
             "--theme",

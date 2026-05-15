@@ -59,7 +59,21 @@ export default function App() {
   }, []);
 
   // In-app keyboard shortcuts. The OS-wide Ctrl+Alt+U lives in the Rust
-  // setup; the bindings below are window-scoped.
+  // setup; the bindings below are window-scoped. Alt+<digit> jumps to a
+  // specific tab without colliding with browser shortcuts.
+  const ALT_TAB_MAP: Record<string, Tab> = {
+    "1": "dashboard",
+    "2": "usage",
+    "3": "notifications",
+    "4": "sessions",
+    "5": "projects",
+    "6": "plans",
+    "7": "memory",
+    "8": "skills",
+    "9": "logs",
+    "0": "settings",
+  };
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const meta = e.ctrlKey || e.metaKey;
@@ -77,10 +91,24 @@ export default function App() {
         // Refresh top-level state; don't reload the whole webview.
         e.preventDefault();
         refreshAll();
+        return;
+      }
+      // Alt+1..0 jump to tab. We use Alt so it doesn't clash with browser /
+      // input-field shortcuts (Ctrl+1..9 cycles tabs on most webviews).
+      if (e.altKey && !e.ctrlKey && !e.metaKey && ALT_TAB_MAP[e.key]) {
+        // Skip when typing inside an input/textarea so it doesn't eat keys.
+        const active = document.activeElement;
+        const tag = active?.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea" || (active as HTMLElement | null)?.isContentEditable) {
+          return;
+        }
+        e.preventDefault();
+        setTab(ALT_TAB_MAP[e.key]);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const globalStatus = computeGlobalStatus(qdrant, qdrantErr, alerts);
