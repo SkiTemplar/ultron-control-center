@@ -13,6 +13,7 @@ mod mcps;
 mod memory;
 mod mode;
 mod news;
+mod plans;
 mod projects;
 mod self_improve;
 mod sessions;
@@ -447,6 +448,147 @@ async fn backup_status() -> Result<backup_status::BackupStatusReport, String> {
 }
 
 #[tauri::command]
+async fn list_plans() -> Result<plans::PlansReport, String> {
+    plans::list_plans_inner()
+}
+
+// --- Global hotkey runtime config ------------------------------------------
+
+fn hotkey_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".ultron/.tmp/hotkey.txt"))
+}
+
+fn parse_hotkey(spec: &str) -> Result<Shortcut, String> {
+    // Accepts strings like "Ctrl+Alt+U", "Ctrl+Shift+F12", "Alt+Space".
+    // We're permissive on whitespace and case to match what the user types.
+    let parts: Vec<String> = spec
+        .split('+')
+        .map(|p| p.trim().to_ascii_lowercase())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.is_empty() {
+        return Err("hotkey spec is empty".into());
+    }
+    let mut mods = Modifiers::empty();
+    let mut key: Option<Code> = None;
+    for p in &parts {
+        match p.as_str() {
+            "ctrl" | "control" => mods |= Modifiers::CONTROL,
+            "alt" | "option" => mods |= Modifiers::ALT,
+            "shift" => mods |= Modifiers::SHIFT,
+            "super" | "meta" | "win" | "cmd" => mods |= Modifiers::SUPER,
+            other => {
+                if key.is_some() {
+                    return Err(format!("multiple non-modifier keys: '{}'", other));
+                }
+                let code = code_from_name(other)
+                    .ok_or_else(|| format!("unknown key '{}'", other))?;
+                key = Some(code);
+            }
+        }
+    }
+    let code = key.ok_or_else(|| "spec has no key, only modifiers".to_string())?;
+    if mods.is_empty() {
+        return Err("hotkey needs at least one modifier (Ctrl / Alt / Shift)".into());
+    }
+    Ok(Shortcut::new(Some(mods), code))
+}
+
+fn code_from_name(name: &str) -> Option<Code> {
+    let n = name.to_ascii_lowercase();
+    // Letters
+    if n.len() == 1 {
+        let c = n.chars().next().unwrap();
+        if c.is_ascii_alphabetic() {
+            return match c {
+                'a' => Some(Code::KeyA), 'b' => Some(Code::KeyB), 'c' => Some(Code::KeyC),
+                'd' => Some(Code::KeyD), 'e' => Some(Code::KeyE), 'f' => Some(Code::KeyF),
+                'g' => Some(Code::KeyG), 'h' => Some(Code::KeyH), 'i' => Some(Code::KeyI),
+                'j' => Some(Code::KeyJ), 'k' => Some(Code::KeyK), 'l' => Some(Code::KeyL),
+                'm' => Some(Code::KeyM), 'n' => Some(Code::KeyN), 'o' => Some(Code::KeyO),
+                'p' => Some(Code::KeyP), 'q' => Some(Code::KeyQ), 'r' => Some(Code::KeyR),
+                's' => Some(Code::KeyS), 't' => Some(Code::KeyT), 'u' => Some(Code::KeyU),
+                'v' => Some(Code::KeyV), 'w' => Some(Code::KeyW), 'x' => Some(Code::KeyX),
+                'y' => Some(Code::KeyY), 'z' => Some(Code::KeyZ),
+                _ => None,
+            };
+        }
+        if c.is_ascii_digit() {
+            return match c {
+                '0' => Some(Code::Digit0), '1' => Some(Code::Digit1), '2' => Some(Code::Digit2),
+                '3' => Some(Code::Digit3), '4' => Some(Code::Digit4), '5' => Some(Code::Digit5),
+                '6' => Some(Code::Digit6), '7' => Some(Code::Digit7), '8' => Some(Code::Digit8),
+                '9' => Some(Code::Digit9),
+                _ => None,
+            };
+        }
+    }
+    match n.as_str() {
+        "space" => Some(Code::Space),
+        "enter" | "return" => Some(Code::Enter),
+        "tab" => Some(Code::Tab),
+        "escape" | "esc" => Some(Code::Escape),
+        "backspace" => Some(Code::Backspace),
+        "f1" => Some(Code::F1), "f2" => Some(Code::F2), "f3" => Some(Code::F3),
+        "f4" => Some(Code::F4), "f5" => Some(Code::F5), "f6" => Some(Code::F6),
+        "f7" => Some(Code::F7), "f8" => Some(Code::F8), "f9" => Some(Code::F9),
+        "f10" => Some(Code::F10), "f11" => Some(Code::F11), "f12" => Some(Code::F12),
+        _ => None,
+    }
+}
+
+fn load_hotkey_spec() -> String {
+    if let Some(p) = hotkey_config_path() {
+        if let Ok(s) = std::fs::read_to_string(&p) {
+            let trimmed = s.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    "Ctrl+Alt+U".to_string()
+}
+
+fn save_hotkey_spec(spec: &str) -> Result<(), String> {
+    let p = hotkey_config_path().ok_or_else(|| "no HOME".to_string())?;
+    if let Some(parent) = p.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    std::fs::write(&p, spec).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+async fn get_global_hotkey() -> Result<String, String> {
+    Ok(load_hotkey_spec())
+}
+
+#[tauri::command]
+async fn set_global_hotkey(app: tauri::AppHandle, spec: String) -> Result<String, String> {
+    let new_shortcut = parse_hotkey(&spec)?;
+    let handle = app.global_shortcut();
+    // Unregister whatever is currently bound, then register the new one.
+    // If the new register fails (e.g. another app owns it), we attempt to
+    // restore the previous spec so the user isn't left with NO hotkey.
+    let previous = load_hotkey_spec();
+    if let Ok(prev_sc) = parse_hotkey(&previous) {
+        let _ = handle.unregister(prev_sc);
+    }
+    if let Err(e) = handle.register(new_shortcut) {
+        if let Ok(prev_sc) = parse_hotkey(&previous) {
+            let _ = handle.register(prev_sc);
+        }
+        return Err(format!("register '{}' failed: {}", spec, e));
+    }
+    save_hotkey_spec(&spec)?;
+    Ok(spec)
+}
+
+#[tauri::command]
+async fn patch_plan_status(id: String, status: String) -> Result<bool, String> {
+    plans::patch_plan_status_inner(id, status)
+}
+
+#[tauri::command]
 async fn run_diagnose(
     app: tauri::AppHandle,
     hours: Option<u32>,
@@ -597,16 +739,25 @@ pub fn run() {
             run_diagnose,
             diagnose_with_ai,
             backup_status,
+            list_plans,
+            patch_plan_status,
+            get_global_hotkey,
+            set_global_hotkey,
             self_improve_report,
             run_codex_adversarial_review,
             run_doctor
         ])
         .setup(|app| {
-            // Register Ctrl+Alt+U global hotkey on startup. If it's already
-            // bound by another app the call returns Err — we log and carry
-            // on so the rest of the app keeps working.
+            // Register the persisted global hotkey on startup, falling back
+            // to Ctrl+Alt+U if the config file is missing or unparseable.
+            // If another app owns the binding we log and carry on so the
+            // rest of the app keeps working.
             let shortcut_handle = app.global_shortcut();
-            let shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyU);
+            let spec = load_hotkey_spec();
+            let shortcut = parse_hotkey(&spec).unwrap_or_else(|e| {
+                eprintln!("[ultron] persisted hotkey '{}' rejected: {} — falling back", spec, e);
+                Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyU)
+            });
             if let Err(e) = shortcut_handle.register(shortcut) {
                 eprintln!("[ultron] global shortcut register failed: {}", e);
             }

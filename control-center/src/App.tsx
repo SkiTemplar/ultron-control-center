@@ -14,6 +14,7 @@ import { Projects } from "./components/Projects";
 import { System } from "./components/System";
 import { Gaming } from "./components/Gaming";
 import { News } from "./components/News";
+import { Plans } from "./components/Plans";
 import { SelfImprove } from "./components/SelfImprove";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { computeGlobalStatus } from "./lib/status";
@@ -125,6 +126,7 @@ export default function App() {
         {tab === "system" && <System />}
         {tab === "gaming" && <Gaming />}
         {tab === "news" && <News />}
+        {tab === "plans" && <Plans />}
         {tab === "self-improve" && (
           <div className="px-10 py-8">
             <header className="mb-6">
