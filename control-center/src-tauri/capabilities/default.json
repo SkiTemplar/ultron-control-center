@@ -226,6 +226,54 @@
           ]
         },
         {
+          "name": "news-clipboard",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            "--clipboard"
+          ]
+        },
+        {
+          "name": "news-clipboard-days",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            "--clipboard",
+            "--days",
+            { "validator": "^[0-9]{1,2}$" }
+          ]
+        },
+        {
+          "name": "news-clipboard-theme",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            "--clipboard",
+            "--theme",
+            { "validator": "^[^\\r\\n]{1,200}$" }
+          ]
+        },
+        {
+          "name": "news-clipboard-full",
+          "cmd": "uv",
+          "args": [
+            "run",
+            "python",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            "--clipboard",
+            "--days",
+            { "validator": "^[0-9]{1,2}$" },
+            "--theme",
+            { "validator": "^[^\\r\\n]{1,200}$" }
+          ]
+        },
+        {
           "name": "news-generate-days",
           "cmd": "uv",
           "args": [

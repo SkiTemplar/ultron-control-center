@@ -222,15 +222,51 @@ export function News() {
               <div className="mt-2 flex items-center justify-end gap-2">
                 <button
                   type="button"
-                  onClick={generate}
+                  onClick={async () => {
+                    setGenerating(true);
+                    setError(null);
+                    setInfo(null);
+                    try {
+                      const r = (await invoke("generate_news_session", {
+                        theme: genTheme.trim() || null,
+                        days: genDays,
+                      })) as { success: boolean; stdout: string; stderr: string };
+                      if (!r.success) {
+                        setError(r.stderr || "session generator failed");
+                      } else {
+                        setInfo("Gemini session abierta en wt.exe. El prompt está en tu clipboard — pulsa Ctrl+V allí.");
+                        setShowGen(false);
+                        setGenTheme("");
+                      }
+                    } catch (e) {
+                      setError(String(e));
+                    } finally {
+                      setGenerating(false);
+                    }
+                  }}
                   disabled={generating}
                   className="rounded px-3 py-1 text-[12px] font-medium disabled:opacity-50"
                   style={{
                     background: "var(--color-accent)",
                     color: "var(--color-accent-text)",
                   }}
+                  title="Recommended: copia prompt al clipboard + abre Gemini wt.exe para que tu pegues"
                 >
-                  {generating ? "Generating with Gemini..." : "Run generator"}
+                  {generating ? "Spawning Gemini..." : "Open Gemini session"}
+                </button>
+                <button
+                  type="button"
+                  onClick={generate}
+                  disabled={generating}
+                  className="rounded px-3 py-1 text-[12px] transition-colors disabled:opacity-50"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title="Modo headless (puede fallar si la CLI no acepta el prompt)"
+                >
+                  Headless attempt
                 </button>
               </div>
               <p

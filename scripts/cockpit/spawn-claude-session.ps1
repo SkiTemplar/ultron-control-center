@@ -68,46 +68,89 @@ $inner = ""
 
 if ($cwd -and $cwd.Trim().Length -gt 0) {
     $trimmedCwd = $cwd.Trim()
-    # Validate the cwd before baking it into the inner-command. If it
-    # doesn't exist we skip the Set-Location entirely so the spawn still
-    # succeeds (Claude lands in the default cwd). Previously a missing
-    # path (resume on a renamed project) killed the whole spawn under
-    # $ErrorActionPreference = Stop.
-    if (Test-Path -LiteralPath $trimmedCwd) {
-        # Reject UNC for the same reason create_project_inner does — defense
-        # in depth against a crafted projects.json or session record.
-        if ($trimmedCwd.StartsWith('\\')) {
-            [Console]::Error.WriteLine("[spawn-claude-session] cwd is UNC, dropping: $trimmedCwd")
-        } else {
-            $inner += "Set-Location -LiteralPath " + (Quote-Single $trimmedCwd) + "; "
-        }
+    # Reject UNC immediately (defense in depth against crafted projects.json
+    # / session records).
+    if ($trimmedCwd.StartsWith('\\')) {
+        [Console]::Error.WriteLine("[spawn-claude-session] cwd is UNC, dropping: $trimmedCwd")
     } else {
-        [Console]::Error.WriteLine("[spawn-claude-session] cwd missing on disk, falling back to default: $trimmedCwd")
+        $effectiveCwd = $trimmedCwd
+        # Heuristic recovery: Rust's unslug() can't tell apart a literal
+        # dash inside a folder name (control-center) from a path separator
+        # (`-` came from `\`). If Test-Path fails, we try collapsing the
+        # last two components with `-` and look again. Walk back up to 4
+        # times so e.g. C:\Users\X\.ultron\control\center can recover as
+        # C:\Users\X\.ultron\control-center.
+        if (-not (Test-Path -LiteralPath $effectiveCwd)) {
+            for ($i = 0; $i -lt 4; $i++) {
+                $segments = $effectiveCwd -split '\\'
+                if ($segments.Count -lt 2) { break }
+                $last = $segments[-1]
+                $second = $segments[-2]
+                $merged = "$second-$last"
+                $newSegments = $segments[0..($segments.Count - 3)] + $merged
+                $candidate = $newSegments -join '\'
+                if (Test-Path -LiteralPath $candidate) {
+                    $effectiveCwd = $candidate
+                    break
+                }
+                $effectiveCwd = $candidate
+            }
+        }
+        if (Test-Path -LiteralPath $effectiveCwd) {
+            $inner += "Set-Location -LiteralPath " + (Quote-Single $effectiveCwd) + "; "
+        } else {
+            [Console]::Error.WriteLine("[spawn-claude-session] cwd missing on disk (after heuristic), falling back to default: $trimmedCwd")
+        }
     }
 }
 
 $inner += $provider
 
-if ($provider -eq "claude") {
-    if ($dangerous)    { $inner += " --dangerously-skip-permissions" }
-    if ($continueLast) { $inner += " -c" }
-    if ($forkSession)  { $inner += " --fork-session" }
-    if ($model) {
-        if ($model -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "Invalid model id" }
-        $inner += " --model $model"
+switch ($provider) {
+    "claude" {
+        if ($dangerous)    { $inner += " --dangerously-skip-permissions" }
+        if ($continueLast) { $inner += " -c" }
+        if ($forkSession)  { $inner += " --fork-session" }
+        if ($model) {
+            if ($model -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "Invalid model id" }
+            $inner += " --model $model"
+        }
+        if ($effort) {
+            if ($effort -notin @("low","medium","high","xhigh","max")) { throw "Invalid effort" }
+            $inner += " --effort $effort"
+        }
+        if ($displayName) {
+            $clean = $displayName.Trim() -replace "[\r\n']", ""
+            if ($clean.Length -gt 60) { $clean = $clean.Substring(0, 60) }
+            if ($clean.Length -gt 0) { $inner += " -n " + (Quote-Single $clean) }
+        }
+        if ($resumeId) {
+            if ($resumeId -notmatch '^[A-Fa-f0-9\-]{1,80}$') { throw "Invalid resume id" }
+            $inner += " -r $resumeId"
+        }
     }
-    if ($effort) {
-        if ($effort -notin @("low","medium","high","xhigh","max")) { throw "Invalid effort" }
-        $inner += " --effort $effort"
+    "codex" {
+        # Codex CLI: full-auto bypasses both approvals and sandbox, the
+        # equivalent of Claude's --dangerously-skip-permissions.
+        if ($dangerous) { $inner += " --dangerously-bypass-approvals-and-sandbox" }
+        if ($model) {
+            if ($model -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "Invalid model id" }
+            $inner += " --model $model"
+        }
+        # Effort maps onto Codex's reasoning effort config override.
+        if ($effort) {
+            if ($effort -notin @("low","medium","high","xhigh","max")) { throw "Invalid effort" }
+            $inner += " -c model_reasoning_effort=$effort"
+        }
     }
-    if ($displayName) {
-        $clean = $displayName.Trim() -replace "[\r\n']", ""
-        if ($clean.Length -gt 60) { $clean = $clean.Substring(0, 60) }
-        if ($clean.Length -gt 0) { $inner += " -n " + (Quote-Single $clean) }
-    }
-    if ($resumeId) {
-        if ($resumeId -notmatch '^[A-Fa-f0-9\-]{1,80}$') { throw "Invalid resume id" }
-        $inner += " -r $resumeId"
+    "gemini" {
+        # Gemini CLI: --yolo == skip confirmations.
+        if ($dangerous) { $inner += " --yolo" }
+        if ($model) {
+            if ($model -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "Invalid model id" }
+            $inner += " -m $model"
+        }
+        # No effort flag in gemini CLI; silently dropped.
     }
 }
 

@@ -127,6 +127,81 @@ pub struct NewsGenerateResult {
     pub exit_code: Option<i32>,
 }
 
+/// Build the news-generation prompt + open a Gemini 3.1 session in wt.exe
+/// with the prompt preloaded. USER's preferred flow: no headless Gemini
+/// API call (the API mode kept failing), instead the script runs in
+/// `--clipboard` mode (copies the full prompt to clipboard) and we spawn
+/// an interactive Gemini wt.exe tab. The user pastes once and asks
+/// Gemini to write the HTML to `~/.ultron/cockpit/news/newsletter-*.html`.
+pub async fn generate_news_session_inner(
+    app: &tauri::AppHandle,
+    theme: Option<String>,
+    days: Option<u32>,
+) -> Result<NewsGenerateResult, String> {
+    use tauri_plugin_shell::ShellExt;
+    let script: PathBuf = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/news_html_generator.py");
+    if !script.exists() {
+        return Err(format!("script missing: {}", script.display()));
+    }
+    let script_str = script.to_string_lossy().to_string();
+
+    // First step: build the prompt and copy to clipboard via the script's
+    // --clipboard mode. No Gemini call happens here.
+    let mut args: Vec<String> = vec![
+        "run".into(),
+        "python".into(),
+        script_str,
+        "--clipboard".into(),
+    ];
+    if let Some(d) = days {
+        args.push("--days".into());
+        args.push(d.clamp(1, 30).to_string());
+    }
+    if let Some(t) = theme.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if t.chars().any(|c| matches!(c, '\r' | '\n')) {
+            return Err("theme contains line breaks".into());
+        }
+        args.push("--theme".into());
+        args.push(t.to_string());
+    }
+    let str_args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let output = app
+        .shell()
+        .command("uv")
+        .args(str_args)
+        .output()
+        .await
+        .map_err(|e| format!("spawn uv: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // Second step: open an interactive Gemini session in wt.exe so the user
+    // can paste the clipboard. The prompt header guides Gemini to write the
+    // output HTML to a specific file path. We pass that hint via --prompt
+    // so Gemini sees it before the clipboard paste.
+    let seed = format!(
+        "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Cuando lo procesés, guarda el HTML final en ~/.ultron/cockpit/news/newsletter-$(date +%Y-%m-%d).html. Usa modelo gemini-3.1-pro."
+    );
+    let _spawn = crate::sessions::spawn_session_inner(
+        app,
+        "gemini".into(),
+        Some(seed),
+        None,
+        None,
+    )
+    .await?;
+
+    Ok(NewsGenerateResult {
+        success: output.status.success(),
+        path: None,
+        stdout: format!("{}\n[gemini session spawned in wt.exe — paste clipboard there]", stdout.trim()),
+        stderr,
+        exit_code: output.status.code(),
+    })
+}
+
 /// Run news_html_generator.py via uv. We invoke with --no-open so the
 /// generator doesn't try to open the file in a browser — the UI handles
 /// presentation. Optional `theme` flows through as --theme.

@@ -192,14 +192,219 @@ fn cache_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude/stats-cache.json"))
 }
 
+fn projects_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".claude/projects"))
+}
+
+/// Recompute the stats fields from `~/.claude/projects/<slug>/<id>.jsonl`.
+/// One pass per session file, parsing each `type: assistant` row's
+/// `message.usage` block. Returns the same shape the cache file uses so the
+/// downstream rollup code stays identical.
+///
+/// Bounded: walks only top-level .jsonl files (skips `subagents/`) since
+/// subagent transcripts already carry their tokens against the parent
+/// session. Reads with `BufReader` so a 50 MB transcript doesn't allocate
+/// the whole thing.
+fn compute_live_usage() -> Option<StatsCache> {
+    use std::io::{BufRead, BufReader};
+    let dir = projects_dir()?;
+    if !dir.exists() {
+        return None;
+    }
+    let mut sessions: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+    let mut messages: u64 = 0;
+    let mut daily_msgs: BTreeMap<String, u64> = BTreeMap::new();
+    let mut daily_sessions_seen: BTreeMap<String, std::collections::HashSet<String>> =
+        BTreeMap::new();
+    let mut daily_tools: BTreeMap<String, u64> = BTreeMap::new();
+    let mut daily_model_tokens: BTreeMap<(String, String), u64> = BTreeMap::new();
+    let mut model_totals: BTreeMap<String, ModelUsage> = BTreeMap::new();
+    let mut hour_counts: BTreeMap<String, u64> = BTreeMap::new();
+    let mut earliest: Option<String> = None;
+
+    for project in fs::read_dir(&dir).ok()?.flatten() {
+        let project_path = project.path();
+        if !project_path.is_dir() {
+            continue;
+        }
+        let reader = match fs::read_dir(&project_path) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        for f in reader.flatten() {
+            let p = f.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let stem = match p.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let file = match fs::File::open(&p) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            let buf = BufReader::new(file);
+            for line in buf.lines().flatten() {
+                let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+                    continue;
+                };
+                let typ = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
+                let ts = v
+                    .get("timestamp")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let date = if ts.len() >= 10 {
+                    ts[..10].to_string()
+                } else {
+                    String::new()
+                };
+                if !date.is_empty() {
+                    if earliest.as_ref().map(|e| &date < e).unwrap_or(true) {
+                        earliest = Some(date.clone());
+                    }
+                    daily_sessions_seen
+                        .entry(date.clone())
+                        .or_default()
+                        .insert(stem.clone());
+                }
+                match typ {
+                    "user" => {
+                        messages += 1;
+                        if !date.is_empty() {
+                            *daily_msgs.entry(date.clone()).or_insert(0) += 1;
+                        }
+                        if ts.len() >= 13 {
+                            let h = &ts[11..13];
+                            *hour_counts.entry(h.to_string()).or_insert(0) += 1;
+                        }
+                    }
+                    "tool_use" => {
+                        if !date.is_empty() {
+                            *daily_tools.entry(date.clone()).or_insert(0) += 1;
+                        }
+                    }
+                    "assistant" => {
+                        let msg = v.get("message").cloned().unwrap_or(serde_json::Value::Null);
+                        let model = msg
+                            .get("model")
+                            .and_then(|x| x.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        let usage = msg.get("usage");
+                        let inp = usage
+                            .and_then(|u| u.get("input_tokens"))
+                            .and_then(|n| n.as_u64())
+                            .unwrap_or(0);
+                        let out = usage
+                            .and_then(|u| u.get("output_tokens"))
+                            .and_then(|n| n.as_u64())
+                            .unwrap_or(0);
+                        let cache_read = usage
+                            .and_then(|u| u.get("cache_read_input_tokens"))
+                            .and_then(|n| n.as_u64())
+                            .unwrap_or(0);
+                        let cache_create = usage
+                            .and_then(|u| u.get("cache_creation_input_tokens"))
+                            .and_then(|n| n.as_u64())
+                            .unwrap_or(0);
+                        let entry = model_totals.entry(model.clone()).or_insert(ModelUsage {
+                            input_tokens: 0,
+                            output_tokens: 0,
+                            cache_read_input_tokens: 0,
+                            cache_creation_input_tokens: 0,
+                        });
+                        entry.input_tokens += inp;
+                        entry.output_tokens += out;
+                        entry.cache_read_input_tokens += cache_read;
+                        entry.cache_creation_input_tokens += cache_create;
+                        if !date.is_empty() {
+                            *daily_model_tokens
+                                .entry((date.clone(), model.clone()))
+                                .or_insert(0) +=
+                                inp + out + cache_read + cache_create;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            sessions.insert(stem);
+        }
+    }
+
+    let daily_activity: Vec<DailyActivity> = {
+        let mut keys: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        keys.extend(daily_msgs.keys().cloned());
+        keys.extend(daily_sessions_seen.keys().cloned());
+        keys.extend(daily_tools.keys().cloned());
+        keys.iter()
+            .map(|date| DailyActivity {
+                date: date.clone(),
+                message_count: *daily_msgs.get(date).unwrap_or(&0),
+                session_count: daily_sessions_seen
+                    .get(date)
+                    .map(|s| s.len() as u64)
+                    .unwrap_or(0),
+                tool_call_count: *daily_tools.get(date).unwrap_or(&0),
+            })
+            .collect()
+    };
+    let daily_model_tokens_vec: Vec<DailyModelTokens> = {
+        let mut by_date: BTreeMap<String, BTreeMap<String, u64>> = BTreeMap::new();
+        for ((date, model), n) in daily_model_tokens.into_iter() {
+            by_date.entry(date).or_default().insert(model, n);
+        }
+        by_date
+            .into_iter()
+            .map(|(date, tokens_by_model)| DailyModelTokens {
+                date,
+                tokens_by_model,
+            })
+            .collect()
+    };
+
+    Some(StatsCache {
+        last_computed_date: Some(today_utc_iso()),
+        daily_activity,
+        daily_model_tokens: daily_model_tokens_vec,
+        model_usage: model_totals,
+        total_sessions: sessions.len() as u64,
+        total_messages: messages,
+        first_session_date: earliest,
+        hour_counts,
+    })
+}
+
 pub fn claude_usage_inner() -> Result<UsageReport, String> {
     let path = cache_path().ok_or_else(|| "no HOME".to_string())?;
     let raw = fs::read_to_string(&path)
         .map_err(|e| format!("read stats-cache.json: {}", e))?;
-    let cache: StatsCache = serde_json::from_str(&raw)
+    let mut cache: StatsCache = serde_json::from_str(&raw)
         .map_err(|e| format!("parse stats-cache.json: {}", e))?;
 
     let today = today_utc_iso();
+    let cache_age_days = cache
+        .last_computed_date
+        .as_ref()
+        .and_then(|d| iso_diff_days(&today, d));
+
+    // Fallback: when the cache is older than 24h (Claude Code stopped
+    // maintaining it in recent versions), scan ~/.claude/projects/*.jsonl
+    // and recompute the rollups from scratch. The shape mirrors stats-cache
+    // so the downstream code stays unchanged.
+    if cache_age_days.map(|d| d > 0).unwrap_or(true) {
+        if let Some(live) = compute_live_usage() {
+            cache.daily_activity = live.daily_activity;
+            cache.daily_model_tokens = live.daily_model_tokens;
+            cache.model_usage = live.model_usage;
+            cache.total_sessions = live.total_sessions;
+            cache.total_messages = live.total_messages;
+            cache.hour_counts = live.hour_counts;
+            cache.last_computed_date = Some(today.clone());
+        }
+    }
     let cache_age_days = cache
         .last_computed_date
         .as_ref()

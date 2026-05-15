@@ -476,7 +476,8 @@ export function Sessions() {
 
 
   function flagsForProvider(extra: Partial<SpawnFlags> = {}): SpawnFlags | null {
-    if (provider !== "claude") return null;
+    // We send the same flag struct for every provider; the PS wrapper
+    // translates each flag to the matching CLI option (or drops it).
     return {
       dangerouslySkipPermissions: presets.dangerouslySkipPermissions,
       effort: presets.effort ? presets.effort : null,
@@ -572,8 +573,12 @@ export function Sessions() {
           </div>
         )}
 
-        {/* Session presets — only relevant for claude. Other providers ignore. */}
-        {provider === "claude" && (
+        {/* Session presets — render for ALL providers. The backend wrapper
+            translates dangerously-skip / effort to each CLI's equivalent
+            flag (claude --dangerously-skip-permissions, codex's
+            --dangerously-bypass-approvals-and-sandbox, gemini --yolo) and
+            silently drops flags that don't apply. */}
+        {(
           <div
             className="mt-4 rounded p-4"
             style={{

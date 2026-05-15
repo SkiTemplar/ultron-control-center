@@ -476,6 +476,15 @@ async fn generate_news(
 }
 
 #[tauri::command]
+async fn generate_news_session(
+    app: tauri::AppHandle,
+    theme: Option<String>,
+    days: Option<u32>,
+) -> Result<news::NewsGenerateResult, String> {
+    news::generate_news_session_inner(&app, theme, days).await
+}
+
+#[tauri::command]
 async fn delete_news(path: String) -> Result<bool, String> {
     news::delete_news_inner(path)
 }
@@ -843,6 +852,7 @@ pub fn run() {
             set_ultron_mode,
             list_news,
             generate_news,
+            generate_news_session,
             delete_news,
             summarize_news,
             list_claude_sessions,
