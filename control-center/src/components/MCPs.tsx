@@ -815,7 +815,7 @@ export function MCPs() {
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            ✨ Generate from prompt
+            Generate from prompt
           </button>
           <button
             type="button"

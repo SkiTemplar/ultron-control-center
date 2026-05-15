@@ -145,76 +145,70 @@ pub async fn run_inline_inner(
     }
     let prompt = cap_prompt(&prompt);
 
-    let output = match provider {
-        "gemini" => {
-            // Gemini goes through our Python helper so the model selection
-            // and stdout layout match the rest of the system. uv resolves
-            // via PATH, no shim trickery needed.
-            let script: PathBuf = dirs::home_dir()
-                .ok_or_else(|| "no HOME".to_string())?
-                .join(".ultron/scripts/cockpit/gemini_cli.py");
-            let script_str = script.to_string_lossy().to_string();
-            let model_arg = model
-                .filter(|m| !m.trim().is_empty())
-                .unwrap_or_else(|| "gemini-3.1-pro-preview".to_string());
-            app.shell()
-                .command("uv")
-                .args(["run", "python", &script_str, "--model", &model_arg, &prompt])
-                .output()
-                .await
-                .map_err(|e| format!("spawn uv: {}", e))?
-        }
-        "claude" => {
-            // Wrap via cmd.exe /C so .exe / .cmd resolution stays uniform.
-            // Frontend passes the prompt + optional model; we build a single
-            // shell line and let cmd parse it.
-            let mut cmdline = String::from("claude -p ");
-            cmdline.push_str(&ps_quote_cmd(&prompt));
-            if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
-                cmdline.push_str(" --model ");
-                cmdline.push_str(&m);
-            }
-            app.shell()
-                .command("cmd.exe")
-                .args(["/C", &cmdline])
-                .output()
-                .await
-                .map_err(|e| format!("spawn cmd: {}", e))?
-        }
-        "codex" => {
-            let mut cmdline = String::from("codex exec ");
-            if let Some(m) = model.filter(|m| !m.trim().is_empty()) {
-                cmdline.push_str("-m ");
-                cmdline.push_str(&m);
-                cmdline.push(' ');
-            }
-            cmdline.push_str(&ps_quote_cmd(&prompt));
-            app.shell()
-                .command("cmd.exe")
-                .args(["/C", &cmdline])
-                .output()
-                .await
-                .map_err(|e| format!("spawn cmd: {}", e))?
-        }
-        _ => unreachable!(),
-    };
-
-    Ok(InlineResult {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code(),
+    // Route through the PowerShell wrapper so we avoid the cmd.exe quoting
+    // pitfalls — `?` got interpreted as a wildcard, `---` got tokenised as
+    // a separate argv entry (Claude rejected it as `unknown option '---'`),
+    // and embedded quotes broke the cmd line. The wrapper takes a base64
+    // JSON payload, decodes it inside PowerShell and calls the CLI with
+    // the prompt bound as a single argv entry.
+    let script: PathBuf = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/run-inline.ps1");
+    let script_str = script.to_string_lossy().to_string();
+    let payload_json = serde_json::json!({
+        "provider": provider,
+        "prompt": prompt,
+        "model": model.unwrap_or_default(),
     })
-}
+    .to_string();
+    let payload = base64_encode(&payload_json);
 
-/// Quote a value for inclusion inside a cmd.exe /C line. Strategy: wrap in
-/// double quotes and escape internal double-quotes/backslashes for CMD's
-/// quirky parser. We keep the prompt single-line by replacing CR/LF with
-/// spaces — anything multi-line should use spawn_session instead.
-fn ps_quote_cmd(s: &str) -> String {
-    let collapsed = s.replace('\r', " ").replace('\n', " ");
-    let escaped = collapsed.replace('"', "\\\"");
-    format!("\"{}\"", escaped)
+    let output = app
+        .shell()
+        .command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script_str,
+            "-Payload",
+            &payload,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("spawn powershell: {}", e))?;
+
+    let raw = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // The wrapper emits a single JSON object on stdout with the CLI's own
+    // stdout/stderr nested inside. If the wrapper itself crashed (no JSON
+    // object), fall back to surfacing the raw text so the user sees the
+    // diagnostic instead of an empty result.
+    #[derive(serde::Deserialize)]
+    struct Inner {
+        success: bool,
+        stdout: String,
+        stderr: String,
+        exit_code: Option<i32>,
+    }
+
+    match serde_json::from_str::<Inner>(raw.trim()) {
+        Ok(inner) => Ok(InlineResult {
+            success: inner.success,
+            stdout: inner.stdout,
+            stderr: inner.stderr,
+            exit_code: inner.exit_code,
+        }),
+        Err(_) => Ok(InlineResult {
+            success: output.status.success(),
+            stdout: raw,
+            stderr,
+            exit_code: output.status.code(),
+        }),
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -124,7 +124,7 @@ function WeeklyResetCard() {
           style={{ color: "var(--color-text-faint)" }}
           title="Configure reset day/time"
         >
-          {hint} ✎
+          {hint} (edit)
         </button>
       </div>
       <div className="mt-2 flex items-baseline justify-between gap-3">

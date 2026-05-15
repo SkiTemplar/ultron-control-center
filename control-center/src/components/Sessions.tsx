@@ -17,13 +17,11 @@ const PRESETS_KEY = "ultron.cc.session_presets.v1";
 type Presets = {
   dangerouslySkipPermissions: boolean;
   effort: "" | "low" | "medium" | "high" | "xhigh" | "max";
-  name: string;
 };
 
 const DEFAULT_PRESETS: Presets = {
   dangerouslySkipPermissions: false,
   effort: "",
-  name: "",
 };
 
 function loadPresets(): Presets {
@@ -510,7 +508,6 @@ export function Sessions() {
       dangerouslySkipPermissions: presets.dangerouslySkipPermissions,
       effort: presets.effort ? presets.effort : null,
       model: model || null,
-      name: presets.name.trim() ? presets.name.trim() : null,
       ...extra,
     };
   }
@@ -558,18 +555,37 @@ export function Sessions() {
             Abre una sesión Claude/Gemini/Codex con flags y workspace, o reanuda una anterior.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => openSession(false)}
-          className="rounded px-4 py-1.5 text-[12.5px] font-semibold transition-colors"
-          style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
-          }}
-          title="Lanza una sesión nueva en wt.exe con la configuración actual"
-        >
-          Open new session
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => openSession(false)}
+            className="rounded px-4 py-1.5 text-[12.5px] font-semibold transition-colors"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+            title="Lanza una sesión nueva en wt.exe con la configuración actual"
+          >
+            New Session
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              document
+                .getElementById("session-history")
+                ?.scrollIntoView({ behavior: "smooth", block: "start" });
+            }}
+            className="rounded px-4 py-1.5 text-[12.5px] font-semibold transition-colors"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Salta a la lista de sesiones del workspace"
+          >
+            Resume Session
+          </button>
+        </div>
       </header>
 
       <section
@@ -709,30 +725,6 @@ export function Sessions() {
                 </select>
               </div>
 
-              <div>
-                <label
-                  className="block text-[10px] uppercase tracking-wide"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                  htmlFor="session-name"
-                >
-                  -n display name
-                </label>
-                <input
-                  id="session-name"
-                  type="text"
-                  value={presets.name}
-                  onChange={(e) => setPresets({ ...presets, name: e.target.value })}
-                  placeholder="(opcional)"
-                  maxLength={60}
-                  className="mt-1 w-full rounded px-2 py-1 text-[12px]"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-text)",
-                    border: "1px solid var(--color-border-strong)",
-                    outline: "none",
-                  }}
-                />
-              </div>
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -884,9 +876,21 @@ export function Sessions() {
         </>)}
       </section>
 
-      {/* Recent Claude sessions — resumable */}
-      {provider === "claude" && (
+      {/* Recent Claude sessions — resumable. Auto-filtered to the selected
+       * workspace cwd when there is one, otherwise shows everything. */}
+      {provider === "claude" && (() => {
+        const normalisedCwd = cwd ? cwd.replace(/\\/g, "/").toLowerCase() : "";
+        const filteredHistory = !normalisedCwd
+          ? history
+          : history.filter((s) =>
+              s.project_label
+                .replace(/\\/g, "/")
+                .toLowerCase()
+                .startsWith(normalisedCwd),
+            );
+        return (
         <section
+          id="session-history"
           className="mt-6 rounded p-5"
           style={{
             background: "var(--color-surface-2)",
@@ -895,12 +899,14 @@ export function Sessions() {
         >
           <div className="mb-3 flex items-baseline justify-between">
             <div>
-              <h2 className="text-[14px] font-semibold leading-tight">Recent Claude sessions</h2>
+              <h2 className="text-[14px] font-semibold leading-tight">
+                Sessions {normalisedCwd ? "in this workspace" : "across all workspaces"}
+              </h2>
               <p
                 className="mt-0.5 text-[11.5px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                Top 25 by last activity · click Resume para reanudar (claude -r &lt;id&gt;)
+                {filteredHistory.length} / {history.length} listadas · click Resume para reanudar (claude -r &lt;id&gt;)
               </p>
             </div>
             {historyLoading && (
@@ -910,7 +916,7 @@ export function Sessions() {
             )}
           </div>
 
-          {!historyLoading && history.length === 0 && (
+          {!historyLoading && filteredHistory.length === 0 && (
             <div
               className="rounded p-6 text-center text-[12.5px]"
               style={{
@@ -919,13 +925,14 @@ export function Sessions() {
                 color: "var(--color-text-tertiary)",
               }}
             >
-              Aún no hay sesiones registradas. Abre una con Claude y volverá a
-              listarse aquí.
+              {normalisedCwd
+                ? "No hay sesiones registradas para este workspace. Pulsa New Session para abrir una."
+                : "Aún no hay sesiones registradas. Abre una con Claude y volverá a listarse aquí."}
             </div>
           )}
 
           <div className="space-y-1.5">
-            {history.map((s) => (
+            {filteredHistory.map((s) => (
               <div
                 key={`${s.project_slug}-${s.id}`}
                 className="rounded p-3 transition-colors"
@@ -986,7 +993,8 @@ export function Sessions() {
             ))}
           </div>
         </section>
-      )}
+        );
+      })()}
     </div>
   );
 }

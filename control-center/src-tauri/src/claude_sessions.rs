@@ -67,18 +67,43 @@ fn format_iso(secs: u64) -> String {
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, h, m, s)
 }
 
-/// Recover a human-readable label from the slugified folder name.
-/// Claude replaces path separators with `--`; we revert that and trim
-/// the disk-letter prefix when it looks like `C--`.
+/// Recover the original cwd from Claude's slugified folder name. Claude
+/// sanitises any non-alphanumeric character to `-`, so multiple non-alnum
+/// chars in a row collapse to multiple dashes. The mapping we apply on the
+/// way back:
+///
+/// * The FIRST `--` is the drive separator `:\\` (e.g. `C--` -> `C:\\`).
+/// * Subsequent `--` are `\\.` — almost always a hidden directory like
+///   `.ultron`, `.claude`, etc. Losing that dot was the root cause of the
+///   "No conversation found with session ID" error: Claude's resume command
+///   re-slugifies the cwd and compares folder names, so missing dots made
+///   the comparison miss.
+/// * A single `-` is a plain path separator `\\`.
 fn unslug(slug: &str) -> String {
-    let mut s = slug.replace("--", "/");
-    // Convert "C/Users/..." → "C:/Users/..."
-    if s.len() > 2 && s.as_bytes()[1] == b'/' && s.as_bytes()[0].is_ascii_alphabetic() {
-        let head: String = s.chars().take(1).collect();
-        let tail: String = s.chars().skip(1).collect();
-        s = format!("{}:{}", head, tail);
+    let mut out = String::with_capacity(slug.len() + 4);
+    let bytes = slug.as_bytes();
+    let mut i = 0;
+    let mut first_double_seen = false;
+    while i < bytes.len() {
+        if i + 1 < bytes.len() && bytes[i] == b'-' && bytes[i + 1] == b'-' {
+            if !first_double_seen {
+                out.push(':');
+                out.push('\\');
+                first_double_seen = true;
+            } else {
+                out.push('\\');
+                out.push('.');
+            }
+            i += 2;
+        } else if bytes[i] == b'-' {
+            out.push('\\');
+            i += 1;
+        } else {
+            out.push(bytes[i] as char);
+            i += 1;
+        }
     }
-    s
+    out
 }
 
 /// Extract the first user message text from a transcript. We deliberately

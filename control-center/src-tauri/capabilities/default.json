@@ -223,6 +223,20 @@
           ]
         },
         {
+          "name": "inline-runner",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\run-inline\\.ps1$" },
+            "-Payload",
+            { "validator": "^[A-Za-z0-9+/=]{4,20000}$" }
+          ]
+        },
+        {
           "name": "system-diagnose",
           "cmd": "powershell.exe",
           "args": [
