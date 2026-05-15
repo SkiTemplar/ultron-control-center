@@ -18,6 +18,13 @@ $ProgressPreference = "SilentlyContinue"
 # Spanish accents with U+FFFD when serde tries to parse the JSON output.
 try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
 
+try {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -and ($env:PATH -notlike "*$userPath*")) {
+        $env:PATH = $userPath + ";" + $env:PATH
+    }
+} catch {}
+
 $now = Get-Date
 $since = $now.AddHours(-$Hours)
 

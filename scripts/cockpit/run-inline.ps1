@@ -18,6 +18,15 @@ param(
 $ErrorActionPreference = "Stop"
 try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
 
+# Merge USER PATH so npm shims (claude.cmd, codex.cmd, gemini.cmd) resolve
+# even when Tauri.exe was launched without the user's shell environment.
+try {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -and ($env:PATH -notlike "*$userPath*")) {
+        $env:PATH = $userPath + ";" + $env:PATH
+    }
+} catch {}
+
 if ([string]::IsNullOrWhiteSpace($Payload)) {
     throw "Empty payload"
 }

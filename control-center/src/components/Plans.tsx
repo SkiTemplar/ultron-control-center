@@ -28,6 +28,7 @@ type PlansReport = {
 const COLUMNS: { key: string; label: string; tint: string }[] = [
   { key: "open", label: "Open", tint: "var(--color-text-secondary)" },
   { key: "in_progress", label: "In progress", tint: "var(--color-warn)" },
+  { key: "revision", label: "Revision", tint: "#a875ff" },
   { key: "blocked", label: "Blocked", tint: "var(--color-danger)" },
   { key: "resolved", label: "Resolved", tint: "var(--color-success)" },
 ];
@@ -557,6 +558,41 @@ export function Plans() {
   // AI brainstorm: send the goal to Codex, parse the structured response
   // and bulk-add plans. We use Codex (not Claude) per USER to conserve
   // Claude tokens for interactive sessions.
+  // Spawn a Claude session targeted at one of four plan workflows.
+  // cwd = ~/.ultron/instructions/plans/ so Claude auto-reads the GUIDE.md
+  // and knows the schema, status names, atomic-write rules, etc. — saves
+  // a re-discovery pass each turn.
+  async function spawnClaudePlanFlow(
+    kind: "execute" | "review" | "add" | "resolve",
+  ) {
+    setError(null);
+    try {
+      const instrPath = (await invoke("instruction_path", {
+        kind: "plans",
+      })) as string;
+      const promptByKind: Record<typeof kind, string> = {
+        execute:
+          "Claude, ejecuta lo que tenemos pendiente en PLANS.json. Lee primero el GUIDE.md de esta carpeta y los items con status=open en orden de priority (p0→p4). Para cada uno: márcalo in_progress con patch_plan_status, propon plan de ejecución corto, y si lo terminas, márcalo resolved o revision según corresponda.",
+        review:
+          "Claude, revisa los planes con status=revision (y los open p0/p1 si no hay revision). Verifica que todavía sean accionables, sigan vigentes, y que el spec_path exista. Sugiere mover a wontfix los que dejaron de tener sentido. Resume hallazgos antes de tocar nada.",
+        add:
+          "Claude, voy a darte un goal en lenguaje natural. Crea 1-5 planes accionables vía add_plan siguiendo el GUIDE.md (priority p0-p4, kind apropiado, tags útiles, description 1-2 párrafos). Si necesitas más contexto del repo, lee ~/.ultron/MEMORY.md primero. Goal: <ESCRIBE-AQUÍ>",
+        resolve:
+          "Claude, ayúdame a resolver el plan que tenga in_progress (o el primero open p0/p1). Lee su description + spec_path si existe, ejecuta los pasos, y cuando termines márcalo resolved. Si te bloquea algo, márcalo blocked con una nota explicando.",
+      };
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: promptByKind[kind],
+        cwd: instrPath,
+        flags: { dangerouslySkipPermissions: false },
+      });
+      setInfo(`Claude session abierta (${kind}). Continúa en wt.exe.`);
+      window.setTimeout(() => setInfo(null), 3500);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   async function aiBrainstorm() {
     const goal = aiGoal.trim();
     if (!goal) return;
@@ -775,6 +811,38 @@ export function Plans() {
           >
             Archive resolved ({resolvedCount})
           </button>
+          {/* Claude-driven plan workflows — each opens a wt.exe Claude
+              session at instructions/plans/ so the model already knows the
+              schema + validators. */}
+          <div
+            className="flex items-center overflow-hidden rounded text-[11.5px]"
+            style={{ border: "1px solid var(--color-border-strong)" }}
+          >
+            {([
+              { k: "execute", label: "Claude execute" },
+              { k: "review", label: "Claude review" },
+              { k: "add", label: "Claude add" },
+              { k: "resolve", label: "Claude resolve" },
+            ] as const).map((b) => (
+              <button
+                key={b.k}
+                type="button"
+                onClick={() => spawnClaudePlanFlow(b.k)}
+                className="px-2.5 py-1.5 transition-colors"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-secondary)",
+                  borderLeft:
+                    b.k === "execute"
+                      ? "none"
+                      : "1px solid var(--color-border-strong)",
+                }}
+                title={`Spawn Claude session en instructions/plans con prompt para ${b.k}`}
+              >
+                {b.label}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => setAiOpen(true)}
@@ -783,7 +851,7 @@ export function Plans() {
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-            title="Pide a Codex que genere planes desde un goal en lenguaje natural"
+            title="Pide a Codex que genere planes desde un goal en lenguaje natural (cheaper que Claude)"
           >
             AI Brainstorm
           </button>

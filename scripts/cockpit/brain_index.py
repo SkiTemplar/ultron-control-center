@@ -352,6 +352,36 @@ def _extract_domain(path: Path, layer: str) -> str:
     return ""
 
 
+# ── FTS5 query sanitization ────────────────────────────────────────────────────
+# FTS5 treats `-` as the NOT operator and `:` as a column qualifier, so a bare
+# token like `sparkling-luxury` is parsed as `sparkling NOT luxury` and fails
+# with `no such column: luxury`. Quoting the whole token forces FTS5 to treat
+# it as a phrase literal and preserves the user's intent.
+_FTS_SPECIAL_CHARS = frozenset("-:/")
+_FTS_OPERATORS = frozenset({"AND", "OR", "NOT", "NEAR"})
+
+
+def _sanitize_fts_query(q: str) -> str:
+    """Quote bare tokens with FTS5-special chars so they don't get misparsed.
+
+    - `sparkling-luxury cava`  →  `"sparkling-luxury" cava`
+    - Tokens already quoted, prefixed with `"`, or in `{AND,OR,NOT,NEAR}` pass through.
+    - Internal `"` inside a token is stripped before requoting.
+    """
+    out: list[str] = []
+    for tok in q.split():
+        if not tok:
+            continue
+        if tok.startswith('"') or tok in _FTS_OPERATORS:
+            out.append(tok)
+            continue
+        if any(c in tok for c in _FTS_SPECIAL_CHARS):
+            out.append('"' + tok.replace('"', "") + '"')
+        else:
+            out.append(tok)
+    return " ".join(out)
+
+
 # ── routing_hint extraction ────────────────────────────────────────────────────
 # Matches `routing_hint: "..."` or `routing_hint: ...` in YAML frontmatter.
 _ROUTING_HINT_RE = re.compile(r'^routing_hint:\s*["\']?(.*?)["\']?\s*$', re.MULTILINE)
@@ -853,6 +883,7 @@ def cmd_query(args) -> int:
                     break
         except Exception:
             pass
+        fts_query = _sanitize_fts_query(fts_query)
 
         mode = getattr(args, "mode", "notes") or "notes"
 
@@ -1064,8 +1095,8 @@ def main() -> int:
     sp.add_argument("--layer", help="Filter: L1-projects | L1-sessions | L2-vault")
     sp.add_argument("--category", help="Filter: knowledge | decisions | patterns | …")
     sp.add_argument("--domain", help="Filter: cpp-ue5 | opengl | claude-platform | don-claudio | …")
-    sp.add_argument("--top", type=int, default=None,
-                    help="Top-K (default: 8 for --mode notes, 5 for --mode chunks)")
+    sp.add_argument("--top", "--limit", type=int, default=None, dest="top",
+                    help="Top-K (default: 8 for --mode notes, 5 for --mode chunks). --limit accepted as alias.")
     sp.add_argument("--mode", choices=["notes", "chunks"], default="notes",
                     help="Query mode: notes (default, back-compat) | chunks (S2-A chunk-level BM25)")
     sp.set_defaults(func=cmd_query)

@@ -48,12 +48,15 @@ $ultronRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 
 if ($wt) {
     # Windows Terminal route - opens a proper tab
+    # --size cols,rows sets initial window dimensions (200x55 fits ULTRA mode
+    # with peers + logs side-by-side). Title kept ASCII-clean to survive any
+    # font/encoding pipeline (no Unicode glyph corruption in tab title).
     $target    = $wt.Source
-    $arguments = "new-tab --title `"⌬ ULTRON Cockpit`" -d `"$ultronRoot`" `"$uvExe`" run python `"$tuiScript`""
+    $arguments = "--size 200,55 new-tab --title `"ULTRON Cockpit`" -d `"$ultronRoot`" `"$uvExe`" run python `"$tuiScript`""
 } else {
     # Fallback: plain PowerShell window
+    $arguments = "-NoExit -ExecutionPolicy Bypass -Command `"Set-Location '$ultronRoot'; `$Host.UI.RawUI.WindowTitle = 'ULTRON Cockpit'; mode con cols=200 lines=55 | Out-Null; & '$uvExe' run python '$tuiScript'`""
     $target = (Get-Command powershell.exe).Source
-    $arguments = "-NoExit -ExecutionPolicy Bypass -Command `"Set-Location '$ultronRoot'; & '$uvExe' run python '$tuiScript'`""
 }
 
 # Create the .lnk via WScript.Shell COM

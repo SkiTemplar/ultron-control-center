@@ -511,7 +511,11 @@ function Card({
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title={hidden ? "Show again" : "Hide from list (UI only, settings.json untouched)"}
+            title={
+              hidden
+                ? "Volver a mostrar este MCP en la lista"
+                : "Ocultar SOLO en el UI (settings.json sigue tal cual; Claude Code lo seguirá cargando). Útil para limpiar la vista cuando un MCP está offline esperado o no quieres verlo cada día."
+            }
           >
             {hidden ? "Unhide" : "Hide"}
           </button>

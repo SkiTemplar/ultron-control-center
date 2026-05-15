@@ -21,6 +21,22 @@ $ErrorActionPreference = "Stop"
 # coming back through Tauri's shell plugin without U+FFFD substitution.
 try { [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}
 
+# Tauri.exe inherits SYSTEM PATH from its launcher (Explorer / autostart).
+# That misses the USER PATH where npm shims (claude.cmd, codex.cmd) and
+# WindowsApps (wt.exe) live. Merge both before resolving any binary so
+# `codex`, `gemini`, `wt.exe`, etc. all resolve as if the user had opened
+# their own terminal.
+try {
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -and ($env:PATH -notlike "*$userPath*")) {
+        $env:PATH = $userPath + ";" + $env:PATH
+    }
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    if ($machinePath -and ($env:PATH -notlike "*$machinePath*")) {
+        $env:PATH = $env:PATH + ";" + $machinePath
+    }
+} catch {}
+
 # --- Parse payload ----------------------------------------------------------
 # Payload arrives base64-encoded so double-quotes in the JSON survive PowerShell
 # command-line argument parsing. Empty base64 -> error before we touch wt.
