@@ -6,6 +6,7 @@
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
 mod auth;
+mod claude_sessions;
 mod gaming;
 mod mcps;
 mod memory;
@@ -325,8 +326,9 @@ async fn spawn_session(
     provider: String,
     prompt: Option<String>,
     cwd: Option<String>,
+    flags: Option<sessions::SpawnFlags>,
 ) -> Result<sessions::SpawnResult, String> {
-    sessions::spawn_session_inner(&app, provider, prompt, cwd).await
+    sessions::spawn_session_inner(&app, provider, prompt, cwd, flags).await
 }
 
 #[tauri::command]
@@ -411,6 +413,13 @@ async fn set_ultron_mode(mode: String) -> Result<mode::ModeSetResult, String> {
 #[tauri::command]
 async fn list_news() -> Result<Vec<news::NewsEntry>, String> {
     news::list_news_inner()
+}
+
+#[tauri::command]
+async fn list_claude_sessions(
+    limit: Option<usize>,
+) -> Result<Vec<claude_sessions::ClaudeSession>, String> {
+    claude_sessions::list_claude_sessions_inner(limit)
 }
 
 #[tauri::command]
@@ -534,6 +543,7 @@ pub fn run() {
             get_ultron_mode,
             set_ultron_mode,
             list_news,
+            list_claude_sessions,
             self_improve_report,
             run_codex_adversarial_review,
             run_doctor

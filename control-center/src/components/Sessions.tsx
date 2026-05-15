@@ -1,7 +1,68 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { InlineResult, ProjectInfo, SessionProvider } from "../types";
+import type {
+  ClaudeSession,
+  InlineResult,
+  ProjectInfo,
+  SessionProvider,
+  SpawnFlags,
+} from "../types";
+
+// Session presets — persisted across launches in localStorage. Keep the keys
+// stable so existing users don't lose their preferred config when the app
+// updates.
+const PRESETS_KEY = "ultron.cc.session_presets.v1";
+
+type Presets = {
+  dangerouslySkipPermissions: boolean;
+  effort: "" | "low" | "medium" | "high" | "xhigh" | "max";
+  name: string;
+  forkSession: boolean;
+};
+
+const DEFAULT_PRESETS: Presets = {
+  dangerouslySkipPermissions: false,
+  effort: "",
+  name: "",
+  forkSession: false,
+};
+
+function loadPresets(): Presets {
+  try {
+    const raw = localStorage.getItem(PRESETS_KEY);
+    if (!raw) return DEFAULT_PRESETS;
+    const p = JSON.parse(raw) as Partial<Presets>;
+    return { ...DEFAULT_PRESETS, ...p };
+  } catch {
+    return DEFAULT_PRESETS;
+  }
+}
+function savePresets(p: Presets) {
+  try {
+    localStorage.setItem(PRESETS_KEY, JSON.stringify(p));
+  } catch {}
+}
+
+function formatRel(iso: string | null): string {
+  if (!iso) return "—";
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return iso;
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function formatBytes(b: number): string {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / 1024 / 1024).toFixed(2)} MB`;
+}
 
 // ---------------------------------------------------------------------------
 // Provider catalogue
@@ -380,8 +441,34 @@ export function Sessions() {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [presets, setPresets] = useState<Presets>(() => loadPresets());
+  const [history, setHistory] = useState<ClaudeSession[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [showInline, setShowInline] = useState(false);
 
   useEffect(() => saveCwd(cwd), [cwd]);
+  useEffect(() => savePresets(presets), [presets]);
+
+  // Load Claude session history once when the tab mounts. We cap at 25
+  // entries so the panel doesn't drown in old transcripts.
+  useEffect(() => {
+    if (provider !== "claude") return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    invoke<ClaudeSession[]>("list_claude_sessions", { limit: 25 })
+      .then((list) => {
+        if (!cancelled) setHistory(list);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [provider]);
 
   // When provider changes, default the model to the provider's default.
   useEffect(() => {
@@ -419,6 +506,18 @@ export function Sessions() {
     }
   }
 
+  function flagsForProvider(extra: Partial<SpawnFlags> = {}): SpawnFlags | null {
+    if (provider !== "claude") return null;
+    return {
+      dangerouslySkipPermissions: presets.dangerouslySkipPermissions,
+      forkSession: presets.forkSession,
+      effort: presets.effort ? presets.effort : null,
+      model: model || null,
+      name: presets.name.trim() ? presets.name.trim() : null,
+      ...extra,
+    };
+  }
+
   async function openSession(withPrompt: boolean) {
     setError(null);
     try {
@@ -426,6 +525,38 @@ export function Sessions() {
         provider,
         prompt: withPrompt && prompt.trim() ? prompt : null,
         cwd: cwd || null,
+        flags: flagsForProvider(),
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function resumeSession(s: ClaudeSession) {
+    setError(null);
+    try {
+      // Sessions belong to a specific cwd (Claude indexes by it). We use the
+      // recovered project_label as cwd so the new wt.exe tab lands in the
+      // same directory before -r resolves the session.
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: null,
+        cwd: s.project_label,
+        flags: flagsForProvider({ resumeId: s.id }),
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function continueLastInCwd() {
+    setError(null);
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: null,
+        cwd: cwd || null,
+        flags: flagsForProvider({ continueLast: true }),
       });
     } catch (e) {
       setError(String(e));
@@ -436,11 +567,25 @@ export function Sessions() {
 
   return (
     <div className="px-10 py-8">
-      <header className="mb-6">
-        <h1 className="text-[20px] font-semibold leading-tight">Sessions</h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-          Quick prompts inline · open interactive CLI session with optional workspace
-        </p>
+      <header className="mb-6 flex items-baseline justify-between gap-4">
+        <div>
+          <h1 className="text-[20px] font-semibold leading-tight">Sessions</h1>
+          <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
+            Abre una sesión Claude/Gemini/Codex con flags y workspace, o reanuda una anterior.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => openSession(false)}
+          className="rounded px-4 py-1.5 text-[12.5px] font-semibold transition-colors"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+          title="Lanza una sesión nueva en wt.exe con la configuración actual"
+        >
+          Open new session
+        </button>
       </header>
 
       <section
@@ -485,6 +630,194 @@ export function Sessions() {
           </div>
         )}
 
+        {/* Session presets — only relevant for claude. Other providers ignore. */}
+        {provider === "claude" && (
+          <div
+            className="mt-4 rounded p-4"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <div
+              className="text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Presets · se aplican al lanzar y se recuerdan entre sesiones
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label
+                className="flex items-start gap-2 rounded p-2.5 transition-colors"
+                style={{
+                  background: presets.dangerouslySkipPermissions
+                    ? "rgba(248, 81, 73, 0.06)"
+                    : "var(--color-surface-2)",
+                  border: `1px solid ${
+                    presets.dangerouslySkipPermissions
+                      ? "rgba(248, 81, 73, 0.22)"
+                      : "var(--color-border)"
+                  }`,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={presets.dangerouslySkipPermissions}
+                  onChange={(e) =>
+                    setPresets({
+                      ...presets,
+                      dangerouslySkipPermissions: e.target.checked,
+                    })
+                  }
+                  className="mt-0.5 h-3.5 w-3.5"
+                />
+                <div className="min-w-0">
+                  <div
+                    className="text-[12.5px] font-medium"
+                    style={{
+                      color: presets.dangerouslySkipPermissions
+                        ? "var(--color-danger)"
+                        : "var(--color-text)",
+                    }}
+                  >
+                    --dangerously-skip-permissions
+                  </div>
+                  <div
+                    className="mt-0.5 text-[11px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Saltar todas las confirmaciones de herramientas. Solo en
+                    entornos de confianza.
+                  </div>
+                </div>
+              </label>
+
+              <label
+                className="flex items-start gap-2 rounded p-2.5 transition-colors"
+                style={{
+                  background: presets.forkSession
+                    ? "var(--color-surface-3)"
+                    : "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={presets.forkSession}
+                  onChange={(e) =>
+                    setPresets({ ...presets, forkSession: e.target.checked })
+                  }
+                  className="mt-0.5 h-3.5 w-3.5"
+                />
+                <div className="min-w-0">
+                  <div className="text-[12.5px] font-medium">--fork-session</div>
+                  <div
+                    className="mt-0.5 text-[11px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Al reanudar (-r / --continue), crea una rama nueva en
+                    lugar de seguir escribiendo en la sesión original.
+                  </div>
+                </div>
+              </label>
+
+              <div>
+                <label
+                  className="block text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                  htmlFor="effort-select"
+                >
+                  --effort
+                </label>
+                <select
+                  id="effort-select"
+                  value={presets.effort}
+                  onChange={(e) =>
+                    setPresets({
+                      ...presets,
+                      effort: e.target.value as Presets["effort"],
+                    })
+                  }
+                  className="mt-1 w-full rounded px-2 py-1 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                >
+                  <option value="">default</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                  <option value="xhigh">xhigh</option>
+                  <option value="max">max</option>
+                </select>
+              </div>
+
+              <div>
+                <label
+                  className="block text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                  htmlFor="session-name"
+                >
+                  -n display name
+                </label>
+                <input
+                  id="session-name"
+                  type="text"
+                  value={presets.name}
+                  onChange={(e) => setPresets({ ...presets, name: e.target.value })}
+                  placeholder="(opcional)"
+                  maxLength={60}
+                  className="mt-1 w-full rounded px-2 py-1 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                    outline: "none",
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={continueLastInCwd}
+                className="rounded px-3 py-1.5 text-[12px] transition-colors"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+                title="claude -c · reanuda la última conversación en el workspace seleccionado"
+              >
+                Continue last in cwd
+              </button>
+              <span
+                className="text-[10.5px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                cwd: {cwd || "(none)"}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center justify-between">
+          <button
+            type="button"
+            onClick={() => setShowInline(!showInline)}
+            className="text-[11px] transition-colors"
+            style={{ color: "var(--color-text-tertiary)" }}
+            title="Modo inline: ejecuta un prompt batch sin abrir terminal — útil para queries one-shot"
+          >
+            {showInline ? "▾ Hide inline / quick prompt" : "▸ Show inline / quick prompt (advanced)"}
+          </button>
+        </div>
+
+        {showInline && (<>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -496,7 +829,7 @@ export function Sessions() {
               runInline();
             }
           }}
-          className="mt-4 w-full rounded px-3 py-2 text-[12.5px] leading-relaxed"
+          className="mt-3 w-full rounded px-3 py-2 text-[12.5px] leading-relaxed"
           style={{
             background: "var(--color-surface-1)",
             color: "var(--color-text)",
@@ -606,7 +939,112 @@ export function Sessions() {
             )}
           </pre>
         )}
+        </>)}
       </section>
+
+      {/* Recent Claude sessions — resumable */}
+      {provider === "claude" && (
+        <section
+          className="mt-6 rounded p-5"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div className="mb-3 flex items-baseline justify-between">
+            <div>
+              <h2 className="text-[14px] font-semibold leading-tight">Recent Claude sessions</h2>
+              <p
+                className="mt-0.5 text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Top 25 by last activity · click Resume para reanudar (claude -r &lt;id&gt;)
+              </p>
+            </div>
+            {historyLoading && (
+              <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+                Loading…
+              </span>
+            )}
+          </div>
+
+          {!historyLoading && history.length === 0 && (
+            <div
+              className="rounded p-6 text-center text-[12.5px]"
+              style={{
+                background: "var(--color-surface-1)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-tertiary)",
+              }}
+            >
+              Aún no hay sesiones registradas. Abre una con Claude y volverá a
+              listarse aquí.
+            </div>
+          )}
+
+          <div className="space-y-1.5">
+            {history.map((s) => (
+              <div
+                key={`${s.project_slug}-${s.id}`}
+                className="rounded p-3 transition-colors"
+                style={{
+                  background: "var(--color-surface-1)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                <div className="flex items-baseline gap-3">
+                  <span
+                    className="truncate text-[11px]"
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--color-text-tertiary)",
+                    }}
+                    title={s.project_label}
+                  >
+                    {s.project_label}
+                  </span>
+                  <span
+                    className="ml-auto shrink-0 tabular-nums text-[10.5px]"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    {formatRel(s.last_activity)} · {s.line_count} turns ·{" "}
+                    {formatBytes(s.size_bytes)}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => resumeSession(s)}
+                    className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                    style={{
+                      background: "var(--color-accent)",
+                      color: "var(--color-accent-text)",
+                    }}
+                    title={`claude -r ${s.id}`}
+                  >
+                    Resume
+                  </button>
+                </div>
+                {s.preview && (
+                  <div
+                    className="mt-1 line-clamp-2 text-[12px] leading-relaxed"
+                    style={{ color: "var(--color-text-secondary)" }}
+                  >
+                    {s.preview}
+                  </div>
+                )}
+                <div
+                  className="mt-1 truncate text-[10px]"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--color-text-faint)",
+                  }}
+                >
+                  {s.id}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   );
 }

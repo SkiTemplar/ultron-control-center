@@ -17,7 +17,7 @@
 // ('foo'bar' → 'foo''bar'). The argument that reaches wt.exe goes through
 // the capability validator regex, so anything off-grammar is rejected.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 use tauri_plugin_shell::ShellExt;
@@ -36,6 +36,99 @@ pub struct InlineResult {
     pub stdout: String,
     pub stderr: String,
     pub exit_code: Option<i32>,
+}
+
+/// User-facing flags applied to `claude` sessions launched via wt.exe.
+///
+/// Mirrors the subset of Claude CLI options that make sense from a desktop
+/// launcher. The whole struct is optional so older callers and non-Claude
+/// providers stay valid. Validation is performed in the inner builder so the
+/// capability regex can stay readable.
+#[derive(Debug, Deserialize, Default, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct SpawnFlags {
+    /// Add `--dangerously-skip-permissions`. Claude will not pause on tool
+    /// confirmations — only enable for sandboxes you trust.
+    #[serde(default)]
+    pub dangerously_skip_permissions: bool,
+    /// `--continue` — resume the latest conversation in the chosen cwd. When
+    /// true the prompt argument is ignored.
+    #[serde(default)]
+    pub continue_last: bool,
+    /// `--fork-session` — combined with continue/resume, starts a new branch
+    /// off the resumed conversation instead of overwriting it.
+    #[serde(default)]
+    pub fork_session: bool,
+    /// `--model <id>`. When `None` Claude uses the account default.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// `--effort <level>` — low / medium / high / xhigh / max.
+    #[serde(default)]
+    pub effort: Option<String>,
+    /// `-n <name>` — display name shown in the prompt box / picker.
+    #[serde(default)]
+    pub name: Option<String>,
+    /// `-r <sessionId>` — resume specific session by id. Takes precedence
+    /// over `continue_last`.
+    #[serde(default)]
+    pub resume_id: Option<String>,
+}
+
+fn ps_quote_optional(s: &str) -> String {
+    ps_quote(s)
+}
+
+/// Validate and serialise a SpawnFlags into the trailing-args portion of a
+/// PowerShell -Command string. Returns `String::new()` if there's nothing
+/// to add. Each value is checked against a narrow character set so the
+/// capability regex doesn't have to.
+fn flags_to_pwsh_args(f: &SpawnFlags) -> Result<String, String> {
+    let mut out = String::new();
+    if f.dangerously_skip_permissions {
+        out.push_str(" --dangerously-skip-permissions");
+    }
+    if f.continue_last {
+        out.push_str(" -c");
+    }
+    if f.fork_session {
+        out.push_str(" --fork-session");
+    }
+    if let Some(m) = f.model.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if !m.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.' || c == '_') {
+            return Err("invalid model id".into());
+        }
+        out.push_str(&format!(" --model {}", m));
+    }
+    if let Some(e) = f.effort.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if !matches!(e, "low" | "medium" | "high" | "xhigh" | "max") {
+            return Err(format!("invalid effort '{}'", e));
+        }
+        out.push_str(&format!(" --effort {}", e));
+    }
+    if let Some(n) = f.name.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        if n.chars().any(|c| matches!(c, '\r' | '\n' | '\'')) {
+            return Err("session name contains illegal chars".into());
+        }
+        if n.chars().count() > 60 {
+            return Err("session name too long (max 60 chars)".into());
+        }
+        out.push_str(&format!(" -n {}", ps_quote_optional(n)));
+    }
+    if let Some(r) = f
+        .resume_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        if !r.chars().all(|c| c.is_ascii_hexdigit() || c == '-') {
+            return Err("invalid resume id".into());
+        }
+        if r.len() > 80 {
+            return Err("resume id too long".into());
+        }
+        out.push_str(&format!(" -r {}", r));
+    }
+    Ok(out)
 }
 
 fn validate_provider(p: &str) -> Result<&'static str, String> {
@@ -152,25 +245,40 @@ fn ps_quote_cmd(s: &str) -> String {
 // ---------------------------------------------------------------------------
 
 /// Build the PowerShell -Command string that wt.exe runs inside the new tab.
-/// Layered as `Set-Location ...; <provider> [args]`. Inputs are pre-quoted
-/// with single quotes (PowerShell literal strings) so user content never
-/// gets re-parsed.
-fn build_inner_command(provider: &str, prompt: Option<&str>, cwd: Option<&str>) -> String {
+/// Layered as `Set-Location ...; <provider> [flags] [args]`. Inputs are
+/// pre-quoted with single quotes (PowerShell literal strings) so user content
+/// never gets re-parsed. Flags only apply to `claude`; `gemini` and `codex`
+/// ignore them.
+fn build_inner_command(
+    provider: &str,
+    prompt: Option<&str>,
+    cwd: Option<&str>,
+    flags: &SpawnFlags,
+) -> Result<String, String> {
     let mut cmd = String::new();
     if let Some(dir) = cwd {
         cmd.push_str(&format!("Set-Location -LiteralPath {}; ", ps_quote(dir)));
     }
     cmd.push_str(provider);
-    if let Some(p) = prompt {
+
+    if provider == "claude" {
+        cmd.push_str(&flags_to_pwsh_args(flags)?);
+    }
+
+    // When the user asked for --continue or -r, Claude resumes its own
+    // conversation; in that case we don't append a free-text prompt because
+    // it would be appended as a fresh user message after the resume.
+    let resume_active =
+        provider == "claude" && (flags.continue_last || flags.resume_id.is_some());
+
+    if let Some(p) = prompt.filter(|_| !resume_active) {
         let capped = cap_prompt(p);
         match provider {
             "gemini" => cmd.push_str(&format!(" -p {}", ps_quote(&capped))),
-            // Claude + Codex both accept the prompt as a single positional
-            // arg that bootstraps an interactive session.
             _ => cmd.push_str(&format!(" {}", ps_quote(&capped))),
         }
     }
-    cmd
+    Ok(cmd)
 }
 
 pub async fn spawn_session_inner(
@@ -178,6 +286,7 @@ pub async fn spawn_session_inner(
     provider: String,
     prompt: Option<String>,
     cwd: Option<String>,
+    flags: Option<SpawnFlags>,
 ) -> Result<SpawnResult, String> {
     let provider = validate_provider(&provider)?;
     let prompt_ref = prompt
@@ -188,8 +297,9 @@ pub async fn spawn_session_inner(
         .as_deref()
         .map(str::trim)
         .filter(|s| !s.is_empty());
+    let flags = flags.unwrap_or_default();
 
-    let inner = build_inner_command(provider, prompt_ref, cwd_ref);
+    let inner = build_inner_command(provider, prompt_ref, cwd_ref, &flags)?;
     let title = format!("ULTRON · {}", provider);
 
     // Route through cmd.exe /C wt.exe — wt.exe lives in WindowsApps reparse

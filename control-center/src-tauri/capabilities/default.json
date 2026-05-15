@@ -236,7 +236,7 @@
             "-NoExit",
             "-NoProfile",
             "-Command",
-            { "validator": "^(Set-Location -LiteralPath '[^\\r\\n]{0,500}'; )?(claude|gemini|codex)( -p)?( '[\\s\\S]{0,8000}')?$" }
+            { "validator": "^(Set-Location -LiteralPath '[^\\r\\n]{0,500}'; )?(claude|gemini|codex)( --dangerously-skip-permissions)?( -c)?( --fork-session)?( --model [a-zA-Z0-9._\\-]{1,80})?( --effort (low|medium|high|xhigh|max))?( -n '[^\\r\\n']{1,60}')?( -r [a-f0-9\\-]{1,80})?( -p)?( '[\\s\\S]{0,8000}')?$" }
           ]
         },
         {

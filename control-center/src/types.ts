@@ -240,6 +240,26 @@ export type ProcInfo = {
   ram_mb: number;
 };
 
+export type SpawnFlags = {
+  dangerouslySkipPermissions?: boolean;
+  continueLast?: boolean;
+  forkSession?: boolean;
+  model?: string | null;
+  effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
+  name?: string | null;
+  resumeId?: string | null;
+};
+
+export type ClaudeSession = {
+  id: string;
+  project_slug: string;
+  project_label: string;
+  preview: string | null;
+  size_bytes: number;
+  last_activity: string | null;
+  line_count: number;
+};
+
 export type GameProcessInfo = {
   pid: number;
   name: string;
