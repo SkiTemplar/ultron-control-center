@@ -55,6 +55,10 @@ $stdoutText = ""
 $stderrText = ""
 
 try {
+    # Pipe an empty string in so the CLIs don't sit waiting for stdin in
+    # non-interactive mode (Claude/Codex warn "no stdin data received in 3s,
+    # proceeding without it" otherwise). Out-String collapses the array of
+    # output objects into a single text blob.
     switch ($provider) {
         "claude" {
             $args = @("-p", $prompt)
@@ -62,7 +66,7 @@ try {
                 if ($model -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "Invalid model id" }
                 $args += @("--model", $model)
             }
-            $stdoutText = & claude @args 2>&1 | Out-String
+            $stdoutText = ("" | & claude @args 2>&1) | Out-String
             $exitCode = $LASTEXITCODE
         }
         "codex" {
@@ -72,7 +76,7 @@ try {
                 $args += @("-m", $model)
             }
             $args += $prompt
-            $stdoutText = & codex @args 2>&1 | Out-String
+            $stdoutText = ("" | & codex @args 2>&1) | Out-String
             $exitCode = $LASTEXITCODE
         }
         "gemini" {
@@ -80,7 +84,7 @@ try {
             # selection + stdout layout match the rest of the system.
             $script = Join-Path $env:USERPROFILE ".ultron\scripts\cockpit\gemini_cli.py"
             $modelArg = if ($model) { $model } else { "gemini-3.1-pro-preview" }
-            $stdoutText = & uv run python $script --model $modelArg $prompt 2>&1 | Out-String
+            $stdoutText = ("" | & uv run python $script --model $modelArg $prompt 2>&1) | Out-String
             $exitCode = $LASTEXITCODE
         }
     }

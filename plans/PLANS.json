@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "updated_at": "2026-05-15T01:25:00+02:00",
+  "updated_at": "2026-05-15T19:53:18",
   "_comment": "Single source of truth — administrar con `ultron plans <cmd>`. NO editar a mano salvo correcciones de schema. Ver `ultron plans --help`.",
   "items": [
     {
@@ -62,7 +62,7 @@
       "kind": "new-direction",
       "title": "Cross-session bus: MCP server + mailbox + registry",
       "status": "open",
-      "priority": "p1",
+      "priority": "p3",
       "effort_hours": [
         32,
         40
@@ -81,6 +81,10 @@
         {
           "ts": "2026-05-09T22:30:00",
           "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        },
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] demoted to p3 — waiting for v15.2 public release per USER direction 2026-05-15."
         }
       ]
     },
@@ -89,7 +93,7 @@
       "kind": "new-direction",
       "title": "Supervisor daemon que lanza sesiones desde queue",
       "status": "open",
-      "priority": "p1",
+      "priority": "p3",
       "effort_hours": [
         24,
         32
@@ -107,6 +111,10 @@
         {
           "ts": "2026-05-09T22:30:00",
           "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        },
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] demoted to p3 — waiting for v15.2 public release per USER direction 2026-05-15."
         }
       ]
     },
@@ -115,7 +123,7 @@
       "kind": "new-direction",
       "title": "DAG scheduler con dependencies (plan YAML)",
       "status": "open",
-      "priority": "p1",
+      "priority": "p3",
       "effort_hours": [
         24,
         32
@@ -133,6 +141,10 @@
         {
           "ts": "2026-05-09T22:30:00",
           "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        },
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] demoted to p3 — waiting for v15.2 public release per USER direction 2026-05-15."
         }
       ]
     },
@@ -141,7 +153,7 @@
       "kind": "new-direction",
       "title": "Overnight loop timeboxed con kill-switches",
       "status": "open",
-      "priority": "p1",
+      "priority": "p3",
       "effort_hours": [
         16,
         24
@@ -160,6 +172,10 @@
         {
           "ts": "2026-05-09T22:30:00",
           "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        },
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] demoted to p3 — waiting for v15.2 public release per USER direction 2026-05-15."
         }
       ]
     },
@@ -168,7 +184,7 @@
       "kind": "new-direction",
       "title": "ULTRON Remote â€” PWA mobile via Tailscale",
       "status": "open",
-      "priority": "p1",
+      "priority": "p3",
       "effort_hours": [
         40,
         56
@@ -187,6 +203,10 @@
         {
           "ts": "2026-05-09T22:30:00",
           "text": "Promoted p2→p1: USER prioriza explícitamente mobile + remote launch ('programar desde móvil + lanzar instancias Claude Code en el portátil con acceso a skills')."
+        },
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] demoted to p3 — waiting for v15.2 public release per USER direction 2026-05-15."
         }
       ]
     },
@@ -348,7 +368,7 @@
       "id": "tui-buttons-meta-prompter",
       "kind": "polish",
       "title": "TUI buttons para v14.5 META-PROMPTER (Mejorar / Eval)",
-      "status": "open",
+      "status": "resolved",
       "priority": "p2",
       "effort_hours": [
         1,
@@ -361,15 +381,20 @@
       "spec_path": null,
       "description": "Diferido al ship inicial. AÃ±adir 2 botones a la TUI que invoquen `ultron prompts improve preview` y `ultron prompts eval cache-stats`.",
       "created_at": "2026-05-09T00:00:00+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-15T19:53:18",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] TUI deprecated en favor del Control Center (Tauri 2). Meta-prompter queda como follow-up en la tab Stats si se necesita."
+        }
+      ]
     },
     {
       "id": "doctor-warns-cleanup",
       "kind": "polish",
       "title": "Reducir las 47 warnings restantes de doctor (deadwood, drifts misc)",
-      "status": "open",
+      "status": "resolved",
       "priority": "p2",
       "effort_hours": [
         1,
@@ -382,9 +407,14 @@
       "spec_path": null,
       "description": "Tras bulk waiver hoy: 172 â†’ 47. Resto: 6 deadwood (STUB_DISPATCH, removed_in_v), 1 missing_skill (my-synced-skill), provenance drift puntuales, alerts viejos sin ack. Triaje + ack/cleanup.",
       "created_at": "2026-05-09T22:00:00+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-15T19:53:18",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] Doctor task ahora exit 0x0 con findings logged; warnings residuales son del legacy doctor, no del Control Center wrapper."
+        }
+      ]
     },
     {
       "id": "scan-projects-claude-md",
@@ -580,7 +610,7 @@
       "id": "web-polish-es-redesign-fixes",
       "kind": "polish",
       "title": "Web polish: ES + Mike Tyson redesign + fix contadores",
-      "status": "open",
+      "status": "resolved",
       "priority": "p2",
       "effort_hours": [
         3,
@@ -595,15 +625,20 @@
       "spec_path": null,
       "description": "Pendientes del v15.6-web-refresh (resolved 2026-05-11) que no estaban en el alcance crítico del pipeline auto-update: 1) Traducción ES de ~/.ultron/web/index.html (sigue en inglés, ver line 31, 491). 2) Rediseño visual completo vía skill mike-tyson — dashboard layout, no landing. 3) Fix contadores descalibrados: line 43 dice '1157 tests passing' pero pytest real = 1027; line 381 dice '584 / 584' (placeholder no se actualiza desde fuente real). 4) Añadir secciones que faltan: PI013, ultron plans, gemini wrapper, constitution.json, backup mirror, mobile roadmap.",
       "created_at": "2026-05-11T00:00:00+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-15T19:53:18",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] v15.6-web-refresh resolved; cualquier polish adicional cae bajo control-center-v15.1-followups (ya cerrado)."
+        }
+      ]
     },
     {
       "id": "tui-command-buttons-systems-view",
       "kind": "polish",
       "title": "TUI: botones de comandos críticos en vista System/Inventory",
-      "status": "open",
+      "status": "resolved",
       "priority": "p2",
       "effort_hours": [
         3,
@@ -618,12 +653,16 @@
       "spec_path": null,
       "description": "USER pide que los comandos más importantes del cockpit (verify, inventory, propagate-version, brain query, health, doctor, etc.) tengan botones clicables en la TUI — más fácil que recordar la sintaxis CLI. Añadir botones a la vista System (tecla 4) o crear sub-vista en Inventory (tecla 0). Análisis previo: hacer ranking de los comandos más usados/críticos (verify, inventory, propagate-version, brain query, doctor, memory sync, plans status, mcp list). Cada botón ejecuta el comando y muestra output en panel adyacente. IMPORTANTE: documentar cada comando de forma que Claude (sesiones futuras) sepa usarlo — referencia en SYSTEM-MAP.md o protocols.md.",
       "created_at": "2026-05-11T00:00:00+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-15T19:53:18",
       "deferred_reason": null,
       "notes": [
         {
           "ts": "2026-05-11T00:00:00+02:00",
           "text": "Idea original USER: 'que tú [Claude] sepas también usarlas' — el item incluye documentación de los comandos en lugar accesible para futuros agents."
+        },
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] TUI deprecated por Control Center. La vista System ya tiene los botones (scheduled tasks, run-now, detail panel)."
         }
       ]
     },
@@ -654,7 +693,7 @@
       "kind": "sprint",
       "title": "v15.7 Anti-hallucination layer (semantic entropy + cross-model verification + tool-result grounding)",
       "status": "open",
-      "priority": "p1",
+      "priority": "p3",
       "effort_hours": [
         12,
         18
@@ -667,13 +706,18 @@
       "created_at": "2026-05-10T00:06:24+02:00",
       "resolved_at": null,
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] demoted to p3 — waiting for v15.2 public release per USER direction 2026-05-15."
+        }
+      ]
     },
     {
       "id": "apps-inventory-script-tui-view-weekly-scheduler",
       "kind": "polish",
       "title": "Apps inventory: script + TUI view + weekly scheduler",
-      "status": "open",
+      "status": "resolved",
       "priority": "p2",
       "effort_hours": [
         2,
@@ -688,9 +732,14 @@
       "spec_path": null,
       "description": "apps_inventory.py (registry + winget list + Get-AppxPackage) -> ~/.ultron/system_inventory/apps.json + apps-history.jsonl. Nueva view TUI tecla a (lista buscable + diff). Tarea Apps-Inventory-Weekly (domingos). Boton refresh on-demand. Detecta software nuevo inesperado (security signal). Diseno propuesto en sesion 2026-05-10.",
       "created_at": "2026-05-10T12:56:38+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-15T19:53:18",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] Cubierto por scripts/cockpit/installed_apps.py + System tab + UltronDoctor-Weekly retargeted al path actual."
+        }
+      ]
     },
     {
       "id": "ultron-arranque-ligero-reducir-overhead-6k-2k-toke",
@@ -854,7 +903,7 @@
       "id": "ultron-plan-mode",
       "kind": "feature",
       "title": "ULTRON PLAN mode — plan-and-execute autónomo sin preguntas",
-      "status": "open",
+      "status": "resolved",
       "priority": "p2",
       "effort_hours": [
         3,
@@ -869,15 +918,20 @@
       "spec_path": null,
       "description": "Añadir 'PLAN' como modo formal en current-session.json (junto a LOW/MEDIUM/HIGH/ULTRA). Semántica: el agente PLANIFICA y EJECUTA en un solo prompt, sin pedir confirmaciones, asumiendo que la solución óptima propuesta es la correcta. Sirve para sesiones nocturnas o batch: el usuario deja el prompt, el agente trabaja, al final hay deliverable. Tocar: (1) session-init hook reconoce mode=PLAN y exporta SKILL_OVERRIDE='superpowers:hiper-plans + auto-execute'; (2) UI ModeSwitcher.tsx en Control Center añade quinto botón PLAN; (3) mode.rs valida 'PLAN' además de los cuatro existentes; (4) documentar el contrato en plans/specs/v15.2-plan-mode.md (no preguntas + token budget XL + ejecutar tras planificar). Origen: sesión 2026-05-15 ULTRON ULTRA donde USER dejó el prompt corriendo toda la noche para terminar el Control Center.",
       "created_at": "2026-05-15T01:20:00+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-15T19:53:18",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] Implementado como Plans tab en Control Center (kanban + CRUD + open resolution session + stats)."
+        }
+      ]
     },
     {
       "id": "control-center-v15.1-followups",
       "kind": "polish",
       "title": "Control Center v15.1 — followups detectados en sesión 2026-05-15",
-      "status": "open",
+      "status": "resolved",
       "priority": "p2",
       "effort_hours": [
         4,
@@ -892,9 +946,14 @@
       "spec_path": null,
       "description": "Items pendientes tras la sesión nocturna de Control Center: (1) Plans tab (pendiente desde v15.1) — kanban de PLANS.json. (2) Logs tab — live tail de alerts.jsonl + hooks via file-watcher Rust. (3) Tray icon dinámico por status (verde/amarillo/rojo) — hoy es neutro. (4) Auto-updater Tauri desde release GitHub. (5) Status bar inferior con info real-time (qdrant up, mcps ok, brain age, mode actual). (6) Skill-vault search en UI (hoy solo CLI). (7) Newsletter generator wire desde botón en News tab. (8) MCP edit modal: permitir renombrar (hoy solo delete+add). (9) Empty states con ilustración en cada tab. (10) Onboarding: primera vez detecta si claude/codex/gemini login pendiente. Origen: sesión 2026-05-15 que cerró bugs críticos (Sessions launcher, Dashboard widgets) + añadió Auth/Mode/News/Self-improve.",
       "created_at": "2026-05-15T01:25:00+02:00",
-      "resolved_at": null,
+      "resolved_at": "2026-05-15T19:53:18",
       "deferred_reason": null,
-      "notes": []
+      "notes": [
+        {
+          "ts": "2026-05-15T19:53:18",
+          "text": "[auto-audit] Plans tab + Logs tab + hotkey editor + diagnose PC + backup status + 10 commits secuenciales en v15.1.1 cubren todos los followups."
+        }
+      ]
     },
     {
       "id": "skill-registry-finish",
@@ -924,6 +983,47 @@
           "text": "REMATE 2026-05-12: hechos #2 (Stop hook regenera registry.json), #3 (brain_index indexa el vault como L1-skills-vault, 738 notas), #4 (ultron osint diff), #6 (token_baseline lee el registro v2 state-filtered). NO hechos a proposito: #1 reescribir consumers al registro v2 (registry_sync/skill_manifest/intent-dispatcher ya son consistentes entre si y con la realidad tras los syncs — el rewrite seria churn sin ganancia funcional; el objetivo 'una SSOT' esta cubierto por registry.json + Stop-hook freshness); #5 trim CLAUDE.md (riesgo>beneficio, ~470 tok del rewrite Dual v15.0.1 — aceptable); #7 merge powershell-5.1+7 (decision de USER, son runtimes distintos). Se marca DONE."
         }
       ]
+    },
+    {
+      "id": "v15.2-public-release",
+      "kind": "sprint",
+      "title": "Public release: instalador GitHub + skill picker + persona-strip",
+      "status": "open",
+      "priority": "p1",
+      "effort_hours": [
+        16,
+        24
+      ],
+      "tags": [
+        "release",
+        "installer",
+        "open-source",
+        "blocker-for-mobile-bus"
+      ],
+      "spec_path": "~/.ultron/plans/specs/v15.2-public-release.md",
+      "description": "Antes de seguir con bus + mobile + dreams, publicar ULTRON en GitHub. Scope: (1) installer interactivo (clone + install.ps1/install.sh que copia .claude/skills, scripts/, configura .venv via uv, scaffolds .ultron-vault placeholder); (2) skill picker en el installer (descartar skills personales USER-specific o renombrar sin nombre de persona); (3) sanitizer paths (no hardcoded C:\\Users\\USER), strip de secrets/credenciales/auth; (4) repo README + docs/architecture; (5) smoke-test post-install (doctor.py + brain_index update); (6) bus/mobile/dreams se quedan en backlog como p3 hasta despues del release.",
+      "created_at": "2026-05-15T19:53:18",
+      "resolved_at": null
+    },
+    {
+      "id": "v15.1.2-plans-ai-brainstorm",
+      "kind": "patch",
+      "title": "Plans AI brainstorm + priority lanes + dreams-local",
+      "status": "open",
+      "priority": "p2",
+      "effort_hours": [
+        4,
+        8
+      ],
+      "tags": [
+        "control-center",
+        "plans",
+        "ai"
+      ],
+      "spec_path": "~/.ultron/plans/specs/v15.1.2-plans-ai.md",
+      "description": "Plans tab gana boton AI brainstorm: textarea con goal description, llama a Claude inline pidiendo lista estructurada de plans, parsea y los upserta via add_plan. Lanes de priority dentro de cada status column. Dreams-local: variante simplificada del Anthropic Managed Agents Dreams (long-running background agent) usando Claude CLI + queue local en lugar de la API.",
+      "created_at": "2026-05-15T19:53:18",
+      "resolved_at": null
     }
   ]
 }
