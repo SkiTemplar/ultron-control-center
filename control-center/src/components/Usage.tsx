@@ -87,10 +87,11 @@ function WeeklyResetCard() {
 
   const target = nextWeeklyReset(cfg, new Date(nowMs));
   const remaining = target.getTime() - nowMs;
-  // Percentage of the weekly window still ahead — assumes a 7-day cadence,
-  // which matches the Anthropic billing reset and the default cfg above.
+  // Percentage of the weekly window already CONSUMED — 0% at the moment of
+  // the last reset, 100% when the next reset fires. The semantic for the
+  // user is "cuánto llevo de la semana", not lo que queda.
   const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-  const pctRemaining = Math.max(0, Math.min(100, (remaining / WEEK_MS) * 100));
+  const pctElapsed = Math.max(0, Math.min(100, ((WEEK_MS - remaining) / WEEK_MS) * 100));
   const targetLabel = target.toLocaleString(undefined, {
     weekday: "short",
     day: "2-digit",
@@ -133,12 +134,13 @@ function WeeklyResetCard() {
         <div
           className="text-[12.5px] font-semibold tabular-nums"
           style={{ color: "var(--color-text-secondary)" }}
-          title="Percentage of the weekly window remaining"
+          title="Porcentaje de la ventana semanal ya consumido"
         >
-          {pctRemaining.toFixed(1)}%
+          {pctElapsed.toFixed(1)}%
         </div>
       </div>
-      {/* Progress strip — full bar = week ahead, empty bar = reset due. */}
+      {/* Progress strip — fills as the week elapses. Verde al inicio,
+       * ámbar a mitad/dos tercios, rojo cuando queda poco margen. */}
       <div
         className="mt-2 h-1 w-full overflow-hidden rounded-full"
         style={{ background: "var(--color-surface-3)" }}
@@ -146,11 +148,11 @@ function WeeklyResetCard() {
         <div
           className="h-full rounded-full transition-all"
           style={{
-            width: `${pctRemaining}%`,
+            width: `${pctElapsed}%`,
             background:
-              pctRemaining < 15
+              pctElapsed > 85
                 ? "var(--color-danger)"
-                : pctRemaining < 35
+                : pctElapsed > 65
                   ? "var(--color-warn)"
                   : "var(--color-success)",
           }}
@@ -488,6 +490,7 @@ export function Usage() {
   const [data, setData] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [usageBusy, setUsageBusy] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -499,6 +502,28 @@ export function Usage() {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  // Spawns a Claude session in a Windows Terminal tab and seeds the prompt
+  // with `/usage` so the user lands directly on the live usage dashboard.
+  // The local stats-cache.json gets refreshed by Claude itself as a side
+  // effect, so we reload our view too once the user comes back.
+  async function openClaudeUsage() {
+    setUsageBusy(true);
+    setError(null);
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: "/usage",
+        cwd: null,
+      });
+      // Give Claude a beat to refresh the cache before we reload.
+      setTimeout(load, 4000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setUsageBusy(false);
     }
   }
 
@@ -520,18 +545,34 @@ export function Usage() {
             Claude Code consumption · source: ~/.claude/stats-cache.json
           </p>
         </div>
-        <button
-          type="button"
-          onClick={load}
-          disabled={loading}
-          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-          style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
-          }}
-        >
-          {loading ? "Loading…" : "Refresh"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={openClaudeUsage}
+            disabled={usageBusy}
+            title="Abre una sesión Claude con /usage para ver los límites en vivo y refrescar la cache"
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+          >
+            {usageBusy ? "Abriendo…" : "Claude /usage"}
+          </button>
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
       </header>
 
       {error && (

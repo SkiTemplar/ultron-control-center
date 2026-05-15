@@ -89,24 +89,254 @@ function MCPRow({
 }
 
 // ---------------------------------------------------------------------------
-// Raw JSON viewer
+// JSON editor — replaces the old read-only preview. Lets the user edit the
+// whole settings.json as text, validates on every keystroke, and (optionally)
+// asks Codex to rewrite it from a natural-language instruction. The diff
+// goes through the normal Save flow (timestamped backup, atomic write).
 // ---------------------------------------------------------------------------
 
-function JsonPreview({ obj }: { obj: unknown }) {
-  const text = useMemo(() => JSON.stringify(obj, null, 2), [obj]);
+function extractJsonFromText(s: string): string | null {
+  // Codex sometimes wraps replies in ```json fences. Strip them aggressively.
+  const trimmed = s.trim();
+  const fenced = trimmed.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
+  if (fenced) return fenced[1].trim();
+  // Otherwise look for the first '{' and the last '}' — must form a balanced
+  // object. We do a very cheap balance check.
+  const first = trimmed.indexOf("{");
+  const last = trimmed.lastIndexOf("}");
+  if (first === -1 || last === -1 || last <= first) return null;
+  return trimmed.slice(first, last + 1).trim();
+}
+
+function JsonEditor({
+  obj,
+  onChange,
+}: {
+  obj: Record<string, unknown>;
+  onChange: (next: Record<string, unknown>) => void;
+}) {
+  // We hold a draft string so the user can mid-type invalid JSON without
+  // losing the buffer. When it parses cleanly we propagate up.
+  const initial = useMemo(() => JSON.stringify(obj, null, 2), [obj]);
+  const [text, setText] = useState(initial);
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiInfo, setAiInfo] = useState<string | null>(null);
+
+  // External `obj` changes (e.g. after Save reload) overwrite the textarea
+  // — otherwise the buffer would go stale silently.
+  useEffect(() => {
+    setText(initial);
+    setParseError(null);
+  }, [initial]);
+
+  function commitText(next: string) {
+    setText(next);
+    try {
+      const parsed = JSON.parse(next);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setParseError("Root must be an object.");
+        return;
+      }
+      setParseError(null);
+      onChange(parsed as Record<string, unknown>);
+    } catch (e) {
+      setParseError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function askCodex() {
+    if (!aiPrompt.trim()) return;
+    setAiBusy(true);
+    setAiError(null);
+    setAiInfo(null);
+    try {
+      // System-prompt style framing — Codex returns the FULL replacement.
+      const sys =
+        "Eres un asistente que devuelve EXCLUSIVAMENTE un objeto JSON válido (sin texto antes ni después, sin fences si es posible) que representa el contenido completo y actualizado de ~/.claude/settings.json. Mantén todos los campos no relacionados con la petición. No inventes mcpServers, hooks ni claves que no existan ya, salvo que la petición lo pida explícitamente.";
+      const user = `Configuración actual:\n\n${text}\n\nPetición del usuario:\n${aiPrompt}\n\nDevuelve el JSON completo y modificado.`;
+      const prompt = `${sys}\n\n---\n\n${user}`;
+      const r = (await invoke("run_inline", {
+        provider: "codex",
+        model: null,
+        prompt,
+      })) as { success: boolean; stdout: string; stderr: string; exit_code: number | null };
+      if (!r.success) {
+        setAiError(r.stderr || `Codex exit ${r.exit_code ?? "?"}`);
+        return;
+      }
+      const candidate = extractJsonFromText(r.stdout);
+      if (!candidate) {
+        setAiError("Codex no devolvió JSON parseable.");
+        return;
+      }
+      try {
+        const parsed = JSON.parse(candidate);
+        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+          setAiError("Codex devolvió algo que no es un objeto JSON.");
+          return;
+        }
+        setText(JSON.stringify(parsed, null, 2));
+        onChange(parsed as Record<string, unknown>);
+        setParseError(null);
+        setAiInfo("Codex aplicó cambios — revisa el diff y pulsa Save para confirmar.");
+        setAiOpen(false);
+        setAiPrompt("");
+      } catch (e) {
+        setAiError(`No pude parsear la respuesta: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    } catch (e) {
+      setAiError(String(e));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  const lines = text.split("\n").length;
+
   return (
-    <pre
-      className="max-h-[420px] overflow-auto rounded p-3 text-[11px] leading-relaxed"
-      style={{
-        background: "var(--color-surface-1)",
-        border: "1px solid var(--color-border)",
-        fontFamily: "var(--font-mono)",
-        color: "var(--color-text-secondary)",
-        whiteSpace: "pre-wrap",
-      }}
-    >
-      {text}
-    </pre>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div
+          className="text-[11px]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Editable copy of <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span> · {lines} líneas · cualquier cambio se hace efectivo al pulsar Save (backup automático)
+        </div>
+        <button
+          type="button"
+          onClick={() => setAiOpen(!aiOpen)}
+          className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+          style={{
+            background: aiOpen ? "var(--color-surface-3)" : "var(--color-surface-2)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Pide a Codex que modifique este JSON con instrucciones en lenguaje natural"
+        >
+          {aiOpen ? "Close AI assist" : "Ask Codex…"}
+        </button>
+      </div>
+
+      {aiOpen && (
+        <div
+          className="rounded p-3"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          <label
+            className="block text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Instrucción para Codex
+          </label>
+          <textarea
+            value={aiPrompt}
+            onChange={(e) => setAiPrompt(e.target.value)}
+            placeholder="Ej: añade un hook PostToolUse que ejecute el script ensure-qdrant.ps1 después de cualquier Bash"
+            className="mt-1 w-full rounded p-2 text-[12px] leading-relaxed"
+            style={{
+              fontFamily: "var(--font-mono)",
+              background: "var(--color-surface-1)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+              outline: "none",
+              minHeight: 70,
+              resize: "vertical",
+            }}
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAiOpen(false);
+                setAiPrompt("");
+                setAiError(null);
+              }}
+              disabled={aiBusy}
+              className="rounded px-2.5 py-1 text-[11px]"
+              style={{
+                background: "transparent",
+                color: "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={askCodex}
+              disabled={aiBusy || !aiPrompt.trim()}
+              className="rounded px-3 py-1 text-[11px] font-medium disabled:opacity-50"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-accent-text)",
+              }}
+            >
+              {aiBusy ? "Codex pensando…" : "Aplicar cambios"}
+            </button>
+          </div>
+          {aiError && (
+            <div
+              className="mt-2 rounded px-2 py-1 text-[11px]"
+              style={{
+                background: "rgba(248, 81, 73, 0.06)",
+                color: "var(--color-danger)",
+                border: "1px solid rgba(248, 81, 73, 0.22)",
+              }}
+            >
+              {aiError}
+            </div>
+          )}
+        </div>
+      )}
+
+      {aiInfo && (
+        <div
+          className="rounded px-2 py-1 text-[11px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.08)",
+            color: "var(--color-success)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+          }}
+        >
+          {aiInfo}
+        </div>
+      )}
+
+      <textarea
+        value={text}
+        onChange={(e) => commitText(e.target.value)}
+        spellCheck={false}
+        className="w-full rounded p-3 text-[11.5px] leading-relaxed"
+        style={{
+          fontFamily: "var(--font-mono)",
+          background: "var(--color-surface-1)",
+          color: "var(--color-text)",
+          border: `1px solid ${parseError ? "rgba(248, 81, 73, 0.4)" : "var(--color-border)"}`,
+          outline: "none",
+          minHeight: 380,
+          resize: "vertical",
+        }}
+      />
+      {parseError && (
+        <div
+          className="rounded px-2 py-1 text-[11px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            color: "var(--color-danger)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+          }}
+        >
+          {parseError}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -421,7 +651,7 @@ export function Settings() {
           { id: "auth" as Section, label: "Auth" },
           { id: "mode" as Section, label: "Mode" },
           { id: "mcps" as Section, label: "MCPs" },
-          { id: "raw" as Section, label: "Raw JSON" },
+          { id: "raw" as Section, label: "Editor" },
           { id: "backups" as Section, label: "Backups" },
         ].map((t) => (
           <button
@@ -507,7 +737,15 @@ export function Settings() {
           </>
         )}
 
-        {section === "raw" && draft && <JsonPreview obj={draft} />}
+        {section === "raw" && draft && (
+          <JsonEditor
+            obj={draft}
+            onChange={(next) => {
+              setDraft(next);
+              setDirty(true);
+            }}
+          />
+        )}
 
         {section === "backups" && snapshot && (
           <div>
