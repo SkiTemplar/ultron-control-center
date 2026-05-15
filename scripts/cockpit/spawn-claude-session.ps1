@@ -173,13 +173,41 @@ switch ($provider) {
 # Resume / continue ignore the prompt — Claude reuses the prior transcript.
 $resumeActive = ($provider -eq "claude") -and ($continueLast -or $resumeId)
 
+# Prompt strategy:
+# - Short, single-line prompts go inline as positional arg (-p for gemini,
+#   bare for claude / codex). Fast and intuitive.
+# - Multi-line prompts (typical: diagnose dump + system message, code
+#   snippets) get written to the clipboard via Set-Clipboard so the
+#   freshly-spawned wt.exe tab can paste with Ctrl+V. The inline path
+#   choked on newlines (wt.exe's argv parser collapses or breaks them) so
+#   user got an empty Claude prompt or wt.exe failed silently.
+$clipboardSeeded = $false
 if ($promptText -and $promptText.Trim().Length -gt 0 -and -not $resumeActive) {
-    $p = $promptText
-    if ($p.Length -gt 4000) { $p = $p.Substring(0, 4000) }
-    switch ($provider) {
-        "gemini" { $inner += " -p " + (Quote-Single $p) }
-        default  { $inner += " " + (Quote-Single $p) }
+    $hasNewline = $promptText -match "[`r`n]"
+    $longSingle = $promptText.Length -gt 1200
+    if ($hasNewline -or $longSingle) {
+        try {
+            Set-Clipboard -Value $promptText
+            $clipboardSeeded = $true
+        } catch {
+            [Console]::Error.WriteLine("[spawn-claude-session] Set-Clipboard failed: $_")
+        }
+    } else {
+        $p = $promptText
+        if ($p.Length -gt 4000) { $p = $p.Substring(0, 4000) }
+        switch ($provider) {
+            "gemini" { $inner += " -p " + (Quote-Single $p) }
+            default  { $inner += " " + (Quote-Single $p) }
+        }
     }
+}
+
+# When we used clipboard, append a visible echo to the inner-command so the
+# wt.exe tab tells the user to paste. PowerShell evaluates the echo before
+# starting Claude, so it shows up at the top of the terminal.
+if ($clipboardSeeded) {
+    $msg = "El prompt está en tu portapapeles (Ctrl+V para pegar)."
+    $inner = "Write-Host '" + ($msg -replace "'", "''") + "' -ForegroundColor Cyan; " + $inner
 }
 
 # --- Spawn wt.exe via Start-Process ---------------------------------------
