@@ -13,7 +13,7 @@ import pytest
 
 
 BENIGN_AUTO_APPROVED = [
-    ("Read",   {"file_path": "C:/Users/USER/.ultron/INDEX.md"}),
+    ("Read",   {"file_path": "/tmp/ultron-test/.ultron/INDEX.md"}),
     ("Read",   {"file_path": "C:/projects/app/README.md"}),
     ("Glob",   {"pattern": "**/*.py"}),
     ("Glob",   {"pattern": "src/**/*.ts"}),
@@ -25,20 +25,20 @@ BENIGN_AUTO_APPROVED = [
 
 SENSITIVE_PATHS_ABSTAIN = [
     # SSH/cloud creds dirs
-    "C:/Users/USER/.ssh/id_rsa",
-    "C:/Users/USER/.ssh/known_hosts",
-    "C:/Users/USER/.aws/credentials",
-    "C:/Users/USER/.aws/config",
-    "C:/Users/USER/.gcp/credentials.json",
-    "C:/Users/USER/.kube/config",
+    "/tmp/ultron-test/.ssh/id_rsa",
+    "/tmp/ultron-test/.ssh/known_hosts",
+    "/tmp/ultron-test/.aws/credentials",
+    "/tmp/ultron-test/.aws/config",
+    "/tmp/ultron-test/.gcp/credentials.json",
+    "/tmp/ultron-test/.kube/config",
     # ULTRON-specific token caches
-    "C:/Users/USER/.codex/auth.json",
-    "C:/Users/USER/.gemini/oauth_creds.json",
-    "C:/Users/USER/.claude/.credentials.json",
-    "C:/Users/USER/.claude/history.jsonl",
+    "/tmp/ultron-test/.codex/auth.json",
+    "/tmp/ultron-test/.gemini/oauth_creds.json",
+    "/tmp/ultron-test/.claude/.credentials.json",
+    "/tmp/ultron-test/.claude/history.jsonl",
     # tmp drive sync (can carry stale secrets)
-    "C:/Users/USER/.ultron/.tmp.driveupload/somefile",
-    "C:/Users/USER/.claude/.tmp.drivedownload/somefile",
+    "/tmp/ultron-test/.ultron/.tmp.driveupload/somefile",
+    "/tmp/ultron-test/.claude/.tmp.drivedownload/somefile",
     # pattern-based
     "C:/projects/app/.env",
     "C:/projects/app/.env.local",

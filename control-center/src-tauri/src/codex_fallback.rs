@@ -13,7 +13,7 @@
 //   - ~/.ultron/.tmp/context.md              -> skill marker + L0 pinned digest
 //   - ~/.ultron/.tmp/token-usage.jsonl       -> recent token signals
 //   - ~/.ultron/.tmp/doctor-fix-log.jsonl    -> recent doctor signals
-//   - %USERPROFILE%\.claude\projects\C--Users-USER--ultron\*.jsonl
+//   - %USERPROFILE%\.claude\projects\C--Users-<user>--ultron\*.jsonl
 //                                            -> last 20 user/assistant turns
 //                                               from the most-recently-touched
 //                                               transcript
@@ -104,7 +104,7 @@ fn claude_projects_dir() -> Result<PathBuf, String> {
         .map(|h| {
             h.join(".claude")
                 .join("projects")
-                .join("C--Users-USER--ultron")
+                .join("C--Users-<user>--ultron")
         })
         .ok_or_else(|| "no HOME".to_string())
 }

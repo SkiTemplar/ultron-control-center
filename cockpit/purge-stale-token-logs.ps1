@@ -18,7 +18,7 @@ $ErrorActionPreference = 'Stop'
 $candidates = @()
 $candidates += Get-ChildItem "$env:USERPROFILE\.codex\sessions\2026\05\03\rollout-2026-05-03T0*" -ErrorAction SilentlyContinue
 $candidates += Get-ChildItem "$env:USERPROFILE\.codex\sessions\2026\05\03\rollout-2026-05-03T11-58*" -ErrorAction SilentlyContinue
-$candidates += Get-ChildItem "$env:USERPROFILE\.claude\projects\C--Users-USER-CARRERA-PROYECTOS-PERSONALES-Workspace-personal-LaundryClubFolder-laundry-club-next\d7ecb93b-*" -ErrorAction SilentlyContinue
+$candidates += Get-ChildItem "$env:USERPROFILE\.claude\projects\C--Users-<user>-<project>\d7ecb93b-*" -ErrorAction SilentlyContinue
 $candidates += Get-ChildItem "$env:USERPROFILE\.claude\history.jsonl.bak.*" -ErrorAction SilentlyContinue
 
 if (-not $candidates) {

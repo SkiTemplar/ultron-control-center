@@ -44,7 +44,7 @@ def isolated_home(tmp_path, monkeypatch):
     (tmp_path / ".ultron" / "telemetry").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".ultron" / "backups").mkdir(parents=True, exist_ok=True)
     (tmp_path / ".claude" / "skills").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".claude" / "projects" / "C--Users-USER" / "memory").mkdir(
+    (tmp_path / ".claude" / "projects" / "C--Users-testuser" / "memory").mkdir(
         parents=True, exist_ok=True)
     for mod in ("alerts", "doctor", "token_budget",
                 # S5-C security modules — must reload to pick up patched HOME
@@ -391,7 +391,7 @@ def test_doctor_token_audit_under_threshold(doctor, isolated_home):
     """Small fake context files → no finding, audit reports PASS."""
     (isolated_home / ".ultron" / ".tmp" / "context.md").write_text(
         "x" * 80, encoding="utf-8")  # ~20 tok
-    (isolated_home / ".claude" / "projects" / "C--Users-USER" / "memory" /
+    (isolated_home / ".claude" / "projects" / "C--Users-testuser" / "memory" /
      "MEMORY.md").write_text("y" * 80, encoding="utf-8")
     (isolated_home / ".claude" / "CLAUDE.md").write_text(
         "z" * 80, encoding="utf-8")

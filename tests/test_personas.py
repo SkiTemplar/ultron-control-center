@@ -275,7 +275,7 @@ class TestPersonaBehaviorContracts:
         - Ejemplo en C++ con UPROPERTY/UFUNCTION correctos
         - Puede mencionar Lyra como referencia
         Anti-patterns:
-        - ❌ Sugerir Blueprint cuando USER pidió C++
+        - ❌ Sugerir Blueprint cuando the user requested C++
         - ❌ Ignorar la replicación cuando es el problema central
         """
 

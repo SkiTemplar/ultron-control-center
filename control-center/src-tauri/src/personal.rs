@@ -263,7 +263,7 @@ pub async fn request_personal_analysis_inner(
     let prompt = format!(
         "You are analyzing the user's conversations and writing samples to build a \
 style fingerprint stored at ~/.ultron/personal/known.json.\n\n\
-Read up to 30 most recent JSONL files in ~/.claude/projects/C--Users-USER--ultron/ \
+Read up to 30 most recent JSONL files in ~/.claude/projects/C--Users-<user>--ultron/ \
 (skip auto-generated/system messages). Read MEMORY.md. Read ~/.ultron/MEMORY.md. \
 Read recent commits via `git log --pretty=format:\"%s%n%b\" -n 30`.\n\n\
 Output JSON with this exact shape (no other fields, no fences):\n\n\

@@ -179,3 +179,7 @@ config/skill-trust.yaml
 *.tmp
 *~
 *.lock.tmp
+
+# === v15.2.12: web landing + download.html (personal/desactualizado) ===
+web/
+docs/download.html

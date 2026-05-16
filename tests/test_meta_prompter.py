@@ -137,7 +137,7 @@ class TestPhase2FeedbackHook:
         spec = importlib.util.spec_from_file_location(
             "_fb3", HOOKS / "prompt-feedback-capture.py")
         m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-        out = m.pii_filter(r"C:\Users\USER\.claude\file.json")
+        out = m.pii_filter(r"/tmp/ultron-test\.claude\file.json")
         assert "USER" not in out
         assert "<user>" in out
 

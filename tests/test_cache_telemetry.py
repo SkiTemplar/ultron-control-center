@@ -105,7 +105,7 @@ class TestPromptCacheConfig:
         # artifact and we want to ensure it stays valid.
         cfg = Path.home() / ".ultron" / "config" / "cache-config.yaml"
         # In test env Path.home() is tmp; copy real file in for the parse check
-        real = Path.cwd().parent / "USER" / ".ultron" / "config" / "cache-config.yaml"
+        real = Path.cwd().parent / "testuser" / ".ultron" / "config" / "cache-config.yaml"
         # Simpler approach: just write a known-good fixture and parse
         import yaml  # noqa: F401  may not be installed by tests env
         sample = """
@@ -139,7 +139,7 @@ layers:
         # Fallback: try the absolute path in user's actual ultron dir
         if not repo_ps1.exists():
             repo_ps1 = Path(
-                "C:/Users/USER/.ultron/scripts/hooks/session-init.ps1"
+                "/tmp/ultron-test/.ultron/scripts/hooks/session-init.ps1"
             )
         if not repo_ps1.exists():
             pytest.skip("session-init.ps1 not locatable in this test env")
