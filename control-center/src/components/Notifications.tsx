@@ -243,6 +243,101 @@ function buildFixPrompt(g: Grouped): string {
 
 type FixProvider = "claude" | "codex";
 
+// Bulk version of buildFixPrompt: consolidates every actionable group
+// (critical+warn) into a single mega-prompt. Pure function so it can be
+// unit-tested without React. Truncation policy: if the rendered prompt
+// exceeds MAX_PROMPT_CHARS, we keep the head (header + most-recent items)
+// and drop the oldest entries, replacing them with a one-line marker so
+// the LLM knows the list was cropped (instead of silently lying).
+const MAX_PROMPT_CHARS = 30_000;
+
+export function buildBulkFixPrompt(groups: Grouped[]): string {
+  // Split by severity bucket. Critical/blocking first, warn second.
+  // Info is intentionally excluded — those are not worth a spawn.
+  const critical: Grouped[] = [];
+  const warn: Grouped[] = [];
+  for (const g of groups) {
+    const w = severityStyle(g.severity).weight;
+    if (w === 2) critical.push(g);
+    else if (w === 1) warn.push(g);
+  }
+  // Newest-first inside each bucket so truncation drops the oldest.
+  const byLastDesc = (a: Grouped, b: Grouped) =>
+    (b.last_ts || "").localeCompare(a.last_ts || "");
+  critical.sort(byLastDesc);
+  warn.sort(byLastDesc);
+
+  const fmt = (g: Grouped, i: number) => {
+    const head =
+      g.count > 1
+        ? `${i + 1}. [source: ${g.source}] (×${g.count}, last ${g.last_ts || "?"})`
+        : `${i + 1}. [source: ${g.source}] (${g.last_ts || "?"})`;
+    // Single-line message preview keeps the block compact; the LLM gets
+    // the full text via the alerts.jsonl pointer in the footer.
+    const msg = (g.message ?? "").replace(/\s+/g, " ").trim();
+    return `${head}\n   ${msg}`;
+  };
+
+  const buildFrom = (
+    critSlice: Grouped[],
+    warnSlice: Grouped[],
+    omittedCrit: number,
+    omittedWarn: number,
+  ): string => {
+    const parts: string[] = [
+      "I'm getting multiple ULTRON notifications. Please investigate ALL of them",
+      "and propose fixes. Group related ones if applicable, prioritize critical",
+      "over warn.",
+      "",
+    ];
+    if (critSlice.length > 0) {
+      parts.push(`=== CRITICAL (${critSlice.length}${omittedCrit ? ` of ${critSlice.length + omittedCrit}` : ""}) ===`);
+      critSlice.forEach((g, i) => parts.push(fmt(g, i)));
+      if (omittedCrit > 0) {
+        parts.push(`[... ${omittedCrit} more older critical alerts omitted ...]`);
+      }
+      parts.push("");
+    }
+    if (warnSlice.length > 0) {
+      parts.push(`=== WARN (${warnSlice.length}${omittedWarn ? ` of ${warnSlice.length + omittedWarn}` : ""}) ===`);
+      warnSlice.forEach((g, i) => parts.push(fmt(g, i)));
+      if (omittedWarn > 0) {
+        parts.push(`[... ${omittedWarn} more older warn alerts omitted ...]`);
+      }
+      parts.push("");
+    }
+    parts.push(
+      "Please:",
+      "1. Identify the root cause(s) — are these symptoms of one underlying issue?",
+      "2. Propose a coordinated fix sequence.",
+      "3. Start by reading scripts/cockpit/skill_sync_security.py if security warns",
+      "   are involved, and ~/.ultron/alerts.jsonl for the full context.",
+    );
+    return parts.join("\n");
+  };
+
+  // Optimistic full render first.
+  let critSlice = critical;
+  let warnSlice = warn;
+  let omittedCrit = 0;
+  let omittedWarn = 0;
+  let out = buildFrom(critSlice, warnSlice, omittedCrit, omittedWarn);
+  // Drop oldest warn entries first (they are lower priority), then oldest
+  // critical entries. Iterative shrink — each pass re-renders so the
+  // truncation footer is accounted for in the size check.
+  while (out.length > MAX_PROMPT_CHARS && warnSlice.length > 0) {
+    warnSlice = warnSlice.slice(0, -1);
+    omittedWarn += 1;
+    out = buildFrom(critSlice, warnSlice, omittedCrit, omittedWarn);
+  }
+  while (out.length > MAX_PROMPT_CHARS && critSlice.length > 1) {
+    critSlice = critSlice.slice(0, -1);
+    omittedCrit += 1;
+    out = buildFrom(critSlice, warnSlice, omittedCrit, omittedWarn);
+  }
+  return out;
+}
+
 function Row({ g }: { g: Grouped }) {
   const s = severityStyle(g.severity);
   const subtle = s.weight === 0;
@@ -466,6 +561,12 @@ export function Notifications({ alerts, onDeleted }: Props) {
   // backend mirror (~/.ultron/.tmp/toast-enabled.flag) is what the Rust
   // emitter consults. We keep them in sync via `set_toast_enabled`.
   const [toastEnabled, setToastEnabled] = useState<boolean>(() => loadToastEnabled());
+  // Bulk "Fix all" state. Lifted to the parent because the buttons live
+  // in the global toolbar, not inside a Row. Mirrors the per-card flow:
+  // {busy:provider} during spawn, {toast} on success, {error} on failure.
+  const [bulkFixBusy, setBulkFixBusy] = useState<FixProvider | null>(null);
+  const [bulkFixToast, setBulkFixToast] = useState<string | null>(null);
+  const [bulkFixError, setBulkFixError] = useState<string | null>(null);
 
   useEffect(() => saveMutes(mutes), [mutes]);
   useEffect(() => saveSevFilters(sevFilters), [sevFilters]);
@@ -547,6 +648,49 @@ export function Notifications({ alerts, onDeleted }: Props) {
   );
 
   const visibleTotal = visibleGroups.reduce((acc, g) => acc + g.count, 0);
+
+  // "Actionable" = severity that the LLM can do something about.
+  // Mirrors the per-row Row component, which only renders Fix buttons
+  // when severityStyle.weight === 2 (critical/blocking). We also include
+  // warn here because the user explicitly asked for warn in the mega-
+  // prompt — bulk mode is more aggressive than per-row mode.
+  const actionableGroups = useMemo(
+    () =>
+      visibleGroups.filter((g) => {
+        const w = severityStyle(g.severity).weight;
+        return w === 2 || w === 1;
+      }),
+    [visibleGroups],
+  );
+
+  async function openBulkFixSession(provider: FixProvider) {
+    if (bulkFixBusy || actionableGroups.length === 0) return;
+    setBulkFixBusy(provider);
+    setBulkFixError(null);
+    setBulkFixToast(null);
+    try {
+      const prompt = buildBulkFixPrompt(actionableGroups);
+      await invoke("spawn_session", {
+        provider,
+        prompt,
+        cwd: null,
+        // paste_only mirrors the per-row Fix flow: the prompt lands on
+        // the clipboard so the user controls when the session actually
+        // starts answering (avoids accidental autoruns of multi-issue
+        // fixes).
+        flags: { dangerouslySkipPermissions: false, pasteOnly: true },
+      });
+      const label = provider === "claude" ? "Claude" : "Codex";
+      setBulkFixToast(
+        `${label} session opened — paste prompt with Ctrl+V to fix ${actionableGroups.length} issue${actionableGroups.length === 1 ? "" : "s"}`,
+      );
+      window.setTimeout(() => setBulkFixToast(null), 6000);
+    } catch (e) {
+      setBulkFixError(String(e));
+    } finally {
+      setBulkFixBusy(null);
+    }
+  }
 
   function toggleSev(key: SevKey) {
     const next = new Set(sevFilters);
@@ -683,6 +827,53 @@ export function Notifications({ alerts, onDeleted }: Props) {
             />
             Show Windows toasts for critical alerts
           </label>
+
+          {/* Bulk "Fix all" buttons. Visible only when there is at least
+              one actionable (critical/warn) group — otherwise we'd be
+              spawning a session with nothing to fix. The buttons are
+              deliberately larger than the surrounding pill controls
+              (px-3 py-1 vs px-2.5 py-1) because they trigger an
+              external process and we want them to feel weightier than
+              the in-tab filters. */}
+          {actionableGroups.length > 0 && (
+            <>
+              <div
+                className="mx-1 h-4 w-px"
+                style={{ background: "var(--color-border-strong)" }}
+              />
+              <button
+                type="button"
+                onClick={() => openBulkFixSession("claude")}
+                disabled={bulkFixBusy !== null}
+                title={`Spawn a Claude session pre-loaded with ALL ${actionableGroups.length} actionable notification${actionableGroups.length === 1 ? "" : "s"}. The mega-prompt lands on the clipboard — paste with Ctrl+V.`}
+                className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent, var(--color-surface-3))",
+                  color: "var(--color-on-accent, var(--color-text))",
+                  border: "1px solid var(--color-accent, var(--color-border-strong))",
+                }}
+              >
+                {bulkFixBusy === "claude"
+                  ? "Opening…"
+                  : `🔧 Fix all with Claude (${actionableGroups.length})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => openBulkFixSession("codex")}
+                disabled={bulkFixBusy !== null}
+                title={`Same flow, Codex instead of Claude. Useful for a second opinion across all ${actionableGroups.length} notification${actionableGroups.length === 1 ? "" : "s"}.`}
+                className="rounded px-3 py-1 text-[11.5px] transition-colors disabled:opacity-40"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-secondary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                {bulkFixBusy === "codex" ? "Opening…" : "Codex"}
+              </button>
+            </>
+          )}
+
           <button
             type="button"
             onClick={() => setShowMuteList(!showMuteList)}
@@ -693,6 +884,22 @@ export function Notifications({ alerts, onDeleted }: Props) {
           </button>
         </div>
       </div>
+
+      {/* Bulk-fix status line. Rendered outside the toolbar so wide
+          success/error text doesn't push the buttons off-screen. */}
+      {(bulkFixToast || bulkFixError) && (
+        <div
+          className="mb-3 text-[11.5px]"
+          style={{
+            color: bulkFixError ? "var(--color-danger)" : "var(--color-text-tertiary)",
+          }}
+          title={bulkFixError ?? undefined}
+        >
+          {bulkFixError
+            ? `Failed to open bulk session: ${bulkFixError.slice(0, 160)}`
+            : bulkFixToast}
+        </div>
+      )}
 
       {/* Mute list panel */}
       {showMuteList && sources.length > 0 && (

@@ -261,7 +261,10 @@ def _is_trusted_source(source: str | None, skill_path: Path,
     local_root = cfg.get("local_skill_root", "")
     if local_root:
         try:
-            lr = Path(local_root).resolve()
+            # F28 fix: expand ~ and env vars so the YAML can use portable
+            # paths like ~/.claude/skills instead of hardcoded user paths.
+            expanded = os.path.expanduser(os.path.expandvars(str(local_root)))
+            lr = Path(expanded).resolve()
             sp = skill_path.resolve()
             if lr in sp.parents or sp == lr:
                 return True
@@ -845,10 +848,16 @@ def _aggregate_decision(findings: list[SecurityFinding]) -> str:
     return _DECISION_BY_RANK[rank]
 
 
-def _downgrade(decision: str) -> str:
-    """Trusted-source downgrade: shifts one level. NEVER touches block."""
+def _downgrade(decision: str, local_owned: bool = False) -> str:
+    """Trusted-source downgrade: shifts one level.
+
+    F28: for skills under `local_skill_root` (user-owned), allow downgrading
+    `block -> quarantine` too — the user is responsible for their own skills
+    and doesn't want them silently dropped from the registry. For other
+    trusted sources (third-party marketplaces), `block` is still terminal.
+    """
     if decision == "block":
-        return "block"
+        return "quarantine" if local_owned else "block"
     rank = _DECISION_RANK.get(decision, 0)
     return _DECISION_BY_RANK[max(0, rank - 1)]
 
@@ -1012,7 +1021,19 @@ def scan_skill(skill_path: Path, source: str | None = None) -> SecurityVerdict:
 
     decisive_findings = [f for f in findings if not f.waived]
     raw_decision = _aggregate_decision(decisive_findings)
-    final_decision = _downgrade(raw_decision) if trusted else raw_decision
+    # F28: detect if this is a user-owned skill (under local_skill_root) so
+    # the downgrade can be slightly more permissive (block -> quarantine).
+    local_owned = False
+    try:
+        local_root = trust_cfg.get("local_skill_root", "") if trust_cfg else ""
+        if local_root:
+            expanded = os.path.expanduser(os.path.expandvars(str(local_root)))
+            lr = Path(expanded).resolve()
+            sp = Path(skill_dir).resolve()
+            local_owned = lr in sp.parents or sp == lr
+    except (OSError, ValueError):
+        local_owned = False
+    final_decision = _downgrade(raw_decision, local_owned) if trusted else raw_decision
     return SecurityVerdict(
         skill_path=str(skill_dir),
         decision=final_decision,

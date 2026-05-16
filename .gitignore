@@ -183,3 +183,26 @@ config/skill-trust.yaml
 # === v15.2.12: web landing + download.html (personal/desactualizado) ===
 web/
 docs/download.html
+
+# === v15.2.18: deprecated cockpit/ docs + icons (Control Center has its own) ===
+cockpit/README.md
+cockpit/TUTORIAL.md
+cockpit/icons/
+
+# === v15.2.18: docs sin uso ===
+docs/brain-index-chunks.md
+docs/memory-layers.md
+
+# === v15.2.18: scripts/cockpit/ one-shot legacy ===
+scripts/cockpit/audit_plans.py
+scripts/cockpit/audit_plans_pass2.py
+scripts/cockpit/audit_plans_pass3.py
+scripts/cockpit/plans_master_v15_2.py
+scripts/cockpit/version_propagate.py
+scripts/cockpit/changelog_backfill.py
+scripts/cockpit/test_cockpit.py
+scripts/cockpit/_categorize_skills.py
+
+# === v15.2.18: root legacy duplicates ===
+scripts/consistency-check.py
+scripts/register_wake_triggers.ps1
