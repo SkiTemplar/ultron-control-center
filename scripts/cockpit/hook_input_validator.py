@@ -327,13 +327,16 @@ def _alert(source: str, message: str, event_name: str) -> None:
     observable in `~/.ultron/alerts.jsonl`. Uses `hookval:<event>` dedupe.
 
     Severity policy (refined):
-      - "stdin is not valid JSON" → info. Transient runtime noise (encoding
-        glitch, race on stdin) that retries on the next hook fire. Not actionable.
+      - "stdin is not valid JSON" → no alert. Transient runtime noise
+        (encoding glitch, race on stdin) that retries on the next hook fire.
+        Not actionable.
       - everything else → warn. Real validation failure worth surfacing.
     """
     if _alerts is None:
         return
-    severity = "info" if "not valid JSON" in message else "warn"
+    if "not valid JSON" in message:
+        return
+    severity = "warn"
     try:
         _alerts.write_dedupe(
             severity=severity,

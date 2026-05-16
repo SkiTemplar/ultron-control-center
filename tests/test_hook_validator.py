@@ -19,6 +19,12 @@ import hook_input_validator as hv  # noqa: E402
 _VALID_SESSION = "12345678-1234-1234-1234-123456789012"
 
 
+@pytest.fixture(autouse=True)
+def _disable_real_alerts(monkeypatch):
+    """Unit tests should not append to the live ~/.ultron alerts bus."""
+    monkeypatch.setattr(hv, "_alerts", None)
+
+
 def test_validate_user_prompt_submit_ok():
     payload = {"hook_event_name": "UserPromptSubmit",
                "prompt": "hello", "session_id": _VALID_SESSION}
@@ -131,10 +137,8 @@ def test_session_start_optional_source():
 # F02 — validator must alert on validation failure (not just silently drop)
 # ---------------------------------------------------------------------------
 
-def test_safe_load_stdin_emits_alert_on_failure(monkeypatch):
-    """Validation failure on stdin must call alerts.write_dedupe with the
-    `hookval:<event>` dedupe tag so silent drops are observable.
-    """
+def test_safe_load_stdin_stays_silent_on_malformed_json(monkeypatch):
+    """Malformed JSON is transient hook runtime noise, not user-actionable."""
     captured = {}
 
     class _MockAlerts:
@@ -155,9 +159,7 @@ def test_safe_load_stdin_emits_alert_on_failure(monkeypatch):
     monkeypatch.setattr(sys, "stdin", io.StringIO("{not json"))
     out = hv.safe_load_stdin("UserPromptSubmit")
     assert out is None
-    assert captured.get("severity") == "info"
-    assert captured.get("dedupe_tag") == "hookval:UserPromptSubmit"
-    assert captured.get("source") == "UserPromptSubmit"
+    assert captured == {}
 
 
 def test_safe_load_stdin_emits_alert_on_validation_error(monkeypatch):

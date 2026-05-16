@@ -42,6 +42,16 @@
           "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
         }
       },
+      "aliases": {
+        "type": "array",
+        "description": "Alternative names that should map to this skill",
+        "items": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[^\\u0000-\\u001f\\u007f]+$"
+        }
+      },
       "cost_tier": {
         "type": "string",
         "description": "Estimated token cost tier for invoking this skill",
@@ -61,6 +71,10 @@
         "type": "array",
         "description": "List of skill names this entry supersedes",
         "items": { "type": "string" }
+      },
+      "replaced_by": {
+        "type": "string",
+        "description": "Skill name that supersedes this deprecated entry"
       },
       "last_used": {
         "oneOf": [

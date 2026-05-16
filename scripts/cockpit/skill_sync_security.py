@@ -398,6 +398,23 @@ _PI002_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+_FENCED_CODE_BLOCK = re.compile(r"```[\s\S]*?```")
+_INLINE_CODE_SPAN = re.compile(r"`[^`\n]+`")
+
+
+def _mask_markdown_code(text: str) -> str:
+    """Replace markdown code spans/blocks with spaces, preserving offsets.
+
+    PI001/PI002 should catch active prompt-injection directives in skill prose,
+    but examples inside markdown code are documentation. Preserving length keeps
+    line-number/excerpt calculations stable for unmasked findings.
+    """
+    def _spaces(m: re.Match[str]) -> str:
+        return " " * (m.end() - m.start())
+
+    masked = _FENCED_CODE_BLOCK.sub(_spaces, text)
+    return _INLINE_CODE_SPAN.sub(_spaces, masked)
+
 # PI003 — Zero-width / RTL override / homoglyph attacks
 _PI003_CHARS = ("​", "‌", "‍", "⁠", "﻿", "‮")
 
@@ -511,8 +528,9 @@ def _line_no(text: str, idx: int) -> int:
 
 def _scan_pi001(text: str) -> list[SecurityFinding]:
     found: list[SecurityFinding] = []
+    masked = _mask_markdown_code(text)
     for rx in _PI001_PATTERNS:
-        for m in rx.finditer(text):
+        for m in rx.finditer(masked):
             found.append(SecurityFinding(
                 rule_id="PI001",
                 severity=SEV_CRITICAL,
@@ -525,7 +543,8 @@ def _scan_pi001(text: str) -> list[SecurityFinding]:
 
 def _scan_pi002(text: str) -> list[SecurityFinding]:
     found: list[SecurityFinding] = []
-    for m in _PI002_PATTERN.finditer(text):
+    masked = _mask_markdown_code(text)
+    for m in _PI002_PATTERN.finditer(masked):
         found.append(SecurityFinding(
             rule_id="PI002",
             severity=SEV_HIGH,
@@ -581,7 +600,12 @@ def _scan_pi005(fm: dict[str, Any] | None, fm_text: str) -> list[SecurityFinding
     # `name` is a pure identifier — many legitimate skills are named
     # "powershell-X" / "bash-Y" which would trip the shell-verb regex.
     # `tools`/`allowed-tools` are tool-name lists; PI009 audits those.
-    _PI005_SKIP_KEYS = {"name", "tools", "allowed-tools", "allowed_tools"}
+    # `tags`/`triggers`/`aliases`/`routing_hint` are routing metadata where
+    # shell names such as PowerShell or Bash are intent keywords, not commands.
+    _PI005_SKIP_KEYS = {
+        "name", "tools", "allowed-tools", "allowed_tools",
+        "tags", "triggers", "aliases", "routing_hint",
+    }
 
     def walk(node: Any, path: str = "", top_key: str | None = None) -> None:
         if isinstance(node, dict):
