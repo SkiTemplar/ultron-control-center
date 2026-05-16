@@ -40,6 +40,78 @@ pub struct GapsReport {
     pub gaps: Vec<DetectedGap>,
 }
 
+/// Spawn wt.exe in a new window running either the uninstaller or
+/// `npm run tauri build`. The Control Center keeps running; the spawned
+/// terminal shows progress / asks for confirmation. Fire-and-forget —
+/// we do not wait for completion.
+pub fn run_app_lifecycle_inner(kind: String) -> Result<(), String> {
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let ultron = home.join(".ultron");
+    let (cwd, ps_script): (PathBuf, String) = match kind.as_str() {
+        "uninstall" => {
+            let script = ultron.join("uninstall.ps1");
+            if !script.is_file() {
+                return Err(format!("uninstall.ps1 missing: {}", script.display()));
+            }
+            // Run the script with Bypass policy, keep the window open at end
+            // so the user can read the final summary before closing.
+            let cmd = format!(
+                "& '{}'; Write-Host ''; Write-Host 'Press any key to close'; [void][System.Console]::ReadKey($true)",
+                script.display()
+            );
+            (ultron.clone(), cmd)
+        }
+        "update" => {
+            let cc = ultron.join("control-center");
+            if !cc.is_dir() {
+                return Err(format!("control-center/ missing: {}", cc.display()));
+            }
+            let cmd = "npm run tauri build; Write-Host ''; Write-Host 'Build finished. Press any key to close'; [void][System.Console]::ReadKey($true)".to_string();
+            (cc, cmd)
+        }
+        other => return Err(format!("unknown lifecycle kind: {}", other)),
+    };
+
+    // Resolve wt.exe — Windows Terminal. Fall back to plain powershell.exe
+    // if wt is not on PATH (shouldn't happen on Win11 but Win10 LTSC etc.).
+    let use_wt = std::process::Command::new("where")
+        .arg("wt.exe")
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+
+    let mut command = if use_wt {
+        let mut c = std::process::Command::new("wt.exe");
+        c.arg("new-tab")
+            .arg("--startingDirectory")
+            .arg(&cwd)
+            .arg("powershell.exe")
+            .arg("-NoProfile")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-NoExit")
+            .arg("-Command")
+            .arg(&ps_script);
+        c
+    } else {
+        let mut c = std::process::Command::new("powershell.exe");
+        c.current_dir(&cwd)
+            .arg("-NoProfile")
+            .arg("-ExecutionPolicy")
+            .arg("Bypass")
+            .arg("-NoExit")
+            .arg("-Command")
+            .arg(&ps_script);
+        c
+    };
+
+    // Detach so the Control Center thread doesn't wait on the new window.
+    command
+        .spawn()
+        .map_err(|e| format!("spawn lifecycle window: {}", e))?;
+    Ok(())
+}
+
 pub fn run_detect_gaps_inner() -> Result<GapsReport, String> {
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let script = home

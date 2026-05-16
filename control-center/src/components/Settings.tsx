@@ -996,7 +996,7 @@ function DiskBackupStatus() {
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
 // top-level tab now. Kept the union without it so stale state references
 // surface as compile errors.
-type Section = "general" | "auth" | "mode" | "ai-router" | "raw" | "backups";
+type Section = "general" | "auth" | "mode" | "ai-router" | "raw" | "backups" | "lifecycle";
 
 // ---------------------------------------------------------------------------
 // AI Router section — pick which provider runs which zone of the UI.
@@ -2370,6 +2370,7 @@ export function Settings() {
           // v15.2 F7: "MCPs" sub-tab removed — moved to top-level MCPs tab.
           { id: "raw" as Section, label: "Editor" },
           { id: "backups" as Section, label: "Backups" },
+          { id: "lifecycle" as Section, label: "App lifecycle" },
         ].map((t) => (
           <button
             key={t.id}
@@ -2491,6 +2492,163 @@ export function Settings() {
             )}
           </div>
         )}
+
+        {section === "lifecycle" && <LifecyclePanel />}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// LifecyclePanel — Uninstall + Update buttons. Both spawn wt.exe in a new
+// window so the user sees the script's output live and can confirm or
+// abort. The Control Center keeps running in the meantime; the update
+// path produces a new binary alongside the current one, which the user
+// can run after closing this instance.
+// ---------------------------------------------------------------------------
+
+function LifecyclePanel() {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
+
+  async function run(kind: "uninstall" | "update") {
+    setBusy(kind);
+    setError(null);
+    setStatus(null);
+    try {
+      await invoke("run_app_lifecycle", { kind });
+      setStatus(
+        kind === "uninstall"
+          ? "Uninstaller opened in a new terminal. Follow the prompts there."
+          : "Update opened in a new terminal. Rebuild takes ~3-5 minutes the first time.",
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-[13px] font-semibold">App lifecycle</h3>
+        <p
+          className="mt-1 text-[12px]"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          One-shot actions for the Control Center binary itself. Both open a
+          new terminal window so you can watch the script run; the app
+          keeps working in the meantime.
+        </p>
+      </div>
+
+      {status && (
+        <div
+          className="rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.06)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {status}
+        </div>
+      )}
+      {error && (
+        <div
+          className="rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      <div
+        className="rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border-strong)",
+        }}
+      >
+        <div className="flex items-baseline justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold">Update</div>
+            <p
+              className="mt-1 text-[11.5px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              Rebuild the Control Center from the latest source in this
+              repo. Runs <code style={{ fontFamily: "var(--font-mono)" }}>
+              npm run tauri build</code> in <code style={{ fontFamily: "var(--font-mono)" }}>
+              control-center/</code>. The current window keeps running;
+              relaunch after the new binary appears in
+              <code style={{ fontFamily: "var(--font-mono)" }}> src-tauri/target/release/bundle/</code>.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void run("update")}
+            disabled={busy !== null}
+            className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {busy === "update" ? "Opening…" : "Rebuild"}
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid rgba(248, 81, 73, 0.28)",
+        }}
+      >
+        <div className="flex items-baseline justify-between gap-4">
+          <div className="min-w-0">
+            <div
+              className="text-[13px] font-semibold"
+              style={{ color: "var(--color-danger)" }}
+            >
+              Uninstall
+            </div>
+            <p
+              className="mt-1 text-[11.5px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              Open the uninstaller in a new terminal. Removes
+              <code style={{ fontFamily: "var(--font-mono)" }}> ~/.ultron/</code>,
+              autostart entry, ULTRON scheduled tasks, Start Menu shortcuts,
+              and hook entries that point at ~/.ultron in
+              <code style={{ fontFamily: "var(--font-mono)" }}> ~/.claude/settings.json</code>.
+              Your Claude Code skills in
+              <code style={{ fontFamily: "var(--font-mono)" }}> ~/.claude/skills/</code> are preserved.
+              The terminal asks for confirmation before doing anything destructive.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void run("uninstall")}
+            disabled={busy !== null}
+            className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-danger)",
+              border: "1px solid rgba(248, 81, 73, 0.32)",
+            }}
+          >
+            {busy === "uninstall" ? "Opening…" : "Uninstall…"}
+          </button>
+        </div>
       </div>
     </div>
   );
