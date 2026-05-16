@@ -116,3 +116,59 @@ v*-s*.png
 v*-demo*.png
 v*-waiting*.png
 v*-layerstack.png
+
+# === v15.2.1 PUBLIC TRIM (2026-05-16) — keep personal flavor local ===
+# Personal knowledge / study notes
+knowledge/
+
+# Internal roadmap / plans / decisions
+plans/
+roadmap/
+GENESIS-RELEASE.md
+
+# Personal projects (keep template only)
+projects/*
+!projects/templates/
+!projects/templates/**
+
+# Cockpit personal/operational state
+cockpit/standup/
+cockpit/trending/
+cockpit/last-run/
+cockpit/changelog.ndjson
+cockpit/changelog_table.md
+cockpit/cleanup-report-*.md
+cockpit/deadlines.json
+cockpit/DASHBOARD.md
+cockpit/ide-mappings.json
+cockpit/schedule-config.json
+cockpit/skill_graph.json
+cockpit/tui/
+
+# Skill state caches (rebuildable, personal inventory)
+skill_manifest.json
+skill-provenance.json
+skills.manifest.yaml
+skills-registry.json
+
+# Internal release-process docs
+docs/personas-release-decision.md
+docs/RELEASE-CHECKLIST-v*.md
+docs/REPO-SPLIT-PLAN.md
+docs/version-touchpoints.md
+
+# Internal instructions (personal flavor)
+instructions/
+
+# Personal telemetry baselines
+metrics/
+
+# Personal IDE workspace
+*.code-workspace
+
+# Legacy
+_legacy/
+
+# Config with personal references
+config/constitution.json
+config/skill-trust.yaml

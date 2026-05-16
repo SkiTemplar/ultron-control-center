@@ -559,8 +559,39 @@ function Initialize-BrainIndex {
 # ----------------------------------------------------------------------
 # Step 10: control-center build (delegated to scripts/install.ps1)
 # ----------------------------------------------------------------------
+# Sync Python venv via uv. Runs ALWAYS (even with -NoApp) because the
+# hooks under ~/.claude/settings.json depend on ~/.ultron/.venv/Scripts/python.exe.
+# If we only ran this from Build-ControlCenter, -NoApp users would end up
+# with hooks pointing at a missing interpreter and every Claude session
+# would fail silently.
+function Initialize-PythonVenv {
+    Write-Step "8b. python venv (uv sync — required for hooks)"
+    if (-not (Get-Command "uv" -ErrorAction SilentlyContinue)) {
+        Write-Warn2 "uv not on PATH; cannot create venv. Hooks will fail."
+        return
+    }
+    $pyproject = Join-Path $Script:RepoRoot "pyproject.toml"
+    if (-not (Test-Path -LiteralPath $pyproject)) {
+        Write-Skip "pyproject.toml missing; skipping uv sync"
+        return
+    }
+    try {
+        Push-Location $Script:RepoRoot
+        & uv sync 2>&1 | ForEach-Object { Write-V $_ }
+        if ($LASTEXITCODE -eq 0) {
+            Write-OK "venv ready at .venv"
+        } else {
+            Write-Warn2 "uv sync exited $LASTEXITCODE — hooks may not fire"
+        }
+    } catch {
+        Write-Warn2 ("uv sync failed: " + $_.Exception.Message)
+    } finally {
+        Pop-Location
+    }
+}
+
 function Build-ControlCenter {
-    Write-Step "10. control-center (uv sync + npm install)"
+    Write-Step "10. control-center (npm install + optional Tauri build)"
     if ($NoApp) { Write-Skip "skipped via -NoApp"; return }
 
     $inner = Join-Path $Script:RepoRoot "scripts\install.ps1"
@@ -569,14 +600,14 @@ function Build-ControlCenter {
         return
     }
     try {
-        # Delegate to the inner installer for uv sync + npm install.
-        # We pass -NonInteractive because the feature prompts are handled
-        # here in this orchestrator already.
-        $args = @("-NonInteractive")
-        if ($Script:VerboseOn) { $args += "-Verbose" }
-        & $inner @args
+        # Delegate to the inner installer for npm install (uv sync already
+        # ran in Initialize-PythonVenv). Variable renamed to avoid shadowing
+        # the PowerShell automatic $args under Set-StrictMode.
+        $innerArgs = @("-NonInteractive")
+        if ($Script:VerboseOn) { $innerArgs += "-Verbose" }
+        & $inner @innerArgs
         if ($LASTEXITCODE -eq 0) {
-            Write-OK "uv sync + npm install completed"
+            Write-OK "npm install completed"
         } else {
             Write-Warn2 "inner installer exited $LASTEXITCODE"
         }
@@ -679,6 +710,7 @@ try {
     $dockerOk = Test-Docker
     Initialize-Qdrant -DockerOK:$dockerOk
     New-DirectoryLayout
+    Initialize-PythonVenv
     Update-ClaudeSettings
     Install-Skills
     Initialize-BrainIndex

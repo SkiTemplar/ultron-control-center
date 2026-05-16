@@ -233,11 +233,22 @@ pub async fn generate_news_session_inner(
 /// Run news_html_generator.py via uv. We invoke with --no-open so the
 /// generator doesn't try to open the file in a browser — the UI handles
 /// presentation. Optional `theme` flows through as --theme.
+///
+/// v15.2.1 (2026-05-16): redirect to the session+clipboard path. The
+/// headless `gemini -p ...` subprocess hangs when OAuth cached token has
+/// expired because the device-flow re-auth needs a TTY that Tauri does
+/// not provide. The session path opens wt.exe interactively, refreshing
+/// OAuth in-place. Costs the user one Ctrl+V; gains: it actually works.
 pub async fn generate_news_inner(
     app: &tauri::AppHandle,
     theme: Option<String>,
     days: Option<u32>,
 ) -> Result<NewsGenerateResult, String> {
+    return generate_news_session_inner(app, theme, days).await;
+    // Headless body retained below (unreachable) for reference until the
+    // next pass when we decide whether to drop it entirely.
+    #[allow(unreachable_code)]
+    {
     use tauri_plugin_shell::ShellExt;
     let script: PathBuf = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
@@ -298,6 +309,7 @@ pub async fn generate_news_inner(
         stderr,
         exit_code: output.status.code(),
     })
+    } // end unreachable block
 }
 
 /// Build a concise AI summary of a newsletter HTML. We strip the HTML

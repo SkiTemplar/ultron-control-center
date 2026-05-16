@@ -110,7 +110,7 @@ skills:
     source: claude://skills/tolkien
     core: false
     personal: true
-    description: "Creative writing skill for USER's novel. Skip unless you want a writer persona."
+    description: "Creative writing persona. Skip unless you want a long-form writer assistant."
 
   - name: novalbos
     source: claude://skills/novalbos
@@ -141,9 +141,3 @@ skills:
     core: false
     personal: true
     description: "Comprehensive Unreal Engine assistant."
-
-  - name: tolkien
-    source: claude://skills/tolkien
-    core: false
-    personal: true
-    description: "Book-writing persona."

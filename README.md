@@ -168,6 +168,19 @@ Security issues should be reported privately per [SECURITY.md](SECURITY.md). Beh
 
 ---
 
+## Origin and attribution
+
+ULTRON was originally created by **USER SURNAME** in 2026.
+
+The project is open source under MIT (see [LICENSE](LICENSE)). Forks and
+modifications are welcome — contributors who substantially extend the work
+may add themselves to [AUTHORS.md](AUTHORS.md). Per MIT terms, any copy or
+derivative work must retain the original copyright notice naming USER
+SURNAME as the originator of ULTRON. The name "ULTRON" identifies the
+original project; derivative projects are encouraged to pick a distinct name
+unless they intend to upstream their changes. Full attribution policy in
+[NOTICE](NOTICE).
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
