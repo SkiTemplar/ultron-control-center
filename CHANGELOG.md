@@ -1,5 +1,14 @@
 # Changelog
 
+<!-- v15.3.5 -->
+## v15.3.5 — 2026-05-16
+
+- fix(v15.3.5): version drift sweep â€” SSOT sync + Doctor probe + auto-fix + agent catalog reality + Task matcher
+- chore: refresh changelog (auto)
+
+_Auto-generated from 27ed24e5 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.3.4 -->
 ## v15.3.4 — 2026-05-16
 
