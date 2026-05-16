@@ -76,6 +76,12 @@ $forkSession  = [bool]$cfg.forkSession
 # can declare the contract and so any future regression that re-introduces
 # inline-prompt paths must explicitly skip the pasteOnly branch.
 $pasteOnly    = [bool]$cfg.pasteOnly
+# respectClipboard: caller has already seeded the clipboard (e.g. news.rs ran
+# `news_html_generator.py --clipboard` which placed the *long* prompt there).
+# When $true, we MUST NOT call Set-Clipboard — otherwise we overwrite the
+# real prompt with the short `prompt` field (which is only a banner hint).
+# Backwards-compatible: missing field → $false (legacy behaviour).
+$respectClipboard = [bool]$cfg.respectClipboard
 
 # v15.1.4+: ULTRON spawns terminals for internal flows (news, skill edit, MCP
 # create, diagnose, codex-fallback) where the user already authorized the
@@ -197,7 +203,13 @@ $resumeActive = ($provider -eq "claude") -and ($continueLast -or $resumeId)
 #   slower for the user by one Ctrl+V but it ALWAYS works, regardless of
 #   prompt length, newlines, or special chars. Saner default.
 $clipboardSeeded = $false
-if ($promptText -and $promptText.Trim().Length -gt 0 -and -not $resumeActive) {
+if ($respectClipboard) {
+    # Caller already primed the clipboard with the real prompt. The
+    # `$promptText` we received is a short banner hint, NOT what we want
+    # the user to paste. Skip Set-Clipboard entirely.
+    $clipboardSeeded = $true
+    [Console]::Error.WriteLine("[spawn-claude-session] respectClipboard=true, skipping Set-Clipboard")
+} elseif ($promptText -and $promptText.Trim().Length -gt 0 -and -not $resumeActive) {
     try {
         Set-Clipboard -Value $promptText
         $clipboardSeeded = $true
@@ -210,7 +222,12 @@ if ($promptText -and $promptText.Trim().Length -gt 0 -and -not $resumeActive) {
 # wt.exe tab tells the user to paste. PowerShell evaluates the echo before
 # starting Claude, so it shows up at the top of the terminal.
 if ($clipboardSeeded) {
-    if ($pasteOnly) {
+    if ($respectClipboard -and $promptText -and $promptText.Trim().Length -gt 0) {
+        # Use the caller's `prompt` field as the literal banner — news.rs
+        # passes a short hint there ("El prompt está en el portapapeles,
+        # guarda el HTML en ~/.ultron/cockpit/news/newsletter-...html").
+        $msg = $promptText
+    } elseif ($pasteOnly) {
         # Stronger wording when the caller explicitly asked for paste-only:
         # the user is choosing whether to send, not just how to send.
         $msg = "Prompt copiado al portapapeles. Pega con Ctrl+V, revisa/edita si quieres, y pulsa Enter para enviar."

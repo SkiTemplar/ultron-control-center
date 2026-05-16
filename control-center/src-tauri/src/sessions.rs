@@ -286,6 +286,12 @@ pub async fn spawn_session_inner(
         "continueLast": flags.continue_last,
         "forkSession": flags.fork_session,
         "pasteOnly": flags.paste_only,
+        // F10 fix (v15.2.1): forward respect_clipboard so the PS1 script can
+        // skip Set-Clipboard. Callers that prime the clipboard themselves
+        // (news.rs after `news_html_generator.py --clipboard`) MUST set this
+        // — otherwise the spawn script overwrites the real prompt with the
+        // short `seed` banner and the user pastes garbage into Gemini.
+        "respectClipboard": flags.respect_clipboard,
     })
     .to_string();
     let payload = base64_encode(&payload_json);

@@ -49,8 +49,13 @@ function Get-TaskRow {
     $nextRun = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 1) {
         $info.NextRunTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     } else { '' }
-    $catchUp = $false
-    if ($Task.Settings) { $catchUp = [bool]$Task.Settings.StartWhenAvailable }
+    # NOTE: do NOT name this $catchUp — it would collide with the script-level
+    # [string]$CatchUp param (PowerShell variable names are case-insensitive),
+    # forcing the [bool] back to the param's declared [string] type. The result
+    # would be "True"/"False" instead of true/false in the emitted JSON, which
+    # Rust serde rejects as `invalid type: string "True", expected a boolean`.
+    $catchUpBool = $false
+    if ($Task.Settings -and $Task.Settings.StartWhenAvailable) { $catchUpBool = $true }
     [PSCustomObject]@{
         name        = $Task.TaskName
         state       = $Task.State.ToString()
@@ -58,7 +63,7 @@ function Get-TaskRow {
         next_run    = $nextRun
         last_result = $info.LastTaskResult
         description = $Task.Description
-        catch_up    = $catchUp
+        catch_up    = $catchUpBool
     }
 }
 
@@ -167,8 +172,9 @@ switch ($Action) {
             # Event log unavailable (e.g. permission denied) — ignore.
         }
 
-        $catchUp = $false
-        if ($task.Settings) { $catchUp = [bool]$task.Settings.StartWhenAvailable }
+        # See Get-TaskRow note: avoid $catchUp (collides with [string]$CatchUp param).
+        $catchUpBool = $false
+        if ($task.Settings -and $task.Settings.StartWhenAvailable) { $catchUpBool = $true }
 
         @{
             name             = $task.TaskName
@@ -185,7 +191,7 @@ switch ($Action) {
             triggers         = $triggers
             actions          = $actions
             history          = $history
-            catch_up         = $catchUp
+            catch_up         = $catchUpBool
         } | ConvertTo-Json -Depth 6 -Compress
     }
 
@@ -258,16 +264,18 @@ switch ($Action) {
             }
 
             # Re-read final settings.StartWhenAvailable so the UI can confirm.
+            # Use a non-$catchUp* name to avoid the [string]$CatchUp param collision
+            # that would coerce the bool back to a quoted "True"/"False" string in JSON.
             $after = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
-            $catchUpAfter = $false
-            if ($after -and $after.Settings) { $catchUpAfter = [bool]$after.Settings.StartWhenAvailable }
+            $catchUpBoolAfter = $false
+            if ($after -and $after.Settings -and $after.Settings.StartWhenAvailable) { $catchUpBoolAfter = $true }
 
             @{
                 ok            = $true
                 name          = $Name
                 trigger_type  = $NewTriggerType
                 trigger_at    = if ($NewTriggerAt) { $NewTriggerAt } else { '' }
-                catch_up      = $catchUpAfter
+                catch_up      = $catchUpBoolAfter
             } | ConvertTo-Json -Compress
         } catch {
             @{
