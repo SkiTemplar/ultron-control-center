@@ -83,7 +83,7 @@ function Write-Banner {
     Write-Host ""
     Write-Host "======================================================="
     Write-Host (" ULTRON installer " + $Script:Version)
-    Write-Host " https://github.com/anonuser/ultron"
+    Write-Host " https://github.com/SkiTemplar/ultron"
     Write-Host "======================================================="
     Write-Host ""
 }

@@ -95,7 +95,7 @@ banner() {
     printf '\n'
     printf '=======================================================\n'
     printf ' ULTRON installer %s\n' "$v"
-    printf ' https://github.com/anonuser/ultron\n'
+    printf ' https://github.com/SkiTemplar/ultron\n'
     printf '=======================================================\n\n'
 }
 

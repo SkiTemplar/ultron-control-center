@@ -158,7 +158,7 @@ def _section_USER() -> str:
         "## USER\n\n"
         "Grado Ing. Programación + PROGRAM_A Gráfica · UNIVERSITY · Europe/Madrid · "
         "Stack C++ (UE5) · C# (Unity) · TS · Python. "
-        "Email user@example.com."
+        "Email <your-email>."
     )
 
 

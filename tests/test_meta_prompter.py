@@ -119,7 +119,7 @@ class TestPhase2FeedbackHook:
         )
         m = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(m)
-        out = m.pii_filter("contact user@example.com today")
+        out = m.pii_filter("contact example.user@example.com today")
         assert "<email>" in out
         assert "@gmail.com" not in out
 
