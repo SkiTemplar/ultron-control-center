@@ -82,21 +82,21 @@ type Particle = {
   fixed: boolean; // user-pinned via drag
 };
 
-// World is 2.4x larger than before (was 1000) so nodes have room to spread
-// instead of being crammed into a "square edge" near the center. Gravity
-// drops drastically so the equilibrium is naturally diffuse; zoom-out
-// now reveals the full sprawl rather than a compact island in empty space.
-const VIEW = 2400;
+// v15.2.13 pass: world doubled to 5000 (was 2400), gravity halved to 0.002,
+// border clamp moved from 20px to 200px margin so nodes can breathe, repulsion
+// boosted to 1100 and spring rest to 220 so even with weaker gravity the
+// network stays connected. Node radius up to 16 so they stay visible at zoom 0.1.
+const VIEW = 5000;
 const CENTER = VIEW / 2;
-const NODE_RADIUS_BASE = 14; // bigger so nodes stay visible when zoomed far out
-const REPULSION = 700; // stronger to keep the larger world feeling lively
-const SPRING_K = 0.04; // edge spring stiffness (unchanged)
-const SPRING_REST = 150; // longer rest length matches the bigger world
-const GRAVITY = 0.005; // VERY soft — lets the cluster fill the canvas
-const DAMPING = 0.6; // velocity retention per frame
-const COLLIDE_RADIUS = 22; // grew with NODE_RADIUS_BASE so overlap stays sane
+const NODE_RADIUS_BASE = 16;
+const REPULSION = 1100; // pushes nodes apart to fill the bigger world
+const SPRING_K = 0.04;
+const SPRING_REST = 220; // edges longer so the graph spreads out
+const GRAVITY = 0.002; // barely-there pull to center; lets things drift
+const DAMPING = 0.6;
+const COLLIDE_RADIUS = 26;
 const COLLIDE_STRENGTH = 0.5;
-const PRE_FRAMES = 500; // larger world needs more frames to settle pre-mount
+const PRE_FRAMES = 700; // bigger world needs more frames to settle pre-mount
 const MAX_RENDER_NODES = 200; // cap client-side; backend may still send more
 const ALPHA_DECAY = 0.985; // multiplicative cooling on per-step force scale
 const ALPHA_MIN = 0.01; // below this we freeze physics (alpha=0)
@@ -195,9 +195,9 @@ function step(
     p.y += vy + p.ay;
     // Box clamp so nodes don't fly off the SVG.
     if (p.x < 20) p.x = 20;
-    if (p.x > VIEW - 20) p.x = VIEW - 20;
+    if (p.x > VIEW - 200) p.x = VIEW - 200;
     if (p.y < 20) p.y = 20;
-    if (p.y > VIEW - 20) p.y = VIEW - 20;
+    if (p.y > VIEW - 200) p.y = VIEW - 200;
   }
 }
 
@@ -207,8 +207,8 @@ function initParticles(nodes: GraphNode[]): Particle[] {
   return nodes.map((n) => {
     let seed = 0;
     for (let i = 0; i < n.id.length; i++) seed = (seed * 31 + n.id.charCodeAt(i)) >>> 0;
-    const rx = ((seed & 0xffff) / 0xffff) * (VIEW - 200) + 100;
-    const ry = (((seed >>> 16) & 0xffff) / 0xffff) * (VIEW - 200) + 100;
+    const rx = ((seed & 0xffff) / 0xffff) * (VIEW - 2000) + 100;
+    const ry = (((seed >>> 16) & 0xffff) / 0xffff) * (VIEW - 2000) + 100;
     return { id: n.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };
   });
 }
