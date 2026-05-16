@@ -8,10 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 - Plans `archived` drawer shows zero items even after auto-archive flips
-  status correctly (frontend filter issue).
+  status correctly (frontend filter issue). Resolved plans are still kept
+  on disk (status flipped to `archived`) so nothing is lost — only the
+  drawer visualization is broken.
 - Auto-updater wiring (`tauri-plugin-updater` is in Cargo.toml but not yet
   invoked from `lib.rs` — tracked as `si-p1-b-auto-updater`).
-- Light theme toggle (current build is OLED-black hardcoded).
 - macOS / Linux ports (Windows-only at v15.2).
 - Cross-session BUS, supervisor daemon, DAG scheduler, overnight loop and
   mobile companion are deferred to v15.3.
