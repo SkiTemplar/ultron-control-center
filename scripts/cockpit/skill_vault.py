@@ -205,10 +205,44 @@ def _routing_usage() -> dict[str, int]:
                 ln = ln.strip()
                 if not ln:
                     continue
-                e = json.loads(ln)
+                try:
+                    e = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
                 if e.get("tool") == "Skill" and e.get("target"):
                     counts[e["target"]] = counts.get(e["target"], 0) + 1
-        except (OSError, json.JSONDecodeError):
+        except OSError:
+            continue
+    return counts
+
+
+def _routing_usage_agents() -> dict[str, int]:
+    """Agrega ~/.ultron/sessions/*/routing.jsonl -> {agent_name: n_invocaciones}.
+
+    Parallel a `_routing_usage()` pero cuenta `tool == "Task"` (subagent invocations
+    del tool canónico actual de Claude Code). `tool == "Agent"` queda como legacy
+    y se maneja en `agent_telemetry.py` si se necesita backfill explícito.
+    """
+    counts: dict[str, int] = {}
+    sdir = HOME / ".ultron" / "sessions"
+    if not sdir.exists():
+        return counts
+    for day in sdir.iterdir():
+        rj = day / "routing.jsonl"
+        if not rj.exists():
+            continue
+        try:
+            for ln in rj.read_text(encoding="utf-8").splitlines():
+                ln = ln.strip()
+                if not ln:
+                    continue
+                try:
+                    e = json.loads(ln)
+                except json.JSONDecodeError:
+                    continue
+                if e.get("tool") == "Task" and e.get("target"):
+                    counts[e["target"]] = counts.get(e["target"], 0) + 1
+        except OSError:
             continue
     return counts
 
