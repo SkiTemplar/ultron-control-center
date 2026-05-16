@@ -126,11 +126,11 @@ class TestFormatReminder:
     def test_format_reminder_skill_only_no_vault_hits(self, home):
         """Reminder must render even when vault returned 0 hits but skill matched."""
         m = _load_module(home)
-        skill = {"name": "alfred", "score": 0.55, "kind": "local",
+        skill = {"name": "windows-admin", "score": 0.55, "kind": "local",
                  "tier": "L1", "description": "Windows admin", "tags": []}
         out = m._format_reminder("limpia procesos", [], skill_match=skill)
         assert "no relevant notes" in out
-        assert "alfred" in out
+        assert "windows-admin" in out
 
 
 # ── Kill switch via env ───────────────────────────────────────────────────────

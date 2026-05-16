@@ -35,21 +35,23 @@ CACHE_DIR = Path.home() / ".ultron" / "skill_cache"
 # ── Tier A personas requiring constitution + digest ────────────────────────────
 TIER_A = {
     "ultron", "skill-creator", "consolidate-memory", "repo-evaluator",
-    "terry-davis", "mike-tyson", "don-claudio", "pana", "alfred",
+    "terry-davis", "mike-tyson", "gamedev-engineer", "personal-assistant", "windows-admin",
+    # backwards-compat aliases
+    "don-claudio", "pana", "alfred",
 }
 
 # ── Hardcoded trigger phrases per skill ───────────────────────────────────────
 _TRIGGERS: dict[str, list[str]] = {
     "ultron":               ["modo", "high", "ultra", "low", "dual", "triple", "orchestrator"],
     "terry-davis":          [".cpp", ".py", ".ts", "bug", "fix", "refactor", "commit", "deploy", "código"],
-    "don-claudio":          ["UE5", "Unreal", "Unity", "Blueprint", "GAS", "netcode", "game dev", "shader"],
+    "gamedev-engineer":     ["UE5", "Unreal", "Unity", "Blueprint", "GAS", "netcode", "game dev", "shader"],
     "mike-tyson":           ["UI", "UX", "diseño", "layout", "color", "wireframe", "interfaz visual"],
     "jordan-belfort":       ["monetizar", "pricing", "pitch", "ventas", "GTM", "modelo de negocio"],
     "warren":               ["bolsa", "inversión", "cartera", "ETF", "acciones", "dividendos", "macro"],
     "einstein":             ["investiga", "explica", "paper", "ciencia", "por qué", "teoría"],
     "novalbos":             ["C++", "shader", "GPU", "OpenGL", "Vulkan", "SIMD", "compilador", "bajo nivel"],
-    "pana":                 ["email", "agenda", "Notion", "Spotify", "briefing", "organización"],
-    "alfred":               ["proceso", "PowerShell", "driver", "carpeta", "Windows", "sistema"],
+    "personal-assistant":   ["email", "agenda", "Notion", "Spotify", "briefing", "organización"],
+    "windows-admin":        ["proceso", "PowerShell", "driver", "carpeta", "Windows", "sistema"],
     "tio-gilito":           ["gasto", "ahorro", "KutxaBank", "presupuesto", "banco", "saldo"],
     "manolo-lama":          ["fútbol", "partido", "Champions", "Liga", "gol", "deportes"],
     "tolkien":              ["capítulo", "escena", "personaje", "plot", "narrativa", "libro"],
@@ -110,7 +112,7 @@ _MEMORY_POLICY_TEXT: dict[str, str] = {
 # ── Expensive dependencies per skill ─────────────────────────────────────────
 _EXPENSIVE_DEPS: dict[str, list[str]] = {
     "terry-davis":          ["superpowers (TDD/debug)", "second-opinion (L4 if Codex)"],
-    "don-claudio":          ["terry-davis (C++ impl)", "ue5-dev (external)", "unreal-engine"],
+    "gamedev-engineer":     ["terry-davis (C++ impl)", "ue5-dev (external)", "unreal-engine"],
     "mike-tyson":           ["frontend-design (impl)", "webapp-testing (Playwright)"],
     "repo-evaluator":       ["differential-review", "sharp-edges", "insecure-defaults"],
     "audit-context-building": ["brain_index (FTS5)", "Gemini long context (L4)"],

@@ -128,7 +128,7 @@ pub struct NewsGenerateResult {
 }
 
 /// Build the news-generation prompt + open a Gemini 3.1 session in wt.exe
-/// with the prompt preloaded. USER's preferred flow: no headless Gemini
+/// with the prompt preloaded. Preferred flow: no headless Gemini
 /// API call (the API mode kept failing), instead the script runs in
 /// `--clipboard` mode (copies the full prompt to clipboard) and we spawn
 /// an interactive Gemini wt.exe tab. The user pastes once and asks
@@ -218,7 +218,7 @@ pub async fn generate_news_inner(
         return Err(format!("script missing: {}", script.display()));
     }
     let script_str = script.to_string_lossy().to_string();
-    // USER wants Gemini 3.1 hard-pinned for the newsletter quality. We
+    // Gemini 3.1 is hard-pinned for the newsletter quality. We
     // always pass --model even if the script's DEFAULT_MODEL already matches
     // so the choice is visible in the audit trail.
     let mut args: Vec<String> = vec![

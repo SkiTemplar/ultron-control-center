@@ -26,9 +26,11 @@ ULTRON_DIR = Path(__file__).parent.parent
 BENCHMARK_FILE = ULTRON_DIR / "references" / "persona-benchmarks.md"
 
 KNOWN_PERSONAS = {
-    "terry-davis", "don-claudio", "mike-tyson", "jordan-belfort", "einstein",
-    "novalbos", "pana", "alfred", "profesor-fisica", "tio-gilito", "warren",
+    "terry-davis", "gamedev-engineer", "mike-tyson", "jordan-belfort", "einstein",
+    "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "warren",
     "repo-evaluator", "manolo-lama", "tolkien",
+    # backwards-compat aliases for deprecated stubs
+    "don-claudio", "pana", "alfred",
 }
 
 KNOWN_MODES = {"LOW", "MEDIUM", "HIGH", "ULTRA"}

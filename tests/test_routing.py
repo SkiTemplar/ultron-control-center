@@ -62,9 +62,9 @@ class TestLayer1ClearSignals:
         assert top_skill(r) == "terry-davis", f"got {top_skill(r)}"
 
     def test_T02_gas_ue5(self):
-        """T-02: Game Ability System UE5 → don-claudio."""
+        """T-02: Game Ability System UE5 → gamedev-engineer."""
         r = dispatch("cómo funciona el Game Ability System en UE5")
-        assert top_skill(r) == "don-claudio", f"got {top_skill(r)}"
+        assert top_skill(r) == "gamedev-engineer", f"got {top_skill(r)}"
 
     def test_T03_design_layout(self):
         """T-03: layout design → mike-tyson."""
@@ -82,9 +82,9 @@ class TestLayer1ClearSignals:
         assert top_skill(r) == "einstein", f"got {top_skill(r)}"
 
     def test_T06_calendar_reminder(self):
-        """T-06: Google Calendar → pana."""
+        """T-06: Google Calendar → personal-assistant."""
         r = dispatch("ponme un recordatorio en Google Calendar para mañana")
-        assert top_skill(r) == "pana", f"got {top_skill(r)}"
+        assert top_skill(r) == "personal-assistant", f"got {top_skill(r)}"
 
     def test_T07_kutxabank_spending(self):
         """T-07: KutxaBank spending → tio-gilito."""
@@ -108,17 +108,17 @@ class TestLayer1ClearSignals:
 @pytest.mark.tiebreak
 class TestTiebreaks:
     def test_T10_ue5_over_bug(self):
-        """T-10: UE5 Blueprint bug → don-claudio (UE5 beats generic bug)."""
+        """T-10: UE5 Blueprint bug → gamedev-engineer (UE5 beats generic bug)."""
         r = dispatch("tengo un bug en mi Blueprint de UE5")
-        assert top_skill(r) == "don-claudio", f"got {top_skill(r)}"
+        assert top_skill(r) == "gamedev-engineer", f"got {top_skill(r)}"
 
     def test_T11_cpp_ue5_crash(self):
-        """T-11: .cpp + UE5 → don-claudio."""
+        """T-11: .cpp + UE5 → gamedev-engineer."""
         r = dispatch("este .cpp de UE5 tiene un crash en la replicación")
-        assert top_skill(r) == "don-claudio", f"got {top_skill(r)}"
+        assert top_skill(r) == "gamedev-engineer", f"got {top_skill(r)}"
 
     def test_T12_cs_unity_terry(self):
-        """T-12: .cs Unity → terry-davis (not don-claudio)."""
+        """T-12: .cs Unity → terry-davis (not gamedev-engineer)."""
         r = dispatch("este .cs de Unity no compila en Android")
         assert top_skill(r) == "terry-davis", f"got {top_skill(r)}"
 
@@ -127,10 +127,10 @@ class TestTiebreaks:
         r = dispatch("investiga cómo funciona CUDA y los memory coalescing patterns")
         assert top_skill(r) == "novalbos", f"got {top_skill(r)}"
 
-    def test_T14_ue5_shader_don_claudio(self):
-        """T-14: UE5 PBR material shader → don-claudio (not novalbos)."""
+    def test_T14_ue5_shader_gamedev_engineer(self):
+        """T-14: UE5 PBR material shader → gamedev-engineer (not novalbos)."""
         r = dispatch("necesito un shader de material PBR para UE5")
-        assert top_skill(r) == "don-claudio", f"got {top_skill(r)}"
+        assert top_skill(r) == "gamedev-engineer", f"got {top_skill(r)}"
 
     def test_T15_portfolio_typescript(self):
         """T-15: portfolio tracker TypeScript → warren first (then terry)."""
@@ -203,7 +203,7 @@ class TestModeSelection:
         """T-26: simple factual → LOW mode, ≤50 words, 0 cascade."""
 
     def test_T27_high_hard_feature(self):
-        """T-27: hard UE5 multiplayer feature → HIGH mode, don-claudio, Plan Mode."""
+        """T-27: hard UE5 multiplayer feature → HIGH mode, gamedev-engineer, Plan Mode."""
 
     def test_T28_ultra_explicit(self):
         """T-28: /ultra full architecture → ULTRA, THINKING, Plan Mode."""
@@ -221,11 +221,42 @@ class TestConfidenceReporting:
             f"got {top_skill(r)}"
 
     def test_T32_sequential_ue5_research_implement(self):
-        """T-32: research + implement UE5 → routes contain don-claudio or terry-davis."""
+        """T-32: research + implement UE5 → routes contain gamedev-engineer or terry-davis."""
         r = dispatch("investiga los patrones de replicación de UE5 y luego impleméntalos")
         skills = all_skills(r)
-        assert any(s in skills for s in ("don-claudio", "terry-davis", "einstein", "novalbos")), \
+        assert any(s in skills for s in ("gamedev-engineer", "terry-davis", "einstein", "novalbos")), \
             f"unexpected routes: {skills}"
+
+
+# ── Alias resolution (backwards-compat for renamed skills) ─────────────────────
+
+@pytest.mark.routing
+class TestSkillAliasResolution:
+    """Verify SKILL_ALIASES correctly maps deprecated names to new canonical IDs.
+
+    Renames applied 2026-05-16:
+      pana          -> personal-assistant
+      alfred        -> windows-admin
+      don-claudio   -> gamedev-engineer
+    """
+
+    def test_alias_map_resolves_pana(self):
+        from skill_lazy_loader import resolve_skill_alias
+        assert resolve_skill_alias("pana") == "personal-assistant"
+
+    def test_alias_map_resolves_alfred(self):
+        from skill_lazy_loader import resolve_skill_alias
+        assert resolve_skill_alias("alfred") == "windows-admin"
+
+    def test_alias_map_resolves_don_claudio(self):
+        from skill_lazy_loader import resolve_skill_alias
+        assert resolve_skill_alias("don-claudio") == "gamedev-engineer"
+
+    def test_alias_map_passthrough_unknown(self):
+        """Unknown skill names pass through unchanged."""
+        from skill_lazy_loader import resolve_skill_alias
+        assert resolve_skill_alias("terry-davis") == "terry-davis"
+        assert resolve_skill_alias("nonexistent-skill") == "nonexistent-skill"
 
 
 # ── Domain specificity ─────────────────────────────────────────────────────────

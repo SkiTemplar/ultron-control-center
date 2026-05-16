@@ -349,6 +349,13 @@ export type InlineResult = {
 
 export type SessionProvider = "claude" | "gemini" | "codex";
 
+export type ProjectActionKey =
+  | "open_ide"
+  | "new_claude"
+  | "new_codex"
+  | "open_folder"
+  | "git_status";
+
 export type ProjectInfo = {
   id: string;
   name: string | null;
@@ -359,7 +366,30 @@ export type ProjectInfo = {
   status: string | null;
   last_active: string | null;
   tags: string[];
+  /** Optional per-project actions whitelist. When absent the UI falls
+   * back to DEFAULT_PROJECT_ACTIONS. */
+  actions?: ProjectActionKey[] | null;
 };
+
+/** Default action set when a project entry omits `actions`. Mirrors
+ * the contract used by Projects.tsx and validated server-side. */
+export const DEFAULT_PROJECT_ACTIONS: ProjectActionKey[] = [
+  "open_ide",
+  "new_claude",
+  "open_folder",
+];
+
+export const ALL_PROJECT_ACTIONS: {
+  key: ProjectActionKey;
+  label: string;
+  hint: string;
+}[] = [
+  { key: "open_ide", label: "Open in IDE", hint: "Launch the configured editor" },
+  { key: "new_claude", label: "New Claude session", hint: "wt.exe tab with claude in cwd" },
+  { key: "new_codex", label: "New Codex session", hint: "wt.exe tab with codex in cwd" },
+  { key: "open_folder", label: "Open folder", hint: "Reveal in Explorer" },
+  { key: "git_status", label: "Git status", hint: "wt.exe tab running git status" },
+];
 
 export type ProjectActionResult = {
   success: boolean;

@@ -556,7 +556,7 @@ export function Plans() {
   }
 
   // AI brainstorm: send the goal to Codex, parse the structured response
-  // and bulk-add plans. We use Codex (not Claude) per USER to conserve
+  // and bulk-add plans. We use Codex (not Claude) by default to conserve
   // Claude tokens for interactive sessions.
   // Spawn a Claude session targeted at one of four plan workflows.
   // cwd = ~/.ultron/instructions/plans/ so Claude auto-reads the GUIDE.md

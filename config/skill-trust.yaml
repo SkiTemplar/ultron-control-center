@@ -58,7 +58,8 @@ exceptions:
     approved_by: "USER@local"
     approved_at: "2026-05-07"
 
-  - skill_name: "alfred"
+  - skill_name: "windows-admin"
+    aliases: ["alfred"]
     skill_md_sha1: "dc2d6c1c1eefc889718bb0216b7f747e5acd7af6"
     waived_rules: ["PI005"]
     reason: "PI005 false positive on routing_hint keyword list ('PowerShell, proceso, driver, ...'). The rule sees 'PowerShell' and flags as shell-in-frontmatter; the field is actually intent-dispatcher routing tokens, not executable shell."

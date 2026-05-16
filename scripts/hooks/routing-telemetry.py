@@ -16,7 +16,7 @@ Uso en ~/.claude/settings.json:
       "matcher": "Skill|Agent",
       "hooks": [{
         "type": "command",
-        "command": "python C:/Users/USER/.ultron/scripts/hooks/routing-telemetry.py"
+        "command": "python %USERPROFILE%/.ultron/scripts/hooks/routing-telemetry.py"
       }]
     }]
   }
@@ -29,7 +29,7 @@ Schema de cada entry (una línea JSON):
   "tool": "Skill" | "Agent",
   "target": "<skill-name>" | "<subagent_type>",
   "kind": "persona" | "plugin" | "subagent" | "skill",
-  "cwd": "C:/Users/USER/..."
+  "cwd": "%USERPROFILE%/..."
 }
 """
 import json
@@ -47,9 +47,11 @@ try:
     from personas_ssot import PERSONAS  # frozenset[str], includes legacy aliases
 except ImportError:
     PERSONAS = frozenset({
-        "terry-davis", "don-claudio", "mike-tyson", "jordan-belfort", "einstein",
-        "novalbos", "pana", "alfred", "profesor-fisica", "tio-gilito", "warren",
+        "terry-davis", "gamedev-engineer", "mike-tyson", "jordan-belfort", "einstein",
+        "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "warren",
         "repo-evaluator", "Kirkardo", "kirkardo", "manolo-lama", "tolkien",
+        # backwards-compat aliases for deprecated stubs
+        "don-claudio", "pana", "alfred",
     })
 
 

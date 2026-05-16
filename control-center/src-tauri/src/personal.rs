@@ -2,7 +2,7 @@
 //
 // Stores a free-form profile note at ~/.ultron/personal/profile.md that
 // ULTRON skills can pull as context. Designed to capture writing patterns,
-// preferences, recurring routines — anything USER wants the system to
+// preferences, recurring routines — anything the user wants the system to
 // learn over time without having to re-prompt manually.
 //
 // Backups are kept under .../profile.backups/<ts>.md so we never lose

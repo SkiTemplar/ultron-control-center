@@ -268,7 +268,9 @@
                                   "installer":  "claude",
                                   "installed_at":  "2026-04-19T02:28:09.570376",
                                   "synced":  true,
-                                  "status":  "active",
+                                  "status":  "deprecated",
+                                  "deprecated":  true,
+                                  "replaced_by":  "windows-admin",
                                   "checksum":  "sha256:885b28c2b145f6da",
                                   "present_in":  [
                                                      "claude",
@@ -287,7 +289,56 @@
                                                      ],
                                   "route_edges":  [
                                                       {
-                                                          "to":  "pana",
+                                                          "to":  "personal-assistant",
+                                                          "strength":  "secondary",
+                                                          "reason":  "personal org escalation",
+                                                          "mode_min":  "LOW",
+                                                          "memory_levels":  [
+                                                                                "L0",
+                                                                                "L1"
+                                                                            ]
+                                                      },
+                                                      {
+                                                          "to":  "git-cleanup",
+                                                          "strength":  "secondary",
+                                                          "reason":  "local branch/worktree cleanup",
+                                                          "mode_min":  "MEDIUM",
+                                                          "memory_levels":  [
+                                                                                "L0",
+                                                                                "L1"
+                                                                            ]
+                                                      }
+                                                  ],
+                                  "last_seen":  "2026-05-04T09:07:21.717110",
+                                  "last_synced":  null,
+                                  "unsynced_reason":  null
+                              },
+                   "windows-admin":  {
+                                  "type":  "skill",
+                                  "installer":  "claude",
+                                  "installed_at":  "2026-04-19T02:28:09.570376",
+                                  "synced":  true,
+                                  "status":  "active",
+                                  "aliases":  ["alfred"],
+                                  "checksum":  "sha256:885b28c2b145f6da",
+                                  "present_in":  [
+                                                     "claude",
+                                                     "codex",
+                                                     "agents"
+                                                 ],
+                                  "category":  "persona",
+                                  "authority":  "sub-orchestrator",
+                                  "mode_cap":  "MEDIUM",
+                                  "read_policy":  "snippet-first",
+                                  "memory_layer":  "L1",
+                                  "estimated_token_cost":  1000,
+                                  "sync_group":  "personas",
+                                  "persona_routes":  [
+
+                                                     ],
+                                  "route_edges":  [
+                                                      {
+                                                          "to":  "personal-assistant",
                                                           "strength":  "secondary",
                                                           "reason":  "personal org escalation",
                                                           "mode_min":  "LOW",
@@ -3020,7 +3071,81 @@
                                        "installer":  "claude",
                                        "installed_at":  "2026-04-30T15:55:43.428304",
                                        "synced":  true,
+                                       "status":  "deprecated",
+                                       "deprecated":  true,
+                                       "replaced_by":  "gamedev-engineer",
+                                       "checksum":  "sha256:99591ae0b7dd10cf",
+                                       "present_in":  [
+                                                          "claude",
+                                                          "codex",
+                                                          "agents"
+                                                      ],
+                                       "category":  "persona",
+                                       "authority":  "sub-orchestrator",
+                                       "mode_cap":  "ULTRA",
+                                       "read_policy":  "full-on-execution",
+                                       "memory_layer":  "L2",
+                                       "estimated_token_cost":  2000,
+                                       "sync_group":  "personas",
+                                       "persona_routes":  [
+
+                                                          ],
+                                       "route_edges":  [
+                                                           {
+                                                               "to":  "terry-davis",
+                                                               "strength":  "primary",
+                                                               "reason":  "C++ impl of game systems",
+                                                               "mode_min":  "MEDIUM",
+                                                               "memory_levels":  [
+                                                                                     "L0",
+                                                                                     "L1",
+                                                                                     "L3-target-files-only"
+                                                                                 ]
+                                                           },
+                                                           {
+                                                               "to":  "ue5-dev",
+                                                               "strength":  "primary",
+                                                               "reason":  "UE5-specific external guidance",
+                                                               "mode_min":  "MEDIUM",
+                                                               "memory_levels":  [
+                                                                                     "L0",
+                                                                                     "L1"
+                                                                                 ]
+                                                           },
+                                                           {
+                                                               "to":  "unreal-engine",
+                                                               "strength":  "secondary",
+                                                               "reason":  "underdocumented UE C++ APIs",
+                                                               "mode_min":  "HIGH",
+                                                               "memory_levels":  [
+                                                                                     "L0",
+                                                                                     "L1",
+                                                                                     "L2"
+                                                                                 ]
+                                                           },
+                                                           {
+                                                               "to":  "performance-profiler",
+                                                               "strength":  "secondary",
+                                                               "reason":  "frame budget/GPU profiling",
+                                                               "mode_min":  "HIGH",
+                                                               "memory_levels":  [
+                                                                                     "L0",
+                                                                                     "L1",
+                                                                                     "L2"
+                                                                                 ]
+                                                           }
+                                                       ],
+                                       "last_seen":  "2026-05-04T09:07:21.781083",
+                                       "last_synced":  null,
+                                       "unsynced_reason":  null
+                                   },
+                   "gamedev-engineer":  {
+                                       "type":  "skill",
+                                       "installer":  "claude",
+                                       "installed_at":  "2026-04-30T15:55:43.428304",
+                                       "synced":  true,
                                        "status":  "active",
+                                       "aliases":  ["don-claudio"],
                                        "checksum":  "sha256:99591ae0b7dd10cf",
                                        "present_in":  [
                                                           "claude",
@@ -6620,7 +6745,9 @@
                                 "installer":  "claude",
                                 "installed_at":  "2026-04-21T22:36:00.054427",
                                 "synced":  true,
-                                "status":  "active",
+                                "status":  "deprecated",
+                                "deprecated":  true,
+                                "replaced_by":  "personal-assistant",
                                 "checksum":  "sha256:efe1dc72be83e3a2",
                                 "present_in":  [
                                                    "claude",
@@ -6639,7 +6766,46 @@
                                                    ],
                                 "route_edges":  [
                                                     {
-                                                        "to":  "alfred",
+                                                        "to":  "windows-admin",
+                                                        "strength":  "primary",
+                                                        "reason":  "OS/file/process operations",
+                                                        "mode_min":  "LOW",
+                                                        "memory_levels":  [
+                                                                              "L0",
+                                                                              "L1"
+                                                                          ]
+                                                    }
+                                                ],
+                                "last_seen":  "2026-05-04T09:07:21.858610",
+                                "last_synced":  null,
+                                "unsynced_reason":  null
+                            },
+                   "personal-assistant":  {
+                                "type":  "skill",
+                                "installer":  "claude",
+                                "installed_at":  "2026-04-21T22:36:00.054427",
+                                "synced":  true,
+                                "status":  "active",
+                                "aliases":  ["pana"],
+                                "checksum":  "sha256:efe1dc72be83e3a2",
+                                "present_in":  [
+                                                   "claude",
+                                                   "codex",
+                                                   "agents"
+                                               ],
+                                "category":  "persona",
+                                "authority":  "sub-orchestrator",
+                                "mode_cap":  "MEDIUM",
+                                "read_policy":  "snippet-first",
+                                "memory_layer":  "L1",
+                                "estimated_token_cost":  1000,
+                                "sync_group":  "personas",
+                                "persona_routes":  [
+
+                                                   ],
+                                "route_edges":  [
+                                                    {
+                                                        "to":  "windows-admin",
                                                         "strength":  "primary",
                                                         "reason":  "OS/file/process operations",
                                                         "mode_min":  "LOW",
@@ -10671,7 +10837,7 @@
                                                                             ]
                                                       },
                                                       {
-                                                          "to":  "don-claudio",
+                                                          "to":  "gamedev-engineer",
                                                           "strength":  "primary",
                                                           "reason":  "game dev / UE5 / Unity",
                                                           "mode_min":  "MEDIUM",
@@ -10766,7 +10932,7 @@
                                                                             ]
                                                       },
                                                       {
-                                                          "to":  "pana",
+                                                          "to":  "personal-assistant",
                                                           "strength":  "primary",
                                                           "reason":  "personal org/schedule",
                                                           "mode_min":  "LOW",
@@ -10776,7 +10942,7 @@
                                                                             ]
                                                       },
                                                       {
-                                                          "to":  "alfred",
+                                                          "to":  "windows-admin",
                                                           "strength":  "primary",
                                                           "reason":  "OS/files/processes/Windows",
                                                           "mode_min":  "LOW",

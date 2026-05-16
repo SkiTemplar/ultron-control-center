@@ -1,10 +1,14 @@
-// ULTRON Control Center — D:\ backup status.
+// ULTRON Control Center — disk-mirror backup status.
 //
-// Reads the mirror destinations under D:\USER\BACKUP\ (set up by
+// Reads the mirror destinations under the configured backup root (set up by
 // scripts/backup/weekly-backup.ps1, scheduled via Task Scheduler
 // `ULTRON-Backup-Weekly`). Returns one entry per top-level subdir with
 // the timestamp of the last modification so the UI can flag stale
 // mirrors without recursively walking gigabytes of files.
+//
+// Backup root resolution order:
+//   1. $ULTRON_BACKUP_ROOT (env override — matches weekly-backup.ps1)
+//   2. %USERPROFILE%\BACKUP (default for fresh installs)
 
 use std::fs;
 use std::path::PathBuf;
@@ -32,7 +36,16 @@ pub struct BackupStatusReport {
 }
 
 fn backup_root() -> PathBuf {
-    PathBuf::from(r"D:\USER\BACKUP")
+    if let Ok(v) = std::env::var("ULTRON_BACKUP_ROOT") {
+        if !v.is_empty() {
+            return PathBuf::from(v);
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        return home.join("BACKUP");
+    }
+    // Last-resort fallback; the caller surfaces "root_exists=false" anyway.
+    PathBuf::from(r"C:\BACKUP")
 }
 
 fn iso_from_systime(t: SystemTime) -> Option<String> {

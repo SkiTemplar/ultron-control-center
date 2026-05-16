@@ -4,13 +4,13 @@
 #
 # Instalación:
 #   1. Asegúrate de que el PAT está en cmdkey:
-#      cmdkey /generic:ULTRON_GITHUB_PAT /user:USER /pass:<PAT>
+#      cmdkey /generic:ULTRON_GITHUB_PAT /user:$env:USERNAME /pass:<PAT>
 #   2. Añade al final de tu $PROFILE:
 #      . "$env:USERPROFILE\.ultron\cockpit\secrets-loader.ps1"
 #   3. Reinicia PowerShell. Verifica con:  $env:GITHUB_TOKEN.Substring(0,8)
 #
 # Uso single-shot (sin tocar $PROFILE):
-#   . C:\Users\USER\.ultron\cockpit\secrets-loader.ps1
+#   . $env:USERPROFILE\.ultron\cockpit\secrets-loader.ps1
 
 # P/Invoke a Win32 CredRead — sin dependencias de módulos externos
 $cmType = [System.Management.Automation.PSTypeName]'Ultron.CredManApi'
@@ -65,7 +65,7 @@ if ($pat) {
     Write-Host "[ultron-secrets] GITHUB_TOKEN cargado desde Credential Manager" -ForegroundColor DarkGreen
 } else {
     Write-Warning "[ultron-secrets] ULTRON_GITHUB_PAT no encontrado en Credential Manager."
-    Write-Warning "  Ejecuta: cmdkey /generic:ULTRON_GITHUB_PAT /user:USER /pass:<PAT>"
+    Write-Warning "  Ejecuta: cmdkey /generic:ULTRON_GITHUB_PAT /user:$env:USERNAME /pass:<PAT>"
 }
 
 # Espacio para futuras credenciales:

@@ -1,6 +1,6 @@
 # ULTRON v14.7 BACKUP-WATCH — weekly robocopy backup (mirror, overwrite)
 #
-# Backs up USER's data sources to D:\USER\BACKUP\<src>\ (NO dated subdir).
+# Backs up the user's data sources to $env:BACKUP_ROOT\<src>\ (NO dated subdir).
 # Each run overwrites the previous mirror via robocopy /MIR — single up-to-date
 # snapshot, no history. Logs are still dated (~/.ultron/logs/backup-<DATE>.log).
 # Reads exclusions from ~/.ultron/config/backup-exclusions.txt (gitignore-style).
@@ -43,7 +43,10 @@ $Sources = @(
     ".claude"
 )
 
-$BackupRoot      = "D:\USER\BACKUP"
+# Backup destination root. Override with $env:ULTRON_BACKUP_ROOT (e.g. set it
+# to "D:\BACKUP" in your environment). Falls back to "$env:USERPROFILE\BACKUP"
+# so the script still works on a fresh box without env-var setup.
+$BackupRoot      = if ($env:ULTRON_BACKUP_ROOT) { $env:ULTRON_BACKUP_ROOT } else { Join-Path $env:USERPROFILE "BACKUP" }
 $ExclusionsFile  = Join-Path $env:USERPROFILE ".ultron\config\backup-exclusions.txt"
 $LogDir          = Join-Path $env:USERPROFILE ".ultron\logs"
 $StatusFile      = Join-Path $env:USERPROFILE ".ultron\.tmp\backup-last-run.json"
@@ -149,8 +152,12 @@ if ($Status) {
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────
 
-if (-not (Test-Path "D:\")) {
-    Write-Error "D: drive not mounted. Aborting backup."
+# Verify the parent drive of $BackupRoot exists (e.g. "D:\" if BackupRoot is
+# "D:\BACKUP"). Skip the check when BackupRoot lives under %USERPROFILE%
+# because the C: drive is always present on Windows.
+$backupDrive = ([System.IO.Path]::GetPathRoot($BackupRoot))
+if ($backupDrive -and -not (Test-Path $backupDrive)) {
+    Write-Error "Backup drive not mounted: $backupDrive. Aborting backup."
     exit 2
 }
 if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Force | Out-Null }

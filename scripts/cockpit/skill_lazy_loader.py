@@ -85,14 +85,31 @@ ON = "on"
 # never count as skill activations.
 BUILTIN_AGENTS = frozenset({"general-purpose", "Explore", "Plan", "Output"})
 
+# Backwards-compat alias map: old skill name → new canonical name. Resolved at
+# routing/normalization boundaries so legacy telemetry, configs and tests still
+# work without breaking the deprecated stubs in ~/.claude/skills/<old>/.
+SKILL_ALIASES = {
+    "pana": "personal-assistant",
+    "alfred": "windows-admin",
+    "don-claudio": "gamedev-engineer",
+}
+
+
+def resolve_skill_alias(name: str) -> str:
+    """Return canonical skill name, mapping deprecated aliases to their replacement."""
+    return SKILL_ALIASES.get(name, name)
+
+
 # ULTRON personas pinned "on" regardless of usage. Source: ~/.ultron/MEMORY.md
 # skill-memory map + L0 context primer. Edit ~/.ultron/config/lazy-loader.yaml
 # `persona_pin` to override.
+# Includes both canonical names AND deprecated aliases so legacy lookups
+# (e.g., older settings.local.json with "alfred") still get pinned.
 ULTRON_PERSONAS = frozenset({
     "ultron",
-    "alfred",
+    "windows-admin",
     "novalbos",
-    "don-claudio",
+    "gamedev-engineer",
     "terry-davis",
     "tio-gilito",
     "mike-tyson",
@@ -100,10 +117,14 @@ ULTRON_PERSONAS = frozenset({
     "einstein",
     "manolo-lama",
     "jordan-belfort",
-    "pana",
+    "personal-assistant",
     "tolkien",
     "repo-evaluator",
     "profesor-fisica",
+    # Deprecated aliases (kept for backwards-compat with stub skills)
+    "alfred",
+    "don-claudio",
+    "pana",
 })
 
 

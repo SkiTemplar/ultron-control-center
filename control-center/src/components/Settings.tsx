@@ -341,7 +341,9 @@ function JsonEditor({
 }
 
 // ---------------------------------------------------------------------------
-// Disk backup status — surfaces D:\USER\BACKUP mirror freshness.
+// Disk backup status — surfaces the configured backup root mirror freshness.
+// The actual root path comes from the backend (ULTRON_BACKUP_ROOT env override
+// or %USERPROFILE%\BACKUP fallback), so the frontend just renders report.root.
 // ---------------------------------------------------------------------------
 
 type BackupEntry = {
@@ -424,7 +426,9 @@ function DiskBackupStatus() {
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
-        <h3 className="text-[13px] font-semibold">Disk mirror (D:\\USER\\BACKUP)</h3>
+        <h3 className="text-[13px] font-semibold">
+          Disk mirror{report?.root ? ` (${report.root})` : ""}
+        </h3>
         <button
           type="button"
           onClick={load}
@@ -466,7 +470,7 @@ function DiskBackupStatus() {
             color: "var(--color-danger)",
           }}
         >
-          Root no encontrado: {report.root}. Disco D: no está montado o nunca
+          Root no encontrado: {report.root}. El disco no está montado o nunca
           se ejecutó el primer backup.
         </div>
       )}

@@ -79,6 +79,15 @@
         "agents",
         "claude",
         "codex"
+      ],
+      "deprecated": true,
+      "replaced_by": "windows-admin"
+    },
+    "windows-admin": {
+      "registries": [
+        "agents",
+        "claude",
+        "codex"
       ]
     },
     "algorand-vulnerability-scanner": {
@@ -710,6 +719,15 @@
       ]
     },
     "don-claudio": {
+      "registries": [
+        "agents",
+        "claude",
+        "codex"
+      ],
+      "deprecated": true,
+      "replaced_by": "gamedev-engineer"
+    },
+    "gamedev-engineer": {
       "registries": [
         "agents",
         "claude",
@@ -1541,6 +1559,15 @@
       ]
     },
     "pana": {
+      "registries": [
+        "agents",
+        "claude",
+        "codex"
+      ],
+      "deprecated": true,
+      "replaced_by": "personal-assistant"
+    },
+    "personal-assistant": {
       "registries": [
         "agents",
         "claude",

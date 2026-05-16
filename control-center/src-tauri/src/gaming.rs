@@ -8,7 +8,7 @@
 //   3. The frontend gets to pick which checked candidates actually die.
 //
 // Heuristic for "known background app": a curated allowlist of process
-// names that USER tends to have running but doesn't need while gaming.
+// names the user tends to have running but doesn't need while gaming.
 // The frontend pre-checks rows whose name matches this list; everything
 // else is shown unchecked so a stray match doesn't kill something useful.
 

@@ -84,7 +84,7 @@ pub async fn run_diagnose_inner(
 /// the first message. We use a session (not run_inline) for two reasons:
 /// (1) Claude inline kept producing empty stdout for prompts of this size
 /// even after the PROMPT_CAP bump — likely the shim swallowing output;
-/// (2) USER wants interactive follow-up ("dime cómo arreglo esto"),
+/// (2) the user wants interactive follow-up ("dime cómo arreglo esto"),
 /// which the inline path doesn't support.
 pub async fn diagnose_with_ai_inner(
     app: &tauri::AppHandle,

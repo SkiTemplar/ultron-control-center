@@ -1,12 +1,12 @@
 academic-deep-research
-alfred
+windows-admin
 citation-management
 code-reviewer
 consolidate-memory
 cpp-pro
 debugger
 docx
-don-claudio
+gamedev-engineer
 einstein
 focused-fix
 frontend-design
@@ -23,7 +23,7 @@ mcp-builder
 mike-tyson
 news-publisher
 novalbos
-pana
+personal-assistant
 pdf
 powershell-5.1-expert
 powershell-7-expert

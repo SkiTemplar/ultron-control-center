@@ -50,8 +50,11 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.uv-cache/
+.uv-cache-rescue/
 *.pyc
 *.pyo
+*.egg-info/
 
 # === Rust / Cargo ===
 target/
@@ -65,10 +68,29 @@ coverage/
 
 # === ULTRON internals (regenerable / re-installable) ===
 .ultron/.tmp/
+.ultron/archive/skill_cache/
+.ultron/archive/v6.x-legacy/
+.ultron/quarantine/
+.ultron/.uv-cache-rescue/
 .claude/plugins/cache/
 .claude/file-history/
 .claude/projects/
 .claude/sessions/
+.claude/session-env/
+.claude/skills/ultron/.venv/
+
+# === UE5 cache & temp extras ===
+Saved/Autosaves/
+Saved/Logs/
+Plugins/.uplugin.cache/
+*.target
+
+# === Generic temp / locks ===
+*.tmp
+*.temp
+*.lock
+*.lck
+*.log
 
 # === IDE / OS noise ===
 .idea/

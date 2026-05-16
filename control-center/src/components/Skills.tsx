@@ -8,6 +8,7 @@ import type {
   SkillUpdateResult,
 } from "../types";
 import { SkillRichView } from "./SkillRichView";
+import { getHomeDir, joinPath } from "../lib/paths";
 
 // Default body when creating a new skill. Keeps the user oriented without
 // overwhelming the textarea.
@@ -288,7 +289,7 @@ function Preview({
         "Lee primero el SKILL.md actual y los archivos hermanos si son relevantes. Propon el cambio como diff antes de escribir. Mantén el frontmatter YAML válido.",
       ].join("\n");
       const skillDir =
-        skill.path ?? `C:\\Users\\USER\\.claude\\skills\\${skill.name}`;
+        skill.path ?? joinPath(await getHomeDir(), ".claude", "skills", skill.name);
       await invoke("spawn_session", {
         provider: "claude",
         prompt: promptText,

@@ -108,12 +108,12 @@ class TestProcessEntriesSkill:
         t1 = t0 + timedelta(seconds=30)
         entries = [
             _make_entry("Skill", "ultron", t0),
-            _make_entry("Skill", "alfred", t1),
+            _make_entry("Skill", "windows-admin", t1),
         ]
-        quality = _seeded_quality("ultron→alfred")
+        quality = _seeded_quality("ultron→windows-admin")
         n = agg.process_entries(entries, quality)
         assert n == 1
-        assert quality["edges"]["ultron→alfred"]["runs"] == 1
+        assert quality["edges"]["ultron→windows-admin"]["runs"] == 1
 
     def test_unseeded_skill_edge_open_world_registered(self):
         """Skill→Skill is now open-world (Auditor 3 fix): unseeded edges register
@@ -134,9 +134,9 @@ class TestProcessEntriesSkill:
         t0 = datetime(2026, 5, 2, 10, 0, 0)
         entries = [
             _make_entry("Skill", "ultron", t0),
-            _make_entry("Skill", "alfred", t0 + timedelta(seconds=700)),
+            _make_entry("Skill", "windows-admin", t0 + timedelta(seconds=700)),
         ]
-        quality = _seeded_quality("ultron→alfred")
+        quality = _seeded_quality("ultron→windows-admin")
         n = agg.process_entries(entries, quality)
         assert n == 0
 
@@ -144,12 +144,12 @@ class TestProcessEntriesSkill:
         t0 = datetime(2026, 5, 2, 10, 0, 0)
         entries = [
             _make_entry("Skill", "ultron", t0),
-            _make_entry("Skill", "alfred", t0 + timedelta(seconds=10)),
-            _make_entry("Skill", "alfred", t0 + timedelta(seconds=20)),
+            _make_entry("Skill", "windows-admin", t0 + timedelta(seconds=10)),
+            _make_entry("Skill", "windows-admin", t0 + timedelta(seconds=20)),
         ]
-        quality = _seeded_quality("ultron→alfred")
+        quality = _seeded_quality("ultron→windows-admin")
         n = agg.process_entries(entries, quality)
-        # ultron→alfred: counted once (first pair); alfred→alfred skipped (same src/dst)
+        # ultron→windows-admin: counted once (first pair); windows-admin→windows-admin skipped (same src/dst)
         assert n == 1
 
 
@@ -206,15 +206,15 @@ class TestProcessEntriesAgent:
         t0 = datetime(2026, 5, 2, 10, 0, 0)
         entries = [
             _make_entry("Skill", "ultron", t0),
-            _make_entry("Skill", "alfred", t0 + timedelta(seconds=10)),
+            _make_entry("Skill", "windows-admin", t0 + timedelta(seconds=10)),
             _make_entry("Agent", "Explore", t0 + timedelta(seconds=20)),
             _make_entry("Agent", "general-purpose", t0 + timedelta(seconds=30)),
         ]
-        quality = _seeded_quality("ultron→alfred")
+        quality = _seeded_quality("ultron→windows-admin")
         n = agg.process_entries(entries, quality)
         assert n == 3
-        assert quality["edges"]["ultron→alfred"]["runs"] == 1
-        assert quality["edges"]["alfred→agent:Explore"]["runs"] == 1
+        assert quality["edges"]["ultron→windows-admin"]["runs"] == 1
+        assert quality["edges"]["windows-admin→agent:Explore"]["runs"] == 1
         assert quality["edges"]["agent:Explore→agent:general-purpose"]["runs"] == 1
 
 
@@ -246,19 +246,19 @@ class TestProcessEntriesCrossTool:
         assert "agent:Explore→ultron" in quality["edges"]
 
     def test_full_handoff_chain(self):
-        """ULTRON delegates to Explore → Explore returns → ULTRON delegates to alfred."""
+        """ULTRON delegates to Explore → Explore returns → ULTRON delegates to windows-admin."""
         t0 = datetime(2026, 5, 2, 10, 0, 0)
         entries = [
             _make_entry("Skill", "ultron",  t0),
             _make_entry("Agent", "Explore", t0 + timedelta(seconds=10)),
             _make_entry("Skill", "ultron",  t0 + timedelta(seconds=30)),
-            _make_entry("Skill", "alfred",  t0 + timedelta(seconds=40)),
+            _make_entry("Skill", "windows-admin",  t0 + timedelta(seconds=40)),
         ]
         quality = {"version": "1.0", "updated": "", "edges": {}}
         n = agg.process_entries(entries, quality)
-        # ultron→agent:Explore, agent:Explore→ultron, ultron→alfred
+        # ultron→agent:Explore, agent:Explore→ultron, ultron→windows-admin
         assert n == 3
-        for k in ("ultron→agent:Explore", "agent:Explore→ultron", "ultron→alfred"):
+        for k in ("ultron→agent:Explore", "agent:Explore→ultron", "ultron→windows-admin"):
             assert k in quality["edges"], f"missing {k}"
 
     def test_parallel_dispatch_collapses(self):

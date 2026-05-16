@@ -20,6 +20,13 @@ pub struct ProjectInfo {
     pub status: Option<String>,
     pub last_active: Option<String>,
     pub tags: Vec<String>,
+    /// Per-project preferred actions for the Projects tab UI. When `None`,
+    /// the frontend renders a default set (open_ide, new_claude, open_folder).
+    /// Known values today: "open_ide", "new_claude", "new_codex",
+    /// "open_folder", "git_status". The list is intentionally loose so new
+    /// actions can ship without a registry migration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -47,6 +54,8 @@ struct RegEntry {
     last_active: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    actions: Option<Vec<String>>,
 }
 
 fn registry_path() -> Option<PathBuf> {
@@ -422,6 +431,68 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
     })
 }
 
+#[derive(Debug, _Deserialize)]
+pub struct UpdateProjectActionsPayload {
+    pub id: String,
+    pub actions: Vec<String>,
+}
+
+/// Persist a per-project actions whitelist to projects.json. Validation
+/// rejects unknown action keys so a typo from the UI cannot poison the
+/// registry; new actions need to be added here on the way in.
+pub fn update_project_actions_inner(
+    p: UpdateProjectActionsPayload,
+) -> Result<UpdateProjectResult, String> {
+    if p.id.trim().is_empty() {
+        return Err("id is empty".to_string());
+    }
+    const ALLOWED: &[&str] = &[
+        "open_ide",
+        "new_claude",
+        "new_codex",
+        "open_folder",
+        "git_status",
+    ];
+    for a in &p.actions {
+        if !ALLOWED.contains(&a.as_str()) {
+            return Err(format!("unknown action '{}'", a));
+        }
+    }
+    let registry = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/cockpit/projects.json");
+    let raw = std::fs::read_to_string(&registry)
+        .map_err(|e| format!("read projects.json: {}", e))?;
+    let mut root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let projects = root
+        .get_mut("projects")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "projects.json has no projects[]".to_string())?;
+    let target = projects.iter_mut().find(|v| {
+        v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone())
+    });
+    let entry = match target {
+        Some(e) => e,
+        None => return Err(format!("project '{}' not found", p.id)),
+    };
+    let arr: Vec<serde_json::Value> = p
+        .actions
+        .iter()
+        .map(|a| serde_json::Value::String(a.clone()))
+        .collect();
+    entry["actions"] = serde_json::Value::Array(arr);
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    let tmp = registry.with_extension("json.tmp");
+    std::fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
+    std::fs::rename(&tmp, &registry).map_err(|e| format!("rename: {}", e))?;
+    Ok(UpdateProjectResult {
+        success: true,
+        id: p.id,
+    })
+}
+
 /// Remove an entry from projects.json by id. Returns success even if the id
 /// didn't exist (idempotent), but with a marker so the UI can show a notice.
 pub fn delete_project_inner(id: String) -> Result<DeleteProjectResult, String> {
@@ -496,6 +567,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             status: p.status,
             last_active: p.last_active,
             tags: p.tags,
+            actions: p.actions,
         });
     }
     // Sort by last_active desc (ISO yyyy-mm-dd compares lexicographically).

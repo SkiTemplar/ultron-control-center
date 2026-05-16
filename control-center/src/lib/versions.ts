@@ -38,7 +38,7 @@ export function extractVersion(entry: ChangelogEntry): VersionId | null {
       const major = m[1];
       const minor = m[2];
       const patch = m[3];
-      // Drop pre-release tag suffix (v15.0b -> v15.0) — USER wants only
+      // Drop pre-release tag suffix (v15.0b -> v15.0) — we want only
       // pure MAJOR.MINOR.PATCH. Also collapse trailing ".0" patch into the
       // bare "X.Y" form (v12.4.0 == v12.4).
       const usePatch = patch && patch !== "0";

@@ -151,11 +151,14 @@ def cmd_list(_args) -> int:
     print(f"Registered apps ({len(apps)}):")
     for name in sorted(apps.keys()):
         a = apps[name]
-        path = a.get("path", "?")
+        raw_path = a.get("path", "?")
+        # Expand env-var templates for the existence check; display the raw
+        # form so the user can see what's actually stored in the registry.
+        resolved = os.path.expandvars(raw_path) if raw_path else raw_path
         label = a.get("label", name)
-        ok = "✓" if Path(path).exists() else "✗"
+        ok = "[ok]" if resolved and Path(resolved).exists() else "[!!]"
         print(f"  {ok} {name:<18}  {label}")
-        print(f"     {path}")
+        print(f"     {raw_path}")
     return 0
 
 
@@ -174,7 +177,10 @@ def cmd_launch(args) -> int:
             print(f"[apps] Try: ultron apps discover  -or-  ultron apps add {name} <path>")
             return 1
     app = apps[name]
-    path = app.get("path")
+    raw_path = app.get("path")
+    # Expand env-var templates so registry entries like
+    # "%LOCALAPPDATA%\\Programs\\Notion\\Notion.exe" resolve on any account.
+    path = os.path.expandvars(raw_path) if raw_path else raw_path
     if not path or not Path(path).exists():
         print(f"[apps] Path missing or stale for {name}: {path}")
         print(f"[apps] Re-discover with: ultron apps discover")

@@ -13,7 +13,7 @@ Why this exists:
       - cockpit_base.py had COCKPIT_DIR, NEWS_DIR, PROJECTS_JSON
       - brain_index.py had its own ULTRON_DIR / "brain_index" / "index.db"
       - audit_index.py had Path.home() / ".ultron" / "cockpit" / "audits"
-      - _categorize_skills.py:458 had a HARDCODED `r"C:/Users/USER/..."` path
+      - _categorize_skills.py:458 had a HARDCODED `r"C:/Users/<name>/..."` path
       - Hooks PS1 used $env:USERPROFILE inline strings
     Different scripts assumed different roots, breaking on test environments
     and producing the multi-shell config drift documented as root cause #5 by

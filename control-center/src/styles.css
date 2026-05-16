@@ -85,3 +85,107 @@ html, body, #root {
   background: var(--color-surface-4);
   color: var(--color-text);
 }
+
+/* ---------------------------------------------------------------------------
+ * Responsive sweep — large-display tiers (v15.1.5)
+ *
+ * The shell layout is a fixed flex (sidebar + main) defined in App.tsx. We
+ * intentionally avoid touching the JSX and instead push fluid behaviour
+ * through CSS overrides on tagged shell elements.
+ *
+ * Tiers:
+ *   ≤1280px   default (legacy small-screen behavior, no overrides)
+ *   1280–1600 mild widening (content max ~1400, sidebar ~260)
+ *   1600–2200 desktop / ultrawide (content max ~1700, sidebar ~300, fs 15px)
+ *   >2200px   4K / QD-OLED (content max ~2000, sidebar ~340, fs 17px)
+ *
+ * `.cc-page` is the per-tab content wrapper — when a tab adopts it (Projects
+ * already does) the page centers within a max-width without forcing a JSX
+ * change in App.tsx. Tabs without `.cc-page` fall back to their existing
+ * fixed paddings.
+ * --------------------------------------------------------------------------*/
+
+.cc-page {
+  width: 100%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/*
+ * Two-class targeting strategy:
+ *
+ * 1. `.cc-page` — explicit opt-in (used by Projects today, can be added
+ *    to other tabs incrementally without JSX risk).
+ *
+ * 2. `main.flex-1 > div.px-10.py-8` / `> div.px-8.py-6` — implicit catch
+ *    for tabs that follow the established "centered content" padding
+ *    convention (Dashboard, Notifications, Changelog, Settings, Usage,
+ *    System, Sessions, Logs, Gaming, MCPs, Plans header).
+ *
+ * Viewport-fill tabs (News, Memory, Skills, Personal, Plans body) use
+ * `flex h-full` as their root and are NOT matched, so their column
+ * layout stays intact. Two-column split for those is delegated to the
+ * `[class*="w-[44%]"]` override below.
+ */
+
+@media (min-width: 1280px) {
+  aside.w-56 {
+    width: 16rem; /* 256px */
+  }
+  main.flex-1 > div.px-10.py-8,
+  main.flex-1 > div.px-8.py-6,
+  .cc-page {
+    margin-left: auto;
+    margin-right: auto;
+    max-width: 1400px;
+  }
+}
+
+@media (min-width: 1600px) {
+  html, body, #root {
+    font-size: 15px;
+  }
+  aside.w-56 {
+    width: 18rem; /* 288px */
+  }
+  main.flex-1 > div.px-10.py-8,
+  main.flex-1 > div.px-8.py-6,
+  .cc-page {
+    max-width: 1700px;
+  }
+  /* On wide screens, relax News' fixed-width left rail to ~50/50. The
+     selector targets the arbitrary-value Tailwind class authored inline
+     (`w-[44%] min-w-[420px]`) — CSS-only side-by-side, no JSX edit. */
+  main.flex-1 [class*="w-[44%]"] {
+    width: 50% !important;
+    min-width: 0 !important;
+  }
+}
+
+@media (min-width: 2200px) {
+  html, body, #root {
+    font-size: 17px;
+    line-height: 1.6;
+  }
+  aside.w-56 {
+    width: 22.5rem; /* 360px */
+  }
+  main.flex-1 > div.px-10.py-8,
+  main.flex-1 > div.px-8.py-6,
+  .cc-page {
+    max-width: 2000px;
+  }
+  /* Slightly relax the Sidebar nav row for breathing room on 4K. */
+  aside.w-56 nav button {
+    padding-top: 0.4rem;
+    padding-bottom: 0.4rem;
+  }
+}
+
+/* Projects action-group wraps to a second line on narrow screens by default;
+   on >1600px screens give it more breathing room with a stronger gap. */
+@media (min-width: 1600px) {
+  .proj-action-group {
+    gap: 0.5rem;
+  }
+}

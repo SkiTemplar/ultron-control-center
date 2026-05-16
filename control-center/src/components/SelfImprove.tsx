@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { ActivityTimeline } from "./ActivityTimeline";
+import { CostWatchdog } from "./CostWatchdog";
 
 // Self-improvement panel — surfaces telemetry the system already collects
 // (routing-telemetry.jsonl, skill usage counts, recent errors) and lets
@@ -54,6 +56,7 @@ export function SelfImprove() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewOutput, setReviewOutput] = useState<string | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
+  const [hookView, setHookView] = useState<"table" | "timeline">("table");
 
   async function load() {
     try {
@@ -93,6 +96,7 @@ export function SelfImprove() {
 
   return (
     <div className="space-y-5">
+      <CostWatchdog />
       <header>
         <h3 className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
           Self-improvement signals
@@ -309,24 +313,61 @@ export function SelfImprove() {
         </div>
       )}
 
-      {data && data.hook_signals && data.hook_signals.length > 0 && (
-        <div>
-          <div
-            className="mb-2 flex items-baseline justify-between"
-          >
+      <div>
+        <div className="mb-2 flex items-baseline justify-between gap-3">
+          <div className="flex items-center gap-2">
             <div
               className="text-[10px] font-medium uppercase tracking-[0.06em]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Hook signals (last 24h)
+              Hook signals
             </div>
+            <div
+              className="flex items-center gap-1 rounded p-0.5"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {(["table", "timeline"] as const).map((v) => {
+                const active = hookView === v;
+                return (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setHookView(v)}
+                    className="rounded px-2 py-[1px] text-[10.5px] font-medium transition-colors"
+                    style={{
+                      background: active
+                        ? "var(--color-surface-3)"
+                        : "transparent",
+                      color: active
+                        ? "var(--color-text)"
+                        : "var(--color-text-tertiary)",
+                      border: active
+                        ? "1px solid var(--color-border-strong)"
+                        : "1px solid transparent",
+                    }}
+                  >
+                    {v === "table" ? "Table view" : "Timeline"}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {hookView === "table" && data && data.hook_signals && (
             <div
               className="text-[10px]"
               style={{ color: "var(--color-text-faint)" }}
             >
               {data.hook_signals.length} most recent
             </div>
-          </div>
+          )}
+        </div>
+
+        {hookView === "timeline" ? (
+          <ActivityTimeline />
+        ) : data && data.hook_signals && data.hook_signals.length > 0 ? (
           <div
             className="overflow-hidden rounded"
             style={{
@@ -406,8 +447,19 @@ export function SelfImprove() {
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        ) : (
+          <div
+            className="rounded px-3 py-4 text-[11px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            No hook signals captured yet.
+          </div>
+        )}
+      </div>
 
       <details
         className="rounded"

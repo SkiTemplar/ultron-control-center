@@ -204,14 +204,42 @@
   - persona
   - persona
   - l1
+  - deprecated
+  cost_tier: medium
+  dispatcher_priority: 3
+  deprecated: true
+  replaces: []
+  replaced_by: windows-admin
+  last_used: null
+  last_synced: '2026-05-16'
+  description: DEPRECATED — renamed to windows-admin. Stub kept for backwards compatibility
+    until v15.3.
+  kind: persona
+  category: persona
+  tier: L1
+- name: windows-admin
+  source: auto-discover
+  triggers:
+  - windows
+  - sysadmin
+  - powershell
+  - registry
+  - process
+  - persona
+  tags:
+  - persona
+  - sysadmin
+  - l1
   cost_tier: medium
   dispatcher_priority: 3
   deprecated: false
-  replaces: []
+  replaces:
+  - alfred
   last_used: null
-  last_synced: '2026-05-12'
-  description: Activa a ALFRED — el mayordomo digital de USER para todo lo relacionado
-    con el sistema operativo, archivos, proces...
+  last_synced: '2026-05-16'
+  description: Windows system administration helper for managing files, folders, processes,
+    services, drivers, the registry, scheduled tasks and software installation on
+    a local PC...
   kind: persona
   category: persona
   tier: L1
@@ -2214,14 +2242,41 @@
   - persona
   - persona
   - l2
+  - deprecated
+  cost_tier: medium
+  dispatcher_priority: 3
+  deprecated: true
+  replaces: []
+  replaced_by: gamedev-engineer
+  last_used: null
+  last_synced: '2026-05-16'
+  description: DEPRECATED — renamed to gamedev-engineer. Stub kept for backwards compatibility
+    until v15.3.
+  kind: persona
+  category: persona
+  tier: L2
+- name: gamedev-engineer
+  source: auto-discover
+  triggers:
+  - game-dev
+  - unreal-engine
+  - unity
+  - multiplayer
+  - gas
+  - netcode
+  - persona
+  tags:
+  - persona
+  - game-dev
+  - l2
   cost_tier: medium
   dispatcher_priority: 3
   deprecated: false
-  replaces: []
+  replaces:
+  - don-claudio
   last_used: null
-  last_synced: '2026-05-12'
-  description: Activa a DON CLAUDIO — el Padrino del Game Development. Activar SIEMPRE
-    cuando USER diga "Don Claudio", "Don", "ac...
+  last_synced: '2026-05-16'
+  description: "Senior game-development engineer for Unreal Engine and Unity projects: gameplay C++, Blueprints, multiplayer replication, netcode, the Gameplay Ability System (GAS)..."
   kind: persona
   category: persona
   tier: L2
@@ -3616,7 +3671,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Activa a JORDAN BELFORT — el estratega de negocio implacable de USER.
     Director de Proyecto, emprendedor serial y m...
   kind: persona
@@ -4661,7 +4716,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Activa a NOVALBOS — el profesor técnico personal de USER. Especialista
     en C++, Programación Gráfica (OpenGL, Vulka...
   kind: persona
@@ -4761,14 +4816,43 @@
   - persona
   - persona
   - l1
+  - deprecated
+  cost_tier: medium
+  dispatcher_priority: 3
+  deprecated: true
+  replaces: []
+  replaced_by: personal-assistant
+  last_used: null
+  last_synced: '2026-05-16'
+  description: DEPRECATED — renamed to personal-assistant. Stub kept for backwards
+    compatibility until v15.3.
+  kind: persona
+  category: persona
+  tier: L1
+- name: personal-assistant
+  source: auto-discover
+  triggers:
+  - personal-assistant
+  - productivity
+  - orchestrator
+  - gmail
+  - calendar
+  - notion
+  - persona
+  tags:
+  - persona
+  - productivity
+  - l1
   cost_tier: medium
   dispatcher_priority: 3
   deprecated: false
-  replaces: []
+  replaces:
+  - pana
   last_used: null
-  last_synced: '2026-05-06'
-  description: Activa el modo PANA v3.1 — el sistema operativo personal de USER
-    al estilo J.A.R.V.I.S. Activar SIEMPRE cuando Rod...
+  last_synced: '2026-05-16'
+  description: Personal productivity orchestrator that coordinates Gmail, Google Calendar,
+    Notion, Google Drive and Playwright web scraping in parallel to deliver daily
+    briefings...
   kind: persona
   category: persona
   tier: L1
@@ -5761,7 +5845,7 @@
   deprecated: true
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Use this agent when you need to build type-safe, production-ready Python
     code for web APIs, system utilities, or comp...
   kind: skill
@@ -6595,7 +6679,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Runs external LLM code reviews (OpenAI Codex or Google Gemini CLI)
     on uncommitted changes, branch diffs, or specific ...
   kind: meta
@@ -7494,7 +7578,7 @@
   deprecated: true
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Use when implementing TypeScript code requiring advanced type system
     patterns, complex generics, type-level programmi...
   kind: skill
@@ -7516,7 +7600,7 @@
   deprecated: true
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Comprehensive Unreal Engine C++ and Blueprint development assistant
     with deep project structure understanding. Use wh...
   kind: meta
@@ -7600,7 +7684,7 @@
   deprecated: true
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: ULTRON v13.4.0 "SILENT + ALERTS" — Orquestador maestro tri-model de
     USER con memoria jerárquica L1/L2/L3 (hot · Ob...
   kind: meta
@@ -8227,7 +8311,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Root-cause debugging methodology via systematic 5-step process
 - name: superpowers:test-driven-development
   source: plugin
@@ -8248,7 +8332,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: TDD workflow with Red-Green-Refactor cycle
 - name: superpowers:requesting-code-review
   source: plugin
@@ -8267,7 +8351,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Code review request workflow
 - name: superpowers:receiving-code-review
   source: plugin
@@ -8284,7 +8368,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Receiving and acting on code review feedback
 - name: superpowers:write-plan
   source: plugin
@@ -8301,7 +8385,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Plan writing workflow
 - name: superpowers:execute-plan
   source: plugin
@@ -8318,7 +8402,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Plan execution workflow
 - name: superpowers:brainstorming
   source: plugin
@@ -8336,7 +8420,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Structured brainstorming
 - name: superpowers:dispatching-parallel-agents
   source: plugin
@@ -8353,7 +8437,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Parallel agent orchestration
 - name: agent-skills:plan
   source: plugin
@@ -8372,7 +8456,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Planning and architecture agent skill
 - name: agent-skills:build
   source: plugin
@@ -8389,7 +8473,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Build/implement agent skill
 - name: agent-skills:review
   source: plugin
@@ -8407,7 +8491,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Review agent skill
 - name: agent-skills:test
   source: plugin
@@ -8424,7 +8508,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Test agent skill
 - name: skill-creator:skill-creator
   source: plugin
@@ -8441,7 +8525,7 @@
   deprecated: false
   replaces: []
   last_used: null
-  last_synced: '2026-05-12'
+  last_synced: '2026-05-16'
   description: Create new Claude Code skills
 - name: hiper-plans
   source: auto-discover

@@ -1,6 +1,6 @@
 {
   "version": "0.2-S4",
-  "generated_ts": "2026-05-12T15:30:42Z",
+  "generated_ts": "2026-05-16T00:30:44Z",
   "source": "skill_manifest sync",
   "skills": [
     {
@@ -21,8 +21,23 @@
         "alfred",
         "persona"
       ],
-      "description": "Activa a ALFRED — el mayordomo digital de USER para todo lo relacionado con el sistema operativo, archivos, proces...",
+      "description": "DEPRECATED stub — renamed to windows-admin.",
+      "deprecated": true,
+      "replaced_by": "windows-admin",
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "windows-admin",
+      "triggers": [
+        "windows-admin",
+        "windows",
+        "alfred",
+        "persona"
+      ],
+      "description": "Windows system administration helper for files, processes, services, drivers, registry, scheduled tasks, software install.",
       "deprecated": false,
+      "aliases": ["alfred"],
       "source": "auto-discover",
       "cost_tier": "medium"
     },
@@ -68,8 +83,25 @@
         "claudio",
         "persona"
       ],
-      "description": "Activa a DON CLAUDIO — el Padrino del Game Development. Activar SIEMPRE cuando USER diga \"Don Claudio\", \"Don\", \"ac...",
+      "description": "DEPRECATED stub — renamed to gamedev-engineer.",
+      "deprecated": true,
+      "replaced_by": "gamedev-engineer",
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "gamedev-engineer",
+      "triggers": [
+        "gamedev-engineer",
+        "gamedev",
+        "ue5",
+        "unity",
+        "don-claudio",
+        "persona"
+      ],
+      "description": "Senior game-development engineer for Unreal Engine and Unity projects: gameplay C++, Blueprints, replication, GAS, ECS/DOTS.",
       "deprecated": false,
+      "aliases": ["don-claudio"],
       "source": "auto-discover",
       "cost_tier": "medium"
     },
@@ -210,8 +242,22 @@
         "pana",
         "persona"
       ],
-      "description": "Activa el modo PANA v3.1 — el sistema operativo personal de USER al estilo J.A.R.V.I.S. Activar SIEMPRE cuando Rod...",
+      "description": "DEPRECATED stub — renamed to personal-assistant.",
+      "deprecated": true,
+      "replaced_by": "personal-assistant",
+      "source": "auto-discover",
+      "cost_tier": "medium"
+    },
+    {
+      "id": "personal-assistant",
+      "triggers": [
+        "personal-assistant",
+        "pana",
+        "persona"
+      ],
+      "description": "Personal productivity orchestrator: Gmail, Google Calendar, Notion, Google Drive, Playwright. Daily briefings, planning, journal.",
       "deprecated": false,
+      "aliases": ["pana"],
       "source": "auto-discover",
       "cost_tier": "medium"
     },

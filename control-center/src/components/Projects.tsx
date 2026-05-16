@@ -1,11 +1,151 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type {
-  CreateProjectResult,
-  ProjectActionResult,
-  ProjectInfo,
+import {
+  ALL_PROJECT_ACTIONS,
+  DEFAULT_PROJECT_ACTIONS,
+  type CreateProjectResult,
+  type ProjectActionKey,
+  type ProjectActionResult,
+  type ProjectInfo,
 } from "../types";
+
+// ---------------------------------------------------------------------------
+// Per-project action runtime
+// ---------------------------------------------------------------------------
+
+/// Map a (frontend) action key to the actual Tauri invocation. The function
+/// resolves cleanly when the command exists, surfaces a typed error when it
+/// doesn't, and returns a flag the UI uses to disable / tooltip the button.
+///
+/// We can't introspect Tauri's invoke_handler at runtime, so we ship a
+/// hard-coded availability table. When a Rust command lands in lib.rs the
+/// matching entry below flips to `available: true`.
+type ActionRuntime = {
+  key: ProjectActionKey;
+  label: string;
+  hint: string;
+  available: boolean;
+  /** Returns true on success, false on error (already reported to the UI). */
+  run: (p: ProjectInfo) => Promise<boolean>;
+};
+
+const NOT_YET_TOOLTIP = "Not yet implemented — will arrive in v15.1.5";
+
+function buildActionRuntime(
+  setLastAction: (r: ProjectActionResult | null) => void,
+  openLegacy: (id: string) => Promise<void>,
+): Record<ProjectActionKey, ActionRuntime> {
+  const wrap = async (
+    label: string,
+    fn: () => Promise<unknown>,
+  ): Promise<boolean> => {
+    try {
+      await fn();
+      return true;
+    } catch (e) {
+      setLastAction({
+        success: false,
+        stdout: "",
+        stderr: `${label}: ${String(e)}`,
+        exit_code: null,
+      });
+      return false;
+    }
+  };
+
+  return {
+    open_ide: {
+      key: "open_ide",
+      label: "Open in IDE",
+      hint: "Launch the configured editor (falls back to open_project)",
+      available: true,
+      run: async (p) => wrap("open_ide", () => openLegacy(p.id)),
+    },
+    new_claude: {
+      key: "new_claude",
+      label: "New Claude session",
+      hint: "wt.exe tab running claude in cwd",
+      available: true,
+      run: async (p) => {
+        if (!p.path) return false;
+        return wrap("new_claude", () =>
+          invoke("spawn_session", {
+            provider: "claude",
+            prompt: null,
+            cwd: p.path,
+            flags: { dangerouslySkipPermissions: false },
+          }),
+        );
+      },
+    },
+    new_codex: {
+      key: "new_codex",
+      label: "New Codex session",
+      hint: "wt.exe tab running codex in cwd",
+      available: true,
+      run: async (p) => {
+        if (!p.path) return false;
+        return wrap("new_codex", () =>
+          invoke("spawn_session", {
+            provider: "codex",
+            prompt: null,
+            cwd: p.path,
+            flags: {},
+          }),
+        );
+      },
+    },
+    open_folder: {
+      key: "open_folder",
+      label: "Open folder",
+      hint: NOT_YET_TOOLTIP,
+      // No dedicated open_folder / reveal_in_explorer command yet. Until
+      // one lands, the button stays disabled with a tooltip explaining why.
+      available: false,
+      run: async () => false,
+    },
+    git_status: {
+      key: "git_status",
+      label: "Git status",
+      hint:
+        "Opens a Claude session prefilled with `git status` (no native git_status command yet)",
+      // We can stand in for git_status by opening a Claude session with a
+      // prebaked prompt — that gives the user a usable terminal without
+      // requiring a brand new Rust command.
+      available: true,
+      run: async (p) => {
+        if (!p.path) return false;
+        return wrap("git_status", () =>
+          invoke("spawn_session", {
+            provider: "claude",
+            prompt: "run `git status` and summarize the working tree",
+            cwd: p.path,
+            flags: {},
+          }),
+        );
+      },
+    },
+  };
+}
+
+function actionsFor(p: ProjectInfo): ProjectActionKey[] {
+  const raw = p.actions;
+  if (!raw || raw.length === 0) return DEFAULT_PROJECT_ACTIONS;
+  // Filter to known keys so a stale registry can't crash the renderer.
+  const allowed = new Set<ProjectActionKey>(
+    ALL_PROJECT_ACTIONS.map((a) => a.key),
+  );
+  const seen = new Set<ProjectActionKey>();
+  const out: ProjectActionKey[] = [];
+  for (const a of raw) {
+    if (allowed.has(a) && !seen.has(a)) {
+      seen.add(a);
+      out.push(a);
+    }
+  }
+  return out.length > 0 ? out : DEFAULT_PROJECT_ACTIONS;
+}
 
 // ---------------------------------------------------------------------------
 // Status styling
@@ -60,8 +200,10 @@ function Row({
   opening,
   onEdit,
   onDelete,
-  onOpenClaude,
   onOpenCombo,
+  actionRuntime,
+  onCustomize,
+  busyAction,
 }: {
   p: ProjectInfo;
   selected: boolean;
@@ -70,9 +212,12 @@ function Row({
   opening: boolean;
   onEdit: () => void;
   onDelete: () => void;
-  onOpenClaude: () => void;
   onOpenCombo: () => void;
+  actionRuntime: Record<ProjectActionKey, ActionRuntime>;
+  onCustomize: () => void;
+  busyAction: ProjectActionKey | null;
 }) {
+  const actions = actionsFor(p);
   const b = statusBadge(p.status);
   return (
     <div
@@ -153,7 +298,7 @@ function Row({
             {p.last_active}
           </span>
         )}
-        <div className="flex gap-1">
+        <div className="proj-action-group flex flex-wrap items-center justify-end gap-1">
           <button
             type="button"
             onClick={onEdit}
@@ -169,6 +314,22 @@ function Row({
           </button>
           <button
             type="button"
+            onClick={onCustomize}
+            className="rounded px-2 py-1 text-[10.5px] transition-colors"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Customize per-project actions"
+          >
+            {/* Plain text "Actions" instead of a gear glyph — repo policy
+                forbids emojis, and the unicode gear renders inconsistently
+                across Windows fonts in our dark theme. */}
+            Actions
+          </button>
+          <button
+            type="button"
             onClick={onDelete}
             className="rounded px-2 py-1 text-[10.5px] transition-colors"
             style={{
@@ -180,20 +341,37 @@ function Row({
           >
             ×
           </button>
-          <button
-            type="button"
-            onClick={onOpenClaude}
-            disabled={!p.path}
-            className="rounded px-2 py-1 text-[10.5px] transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title={p.path ? `Claude session en ${p.path}` : "No path"}
-          >
-            +Claude
-          </button>
+          {/* Per-project action whitelist. Default set (open_ide / new_claude
+              / open_folder) renders when the registry omits `actions`. Each
+              button maps to a Tauri command via `actionRuntime`; unavailable
+              commands render disabled with a deferred-feature tooltip. */}
+          {actions.map((a) => {
+            const rt = actionRuntime[a];
+            const noPath = !p.path && a !== "open_ide";
+            const disabled = !rt.available || noPath || busyAction === a;
+            const tooltip = !rt.available
+              ? NOT_YET_TOOLTIP
+              : noPath
+                ? "No path on file"
+                : rt.hint;
+            return (
+              <button
+                key={a}
+                type="button"
+                onClick={() => rt.run(p)}
+                disabled={disabled}
+                className="rounded px-2 py-1 text-[10.5px] transition-colors disabled:opacity-40"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-secondary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+                title={tooltip}
+              >
+                {rt.label}
+              </button>
+            );
+          })}
           <button
             type="button"
             onClick={onOpenCombo}
@@ -204,7 +382,7 @@ function Row({
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Abre el IDE + lanza una sesión Claude (lo que tu tools toy hace con O+C)"
+            title="Open IDE + new Claude session (legacy O+C)"
           >
             Open+Claude
           </button>
@@ -318,6 +496,18 @@ export function Projects() {
   const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
+  // Customize-actions modal: which project, the working copy of its
+  // actions list, and the save-status. Mirrors the editProject wizard
+  // shape so the keyboard / Esc behaviour stays consistent.
+  const [actionsTarget, setActionsTarget] = useState<ProjectInfo | null>(null);
+  const [actionsDraft, setActionsDraft] = useState<Set<ProjectActionKey>>(
+    new Set(),
+  );
+  const [actionsSaving, setActionsSaving] = useState(false);
+  const [actionsError, setActionsError] = useState<string | null>(null);
+  // Last-clicked action key (for optimistic disable while running).
+  const [_busyAction] = useState<ProjectActionKey | null>(null);
+
   async function load() {
     setLoading(true);
     try {
@@ -362,33 +552,50 @@ export function Projects() {
     }
   }
 
-  // Spawn a Claude session whose cwd is the project's path. Doesn't go
-  // through ultron.ps1 — directly hits sessions::spawn_session so the user
-  // gets a wt.exe tab in the right folder, ready to type.
-  async function openClaude(p: ProjectInfo) {
-    if (!p.path) return;
-    setLastAction(null);
-    try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt: null,
-        cwd: p.path,
-        flags: { dangerouslySkipPermissions: false },
-      });
-    } catch (e) {
-      setLastAction({
-        success: false,
-        stdout: "",
-        stderr: String(e),
-        exit_code: null,
-      });
-    }
-  }
+  // Memoized action runtime — built once so the rendered buttons share
+  // identity across rerenders. Each per-project action key resolves to a
+  // Tauri invocation here.
+  const actionRuntime = useMemo(
+    () => buildActionRuntime(setLastAction, open),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
 
   // Combo: open the IDE (or app, if it's an external project) AND fire a
   // Claude session in parallel. Mirrors the "O+C" hotkey from the toy CLI.
   async function openCombo(p: ProjectInfo) {
-    await Promise.allSettled([open(p.id), openClaude(p)]);
+    await Promise.allSettled([open(p.id), actionRuntime.new_claude.run(p)]);
+  }
+
+  function openActionsModal(p: ProjectInfo) {
+    setActionsTarget(p);
+    setActionsDraft(new Set(actionsFor(p)));
+    setActionsError(null);
+  }
+
+  async function saveActions() {
+    if (!actionsTarget) return;
+    setActionsSaving(true);
+    setActionsError(null);
+    try {
+      const ordered = ALL_PROJECT_ACTIONS.map((a) => a.key).filter((k) =>
+        actionsDraft.has(k),
+      );
+      // The Rust command may not be wired into invoke_handler yet (the
+      // command lives in projects.rs but lib.rs has to register it). If it
+      // isn't, we report a friendly error and keep the modal open so the
+      // user doesn't lose their draft.
+      await invoke("update_project_actions", {
+        id: actionsTarget.id,
+        actions: ordered,
+      });
+      setActionsTarget(null);
+      await load();
+    } catch (e) {
+      setActionsError(String(e));
+    } finally {
+      setActionsSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -604,7 +811,7 @@ export function Projects() {
   }
 
   return (
-    <div className="px-10 py-8">
+    <div className="cc-page projects-page px-10 py-8">
       <header className="mb-5 flex items-baseline justify-between gap-4">
         <div>
           <h1 className="text-[20px] font-semibold leading-tight">Projects</h1>
@@ -1045,14 +1252,137 @@ export function Projects() {
                   opening={opening === p.id}
                   onEdit={() => startEdit(p)}
                   onDelete={() => setPendingDelete(p)}
-                  onOpenClaude={() => openClaude(p)}
                   onOpenCombo={() => openCombo(p)}
+                  actionRuntime={actionRuntime}
+                  onCustomize={() => openActionsModal(p)}
+                  busyAction={_busyAction}
                 />
               ))}
             </div>
           </div>
         ))}
       </div>
+
+      {actionsTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+          onClick={() => !actionsSaving && setActionsTarget(null)}
+        >
+          <div
+            className="w-full max-w-[460px] rounded p-5"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-[14px] font-semibold">
+              Customize actions — {actionsTarget.name ?? actionsTarget.id}
+            </h3>
+            <p
+              className="mt-1 text-[11.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Toggle the action buttons that show up next to this project.
+              Saved to projects.json under <code>actions</code>.
+            </p>
+            <div className="mt-3 space-y-1.5">
+              {ALL_PROJECT_ACTIONS.map((a) => {
+                const checked = actionsDraft.has(a.key);
+                const rt = actionRuntime[a.key];
+                return (
+                  <label
+                    key={a.key}
+                    className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5"
+                    style={{
+                      background: checked
+                        ? "var(--color-surface-3)"
+                        : "transparent",
+                      border: `1px solid ${checked ? "var(--color-border-strong)" : "var(--color-border)"}`,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(e) => {
+                        const next = new Set(actionsDraft);
+                        if (e.target.checked) next.add(a.key);
+                        else next.delete(a.key);
+                        setActionsDraft(next);
+                      }}
+                      className="mt-0.5"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="text-[12.5px]"
+                          style={{ color: "var(--color-text)" }}
+                        >
+                          {a.label}
+                        </span>
+                        {!rt.available && (
+                          <span
+                            className="rounded px-1 py-px text-[9.5px] uppercase tracking-wide"
+                            style={{
+                              background: "var(--color-surface-2)",
+                              color: "var(--color-warn)",
+                              border: "1px solid rgba(210, 153, 34, 0.32)",
+                            }}
+                          >
+                            soon
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className="text-[10.5px]"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                      >
+                        {a.hint}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            {actionsError && (
+              <p
+                className="mt-2 text-[11.5px]"
+                style={{ color: "var(--color-danger)" }}
+              >
+                {actionsError}
+              </p>
+            )}
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setActionsTarget(null)}
+                disabled={actionsSaving}
+                className="rounded px-3 py-1.5 text-[12px]"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={saveActions}
+                disabled={actionsSaving}
+                className="rounded px-3 py-1.5 text-[12px] font-medium"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                {actionsSaving ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {pendingDelete && (
         <div

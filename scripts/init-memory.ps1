@@ -1,7 +1,7 @@
 ﻿# ULTRON Memory System Initializer
 # Uso: powershell -File init-memory.ps1
 
-param([string]$RootPath = "C:\Users\USER\.ultron")
+param([string]$RootPath = "$env:USERPROFILE\.ultron")
 
 Write-Host "ULTRON Memory System — Initializing..." -ForegroundColor Cyan
 
@@ -42,7 +42,7 @@ Sistema ULTRON inicializado el $date. Version: 1.0
 }
 
 @"
-# Patrones de USER
+# Patrones de trabajo
 Ultima actualizacion: $date
 
 ## Patrones de trabajo

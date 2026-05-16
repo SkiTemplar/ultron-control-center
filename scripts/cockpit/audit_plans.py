@@ -83,7 +83,7 @@ def main() -> int:
                 "configura .venv via uv, scaffolds .ultron-vault placeholder); "
                 "(2) skill picker en el installer (descartar skills personales "
                 "USER-specific o renombrar sin nombre de persona); "
-                "(3) sanitizer paths (no hardcoded C:\\Users\\USER), strip "
+                "(3) sanitizer paths (no hardcoded C:\\Users\\<name>), strip "
                 "de secrets/credenciales/auth; (4) repo README + "
                 "docs/architecture; (5) smoke-test post-install (doctor.py + "
                 "brain_index update); (6) bus/mobile/dreams se quedan en "

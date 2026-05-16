@@ -6,6 +6,7 @@ import type {
   MemoryActionResult,
   MemoryStatusInfo,
 } from "../types";
+import { MemoryGraph } from "./MemoryGraph";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -352,6 +353,10 @@ export function Memory() {
   const [recent, setRecent] = useState<RecentNote[]>([]);
   const [recentLoading, setRecentLoading] = useState(true);
 
+  // List vs 2D Map view. Default to "list" so the existing UX is
+  // preserved on first open. The toggle lives next to Refresh.
+  const [viewMode, setViewMode] = useState<"list" | "graph">("list");
+
   async function load() {
     setRefreshing(true);
     try {
@@ -439,6 +444,35 @@ export function Memory() {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {/* List vs 2D Map toggle — same pattern as News.tsx Inline/Summary */}
+            <div className="flex items-center gap-1 rounded p-0.5" style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}>
+              <button
+                type="button"
+                onClick={() => setViewMode("list")}
+                className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors"
+                style={{
+                  background: viewMode === "list" ? "var(--color-surface-3)" : "transparent",
+                  color: viewMode === "list" ? "var(--color-text)" : "var(--color-text-tertiary)",
+                  border: `1px solid ${viewMode === "list" ? "var(--color-border-strong)" : "transparent"}`,
+                }}
+                title="List + search view (default)"
+              >
+                List
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode("graph")}
+                className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors"
+                style={{
+                  background: viewMode === "graph" ? "var(--color-surface-3)" : "transparent",
+                  color: viewMode === "graph" ? "var(--color-text)" : "var(--color-text-tertiary)",
+                  border: `1px solid ${viewMode === "graph" ? "var(--color-border-strong)" : "transparent"}`,
+                }}
+                title="2D scatter-plot projection of the brain index"
+              >
+                2D Map
+              </button>
+            </div>
             <button
               type="button"
               onClick={async () => {
@@ -498,6 +532,11 @@ export function Memory() {
         {data && (
           <StatusRow vault={data.vault} brain={data.brain} qdrant={data.qdrant} />
         )}
+
+        {/* List-mode body (actions + search + recent). Hidden in 2D Map mode
+            so the graph gets full vertical real estate. */}
+        {viewMode === "list" && (
+        <>
 
         {/* Actions */}
         <div className="mt-5">
@@ -700,10 +739,12 @@ export function Memory() {
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
 
-      {/* Results split */}
-      {(results.length > 0 || (searching && !error)) && (
+      {/* Results split — only in list mode and only when a search has rows */}
+      {viewMode === "list" && (results.length > 0 || (searching && !error)) && (
         <div className="flex flex-1 overflow-hidden border-t" style={{ borderColor: "var(--color-border)" }}>
           <div
             className="w-[44%] min-w-[420px] overflow-auto border-r px-3 py-3"
@@ -740,6 +781,16 @@ export function Memory() {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* 2D Map mode — fills the rest of the available height */}
+      {viewMode === "graph" && (
+        <div
+          className="flex flex-1 overflow-hidden border-t"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <MemoryGraph />
         </div>
       )}
     </div>

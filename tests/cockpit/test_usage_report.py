@@ -50,8 +50,8 @@ class TestCollectFromRouteQualityBOM:
         data = {
             "version": "1.0", "updated": "",
             "edges": {
-                "ultron→alfred": {
-                    "from": "ultron", "to": "alfred",
+                "ultron→windows-admin": {
+                    "from": "ultron", "to": "windows-admin",
                     "runs": 3, "successes": 3, "last_used": "2026-05-02T10:00:00",
                 }
             }

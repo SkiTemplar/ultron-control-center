@@ -328,7 +328,7 @@ def _extract_domain(path: Path, layer: str) -> str:
     """Semantic domain for finer-grained routing (W3.1).
 
     L2-vault 10_KNOWLEDGE/<subdir>/ → "cpp-ue5", "opengl", "claude-platform", …
-    L1-skills                       → skill dir name ("don-claudio", "terry-davis", …)
+    L1-skills                       → skill dir name ("gamedev-engineer", "terry-davis", …)
     L1-sessions                     → "session"
     L1-projects                     → "project"
     """
@@ -1094,7 +1094,7 @@ def main() -> int:
     sp.add_argument("query", help="FTS5 query string")
     sp.add_argument("--layer", help="Filter: L1-projects | L1-sessions | L2-vault")
     sp.add_argument("--category", help="Filter: knowledge | decisions | patterns | …")
-    sp.add_argument("--domain", help="Filter: cpp-ue5 | opengl | claude-platform | don-claudio | …")
+    sp.add_argument("--domain", help="Filter: cpp-ue5 | opengl | claude-platform | gamedev-engineer | …")
     sp.add_argument("--top", "--limit", type=int, default=None, dest="top",
                     help="Top-K (default: 8 for --mode notes, 5 for --mode chunks). --limit accepted as alias.")
     sp.add_argument("--mode", choices=["notes", "chunks"], default="notes",

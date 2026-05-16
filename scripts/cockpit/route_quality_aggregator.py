@@ -120,7 +120,7 @@ def read_jsonl(path: Path) -> list[dict]:
 def _node_label(entry: dict) -> str:
     """Convert a routing entry into the canonical node label used in edge keys.
 
-    Skill targets pass through (e.g. "ultron", "alfred").
+    Skill targets pass through (e.g. "ultron", "windows-admin").
     Agent targets get the "agent:" prefix + canonicalization (e.g. "agent:Explore",
     "agent:feature-dev-reviewer"). This namespacing prevents collisions when a
     Skill and Agent share a name (e.g. Skill "code-reviewer" vs Agent

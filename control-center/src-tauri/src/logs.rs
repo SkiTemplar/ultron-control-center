@@ -68,7 +68,7 @@ fn catalog() -> Vec<(&'static str, &'static str, &'static str, &'static str, &'s
             "Backup weekly",
             ".ultron/cockpit/scheduler-logs/backup-weekly.log",
             "text",
-            "Robocopy /MIR output del mirror semanal a D:\\USER\\BACKUP. Aquí ves qué archivos copia y cuáles se saltan.",
+            "Robocopy /MIR output del mirror semanal al backup root (ULTRON_BACKUP_ROOT o ~/BACKUP). Aquí ves qué archivos copia y cuáles se saltan.",
         ),
         (
             "retention",

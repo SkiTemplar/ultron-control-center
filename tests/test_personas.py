@@ -65,16 +65,16 @@ class TestTerryDavisRouting:
 
 
 @pytest.mark.routing
-class TestDonClaudoRouting:
+class TestGamedevEngineerRouting:
     def test_P03_GAS_cooldown(self):
-        """GAS cooldown → don-claudio."""
+        """GAS cooldown → gamedev-engineer."""
         r = dispatch("cómo implemento un cooldown en una ability con GAS sin que rompa la replicación")
-        assert top_skill(r) == "don-claudio", f"got {top_skill(r)}"
+        assert top_skill(r) == "gamedev-engineer", f"got {top_skill(r)}"
 
     def test_P04_projectile_replication(self):
-        """Replication without lag → don-claudio."""
+        """Replication without lag → gamedev-engineer."""
         r = dispatch("quiero spawnear un proyectil que se replique sin lag")
-        assert top_skill(r) == "don-claudio", f"got {top_skill(r)}"
+        assert top_skill(r) == "gamedev-engineer", f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
@@ -144,16 +144,16 @@ class TestTioGilitoRouting:
 
 
 @pytest.mark.routing
-class TestAlfredRouting:
+class TestWindowsAdminRouting:
     def test_P13_ram_query(self):
-        """RAM process query → alfred."""
+        """RAM process query → windows-admin."""
         r = dispatch("qué procesos están comiendo más RAM")
-        assert top_skill(r) == "alfred", f"got {top_skill(r)}"
+        assert top_skill(r) == "windows-admin", f"got {top_skill(r)}"
 
     def test_P13b_powershell(self):
-        """PowerShell / system task → alfred."""
+        """PowerShell / system task → windows-admin."""
         r = dispatch("necesito limpiar los archivos temporales de Windows con PowerShell")
-        assert top_skill(r) == "alfred", f"got {top_skill(r)}"
+        assert top_skill(r) == "windows-admin", f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
@@ -183,16 +183,16 @@ class TestRepoEvaluatorRouting:
 
 
 @pytest.mark.routing
-class TestPanaRouting:
+class TestPersonalAssistantRouting:
     def test_P16_morning_briefing(self):
-        """Morning mode → pana."""
+        """Morning mode → personal-assistant."""
         r = dispatch("modo mañana")
-        assert top_skill(r) == "pana", f"got {top_skill(r)}"
+        assert top_skill(r) == "personal-assistant", f"got {top_skill(r)}"
 
     def test_P16b_gmail(self):
-        """Email check → pana."""
+        """Email check → personal-assistant."""
         r = dispatch("revisa mis emails de hoy en Gmail")
-        assert top_skill(r) == "pana", f"got {top_skill(r)}"
+        assert top_skill(r) == "personal-assistant", f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
@@ -266,7 +266,7 @@ class TestPersonaBehaviorContracts:
         - ❌ "esto debería funcionar" sin verificación
         """
 
-    def test_P03_don_claudio_gas_domain(self):
+    def test_P03_gamedev_engineer_gas_domain(self):
         """
         Input: "cómo implemento un cooldown en una ability con GAS sin que rompa la replicación"
         Expected:
@@ -356,7 +356,7 @@ class TestPersonaBehaviorContracts:
         - ❌ Tono suave o condescendiente
         """
 
-    def test_P13_alfred_butler_protocol(self):
+    def test_P13_windows_admin_butler_protocol(self):
         """
         Input: "qué procesos están comiendo más RAM"
         Expected:

@@ -4,7 +4,7 @@
 param(
     [Parameter(Mandatory=$true)][string]$Name,
     [string]$Type = "PERSONAL",
-    [string]$RootPath = "C:\Users\USER\.ultron"
+    [string]$RootPath = "$env:USERPROFILE\.ultron"
 )
 
 $normalizedName = $Name.ToLower() -replace '\s+', '-' -replace '[^a-z0-9-]', ''
@@ -36,7 +36,7 @@ Tipo: $Type
 sin deadline
 
 ## Rutas Clave
-- Codigo local: C:\Users\USER\
+- Codigo local: %USERPROFILE%\
 - Repositorio:
 
 ## Estado Actual

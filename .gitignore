@@ -68,3 +68,45 @@ qdrant_storage/
 
 # v15.0.3: rotated alerts archive (rebuildable, 1.3MB+)
 alerts.jsonl.archive
+
+# v15.2 PUBLIC RELEASE — personal data must NEVER enter public history
+# User-specific content
+personal/
+cockpit/news/*.html
+cockpit/news/*.md
+cockpit/news/cache/
+
+# Runtime state that contains user paths or IDs (regenerated per-install)
+cockpit/projects.json
+cockpit/bridge-index.json
+cockpit/features.json
+cockpit/apps.json
+cockpit/mcp-audit.jsonl
+cockpit/auto_updater.jsonl
+manifest.cache.json
+agent_manifest.json
+background_tasks.json
+alerts.jsonl
+plans/PLANS.json
+
+# Historical telemetry (may leak personal context)
+archive/
+telemetry/
+
+# Tauri build output
+control-center/dist/
+control-center/src-tauri/target/
+control-center/node_modules/
+
+# Playwright / temp upload scratch
+.playwright-mcp/
+.tmp.driveupload/
+
+# Cover images (not part of release artifacts)
+cover*.png
+v*-cover*.png
+v*-s*.png
+v*-demo*.png
+v*-waiting*.png
+v*-layerstack.png
+

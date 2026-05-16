@@ -951,6 +951,7 @@ class UltronTUI(App):
         Binding("7", "view_autoupdater",   "AutoUpd"),
         Binding("8", "view_changelog",     "Changelog"),
         Binding("9", "view_skills_market", "Skills"),
+        Binding("0", "view_inventory",     "Inventory"),
         # Project actions
         Binding("r", "refresh",        "Refresh"),
         Binding("R", "open_recall",       "Recall", show=True),
@@ -988,6 +989,7 @@ class UltronTUI(App):
                 yield Static(" 7 ↻ AutoUpd",     id="nav-autoupdater",   classes="nav-item")
                 yield Static(" 8 › Changelog",   id="nav-changelog",     classes="nav-item")
                 yield Static(" 9 # Skills",      id="nav-skills-market", classes="nav-item")
+                yield Static(" 0 ⌬ Inventory",   id="nav-inventory",     classes="nav-item")
                 yield Static("")
                 yield Static("[b]PROYECTO[/b]", classes="muted")
                 yield Static("[dim]o[/dim]  Open in IDE")
@@ -1616,9 +1618,11 @@ class UltronTUI(App):
         # ── Categorías canónicas (v12) ───────────────────────────────────────
         LAYER0_META = {"ultron", "skill-creator", "consolidate-memory", "mcp-builder"}
         LAYER1_PERSONAS = {
-            "terry-davis", "don-claudio", "mike-tyson", "jordan-belfort", "einstein",
-            "novalbos", "pana", "alfred", "profesor-fisica", "tio-gilito", "warren",
+            "terry-davis", "gamedev-engineer", "mike-tyson", "jordan-belfort", "einstein",
+            "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "warren",
             "repo-evaluator", "manolo-lama", "tolkien",
+            # backwards-compat aliases (deprecated stubs)
+            "don-claudio", "pana", "alfred",
         }
         LAYER2_CATEGORIES = {
             "Engineering": {"focused-fix", "performance-profiler", "tech-debt-tracker",
@@ -2933,6 +2937,67 @@ class UltronTUI(App):
             "[dim]Tip: 8 (Todo el sistema) consume el soft cap MaxTriple "
             "del día — confirma antes de pulsar.[/dim]",
             classes="muted"))
+
+    def action_view_inventory(self) -> None:
+        self._switch_view_safe("inventory", self._render_inventory)
+
+    def _render_inventory(self) -> None:
+        """Installed apps inventory (registry + winget). Cached 7 days."""
+        content = self._clear_content()
+        content.mount(Static("[b]Installed Apps Inventory[/b]", classes="title"))
+        content.mount(Static("[dim]Windows registry (HKLM 64/32, HKCU) + winget[/dim]",
+                             classes="subtitle"))
+
+        cache_path = Path.home() / ".ultron" / ".tmp" / "inventory.json"
+        refresh = True
+        if cache_path.exists():
+            try:
+                age_s = datetime.now().timestamp() - cache_path.stat().st_mtime
+                if age_s < 7 * 86400:
+                    refresh = False
+            except OSError:
+                pass
+
+        if refresh:
+            content.mount(Static("[#e0a868]Scanning system… (~5-15s)[/#e0a868]"))
+            try:
+                installed_py = Path(__file__).parent / "installed_apps.py"
+                proc = subprocess.run(
+                    [sys.executable, str(installed_py), "--json"],
+                    capture_output=True, text=True, timeout=120,
+                    encoding="utf-8", errors="replace",
+                )
+                if proc.returncode != 0 and not proc.stdout:
+                    content.mount(Static(f"[red]Scan failed:[/red] {proc.stderr[:200]}"))
+                    return
+                cache_path.parent.mkdir(parents=True, exist_ok=True)
+                cache_path.write_text(proc.stdout, encoding="utf-8")
+            except (subprocess.TimeoutExpired, OSError) as e:
+                content.mount(Static(f"[red]Scan error:[/red] {e}"))
+                return
+
+        try:
+            apps = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            content.mount(Static(f"[red]Cache unreadable:[/red] {e}"))
+            return
+
+        age_min = (datetime.now().timestamp() - cache_path.stat().st_mtime) / 60
+        content.mount(Static(
+            f"[dim]Total: {len(apps)} apps · cached {age_min:.0f} min ago · "
+            f"auto-refresh every 7 days · [b]r[/b] forces refresh[/dim]"
+        ))
+        content.mount(Static(""))
+
+        # Markdown table — Rich renders it nicely with auto column widths.
+        rows = ["| Name | Version | Publisher | Source |", "|---|---|---|---|"]
+        for a in apps:
+            n = (a.get("name", "") or "")[:60].replace("|", "\\|")
+            v = (a.get("version", "") or "")[:20].replace("|", "\\|")
+            p = (a.get("publisher", "") or "")[:30].replace("|", "\\|")
+            s = a.get("source", "") or ""
+            rows.append(f"| {n} | {v} | {p} | {s} |")
+        content.mount(Markdown("\n".join(rows)))
 
     def _render_changelog(self) -> None:
         content = self._clear_content()

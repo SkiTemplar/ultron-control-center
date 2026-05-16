@@ -177,6 +177,34 @@ def _get_qdrant():
     return QdrantClient(url=QDRANT_URL)
 
 
+def _qdrant_healthy() -> bool:
+    """Cheap reachability probe — does NOT load qdrant_client (heavy import).
+
+    Returns True if /healthz answers 200 within 2s. We use a raw urllib call
+    instead of qdrant_client so that failing fast doesn't pay the model+client
+    initialization cost.
+    """
+    import urllib.request
+    try:
+        with urllib.request.urlopen(QDRANT_URL.rstrip("/") + "/healthz", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _qdrant_points_count(collection: str) -> int | None:
+    """Return points_count for a collection, or None if unreachable / missing."""
+    import urllib.request, json as _j
+    try:
+        with urllib.request.urlopen(
+            QDRANT_URL.rstrip("/") + f"/collections/{collection}", timeout=2
+        ) as r:
+            data = _j.load(r)
+        return int(data.get("result", {}).get("points_count", 0))
+    except Exception:
+        return None
+
+
 def ensure_collection() -> dict[str, Any]:
     """Create the collection if missing. Idempotent."""
     from qdrant_client.http.models import Distance, VectorParams
@@ -248,18 +276,58 @@ class IndexReport:
     failed: int
     duration_s: float
     full_rebuild: bool
+    qdrant_unreachable: bool = False
+    reconcile_forced: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+# When Qdrant looks vacuous compared to what state believes it has uploaded,
+# treat it as a silent desync (container reset, volume loss, etc.) and force
+# a full rebuild. Threshold is permissive — even a small surviving fraction
+# (e.g. partial recovery) still triggers a re-push, since the cost of a full
+# rebuild is bounded (~17s for 308 files with model cached).
+_DESYNC_STATE_MIN = 10        # only trigger if state claims >= N files
+_DESYNC_RATIO = 0.5            # qdrant < 50% of state → presumed desync
 
 
 def index_vault(*, full_rebuild: bool = False) -> IndexReport:
     import time
     start = time.perf_counter()
 
+    # Pre-flight: bail out cleanly without touching state if Qdrant is down.
+    # The previous behavior (let qdrant_client raise on first call) was OK in
+    # principle, but the heavy `ensure_collection` → `get_collections` import
+    # path tried to talk to Qdrant only AFTER paying client init cost; and
+    # downstream the Stop hook treated the resulting non-zero exit as an
+    # opaque failure rather than a known reachability issue.
+    if not _qdrant_healthy():
+        duration = time.perf_counter() - start
+        return IndexReport(
+            total_files=0, indexed=0, skipped=0, failed=0,
+            duration_s=round(duration, 2),
+            full_rebuild=full_rebuild,
+            qdrant_unreachable=True,
+        )
+
     ensure_collection()
 
     state = {} if full_rebuild else load_state()
+
+    # Self-healing reconcile: if state file thinks Qdrant has been kept in
+    # sync but the collection itself is (near-)empty, the state is lying.
+    # This is exactly the failure mode we hit this morning — Qdrant went
+    # down for days, embed_vault kept "ok"-ing because SHA1s matched a state
+    # that no longer reflected reality. Force a full rebuild this run.
+    reconcile_forced = False
+    if not full_rebuild and len(state) >= _DESYNC_STATE_MIN:
+        pts = _qdrant_points_count(COLLECTION)
+        if pts is not None and pts < len(state) * _DESYNC_RATIO:
+            full_rebuild = True
+            reconcile_forced = True
+            state = {}
+
     new_state: dict[str, dict[str, Any]] = {}
     to_upsert: list[tuple[Path, str, FileFingerprint]] = []
 
@@ -292,6 +360,7 @@ def index_vault(*, full_rebuild: bool = False) -> IndexReport:
         failed=failed,
         duration_s=round(duration, 2),
         full_rebuild=full_rebuild,
+        reconcile_forced=reconcile_forced,
     )
 
 
@@ -330,6 +399,10 @@ def _cmd_init(args: argparse.Namespace) -> int:
 def _cmd_index(args: argparse.Namespace) -> int:
     report = index_vault(full_rebuild=args.full)
     print(json.dumps(report.to_dict(), indent=2))
+    # Exit 2 communicates "Qdrant was unreachable, state is intact, retry later"
+    # to the Stop hook — distinct from generic failure (1) and success (0).
+    if report.qdrant_unreachable:
+        return 2
     return 0
 
 

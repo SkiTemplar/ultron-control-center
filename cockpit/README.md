@@ -46,7 +46,7 @@ El AutoUpdater solo expone 2 botones de clipboard prompt:
 ## Skills Map & Sync (view `f`)
 
 - Layer 0 Meta: ultron, skill-creator, consolidate-memory, mcp-builder
-- Layer 1 Personalidades: 14 specialists (terry-davis, don-claudio, mike-tyson, etc.)
+- Layer 1 Personalidades: 14 specialists (terry-davis, gamedev-engineer, mike-tyson, etc.)
 - Layer 2 Subskills: engineering, security, testing, UI, game, AI platform, workflow
 - Botones: Buscar GitHub, Buscar Gemini, Sincronizar Skills, Actualizar todas, Crear nueva
 

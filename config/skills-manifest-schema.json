@@ -11,7 +11,7 @@
     "properties": {
       "name": {
         "type": "string",
-        "description": "Unique skill identifier (e.g. 'superpowers:systematic-debugging' or 'alfred'). No control chars (Codex S4 M3).",
+        "description": "Unique skill identifier (e.g. 'superpowers:systematic-debugging' or 'windows-admin'). No control chars (Codex S4 M3).",
         "minLength": 1,
         "maxLength": 128,
         "pattern": "^[A-Za-z0-9][A-Za-z0-9_.:\\-]{0,127}$"

@@ -5,19 +5,26 @@
 //   - read_changelog: parse ~/.ultron/cockpit/changelog.ndjson into entries
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
+mod activity_timeline;
 mod ai_router;
 mod auth;
 mod backup_status;
 mod claude_sessions;
+mod codex_fallback;
+mod cost_watchdog;
+mod hotkeys;
+mod inbox;
 mod instructions;
 mod logs;
 mod gaming;
 mod mcps;
 mod memory;
+mod memory_graph;
 mod mode;
 mod news;
 mod personal;
 mod plans;
+mod project_hotkeys;
 mod projects;
 mod self_improve;
 mod sessions;
@@ -25,17 +32,14 @@ mod settings;
 mod skills;
 mod system;
 mod system_diagnose;
+mod tray;
 mod usage;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 
-use tauri::{
-    menu::{Menu, MenuItem},
-    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
-};
+use tauri::{Emitter, Manager};
 use tauri_plugin_autostart::MacosLauncher;
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tauri_plugin_shell::ShellExt;
@@ -48,6 +52,56 @@ fn ultron_root() -> Result<PathBuf, String> {
     dirs::home_dir()
         .map(|h| h.join(".ultron"))
         .ok_or_else(|| "No HOME dir".to_string())
+}
+
+/// Frontend-facing helper: returns the absolute path to the ULTRON root
+/// (`~/.ultron`) as a UTF-8 string. The TS helper `getUltronRoot()` in
+/// `src/lib/paths.ts` invokes this so the frontend never has to hardcode
+/// `C:\Users\<name>\.ultron` to compute child paths.
+#[tauri::command]
+fn ultron_root_str() -> Result<String, String> {
+    Ok(ultron_root()?.to_string_lossy().to_string())
+}
+
+/// Frontend-facing helper: returns the absolute path to the user's home
+/// directory as a UTF-8 string. Used by the TS helper `getHomeDir()` to
+/// compute paths like `~/.claude/skills/<name>` without hardcoding the
+/// Windows user folder.
+#[tauri::command]
+fn home_dir_str() -> Result<String, String> {
+    dirs::home_dir()
+        .map(|h| h.to_string_lossy().to_string())
+        .ok_or_else(|| "No HOME dir".to_string())
+}
+
+#[tauri::command]
+async fn compute_activity_timeline(
+    days: u32,
+) -> Result<activity_timeline::TimelineSummary, String> {
+    activity_timeline::compute_activity_timeline_inner(days)
+}
+
+#[tauri::command]
+async fn compute_cost(window_hours: Option<u32>) -> Result<cost_watchdog::CostSnapshot, String> {
+    cost_watchdog::compute_cost_inner(window_hours.unwrap_or(6))
+}
+
+#[tauri::command]
+async fn append_inbox(text: String) -> Result<(), String> {
+    inbox::append_inbox_inner(&text)
+}
+
+#[tauri::command]
+async fn list_inbox(limit: Option<usize>) -> Result<Vec<inbox::InboxEntry>, String> {
+    inbox::list_inbox_inner(limit.unwrap_or(100))
+}
+
+#[tauri::command]
+async fn update_project_actions(
+    id: String,
+    actions: Vec<String>,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::update_project_actions_inner(projects::UpdateProjectActionsPayload { id, actions })
 }
 
 fn read_jsonl_tail<T>(path: PathBuf, limit: usize) -> Result<Vec<T>, String>
@@ -941,11 +995,16 @@ pub fn run() {
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
-                    // Toggle the main window on press of any registered shortcut.
-                    // We only register one (Ctrl+Alt+U) so this handler is dedicated
-                    // to that — if you add more, branch on `shortcut`.
                     if event.state() == ShortcutState::Pressed {
-                        let _ = shortcut; // future: differentiate shortcuts
+                        if hotkeys::is_inbox_shortcut(shortcut) {
+                            if let Some(w) = app.get_webview_window("main") {
+                                let _ = w.emit("open-inbox", ());
+                            }
+                            return;
+                        }
+                        if project_hotkeys::handle_shortcut(app, shortcut, event.state()) {
+                            return;
+                        }
                         toggle_window(app);
                     }
                 })
@@ -1028,13 +1087,22 @@ pub fn run() {
             set_global_hotkey,
             self_improve_report,
             run_codex_adversarial_review,
-            run_doctor
+            run_doctor,
+            ultron_root_str,
+            home_dir_str,
+            memory_graph::compute_memory_graph,
+            compute_activity_timeline,
+            compute_cost,
+            append_inbox,
+            list_inbox,
+            codex_fallback::build_fallback_context,
+            codex_fallback::build_fallback_prompt,
+            codex_fallback::launch_codex_fallback,
+            project_hotkeys::project_at_slot,
+            update_project_actions
         ])
         .setup(|app| {
-            // Register the persisted global hotkey on startup, falling back
-            // to Ctrl+Alt+U if the config file is missing or unparseable.
-            // If another app owns the binding we log and carry on so the
-            // rest of the app keeps working.
+            // Persisted main toggle hotkey (Ctrl+Alt+U by default).
             let shortcut_handle = app.global_shortcut();
             let spec = load_hotkey_spec();
             let shortcut = parse_hotkey(&spec).unwrap_or_else(|e| {
@@ -1045,41 +1113,20 @@ pub fn run() {
                 eprintln!("[ultron] global shortcut register failed: {}", e);
             }
 
-            let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&open_i, &quit_i])?;
+            // Inbox quick-capture hotkey (Ctrl+Alt+I).
+            if let Err(e) = hotkeys::register_inbox_shortcut(app.handle()) {
+                eprintln!("[ultron] inbox hotkey register failed: {}", e);
+            }
 
-            let _tray = TrayIconBuilder::with_id("main-tray")
-                .tooltip("ULTRON Control Center")
-                .icon(app.default_window_icon().unwrap().clone())
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, event| match event.id.as_ref() {
-                    "open" => toggle_window(app),
-                    "quit" => app.exit(0),
-                    _ => {}
-                })
-                .on_tray_icon_event(|tray, event| {
-                    if let TrayIconEvent::Click {
-                        button: MouseButton::Left,
-                        button_state: MouseButtonState::Up,
-                        ..
-                    } = event
-                    {
-                        toggle_window(tray.app_handle());
-                    }
-                })
-                .build(app)?;
+            // Project slot hotkeys (Ctrl+Alt+1..9).
+            if let Err(e) = project_hotkeys::register_project_hotkeys(app.handle()) {
+                eprintln!("[ultron] project hotkeys init failed: {}", e);
+            }
 
-            // Hide window when user clicks X — keeps app in tray.
-            let main = app.get_webview_window("main").unwrap();
-            let main_clone = main.clone();
-            main.on_window_event(move |event| {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    let _ = main_clone.hide();
-                    api.prevent_close();
-                }
-            });
+            // Tray + close-to-tray.
+            if let Err(e) = tray::init_tray(app.handle()) {
+                eprintln!("[ultron] tray init failed: {}", e);
+            }
 
             Ok(())
         })

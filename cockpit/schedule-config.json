@@ -50,7 +50,7 @@
       "enabled": true,
       "delay_minutes": 35,
       "frequency": "once_per_week_sunday",
-      "description": "v14.7 BACKUP-WATCH: weekly robocopy of CARRERA/PERSONAL/.ultron/.ultron-vault/.claude to D:\\USER\\BACKUP. Skip if D: drive missing or already ran this week."
+      "description": "v14.7 BACKUP-WATCH: weekly robocopy of CARRERA/PERSONAL/.ultron/.ultron-vault/.claude to the configured backup root ($ULTRON_BACKUP_ROOT or %USERPROFILE%\\BACKUP). Skip if drive missing or already ran this week."
     }
   },
 

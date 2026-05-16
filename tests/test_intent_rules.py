@@ -150,27 +150,27 @@ CORPUS: list[tuple[str, str | None, str]] = [
     # tests-create false positives potenciales
     ("crea un endpoint y luego mira los tests del proyecto", "terry-davis", "crea endpoint → terry, gap a tests OK"),
 
-    # ── pana (personal assistant) ─────────────────────────────────────────
-    ("buenos días, dame el briefing de hoy",                "pana",        "morning mode"),
-    ("revisa mis emails de Gmail",                          "pana",        "Gmail explícito"),
-    ("recordatorio en el calendario",                        "pana",        "calendar"),
-    ("modo mañana",                                          "pana",        "trigger directo"),
-    ("qué tengo hoy en la agenda",                           "pana",        "qué tengo hoy"),
-    ("añade un evento en Google Calendar",                   "pana",        "calendar event"),
-    ("revisa la bandeja de entrada",                         "pana",        "bandeja de entrada"),
+    # ── personal-assistant ─────────────────────────────────────────
+    ("buenos días, dame el briefing de hoy",                "personal-assistant",        "morning mode"),
+    ("revisa mis emails de Gmail",                          "personal-assistant",        "Gmail explícito"),
+    ("recordatorio en el calendario",                        "personal-assistant",        "calendar"),
+    ("modo mañana",                                          "personal-assistant",        "trigger directo"),
+    ("qué tengo hoy en la agenda",                           "personal-assistant",        "qué tengo hoy"),
+    ("añade un evento en Google Calendar",                   "personal-assistant",        "calendar event"),
+    ("revisa la bandeja de entrada",                         "personal-assistant",        "bandeja de entrada"),
 
     # ── EXPANSION 2026-05-09: cobertura completa ──────────────────────────
 
-    # ── UE5 / don-claudio extended ────────────────────────────────────────
-    ("tengo un bug en el Blueprint de UE5",                  "don-claudio", "blueprint UE5 bug"),
-    ("cómo replicar un actor en UE5 dedicated server",       "don-claudio", "replication UE5"),
-    ("GAS cooldown ability",                                 "don-claudio", "GAS context"),
-    ("spawnear proyectil que se replique sin lag",            "don-claudio", "spawn replication"),
-    ("post-process material en UE5",                          "don-claudio", "shader UE5"),
-    ("Unreal Engine 5 con C++",                               "don-claudio", "explicit Unreal C++"),
-    ("Blueprint AbilityTask custom",                          "don-claudio", "Blueprint+AbilityTask"),
+    # ── UE5 / gamedev-engineer extended ────────────────────────────────────────
+    ("tengo un bug en el Blueprint de UE5",                  "gamedev-engineer", "blueprint UE5 bug"),
+    ("cómo replicar un actor en UE5 dedicated server",       "gamedev-engineer", "replication UE5"),
+    ("GAS cooldown ability",                                 "gamedev-engineer", "GAS context"),
+    ("spawnear proyectil que se replique sin lag",            "gamedev-engineer", "spawn replication"),
+    ("post-process material en UE5",                          "gamedev-engineer", "shader UE5"),
+    ("Unreal Engine 5 con C++",                               "gamedev-engineer", "explicit Unreal C++"),
+    ("Blueprint AbilityTask custom",                          "gamedev-engineer", "Blueprint+AbilityTask"),
     # UE5 false positives potenciales
-    ("blueprint para diseñar la base de datos",               "don-claudio", "blueprint suelto matchea UE5 (acepted ambiguity)"),
+    ("blueprint para diseñar la base de datos",               "gamedev-engineer", "blueprint suelto matchea UE5 (acepted ambiguity)"),
 
     # ── novalbos / GPU / low-level ────────────────────────────────────────
     ("OpenGL VBO y VAO",                                      "novalbos",    "OpenGL pipeline"),
@@ -192,7 +192,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("desarrolla una server action en Next.js",               "terry-davis", "server action"),
     ("crea una API route",                                    "terry-davis", "api route"),
     # terry-davis tiebreaks
-    ("error en el código UE5",                                "don-claudio", "UE5 beats code-bug"),
+    ("error en el código UE5",                                "gamedev-engineer", "UE5 beats code-bug"),
     ("Unity error en MonoBehaviour Android",                  "terry-davis", "Unity+cs+Android → terry"),
     # terry-davis false positives
     ("error humano en la planificación",                       None,          "error humano no código"),
@@ -278,12 +278,12 @@ CORPUS: list[tuple[str, str | None, str]] = [
     # physics tiebreaks
     ("simular colisiones físicas en Unity",                    "profesor-fisica", "física aún viene primero"),
 
-    # ── alfred (system) ──────────────────────────────────────────────────
-    ("qué procesos están consumiendo más RAM",                "alfred",      "procesos RAM"),
-    ("limpiar archivos temporales",                            "alfred",      "limpiar temp"),
-    ("Windows con PowerShell automation",                      "alfred",      "Windows + PS"),
-    ("registro de Windows HKLM",                               "alfred",      "registro Windows"),
-    # alfred false positives
+    # ── windows-admin (system) ──────────────────────────────────────────────────
+    ("qué procesos están consumiendo más RAM",                "windows-admin",      "procesos RAM"),
+    ("limpiar archivos temporales",                            "windows-admin",      "limpiar temp"),
+    ("Windows con PowerShell automation",                      "windows-admin",      "Windows + PS"),
+    ("registro de Windows HKLM",                               "windows-admin",      "registro Windows"),
+    # windows-admin false positives
     ("registro de auditoría de la app",                        None,          "registro coloquial no Windows"),
 
     # ── investments / warren ─────────────────────────────────────────────
@@ -345,7 +345,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
     # ── EDGE CASES: prompts cortos ───────────────────────────────────────
     ("Gilito",                                                 "tio-gilito",  "1-word trigger"),
     ("CUDA",                                                   "novalbos",    "CUDA solo (nombre propio único)"),
-    ("UE5",                                                    "don-claudio", "UE5 1-word"),
+    ("UE5",                                                    "gamedev-engineer", "UE5 1-word"),
     ("Kirkardo",                                               "ultron",      "Kirkardo 1-word"),
     ("Mike",                                                   None,          "Mike 1-word ambiguo (no es exact 'mike-tyson')"),
 

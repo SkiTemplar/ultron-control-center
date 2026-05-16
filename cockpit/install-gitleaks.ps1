@@ -16,7 +16,7 @@
 
 .EXAMPLE
     pwsh install-gitleaks.ps1
-    pwsh install-gitleaks.ps1 -RepoPath C:\Users\USER\some-other-repo -Force
+    pwsh install-gitleaks.ps1 -RepoPath $env:USERPROFILE\some-other-repo -Force
 #>
 param(
     [string]$RepoPath = "$env:USERPROFILE\.ultron-vault",

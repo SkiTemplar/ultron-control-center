@@ -434,7 +434,8 @@ def _wellknown() -> list[dict]:
             "description": "ULTRON system management",
         },
         {
-            "name": "don-claudio",
+            "name": "gamedev-engineer",
+            "aliases": ["don-claudio"],
             "source": "persona",
             "triggers": ["español", "castellano", "spanish mode", "habla español",
                          "en español"],
@@ -448,9 +449,10 @@ def _wellknown() -> list[dict]:
             "description": "Spanish-language expert assistant",
         },
         {
-            "name": "alfred",
+            "name": "windows-admin",
+            "aliases": ["alfred"],
             "source": "persona",
-            "triggers": ["alfred", "assistant mode", "help me organize", "personal assistant"],
+            "triggers": ["windows-admin", "alfred", "assistant mode", "help me organize", "personal assistant"],
             "tags": ["persona", "assistant"],
             "cost_tier": "low",
             "dispatcher_priority": 2,

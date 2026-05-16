@@ -130,7 +130,20 @@
       "skill_md_sha1": "dc2d6c1c1eefc889718bb0216b7f747e5acd7af6",
       "source_kind": "unknown",
       "source_url": null,
-      "trust_level": "untrusted"
+      "trust_level": "untrusted",
+      "deprecated": true,
+      "replaced_by": "windows-admin"
+    },
+    "windows-admin": {
+      "declared_source": null,
+      "installed_at": "2026-05-05T22:26:53Z",
+      "last_scanned": "2026-05-06T10:18:42Z",
+      "scan_decision": "allow",
+      "skill_md_sha1": "dc2d6c1c1eefc889718bb0216b7f747e5acd7af6",
+      "source_kind": "unknown",
+      "source_url": null,
+      "trust_level": "untrusted",
+      "aliases": ["alfred"]
     },
     "algorand-vulnerability-scanner": {
       "declared_source": null,
@@ -1070,7 +1083,20 @@
       "skill_md_sha1": "a109aa7fc6a78d2c7bcf66f243ced39014a91331",
       "source_kind": "unknown",
       "source_url": null,
-      "trust_level": "untrusted"
+      "trust_level": "untrusted",
+      "deprecated": true,
+      "replaced_by": "gamedev-engineer"
+    },
+    "gamedev-engineer": {
+      "declared_source": null,
+      "installed_at": "2026-05-05T22:26:55Z",
+      "last_scanned": "2026-05-06T10:18:41Z",
+      "scan_decision": "allow",
+      "skill_md_sha1": "a109aa7fc6a78d2c7bcf66f243ced39014a91331",
+      "source_kind": "unknown",
+      "source_url": null,
+      "trust_level": "untrusted",
+      "aliases": ["don-claudio"]
     },
     "dotnet-core-expert": {
       "declared_source": "awesome-claude-code-subagents",
@@ -2330,7 +2356,20 @@
       "skill_md_sha1": "7fa43117d51cdce275ea8bddcd0ceb6fd59834f3",
       "source_kind": "unknown",
       "source_url": null,
-      "trust_level": "untrusted"
+      "trust_level": "untrusted",
+      "deprecated": true,
+      "replaced_by": "personal-assistant"
+    },
+    "personal-assistant": {
+      "declared_source": null,
+      "installed_at": "2026-05-05T22:26:52Z",
+      "last_scanned": "2026-05-06T10:18:42Z",
+      "scan_decision": "allow",
+      "skill_md_sha1": "7fa43117d51cdce275ea8bddcd0ceb6fd59834f3",
+      "source_kind": "unknown",
+      "source_url": null,
+      "trust_level": "untrusted",
+      "aliases": ["pana"]
     },
     "paper-lookup": {
       "declared_source": null,

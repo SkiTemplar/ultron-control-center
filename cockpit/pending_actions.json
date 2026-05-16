@@ -372,8 +372,8 @@
                     {
                         "id":  "NEW-FIX-5",
                         "severity":  "low",
-                        "title":  "MEMORY.md SKILL GRAPH dedup: don-claudio y novalbos filas duplicadas eliminadas",
-                        "description":  "Filas duplicadas \u0027don-claudio (ver arriba)\u0027 y \u0027novalbos (ver arriba)\u0027 eliminadas de la tabla SKILL GRAPH en MEMORY.md. SSOT principal consistente.",
+                        "title":  "MEMORY.md SKILL GRAPH dedup: gamedev-engineer y novalbos filas duplicadas eliminadas",
+                        "description":  "Filas duplicadas \u0027gamedev-engineer (ver arriba)\u0027 y \u0027novalbos (ver arriba)\u0027 eliminadas de la tabla SKILL GRAPH en MEMORY.md. SSOT principal consistente.",
                         "deadline":  null,
                         "blocking":  false,
                         "source_audit":  "kirkardo-total-2026-05-04.md",

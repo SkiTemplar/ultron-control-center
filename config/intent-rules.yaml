@@ -101,36 +101,36 @@ rules:
     skill: "repo-evaluator"
     confidence: 0.90
 
-  # ── UE5 / don-claudio (domain beats generic bug/code) ───────────────────────
+  # ── UE5 / gamedev-engineer (domain beats generic bug/code) ──────────────────
 
   - id: ue5-cpp
     match: "(\\.(cpp|h|hpp)|blueprint|replicaci[o\xf3]n).*(UE5|Unreal|GAS|gameplay.ability)"
-    skill: "don-claudio"
+    skill: "gamedev-engineer"
     confidence: 0.95
 
   - id: ue5-gas
     match: "(GAS|Gameplay.Ability|ability.system|netcode|replication|dedicated.server).*(UE5|Unreal|game)"
-    skill: "don-claudio"
+    skill: "gamedev-engineer"
     confidence: 0.95
 
   - id: ue5-shader
     match: "(shader|material|PBR|post.process).*(UE5|Unreal)"
-    skill: "don-claudio"
+    skill: "gamedev-engineer"
     confidence: 0.90
 
   - id: ue5-general
     match: "\\b(UE5|Unreal.Engine|Blueprint|GameplayEffect|AbilityTask)\\b"
-    skill: "don-claudio"
+    skill: "gamedev-engineer"
     confidence: 0.90
 
   - id: ue5-gas-context
     match: "\\bGAS\\b.*(cooldown|ability|replicaci[o\xf3]n)|cooldown.*(ability|GAS)"
-    skill: "don-claudio"
+    skill: "gamedev-engineer"
     confidence: 0.88
 
   - id: ue5-game-spawn
     match: "(spawnear|spawn.*(proyectil|actor)|se.replique.*lag|actor.*replicaci[o\xf3]n)"
-    skill: "don-claudio"
+    skill: "gamedev-engineer"
     confidence: 0.85
 
   # ── CUDA / GPU / OpenGL → novalbos ─────────────────────────────────────────
@@ -220,21 +220,21 @@ rules:
     skill: "einstein"
     confidence: 0.85
 
-  # ── Personal assistant / pana ───────────────────────────────────────────────
+  # ── Personal assistant / personal-assistant ─────────────────────────────────
 
   - id: calendar-reminder
     match: "(Google.Calendar|recordatorio|agenda|event[o].en|calendario|cita)"
-    skill: "pana"
+    skill: "personal-assistant"
     confidence: 0.92
 
   - id: gmail-email
     match: "(Gmail|emails|correo|bandeja.de.entrada|revisa.mis.(emails|correos))"
-    skill: "pana"
+    skill: "personal-assistant"
     confidence: 0.90
 
   - id: morning-mode
     match: "(modo.ma\xf1ana|buenos.d\xedas|briefing.de.hoy|qu[e\xe9].tengo.hoy)"
-    skill: "pana"
+    skill: "personal-assistant"
     confidence: 0.92
 
   # ── Kirkardo audit (BEFORE tio-gilito-explicit so "audita skill tio-gilito" routes correctly) ──
@@ -278,16 +278,16 @@ rules:
     skill: "warren"
     confidence: 0.88
 
-  # ── System/Windows → alfred ─────────────────────────────────────────────────
+  # ── System/Windows → windows-admin ──────────────────────────────────────────
 
   - id: windows-system
     match: "(procesos.*(RAM|CPU|memoria)|limpiar.archivos.temporales|Windows.con.PowerShell|registro.de.Windows)"
-    skill: "alfred"
+    skill: "windows-admin"
     confidence: 0.90
 
   - id: process-monitor
     match: "\\b(procesos|proceso)\\b.*(comiendo|usando|consumiendo).*(RAM|CPU|memoria|disco)"
-    skill: "alfred"
+    skill: "windows-admin"
     confidence: 0.90
 
   # ── Physics / academics → profesor-fisica ──────────────────────────────────

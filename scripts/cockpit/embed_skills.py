@@ -280,6 +280,28 @@ def _get_qdrant():
     return QdrantClient(url=QDRANT_URL)
 
 
+def _qdrant_healthy() -> bool:
+    """Cheap /healthz probe — see embed_vault._qdrant_healthy for rationale."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(QDRANT_URL.rstrip("/") + "/healthz", timeout=2) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _qdrant_points_count(collection: str) -> int | None:
+    import urllib.request, json as _j
+    try:
+        with urllib.request.urlopen(
+            QDRANT_URL.rstrip("/") + f"/collections/{collection}", timeout=2
+        ) as r:
+            data = _j.load(r)
+        return int(data.get("result", {}).get("points_count", 0))
+    except Exception:
+        return None
+
+
 def ensure_collection(*, rebuild: bool = False) -> dict[str, Any]:
     from qdrant_client.http.models import Distance, VectorParams
     client = _get_qdrant()
@@ -351,19 +373,47 @@ class IndexReport:
     full_rebuild: bool
     total_vaulted: int = 0
     rebuilt: bool = False
+    qdrant_unreachable: bool = False
+    reconcile_forced: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
 
+# Same self-healing thresholds as embed_vault — see comment there.
+_DESYNC_STATE_MIN = 10
+_DESYNC_RATIO = 0.5
+
+
 def index_skills(*, full_rebuild: bool = False, rebuild: bool = False) -> IndexReport:
     import time
     start = time.perf_counter()
+
+    # Pre-flight: bail out cleanly without touching state if Qdrant is down.
+    if not _qdrant_healthy():
+        return IndexReport(
+            total_local=0, total_plugin=0, total_vaulted=0,
+            indexed=0, skipped=0, failed=0,
+            duration_s=round(time.perf_counter() - start, 2),
+            full_rebuild=full_rebuild, rebuilt=rebuild,
+            qdrant_unreachable=True,
+        )
+
     ensure_collection(rebuild=rebuild)
     if rebuild:
         full_rebuild = True          # colección nueva → re-embeber todo
 
     state = {} if full_rebuild else load_state()
+
+    # Self-healing reconcile: if state claims sync but Qdrant is empty,
+    # force a full rebuild this run. See embed_vault for full rationale.
+    reconcile_forced = False
+    if not full_rebuild and len(state) >= _DESYNC_STATE_MIN:
+        pts = _qdrant_points_count(COLLECTION)
+        if pts is not None and pts < len(state) * _DESYNC_RATIO:
+            full_rebuild = True
+            reconcile_forced = True
+            state = {}
     new_state: dict[str, dict[str, Any]] = {}
     to_upsert: list[SkillMeta] = []
     failed = skipped = 0
@@ -427,6 +477,7 @@ def index_skills(*, full_rebuild: bool = False, rebuild: bool = False) -> IndexR
         duration_s=round(time.perf_counter() - start, 2),
         full_rebuild=full_rebuild,
         rebuilt=rebuild,
+        reconcile_forced=reconcile_forced,
     )
 
 
@@ -470,6 +521,9 @@ def _cmd_init(args: argparse.Namespace) -> int:
 def _cmd_index(args: argparse.Namespace) -> int:
     report = index_skills(full_rebuild=args.full, rebuild=args.rebuild)
     print(json.dumps(report.to_dict(), indent=2))
+    # Exit 2 → Qdrant unreachable; state untouched, retry next session.
+    if report.qdrant_unreachable:
+        return 2
     return 0
 
 

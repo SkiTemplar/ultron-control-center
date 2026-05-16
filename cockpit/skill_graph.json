@@ -1,6 +1,24 @@
 [
   {
+    "persona": "gamedev-engineer",
+    "aliases": ["don-claudio"],
+    "domain": "UE5·Unity·netcode",
+    "connects_to": [
+      "cpp-pro",
+      "ue5-dev"
+    ],
+    "memory_layer": "knowledge/ue5/",
+    "knowledge_files": [
+      "cpp-ue5/gas.md",
+      "cpp-ue5/replication.md",
+      "cpp-ue5/enhanced-input.md",
+      "cpp-ue5/multiplayer.md"
+    ]
+  },
+  {
     "persona": "don-claudio",
+    "deprecated": true,
+    "replaced_by": "gamedev-engineer",
     "domain": "UE5·Unity·netcode",
     "connects_to": [
       "cpp-pro",
@@ -67,7 +85,22 @@
     ]
   },
   {
+    "persona": "windows-admin",
+    "aliases": ["alfred"],
+    "domain": "Windows·CLI·scripts",
+    "connects_to": [
+      "openjarvis"
+    ],
+    "memory_layer": "knowledge/claude-platform/",
+    "knowledge_files": [
+      "claude-platform/subagents-and-hooks.md",
+      "claude-platform/codex-cli.md"
+    ]
+  },
+  {
     "persona": "alfred",
+    "deprecated": true,
+    "replaced_by": "windows-admin",
     "domain": "Windows·CLI·scripts",
     "connects_to": [
       "openjarvis"
@@ -82,7 +115,7 @@
     "persona": "openjarvis",
     "domain": "DevOps·cloud·Docker",
     "connects_to": [
-      "alfred"
+      "windows-admin"
     ],
     "memory_layer": "",
     "knowledge_files": []
@@ -111,10 +144,22 @@
     "knowledge_files": []
   },
   {
-    "persona": "pana",
+    "persona": "personal-assistant",
+    "aliases": ["pana"],
     "domain": "productividad·archivos",
     "connects_to": [
-      "alfred"
+      "windows-admin"
+    ],
+    "memory_layer": "knowledge/personal-assistant/",
+    "knowledge_files": []
+  },
+  {
+    "persona": "pana",
+    "deprecated": true,
+    "replaced_by": "personal-assistant",
+    "domain": "productividad·archivos",
+    "connects_to": [
+      "windows-admin"
     ],
     "memory_layer": "knowledge/pana/",
     "knowledge_files": []

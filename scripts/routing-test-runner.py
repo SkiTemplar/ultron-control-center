@@ -27,7 +27,7 @@ VERBOSE = "--verbose" in sys.argv or "-v" in sys.argv
 # Orden: de mayor a menor prioridad en tiebreaks.
 # Las filas más altas ganan cuando hay señal en múltiples personas.
 FAST_PATH = [
-    ("don-claudio", [
+    ("gamedev-engineer", [
         "ue5", "unreal", "blueprint", "enhanced input", "netcode",
         "game dev", "PROGRAM_A", "game ability system", "game ability",
         "shader de juego", "shader de material", "material pbr",
@@ -60,11 +60,11 @@ FAST_PATH = [
     ("mike-tyson", [
         "layout", "wireframe", "landing", "interfaz visual", "mockup",
     ]),
-    ("pana", [
+    ("personal-assistant", [
         "google calendar", "calendar", "agenda", "spotify", "briefing",
         "organización personal", "recordatorio", "notion",
     ]),
-    ("alfred", [
+    ("windows-admin", [
         "powershell", "driver", "carpeta local", "sistema operativo",
         "proceso de windows", "registro de windows",
     ]),
@@ -99,11 +99,11 @@ def apply_tiebreaks(text: str) -> str | None:
     # UE5/Unreal + .cpp / bug / crash / blueprint → don-claudio
     is_ue5 = any(s in t for s in ["ue5", "unreal", "blueprint"])
     if is_ue5 and any(s in t for s in [".cpp", "bug", "crash", "blueprint"]):
-        return "don-claudio"
+        return "gamedev-engineer"
 
     # shader + UE5 / material → don-claudio (no novalbos)
     if "shader" in t and any(s in t for s in ["ue5", "material pbr", "material", "pbr"]):
-        return "don-claudio"
+        return "gamedev-engineer"
 
     # CUDA / GPU bajo nivel → novalbos (no einstein, aunque haya "investiga")
     is_gpu = any(s in t for s in ["cuda", "memory coalescing", "opengl", "vulkan", "simd"])
@@ -130,7 +130,7 @@ def apply_tiebreaks(text: str) -> str | None:
         if any(s in t for s in ["monetizar", "pricing"]):
             return "jordan-belfort"
         if any(s in t for s in ["ue5", "unreal", "blueprint"]):
-            return "don-claudio"
+            return "gamedev-engineer"
         if any(s in t for s in ["bolsa", "cartera", "inversión"]):
             return "warren"
 

@@ -85,9 +85,9 @@ MASTER = [
         "description": (
             "Objetivo: ULTRON público en GitHub, instalable por terceros,\n"
             "open-source y no invasivo. Sub-items:\n"
-            "1) Persona-strip: 3 scripts con C:\\\\Users\\\\USER\\\\... ->\n"
+            "1) Persona-strip: 3 scripts con C:\\\\Users\\\\<name>\\\\... ->\n"
             "   Path.home(). Capability validators dinámicas en build.rs.\n"
-            "   Hardcoded D:\\\\USER\\\\BACKUP -> config/backup.toml.\n"
+            "   Hardcoded D:\\\\<name>\\\\BACKUP -> config/backup.toml.\n"
             "2) Repo split: nuevo `ultron` (público), `ultron-skills`\n"
             "   privado->público, `ultron-memory-template` (esqueleto\n"
             "   vacío). Cada usuario clona y rellena su propio vault.\n"

@@ -7,6 +7,7 @@ import type {
   SessionProvider,
   SpawnFlags,
 } from "../types";
+import { CodexFallbackButton } from "./CodexFallbackButton";
 
 // Session presets — persisted across launches in localStorage. Keep the keys
 // stable so existing users don't lose their preferred config when the app
@@ -438,6 +439,15 @@ export function Sessions() {
   const [history, setHistory] = useState<ClaudeSession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [showInline, setShowInline] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Toasts auto-dismiss after 3s. Single channel — newer messages replace
+  // older ones, which is fine for a low-frequency fallback affordance.
+  useEffect(() => {
+    if (!toast) return;
+    const id = window.setTimeout(() => setToast(null), 3000);
+    return () => window.clearTimeout(id);
+  }, [toast]);
 
   useEffect(() => saveCwd(cwd), [cwd]);
   useEffect(() => savePresets(presets), [presets]);
@@ -530,6 +540,26 @@ export function Sessions() {
           de presets.
         </p>
       </header>
+
+      {/* Fallback: switch to Codex with pre-loaded ULTRON context. Sits above
+          the provider tabs so it's the first thing the user sees when they
+          land here after a Claude rate-limit screen. */}
+      <div className="mb-5">
+        <CodexFallbackButton cwd={cwd} onToast={setToast} />
+      </div>
+
+      {toast && (
+        <div
+          className="fixed bottom-6 right-6 z-[80] rounded px-3 py-2 text-[12px] shadow-lg"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          {toast}
+        </div>
+      )}
 
       <section
         className="rounded p-5"

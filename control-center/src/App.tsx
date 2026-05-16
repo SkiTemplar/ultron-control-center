@@ -20,6 +20,7 @@ import { Plans } from "./components/Plans";
 import { SelfImprove } from "./components/SelfImprove";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { computeGlobalStatus } from "./lib/status";
+import { setupTrayEventListeners } from "./lib/tauri-events";
 import type { QdrantHealth, AlertEntry, ChangelogEntry } from "./types";
 
 export default function App() {
@@ -109,6 +110,13 @@ export default function App() {
     "9": "logs",
     "0": "settings",
   };
+
+  useEffect(() => {
+    const teardownPromise = setupTrayEventListeners({ setTab });
+    return () => {
+      teardownPromise.then((teardown) => teardown());
+    };
+  }, []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {

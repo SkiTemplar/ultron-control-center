@@ -84,9 +84,34 @@ ULTRON_HOME = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".u
 CLAUDE_HOME = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".claude"
 SKILL_ROOT = CLAUDE_HOME / "skills" / "ultron"
 
+
+def _claude_project_slug(path: Path) -> str:
+    """Derive the Claude Code project-memory folder name for a given path.
+
+    Claude stores per-project memory under `~/.claude/projects/<slug>/` where
+    `<slug>` is the absolute path with path separators replaced by `--`
+    (e.g. `C:\\Users\\alice` becomes `C--Users-alice`). This used to be
+    hardcoded to one user's profile; we now derive it so the script works on
+    any account."""
+    s = str(path).replace("\\", "/").rstrip("/")
+    # Drive separator: "C:" -> "C-"
+    s = s.replace(":", "-")
+    # Path separators: "/" -> "-"
+    s = s.replace("/", "-")
+    # Claude collapses leading `-` runs so e.g. "C-/Users" -> "C--Users".
+    # Our transform already yields "C--Users-<user>", which matches.
+    return s
+
+
 ALERTS_FILE = ULTRON_HOME / "alerts.jsonl"
 CONTEXT_MD = ULTRON_HOME / ".tmp" / "context.md"
-MEMORY_MD = CLAUDE_HOME / "projects" / "C--Users-USER" / "memory" / "MEMORY.md"
+MEMORY_MD = (
+    CLAUDE_HOME
+    / "projects"
+    / _claude_project_slug(Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))))
+    / "memory"
+    / "MEMORY.md"
+)
 GLOBAL_CLAUDE_MD = CLAUDE_HOME / "CLAUDE.md"
 BRAIN_DB = ULTRON_HOME / "brain_index" / "index.db"
 MCP_HEALTH = ULTRON_HOME / ".tmp" / "mcp-health.json"

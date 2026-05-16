@@ -122,18 +122,30 @@ class TestLazySkillBuilder:
 
     def test_personas_are_pinned_even_with_no_telemetry(self, lazy):
         """Case 4: persona skills stay 'on' regardless of usage."""
-        # Only personas, no events
-        for p in ("alfred", "novalbos", "terry-davis"):
+        # Only personas, no events. Includes both canonical and legacy alias
+        # names — they all must be pinned for backwards-compat with renamed
+        # skills (pana/alfred/don-claudio → personal-assistant/windows-admin/gamedev-engineer).
+        for p in ("windows-admin", "alfred", "novalbos", "terry-davis"):
             _make_skill(lazy._FAKE_HOME, p)
         _make_skill(lazy._FAKE_HOME, "rando")
 
         overrides = lazy.compute_overrides(mode="lazy", top_n=2)
-        # Even with top_n=2 the 3 personas should all be 'on'
-        assert overrides["alfred"] == lazy.ON
+        # Even with top_n=2 the personas should all be 'on'
+        assert overrides["windows-admin"] == lazy.ON
+        assert overrides["alfred"] == lazy.ON  # backwards-compat alias still pinned
         assert overrides["novalbos"] == lazy.ON
         assert overrides["terry-davis"] == lazy.ON
         # Rando has no score and no persona pin → name-only
         assert overrides["rando"] == lazy.NAME_ONLY
+
+    def test_skill_alias_resolution(self, lazy):
+        """Case 4b: SKILL_ALIASES maps deprecated names to canonical ones."""
+        assert lazy.resolve_skill_alias("pana") == "personal-assistant"
+        assert lazy.resolve_skill_alias("alfred") == "windows-admin"
+        assert lazy.resolve_skill_alias("don-claudio") == "gamedev-engineer"
+        # Unknown / already-canonical names pass through
+        assert lazy.resolve_skill_alias("terry-davis") == "terry-davis"
+        assert lazy.resolve_skill_alias("unknown") == "unknown"
 
     def test_full_mode_returns_empty_overrides(self, lazy):
         """Case 5: mode='full' yields {} (clears all overrides)."""

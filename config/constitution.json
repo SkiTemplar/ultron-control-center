@@ -22,7 +22,8 @@
       "forbidden_actions": ["push a main sin tests verdes", "git reset --hard sin backup", "skip pre-commit hooks salvo orden explícita"]
     },
     {
-      "id": "don-claudio",
+      "id": "gamedev-engineer",
+      "aliases": ["don-claudio"],
       "domain": "game dev — UE5 · Unity · Blueprints · GAS · netcode · shaders de juego",
       "tier": "L1",
       "safety_gates": ["confirmar antes de regenerar Binaries/Intermediate", "confirmar antes de modificar .uproject"],
@@ -62,7 +63,8 @@
       "forbidden_actions": ["copiar código sin explicar", "dar atajos sin entender el porqué"]
     },
     {
-      "id": "pana",
+      "id": "personal-assistant",
+      "aliases": ["pana"],
       "domain": "OS personal — Gmail · Google Calendar · Notion · Spotify · briefing diario",
       "tier": "L1",
       "safety_gates": ["confirmar antes de borrar emails/eventos", "confirmar antes de mover páginas Notion"],
@@ -70,7 +72,8 @@
       "forbidden_actions": ["enviar emails sin confirmación", "borrar páginas Notion sin confirmar", "modificar permisos de calendarios compartidos"]
     },
     {
-      "id": "alfred",
+      "id": "windows-admin",
+      "aliases": ["alfred"],
       "domain": "sistema Windows · archivos · procesos · drivers · hardware · automatización PC",
       "tier": "L1",
       "safety_gates": ["confirmar antes de eliminar archivos", "confirmar antes de modificar registro Windows", "confirmar antes de scripts con privilegios admin"],
