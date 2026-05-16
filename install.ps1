@@ -1028,26 +1028,32 @@ function Initialize-PythonVenv {
         Write-Skip "pyproject.toml missing; skipping uv sync"
         return
     }
+    # uv writes progress info to stderr ("Resolved N packages..."). With
+    # $ErrorActionPreference = "Stop" active at script scope, those stderr
+    # lines become terminating errors as soon as 2>&1 surfaces them — the
+    # try/catch fires BEFORE we ever get to check $LASTEXITCODE, so a
+    # successful run still landed in the catch as "uv sync failed: Resolved
+    # 98 packages". The fix is to relax ErrorActionPreference just for the
+    # native-command call.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
         Push-Location $Script:RepoRoot
-        # uv writes progress lines to stderr ("Resolved N packages..."), and
-        # PS strict mode turns each into an ErrorRecord when piped through
-        # 2>&1 + ForEach-Object — that's how this step ended up reporting
-        # "uv sync failed: Resolved 98 packages" on a successful run.
-        # Capture stderr into a buffer instead and judge by the exit code.
         $uvOut = & uv sync 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        $code = $LASTEXITCODE
+        if ($code -eq 0) {
             Write-OK "venv ready at .venv"
             if ($Script:VerboseOn -and $uvOut) {
                 $uvOut | ForEach-Object { Write-V $_ }
             }
         } else {
-            Write-Warn2 ("uv sync exited " + $LASTEXITCODE + ": " + ($uvOut -join '; '))
+            Write-Warn2 ("uv sync exited " + $code + ": " + ($uvOut -join '; '))
         }
     } catch {
         Write-Warn2 ("uv sync failed: " + $_.Exception.Message)
     } finally {
         Pop-Location
+        $ErrorActionPreference = $prevEAP
     }
 }
 
@@ -1060,15 +1066,30 @@ function Build-ControlCenter {
         Write-Warn2 "scripts/install.ps1 not found - skipping"
         return
     }
+    # Native binaries (npm, cargo, tauri) write progress lines to stderr.
+    # With $ErrorActionPreference = "Stop" active at script scope, the
+    # inner installer's first stderr line gets converted into a terminating
+    # error and our catch fires before $LASTEXITCODE is ever checked.
+    # Relax EAP for the delegate call only.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
         # Delegate to the inner installer for npm install. Pass -SkipUvSync
         # because Initialize-PythonVenv already provisioned the venv in
         # step 6 — running uv sync twice tends to hit Windows file locks
         # on the freshly populated site-packages (Acceso denegado on
-        # cffi / cryptography). Variable renamed to avoid shadowing the
-        # PowerShell automatic $args under Set-StrictMode.
-        $innerArgs = @("-NonInteractive", "-SkipUvSync")
-        if ($Script:VerboseOn) { $innerArgs += "-Verbose" }
+        # cffi / cryptography).
+        #
+        # IMPORTANT: splat as a HASHTABLE, not an array. Array-splatting
+        # strings like @("-SkipUvSync") makes PowerShell try positional
+        # binding, which fails for [switch] parameters ("No positional
+        # parameter accepts argument '-SkipUvSync'"). Hashtable-splat
+        # binds by name, which is what we actually want.
+        $innerArgs = @{
+            NonInteractive = $true
+            SkipUvSync     = $true
+        }
+        if ($Script:VerboseOn) { $innerArgs["Verbose"] = $true }
         & $inner @innerArgs
         if ($LASTEXITCODE -eq 0) {
             Write-OK "npm install completed"
@@ -1077,6 +1098,8 @@ function Build-ControlCenter {
         }
     } catch {
         Write-Warn2 ("inner installer failed: " + $_.Exception.Message)
+    } finally {
+        $ErrorActionPreference = $prevEAP
     }
 
     # Optional Tauri build (cost-heavy - opt-in)
@@ -1084,9 +1107,14 @@ function Build-ControlCenter {
     if ($doBuild) {
         $cc = Join-Path $Script:RepoRoot "control-center"
         if (-not (Test-Path -LiteralPath $cc)) { Write-Skip "control-center/ missing"; return }
+        # Same stderr-becomes-fatal trap as the delegate call above. Tauri
+        # prints "Info Looking up installed tauri packages..." to stderr,
+        # which would otherwise abort the build before npm even kicks off.
+        $prevEAP2 = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
         try {
             Push-Location $cc
-            & npm run tauri build 2>&1 | ForEach-Object { Write-V $_ }
+            & npm run tauri build
             if ($LASTEXITCODE -eq 0) {
                 Write-OK "tauri build done. Look in src-tauri/target/release/bundle/"
             } else {
@@ -1094,6 +1122,7 @@ function Build-ControlCenter {
             }
         } finally {
             Pop-Location
+            $ErrorActionPreference = $prevEAP2
         }
     } else {
         Write-Skip "tauri build (run 'npm run tauri build' later)"

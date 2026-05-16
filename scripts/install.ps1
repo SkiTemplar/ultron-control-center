@@ -336,10 +336,16 @@ function Invoke-UvSync {
     $venvPy = Join-Path $Script:RepoRoot ".venv\Scripts\python.exe"
     $venvAlreadyHealthy = Test-Path -LiteralPath $venvPy
 
+    # uv emits progress info on stderr. With EAP=Stop at script scope the
+    # first stderr line becomes a terminating error and the catch fires
+    # before we ever see $LASTEXITCODE. Relax EAP locally.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
         Push-Location $Script:RepoRoot
         $uvOut = & uv sync 2>&1
-        if ($LASTEXITCODE -eq 0) {
+        $code = $LASTEXITCODE
+        if ($code -eq 0) {
             Write-Ok "python venv synced"
             return
         }
@@ -363,6 +369,7 @@ function Invoke-UvSync {
                      -Fix     "Inspect the uv output above. Common cause: Python version mismatch - pyproject.toml requires Python >=3.12."
     } finally {
         Pop-Location
+        $ErrorActionPreference = $prevEAP
     }
 }
 
@@ -388,6 +395,11 @@ function Invoke-NpmInstall {
     }
     Write-Ok "npm available"
 
+    # npm writes warn/info lines to stderr; with $ErrorActionPreference =
+    # "Stop" at script scope, the first stderr line would become a
+    # terminating error and abort the install. Relax EAP locally.
+    $prevEAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     try {
         Push-Location $cc
         & npm install
@@ -399,6 +411,7 @@ function Invoke-NpmInstall {
         Write-Ok "node modules installed"
     } finally {
         Pop-Location
+        $ErrorActionPreference = $prevEAP
     }
 }
 
