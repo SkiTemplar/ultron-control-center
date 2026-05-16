@@ -323,15 +323,20 @@ def safe_load_stdin(event_name: str) -> dict[str, Any] | None:
 
 
 def _alert(source: str, message: str, event_name: str) -> None:
-    """F02 fix: emit a warn-level alert on validation failure so silent
-    drops are observable in `~/.ultron/alerts.jsonl`. Uses the
-    `hookval:<event>` dedupe tag the F02 contract requires.
+    """F02 fix: emit an alert on validation failure so silent drops are
+    observable in `~/.ultron/alerts.jsonl`. Uses `hookval:<event>` dedupe.
+
+    Severity policy (refined):
+      - "stdin is not valid JSON" → info. Transient runtime noise (encoding
+        glitch, race on stdin) that retries on the next hook fire. Not actionable.
+      - everything else → warn. Real validation failure worth surfacing.
     """
     if _alerts is None:
         return
+    severity = "info" if "not valid JSON" in message else "warn"
     try:
         _alerts.write_dedupe(
-            severity="warn",
+            severity=severity,
             source=event_name,
             message=f"[{event_name}] {message}",
             dedupe_tag=f"hookval:{event_name}",

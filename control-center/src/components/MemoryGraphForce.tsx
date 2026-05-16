@@ -207,8 +207,19 @@ function initParticles(nodes: GraphNode[]): Particle[] {
   return nodes.map((n) => {
     let seed = 0;
     for (let i = 0; i < n.id.length; i++) seed = (seed * 31 + n.id.charCodeAt(i)) >>> 0;
-    const rx = ((seed & 0xffff) / 0xffff) * (VIEW - 2000) + 100;
-    const ry = (((seed >>> 16) & 0xffff) / 0xffff) * (VIEW - 2000) + 100;
+    // F29: polar distribution (radius + angle) instead of grid (x, y).
+    // The old grid mapped seed bytes directly to x and y, which made hashed
+    // names with similar prefixes cluster at the same corner — that's why
+    // nodes were piling against an "invisible square edge" even with the
+    // bigger world. With polar, every hash maps to a (angle, radius) pair
+    // sampled uniformly in the disk centered at CENTER, so nodes scatter
+    // organically across the world.
+    const angle = ((seed & 0xffff) / 0xffff) * Math.PI * 2;
+    // sqrt() makes the radius distribution uniform in area (not in radius).
+    const radNorm = Math.sqrt(((seed >>> 16) & 0xffff) / 0xffff);
+    const dist = radNorm * (VIEW * 0.42);
+    const rx = CENTER + Math.cos(angle) * dist;
+    const ry = CENTER + Math.sin(angle) * dist;
     return { id: n.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };
   });
 }

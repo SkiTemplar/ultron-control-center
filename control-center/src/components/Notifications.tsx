@@ -454,7 +454,7 @@ function Row({ g }: { g: Grouped }) {
                 border: "1px solid var(--color-border-strong)",
               }}
             >
-              {fixBusy === "claude" ? "Opening…" : "🔧 Fix with Claude"}
+              {fixBusy === "claude" ? "Opening…" : "Fix with Claude"}
             </button>
             <button
               type="button"
@@ -463,12 +463,12 @@ function Row({ g }: { g: Grouped }) {
               title="Same flow, but spawn a Codex session instead. Useful when you want a second opinion or Claude is rate-limited."
               className="rounded px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
               style={{
-                background: "transparent",
-                color: "var(--color-text-secondary)",
-                border: "1px solid var(--color-border)",
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
               }}
             >
-              {fixBusy === "codex" ? "Opening…" : "Codex"}
+              {fixBusy === "codex" ? "Opening…" : "Fix with Codex"}
             </button>
             {fixToast && (
               <span
@@ -848,28 +848,28 @@ export function Notifications({ alerts, onDeleted }: Props) {
                 title={`Spawn a Claude session pre-loaded with ALL ${actionableGroups.length} actionable notification${actionableGroups.length === 1 ? "" : "s"}. The mega-prompt lands on the clipboard — paste with Ctrl+V.`}
                 className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                 style={{
-                  background: "var(--color-accent, var(--color-surface-3))",
-                  color: "var(--color-on-accent, var(--color-text))",
-                  border: "1px solid var(--color-accent, var(--color-border-strong))",
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
                 }}
               >
                 {bulkFixBusy === "claude"
                   ? "Opening…"
-                  : `🔧 Fix all with Claude (${actionableGroups.length})`}
+                  : `Fix all with Claude (${actionableGroups.length})`}
               </button>
               <button
                 type="button"
                 onClick={() => openBulkFixSession("codex")}
                 disabled={bulkFixBusy !== null}
                 title={`Same flow, Codex instead of Claude. Useful for a second opinion across all ${actionableGroups.length} notification${actionableGroups.length === 1 ? "" : "s"}.`}
-                className="rounded px-3 py-1 text-[11.5px] transition-colors disabled:opacity-40"
+                className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                 style={{
-                  background: "transparent",
-                  color: "var(--color-text-secondary)",
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text)",
                   border: "1px solid var(--color-border-strong)",
                 }}
               >
-                {bulkFixBusy === "codex" ? "Opening…" : "Codex"}
+                {bulkFixBusy === "codex" ? "Opening…" : `Fix all with Codex (${actionableGroups.length})`}
               </button>
             </>
           )}
