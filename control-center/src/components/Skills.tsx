@@ -273,9 +273,16 @@ function Preview({
     setLoading(true);
     setError(null);
     setStatus(null);
-    setMode("view");
     setContent("");
     setDraft("");
+    // Security-first preview: when a skill carries warn/quarantine/block,
+    // open the Security panel by default so the findings (rule, line,
+    // excerpt) are the foreground and the SKILL.md sits behind dimmed.
+    const hasFindings = !!skill.security && skill.security.decision !== "allow";
+    setMode(hasFindings ? "security" : "view");
+    setSecReport(null);
+    setSecError(null);
+    setAllowReason("");
     invoke<string>("read_skill_md", { name: skill.name })
       .then((c) => {
         if (!cancelled) {
@@ -289,6 +296,20 @@ function Preview({
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    // Auto-load findings when in security mode.
+    if (hasFindings) {
+      setSecLoading(true);
+      invoke<SkillSecurityReport>("get_skill_findings", { name: skill.name })
+        .then((r) => {
+          if (!cancelled) setSecReport(r);
+        })
+        .catch((e) => {
+          if (!cancelled) setSecError(String(e));
+        })
+        .finally(() => {
+          if (!cancelled) setSecLoading(false);
+        });
+    }
     return () => {
       cancelled = true;
     };
@@ -840,7 +861,16 @@ function Preview({
           />
         )}
         {!loading && mode !== "edit" && view === "rich" && (
-          <SkillRichView raw={content} />
+          <div
+            style={{
+              opacity: mode === "security" ? 0.35 : 1,
+              filter: mode === "security" ? "grayscale(0.7)" : "none",
+              transition: "opacity 120ms, filter 120ms",
+              pointerEvents: mode === "security" ? "none" : "auto",
+            }}
+          >
+            <SkillRichView raw={content} />
+          </div>
         )}
         {!loading && mode !== "edit" && view === "raw" && (
           <pre
@@ -848,6 +878,9 @@ function Preview({
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--color-text-secondary)",
+              opacity: mode === "security" ? 0.35 : 1,
+              filter: mode === "security" ? "grayscale(0.7)" : "none",
+              pointerEvents: mode === "security" ? "none" : "auto",
             }}
           >
             {content}

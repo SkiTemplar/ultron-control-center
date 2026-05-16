@@ -515,7 +515,34 @@ pub fn set_default_provider_inner(
     let (registry, mut root) = load_registry_mut()?;
     {
         let entry = find_entry_mut(&mut root, &project_id)?;
-        entry["default_provider"] = serde_json::Value::String(normalised);
+        entry["default_provider"] = serde_json::Value::String(normalised.clone());
+
+        // v15.2.29: keep the row visually consistent. If the project does
+        // not already have a launcher chip for the new provider but has at
+        // least one AI chip (claude/codex/gemini), retarget the *first*
+        // such chip to the new provider so the user actually sees the icon
+        // they just picked. Projects that mix all three providers are left
+        // alone — they already display every option and only the highlight
+        // border moves.
+        if let Some(items) = entry.get_mut("items").and_then(|v| v.as_array_mut()) {
+            let providers = ["claude", "codex", "gemini"];
+            let already_has_target = items.iter().any(|it| {
+                it.get("kind").and_then(|k| k.as_str()) == Some(normalised.as_str())
+            });
+            if !already_has_target {
+                for it in items.iter_mut() {
+                    let kind = it
+                        .get("kind")
+                        .and_then(|k| k.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if providers.contains(&kind.as_str()) {
+                        it["kind"] = serde_json::Value::String(normalised.clone());
+                        break;
+                    }
+                }
+            }
+        }
     }
     let serialized =
         serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;

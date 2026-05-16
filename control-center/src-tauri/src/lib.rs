@@ -25,6 +25,7 @@ mod gaming;
 mod mcps;
 mod memory;
 mod memory_graph;
+mod maintenance;
 mod memory_highlights;
 mod mode;
 mod news;
@@ -407,6 +408,16 @@ async fn delete_skill(name: String, soft: bool) -> Result<skills::SkillDeleteRes
 #[tauri::command]
 async fn get_skill_findings(name: String) -> Result<skills::SkillSecurityReport, String> {
     skills::get_skill_findings_inner(name)
+}
+
+#[tauri::command]
+async fn list_maintenance_commands() -> Result<Vec<maintenance::MaintenanceCommand>, String> {
+    Ok(maintenance::list_maintenance_commands_inner())
+}
+
+#[tauri::command]
+async fn run_maintenance_command(kind: String) -> Result<maintenance::MaintenanceResult, String> {
+    maintenance::run_maintenance_inner(kind)
 }
 
 #[tauri::command]
@@ -1263,6 +1274,8 @@ pub fn run() {
             delete_skill,
             get_skill_findings,
             allow_skill_manually,
+            list_maintenance_commands,
+            run_maintenance_command,
             memory_status,
             spawn_session,
             run_inline,

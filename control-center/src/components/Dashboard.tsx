@@ -5,10 +5,197 @@ import type {
   AlertEntry,
   ChangelogEntry,
   GlobalStatus,
+  MaintenanceCommand,
+  MaintenanceResult,
   McpInfo,
   MemoryStatusInfo,
 } from "../types";
 import { statusColor } from "../lib/status";
+
+// ---------------------------------------------------------------------------
+// Maintenance panel — buttons that fire whitelisted Rust commands (see
+// src-tauri/src/maintenance.rs). Each button shows its label, runs the
+// command, then dumps stdout/stderr+exit_code in a collapsible result.
+// ---------------------------------------------------------------------------
+
+function MaintenancePanel() {
+  const [cmds, setCmds] = useState<MaintenanceCommand[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, MaintenanceResult>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  useEffect(() => {
+    invoke<MaintenanceCommand[]>("list_maintenance_commands")
+      .then(setCmds)
+      .catch(() => setCmds([]));
+  }, []);
+
+  async function run(kind: string) {
+    setBusy(kind);
+    setErrors((p) => {
+      const next = { ...p };
+      delete next[kind];
+      return next;
+    });
+    try {
+      const r = await invoke<MaintenanceResult>("run_maintenance_command", { kind });
+      setResults((p) => ({ ...p, [kind]: r }));
+      setExpanded(kind);
+    } catch (e) {
+      setErrors((p) => ({ ...p, [kind]: String(e) }));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (cmds.length === 0) return null;
+
+  const groups = ["skills", "memory", "system"];
+
+  return (
+    <section className="mt-8">
+      <div>
+        <h2 className="text-[14px] font-semibold">Maintenance commands</h2>
+        <p
+          className="mt-1 text-[12px]"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          One-shot cockpit operations. Pick a button to re-run the relevant
+          script and see its output here without spawning a terminal.
+        </p>
+      </div>
+      {groups.map((g) => {
+        const groupCmds = cmds.filter((c) => c.group === g);
+        if (groupCmds.length === 0) return null;
+        return (
+          <div key={g} className="mt-3">
+            <div
+              className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {g}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {groupCmds.map((c) => {
+                const running = busy === c.kind;
+                const result = results[c.kind];
+                const err = errors[c.kind];
+                const dotColor = err
+                  ? "var(--color-danger)"
+                  : result
+                  ? result.success
+                    ? "var(--color-success)"
+                    : "var(--color-warn)"
+                  : "var(--color-text-faint)";
+                return (
+                  <button
+                    key={c.kind}
+                    type="button"
+                    onClick={() => run(c.kind)}
+                    disabled={running}
+                    title={c.description}
+                    className="flex items-center gap-2 rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-60"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border-strong)",
+                    }}
+                  >
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ background: dotColor }}
+                    />
+                    <span>{running ? `${c.label}…` : c.label}</span>
+                    {result && (
+                      <span
+                        className="tabular-nums text-[10.5px]"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                      >
+                        {result.elapsed_ms}ms
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+      {expanded && (results[expanded] || errors[expanded]) && (
+        <div
+          className="mt-3 rounded p-3"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          <div className="flex items-baseline justify-between">
+            <span
+              className="text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {cmds.find((c) => c.kind === expanded)?.label ?? expanded}
+              {results[expanded] && (
+                <>
+                  {" · exit "}
+                  <code style={{ fontFamily: "var(--font-mono)" }}>
+                    {results[expanded].exit_code ?? "?"}
+                  </code>
+                </>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => setExpanded(null)}
+              className="text-[10.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              close
+            </button>
+          </div>
+          {errors[expanded] && (
+            <pre
+              className="mt-2 max-h-[280px] overflow-auto whitespace-pre-wrap text-[11px]"
+              style={{
+                fontFamily: "var(--font-mono)",
+                color: "var(--color-danger)",
+              }}
+            >
+              {errors[expanded]}
+            </pre>
+          )}
+          {results[expanded] && (
+            <>
+              {results[expanded].stdout && (
+                <pre
+                  className="mt-2 max-h-[280px] overflow-auto whitespace-pre-wrap text-[11px]"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--color-text-secondary)",
+                  }}
+                >
+                  {results[expanded].stdout}
+                </pre>
+              )}
+              {results[expanded].stderr && (
+                <pre
+                  className="mt-2 max-h-[200px] overflow-auto whitespace-pre-wrap text-[11px]"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    color: "var(--color-warn)",
+                  }}
+                >
+                  {results[expanded].stderr}
+                </pre>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 type Props = {
   qdrant: QdrantHealth | null;
@@ -560,6 +747,8 @@ export function Dashboard({
           </>
         )}
       </section>
+
+      <MaintenancePanel />
 
       {/* PC Diagnostics (existing) + Auto-fix entry point */}
       <section className="mt-8">

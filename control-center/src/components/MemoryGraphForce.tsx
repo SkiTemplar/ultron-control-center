@@ -82,30 +82,32 @@ type Particle = {
   fixed: boolean; // user-pinned via drag
 };
 
-// v15.2.13 pass: world doubled to 5000 (was 2400), gravity halved to 0.002,
-// border clamp moved from 20px to 200px margin so nodes can breathe, repulsion
-// boosted to 1100 and spring rest to 220 so even with weaker gravity the
-// network stays connected. Node radius up to 16 so they stay visible at zoom 0.1.
-const VIEW = 5000;
+// v15.2.29 pass: world shrunk 5000→3500 (was too vast — nodes hugged
+// corners because the disk init only filled 42% of it), gravity bumped to
+// 0.005 so the cluster keeps a real center, zoom-out floor raised to 0.4
+// so the user can't shrink everything into illegibility, zoom-in ceiling
+// raised to 10 so single-cluster reads are possible. Spring rest down to
+// 170 so edges don't yank disconnected siblings into corners.
+const VIEW = 3500;
 const CENTER = VIEW / 2;
 const NODE_RADIUS_BASE = 16;
-const REPULSION = 1100; // pushes nodes apart to fill the bigger world
+const REPULSION = 900; // pushes nodes apart in a smaller world
 const SPRING_K = 0.04;
-const SPRING_REST = 220; // edges longer so the graph spreads out
-const GRAVITY = 0.002; // barely-there pull to center; lets things drift
+const SPRING_REST = 170; // edges shorter — cluster stays compact
+const GRAVITY = 0.005; // stronger pull to center so nodes don't drift to edges
 const DAMPING = 0.6;
 const COLLIDE_RADIUS = 26;
 const COLLIDE_STRENGTH = 0.5;
-const PRE_FRAMES = 700; // bigger world needs more frames to settle pre-mount
+const PRE_FRAMES = 600;
 const MAX_RENDER_NODES = 200; // cap client-side; backend may still send more
 const ALPHA_DECAY = 0.985; // multiplicative cooling on per-step force scale
 const ALPHA_MIN = 0.01; // below this we freeze physics (alpha=0)
 const MOTION_IDLE_THRESHOLD = 4.0; // per-frame total squared motion below this → idle
 const IDLE_FRAMES_TO_STOP = 12;
-// Zoom limits — widened so the user can pull all the way out to see the
-// whole world, or punch in close on a single cluster.
-const ZOOM_MIN = 0.15;
-const ZOOM_MAX = 5;
+// Zoom limits — clamped so you can't make nodes microscopic on the bottom
+// end, and can zoom in close enough to read labels on the top end.
+const ZOOM_MIN = 0.4;
+const ZOOM_MAX = 10;
 
 function step(
   particles: Particle[],
@@ -193,11 +195,13 @@ function step(
     p.py = p.y;
     p.x += vx + p.ax;
     p.y += vy + p.ay;
-    // Box clamp so nodes don't fly off the SVG.
-    if (p.x < 20) p.x = 20;
-    if (p.x > VIEW - 200) p.x = VIEW - 200;
-    if (p.y < 20) p.y = 20;
-    if (p.y > VIEW - 200) p.y = VIEW - 200;
+    // Box clamp so nodes don't fly off the SVG. With the smaller world,
+    // a 120 px inner margin keeps node circles fully visible at all
+    // zoom levels without forcing them to crowd the center.
+    if (p.x < 120) p.x = 120;
+    if (p.x > VIEW - 120) p.x = VIEW - 120;
+    if (p.y < 120) p.y = 120;
+    if (p.y > VIEW - 120) p.y = VIEW - 120;
   }
 }
 
@@ -217,7 +221,7 @@ function initParticles(nodes: GraphNode[]): Particle[] {
     const angle = ((seed & 0xffff) / 0xffff) * Math.PI * 2;
     // sqrt() makes the radius distribution uniform in area (not in radius).
     const radNorm = Math.sqrt(((seed >>> 16) & 0xffff) / 0xffff);
-    const dist = radNorm * (VIEW * 0.42);
+    const dist = radNorm * (VIEW * 0.3);
     const rx = CENTER + Math.cos(angle) * dist;
     const ry = CENTER + Math.sin(angle) * dist;
     return { id: n.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };

@@ -905,12 +905,33 @@ export function Projects() {
     projectId: string,
     provider: SessionProvider,
   ) {
-    // Optimistic update so the highlight moves instantly. If the invoke
-    // fails we surface the error and roll back from the canonical reload.
+    // Optimistic update so the highlight (and the first AI-chip icon)
+    // move instantly. Mirror the backend retarget rule in
+    // set_default_provider_inner: if the project does not already have
+    // a chip for the new provider, mutate the first claude/codex/gemini
+    // chip to the new kind. If the invoke fails we surface the error and
+    // roll back via reload.
+    const providers: SessionProvider[] = ["claude", "codex", "gemini"];
     setProjects((prev) =>
-      prev.map((proj) =>
-        proj.id === projectId ? { ...proj, default_provider: provider } : proj,
-      ),
+      prev.map((proj) => {
+        if (proj.id !== projectId) return proj;
+        const items = proj.items ?? null;
+        let nextItems = items;
+        if (items && items.length > 0) {
+          const hasTarget = items.some((it) => it.kind === provider);
+          if (!hasTarget) {
+            let mutated = false;
+            nextItems = items.map((it) => {
+              if (!mutated && providers.includes(it.kind as SessionProvider)) {
+                mutated = true;
+                return { ...it, kind: provider };
+              }
+              return it;
+            });
+          }
+        }
+        return { ...proj, default_provider: provider, items: nextItems };
+      }),
     );
     try {
       await invoke("set_default_provider", { projectId, provider });

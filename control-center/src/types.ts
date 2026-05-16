@@ -375,6 +375,22 @@ export type AllowSkillResult = {
   waiver_path: string;
 };
 
+export type MaintenanceCommand = {
+  kind: string;
+  label: string;
+  description: string;
+  group: string;
+};
+
+export type MaintenanceResult = {
+  kind: string;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  elapsed_ms: number;
+};
+
 export type SpawnResult = {
   launched: boolean;
   provider: string;
