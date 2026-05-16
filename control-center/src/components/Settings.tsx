@@ -1034,7 +1034,13 @@ const AI_PROVIDERS: AiProvider[] = ["claude", "codex", "gemini"];
 const MODEL_OPTIONS: Record<AiProvider, string[]> = {
   claude: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
   codex: ["gpt-5.5", "gpt-5.4"],
-  gemini: ["gemini-3.1-pro", "gemini-3.1-flash", "gemini-3.0-pro"],
+  gemini: [
+    "gemini-3.1-pro-preview",
+    "gemini-3.1-flash-preview",
+    "gemini-3.1-pro",
+    "gemini-3.1-flash",
+    "gemini-3.0-pro",
+  ],
 };
 
 const AI_ROUTER_ZONES: { key: keyof AiRouterConfig; label: string; help: string }[] = [

@@ -160,7 +160,7 @@ pub async fn generate_news_session_inner(
             .filter(|m| !m.is_empty()),
         Err(_) => None,
     };
-    let effective_model = router_model.unwrap_or_else(|| "gemini-3.1-pro".to_string());
+    let effective_model = router_model.unwrap_or_else(|| "gemini-3.1-pro-preview".to_string());
 
     // First step: build the prompt and copy to clipboard via the script's
     // --clipboard mode. No Gemini call happens here.
@@ -287,7 +287,7 @@ pub async fn generate_news_inner(
         script_str,
         "--no-open".into(),
         "--model".into(),
-        "gemini-3.1-pro".into(),
+        "gemini-3.1-pro-preview".into(),
     ];
     if let Some(d) = days {
         args.push("--days".into());

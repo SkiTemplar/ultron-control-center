@@ -465,16 +465,41 @@ def _strip_code_fences(text: str) -> str:
 
 
 def copy_to_clipboard(text: str) -> bool:
+    """Copy `text` to the Windows clipboard preserving UTF-8.
+
+    Bug we're fixing: piping a UTF-8 string into PowerShell stdin via
+    subprocess produces mojibake (ÔÇö, ├¡, ├▒, etc.) because PowerShell
+    interprets stdin in the legacy OEM codepage by default, not UTF-8.
+    Fix: drop the text into a temp file with a UTF-8 BOM and use
+    Get-Content -Encoding UTF8 | Set-Clipboard, which reads explicitly
+    as UTF-8.
+    """
+    import tempfile
+    tmp = None
     try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8-sig", suffix=".txt",
+            delete=False, newline="",
+        ) as tf:
+            tf.write(text)
+            tmp = tf.name
+        # -LiteralPath avoids glob expansion on paths with [ ] etc.
         subprocess.run(
-            ["powershell", "-NoProfile", "-Command", "$input | Set-Clipboard"],
-            input=text, text=True, encoding="utf-8",
+            ["powershell", "-NoProfile", "-Command",
+             f"Get-Content -Raw -Encoding UTF8 -LiteralPath '{tmp}' | Set-Clipboard"],
             capture_output=True, timeout=10,
             creationflags=_WIN_HIDDEN,
         )
         return True
     except Exception:
         return False
+    finally:
+        if tmp:
+            try:
+                import os
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def call_gemini(prompt: str, out_path: Path, model: str) -> tuple[bool, str]:
