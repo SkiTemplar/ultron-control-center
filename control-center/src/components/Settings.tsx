@@ -1022,6 +1022,13 @@ type AiRouterConfig = {
   skill_edit: AiRouterEntry;
   mcp_create: AiRouterEntry;
   repo_review: AiRouterEntry;
+  personal_analyse: AiRouterEntry;
+  memory_analyse: AiRouterEntry;
+  notif_fix: AiRouterEntry;
+  self_improve: AiRouterEntry;
+  system_analyse: AiRouterEntry;
+  usage_analyse: AiRouterEntry;
+  skill_create: AiRouterEntry;
 };
 
 const AI_PROVIDERS: AiProvider[] = ["claude", "codex", "gemini"];
@@ -1078,6 +1085,41 @@ const AI_ROUTER_ZONES: { key: keyof AiRouterConfig; label: string; help: string 
     key: "repo_review",
     label: "Repo review",
     help: "Revisión adversarial de repos / cambios uncommitted.",
+  },
+  {
+    key: "personal_analyse",
+    label: "Personal analyse",
+    help: "Analizar perfil / known.json / style fingerprint desde la pestaña Personal.",
+  },
+  {
+    key: "memory_analyse",
+    label: "Memory analyse",
+    help: "Asistencia AI al explorar la pestaña Memory (vault, graph, búsquedas).",
+  },
+  {
+    key: "notif_fix",
+    label: "Notification fix",
+    help: "Resolver una notificación con Claude/Codex desde la pestaña Notifications.",
+  },
+  {
+    key: "self_improve",
+    label: "Self-improve",
+    help: "Análisis de routing telemetry para mejorar el dispatcher.",
+  },
+  {
+    key: "system_analyse",
+    label: "System analyse",
+    help: "Análisis de procesos / hooks / scheduled tasks desde la pestaña System.",
+  },
+  {
+    key: "usage_analyse",
+    label: "Usage analyse",
+    help: "Análisis de coste / tokens / actividad desde la pestaña Usage.",
+  },
+  {
+    key: "skill_create",
+    label: "Skill creator",
+    help: "Crear una nueva skill desde cero con asistencia AI (botón AI en Skills).",
   },
 ];
 

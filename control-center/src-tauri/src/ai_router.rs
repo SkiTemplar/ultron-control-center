@@ -83,6 +83,23 @@ pub struct AiRouterConfig {
     pub mcp_create: AiRouterEntry,
     #[serde(default = "default_repo_review", deserialize_with = "de_entry")]
     pub repo_review: AiRouterEntry,
+    // v15.2.38: new zones to plug the hardcoded-provider call sites the
+    // user surfaced. Defaults stay on claude for safety; the user picks
+    // codex / gemini per zone from Settings -> AI Router.
+    #[serde(default = "default_personal_analyse", deserialize_with = "de_entry")]
+    pub personal_analyse: AiRouterEntry,
+    #[serde(default = "default_memory_analyse", deserialize_with = "de_entry")]
+    pub memory_analyse: AiRouterEntry,
+    #[serde(default = "default_notif_fix", deserialize_with = "de_entry")]
+    pub notif_fix: AiRouterEntry,
+    #[serde(default = "default_self_improve", deserialize_with = "de_entry")]
+    pub self_improve: AiRouterEntry,
+    #[serde(default = "default_system_analyse", deserialize_with = "de_entry")]
+    pub system_analyse: AiRouterEntry,
+    #[serde(default = "default_usage_analyse", deserialize_with = "de_entry")]
+    pub usage_analyse: AiRouterEntry,
+    #[serde(default = "default_skill_create", deserialize_with = "de_entry")]
+    pub skill_create: AiRouterEntry,
 }
 
 fn de_entry<'de, D>(d: D) -> Result<AiRouterEntry, D::Error>
@@ -100,6 +117,13 @@ fn default_news_generate() -> AiRouterEntry { AiRouterEntry::new("gemini") }
 fn default_skill_edit() -> AiRouterEntry { AiRouterEntry::new("claude") }
 fn default_mcp_create() -> AiRouterEntry { AiRouterEntry::new("claude") }
 fn default_repo_review() -> AiRouterEntry { AiRouterEntry::new("codex") }
+fn default_personal_analyse() -> AiRouterEntry { AiRouterEntry::new("claude") }
+fn default_memory_analyse() -> AiRouterEntry { AiRouterEntry::new("claude") }
+fn default_notif_fix() -> AiRouterEntry { AiRouterEntry::new("claude") }
+fn default_self_improve() -> AiRouterEntry { AiRouterEntry::new("claude") }
+fn default_system_analyse() -> AiRouterEntry { AiRouterEntry::new("claude") }
+fn default_usage_analyse() -> AiRouterEntry { AiRouterEntry::new("claude") }
+fn default_skill_create() -> AiRouterEntry { AiRouterEntry::new("claude") }
 
 impl Default for AiRouterConfig {
     fn default() -> Self {
@@ -111,6 +135,13 @@ impl Default for AiRouterConfig {
             skill_edit: default_skill_edit(),
             mcp_create: default_mcp_create(),
             repo_review: default_repo_review(),
+            personal_analyse: default_personal_analyse(),
+            memory_analyse: default_memory_analyse(),
+            notif_fix: default_notif_fix(),
+            self_improve: default_self_improve(),
+            system_analyse: default_system_analyse(),
+            usage_analyse: default_usage_analyse(),
+            skill_create: default_skill_create(),
         }
     }
 }
@@ -129,6 +160,13 @@ impl AiRouterConfig {
             "skill_edit" => Some(&self.skill_edit),
             "mcp_create" => Some(&self.mcp_create),
             "repo_review" => Some(&self.repo_review),
+            "personal_analyse" => Some(&self.personal_analyse),
+            "memory_analyse" => Some(&self.memory_analyse),
+            "notif_fix" => Some(&self.notif_fix),
+            "self_improve" => Some(&self.self_improve),
+            "system_analyse" => Some(&self.system_analyse),
+            "usage_analyse" => Some(&self.usage_analyse),
+            "skill_create" => Some(&self.skill_create),
             _ => None,
         }
     }
