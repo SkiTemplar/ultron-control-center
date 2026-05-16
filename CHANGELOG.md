@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.2.37 -->
+## v15.2.37 — 2026-05-16
+
+- feat(v15.2.37): graph disk interior + CI + screenshots + quickstart + features picker + git hooks + Gemini icon
+
+_Auto-generated from d9558ce6 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.2.36 -->
 ## v15.2.36 — 2026-05-16
 
