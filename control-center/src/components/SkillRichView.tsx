@@ -245,6 +245,8 @@ function renderInline(text: string, keyBase: string): ReactNode[] {
   return out;
 }
 
+type TableAlign = "left" | "right" | "center" | null;
+
 type Block =
   | { kind: "h"; level: 1 | 2 | 3 | 4; text: string }
   | { kind: "p"; text: string }
@@ -252,7 +254,55 @@ type Block =
   | { kind: "ol"; items: string[] }
   | { kind: "code"; lang: string; content: string }
   | { kind: "quote"; text: string }
-  | { kind: "hr" };
+  | { kind: "hr" }
+  | { kind: "table"; header: string[]; aligns: TableAlign[]; rows: string[][] };
+
+// GFM pipe-table detection. A row is any line that contains at least one
+// unescaped `|`. The separator row must be all dashes/colons/pipes/whitespace
+// with one cell per column. We strip the leading/trailing `|` if present so
+// both `| a | b |` and `a | b` parse the same.
+function splitTableRow(line: string): string[] {
+  let trimmed = line.trim();
+  if (trimmed.startsWith("|")) trimmed = trimmed.slice(1);
+  if (trimmed.endsWith("|")) trimmed = trimmed.slice(0, -1);
+  // Split on unescaped pipes — backslash-escape support keeps `\|` literal.
+  const cells: string[] = [];
+  let buf = "";
+  for (let i = 0; i < trimmed.length; i += 1) {
+    const ch = trimmed[i];
+    if (ch === "\\" && trimmed[i + 1] === "|") {
+      buf += "|";
+      i += 1;
+      continue;
+    }
+    if (ch === "|") {
+      cells.push(buf.trim());
+      buf = "";
+      continue;
+    }
+    buf += ch;
+  }
+  cells.push(buf.trim());
+  return cells;
+}
+
+function isSeparatorRow(line: string): boolean {
+  const cells = splitTableRow(line);
+  if (cells.length === 0) return false;
+  return cells.every((c) => /^:?-{2,}:?$/.test(c.trim()));
+}
+
+function parseAligns(line: string): TableAlign[] {
+  return splitTableRow(line).map((c) => {
+    const t = c.trim();
+    const left = t.startsWith(":");
+    const right = t.endsWith(":");
+    if (left && right) return "center";
+    if (right) return "right";
+    if (left) return "left";
+    return null;
+  });
+}
 
 function tokenize(md: string): Block[] {
   const lines = md.split(/\r?\n/);
@@ -321,6 +371,30 @@ function tokenize(md: string): Block[] {
       continue;
     }
 
+    // GFM pipe table — header row, separator row (---), then ≥0 data rows.
+    // The header line must contain a pipe and the next line must be a valid
+    // separator. We don't try to support tables without a separator (GFM
+    // requires it).
+    if (line.includes("|") && i + 1 < lines.length && isSeparatorRow(lines[i + 1])) {
+      const header = splitTableRow(line);
+      const aligns = parseAligns(lines[i + 1]);
+      // Pad align list to header length.
+      while (aligns.length < header.length) aligns.push(null);
+      const rows: string[][] = [];
+      let j = i + 2;
+      while (j < lines.length && lines[j].includes("|") && lines[j].trim() !== "") {
+        const cells = splitTableRow(lines[j]);
+        // Normalise row to header column count.
+        while (cells.length < header.length) cells.push("");
+        if (cells.length > header.length) cells.length = header.length;
+        rows.push(cells);
+        j += 1;
+      }
+      out.push({ kind: "table", header, aligns, rows });
+      i = j;
+      continue;
+    }
+
     if (line.trim() === "") {
       i += 1;
       continue;
@@ -332,7 +406,9 @@ function tokenize(md: string): Block[] {
     while (
       i < lines.length &&
       lines[i].trim() !== "" &&
-      !/^(#{1,4}\s|>\s?|\s*[-*+]\s+|\s*\d+\.\s+|```|---+\s*$)/.test(lines[i])
+      !/^(#{1,4}\s|>\s?|\s*[-*+]\s+|\s*\d+\.\s+|```|---+\s*$)/.test(lines[i]) &&
+      // Don't merge a pipe-table header into the previous paragraph.
+      !(lines[i].includes("|") && i + 1 < lines.length && isSeparatorRow(lines[i + 1]))
     ) {
       collected.push(lines[i]);
       i += 1;
@@ -438,6 +514,72 @@ function renderBlocks(blocks: Block[]): ReactNode {
             style={{ borderColor: "var(--color-border)" }}
           />
         );
+      case "table": {
+        const alignFor = (a: TableAlign): "left" | "right" | "center" =>
+          a === "right" ? "right" : a === "center" ? "center" : "left";
+        return (
+          <div
+            key={k}
+            className="my-3 overflow-x-auto rounded"
+            style={{
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface-2)",
+            }}
+          >
+            <table
+              className="w-full text-[12px]"
+              style={{ borderCollapse: "collapse" }}
+            >
+              <thead>
+                <tr style={{ background: "var(--color-surface-3)" }}>
+                  {b.header.map((h, hi) => (
+                    <th
+                      key={`${k}-th-${hi}`}
+                      className="px-3 py-1.5 text-[10.5px] font-medium uppercase tracking-[0.04em]"
+                      style={{
+                        color: "var(--color-text-tertiary)",
+                        textAlign: alignFor(b.aligns[hi] ?? null),
+                        borderRight:
+                          hi < b.header.length - 1
+                            ? "1px solid var(--color-border)"
+                            : "none",
+                      }}
+                    >
+                      {renderInline(h, `${k}-th-${hi}`)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {b.rows.map((row, ri) => (
+                  <tr
+                    key={`${k}-tr-${ri}`}
+                    style={{ borderTop: "1px solid var(--color-border)" }}
+                  >
+                    {row.map((cell, ci) => (
+                      <td
+                        key={`${k}-td-${ri}-${ci}`}
+                        className="px-3 py-1.5"
+                        style={{
+                          color: "var(--color-text-secondary)",
+                          textAlign: alignFor(b.aligns[ci] ?? null),
+                          verticalAlign: "top",
+                          borderRight:
+                            ci < row.length - 1
+                              ? "1px solid var(--color-border)"
+                              : "none",
+                        }}
+                      >
+                        {renderInline(cell, `${k}-td-${ri}-${ci}`)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
     }
   });
 }

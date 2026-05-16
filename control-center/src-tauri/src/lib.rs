@@ -14,6 +14,7 @@ mod claude_sessions;
 mod codex_fallback;
 mod cost_watchdog;
 mod features;
+mod full_diagnostic;
 mod hooks_admin;
 mod hotkeys;
 mod inbox;
@@ -36,6 +37,7 @@ mod settings;
 mod skills;
 mod system;
 mod system_diagnose;
+mod toast_emit;
 mod tray;
 mod usage;
 
@@ -291,6 +293,42 @@ async fn delete_alert_entries(fingerprints: Vec<String>) -> Result<usize, String
     alerts_admin::delete_alerts_by_fingerprints(fingerprints)
 }
 
+// F6: Dashboard rework — parallel system diagnostic + auto-fix scripts.
+#[tauri::command]
+async fn run_full_diagnostic() -> Result<full_diagnostic::FullDiagnostic, String> {
+    full_diagnostic::run_full_diagnostic_inner()
+}
+
+#[tauri::command]
+async fn apply_auto_fix(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<full_diagnostic::AutoFixResult, String> {
+    full_diagnostic::apply_auto_fix_inner(&app, name).await
+}
+
+// F2: gaming.detected probe — emits alert + toast when a new game process is detected.
+#[tauri::command]
+async fn detect_running_games(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    gaming::detect_running_games_inner(&app).await
+}
+
+// F7: Settings refactor — reset mode to autodetect + backup root config.
+#[tauri::command]
+async fn reset_mode_to_autodetect() -> Result<mode::ModeSetResult, String> {
+    mode::reset_mode_to_autodetect_inner()
+}
+
+#[tauri::command]
+async fn get_backup_root() -> Result<backup_status::BackupRootInfo, String> {
+    backup_status::get_backup_root_inner()
+}
+
+#[tauri::command]
+async fn set_backup_root(path: String) -> Result<backup_status::BackupRootInfo, String> {
+    backup_status::set_backup_root_inner(backup_status::SetBackupRootPayload { path })
+}
+
 #[tauri::command]
 async fn purge_legacy_autostart() -> Result<settings::AutostartPurgeResult, String> {
     settings::purge_legacy_autostart_inner()
@@ -352,8 +390,9 @@ async fn delete_skill(name: String, soft: bool) -> Result<skills::SkillDeleteRes
 }
 
 #[tauri::command]
-async fn memory_status() -> Result<memory::MemoryStatus, String> {
-    Ok(memory::memory_status_inner())
+async fn memory_status(app: tauri::AppHandle) -> Result<memory::MemoryStatus, String> {
+    // F2: route through *_with_emit so qdrant.health alerts fire on probe failure
+    Ok(memory::memory_status_with_emit(&app))
 }
 
 #[tauri::command]
@@ -443,8 +482,9 @@ async fn edit_scheduled_task(
     name: String,
     new_trigger_type: String,
     new_trigger_at: Option<String>,
+    catch_up: Option<bool>,
 ) -> Result<system::EditTaskResult, String> {
-    system::edit_task_inner(&app, name, new_trigger_type, new_trigger_at).await
+    system::edit_task_inner(&app, name, new_trigger_type, new_trigger_at, catch_up).await
 }
 
 #[tauri::command]
@@ -508,13 +548,15 @@ async fn scan_projects(
 
 #[tauri::command]
 async fn create_project(
+    app: tauri::AppHandle,
     name: String,
     path: String,
     ide: Option<String>,
     language: Option<String>,
     tags: Option<Vec<String>>,
 ) -> Result<projects::CreateProjectResult, String> {
-    projects::create_project_inner(projects::CreateProjectPayload {
+    // F2: route through *_with_emit so project.created notifications fire
+    projects::create_project_inner_with_emit(&app, projects::CreateProjectPayload {
         name,
         path,
         ide,
@@ -543,8 +585,9 @@ async fn update_project(
 }
 
 #[tauri::command]
-async fn delete_project(id: String) -> Result<projects::DeleteProjectResult, String> {
-    projects::delete_project_inner(id)
+async fn delete_project(app: tauri::AppHandle, id: String) -> Result<projects::DeleteProjectResult, String> {
+    // F2: route through *_with_emit so project.deleted notifications fire
+    projects::delete_project_inner_with_emit(&app, id)
 }
 
 // ---------------------------------------------------------------------------
@@ -731,6 +774,24 @@ async fn read_personal_known() -> Result<personal::PersonalKnown, String> {
 #[tauri::command]
 async fn request_personal_analysis(app: tauri::AppHandle) -> Result<String, String> {
     personal::request_personal_analysis_inner(&app).await
+}
+
+#[tauri::command]
+async fn read_personal_sample() -> Result<personal::PersonalSample, String> {
+    personal::read_personal_sample_inner()
+}
+
+#[tauri::command]
+async fn train_personal_style(
+    app: tauri::AppHandle,
+    sample_text: String,
+) -> Result<String, String> {
+    personal::train_personal_style_inner(&app, sample_text).await
+}
+
+#[tauri::command]
+async fn generate_style_sample(app: tauri::AppHandle) -> Result<String, String> {
+    personal::generate_style_sample_inner(&app).await
 }
 
 /// Append a UI-side alert to alerts.jsonl so Notifications picks it up.
@@ -953,8 +1014,9 @@ async fn set_global_hotkey(app: tauri::AppHandle, spec: String) -> Result<String
 }
 
 #[tauri::command]
-async fn patch_plan_status(id: String, status: String) -> Result<bool, String> {
-    plans::patch_plan_status_inner(id, status)
+async fn patch_plan_status(app: tauri::AppHandle, id: String, status: String) -> Result<bool, String> {
+    // F2: route through *_with_emit so plan.resolved notifications fire
+    plans::patch_plan_status_inner_with_emit(&app, id, status)
 }
 
 #[tauri::command]
@@ -1003,6 +1065,12 @@ async fn delete_plan(id: String) -> Result<plans::PlanMutateResult, String> {
 #[tauri::command]
 async fn clean_resolved_plans() -> Result<u64, String> {
     plans::clean_resolved_plans_inner()
+}
+
+// LIB_RS_WIRING: new command for Phase 3 Plans auto-archive.
+#[tauri::command]
+async fn auto_archive_resolved_plans(days: Option<u32>) -> Result<usize, String> {
+    plans::auto_archive_resolved(days.unwrap_or(30))
 }
 
 #[tauri::command]
@@ -1183,6 +1251,9 @@ pub fn run() {
             save_personal_profile,
             read_personal_known,
             request_personal_analysis,
+            read_personal_sample,
+            train_personal_style,
+            generate_style_sample,
             record_ui_alert,
             list_plans,
             patch_plan_status,
@@ -1190,6 +1261,15 @@ pub fn run() {
             update_plan,
             delete_plan,
             clean_resolved_plans,
+            auto_archive_resolved_plans,
+            run_full_diagnostic,
+            apply_auto_fix,
+            detect_running_games,
+            reset_mode_to_autodetect,
+            get_backup_root,
+            set_backup_root,
+            toast_emit::get_toast_enabled,
+            toast_emit::set_toast_enabled,
             get_global_hotkey,
             set_global_hotkey,
             self_improve_report,

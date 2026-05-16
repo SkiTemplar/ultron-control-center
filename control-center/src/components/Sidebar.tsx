@@ -25,7 +25,6 @@ export type Tab =
   | "news"
   | "personal"
   | "self-improve"
-  | "hooks"
   | "settings";
 
 type Item = {
@@ -77,12 +76,8 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "personal", label: "Personal", available: true, featureKey: "personal" },
     ],
   },
-  {
-    heading: "More",
-    items: [
-      { id: "hooks", label: "Hooks", available: true, featureKey: "hooks" },
-    ],
-  },
+  // v15.2 F7: "Hooks" moved into System as an inner sub-tab — no longer a
+  // top-level sidebar item. Hooks feature gating still applies inside System.
   {
     heading: "",
     items: [{ id: "settings", label: "Settings", available: true }],
@@ -100,7 +95,7 @@ const FEATURE_TAB_TO_KEY: Partial<Record<Tab, keyof Features>> = {
   plans: "plans",
   "self-improve": "self_improve",
   personal: "personal",
-  hooks: "hooks",
+  // hooks: gating moved inside System tab — no top-level redirect needed.
 };
 
 type Props = {

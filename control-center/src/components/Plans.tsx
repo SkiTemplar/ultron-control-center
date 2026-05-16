@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type ReactElement, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 // Plans tab — read/write PLANS.json. Kanban (Open / In progress / Blocked /
@@ -457,6 +457,130 @@ function StatBox({ label, value }: { label: string; value: string | number }) {
   );
 }
 
+// Per-column action bar. Each kanban column owns 0..N buttons that only
+// make sense for items in that lane. Centralising the switch here keeps
+// the column-rendering JSX in <Plans /> readable.
+function ColumnActions(props: {
+  column: string;
+  onNew: () => void;
+  onBrainstorm: () => void;
+  brainstormBusy: boolean;
+  onExecute: () => void;
+  onReview: () => void;
+  onResolveBlock: () => void;
+  onArchiveSelected: () => void;
+  archiveDisabled: boolean;
+  archiveCount: number;
+}) {
+  const baseBtn =
+    "rounded px-2 py-1 text-[10.5px] font-medium transition-colors disabled:opacity-40";
+  const accent: CSSProperties = {
+    background: "var(--color-accent)",
+    color: "var(--color-accent-text)",
+  };
+  const subtle: CSSProperties = {
+    background: "var(--color-surface-3)",
+    color: "var(--color-text-secondary)",
+    border: "1px solid var(--color-border)",
+  };
+
+  let buttons: ReactElement[] = [];
+  switch (props.column) {
+    case "open":
+      buttons = [
+        <button
+          key="new"
+          type="button"
+          onClick={props.onNew}
+          className={baseBtn}
+          style={subtle}
+          title="Crea un plan vacío manualmente (modal con title / priority / kind / tags / description)."
+        >
+          New Plan
+        </button>,
+        <button
+          key="brain"
+          type="button"
+          onClick={props.onBrainstorm}
+          disabled={props.brainstormBusy}
+          className={baseBtn}
+          style={accent}
+          title="Abre una sesión Claude en wt.exe (paste_only) para brainstorming guiado del próximo plan."
+        >
+          {props.brainstormBusy ? "Opening..." : "AI Brainstorm"}
+        </button>,
+      ];
+      break;
+    case "in_progress":
+      buttons = [
+        <button
+          key="exec"
+          type="button"
+          onClick={props.onExecute}
+          className={baseBtn}
+          style={accent}
+          title="Lanza Claude para ejecutar el plan in_progress (o el siguiente open p0/p1)."
+        >
+          Execute
+        </button>,
+      ];
+      break;
+    case "revision":
+      buttons = [
+        <button
+          key="review"
+          type="button"
+          onClick={props.onReview}
+          className={baseBtn}
+          style={accent}
+          title="Lanza Claude para revisión adversarial de los planes en revision."
+        >
+          AI Review
+        </button>,
+      ];
+      break;
+    case "blocked":
+      buttons = [
+        <button
+          key="resolve"
+          type="button"
+          onClick={props.onResolveBlock}
+          className={baseBtn}
+          style={subtle}
+          title="Lanza Claude para desbloquear el plan: lee descripción + spec, propone unstuck."
+        >
+          Resolve block
+        </button>,
+      ];
+      break;
+    case "resolved":
+      buttons = [
+        <button
+          key="archive"
+          type="button"
+          onClick={props.onArchiveSelected}
+          disabled={props.archiveDisabled}
+          className={baseBtn}
+          style={subtle}
+          title="Mueve todos los resolved a plans/_archive/resolved-YYYY-MM.json (atómico, no destructivo)."
+        >
+          Archive selected ({props.archiveCount})
+        </button>,
+      ];
+      break;
+  }
+
+  if (buttons.length === 0) return null;
+  return (
+    <div
+      className="flex flex-wrap gap-1 border-b px-2 py-1.5"
+      style={{ borderColor: "var(--color-border)" }}
+    >
+      {buttons}
+    </div>
+  );
+}
+
 export function Plans() {
   const [report, setReport] = useState<PlansReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -472,11 +596,9 @@ export function Plans() {
   const [pendingClean, setPendingClean] = useState(false);
   const [cleanBusy, setCleanBusy] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiGoal, setAiGoal] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiPreview, setAiPreview] = useState<string | null>(null);
+  const [archivedOpen, setArchivedOpen] = useState(false);
+  const [archivedDays, setArchivedDays] = useState<number>(30);
 
   async function load() {
     setLoading(true);
@@ -494,6 +616,32 @@ export function Plans() {
   useEffect(() => {
     load();
   }, []);
+
+  // Auto-archive resolved plans older than `archivedDays` days. Runs on
+  // mount and every 5 minutes after. Backend flips status="resolved" →
+  // "archived" in place (no file moves), so the kanban filter drops them
+  // and the "Show archived" drawer surfaces them when the user wants.
+  useEffect(() => {
+    let alive = true;
+    async function tick() {
+      try {
+        const n = (await invoke("auto_archive_resolved_plans", {
+          days: archivedDays,
+        })) as number;
+        if (alive && n > 0) {
+          await load();
+        }
+      } catch {
+        // Silent: stale/missing PLANS.json shouldn't spam the toast.
+      }
+    }
+    tick();
+    const id = window.setInterval(tick, 5 * 60 * 1000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, [archivedDays]);
 
   async function move(id: string, target: string) {
     try {
@@ -593,69 +741,48 @@ export function Plans() {
     }
   }
 
+  // AI Brainstorm: spawn an INTERACTIVE Claude session in wt.exe with the
+  // seed prompt copied to the clipboard (paste_only). User pastes with
+  // Ctrl+V, Claude pregunta qué quiere conseguir, refina alcance, propone
+  // sub-tareas y al final genera el JSON de `ultron plans add` listo para
+  // ejecutar. Mismo patrón que F1.9 / Diagnose con Claude — no quema tokens
+  // de Codex y mantiene la conversación en una terminal real.
   async function aiBrainstorm() {
-    const goal = aiGoal.trim();
-    if (!goal) return;
     setAiBusy(true);
-    setAiError(null);
-    setAiPreview(null);
+    setError(null);
     try {
-      const sys = [
-        "Eres un planificador. Devuelve EXCLUSIVAMENTE un array JSON con planes accionables.",
-        "Cada item: { title (imperativo, <80 chars), priority ('p1'|'p2'|'p3'), kind ('task'|'sprint'|'patch'|'bug'|'research'), description (1-2 parrafos), tags (array de strings cortos) }.",
-        "No prefijos, no markdown fences, no texto extra. Si el goal es vago, propon 3-5 planes que lo cubran de mayor a menor prioridad.",
+      const seed = [
+        "Vamos a hacer brainstorming de un nuevo plan para ULTRON.",
+        "",
+        "Pregúntame qué quiero conseguir, refina alcance iterando conmigo,",
+        "propón sub-tareas concretas, y al final genera el JSON de",
+        "`ultron plans add` listo para ejecutar (o varios bloques si salen",
+        "varios planes). Esquema:",
+        "",
+        "{",
+        '  "title": "imperativo, <80 chars",',
+        '  "priority": "p0..p4",',
+        '  "kind": "task|sprint|patch|bug|research|audit",',
+        '  "status": "open",',
+        '  "description": "1-2 párrafos",',
+        '  "tags": ["..."]',
+        "}",
+        "",
+        "Lee ~/.ultron/instructions/plans/GUIDE.md antes de empezar para no",
+        "inventar campos.",
       ].join("\n");
-      const prompt = `${sys}\n\nGoal del usuario:\n${goal}`;
-      const r = (await invoke("run_inline", {
-        provider: "codex",
-        model: null,
-        prompt,
-      })) as { success: boolean; stdout: string; stderr: string };
-      if (!r.success) {
-        setAiError(r.stderr || "Codex falló");
-        return;
-      }
-      // Strip optional ```json fences.
-      const raw = r.stdout.trim();
-      const fenced = raw.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-      const candidate = fenced ? fenced[1].trim() : raw;
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(candidate);
-      } catch {
-        setAiError("Codex no devolvió JSON parseable. Respuesta:\n" + raw.slice(0, 800));
-        return;
-      }
-      if (!Array.isArray(parsed)) {
-        setAiError("Respuesta no es un array JSON.");
-        return;
-      }
-      setAiPreview(JSON.stringify(parsed, null, 2));
-      let added = 0;
-      for (const item of parsed as Array<Record<string, unknown>>) {
-        try {
-          await invoke("add_plan", {
-            title: String(item.title ?? ""),
-            priority: (item.priority as string) || "p3",
-            status: "open",
-            kind: (item.kind as string) || "task",
-            description: (item.description as string) || "",
-            tags: Array.isArray(item.tags)
-              ? (item.tags as string[]).filter(Boolean)
-              : null,
-          });
-          added += 1;
-        } catch (e) {
-          setAiError(`add_plan falló en item "${item.title}": ${String(e)}`);
-        }
-      }
-      setInfo(`AI brainstorm añadió ${added} plan${added === 1 ? "" : "es"}.`);
-      window.setTimeout(() => setInfo(null), 4000);
-      setAiOpen(false);
-      setAiGoal("");
-      await load();
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: seed,
+        cwd: null,
+        flags: { dangerouslySkipPermissions: false, pasteOnly: true },
+      });
+      setInfo(
+        "Claude brainstorm abierto en wt.exe. El prompt está en el portapapeles — pega con Ctrl+V y dale Enter.",
+      );
+      window.setTimeout(() => setInfo(null), 5000);
     } catch (e) {
-      setAiError(String(e));
+      setError(String(e));
     } finally {
       setAiBusy(false);
     }
@@ -708,6 +835,7 @@ export function Plans() {
     if (!report) return [];
     const q = query.trim().toLowerCase();
     return report.items
+      .filter((it) => it.status !== "archived") // kanban hides archived
       .filter((it) => {
         if (priorityFilter.size === 0) return true;
         return priorityFilter.has(it.priority);
@@ -725,6 +853,11 @@ export function Plans() {
         return hay.includes(q);
       });
   }, [report, query, priorityFilter]);
+
+  const archivedItems = useMemo(() => {
+    if (!report) return [] as PlanItem[];
+    return report.items.filter((it) => it.status === "archived");
+  }, [report]);
 
   const grouped = useMemo(() => {
     const m: Record<string, PlanItem[]> = {};
@@ -748,13 +881,16 @@ export function Plans() {
     const byStatus: Record<string, number> = {};
     const byPriority: Record<string, number> = {};
     const validStatuses = new Set(COLUMNS.map((c) => c.key));
+    let total = 0;
     for (const it of report.items) {
+      if (it.status === "archived") continue; // excluded from totals + buckets
       // Match the kanban column-bucket logic so the stat cards agree with the columns
       const bucket = validStatuses.has(it.status) ? it.status : "open";
       byStatus[bucket] = (byStatus[bucket] ?? 0) + 1;
       byPriority[it.priority] = (byPriority[it.priority] ?? 0) + 1;
+      total += 1;
     }
-    return { total: report.items.length, byStatus, byPriority };
+    return { total, byStatus, byPriority };
   }, [report]);
 
   const priorityKeys = useMemo(() => {
@@ -802,73 +938,16 @@ export function Plans() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => setPendingClean(true)}
-            disabled={resolvedCount === 0}
-            className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-40"
-            style={{
-              background: "transparent",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Mueve resolved a plans/_archive (no destructivo; atómico)"
-          >
-            Archive resolved ({resolvedCount})
-          </button>
-          {/* Claude-driven plan workflows — each opens a wt.exe Claude
-              session at instructions/plans/ so the model already knows the
-              schema + validators. */}
-          <div
-            className="flex items-center overflow-hidden rounded text-[11.5px]"
-            style={{ border: "1px solid var(--color-border-strong)" }}
-          >
-            {([
-              { k: "execute", label: "Claude execute" },
-              { k: "review", label: "Claude review" },
-              { k: "add", label: "Claude add" },
-              { k: "resolve", label: "Claude resolve" },
-            ] as const).map((b) => (
-              <button
-                key={b.k}
-                type="button"
-                onClick={() => spawnClaudePlanFlow(b.k)}
-                className="px-2.5 py-1.5 transition-colors"
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text-secondary)",
-                  borderLeft:
-                    b.k === "execute"
-                      ? "none"
-                      : "1px solid var(--color-border-strong)",
-                }}
-                title={`Spawn Claude session en instructions/plans con prompt para ${b.k}`}
-              >
-                {b.label}
-              </button>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => setAiOpen(true)}
-            className="rounded px-3 py-1.5 text-[12px] font-semibold transition-colors"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-            title="Pide a Codex que genere planes desde un goal en lenguaje natural (cheaper que Claude)"
-          >
-            AI Brainstorm
-          </button>
-          <button
-            type="button"
-            onClick={startNew}
+            onClick={() => setArchivedOpen(true)}
             className="rounded px-3 py-1.5 text-[12px] transition-colors"
             style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text)",
+              background: "transparent",
+              color: "var(--color-text-tertiary)",
               border: "1px solid var(--color-border-strong)",
             }}
+            title={`Mostrar planes archivados (resolved > ${archivedDays} días). Auto-archive corre cada 5 min.`}
           >
-            New plan
+            Show archived
           </button>
           <button
             type="button"
@@ -1000,6 +1079,22 @@ export function Plans() {
                 {grouped[c.key]?.length ?? 0}
               </span>
             </div>
+            {/* Per-column action bar. Each column owns the buttons that
+                only make sense for items in that lane, so the user
+                doesn't have to mentally route "what does this button do
+                with my selection?" — context is the column. */}
+            <ColumnActions
+              column={c.key}
+              onNew={startNew}
+              onBrainstorm={aiBrainstorm}
+              brainstormBusy={aiBusy}
+              onExecute={() => spawnClaudePlanFlow("execute")}
+              onReview={() => spawnClaudePlanFlow("review")}
+              onResolveBlock={() => spawnClaudePlanFlow("resolve")}
+              onArchiveSelected={() => setPendingClean(true)}
+              archiveDisabled={resolvedCount === 0}
+              archiveCount={resolvedCount}
+            />
             <div className="flex-1 space-y-2 overflow-auto p-2">
               {(grouped[c.key] ?? []).map((it) => (
                 <PlanCard
@@ -1018,98 +1113,121 @@ export function Plans() {
         ))}
       </div>
 
-      {aiOpen && (
+      {archivedOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center px-6"
-          style={{ background: "rgba(0,0,0,0.55)" }}
-          onClick={() => !aiBusy && setAiOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-end"
+          style={{ background: "rgba(0,0,0,0.45)" }}
+          onClick={() => setArchivedOpen(false)}
         >
           <div
-            className="w-full max-w-[600px] rounded p-5"
+            className="flex h-full w-full max-w-[520px] flex-col overflow-hidden"
             style={{
               background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border-strong)",
+              borderLeft: "1px solid var(--color-border-strong)",
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-[14px] font-semibold">AI Brainstorm</h3>
-            <p
-              className="mt-1 text-[11.5px] leading-relaxed"
-              style={{ color: "var(--color-text-tertiary)" }}
+            <header
+              className="flex items-center justify-between border-b px-5 py-3"
+              style={{ borderColor: "var(--color-border)" }}
             >
-              Codex genera planes accionables desde un goal. Cada plan vuelve
-              con title / priority / kind / description / tags y se inserta
-              vía add_plan. Usa Codex (no Claude) para no quemar tokens
-              interactivos.
-            </p>
-            <textarea
-              value={aiGoal}
-              onChange={(e) => setAiGoal(e.target.value)}
-              placeholder="Ej: Quiero refactorizar el sistema de memoria para que cargue lazy y use Qdrant native, sin perder compatibilidad con FTS5."
-              spellCheck={false}
-              className="mt-3 w-full rounded p-2.5 text-[12px] leading-relaxed"
-              style={{
-                fontFamily: "var(--font-mono)",
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-                outline: "none",
-                minHeight: 120,
-                resize: "vertical",
-              }}
-            />
-            {aiError && (
-              <div
-                className="mt-2 rounded p-2 text-[11.5px]"
-                style={{
-                  background: "rgba(248, 81, 73, 0.06)",
-                  border: "1px solid rgba(248, 81, 73, 0.22)",
-                  color: "var(--color-danger)",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {aiError}
+              <div>
+                <h3 className="text-[14px] font-semibold">Archived plans</h3>
+                <p
+                  className="mt-0.5 text-[11px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Resolved hace más de {archivedDays} días — fuera del kanban
+                  pero todavía en PLANS.json ({archivedItems.length} items).
+                </p>
               </div>
-            )}
-            {aiPreview && !aiError && (
-              <pre
-                className="mt-2 max-h-48 overflow-auto rounded p-2 text-[10.5px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  border: "1px solid var(--color-border)",
-                  color: "var(--color-text-secondary)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {aiPreview}
-              </pre>
-            )}
-            <div className="mt-4 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setAiOpen(false)}
-                disabled={aiBusy}
-                className="rounded px-3 py-1.5 text-[12px]"
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text-tertiary)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={aiBrainstorm}
-                disabled={aiBusy || !aiGoal.trim()}
-                className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-              >
-                {aiBusy ? "Codex pensando..." : "Brainstorm"}
-              </button>
+              <div className="flex items-center gap-2">
+                <label
+                  className="text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Days
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={archivedDays}
+                  onChange={(e) =>
+                    setArchivedDays(Math.max(1, Number(e.target.value) || 30))
+                  }
+                  className="w-16 rounded px-1.5 py-0.5 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title="Threshold en días para auto-archivar resolved (default 30, persiste sólo en sesión)."
+                />
+                <button
+                  type="button"
+                  onClick={() => setArchivedOpen(false)}
+                  className="rounded px-2 py-0.5 text-[12px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                  aria-label="Close"
+                >
+                  close
+                </button>
+              </div>
+            </header>
+            <div className="flex-1 space-y-2 overflow-auto p-3">
+              {archivedItems.length === 0 && (
+                <p
+                  className="px-1 py-4 text-center text-[12px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  No hay planes archivados todavía.
+                </p>
+              )}
+              {archivedItems.map((it) => (
+                <div
+                  key={it.id}
+                  className="rounded p-2.5"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  <div className="flex items-start gap-2">
+                    <PriorityBadge p={it.priority} />
+                    <div className="min-w-0 flex-1">
+                      <div
+                        className="text-[12.5px] font-medium leading-tight"
+                        style={{ color: "var(--color-text)" }}
+                      >
+                        {it.title || it.id}
+                      </div>
+                      <div
+                        className="mt-0.5 text-[10.5px]"
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-faint)",
+                        }}
+                      >
+                        {it.id} · resolved {it.resolved_at?.slice(0, 10) ?? "?"}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => move(it.id, "resolved")}
+                      className="rounded px-2 py-0.5 text-[10.5px]"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text-secondary)",
+                        border: "1px solid var(--color-border)",
+                      }}
+                      title="Devuelve este plan al kanban (status=resolved) para volver a verlo."
+                    >
+                      Restore
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>

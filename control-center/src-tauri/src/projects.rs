@@ -929,3 +929,73 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
         other => Err(format!("unknown launcher kind '{}'", other)),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Emit-aware wrappers (project.created / project.deleted alerts)
+// ---------------------------------------------------------------------------
+
+/// Wrapper that calls `create_project_inner` and, on success, fires an
+/// info alert through `toast_emit`. Kept separate so the original
+/// inner stays callable from places (e.g. scripts) that don't want
+/// notification side-effects.
+pub fn create_project_inner_with_emit(
+    app: &tauri::AppHandle,
+    p: CreateProjectPayload,
+) -> Result<CreateProjectResult, String> {
+    let name = p.name.trim().to_string();
+    let res = create_project_inner(p)?;
+    if res.success {
+        crate::toast_emit::record_alert_and_maybe_toast(
+            app,
+            "project.created",
+            "info",
+            &format!("Project created: {} ({})", name, res.id),
+        );
+    }
+    Ok(res)
+}
+
+/// Wrapper that calls `delete_project_inner` and, on actual removal
+/// (success=true, i.e. an entry was found), fires an info alert.
+pub fn delete_project_inner_with_emit(
+    app: &tauri::AppHandle,
+    id: String,
+) -> Result<DeleteProjectResult, String> {
+    let res = delete_project_inner(id.clone())?;
+    if res.success {
+        crate::toast_emit::record_alert_and_maybe_toast(
+            app,
+            "project.deleted",
+            "info",
+            &format!("Project deleted: {}", id),
+        );
+    }
+    Ok(res)
+}
+
+// LIB_RS_WIRING:
+//   Replace the `create_project` and `delete_project` commands so they
+//   pass the AppHandle to the emit-aware wrappers:
+//
+//     #[tauri::command]
+//     async fn create_project(
+//         app: tauri::AppHandle,
+//         name: String,
+//         path: String,
+//         ide: Option<String>,
+//         language: Option<String>,
+//         tags: Option<Vec<String>>,
+//     ) -> Result<projects::CreateProjectResult, String> {
+//         projects::create_project_inner_with_emit(
+//             &app,
+//             projects::CreateProjectPayload { name, path, ide, language, tags },
+//         )
+//     }
+//
+//     #[tauri::command]
+//     async fn delete_project(
+//         app: tauri::AppHandle,
+//         id: String,
+//     ) -> Result<projects::DeleteProjectResult, String> {
+//         projects::delete_project_inner_with_emit(&app, id)
+//     }

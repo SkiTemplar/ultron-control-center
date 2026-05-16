@@ -283,6 +283,178 @@ function NotePreview({ path }: { path: string }) {
 }
 
 // ---------------------------------------------------------------------------
+// Vault quick stats — right-side fallback in List mode when nothing is
+// selected. Avoids the "giant empty right column" the user complained
+// about by surfacing density + top categories + recent activity.
+// ---------------------------------------------------------------------------
+
+function VaultQuickStats({
+  data,
+  recent,
+}: {
+  data: MemoryStatusInfo | null;
+  recent: RecentNote[];
+}) {
+  // Derive top categories from `recent` only (cheap, no extra IPC).
+  // Category := first path segment under the vault root.
+  const catCounts = new Map<string, number>();
+  for (const n of recent) {
+    const seg = (n.relative || "").split(/[\\/]/)[0] || "(root)";
+    catCounts.set(seg, (catCounts.get(seg) ?? 0) + 1);
+  }
+  const topCats = [...catCounts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 8);
+
+  const avgSize =
+    recent.length > 0
+      ? Math.round(
+          recent.reduce((acc, n) => acc + n.size_bytes, 0) / recent.length,
+        )
+      : 0;
+  const lastTouch = recent[0]?.last_modified ?? null;
+
+  return (
+    <div className="flex h-full flex-col overflow-auto px-5 py-5">
+      <div
+        className="mb-3 text-[10px] font-medium uppercase tracking-[0.06em]"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        Vault quick stats
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div
+          className="rounded p-3"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div
+            className="text-[10px] uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Notes
+          </div>
+          <div className="mt-1 text-[16px] font-semibold tabular-nums">
+            {data?.vault.note_count.toLocaleString() ?? "—"}
+          </div>
+        </div>
+        <div
+          className="rounded p-3"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div
+            className="text-[10px] uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Avg size (recent)
+          </div>
+          <div className="mt-1 text-[16px] font-semibold tabular-nums">
+            {avgSize > 0 ? `${(avgSize / 1024).toFixed(1)} KB` : "—"}
+          </div>
+        </div>
+        <div
+          className="rounded p-3"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div
+            className="text-[10px] uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Last touch
+          </div>
+          <div className="mt-1 text-[13px] font-medium">
+            {relTime(lastTouch)}
+          </div>
+        </div>
+        <div
+          className="rounded p-3"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div
+            className="text-[10px] uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Qdrant points
+          </div>
+          <div className="mt-1 text-[16px] font-semibold tabular-nums">
+            {data?.qdrant.up
+              ? data.qdrant.collections
+                  .reduce((a, c) => a + (c.points_count ?? 0), 0)
+                  .toLocaleString()
+              : "—"}
+          </div>
+        </div>
+      </div>
+
+      <div
+        className="mb-2 mt-5 text-[10px] font-medium uppercase tracking-[0.06em]"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        Top folders (in recent)
+      </div>
+      <div
+        className="rounded"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        {topCats.length === 0 ? (
+          <div
+            className="p-3 text-[11.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            No recent activity to summarise.
+          </div>
+        ) : (
+          topCats.map(([k, v], i) => (
+            <div
+              key={k}
+              className="flex items-baseline justify-between px-3 py-1.5"
+              style={{
+                borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
+              }}
+            >
+              <span
+                className="truncate text-[12px]"
+                style={{ color: "var(--color-text)" }}
+              >
+                {k}
+              </span>
+              <span
+                className="ml-3 shrink-0 text-[11px] tabular-nums"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {v}
+              </span>
+            </div>
+          ))
+        )}
+      </div>
+
+      <p
+        className="mt-4 text-[11px] leading-relaxed"
+        style={{ color: "var(--color-text-faint)" }}
+      >
+        Select a note on the left to preview it here, or run a search above
+        to filter across the 3 memory layers.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -469,7 +641,7 @@ export function Memory() {
                     key: "highlights" as const,
                     label: "Highlights",
                     title:
-                      "Curated zone: most linked, recently active, by topic, orphans, long form",
+                      "Curated zone: most-linked notes, recently active, orphans, long-form. Click to switch view.",
                   },
                   {
                     key: "graph" as const,
@@ -685,129 +857,132 @@ export function Memory() {
           </p>
         )}
 
-        {/* Recent vault notes — read-only quick-jump. Only shown when the
-            user isn't actively searching, to keep the pane light. */}
-        {results.length === 0 && !searching && (
-          <div className="mt-6">
-            <div
-              className="mb-2 flex items-baseline justify-between"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
-                Recent vault notes
-              </span>
-              <button
-                type="button"
-                onClick={loadRecent}
-                disabled={recentLoading}
-                className="text-[10.5px] transition-colors disabled:opacity-50"
-                style={{ color: "var(--color-text-faint)" }}
-              >
-                {recentLoading ? "Loading..." : "Refresh"}
-              </button>
-            </div>
-            {recent.length === 0 && !recentLoading && (
-              <div
-                className="rounded p-4 text-[12px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  border: "1px solid var(--color-border)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                Vault vacío o no encontrado.
-              </div>
-            )}
-            <div
-              className="rounded"
-              style={{
-                background: "var(--color-surface-2)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              {recent.map((n, i) => (
-                <button
-                  key={n.path}
-                  type="button"
-                  onClick={() => setSelectedPath(n.path)}
-                  className="block w-full px-3 py-2 text-left transition-colors"
-                  style={{
-                    borderTop:
-                      i === 0 ? "none" : "1px solid var(--color-border)",
-                    background:
-                      selectedPath === n.path
-                        ? "var(--color-surface-3)"
-                        : "transparent",
-                  }}
-                >
-                  <div className="flex items-baseline gap-2">
-                    <span
-                      className="truncate text-[12px] font-medium"
-                      style={{ color: "var(--color-text)" }}
-                    >
-                      {n.title ?? n.relative}
-                    </span>
-                    <span
-                      className="ml-auto shrink-0 text-[10px] tabular-nums"
-                      style={{ color: "var(--color-text-faint)" }}
-                    >
-                      {relTime(n.last_modified)}
-                    </span>
-                  </div>
-                  <div
-                    className="mt-0.5 truncate text-[10.5px]"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      color: "var(--color-text-tertiary)",
-                    }}
-                  >
-                    {n.relative}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
         </>
         )}
       </div>
 
-      {/* Results split — only in list mode and only when a search has rows */}
-      {viewMode === "list" && (results.length > 0 || (searching && !error)) && (
-        <div className="flex flex-1 overflow-hidden border-t" style={{ borderColor: "var(--color-border)" }}>
+      {/* Bottom split — list mode only.
+          When a search returned rows: left = results, right = preview.
+          When no search active: left = "Recent vault notes", right =
+          preview of the selected note (or vault stats fallback).
+          This kills the giant right-side hole the user complained about. */}
+      {viewMode === "list" && (
+        <div
+          className="flex flex-1 overflow-hidden border-t"
+          style={{ borderColor: "var(--color-border)" }}
+        >
           <div
             className="w-[44%] min-w-[420px] overflow-auto border-r px-3 py-3"
             style={{ borderColor: "var(--color-border)" }}
           >
-            <div
-              className="mb-2 flex items-baseline justify-between px-2"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
-                {results.length} results
-              </span>
-            </div>
-            <div className="space-y-px">
-              {results.map((r) => (
-                <ResultRow
-                  key={r.id}
-                  r={r}
-                  selected={selectedPath === r.path}
-                  onClick={() => setSelectedPath(r.path)}
-                />
-              ))}
-            </div>
+            {results.length > 0 || searching ? (
+              <>
+                <div
+                  className="mb-2 flex items-baseline justify-between px-2"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
+                    {results.length} results
+                  </span>
+                </div>
+                <div className="space-y-px">
+                  {results.map((r) => (
+                    <ResultRow
+                      key={r.id}
+                      r={r}
+                      selected={selectedPath === r.path}
+                      onClick={() => setSelectedPath(r.path)}
+                    />
+                  ))}
+                </div>
+              </>
+            ) : (
+              <>
+                <div
+                  className="mb-2 flex items-baseline justify-between px-2"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
+                    Recent vault notes
+                  </span>
+                  <button
+                    type="button"
+                    onClick={loadRecent}
+                    disabled={recentLoading}
+                    className="text-[10.5px] transition-colors disabled:opacity-50"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    {recentLoading ? "Loading..." : "Refresh"}
+                  </button>
+                </div>
+                {recent.length === 0 && !recentLoading && (
+                  <div
+                    className="rounded p-4 text-[12px]"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      border: "1px solid var(--color-border)",
+                      color: "var(--color-text-tertiary)",
+                    }}
+                  >
+                    Vault vacío o no encontrado.
+                  </div>
+                )}
+                <div
+                  className="rounded"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  {recent.map((n, i) => (
+                    <button
+                      key={n.path}
+                      type="button"
+                      onClick={() => setSelectedPath(n.path)}
+                      className="block w-full px-3 py-2 text-left transition-colors"
+                      style={{
+                        borderTop:
+                          i === 0 ? "none" : "1px solid var(--color-border)",
+                        background:
+                          selectedPath === n.path
+                            ? "var(--color-surface-3)"
+                            : "transparent",
+                      }}
+                    >
+                      <div className="flex items-baseline gap-2">
+                        <span
+                          className="truncate text-[12px] font-medium"
+                          style={{ color: "var(--color-text)" }}
+                        >
+                          {n.title ?? n.relative}
+                        </span>
+                        <span
+                          className="ml-auto shrink-0 text-[10px] tabular-nums"
+                          style={{ color: "var(--color-text-faint)" }}
+                        >
+                          {relTime(n.last_modified)}
+                        </span>
+                      </div>
+                      <div
+                        className="mt-0.5 truncate text-[10.5px]"
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-tertiary)",
+                        }}
+                      >
+                        {n.relative}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
           <div className="flex-1 overflow-hidden">
             {selectedPath ? (
               <NotePreview path={selectedPath} />
             ) : (
-              <div
-                className="flex h-full items-center justify-center text-[12.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                Select a result to preview the note
-              </div>
+              <VaultQuickStats data={data} recent={recent} />
             )}
           </div>
         </div>

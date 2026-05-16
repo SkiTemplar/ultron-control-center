@@ -11,7 +11,16 @@ param(
     [string]$NewTriggerType,
 
     [Parameter(Mandatory = $false)]
-    [string]$NewTriggerAt
+    [string]$NewTriggerAt,
+
+    # Phase 8: catch-up window. When 'true', the task uses
+    # New-ScheduledTaskSettingsSet -StartWhenAvailable so Windows will run
+    # the task as soon as the PC comes back online if the scheduled time
+    # was missed (e.g. machine off / asleep). 'false' explicitly disables
+    # it. Omit (or pass empty) to leave existing settings untouched.
+    [Parameter(Mandatory = $false)]
+    [ValidateSet('', 'true', 'false')]
+    [string]$CatchUp = ''
 )
 
 # ULTRON Control Center — scheduled task helper.
@@ -40,6 +49,8 @@ function Get-TaskRow {
     $nextRun = if ($info.NextRunTime -and $info.NextRunTime.Year -gt 1) {
         $info.NextRunTime.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
     } else { '' }
+    $catchUp = $false
+    if ($Task.Settings) { $catchUp = [bool]$Task.Settings.StartWhenAvailable }
     [PSCustomObject]@{
         name        = $Task.TaskName
         state       = $Task.State.ToString()
@@ -47,6 +58,7 @@ function Get-TaskRow {
         next_run    = $nextRun
         last_result = $info.LastTaskResult
         description = $Task.Description
+        catch_up    = $catchUp
     }
 }
 
@@ -155,6 +167,9 @@ switch ($Action) {
             # Event log unavailable (e.g. permission denied) — ignore.
         }
 
+        $catchUp = $false
+        if ($task.Settings) { $catchUp = [bool]$task.Settings.StartWhenAvailable }
+
         @{
             name             = $task.TaskName
             description      = $task.Description
@@ -170,6 +185,7 @@ switch ($Action) {
             triggers         = $triggers
             actions          = $actions
             history          = $history
+            catch_up         = $catchUp
         } | ConvertTo-Json -Depth 6 -Compress
     }
 
@@ -219,17 +235,39 @@ switch ($Action) {
             # task and pass it back so an unelevated Set-ScheduledTask call succeeds against
             # the user's own Interactive-logon tasks (the only kind ULTRON-* installs).
             $existingUser = $task.Principal.UserId
-            if ($existingUser) {
-                Set-ScheduledTask -TaskName $Name -Trigger $newTrigger -User $existingUser | Out-Null
-            } else {
-                Set-ScheduledTask -TaskName $Name -Trigger $newTrigger | Out-Null
+
+            # Phase 8 catch-up window. We rebuild Settings only when the caller
+            # explicitly passes 'true' or 'false'; when omitted we leave the
+            # existing $task.Settings intact (no behaviour change). StartWhenAvailable
+            # is the Task Scheduler knob that makes Windows run a missed task
+            # the next time it can — exactly the semantics of "run if PC was off".
+            $settingsArg = @{}
+            if ($CatchUp -eq 'true') {
+                $newSettings = New-ScheduledTaskSettingsSet -StartWhenAvailable
+                $settingsArg['Settings'] = $newSettings
+            } elseif ($CatchUp -eq 'false') {
+                # Explicit opt-out: rebuild settings with StartWhenAvailable disabled.
+                $newSettings = New-ScheduledTaskSettingsSet
+                $settingsArg['Settings'] = $newSettings
             }
+
+            if ($existingUser) {
+                Set-ScheduledTask -TaskName $Name -Trigger $newTrigger -User $existingUser @settingsArg | Out-Null
+            } else {
+                Set-ScheduledTask -TaskName $Name -Trigger $newTrigger @settingsArg | Out-Null
+            }
+
+            # Re-read final settings.StartWhenAvailable so the UI can confirm.
+            $after = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+            $catchUpAfter = $false
+            if ($after -and $after.Settings) { $catchUpAfter = [bool]$after.Settings.StartWhenAvailable }
 
             @{
                 ok            = $true
                 name          = $Name
                 trigger_type  = $NewTriggerType
                 trigger_at    = if ($NewTriggerAt) { $NewTriggerAt } else { '' }
+                catch_up      = $catchUpAfter
             } | ConvertTo-Json -Compress
         } catch {
             @{

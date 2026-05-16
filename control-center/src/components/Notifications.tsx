@@ -142,6 +142,22 @@ function dedupe(alerts: AlertEntry[]): Grouped[] {
 
 const MUTE_KEY = "ultron.cc.muted_sources.v1";
 const DISMISSED_KEY = "ultron.cc.dismissed_fingerprints.v1";
+const TOAST_KEY = "ultron.cc.toast_enabled.v1";
+
+function loadToastEnabled(): boolean {
+  try {
+    const raw = localStorage.getItem(TOAST_KEY);
+    if (raw === null) return true;
+    return raw === "1";
+  } catch {
+    return true;
+  }
+}
+function saveToastEnabled(v: boolean) {
+  try {
+    localStorage.setItem(TOAST_KEY, v ? "1" : "0");
+  } catch {}
+}
 
 function loadDismissed(): Set<string> {
   try {
@@ -330,11 +346,43 @@ export function Notifications({ alerts, onDeleted }: Props) {
   // always `~/.ultron/alerts.jsonl`.
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
   const [deleting, setDeleting] = useState(false);
+  // Windows toast toggle. localStorage is the canonical UI state; the
+  // backend mirror (~/.ultron/.tmp/toast-enabled.flag) is what the Rust
+  // emitter consults. We keep them in sync via `set_toast_enabled`.
+  const [toastEnabled, setToastEnabled] = useState<boolean>(() => loadToastEnabled());
 
   useEffect(() => saveMutes(mutes), [mutes]);
   useEffect(() => saveSevFilters(sevFilters), [sevFilters]);
   useEffect(() => saveDateFilter(dateFilter), [dateFilter]);
   useEffect(() => saveDismissed(dismissed), [dismissed]);
+  // On mount, reconcile localStorage with the backend flag — if the flag
+  // file was edited externally (or this is a first run on a new install),
+  // the backend value wins.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = (await invoke("get_toast_enabled")) as boolean;
+        if (!cancelled && remote !== toastEnabled) {
+          setToastEnabled(remote);
+          saveToastEnabled(remote);
+        }
+      } catch {
+        /* backend cmd unavailable in legacy builds — keep localStorage */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  // Persist + push to backend whenever the toggle changes.
+  useEffect(() => {
+    saveToastEnabled(toastEnabled);
+    invoke("set_toast_enabled", { enabled: toastEnabled }).catch(() => {
+      /* swallow — UI already updated, backend will catch up next save */
+    });
+  }, [toastEnabled]);
 
   // Stats per severity (after date filter, before dedupe — counts raw alerts)
   const dateFiltered = useMemo(
@@ -506,6 +554,19 @@ export function Notifications({ alerts, onDeleted }: Props) {
               Undo ({dismissed.size})
             </button>
           )}
+          <label
+            className="flex cursor-pointer items-center gap-1.5 text-[11px] transition-colors"
+            style={{ color: "var(--color-text-tertiary)" }}
+            title="When on, critical/blocking alerts also fire a native Windows toast."
+          >
+            <input
+              type="checkbox"
+              checked={toastEnabled}
+              onChange={(e) => setToastEnabled(e.target.checked)}
+              className="h-3 w-3 cursor-pointer"
+            />
+            Show Windows toasts for critical alerts
+          </label>
           <button
             type="button"
             onClick={() => setShowMuteList(!showMuteList)}

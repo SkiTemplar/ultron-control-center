@@ -140,11 +140,17 @@ export function ModeSwitcher({ current, onChange }: Props) {
 
 export function useUltronMode() {
   const [mode, setMode] = useState<ModeKey | null>(null);
+  // v15.2 F7: surface what autodetect would pick + whether the on-disk
+  // mode is literally "auto" (i.e. the user has reset to autodetect).
+  const [autodetectDefault, setAutodetectDefault] = useState<ModeKey>("MEDIUM");
+  const [isAuto, setIsAuto] = useState<boolean>(false);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    invoke<{ mode: string | null }>("get_ultron_mode")
+    invoke<{ mode: string | null; autodetect_default?: string; is_auto?: boolean }>(
+      "get_ultron_mode",
+    )
       .then((r) => {
         if (cancelled) return;
         const m = (r?.mode ?? "").toUpperCase();
@@ -153,9 +159,17 @@ export function useUltronMode() {
         } else {
           setMode(null);
         }
+        const def = (r?.autodetect_default ?? "MEDIUM").toUpperCase();
+        if (def === "LOW" || def === "MEDIUM" || def === "HIGH" || def === "ULTRA") {
+          setAutodetectDefault(def);
+        }
+        setIsAuto(Boolean(r?.is_auto));
       })
       .catch(() => {
-        if (!cancelled) setMode(null);
+        if (!cancelled) {
+          setMode(null);
+          setIsAuto(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -164,6 +178,8 @@ export function useUltronMode() {
 
   return {
     mode,
+    autodetectDefault,
+    isAuto,
     refresh: () => setReloadKey((k) => k + 1),
   };
 }

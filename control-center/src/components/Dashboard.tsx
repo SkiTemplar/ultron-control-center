@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
-  CmdResult,
   QdrantHealth,
   AlertEntry,
   ChangelogEntry,
@@ -144,11 +143,69 @@ type DiagnoseResult = {
   stderr: string;
 };
 
-type AiDiagnoseResult = {
-  success: boolean;
-  analysis: string;
-  stderr: string;
+// Full diagnostic (Phase 6) shape — must mirror Rust FullDiagnostic.
+type DiagItem = {
+  key: string;
+  label: string;
+  color: "green" | "orange" | "red";
+  metric: string;
+  detail: string | null;
+  fix: string | null;
+  elapsed_ms: number;
 };
+type FullDiagnostic = {
+  items: DiagItem[];
+  generated_at: string;
+  elapsed_ms_total: number;
+};
+type AutoFixResult = {
+  name: string;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+};
+
+// Friendly labels for the auto-fix checklist modal.
+const AUTO_FIX_CATALOG: { name: string; title: string; blurb: string; danger?: boolean }[] = [
+  {
+    name: "clear-minidumps",
+    title: "Clear minidumps",
+    blurb: "Remove %LOCALAPPDATA%\\CrashDumps\\*.dmp",
+  },
+  {
+    name: "clear-temp-30d",
+    title: "Clear temp (> 30 days)",
+    blurb: "Delete stale files from %TEMP% and Windows\\Temp",
+  },
+  {
+    name: "empty-recycle-bin",
+    title: "Empty Recycle Bin",
+    blurb: "Clear-RecycleBin -Force (all drives)",
+    danger: true,
+  },
+  {
+    name: "restart-docker",
+    title: "Restart Docker daemon",
+    blurb: "Restart com.docker.service or relaunch Docker Desktop",
+  },
+  {
+    name: "restart-qdrant",
+    title: "Restart Qdrant container",
+    blurb: "docker restart on qdrant/qdrant or run ensure-qdrant.ps1",
+  },
+];
+
+function colorToken(color: "green" | "orange" | "red") {
+  switch (color) {
+    case "green":
+      return "var(--color-success)";
+    case "orange":
+      return "var(--color-warn)";
+    case "red":
+      return "var(--color-danger)";
+  }
+}
 
 export function Dashboard({
   qdrant,
@@ -157,67 +214,95 @@ export function Dashboard({
   changelog,
   globalStatus,
 }: Props) {
-  const [statusOutput, setStatusOutput] = useState<CmdResult | null>(null);
-  const [statusLoading, setStatusLoading] = useState(false);
+  const [diag, setDiag] = useState<FullDiagnostic | null>(null);
+  const [diagLoading, setDiagLoading] = useState(false);
+  const [diagErr, setDiagErr] = useState<string | null>(null);
   const [mcps, setMcps] = useState<McpInfo[] | null>(null);
   const [memory, setMemory] = useState<MemoryStatusInfo | null>(null);
-  const [diagReport, setDiagReport] = useState<DiagnoseResult | null>(null);
-  const [diagLoading, setDiagLoading] = useState(false);
-  const [diagAi, setDiagAi] = useState<AiDiagnoseResult | null>(null);
-  const [diagAiLoading, setDiagAiLoading] = useState(false);
-  const [diagError, setDiagError] = useState<string | null>(null);
 
-  async function runStatus() {
-    setStatusLoading(true);
-    try {
-      const r = (await invoke("ultron_status")) as CmdResult;
-      setStatusOutput(r);
-    } catch (e) {
-      setStatusOutput({
-        success: false,
-        stdout: "",
-        stderr: String(e),
-        exit_code: null,
-      });
-    } finally {
-      setStatusLoading(false);
-    }
-  }
+  // PC diagnostics (existing flow) — kept as-is.
+  const [pcReport, setPcReport] = useState<DiagnoseResult | null>(null);
+  const [pcLoading, setPcLoading] = useState(false);
+  const [pcError, setPcError] = useState<string | null>(null);
 
-  async function runDiagnose() {
+  // Auto-fix modal state
+  const [fixOpen, setFixOpen] = useState(false);
+  const [fixSelected, setFixSelected] = useState<Set<string>>(new Set());
+  const [fixRunning, setFixRunning] = useState(false);
+  const [fixResults, setFixResults] = useState<AutoFixResult[]>([]);
+
+  async function runFullDiagnostic() {
     setDiagLoading(true);
-    setDiagError(null);
-    setDiagAi(null);
+    setDiagErr(null);
     try {
-      const r = (await invoke("run_diagnose", { hours: 24 })) as DiagnoseResult;
-      setDiagReport(r);
-      if (!r.success) setDiagError(r.stderr || "Diagnose returned no output");
+      const r = (await invoke("run_full_diagnostic")) as FullDiagnostic;
+      setDiag(r);
     } catch (e) {
-      setDiagError(String(e));
+      setDiagErr(String(e));
     } finally {
       setDiagLoading(false);
     }
   }
 
-  async function askAi(provider: "claude" | "codex") {
-    if (!diagReport?.report_json) return;
-    setDiagAiLoading(true);
-    setDiagError(null);
+  async function runPcDiagnose() {
+    setPcLoading(true);
+    setPcError(null);
     try {
-      const r = (await invoke("diagnose_with_ai", {
-        reportJson: diagReport.report_json,
-        provider,
-      })) as AiDiagnoseResult;
-      setDiagAi(r);
-      if (!r.success) setDiagError(r.stderr);
+      const r = (await invoke("run_diagnose", { hours: 24 })) as DiagnoseResult;
+      setPcReport(r);
+      if (!r.success) setPcError(r.stderr || "Diagnose returned no output");
     } catch (e) {
-      setDiagError(String(e));
+      setPcError(String(e));
     } finally {
-      setDiagAiLoading(false);
+      setPcLoading(false);
     }
   }
 
-  function parsedReport(): {
+  function toggleFix(name: string) {
+    setFixSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) {
+        next.delete(name);
+      } else {
+        next.add(name);
+      }
+      return next;
+    });
+  }
+
+  async function applySelectedFixes() {
+    if (fixSelected.size === 0) return;
+    // Extra confirm for the destructive one.
+    if (fixSelected.has("empty-recycle-bin")) {
+      const ok = window.confirm(
+        "This will permanently empty the Recycle Bin on all drives. Continue?",
+      );
+      if (!ok) return;
+    }
+    setFixRunning(true);
+    setFixResults([]);
+    const out: AutoFixResult[] = [];
+    for (const name of Array.from(fixSelected)) {
+      try {
+        const r = (await invoke("apply_auto_fix", { name })) as AutoFixResult;
+        out.push(r);
+      } catch (e) {
+        out.push({
+          name,
+          success: false,
+          stdout: "",
+          stderr: String(e),
+          exit_code: null,
+        });
+      }
+    }
+    setFixResults(out);
+    setFixRunning(false);
+    // Refresh the diagnostic so the user sees the impact.
+    runFullDiagnostic();
+  }
+
+  function parsedPcReport(): {
     appCrashes?: number;
     unexpectedReboots?: number;
     sysErr?: number;
@@ -225,9 +310,9 @@ export function Dashboard({
     ramPct?: number;
     uptimeHours?: number;
   } {
-    if (!diagReport?.report_json) return {};
+    if (!pcReport?.report_json) return {};
     try {
-      const r = JSON.parse(diagReport.report_json);
+      const r = JSON.parse(pcReport.report_json);
       return {
         appCrashes: r.appCrashes?.length ?? 0,
         unexpectedReboots: r.unexpectedReboots?.length ?? 0,
@@ -277,7 +362,6 @@ export function Dashboard({
     alertsCritical > 0 ? "critical" : alertsWarn > 0 ? "warn" : "normal";
   const alertsDot: GlobalStatus = alertsCritical > 0 ? "down" : alertsWarn > 0 ? "warn" : "ok";
 
-  // MCPs widget — connected / issues
   const mcpOk = mcps?.filter((m) => m.status === "ok").length ?? 0;
   const mcpTotal = mcps?.length ?? 0;
   const mcpIssues =
@@ -289,7 +373,6 @@ export function Dashboard({
   const mcpsEmphasis: "normal" | "warn" | "critical" =
     mcpIssues > 0 ? "warn" : "normal";
 
-  // Brain index widget — points + age
   const brainPoints = memory?.qdrant.collections.reduce(
     (acc, c) => acc + (c.points_count ?? 0),
     0,
@@ -325,7 +408,7 @@ export function Dashboard({
       <header className="mb-8">
         <h1 className="text-[20px] font-semibold leading-tight">Dashboard</h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-          System overview · Control Center v15.1
+          System overview · Control Center v15.2
         </p>
       </header>
 
@@ -368,93 +451,35 @@ export function Dashboard({
         />
       </div>
 
-      {/* Quick action: ultron status sidecar */}
+      {/* Full diagnostic — replaces the old "ultron status" quick check */}
       <section className="mt-8">
         <div className="flex items-baseline justify-between">
-          <h2 className="text-[14px] font-semibold">Quick check</h2>
+          <div>
+            <h2 className="text-[14px] font-semibold">Full diagnostic</h2>
+            <p
+              className="mt-1 text-[12px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              Parallel health check across Qdrant, Brain, Vault, Hooks, MCPs,
+              Skills, Cost, Disk, Backups, Docker. Each subsystem reports a
+              colour and a key metric.
+            </p>
+          </div>
           <button
             type="button"
-            onClick={runStatus}
-            disabled={statusLoading}
+            onClick={runFullDiagnostic}
+            disabled={diagLoading}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
             style={{
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
           >
-            {statusLoading ? "Running…" : "Run ultron status"}
+            {diagLoading ? "Probing…" : "Run full diagnostic"}
           </button>
         </div>
-        <p
-          className="mt-1 text-[12px]"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          Invokes <span style={{ fontFamily: "var(--font-mono)" }}>ultron.ps1 status</span> via Tauri shell sidecar.
-        </p>
-        {statusOutput && (
-          <pre
-            className="mt-3 max-h-80 overflow-auto rounded p-3 text-[11.5px] leading-relaxed"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border)",
-              fontFamily: "var(--font-mono)",
-              color: "var(--color-text-secondary)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {statusOutput.stdout || statusOutput.stderr || "(no output)"}
-            {statusOutput.exit_code !== null && (
-              <div className="mt-3" style={{ color: "var(--color-text-tertiary)" }}>
-                — exit {statusOutput.exit_code}
-              </div>
-            )}
-          </pre>
-        )}
-      </section>
 
-      {/* Diagnose PC */}
-      <section className="mt-8">
-        <div className="flex items-baseline justify-between">
-          <h2 className="text-[14px] font-semibold">Diagnose PC</h2>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={runDiagnose}
-              disabled={diagLoading}
-              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-              }}
-            >
-              {diagLoading ? "Recolectando…" : "Recolectar 24h"}
-            </button>
-            <button
-              type="button"
-              onClick={() => askAi("claude")}
-              disabled={!diagReport || diagAiLoading}
-              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
-              style={{
-                background: "var(--color-accent)",
-                color: "var(--color-accent-text)",
-              }}
-              title="Manda el report a Claude y pide diagnóstico en español"
-            >
-              {diagAiLoading ? "Claude pensando…" : "Diagnosticar con Claude"}
-            </button>
-          </div>
-        </div>
-        <p
-          className="mt-1 text-[12px]"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          Recoge Event Viewer (System + Application críticos/errores), top
-          procesos por RAM, disco, crashes y reboots inesperados. Luego se
-          puede pedir a una IA un análisis de qué pasó.
-        </p>
-
-        {diagError && (
+        {diagErr && (
           <div
             className="mt-3 rounded p-3 text-[12px]"
             style={{
@@ -463,12 +488,139 @@ export function Dashboard({
               color: "var(--color-danger)",
             }}
           >
-            {diagError}
+            {diagErr}
           </div>
         )}
 
-        {diagReport && (() => {
-          const s = parsedReport();
+        {diag && (
+          <>
+            <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+              {diag.items.map((item) => (
+                <div
+                  key={item.key}
+                  className="rounded-md px-4 py-3"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: `1px solid ${colorToken(item.color)}33`,
+                    borderLeft: `3px solid ${colorToken(item.color)}`,
+                  }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span
+                      className="text-[11px] font-medium uppercase tracking-wide"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {item.label}
+                    </span>
+                    <span
+                      className="inline-block h-1.5 w-1.5 rounded-full"
+                      style={{ background: colorToken(item.color) }}
+                    />
+                  </div>
+                  <div className="mt-1.5 text-[15px] font-semibold tabular-nums leading-tight">
+                    {item.metric}
+                  </div>
+                  {item.detail && (
+                    <div
+                      className="mt-1 text-[11px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {item.detail}
+                    </div>
+                  )}
+                  {item.fix && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFixSelected(new Set([item.fix as string]));
+                        setFixOpen(true);
+                      }}
+                      className="mt-2 text-[11px] underline-offset-2 hover:underline"
+                      style={{ color: colorToken(item.color) }}
+                    >
+                      Fix → {item.fix}
+                    </button>
+                  )}
+                  <div
+                    className="mt-1 text-[10px]"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    {item.elapsed_ms}ms
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div
+              className="mt-2 text-[11px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              Generated {formatRelative(diag.generated_at)} · total{" "}
+              {diag.elapsed_ms_total}ms
+            </div>
+          </>
+        )}
+      </section>
+
+      {/* PC Diagnostics (existing) + Auto-fix entry point */}
+      <section className="mt-8">
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-[14px] font-semibold">PC diagnostics</h2>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={runPcDiagnose}
+              disabled={pcLoading}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {pcLoading ? "Collecting…" : "Collect 24h"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setFixSelected(new Set());
+                setFixResults([]);
+                setFixOpen(true);
+              }}
+              disabled={!pcReport}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-accent-text)",
+              }}
+              title="Open the auto-fix checklist"
+            >
+              Auto-fix common issues
+            </button>
+          </div>
+        </div>
+        <p
+          className="mt-1 text-[12px]"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          Collects Event Viewer (System + Application critical/errors), top RAM
+          processes, disk usage, crashes and unexpected reboots.
+        </p>
+
+        {pcError && (
+          <div
+            className="mt-3 rounded p-3 text-[12px]"
+            style={{
+              background: "rgba(248, 81, 73, 0.06)",
+              border: "1px solid rgba(248, 81, 73, 0.22)",
+              color: "var(--color-danger)",
+            }}
+          >
+            {pcError}
+          </div>
+        )}
+
+        {pcReport && (() => {
+          const s = parsedPcReport();
           return (
             <div className="mt-3 grid grid-cols-3 gap-2 md:grid-cols-6">
               <MiniStat
@@ -503,43 +655,6 @@ export function Dashboard({
             </div>
           );
         })()}
-
-        {diagAi && diagAi.success && (
-          <div
-            className="mt-4 rounded p-4 text-[12.5px] leading-relaxed"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-text-secondary)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {diagAi.analysis}
-          </div>
-        )}
-
-        {diagReport && !diagAi && (
-          <details className="mt-3">
-            <summary
-              className="cursor-pointer text-[11px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Ver report JSON crudo ({diagReport.report_json.length} chars)
-            </summary>
-            <pre
-              className="mt-2 max-h-80 overflow-auto rounded p-3 text-[10.5px] leading-relaxed"
-              style={{
-                background: "var(--color-surface-1)",
-                border: "1px solid var(--color-border)",
-                fontFamily: "var(--font-mono)",
-                color: "var(--color-text-tertiary)",
-                whiteSpace: "pre-wrap",
-              }}
-            >
-              {diagReport.report_json}
-            </pre>
-          </details>
-        )}
       </section>
 
       {/* Recent changelog summary */}
@@ -581,6 +696,160 @@ export function Dashboard({
       >
         Global status: {globalStatus}
       </div>
+
+      {/* Auto-fix modal */}
+      {fixOpen && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center"
+          style={{ background: "rgba(0,0,0,0.55)" }}
+          onClick={() => {
+            if (!fixRunning) setFixOpen(false);
+          }}
+        >
+          <div
+            className="max-h-[80vh] w-[560px] overflow-auto rounded-md p-6"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-[15px] font-semibold">Auto-fix common issues</h3>
+              <button
+                type="button"
+                onClick={() => setFixOpen(false)}
+                disabled={fixRunning}
+                className="text-[12px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Close
+              </button>
+            </div>
+            <p
+              className="mt-1 text-[12px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              Select the fixes to apply. Each one runs as an isolated PowerShell
+              script under <span style={{ fontFamily: "var(--font-mono)" }}>scripts/cockpit/auto-fixes/</span>.
+            </p>
+
+            <ul className="mt-4 space-y-2">
+              {AUTO_FIX_CATALOG.map((f) => (
+                <li
+                  key={f.name}
+                  className="rounded p-3"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={fixSelected.has(f.name)}
+                      onChange={() => toggleFix(f.name)}
+                      disabled={fixRunning}
+                      className="mt-0.5"
+                    />
+                    <div className="flex-1">
+                      <div className="text-[12.5px] font-medium">
+                        {f.title}
+                        {f.danger && (
+                          <span
+                            className="ml-2 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                            style={{
+                              background: "rgba(248, 81, 73, 0.12)",
+                              color: "var(--color-danger)",
+                            }}
+                          >
+                            destructive
+                          </span>
+                        )}
+                      </div>
+                      <div
+                        className="mt-0.5 text-[11.5px]"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                      >
+                        {f.blurb}
+                      </div>
+                    </div>
+                  </label>
+                </li>
+              ))}
+            </ul>
+
+            <div className="mt-5 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setFixOpen(false)}
+                disabled={fixRunning}
+                className="rounded px-3 py-1.5 text-[12px] font-medium"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border-strong)",
+                  color: "var(--color-text)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={applySelectedFixes}
+                disabled={fixRunning || fixSelected.size === 0}
+                className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                {fixRunning ? "Applying…" : `Apply ${fixSelected.size}`}
+              </button>
+            </div>
+
+            {fixResults.length > 0 && (
+              <div className="mt-5 space-y-2">
+                <h4 className="text-[12.5px] font-semibold">Results</h4>
+                {fixResults.map((r) => (
+                  <div
+                    key={r.name}
+                    className="rounded p-2 text-[11.5px]"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      border: `1px solid ${r.success ? "var(--color-success)33" : "rgba(248,81,73,0.22)"}`,
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span style={{ fontFamily: "var(--font-mono)" }}>{r.name}</span>
+                      <span
+                        style={{
+                          color: r.success
+                            ? "var(--color-success)"
+                            : "var(--color-danger)",
+                        }}
+                      >
+                        {r.success ? "ok" : `exit ${r.exit_code ?? "?"}`}
+                      </span>
+                    </div>
+                    {(r.stdout || r.stderr) && (
+                      <pre
+                        className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap"
+                        style={{
+                          color: "var(--color-text-tertiary)",
+                          fontFamily: "var(--font-mono)",
+                          fontSize: "10.5px",
+                        }}
+                      >
+                        {r.stdout || r.stderr}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

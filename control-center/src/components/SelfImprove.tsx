@@ -249,37 +249,10 @@ export function SelfImprove() {
         </div>
       )}
 
-      {data && data.recent_memory_paths && data.recent_memory_paths.length > 0 && (
-        <div>
-          <div
-            className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Memory notes accessed recently
-          </div>
-          <ul
-            className="rounded text-[11.5px]"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            {data.recent_memory_paths.slice(0, 8).map((p, i) => (
-              <li
-                key={p}
-                className="px-3 py-1.5"
-                style={{
-                  borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
-                  color: "var(--color-text-secondary)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {p}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Removed "Memory notes accessed recently" widget — per user feedback
+          the path list wasn't actionable. The data still arrives in the
+          report (recent_memory_paths) so we can resurface it elsewhere if
+          we find a better way to use it. */}
 
       {data && data.recent_errors.length > 0 && (
         <div>
@@ -320,10 +293,18 @@ export function SelfImprove() {
         <div className="mb-2 flex items-baseline justify-between gap-3">
           <div className="flex items-center gap-2">
             <div
-              className="text-[10px] font-medium uppercase tracking-[0.06em]"
+              className="text-[10px] font-medium uppercase tracking-[0.06em] cursor-help"
               style={{ color: "var(--color-text-tertiary)" }}
+              title="Counts hook executions by event (SessionStart, PreToolUse, etc) in the last 24h. Spikes can indicate runaway hooks."
             >
               Hook signals
+              <span
+                className="ml-1 text-[9px]"
+                style={{ color: "var(--color-text-faint)" }}
+                aria-hidden="true"
+              >
+                ⓘ
+              </span>
             </div>
           </div>
         </div>

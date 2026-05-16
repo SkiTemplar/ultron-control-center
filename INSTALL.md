@@ -174,6 +174,37 @@ uv run python $env:USERPROFILE\.ultron\scripts\cockpit\doctor.py
 
 Exit codes: `0` clean, `1` warnings only, `2` blocking findings.
 
+### 12. Scheduled tasks — "Catch up if missed" (Phase 8)
+
+ULTRON registers Windows scheduled tasks with the `ULTRON-` prefix
+(brain-rebuild, alerts, integrity, etc.). The Control Center's **System**
+tab exposes an "Edit schedule" modal with a **Catch up if missed**
+toggle. When enabled, the task is updated via:
+
+```powershell
+Set-ScheduledTask -TaskName ULTRON-* `
+    -Settings (New-ScheduledTaskSettingsSet -StartWhenAvailable)
+```
+
+`StartWhenAvailable` is the Windows Task Scheduler knob that tells the
+service: *if the trigger fires while the PC is off, asleep, or
+hibernated, run the task as soon as the PC comes back online* (within
+the standard 72-hour window Task Scheduler keeps a missed trigger
+queued). Without it, missed triggers are silently dropped — which is
+the default and why a laptop that was closed at 9 am never sees the
+9 am brain rebuild.
+
+The toggle is per-task. To inspect the current state from a shell:
+
+```powershell
+(Get-ScheduledTask -TaskName 'ULTRON-brain-rebuild').Settings.StartWhenAvailable
+```
+
+The UI also shows a "Next run" line computed in-browser, plus a
+collapsed **Advanced** section with the equivalent cron expression
+(read-only — the backend currently consumes Daily / Weekly Monday /
+AtLogon only, not free-form cron).
+
 ## Common failures and fixes
 
 | Symptom                                              | Fix                                                          |

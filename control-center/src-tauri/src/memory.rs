@@ -329,6 +329,42 @@ pub fn memory_status_inner() -> MemoryStatus {
     }
 }
 
+/// Same as `memory_status_inner` but plumbs an AppHandle through so the
+/// qdrant probe can fire a UI alert + Windows toast when the daemon is
+/// unreachable. Behaviour is otherwise identical — the returned struct
+/// is byte-for-byte the same, the side effect is just the alert.
+pub fn memory_status_with_emit(app: &tauri::AppHandle) -> MemoryStatus {
+    let qdrant = read_qdrant();
+    if !qdrant.up {
+        let msg = qdrant
+            .error
+            .as_deref()
+            .unwrap_or("Qdrant /collections probe failed");
+        // Source name kept stable so the rate-limiter in toast_emit can
+        // collapse repeated probe failures.
+        crate::toast_emit::record_alert_and_maybe_toast(
+            app,
+            "qdrant.health",
+            "warn",
+            &format!("Qdrant unreachable at localhost:6333 — {}", msg),
+        );
+    }
+    MemoryStatus {
+        vault: read_vault(),
+        brain: read_brain(),
+        qdrant,
+    }
+}
+
+// LIB_RS_WIRING:
+//   Replace the body of `memory_status()` so it routes through the new
+//   emit-aware path:
+//
+//     #[tauri::command]
+//     async fn memory_status(app: tauri::AppHandle) -> Result<memory::MemoryStatus, String> {
+//         Ok(memory::memory_status_with_emit(&app))
+//     }
+
 // ---------------------------------------------------------------------------
 // Recent vault notes — mtime-sorted preview list
 // ---------------------------------------------------------------------------

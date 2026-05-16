@@ -5,88 +5,8 @@ import type { SettingsSaveResult, SettingsSnapshot } from "../types";
 import { AuthStatus } from "./AuthStatus";
 import { ModeSwitcher, useUltronMode } from "./ModeSwitcher";
 
-// ---------------------------------------------------------------------------
-// MCP servers section — toggle enable/disable + show raw config
-// ---------------------------------------------------------------------------
-
-type McpServer = {
-  command?: string;
-  args?: string[];
-  url?: string;
-  type?: string;
-  disabled?: boolean;
-};
-
-function MCPRow({
-  name,
-  cfg,
-  onToggle,
-}: {
-  name: string;
-  cfg: McpServer;
-  onToggle: () => void;
-}) {
-  const enabled = !cfg.disabled;
-  const transport = cfg.type === "sse" ? "sse" : cfg.url ? "http" : "stdio";
-  return (
-    <div
-      className="flex items-start gap-3 rounded p-3"
-      style={{
-        background: "var(--color-surface-2)",
-        border: "1px solid var(--color-border)",
-        opacity: enabled ? 1 : 0.55,
-      }}
-    >
-      <button
-        type="button"
-        onClick={onToggle}
-        className="mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full transition-colors"
-        style={{
-          background: enabled ? "var(--color-success)" : "var(--color-surface-3)",
-          border: "1px solid var(--color-border-strong)",
-          padding: "1px",
-        }}
-        title={enabled ? "Disable this MCP" : "Enable this MCP"}
-      >
-        <span
-          className="block h-3.5 w-3.5 rounded-full transition-transform"
-          style={{
-            background: "var(--color-text)",
-            transform: enabled ? "translateX(16px)" : "translateX(0)",
-          }}
-        />
-      </button>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
-            {name}
-          </span>
-          <span
-            className="text-[10.5px] uppercase tracking-wide"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            {transport}
-          </span>
-          {!enabled && (
-            <span
-              className="text-[10px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              disabled
-            </span>
-          )}
-        </div>
-        <div
-          className="mt-1 truncate text-[10.5px]"
-          style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-tertiary)" }}
-          title={cfg.url || `${cfg.command || ""} ${(cfg.args || []).join(" ")}`}
-        >
-          {cfg.url || `${cfg.command || "?"} ${(cfg.args || []).slice(0, 3).join(" ")}`}
-        </div>
-      </div>
-    </div>
-  );
-}
+// v15.2 F7: MCPRow / McpServer type removed from Settings — MCP enable/disable
+// now lives in the MCPs top-level tab (see EnableDisableSection in MCPs.tsx).
 
 // ---------------------------------------------------------------------------
 // JSON editor — replaces the old read-only preview. Lets the user edit the
@@ -108,6 +28,87 @@ function extractJsonFromText(s: string): string | null {
   return trimmed.slice(first, last + 1).trim();
 }
 
+// v15.2 F7: light-weight settings.json schema validator. We do not pretend to
+// implement Claude Code's full schema — that would be a moving target — but
+// we catch the structural mistakes that actually cause Claude to crash on
+// SessionStart: wrong shape for the well-known keys (`hooks`, `mcpServers`,
+// `env`, `model`). Anything outside that whitelist is left alone.
+function validateSettingsSchema(obj: Record<string, unknown>): string[] {
+  const errors: string[] = [];
+  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
+    return ["Root must be a JSON object."];
+  }
+  if ("hooks" in obj) {
+    const h = obj.hooks as unknown;
+    if (h === null || typeof h !== "object" || Array.isArray(h)) {
+      errors.push("`hooks` must be an object keyed by event name.");
+    } else {
+      for (const [event, val] of Object.entries(h as Record<string, unknown>)) {
+        if (!Array.isArray(val)) {
+          errors.push(`hooks.${event} must be an array of matcher groups.`);
+        }
+      }
+    }
+  }
+  if ("mcpServers" in obj) {
+    const m = obj.mcpServers as unknown;
+    if (m === null || typeof m !== "object" || Array.isArray(m)) {
+      errors.push("`mcpServers` must be an object keyed by server name.");
+    } else {
+      for (const [name, val] of Object.entries(m as Record<string, unknown>)) {
+        if (val === null || typeof val !== "object" || Array.isArray(val)) {
+          errors.push(`mcpServers.${name} must be an object.`);
+          continue;
+        }
+        const cfg = val as Record<string, unknown>;
+        const hasCommand = typeof cfg.command === "string";
+        const hasUrl = typeof cfg.url === "string";
+        if (!hasCommand && !hasUrl) {
+          errors.push(`mcpServers.${name} needs either \`command\` or \`url\`.`);
+        }
+        if ("args" in cfg && cfg.args !== undefined && !Array.isArray(cfg.args)) {
+          errors.push(`mcpServers.${name}.args must be an array of strings.`);
+        }
+        if ("env" in cfg && cfg.env !== undefined) {
+          const e = cfg.env;
+          if (e === null || typeof e !== "object" || Array.isArray(e)) {
+            errors.push(`mcpServers.${name}.env must be an object.`);
+          }
+        }
+      }
+    }
+  }
+  if ("env" in obj) {
+    const e = obj.env as unknown;
+    if (e === null || typeof e !== "object" || Array.isArray(e)) {
+      errors.push("`env` must be an object of string-valued keys.");
+    }
+  }
+  if ("model" in obj && typeof obj.model !== "string") {
+    errors.push("`model` must be a string.");
+  }
+  return errors;
+}
+
+// v15.2 F7: collapsible navigator that scrolls the textarea to the line where
+// each top-level key appears. We index the live text rather than the parsed
+// object so the indices stay accurate when the user is mid-edit.
+function indexTopLevelKeys(text: string): Record<string, number> {
+  // Match keys at indentation depth 2 (one level inside the root object).
+  // settings.json is pretty-printed, so this is reliable enough for the
+  // schema nav to "just work".
+  const idx: Record<string, number> = {};
+  const lines = text.split("\n");
+  const re = /^\s{2}"([^"\\]+)"\s*:/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(re);
+    if (m && idx[m[1]] === undefined) {
+      idx[m[1]] = i;
+    }
+  }
+  return idx;
+}
+
 function JsonEditor({
   obj,
   onChange,
@@ -125,6 +126,9 @@ function JsonEditor({
   const [aiBusy, setAiBusy] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiInfo, setAiInfo] = useState<string | null>(null);
+  // v15.2 F7: schema validation + scroll navigator.
+  const [schemaErrors, setSchemaErrors] = useState<string[] | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // External `obj` changes (e.g. after Save reload) overwrite the textarea
   // — otherwise the buffer would go stale silently.
@@ -196,6 +200,56 @@ function JsonEditor({
   }
 
   const lines = text.split("\n").length;
+  const keyIndex = useMemo(() => indexTopLevelKeys(text), [text]);
+  // The four sections users actually edit. We always show them so the user
+  // can see what's available even if the key is missing in their file (a
+  // click on an absent key is a no-op rather than a jump). Anything else is
+  // lumped under "Other keys" so the nav stays clean.
+  const KNOWN_SECTIONS: { key: string; label: string }[] = [
+    { key: "hooks", label: "hooks" },
+    { key: "mcpServers", label: "mcpServers" },
+    { key: "model", label: "model" },
+    { key: "env", label: "env" },
+  ];
+  const otherKeys = useMemo(() => {
+    const known = new Set(KNOWN_SECTIONS.map((s) => s.key));
+    return Object.keys(keyIndex)
+      .filter((k) => !known.has(k))
+      .sort();
+  }, [keyIndex]);
+
+  function scrollToLine(lineIndex: number) {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    // Compute approx pixel offset by averaging line height. This works for
+    // the monospace textarea even though we don't have a real layout API.
+    const lh = 18; // approximate; the editor uses 11.5px font + leading
+    ta.focus();
+    ta.scrollTop = Math.max(0, lineIndex * lh - lh * 2);
+    // Move the caret to the start of that line so a follow-up edit lands
+    // at the section the user clicked on.
+    const beforeLines = text.split("\n").slice(0, lineIndex);
+    const offset = beforeLines.reduce((acc, l) => acc + l.length + 1, 0);
+    ta.setSelectionRange(offset, offset);
+  }
+
+  function validate() {
+    if (parseError) {
+      setSchemaErrors(["Fix the JSON parse error first."]);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setSchemaErrors(["Root must be a JSON object."]);
+        return;
+      }
+      const errs = validateSettingsSchema(parsed as Record<string, unknown>);
+      setSchemaErrors(errs);
+    } catch (e) {
+      setSchemaErrors([e instanceof Error ? e.message : String(e)]);
+    }
+  }
 
   return (
     <div className="space-y-3">
@@ -206,20 +260,58 @@ function JsonEditor({
         >
           Editable copy of <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span> · {lines} líneas · cualquier cambio se hace efectivo al pulsar Save (backup automático)
         </div>
-        <button
-          type="button"
-          onClick={() => setAiOpen(!aiOpen)}
-          className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
-          style={{
-            background: aiOpen ? "var(--color-surface-3)" : "var(--color-surface-2)",
-            color: "var(--color-text)",
-            border: "1px solid var(--color-border-strong)",
-          }}
-          title="Pide a Codex que modifique este JSON con instrucciones en lenguaje natural"
-        >
-          {aiOpen ? "Close AI assist" : "Ask Codex…"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={validate}
+            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Lightweight structural validation of hooks/mcpServers/env/model"
+          >
+            Validate schema
+          </button>
+          <button
+            type="button"
+            onClick={() => setAiOpen(!aiOpen)}
+            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+            style={{
+              background: aiOpen ? "var(--color-surface-3)" : "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Pide a Codex que modifique este JSON con instrucciones en lenguaje natural"
+          >
+            {aiOpen ? "Close AI assist" : "Ask Codex…"}
+          </button>
+        </div>
       </div>
+
+      {schemaErrors !== null && (
+        <div
+          className="rounded p-2 text-[11.5px]"
+          style={{
+            background: schemaErrors.length === 0
+              ? "rgba(63, 185, 80, 0.08)"
+              : "rgba(248, 81, 73, 0.06)",
+            border: `1px solid ${schemaErrors.length === 0 ? "rgba(63, 185, 80, 0.22)" : "rgba(248, 81, 73, 0.22)"}`,
+            color: schemaErrors.length === 0 ? "var(--color-success)" : "var(--color-danger)",
+          }}
+        >
+          {schemaErrors.length === 0 ? (
+            <span>Schema OK — hooks/mcpServers/env/model shapes look valid.</span>
+          ) : (
+            <ul className="list-disc space-y-0.5 pl-4">
+              {schemaErrors.map((e, i) => (
+                <li key={i}>{e}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {aiOpen && (
         <div
@@ -309,21 +401,108 @@ function JsonEditor({
         </div>
       )}
 
-      <textarea
-        value={text}
-        onChange={(e) => commitText(e.target.value)}
-        spellCheck={false}
-        className="w-full rounded p-3 text-[11.5px] leading-relaxed"
-        style={{
-          fontFamily: "var(--font-mono)",
-          background: "var(--color-surface-1)",
-          color: "var(--color-text)",
-          border: `1px solid ${parseError ? "rgba(248, 81, 73, 0.4)" : "var(--color-border)"}`,
-          outline: "none",
-          minHeight: 380,
-          resize: "vertical",
-        }}
-      />
+      {/* v15.2 F7: Schema navigator (left) + editable textarea (right). */}
+      <div className="flex gap-3">
+        <aside
+          className="w-[170px] shrink-0 rounded p-2"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div
+            className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Schemas
+          </div>
+          <ul className="space-y-px">
+            {KNOWN_SECTIONS.map((s) => {
+              const present = keyIndex[s.key] !== undefined;
+              return (
+                <li key={s.key}>
+                  <button
+                    type="button"
+                    onClick={() => present && scrollToLine(keyIndex[s.key])}
+                    disabled={!present}
+                    className="flex w-full items-center justify-between rounded px-2 py-1 text-[11.5px] transition-colors"
+                    style={{
+                      background: "transparent",
+                      color: present
+                        ? "var(--color-text-secondary)"
+                        : "var(--color-text-faint)",
+                      cursor: present ? "pointer" : "default",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    <span>{s.label}</span>
+                    {!present && (
+                      <span className="text-[9.5px]" style={{ color: "var(--color-text-faint)" }}>
+                        absent
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {otherKeys.length > 0 && (
+            <>
+              <div
+                className="mt-3 mb-1 text-[10px] font-medium uppercase tracking-[0.06em]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Other keys
+              </div>
+              <ul className="space-y-px">
+                {otherKeys.map((k) => (
+                  <li key={k}>
+                    <button
+                      type="button"
+                      onClick={() => scrollToLine(keyIndex[k])}
+                      className="block w-full truncate rounded px-2 py-1 text-left text-[11.5px]"
+                      style={{
+                        color: "var(--color-text-tertiary)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                      title={k}
+                    >
+                      {k}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          <p
+            className="mt-3 text-[10px] leading-snug"
+            style={{ color: "var(--color-text-faint)" }}
+          >
+            Visual form coming in F7+. For now this navigator scrolls to the
+            section. Use "Validate schema" before Save.
+          </p>
+        </aside>
+        <textarea
+          ref={textareaRef}
+          value={text}
+          onChange={(e) => {
+            commitText(e.target.value);
+            // Any edit invalidates a previous Validate run.
+            if (schemaErrors !== null) setSchemaErrors(null);
+          }}
+          spellCheck={false}
+          className="flex-1 rounded p-3 text-[11.5px] leading-relaxed"
+          style={{
+            fontFamily: "var(--font-mono)",
+            background: "var(--color-surface-1)",
+            color: "var(--color-text)",
+            border: `1px solid ${parseError ? "rgba(248, 81, 73, 0.4)" : "var(--color-border)"}`,
+            outline: "none",
+            minHeight: 380,
+            resize: "vertical",
+          }}
+        />
+      </div>
       {parseError && (
         <div
           className="rounded px-2 py-1 text-[11px]"
@@ -399,6 +578,175 @@ function statusTint(s: string): { bg: string; color: string; border: string } {
         border: "var(--color-border)",
       };
   }
+}
+
+// v15.2 F7: editable backup root. Reads the current path from the backend
+// (which resolves user-config → env → D:\BACKUP → ~/BACKUP), lets the user
+// set a new one, and shows whether the path currently exists.
+type BackupRootInfo = {
+  current: string;
+  suggested: string;
+  exists: boolean;
+  user_configured: boolean;
+  config_path: string;
+};
+
+function BackupRootEditor({ onChanged }: { onChanged: () => void }) {
+  const [info, setInfo] = useState<BackupRootInfo | null>(null);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = (await invoke("get_backup_root")) as BackupRootInfo;
+      setInfo(r);
+      setDraft(r.current);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save(path: string) {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = (await invoke("set_backup_root", { path })) as BackupRootInfo;
+      setInfo(r);
+      setDraft(r.current);
+      setSuccess(`Backup root set to ${r.current}${r.exists ? "" : " (path does not exist yet)"}.`);
+      window.setTimeout(() => setSuccess(null), 3500);
+      onChanged();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="mb-5 rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-[13px] font-semibold">Backup root path</h3>
+        {info?.user_configured && (
+          <span
+            className="text-[10.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            user-configured
+          </span>
+        )}
+      </div>
+      <p
+        className="mt-1 text-[11.5px] leading-relaxed"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        Where ULTRON mirrors its weekly backups. Default:{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>
+          {info?.suggested ?? "D:\\BACKUP"}
+        </span>
+        . Override persisted to{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>
+          {info?.config_path ?? "~/.ultron/.tmp/backup-root.txt"}
+        </span>
+        ; weekly-backup.ps1 honours{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>$env:ULTRON_BACKUP_ROOT</span>.
+      </p>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          placeholder={info?.suggested ?? "D:\\BACKUP"}
+          spellCheck={false}
+          className="rounded px-3 py-1.5 text-[12.5px]"
+          style={{
+            background: "var(--color-surface-1)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+            outline: "none",
+            fontFamily: "var(--font-mono)",
+            minWidth: 280,
+            flex: "1 1 280px",
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => save(draft.trim())}
+          disabled={busy || draft.trim() === (info?.current ?? "")}
+          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          onClick={() => save("")}
+          disabled={busy || !info?.user_configured}
+          className="rounded px-2.5 py-1.5 text-[11.5px] transition-colors disabled:opacity-40"
+          style={{
+            background: "transparent",
+            color: "var(--color-text-tertiary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Clear the user override and fall back to env / D:\\BACKUP / ~/BACKUP"
+        >
+          Reset to default
+        </button>
+      </div>
+      {info && (
+        <div
+          className="mt-2 text-[11px]"
+          style={{
+            color: info.exists ? "var(--color-text-tertiary)" : "var(--color-warn)",
+          }}
+        >
+          {info.exists
+            ? "Path exists. Mirror status below reflects this root."
+            : "Path does not exist yet — create it before the next weekly backup runs."}
+        </div>
+      )}
+      {error && (
+        <div
+          className="mt-2 rounded p-2 text-[11px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {success && (
+        <div
+          className="mt-2 rounded p-2 text-[11px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.08)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {success}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function DiskBackupStatus() {
@@ -563,7 +911,10 @@ function DiskBackupStatus() {
 // Main
 // ---------------------------------------------------------------------------
 
-type Section = "general" | "auth" | "mode" | "ai-router" | "mcps" | "raw" | "backups";
+// v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
+// top-level tab now. Kept the union without it so stale state references
+// surface as compile errors.
+type Section = "general" | "auth" | "mode" | "ai-router" | "raw" | "backups";
 
 // ---------------------------------------------------------------------------
 // AI Router section — pick which provider runs which zone of the UI.
@@ -1177,9 +1528,25 @@ function GeneralSection() {
 }
 
 function ModeSection() {
-  const { mode, refresh } = useUltronMode();
+  const { mode, autodetectDefault, isAuto, refresh } = useUltronMode();
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+
+  async function resetToAuto() {
+    setResetting(true);
+    setResetError(null);
+    try {
+      await invoke("reset_mode_to_autodetect");
+      refresh();
+    } catch (e) {
+      setResetError(String(e));
+    } finally {
+      setResetting(false);
+    }
+  }
+
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <header>
         <h3 className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
           Orchestration mode
@@ -1193,15 +1560,74 @@ function ModeSection() {
           <span style={{ fontFamily: "var(--font-mono)" }}>~/.ultron/.tmp/current-session.json</span>.
         </p>
       </header>
+
+      {/* v15.2 F7: prominent current + default + reset row.
+          - Currently active (big): the resolved mode now (or AUTO if user
+            hit the reset button — the hooks will pick a concrete mode on
+            the next SessionStart).
+          - Default (small): what autodetect would pick — currently MEDIUM
+            per mode-trigger.py heuristics. */}
+      <div
+        className="rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <div className="flex flex-wrap items-baseline justify-between gap-3">
+          <div>
+            <div
+              className="text-[10.5px] uppercase tracking-[0.08em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Currently active
+            </div>
+            <div
+              className="mt-1 text-[24px] font-semibold leading-none tabular-nums"
+              style={{ color: "var(--color-text)" }}
+            >
+              {isAuto ? "AUTO" : (mode ?? "—")}
+            </div>
+            <div
+              className="mt-2 text-[11px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Default (autodetect would pick):{" "}
+              <strong style={{ color: "var(--color-text-secondary)" }}>
+                {autodetectDefault}
+              </strong>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={resetToAuto}
+            disabled={resetting}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Writes mode=auto to current-session.json — the next SessionStart hook will pick the mode from the prompt instead of using a stored override."
+          >
+            {resetting ? "Resetting…" : "Reset to autodetect"}
+          </button>
+        </div>
+        {resetError && (
+          <div
+            className="mt-3 rounded p-2 text-[11.5px]"
+            style={{
+              background: "rgba(248, 81, 73, 0.06)",
+              border: "1px solid rgba(248, 81, 73, 0.22)",
+              color: "var(--color-danger)",
+            }}
+          >
+            {resetError}
+          </div>
+        )}
+      </div>
+
       <ModeSwitcher current={mode} onChange={() => refresh()} />
-      {mode && (
-        <p
-          className="text-[11px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Active: <strong style={{ color: "var(--color-text)" }}>{mode}</strong>
-        </p>
-      )}
     </div>
   );
 }
@@ -1264,23 +1690,8 @@ export function Settings() {
     }
   }
 
-  function toggleMcp(name: string) {
-    if (!draft) return;
-    const next = JSON.parse(JSON.stringify(draft)) as Record<string, unknown>;
-    const mcpServers = (next.mcpServers ?? {}) as Record<string, McpServer>;
-    const cfg = mcpServers[name];
-    if (!cfg) return;
-    cfg.disabled = !cfg.disabled;
-    next.mcpServers = mcpServers;
-    setDraft(next);
-    setDirty(true);
-  }
-
-  const mcps = useMemo(() => {
-    if (!draft) return [] as [string, McpServer][];
-    const obj = (draft.mcpServers ?? {}) as Record<string, McpServer>;
-    return Object.entries(obj).sort(([a], [b]) => a.localeCompare(b));
-  }, [draft]);
+  // v15.2 F7: toggleMcp / mcps memo removed — MCP enable/disable now lives
+  // in the MCPs top-level tab (EnableDisableSection in MCPs.tsx).
 
   return (
     <div className="px-10 py-8">
@@ -1350,7 +1761,7 @@ export function Settings() {
           { id: "auth" as Section, label: "Auth" },
           { id: "mode" as Section, label: "Mode" },
           { id: "ai-router" as Section, label: "AI Router" },
-          { id: "mcps" as Section, label: "MCPs" },
+          // v15.2 F7: "MCPs" sub-tab removed — moved to top-level MCPs tab.
           { id: "raw" as Section, label: "Editor" },
           { id: "backups" as Section, label: "Backups" },
         ].map((t) => (
@@ -1403,40 +1814,10 @@ export function Settings() {
         {section === "auth" && <AuthStatus />}
         {section === "mode" && <ModeSection />}
         {section === "ai-router" && <AiRouterSection />}
-        {section === "mcps" && (
-          <>
-            <p
-              className="mb-3 text-[12px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Toggle enable/disable. The change writes to settings.json on Save.
-              Claude Code picks up the change on the next session start.
-            </p>
-            {mcps.length === 0 ? (
-              <div
-                className="rounded p-6 text-center text-[13px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  border: "1px solid var(--color-border)",
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                No mcpServers in settings.json.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {mcps.map(([name, cfg]) => (
-                  <MCPRow
-                    key={name}
-                    name={name}
-                    cfg={cfg}
-                    onToggle={() => toggleMcp(name)}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        {/* v15.2 F7: MCPs enable/disable moved to the top-level MCPs tab.
+            The MCPRow / toggleMcp / mcps memo below remain in scope as
+            inert helpers — kept for retrocompat in case external code
+            imports them, will be removed in F8. */}
 
         {section === "raw" && draft && (
           <JsonEditor
@@ -1450,6 +1831,7 @@ export function Settings() {
 
         {section === "backups" && snapshot && (
           <div>
+            <BackupRootEditor onChanged={() => { /* DiskBackupStatus refetches on mount */ }} />
             <DiskBackupStatus />
             <p
               className="mb-3 mt-6 text-[12px]"

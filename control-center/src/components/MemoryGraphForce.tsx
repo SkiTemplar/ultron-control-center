@@ -85,15 +85,28 @@ type Particle = {
 const VIEW = 1000;
 const CENTER = VIEW / 2;
 const NODE_RADIUS_BASE = 4;
-const REPULSION = 1400; // pairwise repulsion strength
-const SPRING_K = 0.025; // edge spring stiffness
-const SPRING_REST = 90; // resting edge length
-const GRAVITY = 0.012; // pull to center
-const DAMPING = 0.85;
-const PRE_FRAMES = 220;
+const REPULSION = 900; // pairwise repulsion strength (reduced — was 1400, too explosive)
+const SPRING_K = 0.04; // edge spring stiffness (raised — was 0.025, edges too slack)
+const SPRING_REST = 80; // resting edge length
+const GRAVITY = 0.03; // pull to center (raised — was 0.012, nodes drifted off-center)
+const DAMPING = 0.6; // velocity retention per frame (was 0.85 → too lively)
+const COLLIDE_RADIUS = 14; // soft collision min-distance to avoid overlap
+const COLLIDE_STRENGTH = 0.5;
+const PRE_FRAMES = 320; // higher pre-render so the SVG mounts already settled
+const MAX_RENDER_NODES = 200; // cap client-side; backend may still send more
+const ALPHA_DECAY = 0.985; // multiplicative cooling on per-step force scale
+const ALPHA_MIN = 0.01; // below this we freeze physics (alpha=0)
+const MOTION_IDLE_THRESHOLD = 4.0; // per-frame total squared motion below this → idle
+const IDLE_FRAMES_TO_STOP = 12;
 
-function step(particles: Particle[], edges: GraphEdge[], idIndex: Map<string, number>) {
+function step(
+  particles: Particle[],
+  edges: GraphEdge[],
+  idIndex: Map<string, number>,
+  alpha: number,
+) {
   const n = particles.length;
+  if (alpha <= 0) return; // physics frozen — no force accumulation
   // Reset accumulated forces.
   for (const p of particles) {
     p.ax = 0;
@@ -116,12 +129,24 @@ function step(particles: Particle[], edges: GraphEdge[], idIndex: Map<string, nu
         d2 = dx * dx + dy * dy + 0.01;
       }
       const inv = 1 / d2;
-      const fx = dx * inv * REPULSION;
-      const fy = dy * inv * REPULSION;
+      const fx = dx * inv * REPULSION * alpha;
+      const fy = dy * inv * REPULSION * alpha;
       a.ax += fx;
       a.ay += fy;
       b.ax -= fx;
       b.ay -= fy;
+
+      // Soft collision — push apart if closer than COLLIDE_RADIUS.
+      const d = Math.sqrt(d2);
+      if (d < COLLIDE_RADIUS) {
+        const overlap = (COLLIDE_RADIUS - d) * COLLIDE_STRENGTH;
+        const ux = dx / (d || 1);
+        const uy = dy / (d || 1);
+        a.ax += ux * overlap;
+        a.ay += uy * overlap;
+        b.ax -= ux * overlap;
+        b.ay -= uy * overlap;
+      }
     }
   }
   // Spring force along edges.
@@ -135,8 +160,8 @@ function step(particles: Particle[], edges: GraphEdge[], idIndex: Map<string, nu
     const dy = b.y - a.y;
     const d = Math.sqrt(dx * dx + dy * dy) || 1;
     const stretch = d - SPRING_REST;
-    const fx = (dx / d) * stretch * SPRING_K * (0.6 + e.weight * 0.6);
-    const fy = (dy / d) * stretch * SPRING_K * (0.6 + e.weight * 0.6);
+    const fx = (dx / d) * stretch * SPRING_K * (0.6 + e.weight * 0.6) * alpha;
+    const fy = (dy / d) * stretch * SPRING_K * (0.6 + e.weight * 0.6) * alpha;
     a.ax += fx;
     a.ay += fy;
     b.ax -= fx;
@@ -144,8 +169,8 @@ function step(particles: Particle[], edges: GraphEdge[], idIndex: Map<string, nu
   }
   // Gravity to center.
   for (const p of particles) {
-    p.ax += (CENTER - p.x) * GRAVITY;
-    p.ay += (CENTER - p.y) * GRAVITY;
+    p.ax += (CENTER - p.x) * GRAVITY * alpha;
+    p.ay += (CENTER - p.y) * GRAVITY * alpha;
   }
   // Verlet integration with damping.
   for (const p of particles) {
@@ -202,6 +227,7 @@ export function MemoryGraphForce() {
   const idIndexRef = useRef<Map<string, number>>(new Map());
   const rafRef = useRef<number | null>(null);
   const draggingRef = useRef<{ idx: number; offsetX: number; offsetY: number } | null>(null);
+  const alphaRef = useRef<number>(1);
 
   // Load graph on mount.
   useEffect(() => {
@@ -211,6 +237,23 @@ export function MemoryGraphForce() {
     invoke<MemoryLinkGraph>("compute_memory_link_graph")
       .then((g) => {
         if (cancelled) return;
+        // Client-side cap: keep top-N highest-degree nodes so the
+        // simulation stays stable on huge vaults (backend may evolve).
+        if (g.nodes.length > MAX_RENDER_NODES) {
+          const sorted = [...g.nodes].sort(
+            (a, b) => b.inbound + b.outbound - (a.inbound + a.outbound),
+          );
+          const keep = new Set(
+            sorted.slice(0, MAX_RENDER_NODES).map((n) => n.id),
+          );
+          g = {
+            ...g,
+            nodes: g.nodes.filter((n) => keep.has(n.id)),
+            edges: g.edges.filter(
+              (e) => keep.has(e.source) && keep.has(e.target),
+            ),
+          };
+        }
         setGraph(g);
       })
       .catch((e) => {
@@ -225,7 +268,9 @@ export function MemoryGraphForce() {
     };
   }, []);
 
-  // Initialise physics + pre-render 220 frames once graph arrives.
+  // Initialise physics + pre-render PRE_FRAMES once graph arrives.
+  // We pre-render with a cooling alpha so the layout converges and the
+  // SVG mounts visually stable — no more "balls flying around".
   useEffect(() => {
     if (!graph) return;
     const parts = initParticles(graph.nodes);
@@ -233,12 +278,24 @@ export function MemoryGraphForce() {
     parts.forEach((p, i) => idx.set(p.id, i));
     particlesRef.current = parts;
     idIndexRef.current = idx;
-    for (let f = 0; f < PRE_FRAMES; f++) step(parts, graph.edges, idx);
+    let a = 1;
+    for (let f = 0; f < PRE_FRAMES; f++) {
+      step(parts, graph.edges, idx, a);
+      a *= ALPHA_DECAY;
+      if (a < ALPHA_MIN) {
+        a = 0;
+        break;
+      }
+    }
+    // Post-pre-render: physics is essentially cold. Live tick will only
+    // wake up if the user drags a node.
+    alphaRef.current = a;
     forceRender((n) => n + 1);
   }, [graph]);
 
   // Continuous animation loop — gentle ongoing settle so dragging
-  // interacts naturally. Stops itself if nothing changes for a while.
+  // interacts naturally. Stops itself once the simulation cools below
+  // ALPHA_MIN (or motion is negligible for IDLE_FRAMES_TO_STOP frames).
   useEffect(() => {
     if (!graph) return;
     let idleFrames = 0;
@@ -246,19 +303,28 @@ export function MemoryGraphForce() {
       const parts = particlesRef.current;
       const edges = graph.edges;
       const idx = idIndexRef.current;
+      const alpha = alphaRef.current;
+      if (alpha <= 0) {
+        rafRef.current = null;
+        return;
+      }
       let totalMotion = 0;
-      // Save pre-step positions to measure motion.
       const before = parts.map((p) => [p.x, p.y] as [number, number]);
-      step(parts, edges, idx);
+      step(parts, edges, idx, alpha);
       for (let i = 0; i < parts.length; i++) {
         const dx = parts[i].x - before[i][0];
         const dy = parts[i].y - before[i][1];
         totalMotion += dx * dx + dy * dy;
       }
-      if (totalMotion < 0.5) idleFrames++;
+      if (totalMotion < MOTION_IDLE_THRESHOLD) idleFrames++;
       else idleFrames = 0;
+
+      // Cool the simulation each frame so it can't run forever.
+      alphaRef.current = alpha * ALPHA_DECAY;
+      if (alphaRef.current < ALPHA_MIN) alphaRef.current = 0;
+
       forceRender((n) => n + 1);
-      if (idleFrames < 8) {
+      if (idleFrames < IDLE_FRAMES_TO_STOP && alphaRef.current > 0) {
         rafRef.current = requestAnimationFrame(tick);
       } else {
         rafRef.current = null;
@@ -270,15 +336,29 @@ export function MemoryGraphForce() {
     };
   }, [graph]);
 
-  // Restart animation when user drags (to escape idle).
+  // Restart animation when the user drags (re-heat the simulation).
   function bumpAnimation() {
     if (!graph) return;
+    // Re-heat: a small kick so the dragged node's neighbours respond,
+    // but not full alpha=1 (that would re-explode the layout).
+    alphaRef.current = Math.max(alphaRef.current, 0.3);
     if (rafRef.current !== null) return;
     const tick = () => {
       const parts = particlesRef.current;
-      step(parts, graph.edges, idIndexRef.current);
+      const alpha = alphaRef.current;
+      if (alpha <= 0) {
+        rafRef.current = null;
+        return;
+      }
+      step(parts, graph.edges, idIndexRef.current, alpha);
+      alphaRef.current = alpha * ALPHA_DECAY;
+      if (alphaRef.current < ALPHA_MIN) alphaRef.current = 0;
       forceRender((n) => n + 1);
-      rafRef.current = requestAnimationFrame(tick);
+      if (alphaRef.current > 0) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        rafRef.current = null;
+      }
     };
     rafRef.current = requestAnimationFrame(tick);
   }

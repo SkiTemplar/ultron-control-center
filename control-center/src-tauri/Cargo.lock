@@ -515,6 +515,7 @@ name = "control-center"
 version = "15.2.0"
 dependencies = [
  "dirs 5.0.1",
+ "once_cell",
  "serde",
  "serde_json",
  "tauri",

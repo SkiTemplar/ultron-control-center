@@ -157,6 +157,8 @@ export type ScheduledTaskInfo = {
   next_run: string;
   last_result: number;
   description: string | null;
+  /** Phase 8: Settings.StartWhenAvailable — run on next boot if missed. */
+  catch_up?: boolean;
 };
 
 export type RunTaskResult = {
@@ -171,6 +173,8 @@ export type EditTaskResult = {
   trigger_type: string;
   trigger_at: string;
   error: string;
+  /** Phase 8: whether StartWhenAvailable is on after the edit. */
+  catch_up?: boolean;
 };
 
 export type DeleteTaskResult = {
@@ -226,6 +230,8 @@ export type TaskDetail = {
   triggers: TaskTrigger[];
   actions: TaskAction[];
   history: TaskEvent[];
+  /** Phase 8: see ScheduledTaskInfo.catch_up. */
+  catch_up?: boolean;
 };
 
 export type GpuInfo = {

@@ -19,6 +19,10 @@ pub struct ScheduledTaskInfo {
     pub last_result: i64,
     #[serde(default)]
     pub description: Option<String>,
+    /// Phase 8: whether Settings.StartWhenAvailable is on, i.e. the task
+    /// will run on next boot if its scheduled trigger was missed (PC off).
+    #[serde(default)]
+    pub catch_up: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -73,6 +77,9 @@ pub struct TaskDetail {
     pub triggers: Vec<TaskTrigger>,
     pub actions: Vec<TaskAction>,
     pub history: Vec<TaskEvent>,
+    /// Phase 8: see ScheduledTaskInfo.catch_up.
+    #[serde(default)]
+    pub catch_up: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -150,6 +157,8 @@ pub struct EditTaskResult {
     pub trigger_type: String,
     pub trigger_at: String,
     pub error: String,
+    /// Phase 8: whether StartWhenAvailable is now on after the edit.
+    pub catch_up: bool,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -351,6 +360,8 @@ struct EditPsResult {
     trigger_at: Option<String>,
     #[serde(default)]
     error: Option<String>,
+    #[serde(default)]
+    catch_up: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -367,6 +378,7 @@ pub async fn edit_task_inner(
     name: String,
     new_trigger_type: String,
     new_trigger_at: Option<String>,
+    catch_up: Option<bool>,
 ) -> Result<EditTaskResult, String> {
     validate_task_name(&name)?;
     validate_trigger_type(&new_trigger_type)?;
@@ -376,6 +388,14 @@ pub async fn edit_task_inner(
     if new_trigger_type != "AtLogon" {
         validate_trigger_at(&at_value)?;
     }
+
+    // Phase 8: route catch-up window through the PS script. None → leave
+    // existing Settings untouched; Some(true|false) → rebuild Settings.
+    let catch_up_str: &str = match catch_up {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "",
+    };
 
     let mut args: Vec<&str> = vec![
         "-Action",
@@ -388,6 +408,10 @@ pub async fn edit_task_inner(
     if !at_value.is_empty() {
         args.push("-NewTriggerAt");
         args.push(&at_value);
+    }
+    if !catch_up_str.is_empty() {
+        args.push("-CatchUp");
+        args.push(catch_up_str);
     }
     let (stdout, stderr, code, ok) = run_ps(app, &args).await?;
     if !ok {
@@ -404,6 +428,7 @@ pub async fn edit_task_inner(
         trigger_type: parsed.trigger_type.unwrap_or(new_trigger_type),
         trigger_at: parsed.trigger_at.unwrap_or(at_value),
         error: parsed.error.unwrap_or_default(),
+        catch_up: parsed.catch_up,
     })
 }
 

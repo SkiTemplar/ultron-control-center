@@ -422,3 +422,125 @@ pub async fn windows_tweak_set_inner(
     let action = if enabled { "apply" } else { "revert" };
     run_tweaks(app, action, Some(&key)).await
 }
+
+// ---------------------------------------------------------------------------
+// gaming.detected — detect known game processes and emit info alerts
+// ---------------------------------------------------------------------------
+//
+// Heuristic: process names that strongly signal a game session is active
+// (storefront foreground processes, popular launchers, anti-cheat
+// runtimes). We deliberately keep this list small and unambiguous to
+// avoid false positives (no generic "Unity*" / "UE5*" — too noisy with
+// dev builds and editors). Add entries here as needed.
+const GAME_PROCESS_NEEDLES: &[(&str, &str)] = &[
+    // (needle (lowercase substring), human label)
+    ("steam.exe", "Steam"),
+    ("riotclientservices", "Riot Client"),
+    ("leagueoflegends", "League of Legends"),
+    ("valorant-win64-shipping", "Valorant"),
+    ("vanguard.exe", "Valorant Vanguard"),
+    ("eldenring", "Elden Ring"),
+    ("cyberpunk2077", "Cyberpunk 2077"),
+    ("starcraft", "StarCraft"),
+    ("overwatch", "Overwatch"),
+    ("battle.net", "Battle.net"),
+    ("rocketleague", "Rocket League"),
+    ("dota2", "Dota 2"),
+    ("csgo.exe", "CS:GO"),
+    ("cs2.exe", "Counter-Strike 2"),
+    ("fortniteclient-win64-shipping", "Fortnite"),
+];
+
+static SEEN_GAMES: once_cell::sync::Lazy<std::sync::Mutex<std::collections::BTreeSet<String>>> =
+    once_cell::sync::Lazy::new(|| std::sync::Mutex::new(std::collections::BTreeSet::new()));
+
+/// Scan the currently running processes once and emit a gaming.detected
+/// alert for every game we recognise that we haven't seen before in this
+/// process lifetime. Cheap (single PS one-liner) so it's safe to call
+/// from a periodic frontend tick.
+///
+/// The per-source rate-limiter in `toast_emit` is bypassed-on-source
+/// (each game has a unique label) but our local SEEN_GAMES set makes
+/// sure we only fire once per game per CC session — when you alt-tab
+/// out of and back into a game we don't re-spam.
+pub async fn detect_running_games_inner(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+    let script = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/gaming-enum.ps1");
+    let script_str = script.to_string_lossy().to_string();
+    let output = app
+        .shell()
+        .command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script_str,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("spawn ps: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "process enum failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    #[derive(serde::Deserialize)]
+    struct Row {
+        name: String,
+    }
+    let rows: Vec<Row> =
+        serde_json::from_str(stdout.trim()).map_err(|e| format!("parse: {}", e))?;
+    let names_lower: Vec<String> = rows
+        .into_iter()
+        .map(|r| r.name.to_lowercase())
+        .collect();
+
+    let mut newly_detected: Vec<String> = Vec::new();
+    let mut seen = match SEEN_GAMES.lock() {
+        Ok(g) => g,
+        Err(p) => p.into_inner(),
+    };
+    // Drop entries from the seen set for games no longer running so they
+    // can re-fire when launched again. This keeps the alert behaviour
+    // intuitive: "I closed CS2, then reopened it — I expect a new toast".
+    let still_running: std::collections::BTreeSet<String> = GAME_PROCESS_NEEDLES
+        .iter()
+        .filter(|(needle, _)| names_lower.iter().any(|n| n.contains(needle)))
+        .map(|(_, label)| label.to_string())
+        .collect();
+    seen.retain(|label| still_running.contains(label));
+
+    for (needle, label) in GAME_PROCESS_NEEDLES.iter() {
+        let running = names_lower.iter().any(|n| n.contains(needle));
+        if running && !seen.contains(*label) {
+            seen.insert(label.to_string());
+            newly_detected.push(label.to_string());
+            crate::toast_emit::record_alert_and_maybe_toast(
+                app,
+                "gaming.detected",
+                "info",
+                &format!("Game running: {}", label),
+            );
+        }
+    }
+    Ok(newly_detected)
+}
+
+// LIB_RS_WIRING:
+//   Expose the detector as a Tauri command so the frontend (or a
+//   periodic tick from setup()) can poll it:
+//
+//     #[tauri::command]
+//     async fn detect_running_games(
+//         app: tauri::AppHandle,
+//     ) -> Result<Vec<String>, String> {
+//         gaming::detect_running_games_inner(&app).await
+//     }
+//
+//   And inside .invoke_handler(tauri::generate_handler![...]):
+//     detect_running_games,

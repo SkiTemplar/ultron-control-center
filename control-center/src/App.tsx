@@ -18,7 +18,7 @@ import { News } from "./components/News";
 import { Personal } from "./components/Personal";
 import { Plans } from "./components/Plans";
 import { SelfImprove } from "./components/SelfImprove";
-import { Hooks } from "./components/Hooks";
+// Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { computeGlobalStatus } from "./lib/status";
 import { setupTrayEventListeners } from "./lib/tauri-events";
@@ -205,7 +205,8 @@ export default function App() {
         {tab === "plans" && <Plans />}
         {tab === "logs" && <Logs />}
         {tab === "personal" && <Personal />}
-        {tab === "hooks" && <Hooks />}
+        {/* "hooks" tab removed — Hooks now lives inside the System tab as
+            an inner sub-tab. The Tab union no longer includes "hooks". */}
         {tab === "self-improve" && (
           <div className="px-10 py-8">
             <header className="mb-6">

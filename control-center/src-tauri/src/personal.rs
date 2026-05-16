@@ -94,6 +94,10 @@ fn personal_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron/personal"))
 }
 
+fn last_sample_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".ultron/personal/last-sample.md"))
+}
+
 fn iso_from_systime(t: SystemTime) -> Option<String> {
     let secs = t.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
     let mut days = (secs / 86_400) as i64;
@@ -287,6 +291,162 @@ Hard rules:\n\
 - Total content < 3 KB.\n\n\
 When done, write the JSON to {} (overwrite). Then exit.",
         known
+    );
+
+    crate::sessions::spawn_session_inner(
+        app,
+        "claude".to_string(),
+        Some(prompt),
+        Some(cwd),
+        None,
+    )
+    .await?;
+    Ok("Claude session abierta".to_string())
+}
+
+// ---------------------------------------------------------------------------
+// v15.1.6 Personal redesign — style training + sample generation.
+// ---------------------------------------------------------------------------
+
+/// Read the last generated style sample (~300 words mirroring the user's
+/// voice) from `~/.ultron/personal/last-sample.md`. Returns an empty string
+/// if the file does not exist yet — the UI shows an empty-state message.
+#[derive(Debug, Serialize, Clone)]
+pub struct PersonalSample {
+    pub path: String,
+    pub content: String,
+    pub last_modified: Option<String>,
+    pub exists: bool,
+}
+
+pub fn read_personal_sample_inner() -> Result<PersonalSample, String> {
+    let path = last_sample_path().ok_or_else(|| "no HOME".to_string())?;
+    if !path.exists() {
+        return Ok(PersonalSample {
+            path: path.to_string_lossy().to_string(),
+            content: String::new(),
+            last_modified: None,
+            exists: false,
+        });
+    }
+    let content = fs::read_to_string(&path).map_err(|e| format!("read sample: {}", e))?;
+    let meta = fs::metadata(&path).map_err(|e| format!("metadata sample: {}", e))?;
+    Ok(PersonalSample {
+        path: path.to_string_lossy().to_string(),
+        content,
+        last_modified: meta.modified().ok().and_then(iso_from_systime),
+        exists: true,
+    })
+}
+
+/// Spawn a Codex session pre-loaded with the user's writing sample and the
+/// current `known.json`, instructing Codex to merge the new evidence into an
+/// updated `known.json`. The session opens in `~/.ultron/personal/`; the
+/// user reviews Codex's plan and confirms the write. `paste_only: true` so
+/// the long prompt arrives via clipboard and is not auto-submitted.
+pub async fn train_personal_style_inner(
+    app: &tauri::AppHandle,
+    sample_text: String,
+) -> Result<String, String> {
+    let sample = sample_text.trim();
+    if sample.is_empty() {
+        return Err("sample text is empty".to_string());
+    }
+    // Hard cap so the prompt never blows the clipboard / argv path. 12 KB of
+    // user text is already a very long writing sample.
+    let sample = if sample.chars().count() > 12_000 {
+        sample.chars().take(12_000).collect::<String>()
+    } else {
+        sample.to_string()
+    };
+
+    let dir = personal_dir().ok_or_else(|| "no HOME".to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| format!("mkdir personal: {}", e))?;
+    let cwd = dir.to_string_lossy().to_string();
+    let known = known_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "~/.ultron/personal/known.json".to_string());
+
+    let prompt = format!(
+        "You are refining the user's style fingerprint stored at {known}.\n\n\
+Step 1. Read the existing {known} (if present). Treat it as your prior.\n\
+Step 2. Read the user-provided writing sample below. This is a fresh \
+example the user explicitly wants you to learn from — weight it heavily.\n\
+Step 3. Produce an UPDATED PersonalKnown JSON merging the prior with the \
+new evidence. Keep the exact schema (style_fingerprint, writing_style \
+{{tone, primary_language, code_switching, characteristic_phrases, \
+typo_patterns, formatting_habits, average_message_length_chars, \
+punctuation_quirks}}, recent_topics, routines, last_updated, source).\n\
+Step 4. Set `source` to \"codex-train-v1\" and `last_updated` to the \
+current ISO 8601 timestamp.\n\
+Step 5. Overwrite {known} with the new JSON. Output JSON ONLY (no fences, \
+no prose). Total < 3 KB.\n\n\
+Hard rules:\n\
+- Preserve fields you cannot improve. Do NOT regress fields that were \
+already confidently set.\n\
+- Do NOT invent. Unknown fields stay \"(unknown — needs more data)\".\n\
+- After writing the file, print one line: \"known.json updated\" and exit.\n\n\
+========== USER WRITING SAMPLE (verbatim) ==========\n\
+{sample}\n\
+========== END SAMPLE ==========\n",
+        known = known,
+        sample = sample,
+    );
+
+    let flags = crate::sessions::SpawnFlags {
+        paste_only: true,
+        ..Default::default()
+    };
+
+    crate::sessions::spawn_session_inner(
+        app,
+        "codex".to_string(),
+        Some(prompt),
+        Some(cwd),
+        Some(flags),
+    )
+    .await?;
+    Ok("Codex session abierta (paste-only)".to_string())
+}
+
+/// Spawn a Claude session that writes a ~300-word sample text in the user's
+/// voice, drawn from `known.json`, to `~/.ultron/personal/last-sample.md`.
+/// The UI reloads the sample file after the user closes the session.
+pub async fn generate_style_sample_inner(
+    app: &tauri::AppHandle,
+) -> Result<String, String> {
+    let dir = personal_dir().ok_or_else(|| "no HOME".to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| format!("mkdir personal: {}", e))?;
+    let cwd = dir.to_string_lossy().to_string();
+    let known = known_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "~/.ultron/personal/known.json".to_string());
+    let out = last_sample_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "~/.ultron/personal/last-sample.md".to_string());
+
+    let prompt = format!(
+        "Write a ~300-word piece in the user's exact voice and style, based \
+on the fingerprint at {known}.\n\n\
+Process:\n\
+1. Read {known}. Internalize tone, language, code-switching pattern, \
+characteristic phrases, typo habits, formatting habits, punctuation quirks.\n\
+2. Pick a random technical topic the user actually cares about (UE5 / \
+gameplay programming / AI/ML / Tauri / Windows tooling / shaders / netcode \
+— rotate so it's not always the same one).\n\
+3. Write ~300 words ON THAT TOPIC as if the user themselves wrote it. \
+Match register, sentence rhythm, opening/closing habits. If the user mixes \
+ES/EN, mix them where they would. Do NOT use emojis.\n\
+4. Overwrite {out} with: a single H1 line `# Sample — <topic>`, a blank \
+line, then the 300-word piece. No fences, no commentary.\n\
+5. Print one line `last-sample.md written` and exit.\n\n\
+Hard rules:\n\
+- Do NOT meta-comment about the style. Write the piece itself.\n\
+- 280-330 words inclusive. Count before saving.\n\
+- If {known} is empty/missing, write a short note instead: `# Sample` then \
+`(known.json is empty — generate analysis first)`.\n",
+        known = known,
+        out = out,
     );
 
     crate::sessions::spawn_session_inner(

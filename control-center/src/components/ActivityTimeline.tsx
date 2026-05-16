@@ -456,10 +456,18 @@ export function ActivityTimeline() {
           className="mb-2 flex items-baseline justify-between"
         >
           <div
-            className="text-[10px] font-medium uppercase tracking-[0.06em]"
+            className="text-[10px] font-medium uppercase tracking-[0.06em] cursor-help"
             style={{ color: "var(--color-text-tertiary)" }}
+            title="Tokens consumed by the system prompt cache. The X/Y format means X tokens used over Y limit per session."
           >
             Recent events ({data?.events.length ?? 0})
+            <span
+              className="ml-1 text-[9px]"
+              style={{ color: "var(--color-text-faint)" }}
+              aria-hidden="true"
+            >
+              ⓘ
+            </span>
           </div>
           {!loading && data && data.events.length === 0 && (
             <div

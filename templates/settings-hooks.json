@@ -97,6 +97,10 @@
           {
             "type": "command",
             "command": "PowerShell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {USERPROFILE}/.ultron/scripts/hooks/session-cleanup.ps1"
+          },
+          {
+            "type": "command",
+            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/auto-changelog.py"
           }
         ]
       }

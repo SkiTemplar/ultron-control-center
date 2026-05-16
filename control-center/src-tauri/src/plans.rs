@@ -108,6 +108,46 @@ pub fn list_plans_inner() -> Result<PlansReport, String> {
     })
 }
 
+/// Emit-aware wrapper around `patch_plan_status_inner`. When the new
+/// status is `resolved` AND the underlying write succeeded, fires an
+/// info alert (and Windows toast, if the user has toasts enabled and the
+/// rate-limiter allows it). The plan title is looked up BEFORE the patch
+/// runs so the alert can quote it instead of just the id.
+pub fn patch_plan_status_inner_with_emit(
+    app: &tauri::AppHandle,
+    id: String,
+    new_status: String,
+) -> Result<bool, String> {
+    let was_resolve = new_status == "resolved";
+    let resolved_title = if was_resolve {
+        plans_path()
+            .and_then(|p| fs::read_to_string(&p).ok())
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+            .and_then(|root| {
+                root.get("items")
+                    .and_then(|v| v.as_array())
+                    .and_then(|arr| {
+                        arr.iter()
+                            .find(|v| v.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+                            .and_then(|v| v.get("title").and_then(|t| t.as_str()).map(String::from))
+                    })
+            })
+            .unwrap_or_else(|| id.clone())
+    } else {
+        String::new()
+    };
+    let ok = patch_plan_status_inner(id.clone(), new_status)?;
+    if ok && was_resolve {
+        crate::toast_emit::record_alert_and_maybe_toast(
+            app,
+            "plan.resolved",
+            "info",
+            &format!("Plan resolved: {} ({})", resolved_title, id),
+        );
+    }
+    Ok(ok)
+}
+
 /// Patch the `status` field on a single plan item, atomically. Doesn't
 /// validate the new status against an enum — the canonical statuses are
 /// open / in_progress / blocked / resolved / wontfix, but PLANS.json may
@@ -116,7 +156,7 @@ pub fn patch_plan_status_inner(id: String, new_status: String) -> Result<bool, S
     if id.trim().is_empty() {
         return Err("id is empty".into());
     }
-    let allowed = ["open", "in_progress", "revision", "blocked", "resolved", "wontfix"];
+    let allowed = ["open", "in_progress", "revision", "blocked", "resolved", "wontfix", "archived"];
     if !allowed.contains(&new_status.as_str()) {
         return Err(format!("invalid status '{}'", new_status));
     }
@@ -393,6 +433,56 @@ pub fn clean_resolved_plans_inner() -> Result<u64, String> {
     Ok(moved)
 }
 
+/// Auto-archive resolved plans that have been sitting in the resolved
+/// column for more than `days` days. Unlike `clean_resolved_plans_inner`
+/// (which physically moves them to `_archive/`), this one keeps them in
+/// PLANS.json but flips status="resolved" → "archived". The kanban filters
+/// out anything with status="archived" so they disappear from view but
+/// remain accessible via the "Show archived" drawer.
+///
+/// Returns the number of plans archived in this pass.
+pub fn auto_archive_resolved(days: u32) -> Result<usize, String> {
+    let cutoff_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+        .saturating_sub((days as u64) * 86_400);
+    let cutoff_iso = format_unix_iso(cutoff_secs);
+
+    let (path, mut root) = read_plans_root()?;
+    let items = root
+        .get_mut("items")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "no items[]".to_string())?;
+
+    let mut moved = 0usize;
+    for v in items.iter_mut() {
+        let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
+        if status != "resolved" {
+            continue;
+        }
+        // resolved_at preferred; fall back to created_at to avoid never
+        // archiving items whose resolution date was never recorded.
+        let stamp = v
+            .get("resolved_at")
+            .and_then(|x| x.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| v.get("created_at").and_then(|x| x.as_str()))
+            .unwrap_or("");
+        if stamp.is_empty() {
+            continue;
+        }
+        if stamp.as_bytes() < cutoff_iso.as_bytes() {
+            v["status"] = serde_json::Value::String("archived".to_string());
+            moved += 1;
+        }
+    }
+    if moved > 0 {
+        write_plans_root(&path, &root)?;
+    }
+    Ok(moved)
+}
+
 fn format_unix_iso(secs: u64) -> String {
     let mut days = (secs / 86_400) as i64;
     let secs_in_day = (secs % 86_400) as u32;
@@ -416,3 +506,17 @@ fn format_unix_iso(secs: u64) -> String {
     }
     format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, h, m, s)
 }
+
+// LIB_RS_WIRING:
+//   Replace `patch_plan_status` so it routes through the emit-aware
+//   wrapper (the old inner stays as the no-side-effect primitive in
+//   case other callers want to skip notifications):
+//
+//     #[tauri::command]
+//     async fn patch_plan_status(
+//         app: tauri::AppHandle,
+//         id: String,
+//         status: String,
+//     ) -> Result<bool, String> {
+//         plans::patch_plan_status_inner_with_emit(&app, id, status)
+//     }

@@ -6,15 +6,17 @@
 // the timestamp of the last modification so the UI can flag stale
 // mirrors without recursively walking gigabytes of files.
 //
-// Backup root resolution order:
-//   1. $ULTRON_BACKUP_ROOT (env override — matches weekly-backup.ps1)
-//   2. %USERPROFILE%\BACKUP (default for fresh installs)
+// Backup root resolution order (v15.2 F7):
+//   1. ~/.ultron/.tmp/backup-root.txt (user-configured via Settings UI)
+//   2. $ULTRON_BACKUP_ROOT (env override — matches weekly-backup.ps1)
+//   3. D:\BACKUP if the disk is mounted (USER's primary setup)
+//   4. %USERPROFILE%\BACKUP (default for fresh installs)
 
 use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct BackupEntry {
@@ -35,22 +37,117 @@ pub struct BackupStatusReport {
     pub overall_status: String,
 }
 
+fn backup_root_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".ultron/.tmp/backup-root.txt"))
+}
+
+fn read_configured_backup_root() -> Option<String> {
+    let path = backup_root_config_path()?;
+    let s = fs::read_to_string(&path).ok()?;
+    let trimmed = s.trim().to_string();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
+}
+
 fn backup_root() -> PathBuf {
+    // 1. user-configured override (Settings UI writes ~/.ultron/.tmp/backup-root.txt)
+    if let Some(s) = read_configured_backup_root() {
+        return PathBuf::from(s);
+    }
+    // 2. env-var (matches weekly-backup.ps1's own resolution path)
     if let Ok(v) = std::env::var("ULTRON_BACKUP_ROOT") {
         if !v.is_empty() {
             return PathBuf::from(v);
         }
     }
-    // v15.1.6: prefer D:\BACKUP on Windows if it exists (this user's setup),
-    // otherwise fall back to ~/BACKUP for portability.
+    // 3. D:\BACKUP if available (USER's primary setup, v15.1.6)
     let d_drive = PathBuf::from(r"D:\BACKUP");
     if d_drive.exists() {
         return d_drive;
     }
+    // 4. %USERPROFILE%\BACKUP fallback
     if let Some(home) = dirs::home_dir() {
         return home.join("BACKUP");
     }
     PathBuf::from(r"C:\BACKUP")
+}
+
+// ---------------------------------------------------------------------------
+// v15.2 F7: read/write the configured backup root from the UI.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BackupRootInfo {
+    /// Currently active path (after resolving the four sources above).
+    pub current: String,
+    /// Suggested default if `current` is empty (D:\BACKUP if disk mounted,
+    /// otherwise ~/BACKUP).
+    pub suggested: String,
+    /// True when the path resolves to an existing directory.
+    pub exists: bool,
+    /// True when ~/.ultron/.tmp/backup-root.txt is the source of the value
+    /// (i.e. the user has explicitly configured it via the UI).
+    pub user_configured: bool,
+    /// Path of the config file that backs the setting.
+    pub config_path: String,
+}
+
+pub fn get_backup_root_inner() -> Result<BackupRootInfo, String> {
+    let current = backup_root();
+    let user_configured = read_configured_backup_root().is_some();
+    let suggested = {
+        let d_drive = PathBuf::from(r"D:\BACKUP");
+        if d_drive.exists() {
+            d_drive.to_string_lossy().to_string()
+        } else if let Some(home) = dirs::home_dir() {
+            home.join("BACKUP").to_string_lossy().to_string()
+        } else {
+            r"C:\BACKUP".to_string()
+        }
+    };
+    let config_path = backup_root_config_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    Ok(BackupRootInfo {
+        current: current.to_string_lossy().to_string(),
+        suggested,
+        exists: current.exists(),
+        user_configured,
+        config_path,
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetBackupRootPayload {
+    pub path: String,
+}
+
+pub fn set_backup_root_inner(payload: SetBackupRootPayload) -> Result<BackupRootInfo, String> {
+    let trimmed = payload.path.trim().to_string();
+    let cfg = backup_root_config_path().ok_or_else(|| "no HOME".to_string())?;
+    if let Some(parent) = cfg.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir tmp: {}", e))?;
+        }
+    }
+    if trimmed.is_empty() {
+        // Empty = clear the override and fall back to env/D:/home defaults.
+        if cfg.exists() {
+            fs::remove_file(&cfg).map_err(|e| format!("rm config: {}", e))?;
+        }
+        // Also unset the in-process env var so subsequent reads from the same
+        // session don't keep the stale override.
+        std::env::remove_var("ULTRON_BACKUP_ROOT");
+    } else {
+        fs::write(&cfg, &trimmed).map_err(|e| format!("write config: {}", e))?;
+        // Mirror into the env var so the scheduled-task wrapper (which we
+        // can't restart from here) and any in-process consumer pick it up.
+        std::env::set_var("ULTRON_BACKUP_ROOT", &trimmed);
+    }
+    get_backup_root_inner()
 }
 
 fn iso_from_systime(t: SystemTime) -> Option<String> {
@@ -154,3 +251,27 @@ pub fn backup_status_inner() -> Result<BackupStatusReport, String> {
         overall_status,
     })
 }
+
+// LIB_RS_WIRING (v15.2 F7):
+//   Register two new commands in `src-tauri/src/lib.rs` so the Backups
+//   sub-tab can read/write the configured backup root.
+//
+//   1. Add Tauri command wrappers next to `backup_status`:
+//
+//        #[tauri::command]
+//        async fn get_backup_root() -> Result<backup_status::BackupRootInfo, String> {
+//            backup_status::get_backup_root_inner()
+//        }
+//
+//        #[tauri::command]
+//        async fn set_backup_root(path: String) -> Result<backup_status::BackupRootInfo, String> {
+//            backup_status::set_backup_root_inner(backup_status::SetBackupRootPayload { path })
+//        }
+//
+//   2. Add `get_backup_root` and `set_backup_root` to the
+//      `tauri::generate_handler![...]` list (same list that already
+//      contains `backup_status`).
+//
+//   The existing `backup_status` command already calls `backup_root()`
+//   internally, which now resolves the user-configured override first —
+//   no change needed to that wrapper.

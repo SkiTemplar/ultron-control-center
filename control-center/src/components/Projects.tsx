@@ -242,61 +242,86 @@ function Row({
         </div>
       </div>
 
-      {/* Launcher item chips: each chip has its own "Open" + remove. */}
+      {/* Launcher item chips — compact row at the bottom of the card. The
+          launch button is an icon-only square (folder / cloud / exe glyph)
+          so a row with many items stays readable; full kind + path is in
+          the chip tooltip. */}
       <div className="flex flex-wrap items-center gap-1.5">
-        {items.map((it, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-1 rounded pl-2 pr-1 py-0.5 text-[11px]"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-text-secondary)",
-            }}
-            title={
-              it.path
-                ? `${it.kind}: ${it.path}${it.args && it.args.length > 0 ? " " + it.args.join(" ") : ""}`
-                : it.cwd
-                  ? `${it.kind}: ${it.cwd}`
-                  : it.kind
-            }
-          >
-            <span
-              className="text-[9.5px] uppercase tracking-wide"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              {KIND_LABEL[it.kind] ?? it.kind}
-            </span>
-            <span className="max-w-[260px] truncate" style={{ fontFamily: "var(--font-mono)" }}>
-              {itemLabel(it).replace(/^[a-z]+:\s*/, "")}
-            </span>
-            <button
-              type="button"
-              onClick={() => onLaunchItem(i)}
-              disabled={busyItem === i}
-              className="rounded px-1.5 py-0.5 text-[10px] transition-colors disabled:opacity-40"
+        {items.map((it, i) => {
+          const kindIcon =
+            it.kind === "folder"
+              ? "📁"
+              : it.kind === "claude" || it.kind === "codex"
+                ? "☁"
+                : "▶";
+          const launchTitle =
+            it.kind === "folder"
+              ? `Open folder: ${it.path ?? ""}`
+              : it.kind === "claude"
+                ? `Start Claude session in ${it.cwd ?? "cwd"}`
+                : it.kind === "codex"
+                  ? `Start Codex session in ${it.cwd ?? "cwd"}`
+                  : `Launch ${it.path ?? itemLabel(it)}`;
+          return (
+            <div
+              key={i}
+              className="flex items-center gap-1 rounded pl-2 pr-0.5 py-0.5 text-[11px]"
               style={{
-                background: "var(--color-surface-3)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
+                background: "var(--color-surface-1)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-secondary)",
               }}
+              title={
+                it.path
+                  ? `${it.kind}: ${it.path}${it.args && it.args.length > 0 ? " " + it.args.join(" ") : ""}`
+                  : it.cwd
+                    ? `${it.kind}: ${it.cwd}`
+                    : it.kind
+              }
             >
-              {busyItem === i ? "…" : "Open"}
-            </button>
-            <button
-              type="button"
-              onClick={() => onRemoveItem(i)}
-              className="rounded px-1 text-[10px]"
-              style={{
-                background: "transparent",
-                color: "var(--color-danger)",
-              }}
-              title="Remove this item"
-            >
-              ×
-            </button>
-          </div>
-        ))}
+              <span
+                className="text-[9.5px] uppercase tracking-wide"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {KIND_LABEL[it.kind] ?? it.kind}
+              </span>
+              <span
+                className="max-w-[220px] truncate"
+                style={{ fontFamily: "var(--font-mono)" }}
+              >
+                {itemLabel(it).replace(/^[a-z]+:\s*/, "")}
+              </span>
+              <button
+                type="button"
+                onClick={() => onLaunchItem(i)}
+                disabled={busyItem === i}
+                className="flex h-5 w-5 items-center justify-center rounded text-[11px] transition-colors disabled:opacity-40"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+                title={launchTitle}
+                aria-label={launchTitle}
+              >
+                {busyItem === i ? "…" : kindIcon}
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemoveItem(i)}
+                className="flex h-5 w-4 items-center justify-center rounded text-[11px]"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-danger)",
+                }}
+                title="Remove this item from the project"
+                aria-label="Remove item"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
         <button
           type="button"
           onClick={onAddItem}
@@ -357,6 +382,18 @@ function Pill({
 // ---------------------------------------------------------------------------
 
 type GroupBy = "none" | "language" | "tag";
+type SortBy = "recent" | "alpha" | "type";
+
+// Parse the `last_active` string (ISO timestamp or a relative label like
+// "2h ago") into a sortable number. Higher = more recent. Unknown → 0 so
+// undated projects sink to the bottom.
+function lastActiveScore(p: ProjectInfo): number {
+  if (!p.last_active) return 0;
+  const t = Date.parse(p.last_active);
+  if (!Number.isNaN(t)) return t;
+  // Fallback: ranks ISO-ish strings lexicographically.
+  return p.last_active.charCodeAt(0);
+}
 
 const ITEM_KINDS: { value: LauncherItemKind; label: string; hint: string }[] = [
   { value: "exe", label: "Executable", hint: "Spawn a .exe / .lnk / .bat with optional args" },
@@ -377,6 +414,7 @@ export function Projects() {
     () => new Set<string>(),
   );
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
+  const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [selected, setSelected] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -697,7 +735,7 @@ export function Projects() {
   // Filtered + searched
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return projects
+    const matched = projects
       .filter((p) => {
         if (statusFilters.size === 0) return true;
         return statusFilters.has(p.status ?? "—");
@@ -722,7 +760,29 @@ export function Projects() {
           .toLowerCase();
         return hay.includes(q);
       });
-  }, [projects, statusFilters, languageFilters, query]);
+
+    // Apply sort. We always copy the array (don't mutate the source) so
+    // re-renders with a new sort key see fresh order.
+    const sorted = [...matched];
+    if (sortBy === "recent") {
+      sorted.sort((a, b) => lastActiveScore(b) - lastActiveScore(a));
+    } else if (sortBy === "alpha") {
+      sorted.sort((a, b) =>
+        (a.name ?? a.id).localeCompare(b.name ?? b.id, undefined, {
+          sensitivity: "base",
+        }),
+      );
+    } else if (sortBy === "type") {
+      sorted.sort((a, b) => {
+        const aType = (a.language ?? a.type_ ?? "").toLowerCase();
+        const bType = (b.language ?? b.type_ ?? "").toLowerCase();
+        const t = aType.localeCompare(bType);
+        if (t !== 0) return t;
+        return (a.name ?? a.id).localeCompare(b.name ?? b.id);
+      });
+    }
+    return sorted;
+  }, [projects, statusFilters, languageFilters, query, sortBy]);
 
   // Group filtered by chosen dimension
   const grouped = useMemo(() => {
@@ -976,6 +1036,28 @@ export function Projects() {
             minWidth: 280,
           }}
         />
+        <label
+          className="flex items-center gap-1.5 text-[10px] uppercase tracking-[0.06em]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Sort
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortBy)}
+            className="rounded px-2 py-1 text-[11.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+              outline: "none",
+            }}
+            title="Order projects by recency, name or detected language/type"
+          >
+            <option value="recent">Most recent</option>
+            <option value="alpha">Alphabetical</option>
+            <option value="type">By type</option>
+          </select>
+        </label>
       </div>
 
       {statusKeys.length > 1 && (
