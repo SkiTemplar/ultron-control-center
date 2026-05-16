@@ -1,5 +1,14 @@
 # Changelog
 
+<!-- v15.3.3 -->
+## v15.3.3 — 2026-05-16
+
+- fix(v15.3.3): drop Cost watchdog + Discover, normalise agent models, tighter memory graph, scrub roadmap
+- chore: refresh changelog (auto)
+
+_Auto-generated from 0a69a36b by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.3.2 -->
 ## v15.3.2 — 2026-05-16
 
