@@ -84,6 +84,7 @@ pub const AUTO_FIX_ALLOWLIST: &[&str] = &[
     "clear-temp-30d",
     "empty-recycle-bin",
     "restart-qdrant",
+    "run-weekly-backup",
 ];
 
 // ---------------------------------------------------------------------------
@@ -603,13 +604,32 @@ fn probe_backup() -> DiagItem {
                 "stale" => "orange",
                 _ => "orange",
             };
+            // v15.3.2: surface the auto-fix when the mirrors are stale or
+            // cold. The user kept asking "cómo se corrige Backup stale?"
+            // and the answer was buried in the Maintenance commands
+            // panel. Now the diag row itself proposes the fix and the
+            // user can apply it from "Auto-fix common issues".
+            let fix = match rep.overall_status.as_str() {
+                "ok" => None,
+                _ => Some("run-weekly-backup".to_string()),
+            };
+            let detail = match rep.overall_status.as_str() {
+                "ok" => Some(format!("status: {}", rep.overall_status)),
+                "stale" => Some(
+                    "Mirrors not refreshed in 8–30 days. Click \
+                    'Auto-fix common issues' → run-weekly-backup to \
+                    trigger the scheduled task now."
+                        .into(),
+                ),
+                _ => Some(format!("status: {} — run weekly-backup to refresh", rep.overall_status)),
+            };
             DiagItem {
                 key: "backup".into(),
                 label: "Backup".into(),
                 color: color.into(),
                 metric: format!("{} mirrors", rep.entries.len()),
-                detail: Some(format!("status: {}", rep.overall_status)),
-                fix: None,
+                detail,
+                fix,
                 elapsed_ms: now_epoch_ms() - t0,
             }
         }

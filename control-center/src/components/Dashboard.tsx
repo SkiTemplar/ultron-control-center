@@ -58,7 +58,7 @@ function PendingItemsPanel() {
             className="mt-1 text-[12px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Open loops detected across the cockpit: skills drift, idle plans,
+            Open loops detected across the Control Center: skills drift, idle plans,
             stale backups, quarantined skills, critical alerts un-acked. Runs
             the same script Claude sees on SessionStart.
           </p>
@@ -98,7 +98,7 @@ function PendingItemsPanel() {
             color: "var(--color-success)",
           }}
         >
-          No open loops detected. Cockpit is clean.
+          No open loops detected. Everything is clean.
         </div>
       )}
       {!err && report && report.count > 0 && (
@@ -211,7 +211,7 @@ function MaintenancePanel() {
           className="mt-1 text-[12px]"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          One-shot cockpit operations. Pick a button to re-run the relevant
+          One-shot maintenance operations. Pick a button to re-run the relevant
           script and see its output here without spawning a terminal.
         </p>
       </div>
@@ -525,6 +525,11 @@ const AUTO_FIX_CATALOG: { name: string; title: string; blurb: string; danger?: b
     name: "restart-qdrant",
     title: "Restart Qdrant",
     blurb: "Kill stale qdrant.exe, re-run ensure-qdrant.ps1 to relaunch the native binary",
+  },
+  {
+    name: "run-weekly-backup",
+    title: "Run weekly backup now",
+    blurb: "Triggers the ULTRON-Backup-Weekly scheduled task so disk mirrors refresh. Fixes the 'Backup stale' Doctor row.",
   },
 ];
 
