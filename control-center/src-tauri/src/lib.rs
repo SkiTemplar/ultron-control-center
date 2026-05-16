@@ -45,6 +45,7 @@ mod system_diagnose;
 mod toast_emit;
 mod tray;
 mod usage;
+mod version_drift;
 
 use std::fs::File;
 use std::io::{BufRead, BufReader};

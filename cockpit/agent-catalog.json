@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-05-16T00:00:00Z",
+  "generated_at": "2026-05-16T22:31:24Z",
   "sources": [
     {
       "label": "voltagent",
@@ -26,526 +26,18 @@
   ],
   "agents": [
     {
-      "name": "code-reviewer",
-      "description": "Comprehensive code review focused on quality, security vulnerabilities and best practices. Strict reviewer that catches subtle bugs.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/code-reviewer.md",
-      "tags": ["review", "code-quality", "security"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "debugger",
-      "description": "Diagnoses and fixes bugs by analyzing error logs, stack traces and identifying root causes.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/debugger.md",
-      "tags": ["debug", "diagnostics"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "error-detective",
-      "description": "Specialist at hunting down elusive errors across distributed systems, correlating logs and traces.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/error-detective.md",
-      "tags": ["debug", "observability"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "security-auditor",
-      "description": "Security audit specialist. Reviews code for OWASP risks, injection, authn/authz, secrets handling.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/security-auditor.md",
-      "tags": ["security", "audit", "owasp"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "penetration-tester",
-      "description": "Offensive security pentest specialist. Black/grey-box testing of web apps and APIs.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/penetration-tester.md",
-      "tags": ["security", "pentest"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "qa-expert",
-      "description": "Quality assurance expert: test plans, manual + automated coverage strategy, regression suites.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/qa-expert.md",
-      "tags": ["qa", "testing"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "test-automator",
-      "description": "Test automation engineer. Writes unit, integration and E2E test suites with high coverage.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/test-automator.md",
-      "tags": ["testing", "automation"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "performance-engineer",
-      "description": "Performance optimization specialist: profiling, hotspots, memory allocation, async patterns.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/performance-engineer.md",
-      "tags": ["performance", "profiling"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
       "name": "accessibility-tester",
       "description": "A11y specialist. WCAG 2.2 compliance, screen reader compatibility, keyboard navigation audits.",
       "source_repo": "VoltAgent/awesome-claude-code-subagents",
       "category": "quality-security",
       "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/accessibility-tester.md",
-      "tags": ["accessibility", "a11y", "wcag"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "architect-reviewer",
-      "description": "Senior architect reviewing system design, coupling, scalability and architectural drift.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "quality-security",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/architect-reviewer.md",
-      "tags": ["architecture", "review"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "python-pro",
-      "description": "Type-safe production Python with modern async patterns, FastAPI/Pydantic, full typing coverage.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/python-pro.md",
-      "tags": ["python", "backend", "async"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "typescript-pro",
-      "description": "TypeScript expert: strict typing, generics, type-level programming, Node and frontend stacks.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/typescript-pro.md",
-      "tags": ["typescript", "node", "frontend"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "javascript-pro",
-      "description": "Modern JavaScript expert: ES2024+, async patterns, performance, Node and browser.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/javascript-pro.md",
-      "tags": ["javascript", "node"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "rust-engineer",
-      "description": "Rust systems engineer: ownership, async (tokio), no_std, FFI, performance-critical code.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/rust-engineer.md",
-      "tags": ["rust", "systems"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "cpp-pro",
-      "description": "Modern C++20/23: templates, zero-overhead abstractions, embedded and high-perf systems.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/cpp-pro.md",
-      "tags": ["cpp", "systems", "performance"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "golang-pro",
-      "description": "Go specialist: concurrency, channels, idiomatic stdlib usage, gRPC/HTTP services.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/golang-pro.md",
-      "tags": ["go", "backend", "concurrency"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "csharp-developer",
-      "description": "C#/.NET 8+ developer: LINQ, async, Minimal APIs, Entity Framework Core.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/csharp-developer.md",
-      "tags": ["csharp", "dotnet"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "java-architect",
-      "description": "Java/JVM architect: Spring, JPA, reactive streams, concurrency, JVM tuning.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/java-architect.md",
-      "tags": ["java", "jvm", "backend"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "react-specialist",
-      "description": "React 18+ specialist: hooks, server components, suspense, performance, state management.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/react-specialist.md",
-      "tags": ["react", "frontend"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "nextjs-developer",
-      "description": "Next.js 14+ developer: App Router, RSC, server actions, ISR, edge runtime.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/nextjs-developer.md",
-      "tags": ["nextjs", "react", "frontend"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "vue-expert",
-      "description": "Vue 3 expert: Composition API, Pinia, Nuxt, performance optimization.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/vue-expert.md",
-      "tags": ["vue", "frontend"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "swift-expert",
-      "description": "Swift/SwiftUI specialist for iOS, macOS, visionOS development with concurrency and actors.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/swift-expert.md",
-      "tags": ["swift", "ios", "macos"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "kotlin-specialist",
-      "description": "Kotlin specialist: coroutines, Jetpack Compose, server-side with Ktor or Spring.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/kotlin-specialist.md",
-      "tags": ["kotlin", "android"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "sql-pro",
-      "description": "SQL expert for query optimization, indexing strategy, complex joins and analytics.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/sql-pro.md",
-      "tags": ["sql", "database"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "powershell-7-expert",
-      "description": "Cross-platform PowerShell 7+ cloud automation, idempotent operations, modern .NET interop.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/powershell-7-expert.md",
-      "tags": ["powershell", "windows", "automation"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "powershell-5.1-expert",
-      "description": "Windows PowerShell 5.1 + RSAT (AD, DNS, DHCP, GPO) enterprise automation specialist.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "language-specialist",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/powershell-5.1-expert.md",
-      "tags": ["powershell", "windows", "ad"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "backend-developer",
-      "description": "Server-side expert for scalable APIs, microservices and data layers across stacks.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "core-development",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/backend-developer.md",
-      "tags": ["backend", "api"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "frontend-developer",
-      "description": "UI/UX engineer for React, Vue and Angular: component design, state, performance.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "core-development",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/frontend-developer.md",
-      "tags": ["frontend", "ui"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "fullstack-developer",
-      "description": "End-to-end feature development across frontend, backend and data layers.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "core-development",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/fullstack-developer.md",
-      "tags": ["fullstack"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "api-designer",
-      "description": "REST and GraphQL API architect: resource modeling, versioning, contract design.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "core-development",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/api-designer.md",
-      "tags": ["api", "rest", "graphql"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "microservices-architect",
-      "description": "Distributed systems architect: service boundaries, sagas, event-driven, resilience.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "core-development",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/microservices-architect.md",
-      "tags": ["microservices", "architecture"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "mobile-developer",
-      "description": "Cross-platform mobile specialist for React Native, Flutter, and native iOS/Android.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "core-development",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/mobile-developer.md",
-      "tags": ["mobile", "ios", "android"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "electron-pro",
-      "description": "Desktop application specialist for Electron: IPC, security, packaging, auto-update.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "core-development",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/electron-pro.md",
-      "tags": ["electron", "desktop"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "websocket-engineer",
-      "description": "Real-time communication specialist: WebSockets, SSE, presence, broadcast architectures.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "core-development",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/websocket-engineer.md",
-      "tags": ["realtime", "websocket"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "devops-engineer",
-      "description": "End-to-end DevOps: pipelines, infra-as-code, observability, rollouts.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/devops-engineer.md",
-      "tags": ["devops", "ci-cd"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "kubernetes-specialist",
-      "description": "K8s specialist: manifests, operators, Helm, service mesh, multi-cluster ops.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/kubernetes-specialist.md",
-      "tags": ["kubernetes", "k8s", "infra"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "docker-expert",
-      "description": "Docker and container expert: Dockerfile design, multi-stage builds, BuildKit, Compose.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/docker-expert.md",
-      "tags": ["docker", "containers"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "terraform-engineer",
-      "description": "Terraform IaC engineer: modules, state, providers, multi-cloud patterns.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/terraform-engineer.md",
-      "tags": ["terraform", "iac"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "cloud-architect",
-      "description": "Multi-cloud architect for AWS / Azure / GCP: cost, reliability, security baselines.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/cloud-architect.md",
-      "tags": ["cloud", "architecture", "aws", "azure", "gcp"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "sre-engineer",
-      "description": "Site Reliability Engineer: SLOs, error budgets, on-call, postmortems, capacity planning.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/sre-engineer.md",
-      "tags": ["sre", "reliability"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "incident-responder",
-      "description": "Production incident commander: triage, comms, mitigation, RCA discipline.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/incident-responder.md",
-      "tags": ["incident", "sre"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "deployment-engineer",
-      "description": "Release engineering specialist: blue/green, canary, feature flags, rollback strategy.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/deployment-engineer.md",
-      "tags": ["deployment", "release"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "database-administrator",
-      "description": "DBA: replication, backup/recovery, performance tuning, schema migrations.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "infrastructure",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/database-administrator.md",
-      "tags": ["database", "dba"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "ai-engineer",
-      "description": "AI/LLM application engineer: RAG, agents, tool use, evaluation, prompt design.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "data-ai",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/ai-engineer.md",
-      "tags": ["ai", "llm", "rag"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "llm-architect",
-      "description": "LLM systems architect: routing, caching, evals, multi-model orchestration, cost control.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "data-ai",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/llm-architect.md",
-      "tags": ["ai", "llm", "architecture"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "prompt-engineer",
-      "description": "Prompt design specialist: structured prompting, few-shot, role design, evaluation loops.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "data-ai",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/prompt-engineer.md",
-      "tags": ["ai", "prompting"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "ml-engineer",
-      "description": "ML engineer: feature pipelines, model serving, A/B testing, deployment.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "data-ai",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/ml-engineer.md",
-      "tags": ["ml", "mlops"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "data-engineer",
-      "description": "Data engineer: ETL/ELT pipelines, Spark/Airflow/dbt, lakehouse architectures.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "data-ai",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/data-engineer.md",
-      "tags": ["data", "etl"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "postgres-pro",
-      "description": "PostgreSQL expert: tuning, indexes, partitioning, replication, JSONB, pg extensions.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "data-ai",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/postgres-pro.md",
-      "tags": ["postgres", "database"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "refactoring-specialist",
-      "description": "Transform complex/duplicated code into clean systems while preserving behavior.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "developer-experience",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/refactoring-specialist.md",
-      "tags": ["refactor", "code-quality"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "git-workflow-manager",
-      "description": "Design and optimize Git workflows, branching strategy and merge management for teams.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "developer-experience",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/git-workflow-manager.md",
-      "tags": ["git", "workflow"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "documentation-engineer",
-      "description": "Technical writer for engineering docs: ADRs, runbooks, API references, onboarding.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "developer-experience",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/documentation-engineer.md",
-      "tags": ["docs", "writing"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "mcp-developer",
-      "description": "Builds high-quality Model Context Protocol servers for external API integration.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "developer-experience",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/mcp-developer.md",
-      "tags": ["mcp", "integration"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "cli-developer",
-      "description": "CLI engineer: argument parsing, shells, UX (spinners, prompts), packaging, autocomplete.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "developer-experience",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/cli-developer.md",
-      "tags": ["cli", "tooling"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "legacy-modernizer",
-      "description": "Modernizes legacy code: framework migrations, strangler-fig refactors, dead-code removal.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "developer-experience",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/legacy-modernizer.md",
-      "tags": ["legacy", "migration"],
-      "model_hint": "claude-sonnet-4-6"
-    },
-    {
-      "name": "multi-agent-coordinator",
-      "description": "Orchestrates teams of subagents: task decomposition, parallelism, handoff protocols.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "meta-orchestration",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/09-meta-orchestration/multi-agent-coordinator.md",
-      "tags": ["orchestration", "agents"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "workflow-orchestrator",
-      "description": "Designs deterministic multi-step workflows across agents, tools and human approvals.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "meta-orchestration",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/09-meta-orchestration/workflow-orchestrator.md",
-      "tags": ["orchestration", "workflow"],
-      "model_hint": "claude-opus-4-7"
-    },
-    {
-      "name": "context-manager",
-      "description": "Manages context windows for long-running agent sessions: pinning, eviction, summary.",
-      "source_repo": "VoltAgent/awesome-claude-code-subagents",
-      "category": "meta-orchestration",
-      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/09-meta-orchestration/context-manager.md",
-      "tags": ["context", "memory"],
-      "model_hint": "claude-sonnet-4-6"
+      "tags": [
+        "accessibility",
+        "a11y",
+        "wcag"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
     },
     {
       "name": "agent-organizer",
@@ -553,8 +45,358 @@
       "source_repo": "VoltAgent/awesome-claude-code-subagents",
       "category": "meta-orchestration",
       "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/09-meta-orchestration/agent-organizer.md",
-      "tags": ["orchestration", "agents"],
-      "model_hint": "claude-opus-4-7"
+      "tags": [
+        "orchestration",
+        "agents"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "ai-engineer",
+      "description": "AI/LLM application engineer: RAG, agents, tool use, evaluation, prompt design.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "data-ai",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/ai-engineer.md",
+      "tags": [
+        "ai",
+        "llm",
+        "rag"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "api-designer",
+      "description": "REST and GraphQL API architect: resource modeling, versioning, contract design.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "core-development",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/api-designer.md",
+      "tags": [
+        "api",
+        "rest",
+        "graphql"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "architect-reviewer",
+      "description": "Senior architect reviewing system design, coupling, scalability and architectural drift.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/architect-reviewer.md",
+      "tags": [
+        "architecture",
+        "review"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": true
+    },
+    {
+      "name": "backend-developer",
+      "description": "Server-side expert for scalable APIs, microservices and data layers across stacks.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "core-development",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/backend-developer.md",
+      "tags": [
+        "backend",
+        "api"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "cli-developer",
+      "description": "CLI engineer: argument parsing, shells, UX (spinners, prompts), packaging, autocomplete.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "developer-experience",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/cli-developer.md",
+      "tags": [
+        "cli",
+        "tooling"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "cloud-architect",
+      "description": "Multi-cloud architect for AWS / Azure / GCP: cost, reliability, security baselines.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/cloud-architect.md",
+      "tags": [
+        "cloud",
+        "architecture",
+        "aws",
+        "azure",
+        "gcp"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "code-reviewer",
+      "description": "Comprehensive code review focused on quality, security vulnerabilities and best practices. Strict reviewer that catches subtle bugs.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/code-reviewer.md",
+      "tags": [
+        "review",
+        "code-quality",
+        "security"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "context-manager",
+      "description": "Manages context windows for long-running agent sessions: pinning, eviction, summary.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "meta-orchestration",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/09-meta-orchestration/context-manager.md",
+      "tags": [
+        "context",
+        "memory"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "cpp-pro",
+      "description": "Modern C++20/23: templates, zero-overhead abstractions, embedded and high-perf systems.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/cpp-pro.md",
+      "tags": [
+        "cpp",
+        "systems",
+        "performance"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "csharp-developer",
+      "description": "C#/.NET 8+ developer: LINQ, async, Minimal APIs, Entity Framework Core.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/csharp-developer.md",
+      "tags": [
+        "csharp",
+        "dotnet"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "data-engineer",
+      "description": "Data engineer: ETL/ELT pipelines, Spark/Airflow/dbt, lakehouse architectures.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "data-ai",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/data-engineer.md",
+      "tags": [
+        "data",
+        "etl"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "database-administrator",
+      "description": "DBA: replication, backup/recovery, performance tuning, schema migrations.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/database-administrator.md",
+      "tags": [
+        "database",
+        "dba"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "debugger",
+      "description": "Diagnoses and fixes bugs by analyzing error logs, stack traces and identifying root causes.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/debugger.md",
+      "tags": [
+        "debug",
+        "diagnostics"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "deployment-engineer",
+      "description": "Release engineering specialist: blue/green, canary, feature flags, rollback strategy.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/deployment-engineer.md",
+      "tags": [
+        "deployment",
+        "release"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "devops-engineer",
+      "description": "End-to-end DevOps: pipelines, infra-as-code, observability, rollouts.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/devops-engineer.md",
+      "tags": [
+        "devops",
+        "ci-cd"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "docker-expert",
+      "description": "Docker and container expert: Dockerfile design, multi-stage builds, BuildKit, Compose.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/docker-expert.md",
+      "tags": [
+        "docker",
+        "containers"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "documentation-engineer",
+      "description": "Technical writer for engineering docs: ADRs, runbooks, API references, onboarding.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "developer-experience",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/documentation-engineer.md",
+      "tags": [
+        "docs",
+        "writing"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "electron-pro",
+      "description": "Desktop application specialist for Electron: IPC, security, packaging, auto-update.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "core-development",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/electron-pro.md",
+      "tags": [
+        "electron",
+        "desktop"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "error-detective",
+      "description": "Specialist at hunting down elusive errors across distributed systems, correlating logs and traces.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/error-detective.md",
+      "tags": [
+        "debug",
+        "observability"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "frontend-developer",
+      "description": "UI/UX engineer for React, Vue and Angular: component design, state, performance.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "core-development",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/frontend-developer.md",
+      "tags": [
+        "frontend",
+        "ui"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "fullstack-developer",
+      "description": "End-to-end feature development across frontend, backend and data layers.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "core-development",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/fullstack-developer.md",
+      "tags": [
+        "fullstack"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "git-workflow-manager",
+      "description": "Design and optimize Git workflows, branching strategy and merge management for teams.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "developer-experience",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/git-workflow-manager.md",
+      "tags": [
+        "git",
+        "workflow"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "golang-pro",
+      "description": "Go specialist: concurrency, channels, idiomatic stdlib usage, gRPC/HTTP services.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/golang-pro.md",
+      "tags": [
+        "go",
+        "backend",
+        "concurrency"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "incident-responder",
+      "description": "Production incident commander: triage, comms, mitigation, RCA discipline.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/incident-responder.md",
+      "tags": [
+        "incident",
+        "sre"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "java-architect",
+      "description": "Java/JVM architect: Spring, JPA, reactive streams, concurrency, JVM tuning.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/java-architect.md",
+      "tags": [
+        "java",
+        "jvm",
+        "backend"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "javascript-pro",
+      "description": "Modern JavaScript expert: ES2024+, async patterns, performance, Node and browser.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/javascript-pro.md",
+      "tags": [
+        "javascript",
+        "node"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
     },
     {
       "name": "knowledge-synthesizer",
@@ -562,8 +404,533 @@
       "source_repo": "VoltAgent/awesome-claude-code-subagents",
       "category": "meta-orchestration",
       "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/09-meta-orchestration/knowledge-synthesizer.md",
-      "tags": ["synthesis", "research"],
-      "model_hint": "claude-opus-4-7"
+      "tags": [
+        "synthesis",
+        "research"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "kotlin-specialist",
+      "description": "Kotlin specialist: coroutines, Jetpack Compose, server-side with Ktor or Spring.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/kotlin-specialist.md",
+      "tags": [
+        "kotlin",
+        "android"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "kubernetes-specialist",
+      "description": "K8s specialist: manifests, operators, Helm, service mesh, multi-cluster ops.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/kubernetes-specialist.md",
+      "tags": [
+        "kubernetes",
+        "k8s",
+        "infra"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "legacy-modernizer",
+      "description": "Modernizes legacy code: framework migrations, strangler-fig refactors, dead-code removal.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "developer-experience",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/legacy-modernizer.md",
+      "tags": [
+        "legacy",
+        "migration"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "llm-architect",
+      "description": "LLM systems architect: routing, caching, evals, multi-model orchestration, cost control.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "data-ai",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/llm-architect.md",
+      "tags": [
+        "ai",
+        "llm",
+        "architecture"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "mcp-developer",
+      "description": "Builds high-quality Model Context Protocol servers for external API integration.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "developer-experience",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/mcp-developer.md",
+      "tags": [
+        "mcp",
+        "integration"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": true
+    },
+    {
+      "name": "microservices-architect",
+      "description": "Distributed systems architect: service boundaries, sagas, event-driven, resilience.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "core-development",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/microservices-architect.md",
+      "tags": [
+        "microservices",
+        "architecture"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "ml-engineer",
+      "description": "ML engineer: feature pipelines, model serving, A/B testing, deployment.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "data-ai",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/ml-engineer.md",
+      "tags": [
+        "ml",
+        "mlops"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "mobile-developer",
+      "description": "Cross-platform mobile specialist for React Native, Flutter, and native iOS/Android.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "core-development",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/mobile-developer.md",
+      "tags": [
+        "mobile",
+        "ios",
+        "android"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "multi-agent-coordinator",
+      "description": "Orchestrates teams of subagents: task decomposition, parallelism, handoff protocols.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "meta-orchestration",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/09-meta-orchestration/multi-agent-coordinator.md",
+      "tags": [
+        "orchestration",
+        "agents"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": true
+    },
+    {
+      "name": "nextjs-developer",
+      "description": "Next.js 14+ developer: App Router, RSC, server actions, ISR, edge runtime.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/nextjs-developer.md",
+      "tags": [
+        "nextjs",
+        "react",
+        "frontend"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "penetration-tester",
+      "description": "Offensive security pentest specialist. Black/grey-box testing of web apps and APIs.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/penetration-tester.md",
+      "tags": [
+        "security",
+        "pentest"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "performance-engineer",
+      "description": "Performance optimization specialist: profiling, hotspots, memory allocation, async patterns.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/performance-engineer.md",
+      "tags": [
+        "performance",
+        "profiling"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "postgres-pro",
+      "description": "PostgreSQL expert: tuning, indexes, partitioning, replication, JSONB, pg extensions.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "data-ai",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/postgres-pro.md",
+      "tags": [
+        "postgres",
+        "database"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "powershell-5.1-expert",
+      "description": "Windows PowerShell 5.1 + RSAT (AD, DNS, DHCP, GPO) enterprise automation specialist.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/powershell-5.1-expert.md",
+      "tags": [
+        "powershell",
+        "windows",
+        "ad"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "powershell-7-expert",
+      "description": "Cross-platform PowerShell 7+ cloud automation, idempotent operations, modern .NET interop.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/powershell-7-expert.md",
+      "tags": [
+        "powershell",
+        "windows",
+        "automation"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "prompt-engineer",
+      "description": "Prompt design specialist: structured prompting, few-shot, role design, evaluation loops.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "data-ai",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/05-data-ai/prompt-engineer.md",
+      "tags": [
+        "ai",
+        "prompting"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "python-pro",
+      "description": "Type-safe production Python with modern async patterns, FastAPI/Pydantic, full typing coverage.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/python-pro.md",
+      "tags": [
+        "python",
+        "backend",
+        "async"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "qa-expert",
+      "description": "Quality assurance expert: test plans, manual + automated coverage strategy, regression suites.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/qa-expert.md",
+      "tags": [
+        "qa",
+        "testing"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "react-specialist",
+      "description": "React 18+ specialist: hooks, server components, suspense, performance, state management.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/react-specialist.md",
+      "tags": [
+        "react",
+        "frontend"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "refactoring-specialist",
+      "description": "Transform complex/duplicated code into clean systems while preserving behavior.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "developer-experience",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/06-developer-experience/refactoring-specialist.md",
+      "tags": [
+        "refactor",
+        "code-quality"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "rust-engineer",
+      "description": "Rust systems engineer: ownership, async (tokio), no_std, FFI, performance-critical code.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/rust-engineer.md",
+      "tags": [
+        "rust",
+        "systems"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": true
+    },
+    {
+      "name": "security-auditor",
+      "description": "Security audit specialist. Reviews code for OWASP risks, injection, authn/authz, secrets handling.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/security-auditor.md",
+      "tags": [
+        "security",
+        "audit",
+        "owasp"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": true
+    },
+    {
+      "name": "sql-pro",
+      "description": "SQL expert for query optimization, indexing strategy, complex joins and analytics.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/sql-pro.md",
+      "tags": [
+        "sql",
+        "database"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "sre-engineer",
+      "description": "Site Reliability Engineer: SLOs, error budgets, on-call, postmortems, capacity planning.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/sre-engineer.md",
+      "tags": [
+        "sre",
+        "reliability"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
+    },
+    {
+      "name": "swift-expert",
+      "description": "Swift/SwiftUI specialist for iOS, macOS, visionOS development with concurrency and actors.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/swift-expert.md",
+      "tags": [
+        "swift",
+        "ios",
+        "macos"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "terraform-engineer",
+      "description": "Terraform IaC engineer: modules, state, providers, multi-cloud patterns.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "infrastructure",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/03-infrastructure/terraform-engineer.md",
+      "tags": [
+        "terraform",
+        "iac"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "test-automator",
+      "description": "Test automation engineer. Writes unit, integration and E2E test suites with high coverage.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "quality-security",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/04-quality-security/test-automator.md",
+      "tags": [
+        "testing",
+        "automation"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "typescript-pro",
+      "description": "TypeScript expert: strict typing, generics, type-level programming, Node and frontend stacks.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/typescript-pro.md",
+      "tags": [
+        "typescript",
+        "node",
+        "frontend"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "ultron-arch",
+      "description": "ULTRON Phase 0b diagnostic. Analyzes architecture for high coupling, low cohesion, SOLID violations, cyclomatic complexity, and missing abstractions. Requires synthesis across module boundaries. Retur",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "arch"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "ultron-changelog",
+      "description": "Lee últimos commits de git y compone entradas Keep-a-Changelog en CHANGELOG.md. Agrupa por Added/Changed/Fixed/Removed/Security. Triggers - \"actualiza changelog\", \"compose changelog entry for vX.Y.Z\".",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "changelog"
+      ],
+      "model_hint": "claude-haiku-4-5",
+      "installed": true
+    },
+    {
+      "name": "ultron-context",
+      "description": "ULTRON Phase 0b diagnostic for large codebases (>50 files). Compresses architecture, entry points, key files, and external dependencies into a structured JSON summary. Provides context window for Code",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "context"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "ultron-docs",
+      "description": "Refresca o crea documentación (README, INSTALL, CHANGELOG entries, CONTRIBUTING) basándose en cambios recientes del repo. Lee git log, sintetiza features, escribe markdown limpio sin emojis. Triggers ",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "docs"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "ultron-metadata",
+      "description": "ULTRON Phase 0a diagnostic. Collects git history, file inventory, and dependency manifests to build repo metadata used by specialist diagnostic agents in /maxdual Phase 0. Always run before ultron-sec",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "metadata"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "ultron-perf",
+      "description": "ULTRON Phase 0b diagnostic. Scans code for performance anti-patterns — O(n²) algorithms, N+1 queries, sync I/O in hot paths, unbounded memory growth, missing caching. Returns structured JSON diagnosti",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "perf"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "ultron-refactor",
+      "description": "Refactoriza código preservando comportamiento. Detecta duplicación, extrae funciones, simplifica condicionales anidados. Mantiene tests verdes y diff mínimo. Triggers - \"refactoriza\", \"limpia esto\", \"",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "refactor"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "ultron-security",
+      "description": "ULTRON Phase 0b diagnostic. Scans code for OWASP vulnerabilities, hardcoded secrets, auth issues, injection risks, and insecure configurations. Returns structured JSON diagnostic for /maxdual pre-anal",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "security"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "ultron-test",
+      "description": "Escribe tests pytest / cargo / vitest para código existente. Detecta el framework por extensión, sigue convenciones del repo, prioriza tests que descubrirían bugs reales (no smoke tests vacíos). Trigg",
+      "source_repo": "local",
+      "category": "ultron-first-party",
+      "raw_url": null,
+      "tags": [
+        "test"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": true
+    },
+    {
+      "name": "vue-expert",
+      "description": "Vue 3 expert: Composition API, Pinia, Nuxt, performance optimization.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "language-specialist",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/02-language-specialists/vue-expert.md",
+      "tags": [
+        "vue",
+        "frontend"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "websocket-engineer",
+      "description": "Real-time communication specialist: WebSockets, SSE, presence, broadcast architectures.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "core-development",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/01-core-development/websocket-engineer.md",
+      "tags": [
+        "realtime",
+        "websocket"
+      ],
+      "model_hint": "claude-sonnet-4-6",
+      "installed": false
+    },
+    {
+      "name": "workflow-orchestrator",
+      "description": "Designs deterministic multi-step workflows across agents, tools and human approvals.",
+      "source_repo": "VoltAgent/awesome-claude-code-subagents",
+      "category": "meta-orchestration",
+      "raw_url": "https://raw.githubusercontent.com/VoltAgent/awesome-claude-code-subagents/main/categories/09-meta-orchestration/workflow-orchestrator.md",
+      "tags": [
+        "orchestration",
+        "workflow"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": false
     }
   ]
 }

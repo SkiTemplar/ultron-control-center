@@ -39,8 +39,8 @@ _Auto-generated from 0094caea by scripts/hooks/auto-changelog.py_
 <!-- v15.3.0 -->
 ## v15.3.0 — 2026-05-16
 
-- feat(v15.3.0): agent ecosystem â€” catalog, embeddings, telemetry, refreshed roster
-- feat(v15.3.0-alpha): Agents tab â€” list / preview / edit / delete / AI / Discover
+- feat(v15.3.0): agent ecosystem — catalog, embeddings, telemetry, refreshed roster
+- feat(v15.3.0-alpha): Agents tab — list / preview / edit / delete / AI / Discover
 - chore: refresh changelog (auto)
 
 _Auto-generated from 27d6d913 by scripts/hooks/auto-changelog.py_
@@ -49,7 +49,7 @@ _Auto-generated from 27d6d913 by scripts/hooks/auto-changelog.py_
 <!-- v15.3.0-alpha -->
 ## v15.3.0-alpha — 2026-05-16
 
-- feat(v15.3.0-alpha): Agents tab â€” list / preview / edit / delete / AI / Discover
+- feat(v15.3.0-alpha): Agents tab — list / preview / edit / delete / AI / Discover
 - chore: refresh changelog (auto)
 
 _Auto-generated from fe2d3297 by scripts/hooks/auto-changelog.py_
@@ -87,7 +87,7 @@ _Auto-generated from d9558ce6 by scripts/hooks/auto-changelog.py_
 <!-- v15.2.36 -->
 ## v15.2.36 — 2026-05-16
 
-- feat(v15.2.36): Settings App lifecycle tab â€” Uninstall + Update (Rebuild) buttons
+- feat(v15.2.36): Settings App lifecycle tab — Uninstall + Update (Rebuild) buttons
 
 _Auto-generated from 14794051 by scripts/hooks/auto-changelog.py_
 
@@ -111,7 +111,7 @@ _Auto-generated from 688ed986 by scripts/hooks/auto-changelog.py_
 <!-- v15.2.33 -->
 ## v15.2.33 — 2026-05-16
 
-- fix(v15.2.33): installer robustness â€” PS 5.1 \$IsWindows, native-binary stderr noise, step numbering
+- fix(v15.2.33): installer robustness — PS 5.1 \$IsWindows, native-binary stderr noise, step numbering
 
 _Auto-generated from cb0c31be by scripts/hooks/auto-changelog.py_
 

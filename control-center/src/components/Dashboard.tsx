@@ -531,6 +531,11 @@ const AUTO_FIX_CATALOG: { name: string; title: string; blurb: string; danger?: b
     title: "Run weekly backup now",
     blurb: "Triggers the ULTRON-Backup-Weekly scheduled task so disk mirrors refresh. Fixes the 'Backup stale' Doctor row.",
   },
+  {
+    name: "refresh-versions",
+    title: "Sync version numbers",
+    blurb: "Reads canonical version from CHANGELOG.md and writes it into Cargo.toml, package.json, tauri.conf.json, ULTRON skill frontmatter and SYSTEM-MAP. Fixes the 'Version drift' Doctor row.",
+  },
 ];
 
 function colorToken(color: "green" | "orange" | "red") {

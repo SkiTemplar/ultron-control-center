@@ -85,6 +85,7 @@ pub const AUTO_FIX_ALLOWLIST: &[&str] = &[
     "empty-recycle-bin",
     "restart-qdrant",
     "run-weekly-backup",
+    "refresh-versions",
 ];
 
 // ---------------------------------------------------------------------------
@@ -586,6 +587,59 @@ fn probe_disk() -> DiagItem {
     }
 }
 
+fn probe_version_drift() -> DiagItem {
+    let t0 = now_epoch_ms();
+    match crate::version_drift::scan_inner() {
+        Err(e) => DiagItem {
+            key: "version".into(),
+            label: "Version drift".into(),
+            color: "orange".into(),
+            metric: "error".into(),
+            detail: Some(e),
+            fix: None,
+            elapsed_ms: now_epoch_ms() - t0,
+        },
+        Ok(rep) => {
+            let n = rep.findings.len();
+            if n == 0 {
+                DiagItem {
+                    key: "version".into(),
+                    label: "Version drift".into(),
+                    color: "green".into(),
+                    metric: rep.current.clone(),
+                    detail: Some("All files match the canonical version.".into()),
+                    fix: None,
+                    elapsed_ms: now_epoch_ms() - t0,
+                }
+            } else {
+                let detail = rep
+                    .findings
+                    .iter()
+                    .take(5)
+                    .map(|f| {
+                        format!(
+                            "{}: {} ({})",
+                            f.label,
+                            f.found.clone().unwrap_or_else(|| "?".into()),
+                            f.drift.clone().unwrap_or_else(|| "drift".into())
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" · ");
+                DiagItem {
+                    key: "version".into(),
+                    label: "Version drift".into(),
+                    color: "orange".into(),
+                    metric: format!("{} stale", n),
+                    detail: Some(detail),
+                    fix: Some("refresh-versions".into()),
+                    elapsed_ms: now_epoch_ms() - t0,
+                }
+            }
+        }
+    }
+}
+
 fn probe_backup() -> DiagItem {
     let t0 = now_epoch_ms();
     match backup_status::backup_status_inner() {
@@ -669,6 +723,7 @@ pub fn run_full_diagnostic_inner() -> Result<FullDiagnostic, String> {
         probe_skills,
         probe_disk,
         probe_backup,
+        probe_version_drift,
     ];
 
     let mut handles = Vec::with_capacity(probes.len());
