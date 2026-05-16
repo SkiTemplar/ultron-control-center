@@ -12,6 +12,7 @@ export type Tab =
   | "dashboard"
   | "mcps"
   | "skills"
+  | "agents"
   | "projects"
   | "memory"
   | "plans"
@@ -56,6 +57,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "system", label: "System", available: true },
       { id: "mcps", label: "MCPs", available: true, featureKey: "mcps" },
       { id: "skills", label: "Skills", available: true, featureKey: "skills" },
+      { id: "agents", label: "Agents", available: true, featureKey: "skills" },
       { id: "memory", label: "Memory", available: true, featureKey: "memory" },
     ],
   },

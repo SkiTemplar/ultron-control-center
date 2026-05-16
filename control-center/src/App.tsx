@@ -7,6 +7,7 @@ import { Changelog } from "./components/Changelog";
 import { Notifications } from "./components/Notifications";
 import { MCPs } from "./components/MCPs";
 import { Skills } from "./components/Skills";
+import { Agents } from "./components/Agents";
 import { Memory } from "./components/Memory";
 import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
@@ -296,6 +297,7 @@ export default function App() {
         {tab === "changelog" && <Changelog entries={changelog} />}
         {tab === "mcps" && <MCPs />}
         {tab === "skills" && <Skills />}
+        {tab === "agents" && <Agents />}
         {tab === "memory" && <Memory />}
         {tab === "sessions" && <Sessions />}
         {tab === "usage" && <Usage />}

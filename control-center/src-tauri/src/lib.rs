@@ -25,6 +25,7 @@ mod gaming;
 mod mcps;
 mod memory;
 mod memory_graph;
+mod agents;
 mod maintenance;
 mod memory_highlights;
 mod mode;
@@ -433,6 +434,40 @@ async fn run_app_lifecycle(kind: String) -> Result<(), String> {
 /// Open a project path in the user's IDE.
 /// Order: VS Code (`code <path>`) -> Cursor (`cursor <path>`) -> file explorer.
 /// Path is canonicalised to reject relative / traversal payloads.
+#[tauri::command]
+async fn list_agents() -> Result<Vec<agents::AgentInfo>, String> {
+    agents::list_agents_inner()
+}
+
+#[tauri::command]
+async fn read_agent_md(name: String) -> Result<String, String> {
+    agents::read_agent_md_inner(&name)
+}
+
+#[tauri::command]
+async fn create_agent(
+    name: String,
+    description: String,
+    body: String,
+    model: Option<String>,
+    tools: Vec<String>,
+) -> Result<agents::AgentMutationResult, String> {
+    agents::create_agent_inner(name, description, body, model, tools)
+}
+
+#[tauri::command]
+async fn update_agent_md(
+    name: String,
+    content: String,
+) -> Result<agents::AgentMutationResult, String> {
+    agents::update_agent_md_inner(name, content)
+}
+
+#[tauri::command]
+async fn delete_agent(name: String) -> Result<agents::AgentMutationResult, String> {
+    agents::delete_agent_inner(name)
+}
+
 #[tauri::command]
 async fn open_project_in_ide(path: String) -> Result<String, String> {
     use std::path::PathBuf;
@@ -1337,6 +1372,11 @@ pub fn run() {
             run_detect_gaps,
             run_app_lifecycle,
             open_project_in_ide,
+            list_agents,
+            read_agent_md,
+            create_agent,
+            update_agent_md,
+            delete_agent,
             memory_status,
             spawn_session,
             run_inline,

@@ -375,6 +375,23 @@ export type AllowSkillResult = {
   waiver_path: string;
 };
 
+export type AgentInfo = {
+  name: string;
+  description: string | null;
+  model: string | null;
+  tools: string[];
+  path: string | null;
+  size_bytes: number;
+  last_modified: number | null;
+};
+
+export type AgentMutationResult = {
+  success: boolean;
+  name: string;
+  path: string;
+  backup_path: string | null;
+};
+
 export type MaintenanceCommand = {
   kind: string;
   label: string;
