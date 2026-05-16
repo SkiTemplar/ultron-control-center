@@ -298,6 +298,13 @@ pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
     // with every Windows install and the call is well-scoped.
     #[cfg(target_os = "windows")]
     {
+        // CREATE_NO_WINDOW (0x08000000) prevents reg.exe from flashing a
+        // console window. Without this flag, every Settings tab visit
+        // re-spawned 2-3 visible terminals for ~10-50ms each — that was
+        // the "flicker raro" the user reported.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
         let approved_path = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
         let app_name = "ULTRON Control Center";
 
@@ -312,6 +319,7 @@ pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
                 "/v",
                 app_name,
             ])
+            .creation_flags(CREATE_NO_WINDOW)
             .output()
             .map(|o| o.status.success())
             .unwrap_or(false);
@@ -319,12 +327,14 @@ pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
         if !run_present {
             let approved_present = std::process::Command::new("reg.exe")
                 .args(["query", approved_path, "/v", app_name])
+                .creation_flags(CREATE_NO_WINDOW)
                 .output()
                 .map(|o| o.status.success())
                 .unwrap_or(false);
             if approved_present {
                 let out = std::process::Command::new("reg.exe")
                     .args(["delete", approved_path, "/v", app_name, "/f"])
+                    .creation_flags(CREATE_NO_WINDOW)
                     .output();
                 match out {
                     Ok(o) if o.status.success() => {

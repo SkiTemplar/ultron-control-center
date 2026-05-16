@@ -172,3 +172,10 @@ _legacy/
 # Config with personal references
 config/constitution.json
 config/skill-trust.yaml
+
+# === Defensive: never commit backup or temp files ===
+*.bak
+*.bak.*
+*.tmp
+*~
+*.lock.tmp
