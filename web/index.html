@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ULTRON Genesis · v15.1.0</title>
-<meta name="description" content="A personal AI OS built on Claude Code. 1157 tests. 759 indexed notes. 0.58 ms dispatcher. Multi-model. Self-diagnosing. Ships with a TUI cockpit.">
+<title>ULTRON Genesis · v14.x.x</title>
+<meta name="description" content="A personal AI OS built on Claude Code. 1157 tests. 708 indexed notes. 0.58 ms dispatcher. Multi-model. Self-diagnosing. Ships with a TUI cockpit.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -13,7 +13,7 @@
 <body>
 
 <nav id="topnav" aria-label="Section navigation">
-  <span class="brand">ULTRON <span class="mono dim">v15.1.0</span></span>
+  <span class="brand">ULTRON <span class="mono dim">v14.x.x</span></span>
   <ul>
     <li><a href="#what">What it is</a></li>
     <li><a href="#cockpit">Cockpit</a></li>
@@ -27,8 +27,8 @@
 <main>
 
 <section class="hero" id="top">
-  <p class="eyebrow mono">GENESIS RELEASE &middot; 2026-05-15</p>
-  <h1>An AI that remembers you.<span class="version mono">v15.1.0</span></h1>
+  <p class="eyebrow mono">GENESIS RELEASE &middot; 2026-05-16</p>
+  <h1>An AI that remembers you.<span class="version mono">v14.x.x</span></h1>
   <p class="lede">
     ULTRON is a personal AI operating system built on top of Claude Code.
     It runs in your terminal, never forgets what you told it last week, routes your prompts
@@ -41,7 +41,7 @@
   </p>
   <p class="hero-specs mono">
     <span>1157 tests passing</span>
-    <span>759 notes indexed</span>
+    <span>708 notes indexed</span>
     <span>0.58 ms dispatch</span>
     <span>1380 / 1500 tok overhead</span>
   </p>
@@ -85,7 +85,7 @@
     <article class="cap">
       <h3>It remembers you</h3>
       <p>
-        759 notes indexed. Every project, decision, and session stored in a three-layer vault.
+        708 notes indexed. Every project, decision, and session stored in a three-layer vault.
         Each new session starts with a 400-token primer of what matters right now &mdash;
         no manual copy-paste, no re-explaining context.
       </p>
@@ -219,7 +219,7 @@
     <li>
       <span class="layer-num mono">LAYER 2</span>
       <span class="layer-name">ZTMSI &mdash; Zero-Token Memory &amp; Skills Index</span>
-      <span class="layer-role">SQLite FTS5 &middot; 759 notes &middot; answers in &lt;5 ms &middot; costs zero tokens</span>
+      <span class="layer-role">SQLite FTS5 &middot; 708 notes &middot; answers in &lt;5 ms &middot; costs zero tokens</span>
     </li>
     <li>
       <span class="layer-num mono">LAYER 3</span>
@@ -263,7 +263,7 @@
     <article class="cap">
       <h3>Brain Index (ZTMSI)</h3>
       <p>FTS5 SQLite over every vault note, chunked to paragraph level. BM25 ranking. Zero tokens consumed &mdash; it answers before the LLM is involved.</p>
-      <p class="mono dim">759 notes &middot; ~10,240 chunks &middot; &lt;5 ms median</p>
+      <p class="mono dim">708 notes &middot; ~10,240 chunks &middot; &lt;5 ms median</p>
     </article>
     <article class="cap">
       <h3>Intent Dispatcher</h3>
@@ -333,7 +333,7 @@
     <p class="spec-head mono">Memory</p>
 
     <details class="spec-row">
-      <summary><span>Notes indexed</span><span class="mono">759</span></summary>
+      <summary><span>Notes indexed</span><span class="mono">708</span></summary>
       <p>Markdown notes in the L2 vault plus the L1 bridges (projects, sessions, skills). Each carries a frontmatter token estimate and a layer tag used by the brain index for BM25 scoring.</p>
     </details>
     <details class="spec-row">
@@ -530,7 +530,7 @@ Exit 1 (warn) &mdash; gemini degraded but fallback is wired
 </main>
 
 <footer>
-  <p class="mono">ULTRON v15.1.0 GENESIS &middot; 2026-05-15 &middot; ~/.ultron/ &middot; Personal AI OS</p>
+  <p class="mono">ULTRON v14.x.x GENESIS &middot; 2026-05-16 &middot; ~/.ultron/ &middot; Personal AI OS</p>
   <p class="dim" style="margin-top:0.5rem;font-size:0.85rem">
     Built by one developer. Not for sale. Not a product. A system that works the way its owner thinks.
   </p>

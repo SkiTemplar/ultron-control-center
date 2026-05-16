@@ -7,18 +7,52 @@ bootstrap installer breaks.
 
 ## Quick path (the happy one)
 
+`install.ps1` is **zero-friction**: it auto-installs every missing
+dependency via `winget` (Git, Node 22 LTS, Claude Code, Rust, uv,
+Docker Desktop), asking once per dependency. Decline and you fall back
+to the manual steps below.
+
 ```powershell
-# from a fresh PowerShell window (NO admin):
+# from a fresh PowerShell window (NO admin needed for winget user-scope):
 git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
-.\install.ps1               # interactive
-.\install.ps1 -NonInteractive   # CI / unattended
+.\install.ps1               # interactive, prompts per dependency
+.\install.ps1 -NonInteractive   # CI / unattended, auto-Y to every install
 .\install.ps1 -Verbose      # debug what each step is doing
-.\install.ps1 -NoApp -NoDocker  # bare-bones, no Tauri build, no Qdrant
+.\install.ps1 -NoApp -NoDocker  # bare-bones, no Tauri build, no Qdrant, skips Rust + Docker auto-install
 ```
 
 `install.ps1` is **idempotent**: run it again any time, it skips steps
-that are already done.
+that are already done. Dependencies already on PATH are auto-detected
+and never reinstalled.
+
+### Auto-install matrix
+
+| Dependency        | Installed via                                  | Skipped when            |
+| ----------------- | ---------------------------------------------- | ----------------------- |
+| Git               | `winget install Git.Git`                       | already on PATH         |
+| Node 22 LTS       | `winget install OpenJS.NodeJS.LTS`             | `node -v` >= v22        |
+| Claude Code CLI   | `npm install -g @anthropic-ai/claude-code`     | `claude --version` works|
+| uv (Python)       | `irm https://astral.sh/uv/install.ps1 \| iex`  | `uv --version` works    |
+| Rust + cargo      | `winget install Rustlang.Rustup` + `rustup default stable` | `-NoApp` flag or `rustc` on PATH |
+| Docker Desktop    | `winget install Docker.DockerDesktop`          | `-NoDocker` flag or `docker` on PATH |
+
+**Caveats:**
+
+- Auto-install needs `winget` (Windows App Installer). If you're on
+  Windows older than 10 1809 or stripped App Installer, the script
+  detects this and prints manual download links.
+- `winget` installs at user scope, so **no UAC elevation** is required
+  unless you've globally locked down installs.
+- After winget finishes, the installer refreshes the session `PATH`
+  from registry so the rest of the run can find the new binaries.
+- **Docker Desktop does NOT auto-start.** After winget installs it you
+  must launch "Docker Desktop" from the Start menu once, accept the
+  terms, and wait for the whale icon to stabilise. Re-run `install.ps1`
+  afterwards and step 5 will provision Qdrant.
+- **Rust** install may print a notice that a reboot is required to
+  finish wiring up the MSVC linker. The installer surfaces this — it
+  doesn't force a reboot.
 
 ## What each step does, manually
 
@@ -35,21 +69,39 @@ that are already done.
 If RAM < 8 GB or disk < 5 GB free, ULTRON will run but you may hit
 swap and stalls during embedding rebuilds.
 
-### 2. Claude Code CLI (hard requirement)
+### 0a. git (auto-installed)
+
+```powershell
+git --version
+# if missing:
+winget install Git.Git --silent --accept-source-agreements --accept-package-agreements
+```
+
+### 0b. Node 22 LTS (auto-installed, prereq for Claude Code + Tauri)
+
+```powershell
+node --version    # need >= v22
+# if missing or older:
+winget install OpenJS.NodeJS.LTS --silent --accept-source-agreements --accept-package-agreements
+# open a new shell so PATH reloads, or:
+$env:Path = [Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [Environment]::GetEnvironmentVariable("Path","User")
+```
+
+### 2. Claude Code CLI (hard requirement, auto-installed)
 
 ```powershell
 claude --version
 ```
 
-If missing:
+If missing (the installer runs this automatically once Node is in place):
 
 ```powershell
-npm install -g @anthropic/claude-code
+npm install -g @anthropic-ai/claude-code
 # or follow https://docs.claude.com/en/docs/claude-code
 claude login   # one-time browser sign-in to your Claude.ai subscription
 ```
 
-### 3. uv (Python)
+### 3. uv (Python, auto-installed)
 
 ```powershell
 uv --version
@@ -58,16 +110,34 @@ irm https://astral.sh/uv/install.ps1 | iex
 # open a new shell so PATH reloads
 ```
 
-### 4. Docker Desktop (optional, for Qdrant)
+### 3b. Rust toolchain (auto-installed unless -NoApp)
+
+```powershell
+rustc --version
+# if missing:
+winget install Rustlang.Rustup --silent --accept-source-agreements --accept-package-agreements
+rustup default stable
+```
+
+Rust is needed for `tauri build` (step 10). On a fresh install Windows
+may print a notice that the MSVC linker needs a **reboot** to fully
+register — the installer surfaces this but does not force the reboot.
+
+### 4. Docker Desktop (optional, auto-installed unless -NoDocker)
 
 ```powershell
 docker --version
 docker info     # daemon must answer
+# if missing:
+winget install Docker.DockerDesktop --silent --accept-source-agreements --accept-package-agreements
 ```
 
-If you don't have Docker: download from
-<https://www.docker.com/products/docker-desktop/>. ULTRON runs without
-it, only semantic recall over the vault is disabled.
+After winget completes, Docker Desktop does **not** auto-start. Launch
+"Docker Desktop" from the Start menu, accept terms, wait for the whale
+icon, then re-run `install.ps1` to provision Qdrant.
+
+ULTRON runs without Docker — only semantic recall over the vault is
+disabled.
 
 ### 5. Qdrant container
 
@@ -210,8 +280,12 @@ AtLogon only, not free-form cron).
 | Symptom                                              | Fix                                                          |
 | ---------------------------------------------------- | ------------------------------------------------------------ |
 | `iex (irm .../install.ps1)` says "execution policy"  | `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`        |
+| `winget : not recognized`                            | Install "App Installer" from Microsoft Store, then re-run    |
+| `winget` install hangs or exits non-zero             | Check your network / proxy; retry; or install that dep by hand |
+| Auto-installed binary not on PATH after winget       | Open a fresh PowerShell shell so the user PATH reloads       |
 | `uv: not recognized` after auto-install              | Open a new shell so PATH reloads, or add `~/.local/bin`      |
 | `docker info` hangs                                  | Docker Desktop is not running. Launch it and re-run step 5.  |
+| `rustc` not on PATH right after Rust auto-install    | Open a fresh shell; if still missing, reboot once            |
 | `npm install` errors on `better-sqlite3` / `keytar`  | Install Node 22+, then `Remove-Item node_modules -Recurse; npm i` |
 | `tauri build` complains about Webview2               | Install Edge Webview2 runtime: <https://aka.ms/Edge/Webview2> |
 | `settings.json` got mangled                          | Restore from `settings.json.bak-<timestamp>` written by step 7 |

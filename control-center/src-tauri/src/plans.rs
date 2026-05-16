@@ -102,6 +102,59 @@ pub fn list_plans_inner() -> Result<PlansReport, String> {
             effort_hours: extract_effort(v),
         });
     }
+
+    // Also surface items previously moved to plans/_archive/resolved-YYYY-MM.json
+    // by the "Archive selected" button. Those files predate the in-place
+    // archive model (status="archived") and would otherwise be invisible
+    // to the "Show archived" drawer. We tag them with status="archived"
+    // so the kanban filter hides them and the drawer surfaces them.
+    let archive_dir = path.parent().map(|p| p.join("_archive"));
+    if let Some(dir) = archive_dir {
+        if let Ok(entries) = fs::read_dir(&dir) {
+            let mut existing_ids: std::collections::HashSet<String> =
+                items.iter().map(|it| it.id.clone()).collect();
+            for entry in entries.flatten() {
+                let fname = entry.file_name();
+                let name = fname.to_string_lossy();
+                // resolved-YYYY-MM.json
+                if !(name.starts_with("resolved-") && name.ends_with(".json")) {
+                    continue;
+                }
+                let fpath = entry.path();
+                let Ok(raw) = fs::read_to_string(&fpath) else {
+                    continue;
+                };
+                let arr: Vec<serde_json::Value> = match serde_json::from_str(&raw) {
+                    Ok(a) => a,
+                    Err(_) => continue,
+                };
+                for v in arr.iter() {
+                    let id = extract_str(v, "id");
+                    if id.is_empty() || existing_ids.contains(&id) {
+                        continue;
+                    }
+                    existing_ids.insert(id.clone());
+                    items.push(PlanItem {
+                        id,
+                        title: extract_str(v, "title"),
+                        kind: extract_str(v, "kind"),
+                        // Override: the on-disk value is "resolved" but
+                        // for UI purposes these belong in the archived
+                        // drawer, not the resolved kanban column.
+                        status: "archived".to_string(),
+                        priority: extract_str(v, "priority"),
+                        description: extract_opt_str(v, "description"),
+                        tags: extract_tags(v),
+                        spec_path: extract_opt_str(v, "spec_path"),
+                        created_at: extract_opt_str(v, "created_at"),
+                        resolved_at: extract_opt_str(v, "resolved_at"),
+                        effort_hours: extract_effort(v),
+                    });
+                }
+            }
+        }
+    }
+
     Ok(PlansReport {
         items,
         updated_at: root.updated_at,

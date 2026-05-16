@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   ULTRON one-shot bootstrap installer (root entrypoint, Windows / PowerShell).
 
@@ -90,6 +90,12 @@ function Write-Banner {
     Write-Host " https://github.com/SkiTemplar/ultron"
     Write-Host "======================================================="
     Write-Host ""
+    Write-Host " Auto-install enabled: missing dependencies (git, Node,"
+    Write-Host " Claude Code, Rust, uv, Docker) will be installed via"
+    Write-Host " winget unless you decline at the prompt."
+    Write-Host " No admin / UAC elevation needed for winget user-scope."
+    Write-Host ""
+    if ($NonInteractive) { Write-Host "(non-interactive: auto-accepting all installs)" }
     if ($Script:VerboseOn) { Write-Host "(verbose mode)" }
 }
 
@@ -115,6 +121,150 @@ function Confirm-YesNo {
         "^(n|no)$"  { return $false }
         default     { return $Default }
     }
+}
+
+# ----------------------------------------------------------------------
+# Helpers: winget detection + idempotent package install + PATH refresh
+# ----------------------------------------------------------------------
+function Update-SessionPath {
+    # After a winget install, refresh PATH from registry so the rest of
+    # this same PowerShell session can find the new binaries.
+    try {
+        $machine = [System.Environment]::GetEnvironmentVariable("Path","Machine")
+        $user    = [System.Environment]::GetEnvironmentVariable("Path","User")
+        $merged  = ($machine, $user | Where-Object { $_ }) -join ";"
+        if ($merged) { $env:Path = $merged }
+    } catch {
+        Write-V ("PATH refresh skipped: " + $_.Exception.Message)
+    }
+}
+
+function Test-WingetAvailable {
+    if (Get-Command "winget" -ErrorAction SilentlyContinue) { return $true }
+    Write-Warn2 "winget (App Installer) not found on this machine."
+    Write-Info  "Auto-install needs winget. Install 'App Installer' from"
+    Write-Info  "the Microsoft Store, OR install missing dependencies"
+    Write-Info  "manually using the URLs printed by each step, then re-run."
+    return $false
+}
+
+function Test-WingetInstalled {
+    param([string]$PackageId)
+    try {
+        $out = & winget list --id $PackageId --exact --accept-source-agreements 2>$null
+        if ($LASTEXITCODE -eq 0 -and $out -match [regex]::Escape($PackageId)) { return $true }
+    } catch { }
+    return $false
+}
+
+function Install-WingetPackage {
+    param(
+        [string]$PackageId,
+        [string]$FriendlyName,
+        [string]$ProbeCmd = "",
+        [bool]$RequireConfirm = $true,
+        [bool]$DefaultYes = $true
+    )
+    if (-not (Test-WingetAvailable)) { return $false }
+
+    if (Test-WingetInstalled -PackageId $PackageId) {
+        Write-V ("$FriendlyName already registered with winget (" + $PackageId + ")")
+        Update-SessionPath
+        return $true
+    }
+
+    if ($RequireConfirm) {
+        $ok = Confirm-YesNo -Question ("Install $FriendlyName automatically via winget?") -Default $DefaultYes
+        if (-not $ok) {
+            Write-Skip ("$FriendlyName declined by user")
+            return $false
+        }
+    }
+
+    Write-Info ("installing $FriendlyName ($PackageId) - this can take a few minutes...")
+    try {
+        & winget install --id $PackageId --exact --silent `
+            --accept-source-agreements --accept-package-agreements `
+            --disable-interactivity 2>&1 | ForEach-Object { Write-V $_ }
+        $code = $LASTEXITCODE
+        # winget exit codes: 0 = ok, 0x8A150011 / -1978335215 = no upgrade available (already installed)
+        if ($code -ne 0 -and $code -ne -1978335215) {
+            Write-Warn2 ("winget install $PackageId exited $code")
+            return $false
+        }
+    } catch {
+        Write-Warn2 ("winget install $PackageId failed: " + $_.Exception.Message)
+        return $false
+    }
+
+    Update-SessionPath
+
+    if ($ProbeCmd) {
+        if (Get-Command $ProbeCmd -ErrorAction SilentlyContinue) {
+            Write-OK ("$FriendlyName installed (" + $ProbeCmd + " on PATH)")
+            return $true
+        } else {
+            Write-Warn2 ("$FriendlyName installed but '$ProbeCmd' not on PATH yet. A new shell may be required.")
+            return $true
+        }
+    }
+    Write-OK ("$FriendlyName installed")
+    return $true
+}
+
+# ----------------------------------------------------------------------
+# Step 0a: git (needed to clone ultron-skills + general dev hygiene)
+# ----------------------------------------------------------------------
+function Test-OrInstall-Git {
+    Write-Step "0a. git"
+    if (Get-Command "git" -ErrorAction SilentlyContinue) {
+        try {
+            $ver = (& git --version 2>$null)
+            Write-OK ("git " + $ver)
+            return $true
+        } catch {
+            Write-Warn2 "git on PATH but --version failed"
+            return $true
+        }
+    }
+    Write-Warn2 "git not on PATH."
+    $installed = Install-WingetPackage -PackageId "Git.Git" -FriendlyName "Git" -ProbeCmd "git"
+    if ($installed -and (Get-Command "git" -ErrorAction SilentlyContinue)) {
+        Write-OK ("git " + (& git --version 2>$null))
+        return $true
+    }
+    Write-Warn2 "git remains unavailable. Some optional steps (community skills) will be skipped."
+    return $false
+}
+
+# ----------------------------------------------------------------------
+# Step 0b: Node 22 LTS (prerequisite for Claude Code CLI + tauri build)
+# ----------------------------------------------------------------------
+function Test-OrInstall-Node {
+    Write-Step "0b. Node.js 22 LTS"
+    $node = Get-Command "node" -ErrorAction SilentlyContinue
+    if ($node) {
+        try {
+            $verStr = (& node --version 2>$null)  # e.g. v22.4.0
+            $major  = [int]([regex]::Match($verStr, '^v(\d+)').Groups[1].Value)
+            if ($major -ge 22) {
+                Write-OK ("node " + $verStr)
+                return $true
+            }
+            Write-Warn2 ("node " + $verStr + " is older than v22. Auto-upgrade via winget.")
+        } catch {
+            Write-Warn2 "node detected but --version failed; will attempt reinstall"
+        }
+    } else {
+        Write-Warn2 "node not on PATH."
+    }
+    $installed = Install-WingetPackage -PackageId "OpenJS.NodeJS.LTS" -FriendlyName "Node.js 22 LTS" -ProbeCmd "node"
+    if ($installed -and (Get-Command "node" -ErrorAction SilentlyContinue)) {
+        Write-OK ("node " + (& node --version 2>$null))
+        return $true
+    }
+    Write-Warn2 "Node 22 LTS missing. Claude Code install and Tauri build will fail."
+    return $false
 }
 
 # ----------------------------------------------------------------------
@@ -212,14 +362,62 @@ function Test-ClaudeCode {
             return
         }
     }
-    Write-Fail "Claude Code CLI not found on PATH."
-    Write-Info ""
-    Write-Info "Install it with one of:"
-    Write-Info "  npm install -g @anthropic/claude-code"
-    Write-Info "  (or follow https://docs.claude.com/en/docs/claude-code)"
-    Write-Info ""
-    Write-Info "Then re-run this installer."
-    exit 2
+
+    Write-Warn2 "Claude Code CLI not on PATH."
+
+    # Claude Code is a hard requirement, but we can install it if npm is here.
+    $npm = Get-Command "npm" -ErrorAction SilentlyContinue
+    if (-not $npm) {
+        Write-Fail "npm not on PATH. Node install (step 0b) must have failed."
+        Write-Info ""
+        Write-Info "Manual recovery:"
+        Write-Info "  winget install OpenJS.NodeJS.LTS --silent"
+        Write-Info "  (open new shell)"
+        Write-Info "  npm install -g @anthropic-ai/claude-code"
+        Write-Info ""
+        exit 2
+    }
+
+    $doIt = Confirm-YesNo -Question "Install Claude Code CLI now via 'npm install -g @anthropic-ai/claude-code'?" -Default $true
+    if (-not $doIt) {
+        Write-Fail "Claude Code CLI is REQUIRED. Aborting."
+        Write-Info ""
+        Write-Info "Manual install:"
+        Write-Info "  npm install -g @anthropic-ai/claude-code"
+        Write-Info "  claude login"
+        Write-Info ""
+        Write-Info "Then re-run this installer."
+        exit 2
+    }
+
+    Write-Info "running: npm install -g @anthropic-ai/claude-code (may take 1-3 min)"
+    try {
+        & npm install -g "@anthropic-ai/claude-code" 2>&1 | ForEach-Object { Write-V $_ }
+        $code = $LASTEXITCODE
+        if ($code -ne 0) {
+            Write-Fail "npm install -g @anthropic-ai/claude-code exited $code"
+            exit 2
+        }
+    } catch {
+        Write-Fail ("npm install failed: " + $_.Exception.Message)
+        exit 2
+    }
+
+    Update-SessionPath
+    # npm global bin may be at %APPDATA%\npm — make sure session PATH includes it
+    $npmPrefix = (& npm config get prefix 2>$null)
+    if ($npmPrefix -and (Test-Path -LiteralPath $npmPrefix)) {
+        if ($env:Path -notlike "*$npmPrefix*") { $env:Path = $env:Path + ";" + $npmPrefix }
+    }
+
+    if (Get-Command "claude" -ErrorAction SilentlyContinue) {
+        $ver = & claude --version 2>$null | Select-Object -First 1
+        Write-OK ("claude $ver (just installed)")
+        Write-Info "Run 'claude login' once to authenticate against your Claude.ai subscription."
+    } else {
+        Write-Fail "claude installed but not on PATH. Open a fresh shell and re-run this installer."
+        exit 2
+    }
 }
 
 # ----------------------------------------------------------------------
@@ -252,7 +450,51 @@ function Test-OrInstall-Uv {
 }
 
 # ----------------------------------------------------------------------
-# Step 4: Docker Desktop (optional)
+# Step 3b: Rust toolchain (prerequisite for Tauri build / control-center)
+# ----------------------------------------------------------------------
+function Test-OrInstall-Rust {
+    Write-Step "3b. Rust toolchain (rustup + cargo)"
+    if ($NoApp) { Write-Skip "skipped via -NoApp (no Tauri build needed)"; return $false }
+
+    if (Get-Command "rustc" -ErrorAction SilentlyContinue) {
+        try {
+            $ver = (& rustc --version 2>$null)
+            Write-OK ("rustc " + $ver)
+            return $true
+        } catch {
+            Write-Warn2 "rustc on PATH but --version failed"
+        }
+    }
+    Write-Warn2 "Rust toolchain not on PATH. Tauri build (step 10) needs it."
+    $installed = Install-WingetPackage -PackageId "Rustlang.Rustup" -FriendlyName "Rust (rustup)" -ProbeCmd "rustup"
+    if (-not $installed) {
+        Write-Warn2 "Rust install skipped or failed. Tauri build will be unavailable."
+        return $false
+    }
+    Update-SessionPath
+    # rustup installer adds %USERPROFILE%\.cargo\bin
+    $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+    if ((Test-Path -LiteralPath $cargoBin) -and ($env:Path -notlike "*$cargoBin*")) {
+        $env:Path = $env:Path + ";" + $cargoBin
+    }
+    if (Get-Command "rustup" -ErrorAction SilentlyContinue) {
+        try {
+            & rustup default stable 2>&1 | ForEach-Object { Write-V $_ }
+        } catch {
+            Write-Warn2 ("rustup default stable failed: " + $_.Exception.Message)
+        }
+    }
+    if (Get-Command "rustc" -ErrorAction SilentlyContinue) {
+        Write-OK ("rustc " + (& rustc --version 2>$null) + " (just installed)")
+        Write-Info "NOTE: Rust install may require a reboot to fully integrate the MSVC linker on first install."
+        return $true
+    }
+    Write-Warn2 "Rust installed but rustc not on PATH yet. A fresh shell (or reboot) may be required."
+    return $false
+}
+
+# ----------------------------------------------------------------------
+# Step 4: Docker Desktop (optional, but auto-install offered)
 # ----------------------------------------------------------------------
 function Test-Docker {
     Write-Step "4. Docker Desktop"
@@ -276,13 +518,39 @@ function Test-Docker {
             return $false
         }
     }
-    Write-Warn2 "Docker not installed. Qdrant (semantic recall) will be skipped."
-    Write-Info "Download: https://www.docker.com/products/docker-desktop/"
-    $cont = Confirm-YesNo -Question "Continue without Qdrant?" -Default $true
-    if (-not $cont) {
-        Write-Info "Install Docker Desktop and re-run."
-        exit 3
+
+    Write-Warn2 "Docker not installed. Qdrant (semantic recall) needs it."
+    $installed = Install-WingetPackage -PackageId "Docker.DockerDesktop" -FriendlyName "Docker Desktop" -ProbeCmd "docker"
+    if (-not $installed) {
+        Write-Warn2 "Docker install skipped or failed. Qdrant will be skipped."
+        $cont = Confirm-YesNo -Question "Continue without Qdrant?" -Default $true
+        if (-not $cont) {
+            Write-Info "Install Docker Desktop and re-run."
+            exit 3
+        }
+        return $false
     }
+
+    Update-SessionPath
+    Write-Info ""
+    Write-Info "  ====== Docker Desktop installed ======"
+    Write-Info "  IMPORTANT: Docker Desktop does NOT auto-start after install."
+    Write-Info "  You must:"
+    Write-Info "    1. Launch 'Docker Desktop' from the Start menu (first run"
+    Write-Info "       prompts to accept terms + may require a reboot)."
+    Write-Info "    2. Wait until the system tray whale icon stops animating."
+    Write-Info "    3. Re-run this installer to set up Qdrant (or run"
+    Write-Info "       'docker run -d --name qdrant ...' from INSTALL.md)."
+    Write-Info ""
+
+    if (Get-Command "docker" -ErrorAction SilentlyContinue) {
+        $null = & docker info 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-OK "docker daemon responsive — proceeding with Qdrant setup"
+            return $true
+        }
+    }
+    Write-Skip "Docker installed but daemon not running yet — Qdrant will be skipped this run."
     return $false
 }
 
@@ -793,8 +1061,11 @@ function Write-Summary {
 try {
     Write-Banner
     Test-Preflight
+    Test-OrInstall-Git    | Out-Null
+    Test-OrInstall-Node   | Out-Null
     Test-ClaudeCode
     Test-OrInstall-Uv
+    Test-OrInstall-Rust   | Out-Null
     $dockerOk = Test-Docker
     Initialize-Qdrant -DockerOK:$dockerOk
     New-DirectoryLayout
