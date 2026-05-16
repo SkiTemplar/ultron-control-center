@@ -1,5 +1,17 @@
 # Changelog
 
+<!-- v15.2.38 -->
+## v15.2.38 — 2026-05-16
+
+- feat(v15.2.38): hook validator tolerance + ndjson backfill + PC-with-Claude + Projects IDE button
+- fix(ci): deselect one flaky telemetry test that needs populated routing tables
+- fix(ci): junction-link workspace as ~/.ultron so expanduser-based path lookups work
+- fix(ci): upgrade actions to v5/v6, exclude local-env-only tests
+- chore: refresh changelog (auto)
+
+_Auto-generated from 2f8ec5de by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.2.37 -->
 ## v15.2.37 — 2026-05-16
 
