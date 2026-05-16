@@ -346,6 +346,7 @@ function New-DirectoryLayout {
         (Join-Path $InstallRoot "brain_index"),
         (Join-Path $InstallRoot ".tmp"),
         (Join-Path $InstallRoot "personal"),
+        (Join-Path $InstallRoot "sessions"),
         (Join-Path $env:USERPROFILE ".ultron-vault"),
         (Join-Path $env:USERPROFILE ".claude\skills")
     )
@@ -371,6 +372,56 @@ function New-DirectoryLayout {
         Write-Info  "Most scripts expect the repo to live at $InstallRoot. Either:"
         Write-Info  "  - move the clone there, OR"
         Write-Info  "  - re-run with -InstallRoot $repoNorm"
+    }
+}
+
+# ----------------------------------------------------------------------
+# Step 6b: wake-up stubs (global CLAUDE.md + SYSTEM-MAP.md + MEMORY.md)
+# ----------------------------------------------------------------------
+function New-WakeUpStubs {
+    Write-Step "6b. wake-up stubs (CLAUDE.md global + SYSTEM-MAP.md + MEMORY.md)"
+    $pairs = @(
+        @{ src = "templates\CLAUDE.md.example";    dst = (Join-Path $env:USERPROFILE ".claude\CLAUDE.md") },
+        @{ src = "templates\SYSTEM-MAP.md.example"; dst = (Join-Path $InstallRoot "SYSTEM-MAP.md") },
+        @{ src = "templates\MEMORY.md.example";     dst = (Join-Path $InstallRoot "MEMORY.md") }
+    )
+    foreach ($p in $pairs) {
+        $srcPath = Join-Path $Script:RepoRoot $p.src
+        if (-not (Test-Path $srcPath)) { Write-Warn2 ("template missing: " + $p.src); continue }
+        if (Test-Path $p.dst) { Write-Skip ("kept existing " + $p.dst); continue }
+        New-Item -ItemType Directory -Path (Split-Path $p.dst) -Force | Out-Null
+        Copy-Item -LiteralPath $srcPath -Destination $p.dst -Force
+        Write-OK ("seeded " + $p.dst)
+    }
+}
+
+# ----------------------------------------------------------------------
+# Step 6c: cockpit + personal + vault seeds
+# ----------------------------------------------------------------------
+function New-CockpitSeeds {
+    Write-Step "6c. cockpit / personal / vault seeds"
+    $seeds = @(
+        @{ src = "templates\projects.empty.json"; dst = "cockpit\projects.json" },
+        @{ src = "templates\apps.default.json";   dst = "cockpit\apps.json"     },
+        @{ src = "templates\profile.template.md"; dst = "personal\profile.md"   },
+        @{ src = "templates\known.empty.json";    dst = "personal\known.json"   }
+    )
+    foreach ($s in $seeds) {
+        $srcPath = Join-Path $Script:RepoRoot $s.src
+        $dstPath = Join-Path $InstallRoot $s.dst
+        if (-not (Test-Path $srcPath)) { Write-Warn2 ("template missing: " + $s.src); continue }
+        if (Test-Path $dstPath) { Write-Skip ("kept existing " + $dstPath); continue }
+        New-Item -ItemType Directory -Path (Split-Path $dstPath) -Force | Out-Null
+        Copy-Item -LiteralPath $srcPath -Destination $dstPath -Force
+        Write-OK ("seeded " + $dstPath)
+    }
+    # Vault README — different root
+    $vaultReadme = Join-Path $env:USERPROFILE ".ultron-vault\README.md"
+    $vaultSrc = Join-Path $Script:RepoRoot "templates\VAULT-README.md"
+    if ((Test-Path $vaultSrc) -and -not (Test-Path $vaultReadme)) {
+        New-Item -ItemType Directory -Path (Split-Path $vaultReadme) -Force | Out-Null
+        Copy-Item -LiteralPath $vaultSrc -Destination $vaultReadme -Force
+        Write-OK ("seeded " + $vaultReadme)
     }
 }
 
@@ -710,6 +761,8 @@ try {
     $dockerOk = Test-Docker
     Initialize-Qdrant -DockerOK:$dockerOk
     New-DirectoryLayout
+    New-WakeUpStubs
+    New-CockpitSeeds
     Initialize-PythonVenv
     Update-ClaudeSettings
     Install-Skills

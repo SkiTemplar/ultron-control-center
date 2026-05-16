@@ -1,0 +1,22 @@
+# CLAUDE.md (Global) — ULTRON
+
+This file is loaded by Claude Code at the start of every session. It primes
+the orchestrator with how ULTRON expects to be used.
+
+## Session wake-up
+1. Read `~/.ultron/.tmp/context.md` if present (≤400 tokens).
+2. Read `~/.ultron/SYSTEM-MAP.md` for path layout (≤500 tokens).
+3. If `[BLOCKING]` items appear, surface them immediately.
+4. Deep orientation: `~/.ultron/MEMORY.md`.
+
+## Python rule
+Always use `uv`. Never `python -m`, `pip install`, or `python script.py`.
+- `uv run pytest`
+- `uv run python <script>.py`
+- `uv pip install <pkg>`
+
+## Modes
+LOW (typo, single fact) · MEDIUM (default) · HIGH (multi-domain) · ULTRA (critical).
+
+## Customize
+Edit this file freely. It is your user-global instructions file.

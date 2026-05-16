@@ -1,0 +1,24 @@
+# ULTRON System Map
+
+Stable pointers to where things live. Read this instead of grepping the repo.
+
+## Memory layers
+- L0 hot context: `~/.ultron/.tmp/context.md`
+- L1 brain index: `~/.ultron/brain_index/index.db` (SQLite FTS5)
+- L2 vault: `~/.ultron-vault/` (curated markdown)
+- L3 remote (optional): git remote of the vault
+
+## Code
+- Cockpit Python tools: `~/.ultron/scripts/cockpit/`
+- Hooks: `~/.ultron/scripts/hooks/`
+- Skills: `~/.claude/skills/<name>/SKILL.md`
+- Control Center (Tauri app): `~/.ultron/control-center/`
+
+## Vector layer
+Qdrant local at http://localhost:6333 — collections `ultron_vault`, `ultron_skills`.
+
+## Personal area (gitignored, never published)
+- `~/.ultron/personal/profile.md` — your free-form profile
+- `~/.ultron/personal/known.json` — auto-generated style fingerprint
+
+Customize this file as you add new paths to your workspace.

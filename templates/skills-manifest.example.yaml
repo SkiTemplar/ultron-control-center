@@ -28,67 +28,67 @@ skills:
     description: "Master orchestrator. Loads on every Ultron session."
 
   - name: senior-engineer
-    source: claude://skills/senior-engineer
+    source: repo://skills/senior-engineer
     core: true
     personal: false
     description: "Full-stack engineering across UE5/Unity/TS/Python/C++."
 
   - name: code-reviewer
-    source: claude://skills/code-reviewer
+    source: repo://skills/code-reviewer
     core: true
     personal: false
     description: "Code review with security focus."
 
   - name: debugger
-    source: claude://skills/debugger
+    source: repo://skills/debugger
     core: true
     personal: false
     description: "Root-cause analysis of failing tests and stack traces."
 
   - name: refactoring-specialist
-    source: claude://skills/refactoring-specialist
+    source: repo://skills/refactoring-specialist
     core: true
     personal: false
     description: "Clean up code without changing behavior."
 
   - name: ui-designer
-    source: claude://skills/ui-designer
+    source: repo://skills/ui-designer
     core: true
     personal: false
     description: "Honest UI/UX critique and design."
 
   - name: business-strategist
-    source: claude://skills/business-strategist
+    source: repo://skills/business-strategist
     core: true
     personal: false
     description: "B2B SaaS strategy: niche, GTM, pricing, pitch."
 
   - name: skill-creator
-    source: claude://skills/skill-creator
+    source: repo://skills/skill-creator
     core: true
     personal: false
     description: "Create, edit, sync skills across Claude Code and Cowork."
 
   - name: superpowers
-    source: claude://skills/superpowers
+    source: repo://skills/superpowers
     core: true
     personal: false
     description: "Mandatory 7-phase discipline + skill discovery."
 
   - name: webapp-testing
-    source: claude://skills/webapp-testing
+    source: repo://skills/webapp-testing
     core: true
     personal: false
     description: "Playwright-driven testing of local web apps."
 
   - name: windows-admin
-    source: claude://skills/windows-admin
+    source: repo://skills/windows-admin
     core: true
     personal: false
     description: "Windows admin helper for files, processes, registry."
 
   - name: second-opinion
-    source: claude://skills/second-opinion
+    source: repo://skills/second-opinion
     core: true
     personal: false
     description: "External LLM code reviews via Codex or Gemini."

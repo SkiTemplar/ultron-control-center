@@ -1,0 +1,18 @@
+# MEMORY.md
+
+Persistent notes about this user's preferences, projects, and patterns.
+Maintained by ULTRON's memory hooks across sessions.
+
+## User profile
+(Your role, primary stack, preferences — populated by `ultron analysis`.)
+
+## Active projects
+(Auto-updated by the session-log hook.)
+
+## Recent decisions
+(Important choices the user has made that should persist across sessions.)
+
+---
+
+This file is loaded by Claude Code on every session. Add entries manually
+or let the analysis hook populate it.
