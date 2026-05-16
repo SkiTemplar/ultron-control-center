@@ -108,7 +108,7 @@ function Show-Help {
     Write-Host "                           Run [verify: cmd] [expect: regex] claims in critical docs"
     Write-Host "  audit list               List personas/skills available for audit"
     Write-Host "  audit run <persona> [--quick]"
-    Write-Host "                           Kirkardo independent audit (Opus full / Sonnet quick)"
+    Write-Host "                           repo-evaluator independent audit (Opus full / Sonnet quick)"
     Write-Host ""
     Write-Host "  AI editing & autoupdater (v11.1):" -ForegroundColor Green
     Write-Host "  project edit <id> <q>    AI edit project (Haiku/Sonnet via env, dry-run)"
@@ -122,7 +122,7 @@ function Show-Help {
     Write-Host "  mcp scaffold <idea>      Sonnet MCP server scaffold"
     Write-Host "  self-improve scan        L1 AutoUpdater: rank audit candidates"
     Write-Host "  self-improve audit <s> [--quick]"
-    Write-Host "                           L1: trigger Kirkardo (Sonnet quick / Opus full)"
+    Write-Host "                           L1: trigger repo-evaluator (Sonnet quick / Opus full)"
     Write-Host "  self-improve propose <audit>"
     Write-Host "                           L2: Sonnet patches (NO apply, FP filter)"
     Write-Host "  self-improve apply <proposals>"
@@ -917,7 +917,7 @@ switch ($Command.ToLower()) {
         # ultron audit list  -or-  ultron audit run <persona>
         if (-not $Rest -or $Rest.Count -eq 0) {
             Write-Host "Usage: ultron audit list                  (show personas)" -ForegroundColor Yellow
-            Write-Host "       ultron audit run <persona-name>    (Kirkardo eval, Opus FULL)" -ForegroundColor Yellow
+            Write-Host "       ultron audit run <persona-name>    (repo-evaluator eval, Opus FULL)" -ForegroundColor Yellow
             exit 1
         }
         Invoke-Py "persona_audit.py" $Rest
@@ -1022,7 +1022,7 @@ switch ($Command.ToLower()) {
             Write-Host "Usage:" -ForegroundColor Yellow
             Write-Host "  ultron self-improve scan          L1: rank audit candidates"
             Write-Host "  ultron self-improve audit <skill> [--quick]"
-            Write-Host "                                    L1: run Kirkardo on target"
+            Write-Host "                                    L1: run repo-evaluator on target"
             Write-Host "  ultron self-improve history       L1: audit log with notas"
             Write-Host "  ultron self-improve news-flags    L1: news -> skill update triggers"
             Write-Host "  ultron self-improve propose <audit-md>"
@@ -1277,7 +1277,7 @@ switch ($Command.ToLower()) {
     }
 
     "vault" {
-        # v12 BRAIN: vault schema migrator (Triple Kirkardo R3 closure)
+        # v12 BRAIN: vault schema migrator (Triple repo-evaluator R3 closure)
         if (-not $Rest -or $Rest.Count -eq 0) {
             Write-Host "ULTRON Vault Migrator v12 - schema version + migrations" -ForegroundColor Cyan
             Write-Host "Usage:" -ForegroundColor Yellow

@@ -50,7 +50,7 @@ Each entry in `skills.manifest.yaml` is a YAML mapping with these fields:
 
 | Field | Type | Description |
 |---|---|---|
-| `name` | string | Unique skill ID (e.g. `superpowers:systematic-debugging`, `alfred`) |
+| `name` | string | Unique skill ID (e.g. `superpowers:systematic-debugging`, `windows-admin`) |
 | `source` | enum | Origin: `built-in` | `plugin` | `mcp` | `persona` | `hookify` | `auto-discover` |
 | `triggers` | list[string] | Keywords/phrases matched by the dispatcher (case-insensitive) |
 

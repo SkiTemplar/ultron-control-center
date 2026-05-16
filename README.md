@@ -218,13 +218,11 @@ If something fails, see [`INSTALL.md`](INSTALL.md) for manual troubleshooting st
 
 `ultron` · `senior-engineer` · `code-reviewer` · `debugger` · `refactoring-specialist` · `ui-designer` · `business-strategist` · `skill-creator` · `superpowers` · `webapp-testing` · `windows-admin` · `second-opinion`
 
-**Personales (8, opt-in / opt-in):**
+**Personales (opt-in, ejemplos / opt-in, examples):**
 
-`news-publisher` · `tio-gilito` · `tolkien` · `novalbos` · `personal-assistant` · `investment-advisor` · `gamedev-engineer` · `ue5-dev`
+Los slots opt-in son **plantillas vacías**: forkea ULTRON y rellena las tuyas (asistente personal, finanzas, escritura creativa, motor de juegos, etc.). El installer pregunta una por una.
 
-Las personales son ejemplos de cómo el autor moldeó ULTRON para su uso diario. Sirven de plantilla — fork y modifica para crear las tuyas.
-
-The personal ones are examples of how the author shaped ULTRON for daily use. Use them as templates — fork and modify to build your own.
+The opt-in slots are **empty templates**: fork ULTRON and fill in your own (personal assistant, finances, creative writing, game engine, etc.). The installer asks one at a time.
 
 ---
 
@@ -273,19 +271,19 @@ ULTRON is built to be taken apart and rewired to your taste. Everything is plain
 
 ### Español
 
-- **Actual — v15.2.** Control Center estable con 15 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core + 8 personales, dual-mode v2 vía CLIs de suscripción.
+- **Actual — v15.2.** Control Center estable con 15 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core + slots opt-in personalizables, dual-mode v2 vía CLIs de suscripción.
 - **Siguiente — v15.3.** Capa anti-alucinación, bus de eventos cross-session, supervisor daemon.
 - **Futuro — v16.** Pipeline DAG, overnight loop, mobile companion PWA, expansión multi-plataforma.
 
-Plan completo en [`plans/MEGA-PLAN-v15.md`](plans/MEGA-PLAN-v15.md). Notas de release en [`CHANGELOG.md`](CHANGELOG.md).
+Notas de release en [`CHANGELOG.md`](CHANGELOG.md).
 
 ### English
 
-- **Current — v15.2.** Stable Control Center with 15 tabs, L0-L3 memory, hardened hooks, 12 core skills + 8 personal, dual-mode v2 via subscription CLIs.
+- **Current — v15.2.** Stable Control Center with 15 tabs, L0-L3 memory, hardened hooks, 12 core skills + customizable opt-in slots, dual-mode v2 via subscription CLIs.
 - **Next — v15.3.** Anti-hallucination layer, cross-session event bus, supervisor daemon.
 - **Future — v16.** Pipeline DAG, overnight loop, mobile companion PWA, multi-platform expansion.
 
-Full plan in [`plans/MEGA-PLAN-v15.md`](plans/MEGA-PLAN-v15.md). Release notes in [`CHANGELOG.md`](CHANGELOG.md).
+Release notes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 

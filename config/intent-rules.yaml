@@ -133,23 +133,23 @@ rules:
     skill: "gamedev-engineer"
     confidence: 0.85
 
-  # ── CUDA / GPU / OpenGL → novalbos ─────────────────────────────────────────
+  # ── CUDA / GPU / OpenGL → senior-engineer (graphics) ────────────────────────
 
   - id: gpu-cuda
     # GPU/CUDA en contexto técnico — evitar "ejecutar en GPU" / "tarjeta GPU" coloquial.
     # Multi-keyword exigido para nombres muy cortos.
     match: "\\b(?:CUDA|coalescing|warp|memory bandwidth|compute shader|dispatch shader|GPU (?:kernel|memoria|pipeline|shader|programaci[oó]n)|kernel (?:de )?CUDA|programar en (?:CUDA|GPU))\\b"
-    skill: "novalbos"
+    skill: "senior-engineer"
     confidence: 0.92
 
   - id: opengl-pipeline
     match: "(OpenGL|Vulkan|DirectX|VAO|VBO|fragment.shader|vertex.shader|pipeline.de.(render|gr\xe1ficos))"
-    skill: "novalbos"
+    skill: "senior-engineer"
     confidence: 0.90
 
   - id: cpp-deep
     match: "(C\\+\\+20|concepts|metaprogramming|template.*specializ|constexpr.*impl|SIMD|bajo.nivel)"
-    skill: "novalbos"
+    skill: "senior-engineer"
     confidence: 0.88
 
   # ── Unity / .cs → senior-engineer (tiebreak: Unity+cs → senior-engineer, not gamedev-engineer) ─
@@ -220,63 +220,13 @@ rules:
     skill: "research-explainer"
     confidence: 0.85
 
-  # ── Personal assistant / personal-assistant ─────────────────────────────────
+  # ── Repo / audit (early) ────────────────────────────────────────────────────
 
-  - id: calendar-reminder
-    match: "(Google.Calendar|recordatorio|agenda|event[o].en|calendario|cita)"
-    skill: "personal-assistant"
-    confidence: 0.92
-
-  - id: gmail-email
-    match: "(Gmail|emails|correo|bandeja.de.entrada|revisa.mis.(emails|correos))"
-    skill: "personal-assistant"
-    confidence: 0.90
-
-  - id: morning-mode
-    match: "(modo.ma\xf1ana|buenos.d\xedas|briefing.de.hoy|qu[e\xe9].tengo.hoy)"
-    skill: "personal-assistant"
-    confidence: 0.92
-
-  # ── Kirkardo audit (BEFORE tio-gilito-explicit so "audita skill tio-gilito" routes correctly) ──
-
-  - id: kirkardo-audit-early
-    match: "\\b(?:Kirkardo|kirkardo)\\b"
+  - id: repo-eval-audit-early
+    match: "\\b(?:repo[- ]?evaluator|audita(?:r)? (?:este )?repo)\\b"
     skill: "ultron"
     suggest_mode: "HIGH"
     confidence: 0.95
-
-  # ── Personal finances → tio-gilito ──────────────────────────────────────────
-
-  - id: tio-gilito-explicit
-    # Trigger explícito por nombre — siempre tio-gilito.
-    match: "\\b(?:T[ií]o Gilito|Gilito)\\b"
-    skill: "tio-gilito"
-    confidence: 0.98
-
-  - id: spending-kutxabank
-    # Nombres propios + verbos en 1ª persona pasada + contextos financieros explícitos.
-    # No usa "gasto" suelto (matchearía "gasto computacional / de tokens").
-    match: "\\b(?:KutxaBank|cu[aá]nto he gastado|cu[aá]nto me queda en (?:la cuenta|el banco)|gasto de (?:dinero|euros?|\\d+\\s*€)|a[nñ]ade un (?:gasto|ingreso) de|categor[ií]a de gasto|fondo de ahorro|presupuesto mensual)\\b"
-    skill: "tio-gilito"
-    confidence: 0.92
-
-  - id: monthly-money
-    match: "\\b(?:c[oó]mo voy de dinero|finanzas personales|mis (?:ahorros?|finanzas|gastos)|c[oó]mo va mi saldo|saldo (?:actual|mensual|de (?:mi|la) cuenta|bancari[oa])|gasto del mes|qu[eé] tal voy econ[oó]micamente)\\b"
-    skill: "tio-gilito"
-    confidence: 0.90
-
-  # ── Investments → investment-advisor ───────────────────────────────────────
-
-  - id: investment
-    # "cartera" suelto matcheaba "cartera de productos" (corporativo). Exigir contexto financiero.
-    match: "\\b(?:mi cartera(?:\\s+(?:de\\s+(?:inversi[oó]n|acciones|ETFs?)|burs[aá]til|stock))?|cartera de inversi[oó]n|inversiones?\\b|tracker de cartera|dashboard de inversiones|ETFs?\\b|compro? (?:acciones|NVDA|AAPL|MSFT|TSLA)|an[aá]lisis fundamental|P/?E ratio|moat (?:competitivo|empresarial)|dividendos|fondo (?:indexado|de inversi[oó]n))\\b"
-    skill: "investment-advisor"
-    confidence: 0.90
-
-  - id: stock-query
-    match: "(\\b(NVDA|AAPL|MSFT|AMZN|TSLA|SPY|QQQ)\\b|bolsa|mercado.de.valores)"
-    skill: "investment-advisor"
-    confidence: 0.88
 
   # ── System/Windows → windows-admin ──────────────────────────────────────────
 
@@ -288,41 +238,6 @@ rules:
   - id: process-monitor
     match: "\\b(procesos|proceso)\\b.*(comiendo|usando|consumiendo).*(RAM|CPU|memoria|disco)"
     skill: "windows-admin"
-    confidence: 0.90
-
-  # ── Physics / academics → profesor-fisica ──────────────────────────────────
-
-  - id: physics-exam
-    match: "(ejercicio.de|repasa.el.tema|para.el.examen).*(cinem\xe1tica|din\xe1mica|f\xedsica|termodin\xe1mica|electromagnetismo)"
-    skill: "profesor-fisica"
-    confidence: 0.92
-
-  - id: physics-problem
-    match: "(simular.colisiones|ejercicio.de.f\xedsica|problema.de.f\xedsica|no.me.sale).*(f\xedsica|cinem\xe1tica|din\xe1mica)"
-    skill: "profesor-fisica"
-    confidence: 0.90
-
-  # ── Football → manolo-lama ──────────────────────────────────────────────────
-
-  - id: football-commentary-strong
-    # Términos exclusivamente futbolísticos — match individual basta.
-    match: "\\b(?:gol\\s+(?:de|del)|partido (?:de|del) (?:f[uú]tbol|liga|champions)|f[uú]tbol|narra (?:el|este) partido|jugada del (?:partido|d[ií]a)|portero (?:par[oó]|fall[oó])|delantero (?:gan[oó]|march[oó])|Champions League\\s+(?:final|semifinal|cuartos|grupos?|jornada))\\b"
-    skill: "manolo-lama"
-    confidence: 0.92
-
-  - id: football-commentary-weak
-    # Lookahead: equipo concreto (no "La Liga" suelto) + verbo/contexto deportivo.
-    # "La Liga Champions del cripto" no matchea porque no hay verbo deportivo ni "España".
-    match: "(?=.*\\b(?:Bar[cç]a|Barcelona|REDACTED_TEAM|Atl[eé]tico|Sevilla|Valencia)\\b.*\\b(?:gan[oó]|perdi[oó]|empat[oó]|jug[oó]|march[oó]|final|semifinal|jornada|partido|liga espa[ñn]ola|gol)\\b)|\\b(?:Bar[cç]a|REDACTED_TEAM)\\s+(?:vs|gan[oó]|perdi[oó]|empat[oó]|jug[oó])\\b|\\b(?:c[oó]mo va el?\\s+(?:Bar[cç]a|REDACTED_TEAM|Madrid)|cómo va\\s+(?:el|la)\\s+(?:Bar[cç]a|Madrid|liga))\\b"
-    skill: "manolo-lama"
-    confidence: 0.88
-
-  # ── Creative writing → tolkien ──────────────────────────────────────────────
-
-  - id: narrative-writing
-    # "capítulo" suelto matcheaba "capítulo de física". Exigir contexto narrativo o nombre propio.
-    match: "\\b(?:escribe la siguiente escena|siguiente escena del libro|cap[ií]tulo del libro|cap[ií]tulo \\d+ del libro|plot hole|consistencia del personaje|worldbuilding|escribe (?:un|el) cap[ií]tulo|narrativa del libro|Imperio de los Once Grandes|once grandes)\\b"
-    skill: "tolkien"
     confidence: 0.90
 
   # ── Generic code review (low priority — after specific rules) ───────────────
@@ -340,10 +255,10 @@ rules:
     suggest_mode: "HIGH"
     confidence: 0.90
 
-  - id: kirkardo-audit
+  - id: skill-audit
     # "audita" / "auditar" sueltos matcheaban "audita el código" (eso es repo-evaluator/security).
-    # Restringido a contexto skill/repo-eval o nombre propio Kirkardo.
-    match: "\\b(?:Kirkardo|kirkardo|audita(?:r)? (?:la skill|el skill|las skills|este skill|mi skill|el manifest)|audit(?:a|or[ií]a) de skills?|revisar skill|review skill)\\b"
+    # Restringido a contexto skill/repo-eval.
+    match: "\\b(?:audita(?:r)? (?:la skill|el skill|las skills|este skill|mi skill|el manifest)|audit(?:a|or[ií]a) de skills?|revisar skill|review skill)\\b"
     skill: "ultron"
     suggest_mode: "HIGH"
     confidence: 0.90
@@ -361,11 +276,10 @@ rules:
     suggest_mode: "HIGH"
     confidence: 0.90
 
-  # NOTE: la antigua `finance-tio-gilito` con `(gasto|gastos|finanzas|ahorro|...)`
-  # fue retirada 2026-05-09 por falsos positivos masivos (matcheaba "gasto de tokens",
-  # "gasto computacional", "presupuesto de la API"). Las reglas tio-gilito-explicit /
-  # spending-kutxabank / monthly-money cubren todos los casos legítimos con boundary
-  # y contexto exigido. Si necesitas reactivarla, hazlo solo con multi-keyword AND.
+  # NOTE: las antiguas reglas con coincidencia laxa (`(gasto|finanzas|...)`) fueron retiradas
+  # por falsos positivos masivos (matcheaban "gasto de tokens", "gasto computacional",
+  # "presupuesto de la API"). Si reintroduces dominios personales (finanzas, narrativa, etc.)
+  # en tu fork, hazlo con boundary estricto y multi-keyword AND.
 
   # ── Skill management ────────────────────────────────────────────────────────
 

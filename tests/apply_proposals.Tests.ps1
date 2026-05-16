@@ -109,9 +109,9 @@ Describe "apply_proposals - skill name inference from filename" {
         $py = "import sys; sys.path.insert(0, r'$($root)\scripts\cockpit'); " +
               "from apply_proposals import infer_skill_from_proposals_file; " +
               "from pathlib import Path; " +
-              "print(infer_skill_from_proposals_file(Path('terry-davis-2026-04-28.json')))"
+              "print(infer_skill_from_proposals_file(Path('senior-engineer-2026-04-28.json')))"
         $out = & python -c $py 2>&1
-        $out | Should Match "terry-davis"
+        $out | Should Match "senior-engineer"
     }
 
     It "handles single-word skill names" {

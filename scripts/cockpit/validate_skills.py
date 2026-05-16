@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ULTRON v12.5 — Skill frontmatter validator + auto-fixer (Kirkardo-hardened).
+ULTRON v12.5 — Skill frontmatter validator + auto-fixer (repo-evaluator-hardened).
 
 Walks ~/.claude/skills/, ~/.agents/skills/, ~/.codex/skills/ and detects/fixes:
   1. UTF-8 BOM at byte 0
@@ -8,7 +8,7 @@ Walks ~/.claude/skills/, ~/.agents/skills/, ~/.codex/skills/ and detects/fixes:
   3. Unquoted YAML scalars with embedded `:` (mapping-values error)
   4. Mojibake `�` characters in frontmatter (scoped — body is preserved)
 
-Hardening (post-Kirkardo audit):
+Hardening (post-repo-evaluator audit):
   - Atomic writes (tmp + os.replace) — no truncation on interrupt
   - BOM-only mode does NOT decode/re-encode (preserves non-UTF-8 bytes intact)
   - Mojibake substitution is SCOPED to frontmatter span (body is sacred)

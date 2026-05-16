@@ -35,15 +35,11 @@ def _resolve(rel: str) -> Path:
         return ULTRON_HOME / rel
     return ULTRON_DIR / rel
 
-EXPECTED_PERSONA_COUNT = 14  # Actualizar si se añaden/eliminan personas
+EXPECTED_PERSONA_COUNT = 7  # Actualizar si se añaden/eliminan personas
 
 KNOWN_PERSONAS = {
-    "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist", "research-explainer",
-    "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "investment-advisor",
-    "repo-evaluator", "manolo-lama", "tolkien",
-    # backwards-compat aliases for deprecated stubs
-    "don-claudio", "pana", "alfred",
-    "terry-davis", "mike-tyson", "jordan-belfort", "einstein", "warren",
+    "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist",
+    "research-explainer", "windows-admin", "repo-evaluator",
 }
 
 EXPECTED_KNOWLEDGE_DOMAINS = {

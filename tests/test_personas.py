@@ -9,12 +9,12 @@ Run all:     uv run pytest tests/test_personas.py -v
 Run routing: uv run pytest tests/test_personas.py -v -m routing
 Run manual:  uv run pytest tests/test_personas.py -v -m manual (always skipped in CI)
 
-Note: knowledge_files paths were migrated to vault; tests reference brain_index query
-instead of direct file paths. See routing-matrix.md for signal word sources.
+Note: Only PUBLIC personas distributed in this repo are tested. Forks that
+introduce private personas (assistants, finance, narrative writing, etc.)
+should extend this file with their own routing cases.
 """
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -78,16 +78,16 @@ class TestGamedevEngineerRouting:
 
 
 @pytest.mark.routing
-class TestNovalbosRouting:
+class TestGraphicsLowLevelRouting:
     def test_P05_opengl_pipeline(self):
-        """OpenGL pipeline explanation → novalbos."""
+        """OpenGL pipeline explanation → senior-engineer."""
         r = dispatch("explícame cómo funciona el pipeline de OpenGL desde el VAO hasta el fragment shader")
-        assert top_skill(r) == "novalbos", f"got {top_skill(r)}"
+        assert top_skill(r) == "senior-engineer", f"got {top_skill(r)}"
 
     def test_P06_cpp20_concepts(self):
-        """C++20 concepts deep dive → novalbos."""
+        """C++20 concepts deep dive → senior-engineer."""
         r = dispatch("quiero entender cómo funcionan los concepts de C++20 internamente")
-        assert top_skill(r) == "novalbos", f"got {top_skill(r)}"
+        assert top_skill(r) == "senior-engineer", f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
@@ -98,10 +98,9 @@ class TestResearchExplainerRouting:
         assert top_skill(r) == "research-explainer", f"got {top_skill(r)}"
 
     def test_P08_cuda_tiebreak(self):
-        """CUDA/GPU query → should route to novalbos (tiebreak over research-explainer)."""
+        """CUDA/GPU query → should route to senior-engineer (tiebreak over research-explainer)."""
         r = dispatch("investiga cómo funcionan los memory coalescing patterns en CUDA")
-        # research-explainer vs novalbos tiebreak: GPU/CUDA → novalbos wins
-        assert top_skill(r) in ("novalbos", "research-explainer"), f"got {top_skill(r)}"
+        assert top_skill(r) in ("senior-engineer", "research-explainer"), f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
@@ -118,32 +117,6 @@ class TestUiDesignerRouting:
 
 
 @pytest.mark.routing
-class TestInvestmentAdvisorRouting:
-    def test_P10_stock_query(self):
-        """Stock investment query → investment-advisor."""
-        r = dispatch("¿compro NVDA ahora?")
-        assert top_skill(r) == "investment-advisor", f"got {top_skill(r)}"
-
-    def test_P10b_portfolio(self):
-        """Portfolio query → investment-advisor."""
-        r = dispatch("cómo va mi cartera de ETFs")
-        assert top_skill(r) == "investment-advisor", f"got {top_skill(r)}"
-
-
-@pytest.mark.routing
-class TestTioGilitoRouting:
-    def test_P12_spending_query(self):
-        """Monthly spending → tio-gilito."""
-        r = dispatch("cómo voy de dinero este mes")
-        assert top_skill(r) == "tio-gilito", f"got {top_skill(r)}"
-
-    def test_P12b_budget(self):
-        """Budget check → tio-gilito."""
-        r = dispatch("cuánto he gastado en comida este mes, revisa el presupuesto")
-        assert top_skill(r) == "tio-gilito", f"got {top_skill(r)}"
-
-
-@pytest.mark.routing
 class TestWindowsAdminRouting:
     def test_P13_ram_query(self):
         """RAM process query → windows-admin."""
@@ -157,22 +130,9 @@ class TestWindowsAdminRouting:
 
 
 @pytest.mark.routing
-class TestProfesorFisicaRouting:
-    def test_P14_kinematics(self):
-        """Kinematics exercise → profesor-fisica."""
-        r = dispatch("tengo este ejercicio de cinemática que no me sale")
-        assert top_skill(r) == "profesor-fisica", f"got {top_skill(r)}"
-
-    def test_P14b_exam_prep(self):
-        """Physics exam prep → profesor-fisica."""
-        r = dispatch("repásame el tema de dinámica para el examen de Física")
-        assert top_skill(r) == "profesor-fisica", f"got {top_skill(r)}"
-
-
-@pytest.mark.routing
 class TestRepoEvaluatorRouting:
     def test_P15_repo_evaluation(self):
-        """Repo evaluation → repo-evaluator (Kirkardo)."""
+        """Repo evaluation → repo-evaluator."""
         r = dispatch("corrígeme el T9 de Web Servidor")
         assert top_skill(r) == "repo-evaluator", f"got {top_skill(r)}"
 
@@ -180,40 +140,6 @@ class TestRepoEvaluatorRouting:
         """Grade request → repo-evaluator."""
         r = dispatch("dame una nota, evalúa mi código como un profesor estricto")
         assert top_skill(r) == "repo-evaluator", f"got {top_skill(r)}"
-
-
-@pytest.mark.routing
-class TestPersonalAssistantRouting:
-    def test_P16_morning_briefing(self):
-        """Morning mode → personal-assistant."""
-        r = dispatch("modo mañana")
-        assert top_skill(r) == "personal-assistant", f"got {top_skill(r)}"
-
-    def test_P16b_gmail(self):
-        """Email check → personal-assistant."""
-        r = dispatch("revisa mis emails de hoy en Gmail")
-        assert top_skill(r) == "personal-assistant", f"got {top_skill(r)}"
-
-
-@pytest.mark.routing
-class TestTolkienRouting:
-    def test_P17_chapter(self):
-        """Next chapter → tolkien."""
-        r = dispatch("escribe la siguiente escena del capítulo 7")
-        assert top_skill(r) == "tolkien", f"got {top_skill(r)}"
-
-    def test_P17b_consistency(self):
-        """Plot consistency → tolkien."""
-        r = dispatch("hay un plot hole en el arco del personaje, revisa la consistencia")
-        assert top_skill(r) == "tolkien", f"got {top_skill(r)}"
-
-
-@pytest.mark.routing
-class TestManoloLamaRouting:
-    def test_P18_football_commentary(self):
-        """Football commentary → manolo-lama."""
-        r = dispatch("comenta el último gol del Madrid")
-        assert top_skill(r) == "manolo-lama", f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
@@ -240,7 +166,7 @@ class TestPersonaBehaviorContracts:
     Format: Input → Expected signals → Anti-patterns.
     """
 
-    def test_P01_terry_tone(self):
+    def test_P01_senior_engineer_tone(self):
         """
         Input: "tengo un bug en este .ts, échale un ojo"
         Expected:
@@ -248,22 +174,22 @@ class TestPersonaBehaviorContracts:
         - Lee el archivo, identifica root cause, propone fix con código
         - Bloques de código + 1-2 frases de explicación por bloque
         Anti-patterns:
-        - ❌ Usar emojis o "great!", "absolutely!"
-        - ❌ Pedir 5 archivos antes de tocar el bug
-        - ❌ Reescribir todo el módulo cuando el fix es local
+        - Usar emojis o "great!", "absolutely!"
+        - Pedir 5 archivos antes de tocar el bug
+        - Reescribir todo el módulo cuando el fix es local
         """
 
-    def test_P02_terry_systematic_debugging(self):
+    def test_P02_senior_engineer_systematic_debugging(self):
         """
         Input: "llevo 3 sesiones intentando arreglar este bug"
         Expected:
         - Inicia con metacognición: hipótesis sobre la mesa
         - Pide reproducir el bug o muestra cómo
-        - Estructura: hipótesis → test → resultado → siguiente hipótesis
+        - Estructura: hipótesis - test - resultado - siguiente hipótesis
         - Puede invocar superpowers:systematic-debugging
         Anti-patterns:
-        - ❌ Saltar al fix sin confirmar causa
-        - ❌ "esto debería funcionar" sin verificación
+        - Saltar al fix sin confirmar causa
+        - "esto debería funcionar" sin verificación
         """
 
     def test_P03_gamedev_engineer_gas_domain(self):
@@ -275,101 +201,59 @@ class TestPersonaBehaviorContracts:
         - Ejemplo en C++ con UPROPERTY/UFUNCTION correctos
         - Puede mencionar Lyra como referencia
         Anti-patterns:
-        - ❌ Sugerir Blueprint cuando the user requested C++
-        - ❌ Ignorar la replicación cuando es el problema central
+        - Sugerir Blueprint cuando the user requested C++
+        - Ignorar la replicación cuando es el problema central
         """
 
-    def test_P05_novalbos_teaches_not_copies(self):
+    def test_P05_senior_engineer_graphics_teaches(self):
         """
         Input: "explícame cómo funciona el pipeline de OpenGL desde el VAO hasta el fragment shader"
         Expected:
-        - Tono didáctico, explicativo (no solo código)
-        - Etapas en orden: vertex input → vertex shader → ... → fragment shader
+        - Tono explicativo (no solo código)
+        - Etapas en orden: vertex input - vertex shader - ... - fragment shader
         - Diagrama o tabla de stages programables vs no programables
-        - Con /learn activo: bloque NOVALBOS DICE al final
         Anti-patterns:
-        - ❌ Solo dar código sin explicar el "por qué"
-        - ❌ Tono Terry (frío, mínimo) — Novalbos enseña
+        - Solo dar código sin explicar el "por qué"
         """
 
-    def test_P07_einstein_contagious_curiosity(self):
+    def test_P07_research_explainer_curiosity(self):
         """
         Input: "por qué el cielo es azul realmente"
         Expected:
         - Mención explícita: scattering de Rayleigh
-        - Conexión a longitud de onda · partículas atmosféricas
+        - Conexión a longitud de onda y partículas atmosféricas
         - Tono curioso, contagia pasión por entender
         - Puede sugerir experimentos mentales
         Anti-patterns:
-        - ❌ Respuesta corta tipo Wikipedia
-        - ❌ Ir a novalbos cuando es ciencia general
+        - Respuesta corta tipo Wikipedia
+        - Ir a senior-engineer cuando es ciencia general
         """
 
-    def test_P09_mike_brutal_honesty(self):
+    def test_P09_ui_designer_honest_critique(self):
         """
         Input: "mira esta UI y dime si tiene sentido" [+ screenshot]
         Expected:
         - Crítica directa, sin suavizar
         - Comenta jerarquía visual, contraste, espaciado
-        - Si está mal → lo dice. Si está bien → también
-        - Tono Mike Tyson: brutalmente honesto
+        - Si está mal -> lo dice. Si está bien -> también
         Anti-patterns:
-        - ❌ "Looks great overall, just maybe..."
-        - ❌ Lista de 20 cosas sin priorizar
+        - "Looks great overall, just maybe..."
+        - Lista de 20 cosas sin priorizar
         """
 
-    def test_P10_warren_analytical_patient(self):
-        """
-        Input: "¿compro NVDA ahora?"
-        Expected:
-        - Tono analítico, paciente, largo plazo
-        - Pregunta thesis antes de responder
-        - Menciona valuation (P/E, growth), moat, riesgo
-        - NO da consejo financiero categórico ("compra")
-        Anti-patterns:
-        - ❌ Respuesta impulsiva sin contexto de cartera
-        - ❌ "compra" o "no compra" sin matices
-        """
-
-    def test_P11_warren_terry_combo(self):
-        """
-        Input: "quiero un dashboard de mi cartera en Next.js + Supabase"
-        Expected:
-        - Routing combo: warren valida modelo → terry implementa
-        - Warren: qué métricas son útiles, schema propuesto
-        - Terry: schema concreto + Server Actions
-        Anti-patterns:
-        - ❌ Solo warren sin implementar nada
-        - ❌ Solo terry sin preguntar qué métricas importan
-        """
-
-    def test_P12_tio_gilito_reads_db(self):
-        """
-        Input: "cómo voy de dinero este mes"
-        Expected:
-        - Accede a finanzas.db con Bash/Read tool
-        - Da números reales, no estimaciones
-        - Tono Scrooge McDuck: directo, sin piedad
-        - Si gasto > regla: te lo dice
-        Anti-patterns:
-        - ❌ "Parece que vas bien" sin mirar la DB
-        - ❌ Tono suave o condescendiente
-        """
-
-    def test_P13_windows_admin_butler_protocol(self):
+    def test_P13_windows_admin_protocol(self):
         """
         Input: "qué procesos están comiendo más RAM"
         Expected:
-        - Tono mayordomo inglés, formal
+        - Tono formal, profesional
         - Comando PowerShell real
-        - "Atendiendo, señor" o equivalente
-        - Si acción es destructiva → pide confirmación
+        - Si acción es destructiva -> pide confirmación
         Anti-patterns:
-        - ❌ Ejecutar Stop-Process -Force sin confirmar
-        - ❌ Tono casual
+        - Ejecutar Stop-Process -Force sin confirmar
+        - Tono casual
         """
 
-    def test_P15_kirkardo_checks_rubric(self):
+    def test_P15_repo_evaluator_checks_rubric(self):
         """
         Input: "corrígeme el T9 de Web Servidor"
         Expected:
@@ -377,11 +261,11 @@ class TestPersonaBehaviorContracts:
         - Checklist contra el enunciado
         - Output: nota, requisitos, errores, integrity flags
         Anti-patterns:
-        - ❌ Nota inflada sin justificación
-        - ❌ "Looks good overall" sin contrastar con enunciado
+        - Nota inflada sin justificación
+        - "Looks good overall" sin contrastar con enunciado
         """
 
-    def test_P19_jordan_three_questions(self):
+    def test_P19_business_strategist_three_questions(self):
         """
         Input: "qué pricing pongo a mi SaaS"
         Expected:
@@ -390,13 +274,12 @@ class TestPersonaBehaviorContracts:
         - Compara con competidores
         - Habla de pricing psicológico, anchor, freemium vs trial
         Anti-patterns:
-        - ❌ Precio plano sin tiers
-        - ❌ No preguntar el segmento objetivo
+        - Precio plano sin tiers
+        - No preguntar el segmento objetivo
         """
 
 
-# ── Extension policy (documented as comments) ─────────────────────────────────
-# Persona nueva → crear ≥2 casos (tono + dominio) en TestXxxRouting
-# Persona modificada → añadir caso para el cambio + re-run los existentes
-# Bug detectado por Kirkardo → añadir el input exacto que falló
-# Routing ambiguo → añadir también en routing-tests equivalente
+# Extension policy:
+#   New persona -> add >=2 cases (tone + domain)
+#   Persona modified -> add case for the change + re-run existing
+#   Routing ambiguous -> add also in routing-tests equivalent

@@ -35,10 +35,7 @@ CACHE_DIR = Path.home() / ".ultron" / "skill_cache"
 # ── Tier A personas requiring constitution + digest ────────────────────────────
 TIER_A = {
     "ultron", "skill-creator", "consolidate-memory", "repo-evaluator",
-    "senior-engineer", "ui-designer", "gamedev-engineer", "personal-assistant", "windows-admin",
-    # backwards-compat aliases
-    "don-claudio", "pana", "alfred",
-    "terry-davis", "mike-tyson",
+    "senior-engineer", "ui-designer", "gamedev-engineer", "windows-admin",
 }
 
 # ── Hardcoded trigger phrases per skill ───────────────────────────────────────
@@ -48,16 +45,9 @@ _TRIGGERS: dict[str, list[str]] = {
     "gamedev-engineer":     ["UE5", "Unreal", "Unity", "Blueprint", "GAS", "netcode", "game dev", "shader"],
     "ui-designer":          ["UI", "UX", "diseño", "layout", "color", "wireframe", "interfaz visual"],
     "business-strategist":  ["monetizar", "pricing", "pitch", "ventas", "GTM", "modelo de negocio"],
-    "investment-advisor":   ["bolsa", "inversión", "cartera", "ETF", "acciones", "dividendos", "macro"],
     "research-explainer":   ["investiga", "explica", "paper", "ciencia", "por qué", "teoría"],
-    "novalbos":             ["C++", "shader", "GPU", "OpenGL", "Vulkan", "SIMD", "compilador", "bajo nivel"],
-    "personal-assistant":   ["email", "agenda", "Notion", "Spotify", "briefing", "organización"],
     "windows-admin":        ["proceso", "PowerShell", "driver", "carpeta", "Windows", "sistema"],
-    "tio-gilito":           ["gasto", "ahorro", "KutxaBank", "presupuesto", "banco", "saldo"],
-    "manolo-lama":          ["fútbol", "partido", "Champions", "Liga", "gol", "deportes"],
-    "tolkien":              ["capítulo", "escena", "personaje", "plot", "narrativa", "libro"],
-    "profesor-fisica":      ["cinemática", "dinámica", "colisiones", "mecánica", "física", "examen"],
-    "repo-evaluator":       ["evalúa", "nota", "kirkardo", "audit", "score", "review", "ponme nota"],
+    "repo-evaluator":       ["evalúa", "nota", "audit", "score", "review", "ponme nota"],
     "skill-creator":        ["crea skill", "nueva skill", "mejora skill", "skill-creator"],
     "consolidate-memory":   ["consolida", "fusiona", "duplicados", "vault sync", "brain index"],
     "mcp-builder":          ["crea MCP", "servidor MCP", "MCP server"],
@@ -92,9 +82,7 @@ _TRIGGERS: dict[str, list[str]] = {
     "hyperframes":          ["video", "animación", "GSAP", "heygen"],
     "everything-claude-code":   ["optimización memoria", "seguridad codebase"],
     "claude-skills":        ["arquitectura general", "cumplimiento", "SOC2"],
-    "news-publisher":       ["newsletter", "noticias AI", "trending"],
     "dimensional-analysis": ["unidades de medida", "fórmulas con errores", "bug de física"],
-    "ue5-dev":              ["UE5", "Unreal Engine", "Blueprint", ".uproject"],
     "unreal-engine":       ["UE C++ avanzado", "subsistemas UE", "API underdocumented"],
     "code-review-excellence": ["code review", "auditoría de código"],
     "security-review":      ["security review", "auditoría seguridad", "CVE", "SAST"],
@@ -112,7 +100,7 @@ _MEMORY_POLICY_TEXT: dict[str, str] = {
 # ── Expensive dependencies per skill ─────────────────────────────────────────
 _EXPENSIVE_DEPS: dict[str, list[str]] = {
     "senior-engineer":      ["superpowers (TDD/debug)", "second-opinion (L4 if Codex)"],
-    "gamedev-engineer":     ["senior-engineer (C++ impl)", "ue5-dev (external)", "unreal-engine"],
+    "gamedev-engineer":     ["senior-engineer (C++ impl)", "unreal-engine"],
     "ui-designer":          ["frontend-design (impl)", "webapp-testing (Playwright)"],
     "repo-evaluator":       ["differential-review", "sharp-edges", "insecure-defaults"],
     "audit-context-building": ["brain_index (FTS5)", "Gemini long context (L4)"],

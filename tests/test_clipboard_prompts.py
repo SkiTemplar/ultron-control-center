@@ -2,7 +2,7 @@
 
 Covers:
 - build_newsletter_prompt: 3 editions render with all variables substituted
-- _load_audit_prompt: every Kirkardo button file exists, has a non-empty
+- _load_audit_prompt: every audit-button file exists, has a non-empty
   fenced block, substitutes {TODAY}.
 
 Heavy textual imports in tui.py mean we read tui module attrs through
@@ -81,7 +81,7 @@ def test_newsletter_template_file_exists():
 
 
 # ---------------------------------------------------------------------------
-# Audit prompts (Kirkardo TUI buttons)
+# Audit prompts (TUI buttons)
 # ---------------------------------------------------------------------------
 
 

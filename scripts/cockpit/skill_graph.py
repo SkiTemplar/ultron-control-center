@@ -149,21 +149,13 @@ def _hardcoded_baseline() -> list[dict]:
     # knowledge_files: specific .md files to Read when this persona activates.
     # Paths relative to ~/.ultron/knowledge/ (junction → vault/10_KNOWLEDGE/).
     return [
-        {"persona": "gamedev-engineer", "aliases": ["don-claudio"], "domain": "UE5·Unity·netcode",         "connects_to": ["cpp-pro", "ue5-dev"],         "memory_layer": "knowledge/cpp-ue5/",       "knowledge_files": ["cpp-ue5/gas.md", "cpp-ue5/replication.md", "cpp-ue5/enhanced-input.md", "cpp-ue5/multiplayer.md"]},
-        {"persona": "novalbos",         "domain": "C++·Gráfica·IA·low-lvl",    "connects_to": ["research-explainer", "cpp-pro"], "memory_layer": "knowledge/cpp-modern/",    "knowledge_files": ["cpp-modern/cpp-23-features.md", "opengl/pipeline.md", "opengl/shaders.md"]},
-        {"persona": "senior-engineer",  "aliases": ["terry-davis"], "domain": "refactor·git·deuda",         "connects_to": ["focused-fix"],                "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "research-explainer","aliases": ["einstein"], "domain": "investiga·física·math",      "connects_to": ["novalbos"],                   "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "investment-advisor","aliases": ["warren"],   "domain": "bolsa·finanzas",             "connects_to": ["tio-gilito"],                 "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "tio-gilito",       "domain": "finanzas personales",        "connects_to": ["investment-advisor"],         "memory_layer": "knowledge/finance/",        "knowledge_files": ["finance/tio-gilito-context.md"]},
-        {"persona": "windows-admin",    "aliases": ["alfred"],     "domain": "Windows·CLI·scripts",        "connects_to": ["openjarvis"],                 "memory_layer": "knowledge/claude-platform/","knowledge_files": ["claude-platform/subagents-and-hooks.md", "claude-platform/codex-cli.md"]},
-        {"persona": "openjarvis",       "domain": "DevOps·cloud·Docker",        "connects_to": ["windows-admin"],              "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "obliteratus",      "domain": "rewrite·purga·deuda",        "connects_to": ["senior-engineer"],            "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "manolo-lama",      "domain": "ventas·persuasión",          "connects_to": [],                             "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "tolkien",          "domain": "narrativa·escritura",        "connects_to": [],                             "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "personal-assistant","aliases": ["pana"],      "domain": "productividad·archivos",     "connects_to": ["windows-admin"],              "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "shannon",          "domain": "información·teoría",         "connects_to": ["novalbos"],                   "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "business-strategist","aliases": ["jordan-belfort"], "domain": "pitch·estrategia",           "connects_to": ["investment-advisor"],         "memory_layer": "",                          "knowledge_files": []},
-        {"persona": "ui-designer",      "aliases": ["mike-tyson"],  "domain": "UI·UX·design",              "connects_to": ["senior-engineer"],            "memory_layer": "",                          "knowledge_files": []},
+        {"persona": "gamedev-engineer", "aliases": ["gamedev-engineer"], "domain": "UE5·Unity·netcode",         "connects_to": ["cpp-pro", "senior-engineer"], "memory_layer": "knowledge/cpp-ue5/",       "knowledge_files": ["cpp-ue5/gas.md", "cpp-ue5/replication.md", "cpp-ue5/enhanced-input.md", "cpp-ue5/multiplayer.md"]},
+        {"persona": "senior-engineer",  "aliases": ["senior-engineer"], "domain": "refactor·git·deuda",         "connects_to": ["focused-fix"],                "memory_layer": "",                          "knowledge_files": []},
+        {"persona": "research-explainer","aliases": ["research-explainer"], "domain": "investiga·física·math",      "connects_to": ["senior-engineer"],            "memory_layer": "",                          "knowledge_files": []},
+        {"persona": "windows-admin",    "aliases": ["windows-admin"],     "domain": "Windows·CLI·scripts",        "connects_to": [],                             "memory_layer": "knowledge/claude-platform/","knowledge_files": ["claude-platform/subagents-and-hooks.md", "claude-platform/codex-cli.md"]},
+        {"persona": "business-strategist","aliases": ["business-strategist"], "domain": "pitch·estrategia",           "connects_to": [],                             "memory_layer": "",                          "knowledge_files": []},
+        {"persona": "ui-designer",      "aliases": ["ui-designer"],  "domain": "UI·UX·design",              "connects_to": ["senior-engineer"],            "memory_layer": "",                          "knowledge_files": []},
+        {"persona": "repo-evaluator",   "aliases": ["repo-evaluator"], "domain": "repo·audit·grading",         "connects_to": ["senior-engineer"],            "memory_layer": "",                          "knowledge_files": []},
     ]
 
 

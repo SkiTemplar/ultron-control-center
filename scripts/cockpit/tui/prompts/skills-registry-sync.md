@@ -24,7 +24,7 @@ INSTRUCTIONS:
 1. Load `skills-registry.json`. Diff against the contents of each of the three target dirs. Build a per-environment "missing" set.
 2. For each missing entry:
    a. Look up its `claude_exclusive` flag in the manifest (default false).
-   b. If `claude_exclusive` is true (e.g. `news-publisher`, `ue5-dev`, `unreal-engine`), do NOT propagate. Record as "skipped: exclusive".
+   b. If `claude_exclusive` is true (e.g. `unreal-engine` and any opt-in personal slot), do NOT propagate. Record as "skipped: exclusive".
    c. Otherwise copy the entire skill directory from `~/.claude/skills/<name>/` into the missing registry. Preserve `SKILL.md`, frontmatter, and any peer files.
 3. For every skill (synced or exclusive), ensure manifest carries:
    - `category`: meta | persona | engineering | security | testing | design | memory | workflow | game | misc

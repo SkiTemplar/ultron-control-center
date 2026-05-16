@@ -140,7 +140,7 @@ def test_known_dangerous_blocked(block_bash, command, label):
                           [(c, l) for c, l in KNOWN_BYPASS],
                           ids=[l for _, l in KNOWN_BYPASS])
 def test_ast_only_detections(block_bash, command, label):
-    """v3.0 bashlex AST closes the 9 v2.0 regex gaps documented by Kirkardo TOTAL v2."""
+    """v3.0 bashlex AST closes the 9 v2.0 regex gaps documented in the audit log."""
     decision = block_bash(command)
     assert decision == "deny", (
         f"v3.0 AST should catch this (Sprint 3 F13): {label}"

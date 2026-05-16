@@ -37,12 +37,8 @@ def _load_known_personas():
         pass
     # Bootstrap fallback
     return {
-        "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist", "research-explainer",
-        "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "investment-advisor",
-        "repo-evaluator", "manolo-lama", "tolkien",
-        # backwards-compat aliases for deprecated stubs
-        "don-claudio", "pana", "alfred",
-        "terry-davis", "mike-tyson", "jordan-belfort", "einstein", "warren",
+        "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist",
+        "research-explainer", "windows-admin", "repo-evaluator",
     }
 
 KNOWN_PERSONAS = _load_known_personas()

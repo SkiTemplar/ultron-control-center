@@ -122,35 +122,25 @@ class TestLazySkillBuilder:
 
     def test_personas_are_pinned_even_with_no_telemetry(self, lazy):
         """Case 4: persona skills stay 'on' regardless of usage."""
-        # Only personas, no events. Includes both canonical and legacy alias
-        # names — they all must be pinned for backwards-compat with renamed
-        # skills (pana/alfred/don-claudio → personal-assistant/windows-admin/gamedev-engineer).
-        for p in ("windows-admin", "alfred", "novalbos", "terry-davis"):
+        # Only canonical persona names ship by default. Forks adding private
+        # personas should extend ULTRON_PERSONAS in skill_lazy_loader.py.
+        for p in ("windows-admin", "senior-engineer", "ui-designer"):
             _make_skill(lazy._FAKE_HOME, p)
         _make_skill(lazy._FAKE_HOME, "rando")
 
         overrides = lazy.compute_overrides(mode="lazy", top_n=2)
         # Even with top_n=2 the personas should all be 'on'
         assert overrides["windows-admin"] == lazy.ON
-        assert overrides["alfred"] == lazy.ON  # backwards-compat alias still pinned
-        assert overrides["novalbos"] == lazy.ON
-        assert overrides["terry-davis"] == lazy.ON
+        assert overrides["senior-engineer"] == lazy.ON
+        assert overrides["ui-designer"] == lazy.ON
         # Rando has no score and no persona pin → name-only
         assert overrides["rando"] == lazy.NAME_ONLY
 
     def test_skill_alias_resolution(self, lazy):
-        """Case 4b: SKILL_ALIASES maps deprecated names to canonical ones."""
-        # Batch 1 (v15.2.0)
-        assert lazy.resolve_skill_alias("pana") == "personal-assistant"
-        assert lazy.resolve_skill_alias("alfred") == "windows-admin"
-        assert lazy.resolve_skill_alias("don-claudio") == "gamedev-engineer"
-        # Batch 2 (v15.2.0)
-        assert lazy.resolve_skill_alias("einstein") == "research-explainer"
-        assert lazy.resolve_skill_alias("jordan-belfort") == "business-strategist"
-        assert lazy.resolve_skill_alias("mike-tyson") == "ui-designer"
-        assert lazy.resolve_skill_alias("warren") == "investment-advisor"
-        assert lazy.resolve_skill_alias("terry-davis") == "senior-engineer"
-        # Unknown / already-canonical names pass through
+        """Case 4b: SKILL_ALIASES is empty by default; passthrough only.
+
+        Forks can populate SKILL_ALIASES with their own legacy-name mappings.
+        """
         assert lazy.resolve_skill_alias("senior-engineer") == "senior-engineer"
         assert lazy.resolve_skill_alias("unknown") == "unknown"
 

@@ -147,7 +147,7 @@ def _section_skill_graph() -> str:
 def _section_quick_links() -> str:
     return (
         "## QUICK LINKS\n\n"
-        "context.md · plans/MEGA-PLAN-v15.md + PLANS.json · "
+        "context.md · plans/PLANS.json · "
         "references/{routing-tables,knowledge-domains,changelog}.md · "
         "`brain_index.py query` · `ultron doctor [--fix|--health-check|--security]`."
     )

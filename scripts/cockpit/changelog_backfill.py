@@ -42,7 +42,7 @@ SOURCES: tuple[tuple[str, Path], ...] = (
 
 # Matches v15, v15.0, v15.0.2, v15.0b, v15.0.2-rc1, with dot/dash separators
 # Stricter version regex: each component capped at 2 digits so "v2-2026-05"
-# (kirkardo audit revision + date) doesn't get misparsed as a v2.2026.05
+# (repo-evaluator audit revision + date) doesn't get misparsed as a v2.2026.05
 # release. Pre-v100 ULTRON is the only target — bump the limits if that
 # changes.
 VERSION_RE = re.compile(

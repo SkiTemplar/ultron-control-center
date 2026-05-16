@@ -4,7 +4,7 @@
     ULTRON v12.5.0-fix2 (F5) — install gitleaks pre-commit hook in a target git repo.
 
 .DESCRIPTION
-    Closes V-CRIT-1..6 of Kirkardo TOTAL Triple. Idempotent. Verifies gitleaks
+    Closes V-CRIT-1..6 of repo-evaluator TOTAL Triple. Idempotent. Verifies gitleaks
     binary is installed; copies/symlinks .gitleaks.toml into the repo root if
     missing; installs a pre-commit hook that calls `gitleaks protect --staged`.
 

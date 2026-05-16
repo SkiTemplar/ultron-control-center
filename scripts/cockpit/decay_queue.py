@@ -2,7 +2,7 @@
 """
 ULTRON v12 Knowledge Decay Queue — staleness-aware vault hygiene.
 
-3rd convergent gap from Triple Kirkardo BRAIN mega-eval: vault notes get
+3rd convergent gap from Triple repo-evaluator BRAIN mega-eval: vault notes get
 stale silently. APIs deprecate, models change names, patterns get superseded.
 Without a decay model, the vault becomes a graveyard of facts that were
 correct on the day they were written and silently false 3 months later.

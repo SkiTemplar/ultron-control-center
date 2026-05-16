@@ -50,7 +50,7 @@ WONTFIX = {
         "su task y salen). El lock atomic vive en alerts.jsonl write side."
     ),
     "fix-5-feedback-loops": (
-        "Codex #5 feedback loop replaced by Stats tab + KirkardoCard + AI-"
+        "Codex #5 feedback loop replaced by Stats tab + RepoEvaluatorCard + AI-"
         "brainstorm — el loop hoy es human-in-the-loop por diseño."
     ),
     "gemini-mcp-reinstall-and-debug": (

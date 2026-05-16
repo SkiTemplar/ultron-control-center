@@ -61,7 +61,7 @@ def collect_answers() -> dict:
     print()
     print("=== ULTRON Skill Creator — Q&A interactive ===")
     print()
-    name = ask("1. Skill name (lowercase, no spaces, e.g. 'tio-gilito')").lower()
+    name = ask("1. Skill name (lowercase, no spaces, e.g. 'my-persona')").lower()
     if not name:
         print("[creator] name is required")
         sys.exit(1)

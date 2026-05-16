@@ -205,7 +205,7 @@ def test_chunks_query_perf(bi):
 def test_chunks_bm25_relevance(bi):
     """Query 'ue5 OR blueprints OR unreal' → at least one chunk in top-3 must
     be UE5-relevant by either:
-      - domain in known UE5 vocab whitelist {cpp-ue5, ue5-dev, gamedev-engineer}
+      - domain in known UE5 vocab whitelist {cpp-ue5, gamedev-engineer}
       - path containing 'ue5' or 'unreal' (catches notes living under non-UE5
         skill dirs that nevertheless cover UE5 — common pattern in this vault)
     Strict: no escape hatch, no bare "cpp" substring (would match plain C++).
@@ -249,7 +249,7 @@ def test_chunks_bm25_relevance(bi):
 
     # Strict whitelist of known UE5 domains in this vault. Adding more domains
     # here is a deliberate spec change, not a test-loosening shortcut.
-    UE5_DOMAINS = {"cpp-ue5", "ue5-dev", "gamedev-engineer", "don-claudio"}
+    UE5_DOMAINS = {"cpp-ue5", "gamedev-engineer"}
 
     def is_ue5_chunk(domain: str, path: str) -> bool:
         if domain in UE5_DOMAINS:

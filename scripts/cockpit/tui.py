@@ -553,7 +553,7 @@ def build_newsletter_prompt(edition_key: str,
     return tmpl.format(today=today, weekday=weekday, **cfg)
 
 
-# ── Audit prompts (Kirkardo TUI buttons) ────────────────────────────────────
+# ── Audit prompts (repo-evaluator TUI buttons) ────────────────────────────────────
 
 AUDIT_PROMPTS_DIR = _SKILL_COCKPIT_DIR / "tui" / "prompts"
 
@@ -965,7 +965,7 @@ class UltronTUI(App):
         Binding("g", "session_gemini", "Gemini"),
         Binding("x", "session_codex",  "Codex"),
         # Meta (clipboard)
-        Binding("k", "kirkardo_audit", "Kirkardo"),
+        Binding("k", "auditor_audit", "repo-evaluator"),
         Binding("n", "new_skill",      "NewSkill"),
     ]
 
@@ -1001,7 +1001,7 @@ class UltronTUI(App):
                 yield Static("[dim]x[/dim]  Codex")
                 yield Static("")
                 yield Static("[b]MEJORAS[/b]", classes="muted")
-                yield Static("[dim]k[/dim]  Kirkardo 💬")
+                yield Static("[dim]k[/dim]  repo-evaluator 💬")
                 yield Static("[dim]n[/dim]  Nueva skill 💬")
                 yield Static("")
                 yield Static("[dim]r[/dim] Refresh   [dim]q[/dim] Quit")
@@ -1201,12 +1201,12 @@ class UltronTUI(App):
             return
         self.push_screen(DeleteProjectModal(proj.get("id", "")))
 
-    def action_kirkardo_audit(self) -> None:
-        """k key — open Claude + copy Kirkardo audit prompt (full system audit)."""
+    def action_auditor_audit(self) -> None:
+        """k key — open Claude + copy repo-evaluator audit prompt (full system audit)."""
         launch_with_prompt(
-            "Ultron, /high kirkardo audit del sistema ULTRON hoy"
+            "Ultron, /high repo-evaluator audit del sistema ULTRON hoy"
         )
-        self.notify("💬 Prompt copiado: kirkardo audit ULTRON", severity="information")
+        self.notify("Prompt copiado: repo-evaluator audit ULTRON", severity="information")
 
     def action_session_gemini(self) -> None:
         """g key — spawn interactive Gemini session in current cwd."""
@@ -1280,7 +1280,7 @@ class UltronTUI(App):
         )
 
         content.mount(Static(f"[b]Projects[/b] [dim]({len(active)} active of {len(projects)} total · sorted by usage 7d)[/dim]", classes="title"))
-        content.mount(Static("[dim]Select with ↑↓, then 'o' open · 'c' claude · 'g' gemini · 'x' codex · 'k' kirkardo[/dim]", classes="subtitle"))
+        content.mount(Static("[dim]Select with ↑↓, then 'o' open · 'c' claude · 'g' gemini · 'x' codex · 'k' repo-evaluator[/dim]", classes="subtitle"))
 
         table = DataTable(cursor_type="row", zebra_stripes=True)
         table.add_columns("ID", "Name", "IDE", "Use 7d", "Last Active", "Tags")
@@ -1618,12 +1618,8 @@ class UltronTUI(App):
         # ── Categorías canónicas (v12) ───────────────────────────────────────
         LAYER0_META = {"ultron", "skill-creator", "consolidate-memory", "mcp-builder"}
         LAYER1_PERSONAS = {
-            "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist", "research-explainer",
-            "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "investment-advisor",
-            "repo-evaluator", "manolo-lama", "tolkien",
-            # backwards-compat aliases (deprecated stubs)
-            "don-claudio", "pana", "alfred",
-            "terry-davis", "mike-tyson", "jordan-belfort", "einstein", "warren",
+            "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist",
+            "research-explainer", "windows-admin", "repo-evaluator",
         }
         LAYER2_CATEGORIES = {
             "Engineering": {"focused-fix", "performance-profiler", "tech-debt-tracker",
@@ -1635,8 +1631,8 @@ class UltronTUI(App):
                             "spec-to-code-compliance"},
             "Database/API":{"database-schema-designer", "dimensional-analysis"},
             "UI/Design":   {"frontend-design", "ui-ux-pro-max", "theme-factory", "ui-designer"},
-            "Game":        {"ue5-dev", "unreal-engine"},
-            "AI Platform": {"claude-api", "second-opinion", "skill-improver", "news-publisher"},
+            "Game":        {"unreal-engine"},
+            "AI Platform": {"claude-api", "second-opinion", "skill-improver"},
             # v12 FASE D: Workflow plugins (namespaced — always available in Claude Code,
             # not installed locally under ~/.claude/skills/).
             "Workflow":    {"superpowers:systematic-debugging",
@@ -2577,7 +2573,7 @@ class UltronTUI(App):
         ult = Path(__file__).parent / "ultron.ps1"
         ps_prefix = f'powershell -NoProfile -ExecutionPolicy Bypass -File "{ult}"'
 
-        # ── AutoUpdater: Kirkardo audit buttons (1-9 from AUDIT_BUTTONS) ─────
+        # ── AutoUpdater: repo-evaluator audit buttons (1-9 from AUDIT_BUTTONS) ─────
         # Each button loads ~/.ultron/cockpit/tui/prompts/NN-*.md, copies the
         # fenced prompt to the clipboard, and launches the configured CLI
         # (claude orchestrates Triple/Dual; codex runs the pure --codex tasks).
@@ -2845,9 +2841,9 @@ class UltronTUI(App):
 
     def _render_autoupdater(self):
         content = self._clear_content()
-        content.mount(Static("[b]Kirkardo — ULTRON System Review[/b]",
+        content.mount(Static("[b]repo-evaluator — ULTRON System Review[/b]",
                               classes="title"))
-        content.mount(Static("[dim]Prompt al clipboard → continúa conversación con Kirkardo[/dim]",
+        content.mount(Static("[dim]Prompt al clipboard → continúa conversación con repo-evaluator[/dim]",
                               classes="subtitle"))
 
         # Audit history
@@ -2899,11 +2895,11 @@ class UltronTUI(App):
         else:
             content.mount(Static("[dim]No audits yet — usa los botones para iniciar uno[/dim]"))
 
-        # Action buttons — 9 Kirkardo audit prompts (loaded from
+        # Action buttons — 9 repo-evaluator audit prompts (loaded from
         # ~/.ultron/cockpit/tui/prompts/NN-*.md). Each button copies its
         # prompt to the clipboard and opens the right CLI (claude/codex).
         content.mount(Static(""))
-        content.mount(Static("[b]Audits Kirkardo[/b]", classes="title"))
+        content.mount(Static("[b]Audits repo-evaluator[/b]", classes="title"))
         content.mount(Static(
             "[dim]Cada botón copia su prompt al portapapeles y abre la CLI "
             "indicada. Triple/Dual usan Claude como orquestador; "

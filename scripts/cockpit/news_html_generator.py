@@ -3,7 +3,7 @@
 ULTRON Times — News HTML Generator (v14.2 "Tech/AI Focus Edition").
 
 Flow:
-1. Build prompt from news-publisher SKILL.md template + section config
+1. Build prompt from a local newsletter SKILL.md template + section config
 2. Inject --days, --theme, --notes, dedup block into the prompt
 3a. [default]   Call Gemini CLI headless → capture stdout HTML → write file → autoopen
 3b. [clipboard] Copy prompt to clipboard → user pastes into Gemini/Claude session
@@ -41,7 +41,7 @@ _WIN_HIDDEN = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 sys.path.insert(0, str(Path(__file__).parent))
 from cockpit_base import NEWS_DIR  # noqa: E402
 
-SKILL_PATH = Path.home() / ".claude" / "skills" / "news-publisher" / "SKILL.md"
+SKILL_PATH = Path.home() / ".claude" / "skills" / "newsletter-publisher" / "SKILL.md"
 NEWS_CATEGORIES_FILE = NEWS_DIR.parent / "news_categories.json"
 
 DEFAULT_MODEL = "gemini-3.1-pro"
@@ -282,7 +282,7 @@ def build_nav_instruction(existing: dict[str, Path], current_label: str) -> str:
 # ── Prompt building ────────────────────────────────────────────────────────────
 
 def load_base_template() -> str:
-    """Extract PROMPT TEMPLATE block from news-publisher SKILL.md."""
+    """Extract PROMPT TEMPLATE block from the local newsletter SKILL.md."""
     if not SKILL_PATH.exists():
         return ""
     text = SKILL_PATH.read_text(encoding="utf-8")
@@ -307,7 +307,7 @@ def build_section_prompt(
     timeframe = f"últimas {days * 24}h / {days} días"
     min_news = cfg.get("min_news", DEDUP_MIN_NEWS)
 
-    prompt = f"""Eres news-publisher v3, redacción oficial de ULTRON Times — edición {cfg['label']}.
+    prompt = f"""Eres el redactor del ULTRON Times — edición {cfg['label']}.
 Genera un newsletter HTML5 con la profundidad de un periódico digital profesional.
 Diseño: auténtico periódico digital premium — artículos con lead paragraph, contexto e impacto real.
 
@@ -445,7 +445,7 @@ def write_audit_flags_file(flags: dict[str, list[str]]) -> Path | None:
         for t in topics:
             lines.append(f"- {t}")
         lines.append("")
-    lines += ["---", "", "**Para Kirkardo** — ejecutar audit:", "```bash"]
+    lines += ["---", "", "**Para repo-evaluator** — ejecutar audit:", "```bash"]
     for skill in sorted(flags.keys()):
         lines.append(f"ultron self-improve audit {skill} --quick")
     lines += ["```"]

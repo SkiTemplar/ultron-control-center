@@ -2,7 +2,7 @@
 """
 ULTRON v12 Vault Schema Migrator.
 
-Tech debt closure from Triple Kirkardo R3: "Vault schema sin version → si
+Tech debt closure from Triple repo-evaluator R3: "Vault schema sin version → si
 cambias frontmatter no hay migrator". This is the infrastructure to add now,
 so when v13/v14 changes the schema (new required fields, renamed keys, MECE
 restructure), we have the path. v1 is the current state.

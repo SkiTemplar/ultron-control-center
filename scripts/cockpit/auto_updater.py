@@ -8,10 +8,10 @@ Stage 1 only per Codex's L1/L2/L3 split:
   - L3: apply + version + changelog (future v10.5+)
 
 This is the safest layer. Nothing modifies files. Just discovers what NEEDS
-audit and triggers Kirkardo via persona_audit.py.
+audit and triggers repo-evaluator via persona_audit.py.
 
 Anti-laundering rules baked in:
-  - All audits are kirkardo-independent (enforced by persona_audit.py)
+  - All audits are repo-evaluator-independent (enforced by persona_audit.py)
   - Doble-audit pattern recommended for critical skills (different runs find
     different issues - validated this session: 7.5/10 vs 7.0/10)
   - False-positive filter: knowledge-cutoff issues flagged for human review
@@ -19,7 +19,7 @@ Anti-laundering rules baked in:
 
 Usage:
     auto_updater.py scan                   List audit candidates ranked by need
-    auto_updater.py audit <skill> [--quick] Run Kirkardo on target
+    auto_updater.py audit <skill> [--quick] Run repo-evaluator on target
     auto_updater.py history                Show audit history (last 30 days)
     auto_updater.py news-flags             Items in NEWS that suggest skill update
     auto_updater.py propose <audit-file>   L2: generate patches from audit (Sonnet, NO apply)
@@ -63,9 +63,6 @@ NEWS_SKILL_TRIGGERS = {
     "ultron":        [r"\bClaude\s*Code\b", r"\bskill\s*update", r"\bMCP\b.*server"],
     "senior-engineer":   [r"\bgit\b.*new", r"\brebase\s*update", r"\bworkflow\s*change"],
     "gamedev-engineer": [r"\bUE5", r"\bUnity\s*\d", r"\bnetcode"],
-    "novalbos":      [r"\bC\+\+\s*2[3-9]", r"\bVulkan", r"\bCUDA"],
-    "investment-advisor": [r"\bSEC\s*rule", r"\bregulation\b.*market"],
-    "tio-gilito":    [r"\bbank\s*API\b", r"\bSpain.*finance"],
 }
 
 
@@ -238,8 +235,8 @@ def cmd_history(_args) -> int:
 
 
 def cmd_news_flags(_args) -> int:
-    """v12: prefer dedicated audit-flags-{date}.md files written by news-publisher
-    skill. Falls back to regex scan of legacy news/*.md if no dedicated file
+    """v12: prefer dedicated audit-flags-{date}.md files written by the
+    newsletter generator. Falls back to regex scan of legacy news/*.md if no dedicated file
     exists (back-compat with v11.x scraper output).
     """
     if not NEWS_DIR.exists():
@@ -316,7 +313,7 @@ def cmd_news_flags(_args) -> int:
 
 
 # @ULTRON-DEPRECATED:14.0.0
-#   reason: not surfaced in TUI since v12.4 (Kirkardo clipboard prompts replaced this pipeline)
+#   reason: not surfaced in TUI since v12.4 (repo-evaluator clipboard prompts replaced this pipeline)
 #   replaced-by: cockpit/tui/prompts/* clipboard prompts launched from the Skills tab
 #   remove-after: 2026-11-07
 #   owner: USER
@@ -358,7 +355,7 @@ def cmd_propose(args) -> int:
     # caused Sonnet to time out. Moved false-positive heuristics to plain Spanish
     # (avoids "anti-injection" mistrust trigger seen in early tests).
     system = (
-        "Genera patches JSON desde un audit Kirkardo. "
+        "Genera patches JSON desde un audit repo-evaluator. "
         "Salida: {\"proposals\":[{\"finding_ref\":\"\",\"severity\":\"critical|high|medium|low\","
         "\"target_file\":\"SKILL.md\",\"old_string\":\"\",\"new_string\":\"\","
         "\"rationale\":\"\",\"false_positive_risk\":\"none|low|high\"}]}. "
@@ -384,7 +381,7 @@ def cmd_propose(args) -> int:
                       f"chars of {len(skill_text)}. The audit cites specific "
                       f"sections - reference them for accurate old_string.]\n")
 
-    user = (f"=== KIRKARDO AUDIT ({audit_path.name}, {len(audit_text)}b) ===\n"
+    user = (f"=== repo-evaluator AUDIT ({audit_path.name}, {len(audit_text)}b) ===\n"
             f"{audit_text}\n\n"
             f"=== SOURCE SKILL.md ({skill_md}) ===\n{skill_excerpt}{skill_note}\n\n"
             f"Generate the proposals JSON now.")
@@ -544,7 +541,7 @@ def cmd_apply(args) -> int:
 
 
 # @ULTRON-DEPRECATED:14.0.0
-#   reason: not surfaced in TUI since v12.4 (Kirkardo clipboard prompts replaced this pipeline)
+#   reason: not surfaced in TUI since v12.4 (repo-evaluator clipboard prompts replaced this pipeline)
 #   replaced-by: cockpit/tui/prompts/* clipboard prompts launched from the Skills tab
 #   remove-after: 2026-11-07
 #   owner: USER
@@ -563,7 +560,7 @@ def cmd_full(args) -> int:
     print()
 
     # Stage 1: audit
-    print(f"[full] Stage 1/3: Kirkardo audit (Sonnet QUICK)...")
+    print(f"[full] Stage 1/3: repo-evaluator audit (Sonnet QUICK)...")
     audit_args = argparse.Namespace(skill=skill, quick=True)
     rc = cmd_audit(audit_args)
     if rc != 0:
@@ -743,7 +740,7 @@ def main():
     sp.set_defaults(func=cmd_scan)
 
     sp = sub.add_parser("audit",
-                         help="Run Kirkardo audit on target skill")
+                         help="Run repo-evaluator audit on target skill")
     sp.add_argument("skill")
     sp.add_argument("--quick", action="store_true",
                     help="Use Sonnet (~5x cheaper) instead of Opus")

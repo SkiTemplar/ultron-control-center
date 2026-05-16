@@ -1,5 +1,5 @@
 # ULTRON v12.5.0-fix2 — gitleaks config (F5)
-# Closes V-CRIT-1..6 + SI-CRIT-1 of Kirkardo TOTAL Triple 2026-05-03.
+# Closes V-CRIT-1..6 + SI-CRIT-1 of repo-evaluator TOTAL Triple 2026-05-03.
 # Audit-driven patterns. Coverage: GitHub PATs, OpenAI, Anthropic, Slack,
 # Notion/Linear/Figma/Egnyte/Supabase OAuth client secrets, generic high-entropy.
 #

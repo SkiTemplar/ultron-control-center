@@ -4,7 +4,7 @@ ULTRON HOOK · auto-approve-readonly · v2.0 (SEC-02 hardening)
 Auto-aprueba tools de solo lectura (Read, Glob, Grep, WebFetch, WebSearch) en PreToolUse.
 Reduce permission prompts para flujo de exploración.
 
-v2.0 (Kirkardo TOTAL Triple 2026-05-03 → SEC-02):
+v2.0 (repo-evaluator TOTAL Triple 2026-05-03 → SEC-02):
   - DENY_PATH_PATTERNS: Read sobre paths sensibles (.ssh, .aws, credentials,
     .env, *token*, *secret*) NO se auto-aprueba — cae a prompt humano.
     Cierra V-CRIT-6 (prompt-injection exfil sin red).

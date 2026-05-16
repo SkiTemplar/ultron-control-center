@@ -21,7 +21,7 @@ Public API:
     PERSONAS             → frozenset[str] (canonical names — drop-in replacement
                                           for the legacy hardcoded sets)
     persona_aliases()    → dict[str, str] (legacy_alias → canonical_name —
-                                           closes the Kirkardo/kirkardo case dup)
+                                           closes the repo-evaluator/repo-evaluator case dup)
     is_persona(name)     → bool (True if name OR an alias matches a canonical)
 
 Caching: manifest is read once per Python process (cached at module import).
@@ -43,8 +43,8 @@ from ultron_paths import SKILL_MANIFEST_JSON
 # Add here when discovering more historical aliases. NEVER add new aliases —
 # they should always resolve to the canonical slug.
 _LEGACY_ALIASES = {
-    "Kirkardo": "repo-evaluator",       # legacy display name
-    "kirkardo": "repo-evaluator",       # legacy lowercase variant
+    "repo-evaluator": "repo-evaluator",       # legacy display name
+    "repo-evaluator": "repo-evaluator",       # legacy lowercase variant
 }
 
 

@@ -326,7 +326,7 @@ def cmd_repair_wikilinks(args) -> int:
         known.add(stem.replace("_", " "))
         known.add(stem.replace("-", " "))
 
-    # M-LOW-1 fix (Kirkardo TOTAL v2 2026-05-03): require first char of wikilink
+    # M-LOW-1 fix (repo-evaluator TOTAL v2 2026-05-03): require first char of wikilink
     # target to be alphanumeric or underscore to avoid matching bash test
     # conditionals like `[[ -f "$X" ]]`, `[[ ! -d $D ]]`, `[[$VAR]]`. Real wiki
     # links never start with space, hyphen, exclamation, quote, or dollar sign.

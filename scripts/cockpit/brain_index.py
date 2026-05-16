@@ -2,7 +2,7 @@
 """
 ULTRON v12 Brain Index — FTS5-backed retrieval over the 3-layer memory.
 
-The palanca 10x identified by Triple Kirkardo: turn the vault from a passive
+The palanca 10x identified by Triple repo-evaluator: turn the vault from a passive
 collection of markdown files into a queryable, ranked, low-token index. Built
 on SQLite FTS5 — zero external dependencies, O(log n), runs offline, no API
 calls per query (max token efficiency).
@@ -80,7 +80,7 @@ SESSION_LOOKBACK_DAYS = _session_lookback_days()
 # `_archive/` exclusion: decay_queue.archive moves stale notes there; they
 # shouldn't keep polluting brain_index queries.
 #
-# v12.5.1 fix (M-MED-3 Kirkardo TOTAL v2 2026-05-03): substring match leaked
+# v12.5.1 fix (M-MED-3 repo-evaluator TOTAL v2 2026-05-03): substring match leaked
 # 3 notes — `labarchive-integration/SKILL.md` (substring `archive` false-positive
 # for `_archive/`), `decisions-archive.md` and `feedback_archive-not-delete.md`
 # (substring failed to match `_archive/` literal). Switching to path-component
@@ -725,7 +725,7 @@ def prune_missing(conn: sqlite3.Connection,
       - `valid_sources` is provided and the path is not in that set
         (canonical pruning against the current discover_sources() output)
 
-    F8 (2026-05-03 Kirkardo TOTAL): without the SKIP_DIRS check here,
+    F8 (2026-05-03 repo-evaluator TOTAL): without the SKIP_DIRS check here,
     `update` left 410 stale stubs in 40_SKILLS/ even after the exclusion was
     added. Only `build` (full rebuild) cleaned them. Now `update` is also
     self-healing.

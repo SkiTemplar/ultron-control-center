@@ -84,7 +84,7 @@ _BUILTIN_SYNONYMS: dict[str, str] = {
     "sync":         "sync OR sincronizar OR propagate OR drift OR unsynced OR registry",
     "addon":        "addon OR add-on OR MCP OR plugin OR extension OR Gemini-addon",
     "route":        "route OR routing OR handoff OR delegate OR dispatch OR persona",
-    "kirkardo":     'kirkardo OR "repo-evaluator" OR audit OR score OR review OR findings',
+    "repo-evaluator":     'repo-evaluator OR "repo-evaluator" OR audit OR score OR review OR findings',
     "skills_sync":  "skills_sync OR Sincronizar OR registry sync OR propagate OR checksum",
     "manifest":     "manifest OR skill_manifest OR registry OR category OR authority",
     "constitution": "constitution OR authority OR allowed_actions OR forbidden_actions OR safety_gate",
@@ -96,7 +96,7 @@ _BUILTIN_SYNONYMS: dict[str, str] = {
 # handoff contracts to declare which branches of the tree may be loaded.
 FLOW_MEMORY_LEVELS: dict[str, list[str]] = {
     "skills_sync":          ["L1", "L2", "L3-current-skill-only"],
-    "kirkardo_review":      ["L1", "L2", "L3-target-only"],
+    "auditor_review":       ["L1", "L2", "L3-target-only"],
     "health_check":         ["L0", "L1"],
     "github_skill_search":  ["L0", "external"],
     "gemini_addon_search":  ["L0", "external", "L1-registry-summary"],

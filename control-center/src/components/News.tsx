@@ -300,7 +300,7 @@ export function News() {
                 style={{ color: "var(--color-text-tertiary)" }}
               >
                 Llama a news_html_generator.py via uv. Lee el template + skill
-                news-publisher y manda el prompt a Gemini CLI; la respuesta
+                de newsletter local y manda el prompt a Gemini CLI; la respuesta
                 aterriza en cockpit/news/. Puede tardar 30s-2min.
               </p>
             </div>

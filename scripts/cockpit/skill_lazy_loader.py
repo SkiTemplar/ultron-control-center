@@ -85,19 +85,11 @@ ON = "on"
 # never count as skill activations.
 BUILTIN_AGENTS = frozenset({"general-purpose", "Explore", "Plan", "Output"})
 
-# Backwards-compat alias map: old skill name → new canonical name. Resolved at
-# routing/normalization boundaries so legacy telemetry, configs and tests still
-# work without breaking the deprecated stubs in ~/.claude/skills/<old>/.
-SKILL_ALIASES = {
-    "pana": "personal-assistant",
-    "alfred": "windows-admin",
-    "don-claudio": "gamedev-engineer",
-    "einstein": "research-explainer",
-    "jordan-belfort": "business-strategist",
-    "mike-tyson": "ui-designer",
-    "warren": "investment-advisor",
-    "terry-davis": "senior-engineer",
-}
+# Backwards-compat alias map: forks may add local persona aliases here
+# (e.g., {"my-old-name": "new-canonical-name"}). Resolved at routing /
+# normalization boundaries so legacy telemetry and configs still work after
+# a rename.
+SKILL_ALIASES: dict[str, str] = {}
 
 
 def resolve_skill_alias(name: str) -> str:
@@ -107,34 +99,17 @@ def resolve_skill_alias(name: str) -> str:
 
 # ULTRON personas pinned "on" regardless of usage. Source: ~/.ultron/MEMORY.md
 # skill-memory map + L0 context primer. Edit ~/.ultron/config/lazy-loader.yaml
-# `persona_pin` to override.
-# Includes both canonical names AND deprecated aliases so legacy lookups
-# (e.g., older settings.local.json with "alfred") still get pinned.
+# `persona_pin` to override. Only canonical, public persona slugs ship by
+# default — forks should extend this set with their own opt-in personas.
 ULTRON_PERSONAS = frozenset({
     "ultron",
     "windows-admin",
-    "novalbos",
     "gamedev-engineer",
     "senior-engineer",
-    "tio-gilito",
     "ui-designer",
-    "investment-advisor",
     "research-explainer",
-    "manolo-lama",
     "business-strategist",
-    "personal-assistant",
-    "tolkien",
     "repo-evaluator",
-    "profesor-fisica",
-    # Deprecated aliases (kept for backwards-compat with stub skills)
-    "alfred",
-    "don-claudio",
-    "pana",
-    "einstein",
-    "jordan-belfort",
-    "mike-tyson",
-    "warren",
-    "terry-davis",
 })
 
 

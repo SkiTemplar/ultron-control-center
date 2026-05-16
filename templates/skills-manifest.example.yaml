@@ -93,51 +93,10 @@ skills:
     personal: false
     description: "External LLM code reviews via Codex or Gemini."
 
-  # ---- Personal / opt-in (default OFF; prompted one by one) ----
-  - name: news-publisher
-    source: claude://skills/news-publisher
-    core: false
-    personal: true
-    description: "Daily HTML newsletter via Gemini. Costs tokens."
-
-  - name: tio-gilito
-    source: claude://skills/tio-gilito
-    core: false
-    personal: true
-    description: "Personal finance assistant with Scrooge-McDuck personality. Reads YOUR finances DB."
-
-  - name: tolkien
-    source: claude://skills/tolkien
-    core: false
-    personal: true
-    description: "Creative writing persona. Skip unless you want a long-form writer assistant."
-
-  - name: novalbos
-    source: claude://skills/novalbos
-    core: false
-    personal: true
-    description: "Personal technical tutor (C++, graphics, ML, low-level)."
-
-  - name: personal-assistant
-    source: claude://skills/personal-assistant
-    core: false
-    personal: true
-    description: "Gmail + Calendar + Notion + Drive orchestrator. Requires those MCPs."
-
-  - name: investment-advisor
-    source: claude://skills/investment-advisor
-    core: false
-    personal: true
-    description: "Long-term investing: stocks, ETFs, fundamentals."
-
-  - name: gamedev-engineer
-    source: claude://skills/gamedev-engineer
-    core: false
-    personal: true
-    description: "Unreal Engine + Unity specialist. Heavy."
-
-  - name: ue5-dev
-    source: claude://skills/ue5-dev
-    core: false
-    personal: true
-    description: "Comprehensive Unreal Engine assistant."
+  # ---- Personal / opt-in slots (default OFF; forks fill these in) ----
+  #
+  # The slots below are intentionally empty. Fork ULTRON and add your own
+  # private personas here (finance assistant, creative-writing persona,
+  # personal Gmail/Calendar agent, daily news publisher, etc.). The picker
+  # in install.ps1 will surface them with `personal: true` so users have
+  # to opt in deliberately.

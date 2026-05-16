@@ -468,33 +468,33 @@ export function SelfImprove() {
         </div>
       </details>
 
-      <KirkardoCard />
+      <RepoEvaluatorCard />
     </div>
   );
 }
 
-function KirkardoCard() {
+function RepoEvaluatorCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  async function runKirkardo() {
+  async function runRepoEvaluator() {
     setBusy(true);
     setError(null);
     setInfo(null);
     try {
       // Spawns a fresh Claude session that activates the repo-evaluator
-      // skill (alias "Kirkardo"). Claude opens in a wt.exe tab; the user
-      // continues the conversation there. We don't capture the full
-      // evaluation inline because Kirkardo expects multi-turn dialogue.
+      // skill. Claude opens in a wt.exe tab; the user continues the
+      // conversation there. We don't capture the full evaluation inline
+      // because the evaluator expects multi-turn dialogue.
       await invoke("spawn_session", {
         provider: "claude",
         prompt:
-          "Kirkardo, evalua este repo (~/.ultron) al estilo de un profesor estricto: arquitectura, tests, docs, riesgos, dependencias, y dame nota final con justificacion. Empieza por la fase 0 de inventario.",
+          "repo-evaluator, evalua este repo (~/.ultron) al estilo de un profesor estricto: arquitectura, tests, docs, riesgos, dependencias, y dame nota final con justificacion. Empieza por la fase 0 de inventario.",
         cwd: null,
         flags: { dangerouslySkipPermissions: false },
       });
-      setInfo("Kirkardo session abierta en wt.exe. Continua la evaluacion alli.");
+      setInfo("repo-evaluator session abierta en wt.exe. Continua la evaluacion alli.");
       window.setTimeout(() => setInfo(null), 4000);
     } catch (e) {
       setError(String(e));
@@ -514,7 +514,7 @@ function KirkardoCard() {
       <div className="flex items-baseline justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
-            Run Kirkardo (repo-evaluator) review
+            Run repo-evaluator review
           </div>
           <p
             className="mt-1 text-[11px] leading-relaxed"
@@ -528,7 +528,7 @@ function KirkardoCard() {
         </div>
         <button
           type="button"
-          onClick={runKirkardo}
+          onClick={runRepoEvaluator}
           disabled={busy}
           className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
           style={{
@@ -537,7 +537,7 @@ function KirkardoCard() {
             border: "1px solid var(--color-border-strong)",
           }}
         >
-          {busy ? "Abriendo..." : "Run Kirkardo"}
+          {busy ? "Abriendo..." : "Run repo-evaluator"}
         </button>
       </div>
       {error && (

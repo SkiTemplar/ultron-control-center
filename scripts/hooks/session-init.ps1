@@ -46,7 +46,7 @@ if (Test-Path $modeFile) {
 
 # v12 BRAIN: drain any pending vault pushes that the previous Stop hook
 # couldn't deliver (offline, conflict). Best-effort, never blocks startup.
-# Sprint 1.4 (Kirkardo TOTAL v2 2026-05-03): wrapped in Start-Job with 5s
+# Sprint 1.4 (repo-evaluator TOTAL v2 2026-05-03): wrapped in Start-Job with 5s
 # timeout â€” push-queue is a git network call and was breaking the "pure no
 # tool calls" contract from CLAUDE.md (drift detected by HOOKS audit).
 # If timeout, items stay queued for next SessionStart retry â€” same semantics,
@@ -85,7 +85,7 @@ if (Test-Path $decayCache) {
 # v12.5.0-fix2 (F4): surface critical pending actions from dead-letter queue.
 # pending_actions prime writes top-N critical/blocking actions to JSON; we
 # inline them in current-session.json so the agent sees them in turn 0
-# (closes the auditâ†’fix manual loop â€” SI-CRIT-1 of Kirkardo TOTAL).
+# (closes the auditâ†’fix manual loop â€” SI-CRIT-1 of repo-evaluator TOTAL).
 $pendingScript = "$env:USERPROFILE\.ultron\scripts\cockpit\pending_actions.py"
 $pendingCache  = Join-Path $tmpDir "pending-actions-primed.json"
 if (Test-Path $pendingScript) {
@@ -93,7 +93,7 @@ if (Test-Path $pendingScript) {
         if (-not (Test-Path $tmpDir)) {
             New-Item -Path $tmpDir -ItemType Directory -Force | Out-Null
         }
-        # Sprint 1.4 (Kirkardo TOTAL v2 2026-05-03): wrapped in Start-Job with
+        # Sprint 1.4 (repo-evaluator TOTAL v2 2026-05-03): wrapped in Start-Job with
         # 3s timeout â€” pending_actions prime is local SQLite read, normally <500ms,
         # but defensive bound prevents SessionStart hang on any pathological case.
         $useUvP = [bool] (Get-Command uv -ErrorAction SilentlyContinue)

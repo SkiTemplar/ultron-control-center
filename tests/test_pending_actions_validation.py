@@ -85,11 +85,11 @@ def test_add_action_rejects_invalid_severity():
 
 def test_add_action_persists_producer():
     entry = pa.add_action("X-1", "high", "test",
-                            source_audit="audit", producer="kirkardo")
-    assert entry["producer"] == "kirkardo"
+                            source_audit="audit", producer="repo-evaluator")
+    assert entry["producer"] == "repo-evaluator"
     # Reload y verifica
     data = pa._load()
-    assert data["actions"][0]["producer"] == "kirkardo"
+    assert data["actions"][0]["producer"] == "repo-evaluator"
 
 
 # ── _validate_entry — campos requeridos ───────────────────────────────────────
@@ -246,7 +246,7 @@ def test_load_handles_non_dict_root(isolated_queue):
 
 def test_e2e_add_resolve_preserves_producer(isolated_queue):
     pa.add_action("E2E-1", "critical", "test e2e",
-                   source_audit="kirkardo-2026", producer="test-suite")
+                   source_audit="repo-evaluator-2026", producer="test-suite")
     pa.resolve_action("E2E-1", note="resolved in test")
     data = pa._load()
     entry = data["actions"][0]

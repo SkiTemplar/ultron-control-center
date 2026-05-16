@@ -109,16 +109,16 @@ class TestFormatReminder:
         """v14.8 P4: skill match section rendered when a skill cleared threshold."""
         m = _load_module(home)
         skill = {
-            "name": "novalbos",
+            "name": "senior-engineer",
             "score": 0.71,
             "kind": "local",
             "tier": "L1",
-            "description": "C++/graphics professor — explains shaders, render pipelines, low-level systems.",
+            "description": "Senior full-stack engineer — covers shaders, render pipelines, low-level systems.",
             "tags": ["persona"],
         }
         out = m._format_reminder("explain shaders to me", [], skill_match=skill)
         assert "Suggested skill" in out
-        assert "novalbos" in out
+        assert "senior-engineer" in out
         assert "0.71" in out
         # Disclaimer instructing the model not to invoke blindly
         assert "ONLY if it actually fits" in out

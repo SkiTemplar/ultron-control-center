@@ -5,7 +5,7 @@ ULTRON HOOK · block-dangerous-bash · v3.0 (Sprint 3 F13 — bashlex AST)
 Replaces v2.0's regex-only matching with a bashlex AST walker that recurses
 into command substitutions `$(...)` / process substitutions `<(...)` and
 inspects each parsed command. Closes the 9 known bypass categories from the
-Kirkardo TOTAL v2 audit:
+repo-evaluator TOTAL v2 audit:
 
     - base64 decode inside command substitution (was missed by regex)
     - rm -rf with relative path (./important, ../dist) — no [/~] anchor

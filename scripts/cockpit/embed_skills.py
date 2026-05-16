@@ -342,7 +342,7 @@ def upsert_skills(metas: list[SkillMeta], *, batch_size: int = 32) -> int:
         batch = metas[i:i + batch_size]
         texts = [
             # Combine name + description + tags so query "C++ shaders" can match
-            # `novalbos` (description discusses C++ + shaders) even if tags omit it.
+            # a graphics-focused persona even if its tags omit those keywords.
             f"{m.name}. {m.description} {' '.join(m.tags)}"
             for m in batch
         ]

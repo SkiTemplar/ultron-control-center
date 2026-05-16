@@ -6,10 +6,13 @@ Cada caso tiene un prompt + un `expected`:
 
 El corpus mezcla:
   - Triggers legítimos (positives)
-  - Falsos positivos históricos del Sprint intent-rules-precision (2026-05-09)
+  - Falsos positivos históricos
   - Casos ambiguos donde decidimos qué priorizar
 
-Estructura: bloques por skill destino, cada bloque alterna positivos/negativos.
+Sólo se cubren rutas a skills PÚBLICAS distribuidas en el repo. Forks que
+añadan personas personales (finanzas, narrativa, asistente, etc.) deben
+ampliar este corpus con sus propios casos.
+
 Run: uv run pytest tests/test_intent_rules.py -v
 """
 from __future__ import annotations
@@ -49,26 +52,11 @@ def _route_skill(line: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Test corpus
+# Test corpus — public skill routings only
 # ---------------------------------------------------------------------------
 
 CORPUS: list[tuple[str, str | None, str]] = [
     # (prompt, expected_skill_or_None, comment)
-
-    # ── tio-gilito (financial) ────────────────────────────────────────────
-    ("Tío Gilito, mis finanzas",                          "tio-gilito",  "explicit name"),
-    ("Gilito, cuánto he gastado",                         "tio-gilito",  "explicit short name"),
-    ("cuánto he gastado este mes",                         "tio-gilito",  "verb 1ª persona pasada"),
-    ("añade un gasto de 50 euros en restaurante",          "tio-gilito",  "comando explícito"),
-    ("presupuesto mensual de KutxaBank",                   "tio-gilito",  "nombre propio + multi-keyword"),
-    ("cómo va mi saldo",                                   "tio-gilito",  "saldo coloquial"),
-    ("cómo voy de dinero este mes",                        "tio-gilito",  "frase completa"),
-
-    # tio-gilito false positives históricos (must NOT match)
-    ("para evitar gasto de tokens del modelo",             None,          "FP histórico — gasto técnico"),
-    ("el gasto computacional del embedding es alto",       None,          "FP histórico — gasto computacional"),
-    ("el presupuesto de la API key se acaba",              None,          "FP — presupuesto suelto"),
-    ("el modelo gasta mucha memoria",                      None,          "verbo gastar técnico"),
 
     # ── senior-engineer (code) ────────────────────────────────────────────────
     ("hay un bug en el código del módulo X",               "senior-engineer", "bug + código próximo"),
@@ -79,12 +67,12 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("error 429 en la API de OpenAI",                      None,          "error sin objeto código próximo"),
     ("hay un error en mi vida personal",                   None,          "error en contexto humano"),
 
-    # ── novalbos (low-level) ──────────────────────────────────────────────
-    ("kernel CUDA con coalescing",                         "novalbos",    "CUDA + coalescing"),
-    ("programar en CUDA para el GPU",                      "novalbos",    "frase técnica explícita"),
-    ("compute shader de Vulkan",                           "novalbos",    "compute shader"),
+    # ── senior-engineer (graphics / low-level) ────────────────────────────
+    ("kernel CUDA con coalescing",                         "senior-engineer", "CUDA + coalescing"),
+    ("programar en CUDA para el GPU",                      "senior-engineer", "frase técnica explícita"),
+    ("compute shader de Vulkan",                           "senior-engineer", "compute shader"),
 
-    # novalbos false positives potenciales
+    # graphics false positives potenciales
     ("ejecuté el modelo en GPU coloquial",                 None,          "GPU coloquial sin contexto"),
     ("la tarjeta GPU del servidor",                        None,          "GPU como hardware mention"),
 
@@ -96,7 +84,6 @@ CORPUS: list[tuple[str, str | None, str]] = [
     # business-strategist false positives potenciales
     ("validar el código antes del commit",                  None,          "validar código (no negocio)"),
     ("validar la entrada del usuario",                      None,          "validar input"),
-    ("mercado de valores hoy",                              "investment-advisor",      "mercado bursátil → investment-advisor correcto"),
 
     # ── research-explainer (science) ────────────────────────────────────────────────
     ("qué es un transformer en deep learning",              "research-explainer",    "concepto IA explícito"),
@@ -104,27 +91,9 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("por qué el cielo es azul",                            "research-explainer",    "sky-science specific"),
 
     # research-explainer false positives potenciales
-    ("explícame el concepto del proyecto",                  None,          "concepto suelto coloquial"),
+    # NOTE: "explícame el concepto del proyecto" routes via ztmsi (vault semantic),
+    # not via intent-rules. Skip it from the corpus — testing ztmsi is environment-dependent.
     ("qué es un endpoint REST",                             None,          "endpoint no es concepto científico"),
-
-    # ── manolo-lama (football) ────────────────────────────────────────────
-    ("narra el partido del REDACTED_TEAM vs Barça",          "manolo-lama", "narra + partido"),
-    ("gol del clásico",                                     "manolo-lama", "gol del clásico"),
-    ("Champions League final",                              "manolo-lama", "Champions League completo"),
-
-    # manolo-lama false positives potenciales
-    ("La Liga de programación competitiva",                 None,          "Liga en contexto no-fútbol"),
-    ("REDACTED_TEAM de las APIs (Spain region)",              None,          "Madrid mention sin contexto"),
-    ("la liga de los lenguajes de programación",            None,          "liga genérica"),
-
-    # ── tolkien (narrative) ───────────────────────────────────────────────
-    ("escribe el capítulo del libro siguiente",             "tolkien",     "capítulo del libro"),
-    ("plot hole en el arco de Aric",                        "tolkien",     "plot hole"),
-    ("worldbuilding para el Imperio",                       "tolkien",     "worldbuilding"),
-
-    # tolkien false positives potenciales
-    ("capítulo de física: cinemática",                      None,          "capítulo académico"),
-    ("capítulo 3 del manual técnico",                       None,          "capítulo técnico no narrativo"),
 
     # ── security-review ───────────────────────────────────────────────────
     ("audita la seguridad del repo de auth",                "security-review", "audit + seguridad explícita"),
@@ -135,12 +104,11 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("type safety en TypeScript es seguridad de tipos",     None,          "seguridad de tipos no es security review"),
     ("la seguridad psicológica del equipo",                 None,          "seguridad humana"),
 
-    # ── kirkardo-audit (skill audit) ──────────────────────────────────────
-    ("Kirkardo, audita la skill de tio-gilito",             "ultron",      "Kirkardo + audita skill"),
+    # ── skill audit ───────────────────────────────────────────────────────
     ("auditar la skill de ui-designer",                      "ultron",      "auditar skill"),
 
-    # kirkardo false positives potenciales
-    ("audita el código de auth",                            None,          "audit código → security/repo-eval, no kirkardo"),
+    # skill-audit false positives potenciales
+    ("audita el código de auth",                            None,          "audit código → security/repo-eval, no skill audit"),
     ("auditar la seguridad del repo",                       "security-review", "audit seguridad → security-review correcto"),
 
     # ── tests-create ──────────────────────────────────────────────────────
@@ -150,18 +118,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
     # tests-create false positives potenciales
     ("crea un endpoint y luego mira los tests del proyecto", "senior-engineer", "crea endpoint → senior-engineer, gap a tests OK"),
 
-    # ── personal-assistant ─────────────────────────────────────────
-    ("buenos días, dame el briefing de hoy",                "personal-assistant",        "morning mode"),
-    ("revisa mis emails de Gmail",                          "personal-assistant",        "Gmail explícito"),
-    ("recordatorio en el calendario",                        "personal-assistant",        "calendar"),
-    ("modo mañana",                                          "personal-assistant",        "trigger directo"),
-    ("qué tengo hoy en la agenda",                           "personal-assistant",        "qué tengo hoy"),
-    ("añade un evento en Google Calendar",                   "personal-assistant",        "calendar event"),
-    ("revisa la bandeja de entrada",                         "personal-assistant",        "bandeja de entrada"),
-
-    # ── EXPANSION 2026-05-09: cobertura completa ──────────────────────────
-
-    # ── UE5 / gamedev-engineer extended ────────────────────────────────────────
+    # ── UE5 / gamedev-engineer ─────────────────────────────────────────────
     ("tengo un bug en el Blueprint de UE5",                  "gamedev-engineer", "blueprint UE5 bug"),
     ("cómo replicar un actor en UE5 dedicated server",       "gamedev-engineer", "replication UE5"),
     ("GAS cooldown ability",                                 "gamedev-engineer", "GAS context"),
@@ -169,18 +126,14 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("post-process material en UE5",                          "gamedev-engineer", "shader UE5"),
     ("Unreal Engine 5 con C++",                               "gamedev-engineer", "explicit Unreal C++"),
     ("Blueprint AbilityTask custom",                          "gamedev-engineer", "Blueprint+AbilityTask"),
-    # UE5 false positives potenciales
-    ("blueprint para diseñar la base de datos",               "gamedev-engineer", "blueprint suelto matchea UE5 (acepted ambiguity)"),
 
-    # ── novalbos / GPU / low-level ────────────────────────────────────────
-    ("OpenGL VBO y VAO",                                      "novalbos",    "OpenGL pipeline"),
-    ("fragment shader GLSL",                                  "novalbos",    "fragment shader"),
-    ("C++20 concepts y constexpr",                            "novalbos",    "cpp deep"),
-    ("template specialization en C++",                         "novalbos",    "template metaprogramming"),
-    ("SIMD intrinsics AVX",                                   "novalbos",    "SIMD bajo nivel"),
-    ("pipeline de renderizado en Vulkan",                     "novalbos",    "Vulkan pipeline"),
-    # novalbos false positives
-    ("DirectX 12 desde Unity",                                "novalbos",    "DirectX → novalbos OK"),
+    # ── senior-engineer graphics / low-level extended ──────────────────────
+    ("OpenGL VBO y VAO",                                      "senior-engineer", "OpenGL pipeline"),
+    ("fragment shader GLSL",                                  "senior-engineer", "fragment shader"),
+    ("C++20 concepts y constexpr",                            "senior-engineer", "cpp deep"),
+    ("template specialization en C++",                         "senior-engineer", "template metaprogramming"),
+    ("SIMD intrinsics AVX",                                   "senior-engineer", "SIMD bajo nivel"),
+    ("pipeline de renderizado en Vulkan",                     "senior-engineer", "Vulkan pipeline"),
 
     # ── senior-engineer extended ──────────────────────────────────────────────
     ("hay un bug en el archivo auth.ts",                      "senior-engineer", "ts bug archivo"),
@@ -220,15 +173,15 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("el mercado del frontend está saturado",                  None,          "mercado coloquial sin contexto biz"),
     ("plan de precios del API rate limit",                     None,          "plan de precios técnico"),
 
-    # ── research-explainer extended ─────────────────────────────────────────────────
+    # ── research-explainer extended ─────────────────────────────────────────────
     ("cómo funciona la mecánica cuántica",                    "research-explainer",    "mecánica cuántica"),
     ("por qué el cielo es azul de día",                        "research-explainer",    "sky-science full"),
     ("scattering de Rayleigh",                                "research-explainer",    "Rayleigh"),
     ("qué es un transformer en NLP",                          "research-explainer",    "transformer concept"),
     ("cómo funciona la red neuronal recurrente",              "research-explainer",    "RNN concept"),
     ("explícame el algoritmo de attention",                   "research-explainer",    "attention algoritmo"),
-    # research-explainer vs novalbos tiebreak (C++/GPU técnico)
-    ("cómo funciona el algoritmo de coalescing en CUDA",      "novalbos",    "CUDA beats research-explainer"),
+    # research-explainer vs senior-engineer tiebreak (C++/GPU técnico)
+    ("cómo funciona el algoritmo de coalescing en CUDA",      "senior-engineer",    "CUDA beats research-explainer"),
     # research-explainer false positives
     ("cómo funciona la app móvil",                             None,          "app no es concepto científico"),
     ("qué es un endpoint REST",                                None,          "endpoint coloquial"),
@@ -238,7 +191,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("revisa este pull request",                              "pr-review-toolkit:code-reviewer", "revisa PR"),
     ("code review del PR #123",                               "pr-review-toolkit:code-reviewer", "code review PR"),
     # pr false positives
-    ("review del libro de Tolkien",                            None,          "review no PR"),
+    ("review del libro de aventuras",                          None,          "review no PR"),
 
     # ── tdd ──────────────────────────────────────────────────────────────
     ("aplica TDD al módulo de auth",                          "superpowers:test-driven-development", "TDD literal"),
@@ -251,7 +204,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("llevo días intentando fixear esto",                     "superpowers:systematic-debugging", "días con fix"),
     ("no encuentro la causa del fallo",                        "superpowers:systematic-debugging", "no encuentro causa"),
     ("corrígeme este bug que me trae loco",                   "superpowers:systematic-debugging", "corrígeme bug"),
-    # debug vs terry tiebreak
+    # debug vs senior-engineer tiebreak
     ("hay un bug en el código del módulo X y llevo horas",    "superpowers:systematic-debugging", "horas+bug → systematic"),
 
     # ── mcp-builder ──────────────────────────────────────────────────────
@@ -264,19 +217,12 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("crea el schema de la tabla users",                       "database-schema-designer", "schema tabla"),
     ("define el database schema",                             "database-schema-designer", "DB schema"),
 
-    # ── academic ─────────────────────────────────────────────────────────
+    # ── repo-evaluator (academic) ────────────────────────────────────────
     ("corrígeme la T9",                                       "repo-evaluator", "academic T9"),
     ("evalúa esta entrega",                                   "repo-evaluator", "evalúa entrega"),
     ("dame nota a este código universidad",                   "repo-evaluator", "nota universidad"),
     ("qué nota me pones",                                     "repo-evaluator", "qué nota me pones"),
     ("corrige esta entrega del backend de la asignatura",     "repo-evaluator", "academic submission"),
-
-    # ── physics ──────────────────────────────────────────────────────────
-    ("ejercicio de cinemática para el examen",                "profesor-fisica", "cinemática examen"),
-    ("repasa el tema de termodinámica",                        "profesor-fisica", "termodinámica"),
-    ("problema de física no me sale, dinámica",                "profesor-fisica", "problema física"),
-    # physics tiebreaks
-    ("simular colisiones físicas en Unity",                    "profesor-fisica", "física aún viene primero"),
 
     # ── windows-admin (system) ──────────────────────────────────────────────────
     ("qué procesos están consumiendo más RAM",                "windows-admin",      "procesos RAM"),
@@ -285,31 +231,6 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("registro de Windows HKLM",                               "windows-admin",      "registro Windows"),
     # windows-admin false positives
     ("registro de auditoría de la app",                        None,          "registro coloquial no Windows"),
-
-    # ── investments / investment-advisor ─────────────────────────────────────────────
-    ("compro NVDA",                                            "investment-advisor",      "NVDA stock"),
-    ("análisis fundamental de TSLA",                          "investment-advisor",      "análisis fundamental"),
-    ("dividendos del SPY",                                    "investment-advisor",      "dividendos"),
-    ("ETF para mi cartera",                                   "investment-advisor",      "ETF cartera"),
-    ("cómo va la bolsa hoy",                                  "investment-advisor",      "bolsa"),
-    ("P/E ratio de AAPL",                                     "investment-advisor",      "P/E ratio"),
-    # investment-advisor false positives
-    ("la cartera de productos de la empresa",                  None,          "cartera no financiera (corporativa)"),
-
-    # ── kirkardo audit ────────────────────────────────────────────────────
-    ("Kirkardo, audita las skills",                            "ultron",      "Kirkardo direct"),
-    ("kirkardo evalúa mi skill",                               "ultron",      "kirkardo lower"),
-    ("auditar la skill senior-engineer",                           "ultron",      "auditar skill"),
-    # kirkardo false positives
-    ("auditar la calidad del producto",                        None,          "auditar coloquial"),
-
-    # ── tolkien narrative ────────────────────────────────────────────────
-    ("escribe la siguiente escena del libro",                  "tolkien",     "siguiente escena del libro"),
-    ("plot hole en el arco de Aric",                          "tolkien",     "plot hole"),
-    ("worldbuilding del Imperio de los Once Grandes",          "tolkien",     "worldbuilding once grandes"),
-    # tolkien false positives
-    ("escribe el siguiente paso del algoritmo",                None,          "escribe siguiente coloquial"),
-    ("la consistencia del estado en React",                    None,          "consistencia técnica"),
 
     # ── ULTRON internal ──────────────────────────────────────────────────
     ("dame el standup de hoy",                                "ultron",      "standup"),
@@ -329,31 +250,18 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("diseña la arquitectura del sistema de pagos",            "agent-skills:plan", "diseña arquitectura"),
     ("design del sistema de notificaciones",                   "agent-skills:plan", "design sistema"),
 
-    # ── EDGE CASES: acentos perdidos ─────────────────────────────────────
-    ("cuanto he gastado este mes",                             "tio-gilito",  "sin acentos"),
-    ("como va mi saldo",                                       "tio-gilito",  "como sin acento"),
-    ("Tio Gilito",                                             "tio-gilito",  "Tio sin tilde"),
-    ("escribe la siguiente escena del libro",                  "tolkien",     "siguiente escena dup"),
-
     # ── EDGE CASES: case mix ─────────────────────────────────────────────
-    ("CUDA y warps",                                           "novalbos",    "uppercase"),
-    ("CUDA Y WARPS EN MAYUSCULAS",                             "novalbos",    "all caps"),
-    ("cuda y warps en minusculas",                             "novalbos",    "all lower"),
-    ("KutxaBank saldo",                                        "tio-gilito",  "KutxaBank"),
-    ("kutxabank saldo",                                        "tio-gilito",  "kutxabank lower"),
+    ("CUDA y warps",                                           "senior-engineer",    "uppercase"),
+    ("CUDA Y WARPS EN MAYUSCULAS",                             "senior-engineer",    "all caps"),
+    ("cuda y warps en minusculas",                             "senior-engineer",    "all lower"),
 
     # ── EDGE CASES: prompts cortos ───────────────────────────────────────
-    ("Gilito",                                                 "tio-gilito",  "1-word trigger"),
-    ("CUDA",                                                   "novalbos",    "CUDA solo (nombre propio único)"),
+    ("CUDA",                                                   "senior-engineer",    "CUDA solo (nombre propio único)"),
     ("UE5",                                                    "gamedev-engineer", "UE5 1-word"),
-    ("Kirkardo",                                               "ultron",      "Kirkardo 1-word"),
-    ("Mike",                                                   None,          "Mike 1-word ambiguo (no es exact 'ui-designer')"),
 
     # ── EDGE CASES: prompts largos con multiple skills ──────────────────
     ("estoy debugging un bug en TypeScript pero también quiero hacer review del PR",
                                                               "pr-review-toolkit:code-reviewer", "PR gana primero"),
-    ("Tío Gilito, dime cuánto he gastado y luego revisa mi código",
-                                                              "tio-gilito",  "Tío Gilito wins (first match)"),
 
     # ── EDGE CASES: adversarial ──────────────────────────────────────────
     ("este prompt no debería disparar ninguna skill ok",       None,          "prompt sin trigger"),
@@ -362,9 +270,8 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("",                                                       None,          "empty string"),
 
     # ── ANTI-PATTERN: combinaciones peligrosas ───────────────────────────
-    ("gasto computacional en GPU",                             None,          "GPU+gasto técnico, no novalbos (GPU suelto) ni tio-gilito"),
+    ("gasto computacional en GPU",                             None,          "GPU+gasto técnico, sin trigger fuerte"),
     ("seguridad de tipos del módulo de pagos",                 None,          "tipos+seguridad técnica + módulo NO es security-review"),
-    ("La Liga Champions del cripto",                           None,          "Liga+Champions adversarial sin contexto fútbol"),
 ]
 
 
@@ -383,7 +290,7 @@ def test_intent_rule(dispatch, prompt: str, expected: str | None, comment: str):
 
 
 def test_corpus_size():
-    """Sanity: corpus tiene al menos 30 casos como prometía el sprint."""
+    """Sanity: corpus tiene al menos 30 casos."""
     assert len(CORPUS) >= 30, f"corpus too small: {len(CORPUS)}"
 
 

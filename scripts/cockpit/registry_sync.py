@@ -48,8 +48,6 @@ _META_FILES = {"README-sync.md", "sync.sh", ".gitignore"}
 
 # Skills that use Claude-specific APIs — never propagate to codex/agents
 CLAUDE_EXCLUSIVE = {
-    "news-publisher",          # Uses Claude news tools and internal pipeline
-    "ue5-dev",                 # References Claude agent tools for UE5 projects
     "second-opinion",          # Shells out to Codex/Gemini CLI — Claude-initiated only
     "skill-improver",          # Uses Claude skill-reviewer agent loop
     "code-review-excellence",  # Has allowed-tools restrictions only applicable in Claude Code

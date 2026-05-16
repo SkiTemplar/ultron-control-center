@@ -397,7 +397,7 @@ Para cierre de sesión Claude Code (al final del día):
 
 ## 8. Roadmap v10.1+
 
-- **v10.1 (datos reales):** Schedule Learner (necesita 7+ días activity.jsonl) · scan_roots configurable JSON · Auto-Kirkardo cron domingo 22:00
+- **v10.1 (datos reales):** Schedule Learner (necesita 7+ días activity.jsonl) · scan_roots configurable JSON · Auto-repo-evaluator cron domingo 22:00
 - **v10.2 (polish):** MCP Plugin Packs (presets gaming/backend/web/academia) · Health Check hook · Memory dedup mensual
 - **v11.0 (futuro):** Voice Interface · Local LLM fast path · Web Dashboard React
 

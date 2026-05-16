@@ -138,7 +138,7 @@ silently to the alerts bus; never block the user flow.
 hard budget. Outputs (when relevant) a single routing line:
 
 ```
-[ULTRON·DISPATCH] skill=tio-gilito | mode=HIGH | tool=Read
+[ULTRON·DISPATCH] skill=repo-evaluator | mode=HIGH | tool=Read
 ```
 
 **Internals:**
@@ -501,7 +501,7 @@ nothing is deleted automatically.
 
 - Master plan: `~/.ultron/plans/ULTRON-v14-MASTER-DEFINITIVO.md` (v4.6
   LOCKED). All sprints S0–S5 closed.
-- v14.1 sprint plan: `~/.ultron/plans/2026-05-06-kirkardo-genesis-14-audit.md`
+- v14.1 sprint plan: `~/.ultron/plans/2026-05-06-repo-evaluator-genesis-14-audit.md`
   (DEADWOOD sprint — 8 commits, Phases 0–7 + ULTRA polish).
 - Release marker: `~/.ultron/GENESIS-RELEASE.md`.
 - Dual Mode protocol spec: `~/.claude/skills/ultron/references/dual-mode-protocol.md`.
@@ -555,7 +555,7 @@ auto_updater.py legacy commands.
   `waived_rules` (e.g. `["PI001","PI012"]`) with `reason`,
   `approved_by`, `approved_at`. Modifying SKILL.md invalidates waivers.
 
-**Kirkardo audit prompts**
+**repo-evaluator audit prompts**
 (`scripts/cockpit/tui/prompts/01-09-*.md`): 9 ULTRA TRIPLE / HIGH DUAL /
 MAXTRIPLE / MINIDUAL audit prompts loaded by TUI buttons. Uniform
 structure ROLE / CONTEXT / INPUTS / CHECKS / OUTPUT / CONSTRAINTS.

@@ -13,11 +13,11 @@ updated: YYYY-MM-DD
 - **Engine/Framework:** [ej. UE5, Unity, Next.js]
 - **Lenguaje principal:** [C++, C#, TypeScript, Python]
 - **DB:** [SQLite, Supabase, ninguna]
-- **Skill principal:** [don-claudio, terry-davis, tio-gilito...]
+- **Skill principal:** [gamedev-engineer, senior-engineer, ui-designer, ...]
 
 ## Rutas
 ```
-Proyecto:  C:\Users\USER\[ruta al proyecto]
+Proyecto:  %USERPROFILE%\[ruta al proyecto]
 Repo:      https://github.com/[user]/[repo]
 Branch:    main
 ```

@@ -295,7 +295,7 @@ def query_distilled(topics: list[str], distilled_dir: Path,
 def cite_notes(note_ids: list[int], session_id: str) -> int:
     """Mark a list of notes as 'cited in this session' in decay_state.
 
-    This closes the loop decay ↔ retrieval (Triple Kirkardo R3 finding):
+    This closes the loop decay ↔ retrieval (Triple repo-evaluator R3 finding):
     when a note is queried by the compactor and its content is injected
     into the synthesis prompt, the note is "fresh in the agent's mind" —
     so its decay score should reflect that. Increments verify_count and
@@ -696,7 +696,7 @@ def cmd_run(args) -> int:
 
     # Skip dev/test session_ids (utf8test, test-*, sample-*, debug-*) — they
     # leaked into permanent vault storage in earlier runs (4 polluting files
-    # surfaced by Auditor 2 of Kirkardo Triple Audit).
+    # surfaced by Auditor 2 of repo-evaluator Triple Audit).
     if _SKIP_SID_PATTERN.match(session_id):
         print(f"[compactor] skip: dev/test session_id pattern: {session_id}")
         return 0
@@ -734,7 +734,7 @@ def cmd_run(args) -> int:
     distilled_hits = query_distilled(topics, SESSIONS_LOG / "distilled")
     print(f"[compactor] distilled hits: {len(distilled_hits)}")
 
-    # Citation tracking (Triple Kirkardo R3 closure): bump decay verify_count
+    # Citation tracking (Triple repo-evaluator R3 closure): bump decay verify_count
     # for every note the compactor cited. The note was seen in the agent's
     # working set today — that signal should reduce its staleness score.
     if candidates and not args.dry_run:

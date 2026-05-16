@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-ULTRON v13.1 — Auto-extract pending_actions from Kirkardo audits (Sprint 4 F11).
+ULTRON v13.1 — Auto-extract pending_actions from repo-evaluator audits (Sprint 4 F11).
 
-Closes the manual-feed gap: previously every Kirkardo audit produced FIX/SEC/
+Closes the manual-feed gap: previously every repo-evaluator audit produced FIX/SEC/
 OPS/ARCH/LRN items that someone had to MANUALLY add to pending_actions. Now
 this runs automatically (idempotent — same ID = update, not duplicate).
 
@@ -188,9 +188,9 @@ def cmd_extract_all(args) -> int:
         print(f"[audit→pending] audits dir missing: {AUDITS_DIR}", file=sys.stderr)
         return 1
     # FIX-C (v13.2): narrow glob to exclude *-nota-*, *-matrix-*, *-metrics-* summary files.
-    # These share the "kirkardo-total*" prefix but are summaries, not full audits.
+    # These share the "repo-evaluator-total*" prefix but are summaries, not full audits.
     # Extracting from them caused false items or silent empty extractions.
-    _all = sorted(AUDITS_DIR.glob("kirkardo-total*.md"))
+    _all = sorted(AUDITS_DIR.glob("repo-evaluator-total*.md"))
     audits = [a for a in _all if not re.search(r'-(nota|matrix|metrics)-', a.name)]
     if not audits:
         # Fallback: no strict audits found — warn and use all (back-compat)
@@ -226,7 +226,7 @@ def main():
     se.add_argument("audit")
     se.set_defaults(func=cmd_extract)
 
-    sa = sub.add_parser("extract-all", help="Process all kirkardo-total audits in dir")
+    sa = sub.add_parser("extract-all", help="Process all repo-evaluator-total audits in dir")
     sa.add_argument("--since", help="Only audits modified after ISO date (e.g. 2026-05-03)")
     sa.set_defaults(func=cmd_extract_all)
 

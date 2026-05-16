@@ -31,50 +31,20 @@ FAST_PATH = [
         "ue5", "unreal", "blueprint", "enhanced input", "netcode",
         "game dev", "PROGRAM_A", "game ability system", "game ability",
         "shader de juego", "shader de material", "material pbr",
-        # "gas" omitido: substring de "gasté", "gastar", etc. → usar "game ability"
-    ]),
-    ("novalbos", [
-        "cuda", "opengl", "vulkan", "dx12", "metal", "simd", "backprop",
-        "bajo nivel", "asm", "compilador", "gpu pipeline", "apuntes técnicos",
-        "memory coalescing", "c++ profundo",
-    ]),
-    ("investment-advisor", [
-        "bolsa", "inversión", "cartera", "acciones", "etf", "dividendos",
-        "mercado", "análisis fundamental", "¿compro", "macro", "sector",
-    ]),
-    ("profesor-fisica", [
-        "cinemática", "dinámica", "energía", "examen física", "examen de física",
-        "sólido rígido", "trabajo y potencia", "inercia",
     ]),
     ("business-strategist", [
         "monetizar", "pricing", "pitch", "clientes", "ventas", "gtm",
         "modelo de negocio", "b2b", "saas",
     ]),
-    ("tio-gilito", [
-        "gasto", "ahorro", "kutxabank", "presupuesto", "banco",
-        "finanzas personales", "saldo", "gasté",
-    ]),
     ("repo-evaluator", [
-        "corrige", "evalúa", "kirkardo", "ponme nota", "nota", "entrega", "repo",
+        "corrige", "evalúa", "repo-evaluator", "ponme nota", "nota", "entrega", "repo",
     ]),
     ("ui-designer", [
         "layout", "wireframe", "landing", "interfaz visual", "mockup",
     ]),
-    ("personal-assistant", [
-        "google calendar", "calendar", "agenda", "spotify", "briefing",
-        "organización personal", "recordatorio", "notion",
-    ]),
     ("windows-admin", [
         "powershell", "driver", "carpeta local", "sistema operativo",
         "proceso de windows", "registro de windows",
-    ]),
-    ("manolo-lama", [
-        "champions", "fútbol", "partido", "liga", "barça", "épica deportiva",
-        "REDACTED_TEAM", "atletico",
-    ]),
-    ("tolkien", [
-        "capítulo", "escena", "worldbuilding", "escribe la historia",
-        "plot", "narrativa", "personaje", "libro",
     ]),
     ("research-explainer", [
         "investiga", "explica", "explícame", "paper", "ciencia",
@@ -84,6 +54,10 @@ FAST_PATH = [
     ("senior-engineer", [
         ".cpp", ".cs", ".ts", ".py", "bug", "commit", "deploy", "refactor",
         "compila", "crash", "typescript", "código", "implementa",
+        # graphics / low-level (formerly routed to private graphics persona)
+        "cuda", "opengl", "vulkan", "dx12", "metal", "simd", "backprop",
+        "bajo nivel", "asm", "compilador", "gpu pipeline",
+        "memory coalescing", "c++ profundo",
     ]),
 ]
 
@@ -96,43 +70,30 @@ def apply_tiebreaks(text: str) -> str | None:
     if ".cs" in t and "unity" in t:
         return "senior-engineer"
 
-    # UE5/Unreal + .cpp / bug / crash / blueprint → don-claudio
+    # UE5/Unreal + .cpp / bug / crash / blueprint → gamedev-engineer
     is_ue5 = any(s in t for s in ["ue5", "unreal", "blueprint"])
     if is_ue5 and any(s in t for s in [".cpp", "bug", "crash", "blueprint"]):
         return "gamedev-engineer"
 
-    # shader + UE5 / material → don-claudio (no novalbos)
+    # shader + UE5 / material → gamedev-engineer
     if "shader" in t and any(s in t for s in ["ue5", "material pbr", "material", "pbr"]):
         return "gamedev-engineer"
 
-    # CUDA / GPU bajo nivel → novalbos (no research-explainer, aunque haya "investiga")
+    # CUDA / GPU bajo nivel → senior-engineer (no research-explainer, aunque haya "investiga")
     is_gpu = any(s in t for s in ["cuda", "memory coalescing", "opengl", "vulkan", "simd"])
     if is_gpu:
-        return "novalbos"
+        return "senior-engineer"
 
-    # transformer en contexto conceptual → research-explainer (no novalbos)
+    # transformer en contexto conceptual → research-explainer
     if "transformer" in t and any(s in t for s in ["explica", "explícame", "qué es", "cómo funciona", "atención"]):
         return "research-explainer"
 
-    # bolsa/cartera + código/construir → investment-advisor
-    is_financial = any(s in t for s in ["cartera", "bolsa", "inversión", "tracker"])
-    is_code = any(s in t for s in [".ts", ".py", "typescript", "python", "código", "construye", "construir", "build", "tracker"])
-    if is_financial and is_code:
-        return "investment-advisor"
-
-    # física + código → profesor-fisica
-    is_fisica = any(s in t for s in ["física", "colisiones", "cinemática", "dinámica", "mecánica", "examen de física"])
-    if is_fisica and any(s in t for s in [".py", "python", "código", "simul", "hacerlo en"]):
-        return "profesor-fisica"
-
     # investiga + dominio específico → persona de ese dominio (no research-explainer)
-    if any(s in t for s in ["investiga", "investiga"]):
+    if "investiga" in t:
         if any(s in t for s in ["monetizar", "pricing"]):
             return "business-strategist"
         if any(s in t for s in ["ue5", "unreal", "blueprint"]):
             return "gamedev-engineer"
-        if any(s in t for s in ["bolsa", "cartera", "inversión"]):
-            return "investment-advisor"
 
     return None  # sin tiebreak — usar tabla de prioridad
 

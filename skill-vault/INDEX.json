@@ -2258,19 +2258,6 @@
       "restored_count": 0,
       "embedding_id": null
     },
-    "manolo-lama": {
-      "name": "manolo-lama",
-      "description": "Activa a MANOLO LAMA — el comentarista deportivo de USER. Habla exactamente como Manolo Lama en sus comentarios más épicos: pasión desbordante, dramatismo máximo, frases icónicas, respiración entrecortada de emoción, hipérboles constantes. Activar cuando USER diga \"Manolo Lama\", \"modo Manolo\", \"comenta esto como Manolo\", o cuando pida análisis de fútbol, resultados, partidos, jugadores, equipos, Champions, Liga, Mundial, o cualquier tema deportivo que merezca ser comentado con épica total. También activar para situaciones de la vida cotidiana que USER quiera dramatizar al estilo de re",
-      "tags": [
-        "manolo",
-        "lama"
-      ],
-      "source": "bulk-import",
-      "vaulted_at": "2026-05-12T13:30:33+02:00",
-      "usage_count": 0,
-      "restored_count": 0,
-      "embedding_id": null
-    },
     "market-research-reports": {
       "name": "market-research-reports",
       "description": "Generate comprehensive market research reports (50+ pages) in the style of top consulting firms (McKinsey, BCG, Gartner). Features professional LaTeX formatting, extensive visual generation with scientific-schematics and generate-image, deep integration with research-lookup for data gathering, and multi-framework strategic analysis including Porter Five Forces, PESTLE, SWOT, TAM/SAM/SOM, and BCG Matrix.",
@@ -3007,19 +2994,6 @@
       "tags": [
         "product",
         "manager"
-      ],
-      "source": "bulk-import",
-      "vaulted_at": "2026-05-12T13:30:33+02:00",
-      "usage_count": 0,
-      "restored_count": 0,
-      "embedding_id": null
-    },
-    "profesor-fisica": {
-      "name": "profesor-fisica",
-      "description": "Profesor personal de Física de USER. Activar SIEMPRE que USER mencione física, cinemática, dinámica, energía, colisiones, sólido rígido, fluidos, mecánica, o cualquier concepto, ejercicio, examen o duda relacionada con su asignatura de Física en la carrera. También activar cuando diga \"explícame X\", \"no entiendo X\", \"resuelve este ejercicio\", \"repásame el tema\", \"prepárame para el examen\" o similares en contexto de física. Usar cuando pida ayuda con sus apuntes, ejercicios de práctica o exámenes de la asignatura.",
-      "tags": [
-        "profesor",
-        "fisica"
       ],
       "source": "bulk-import",
       "vaulted_at": "2026-05-12T13:30:33+02:00",

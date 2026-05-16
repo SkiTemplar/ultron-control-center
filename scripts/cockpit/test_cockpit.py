@@ -341,7 +341,7 @@ class TestResolveConflict:
         monkeypatch.setattr(route_quality, "QUALITY_FILE", tmp_path / "rq.json")
         candidates = [
             {"from": "ultron", "to": "senior-engineer", "domain_fit": 1.0, "safety_fit": 1.0},
-            {"from": "ultron", "to": "tolkien",     "domain_fit": 0.1, "safety_fit": 0.1},
+            {"from": "ultron", "to": "ui-designer",  "domain_fit": 0.1, "safety_fit": 0.1},
         ]
         result = resolve_conflict(candidates)
         assert result is not None

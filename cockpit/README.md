@@ -1,7 +1,7 @@
 # ULTRON Cockpit (v12.4)
 
 Project Manager + Mission Control layer de ULTRON.
-TUI: `ultron tui` — Projects · News · Scheduler · Health · MCPs · AutoUpdater (Kirkardo only) · Skills Map & Sync
+TUI: `ultron tui` — Projects · News · Scheduler · Health · MCPs · AutoUpdater (repo-evaluator only) · Skills Map & Sync
 
 ## Estructura
 
@@ -15,7 +15,7 @@ TUI: `ultron tui` — Projects · News · Scheduler · Health · MCPs · AutoUpd
 │   ├── news_YYYYMMDD-HHMMSS.html  # Daily AI news — HTML5 dark periódico
 │   ├── ALERTS.md         # Breaking changes (auto-load próxima sesión)
 │   └── seen.json         # Dedup hash
-├── audits/               # Kirkardo audit reports (kirkardo-audit-YYYY-MM-DD.md + nota.md)
+├── audits/               # repo-evaluator audit reports (repo-evaluator-audit-YYYY-MM-DD.md + nota.md)
 ├── proposals/            # L2 AutoUpdater proposals (legacy, not surfaced in TUI v12.4)
 ├── bridge-index.json     # CC project memories bridge index
 └── scheduler-logs/       # Output del Task Scheduler
@@ -31,15 +31,15 @@ TUI: `ultron tui` — Projects · News · Scheduler · Health · MCPs · AutoUpd
 | `3` | Scheduler | Tareas programadas Windows Task Scheduler |
 | `4` | Health | Verificación de subsistemas CORE |
 | `5` | MCPs | Catálogo e instalación de MCP servers |
-| `u` | AutoUpdater | Kirkardo Review — audit HIGH y ULTRA Triple |
+| `u` | AutoUpdater | repo-evaluator Review — audit HIGH y ULTRA Triple |
 | `v` | Changelog | Historial de versiones ULTRON |
 | `f` | Skills | Skills Map (Layer 0/1/2) + Sync + Búsqueda + Crear |
 
-## AutoUpdater — Kirkardo (v12.4)
+## AutoUpdater — repo-evaluator (v12.4)
 
 El AutoUpdater solo expone 2 botones de clipboard prompt:
-- **Kirkardo Review — Claude HIGH**: audit L1+L2, hallazgos priorizados, sin aplicar cambios.
-- **Kirkardo ULTRA Triple — Gemini + Codex peers**: architectural review con 3 AIs, devil advocate.
+- **repo-evaluator Review — Claude HIGH**: audit L1+L2, hallazgos priorizados, sin aplicar cambios.
+- **repo-evaluator ULTRA Triple — Gemini + Codex peers**: architectural review con 3 AIs, devil advocate.
 
 > No hay botones scan/rank/propose/apply en el TUI. Esos flujos están marcados como LEGACY en `auto_updater.py`.
 

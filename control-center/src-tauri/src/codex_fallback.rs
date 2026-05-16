@@ -596,10 +596,10 @@ mod tests {
 
     #[test]
     fn skill_line_parsed() {
-        let md = "header\nfoo skill=novalbos bar\nrest\n";
+        let md = "header\nfoo skill=senior-engineer bar\nrest\n";
         assert_eq!(
             read_active_skill_from_context_md(md),
-            Some("novalbos".to_string())
+            Some("senior-engineer".to_string())
         );
     }
 

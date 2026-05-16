@@ -161,7 +161,7 @@ def cmd_push_async(_args) -> int:
     """Stop-hook entry: spawn 'git push' in background and return immediately.
     The child writes its result (rc + stderr + ts) to push-status.json so the
     next SessionStart's push-queue can detect a silent failure (B3 fix from
-    Triple Kirkardo R3 — original version only enqueued on spawn-fail, not on
+    Triple repo-evaluator R3 — original version only enqueued on spawn-fail, not on
     git-fail-after-spawn). Never blocks the Stop event."""
     rc, remote, _ = _git("remote", "get-url", "origin")
     if rc != 0 or not remote.strip():

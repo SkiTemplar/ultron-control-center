@@ -137,7 +137,7 @@ def cmd_build(args) -> int:
                            encoding="utf-8")
     print(f"[audit-index] {idx['count']} audit(s) → {INDEX_PATH}")
 
-    # Sprint 4 F11: auto-extract pending_actions from new kirkardo audits.
+    # Sprint 4 F11: auto-extract pending_actions from new repo-evaluator audits.
     # Idempotent — same ID = title update, no duplicates. Skip with --skip-pending.
     if not getattr(args, "skip_pending", False):
         try:

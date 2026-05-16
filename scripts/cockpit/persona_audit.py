@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-ULTRON v10.4 - Persona Audit (Kirkardo on a SKILL.md, independent review).
+ULTRON v10.4 - Persona Audit (AUDITOR on a SKILL.md, independent review).
 
-Invokes `claude --print --model claude-opus-4-7` headless with the Kirkardo
+Invokes `claude --print --model claude-opus-4-7` headless with the AUDITOR
 system prompt + the target persona's SKILL.md. Outputs a markdown audit at:
 
     ~/.ultron/cockpit/audits/<persona>-<YYYY-MM-DD>.md
 
-Anti-laundering rule: every audit declares `evaluator: kirkardo-independent`
-in frontmatter. NEVER label a claude-self critique as kirkardo.
+Anti-laundering rule: every audit declares `evaluator: auditor-independent`
+in frontmatter. NEVER label a claude-self critique as AUDITOR.
 
 Run on demand. Opus FULL is heavy (run sparingly); Sonnet QUICK is the default.
 
@@ -40,11 +40,11 @@ AUDIT_MODEL = "claude-opus-4-7"
 QUICK_MODEL = "claude-sonnet-4-6"     # --quick flag uses Sonnet (~5x cheaper, ~3x faster)
 AUDIT_TIMEOUT = 300
 
-KIRKARDO_SYSTEM = """Eres KIRKARDO, revisor independiente de skills de ULTRON.
+AUDITOR_SYSTEM = """Eres AUDITOR, revisor independiente de skills de ULTRON.
 Tu trabajo: criticar la SKILL.md que te pasen como un profesor exigente.
 
 REGLAS INAMOVIBLES:
-1. Etiqueta tu output como `evaluator: kirkardo-independent`. JAMAS uses
+1. Etiqueta tu output como `evaluator: auditor-independent`. JAMAS uses
    `claude-self`. Si algo te impide ser independiente, dilo y rechaza.
 2. NO inventes problemas. Cita lineas/secciones concretas.
 3. Penaliza: contradicciones, instrucciones ambiguas, redundancia, falta de
@@ -56,14 +56,14 @@ REGLAS INAMOVIBLES:
 ESTRUCTURA OBLIGATORIA:
 ```
 ---
-evaluator: kirkardo-independent
+evaluator: auditor-independent
 target: <skill-name>
 date: <ISO>
 nota: X.X/10
 veredicto: <Suspenso|Aprobado justo|Notable|Sobresaliente>
 ---
 
-# Kirkardo - Auditoria de <skill>
+# AUDITOR - Auditoria de <skill>
 
 ## 1. Lo que esta bien (citas de lineas)
 ## 2. Errores y omisiones (con penalizacion en puntos)
@@ -135,7 +135,7 @@ def _load_alerts() -> str:
 
 def _run_claude_audit(target: "Path", model: str, label: str,
                       audit_path: "Path", today: str) -> int:
-    """Run the standard Kirkardo Claude audit. Returns 0 on success."""
+    """Run the standard AUDITOR Claude audit. Returns 0 on success."""
     skill_md = target / "SKILL.md"
     skill_text = skill_md.read_text(encoding="utf-8")
     skill_size = len(skill_text)
@@ -163,8 +163,8 @@ def _run_claude_audit(target: "Path", model: str, label: str,
         "---SKILL.MD START---\n"
         f"{skill_text}\n"
         "---SKILL.MD END---\n\n"
-        "Aplica el formato Kirkardo descrito en system prompt. Recuerda: "
-        "`evaluator: kirkardo-independent` en frontmatter, JAMAS `claude-self`."
+        "Aplica el formato AUDITOR descrito en system prompt. Recuerda: "
+        "`evaluator: auditor-independent` en frontmatter, JAMAS `claude-self`."
     )
 
     print(f"[audit] Target:  {target.name} ({skill_size}b)")
@@ -174,7 +174,7 @@ def _run_claude_audit(target: "Path", model: str, label: str,
 
     cmd = [claude_bin, "--print", "--dangerously-skip-permissions",
            "--model", model,
-           "--append-system-prompt", KIRKARDO_SYSTEM, user_prompt]
+           "--append-system-prompt", AUDITOR_SYSTEM, user_prompt]
     result = subprocess.run(cmd, capture_output=True, text=True,
                              timeout=AUDIT_TIMEOUT, encoding="utf-8",
                              creationflags=_WIN_HIDDEN)
@@ -187,9 +187,9 @@ def _run_claude_audit(target: "Path", model: str, label: str,
     if len(out) < 200:
         print(f"[audit] Output too short ({len(out)}b) - audit failed silently")
         return 1
-    if "kirkardo-independent" not in out:
-        print("[audit] WARN: output missing 'kirkardo-independent' label")
-        header = (f"---\nevaluator: kirkardo-independent\n"
+    if "auditor-independent" not in out:
+        print("[audit] WARN: output missing 'auditor-independent' label")
+        header = (f"---\nevaluator: auditor-independent\n"
                   f"target: {target.name}\ndate: {today}\n---\n\n")
         out = header + out
     audit_path.write_text(out, encoding="utf-8")
@@ -277,7 +277,7 @@ def cmd_run(args) -> int:
     suffix = "-triple" if is_triple else ""
     audit_path = AUDITS_DIR / f"{target.name}-{today}{suffix}.md"
 
-    # ── 1. Claude (Kirkardo) audit ────────────────────────────────────────
+    # ── 1. Claude (AUDITOR) audit ────────────────────────────────────────
     rc = _run_claude_audit(target, model, label, audit_path, today)
     if rc != 0:
         return rc
@@ -308,12 +308,12 @@ def cmd_run(args) -> int:
     # ── 3. Synthesise into combined triple report ─────────────────────────
     claude_out = audit_path.read_text(encoding="utf-8")
     combined = (
-        f"---\nevaluator: kirkardo-triple\ntarget: {target.name}\n"
+        f"---\nevaluator: auditor-triple\ntarget: {target.name}\n"
         f"date: {today}\nmode: triple\n---\n\n"
-        f"# Kirkardo TRIPLE — {target.name}\n\n"
-        f"*Tres valoraciones independientes: Claude (Kirkardo) · Codex · Gemini*\n\n"
+        f"# AUDITOR TRIPLE — {target.name}\n\n"
+        f"*Tres valoraciones independientes: Claude (AUDITOR) · Codex · Gemini*\n\n"
         f"---\n\n"
-        f"## Valoración 1: Claude/Kirkardo (Sonnet)\n\n"
+        f"## Valoración 1: Claude/AUDITOR (Sonnet)\n\n"
         f"{claude_out}\n\n"
         f"---\n\n"
         f"## Valoración 2: Codex (gpt-5.5, read-only)\n\n"
@@ -331,8 +331,8 @@ def cmd_run(args) -> int:
     claude_bin = shutil.which("claude")
     if claude_bin:
         synth_prompt = (
-            f"Eres KIRKARDO. Acabo de ejecutar una evaluación TRIPLE de la skill '{target.name}'.\n"
-            f"Tienes 3 valoraciones independientes (Claude/Kirkardo, Codex, Gemini).\n"
+            f"Eres AUDITOR. Acabo de ejecutar una evaluación TRIPLE de la skill '{target.name}'.\n"
+            f"Tienes 3 valoraciones independientes (Claude/AUDITOR, Codex, Gemini).\n"
             f"Escribe una SÍNTESIS en 1 párrafo (máx 100 palabras):\n"
             f"- Puntos de acuerdo entre los 3 revisores\n"
             f"- Principales divergencias\n"
@@ -368,7 +368,7 @@ def cmd_run(args) -> int:
 
 
 def main():
-    p = argparse.ArgumentParser(description="ULTRON Persona Audit (Kirkardo)")
+    p = argparse.ArgumentParser(description="ULTRON Persona Audit (AUDITOR)")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     sp = sub.add_parser("list")
@@ -379,7 +379,7 @@ def main():
     sp.add_argument("--quick", action="store_true",
                     help="Use Sonnet instead of Opus (~5x cheaper, ~3x faster)")
     sp.add_argument("--triple", action="store_true",
-                    help="Triple mode: Claude (Kirkardo) + Codex + Gemini, synthesised")
+                    help="Triple mode: Claude (AUDITOR) + Codex + Gemini, synthesised")
     sp.set_defaults(func=cmd_run)
 
     args = p.parse_args()

@@ -250,7 +250,7 @@ if ($LASTEXITCODE -eq 0 -and $hasRemote) {
 
 # Session compactor — synthesize transcript into vault note via Codex (~3-8K tokens).
 # Wrapped in Start-Job + Wait-Job -Timeout 60 to prevent Stop hook hang on Codex
-# API slow/down (Sprint 1.3 Kirkardo TOTAL v2 2026-05-03 — H-CRIT-1 closure).
+# API slow/down (Sprint 1.3 repo-evaluator TOTAL v2 2026-05-03 — H-CRIT-1 closure).
 # When the Stop hook receives the real CC session_id via stdin, pass it directly
 # so find_transcript uses UUID match instead of the "most recent .jsonl" fallback.
 $compactorScript = "$cockpit\session_compactor.py"

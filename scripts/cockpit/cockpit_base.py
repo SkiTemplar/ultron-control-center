@@ -63,7 +63,7 @@ SCAN_ROOTS = [
     CARRERA_ROOT / "ASIGNATURAS",
     CARRERA_ROOT / "PROYECTOS_PERSONALES",
     CARRERA_ROOT / "proyectos",
-    USER_HOME / ".claude" / "skills",  # ULTRON workspace, libro tolkien
+    USER_HOME / ".claude" / "skills",  # ULTRON workspace
 ]
 
 # Skills under ~/.claude/skills/ are NOT projects by default — they're skills.

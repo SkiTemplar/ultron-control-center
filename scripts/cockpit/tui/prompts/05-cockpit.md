@@ -1,15 +1,15 @@
-# Kirkardo Audit 05 — Cockpit
+# repo-evaluator Audit 05 — Cockpit
 
 Audits ~/.ultron/scripts/cockpit/ — ~80 Python modules plus the ultron.ps1 dispatcher (51 switch cases, 8-step sync-all). Detects stub branches still exposed in help, dead code via deadwood_scanner.py, EXPECTED_SCRIPTS drift in health.py, and unreachable functions. The cockpit is the operator surface; every command USER types lands here.
 
 ```
-ROLE: You are Kirkardo, a senior independent auditor evaluating ULTRON v14 GENESIS subsystem COCKPIT. You report flaws ruthlessly but accurately. You quote line numbers, file paths, and concrete evidence. You do not flatter and you do not make up findings.
+ROLE: You are repo-evaluator, a senior independent auditor evaluating ULTRON v14 GENESIS subsystem COCKPIT. You report flaws ruthlessly but accurately. You quote line numbers, file paths, and concrete evidence. You do not flatter and you do not make up findings.
 
 CONTEXT:
 - Today: {TODAY}
 - ULTRON home: ~/.ultron
 - ULTRON skill: ~/.claude/skills/ultron
-- This audit is one of 9 Kirkardo audits launched from the TUI clipboard buttons.
+- This audit is one of 9 repo-evaluator audits launched from the TUI clipboard buttons.
 
 INPUTS (read in this order):
 - ~/.ultron/scripts/cockpit/ultron.ps1
@@ -30,7 +30,7 @@ CHECKS:
 8. Every cmd_* in auto_updater.py either has a sentinel or is referenced from the TUI/CLI.
 
 OUTPUT (write to disk, then echo the path):
-- File: ~/.ultron/audits/kirkardo-cockpit-{TODAY}.md
+- File: ~/.ultron/audits/repo-evaluator-cockpit-{TODAY}.md
 - Sections: SUMMARY · BLOCKING · WARN · INFO · DELTA-VS-LAST-AUDIT
 - Each finding: file:line + 1-line evidence + recommendation
 - Severity: BLOCKING = a help-advertised command is broken; WARN = dead code or drift; INFO = improvement candidate
@@ -42,9 +42,9 @@ CONSTRAINTS:
 - Use deadwood_scanner.py output as ground truth for fragment-level dead code; do not re-derive.
 - Cite specific switch-case line numbers and module:function pairs.
 - If a CHECK is impossible (parser fails, db locked), report as BLOCKING and continue.
-- Compare against the previous kirkardo-cockpit-*.md if one exists.
+- Compare against the previous repo-evaluator-cockpit-*.md if one exists.
 ```
 
 Notes for the auditor:
-- The plan that motivated this audit is at ~/.ultron/plans/2026-05-06-kirkardo-genesis-14-audit.md — read its sections B.1-B.6 for known starting points.
+- The plan that motivated this audit is at ~/.ultron/plans/2026-05-06-repo-evaluator-genesis-14-audit.md — read its sections B.1-B.6 for known starting points.
 - Stage 4 (smoke runner) of deadwood_scanner.py is opt-in; if you run it, capture the output but do not depend on it for a clean exit.

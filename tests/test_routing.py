@@ -1,18 +1,16 @@
 """
-Routing regression tests — v1.3 (Sprint 6).
+Routing regression tests — v2 (sanitized for public release).
 
-Converted from references/routing-tests.md (43 cases).
-Tests verify the intent dispatcher routes queries to the correct skill/persona.
+Tests verify the intent dispatcher routes queries to the correct skill/persona
+for the PUBLIC skill set shipped in this repo. Forks that add private personas
+should extend this file with their own cases.
 
 Categories:
-  layer1     — Clear single-signal cases (T-01 to T-09)
-  tiebreak   — Tiebreak cases, most regression-prone (T-10 to T-16)
-  plugins    — Layer 2 plugin routing (T-17 to T-21)
-  combos     — Persona+plugin combos (T-22 to T-25)
-  mode       — Mode selection (T-26 to T-28)
-  overlay    — Overlay triggers (T-29 to T-38 subset)
-  confidence — Confidence + ambiguous signals (T-31 to T-32)
-  dual       — Dual mode overlay rules (T-39 to T-43)
+  layer1     — Clear single-signal cases
+  tiebreak   — Tiebreak cases, most regression-prone
+  plugins    — Plugin routing
+  combos     — Persona + plugin combos
+  confidence — Confidence + ambiguous signals
 
 Run:
   uv run pytest tests/test_routing.py -v
@@ -81,25 +79,10 @@ class TestLayer1ClearSignals:
         r = dispatch("explícame qué es un transformer y cómo funciona la atención")
         assert top_skill(r) == "research-explainer", f"got {top_skill(r)}"
 
-    def test_T06_calendar_reminder(self):
-        """T-06: Google Calendar → personal-assistant."""
-        r = dispatch("ponme un recordatorio en Google Calendar para mañana")
-        assert top_skill(r) == "personal-assistant", f"got {top_skill(r)}"
-
-    def test_T07_kutxabank_spending(self):
-        """T-07: KutxaBank spending → tio-gilito."""
-        r = dispatch("cuánto gasté en KutxaBank este mes")
-        assert top_skill(r) == "tio-gilito", f"got {top_skill(r)}"
-
     def test_T08_academic_submission(self):
         """T-08: academic submission correction → repo-evaluator."""
         r = dispatch("corrige mi entrega del proyecto de backend de la uni")
         assert top_skill(r) == "repo-evaluator", f"got {top_skill(r)}"
-
-    def test_T09_football_champions(self):
-        """T-09: Champions/football → manolo-lama."""
-        r = dispatch("cómo va el Barça en la Champions")
-        assert top_skill(r) == "manolo-lama", f"got {top_skill(r)}"
 
 
 # ── Tiebreaks ──────────────────────────────────────────────────────────────────
@@ -117,35 +100,23 @@ class TestTiebreaks:
         r = dispatch("este .cpp de UE5 tiene un crash en la replicación")
         assert top_skill(r) == "gamedev-engineer", f"got {top_skill(r)}"
 
-    def test_T12_cs_unity_terry(self):
+    def test_T12_cs_unity_senior_engineer(self):
         """T-12: .cs Unity → senior-engineer (not gamedev-engineer)."""
         r = dispatch("este .cs de Unity no compila en Android")
         assert top_skill(r) == "senior-engineer", f"got {top_skill(r)}"
 
-    def test_T13_cuda_novalbos(self):
-        """T-13: CUDA memory coalescing → novalbos (not research-explainer)."""
+    def test_T13_cuda_senior_engineer(self):
+        """T-13: CUDA memory coalescing → senior-engineer (not research-explainer)."""
         r = dispatch("investiga cómo funciona CUDA y los memory coalescing patterns")
-        assert top_skill(r) == "novalbos", f"got {top_skill(r)}"
+        assert top_skill(r) == "senior-engineer", f"got {top_skill(r)}"
 
     def test_T14_ue5_shader_gamedev_engineer(self):
-        """T-14: UE5 PBR material shader → gamedev-engineer (not novalbos)."""
+        """T-14: UE5 PBR material shader → gamedev-engineer."""
         r = dispatch("necesito un shader de material PBR para UE5")
         assert top_skill(r) == "gamedev-engineer", f"got {top_skill(r)}"
 
-    def test_T15_portfolio_typescript(self):
-        """T-15: portfolio tracker TypeScript → investment-advisor first (then terry)."""
-        r = dispatch("quiero construir un tracker de cartera en TypeScript")
-        skills = all_skills(r)
-        assert "investment-advisor" in skills, f"investment-advisor not in routes: {skills}"
 
-    def test_T16_physics_python(self):
-        """T-16: physics simulation in Python → profesor-fisica first (then terry)."""
-        r = dispatch("tengo que simular colisiones para el examen de Física y hacerlo en Python")
-        skills = all_skills(r)
-        assert "profesor-fisica" in skills, f"profesor-fisica not in routes: {skills}"
-
-
-# ── Layer 2 — Plugins ──────────────────────────────────────────────────────────
+# ── Plugin routing ─────────────────────────────────────────────────────────────
 
 @pytest.mark.routing
 @pytest.mark.plugins
@@ -182,31 +153,10 @@ class TestPluginRouting:
 @pytest.mark.combos
 class TestPersonaPluginCombos:
     def test_T22_ui_design_plus_code(self):
-        """T-22: UI design+implement → ui-designer in routes."""
+        """T-22: UI design + implement → ui-designer in routes."""
         r = dispatch("diseña e implementa la pantalla de login con animaciones")
         skills = all_skills(r)
         assert "ui-designer" in skills, f"ui-designer not in routes: {skills}"
-
-    def test_T25_investment_dashboard(self):
-        """T-25: investment dashboard React+Supabase → investment-advisor + senior-engineer."""
-        r = dispatch("construye un dashboard de inversiones con React y Supabase")
-        skills = all_skills(r)
-        assert any(s in skills for s in ("investment-advisor", "senior-engineer")), f"neither in routes: {skills}"
-
-
-# ── Mode selection (behavior contracts — skip in CI) ───────────────────────────
-
-@pytest.mark.manual
-@pytest.mark.skip(reason="Mode selection is behavioral — requires LLM-as-judge, not automatable")
-class TestModeSelection:
-    def test_T26_low_factual(self):
-        """T-26: simple factual → LOW mode, ≤50 words, 0 cascade."""
-
-    def test_T27_high_hard_feature(self):
-        """T-27: hard UE5 multiplayer feature → HIGH mode, gamedev-engineer, Plan Mode."""
-
-    def test_T28_ultra_explicit(self):
-        """T-28: /ultra full architecture → ULTRA, THINKING, Plan Mode."""
 
 
 # ── Confidence / ambiguity ─────────────────────────────────────────────────────
@@ -215,69 +165,28 @@ class TestModeSelection:
 @pytest.mark.confidence
 class TestConfidenceReporting:
     def test_T31_ambiguous_financial_code(self):
-        """T-31: ambiguous 'financial code' → senior-engineer, investment-advisor, or code-review skill."""
+        """T-31: ambiguous 'financial code' → senior-engineer or code-review skill."""
         r = dispatch("revisa el código financiero")
-        assert top_skill(r) in ("senior-engineer", "investment-advisor", "superpowers:requesting-code-review"), \
+        assert top_skill(r) in ("senior-engineer", "superpowers:requesting-code-review"), \
             f"got {top_skill(r)}"
 
     def test_T32_sequential_ue5_research_implement(self):
         """T-32: research + implement UE5 → routes contain gamedev-engineer or senior-engineer."""
         r = dispatch("investiga los patrones de replicación de UE5 y luego impleméntalos")
         skills = all_skills(r)
-        assert any(s in skills for s in ("gamedev-engineer", "senior-engineer", "research-explainer", "novalbos")), \
+        assert any(s in skills for s in ("gamedev-engineer", "senior-engineer", "research-explainer")), \
             f"unexpected routes: {skills}"
 
 
-# ── Alias resolution (backwards-compat for renamed skills) ─────────────────────
+# ── Alias resolution (forks may register their own aliases) ────────────────────
 
 @pytest.mark.routing
 class TestSkillAliasResolution:
-    """Verify SKILL_ALIASES correctly maps deprecated names to new canonical IDs.
+    """Verify resolve_skill_alias works as a passthrough by default.
 
-    Renames applied 2026-05-16:
-      Batch 1:
-        pana          -> personal-assistant
-        alfred        -> windows-admin
-        don-claudio   -> gamedev-engineer
-      Batch 2:
-        einstein      -> research-explainer
-        jordan-belfort -> business-strategist
-        mike-tyson    -> ui-designer
-        warren        -> investment-advisor
-        terry-davis   -> senior-engineer
+    Forks adding private personas can populate SKILL_ALIASES in
+    skill_lazy_loader.py and add their own test cases here.
     """
-
-    def test_alias_map_resolves_pana(self):
-        from skill_lazy_loader import resolve_skill_alias
-        assert resolve_skill_alias("pana") == "personal-assistant"
-
-    def test_alias_map_resolves_alfred(self):
-        from skill_lazy_loader import resolve_skill_alias
-        assert resolve_skill_alias("alfred") == "windows-admin"
-
-    def test_alias_map_resolves_don_claudio(self):
-        from skill_lazy_loader import resolve_skill_alias
-        assert resolve_skill_alias("don-claudio") == "gamedev-engineer"
-
-    def test_alias_map_resolves_einstein(self):
-        from skill_lazy_loader import resolve_skill_alias
-        assert resolve_skill_alias("einstein") == "research-explainer"
-
-    def test_alias_map_resolves_jordan_belfort(self):
-        from skill_lazy_loader import resolve_skill_alias
-        assert resolve_skill_alias("jordan-belfort") == "business-strategist"
-
-    def test_alias_map_resolves_mike_tyson(self):
-        from skill_lazy_loader import resolve_skill_alias
-        assert resolve_skill_alias("mike-tyson") == "ui-designer"
-
-    def test_alias_map_resolves_warren(self):
-        from skill_lazy_loader import resolve_skill_alias
-        assert resolve_skill_alias("warren") == "investment-advisor"
-
-    def test_alias_map_resolves_terry_davis(self):
-        from skill_lazy_loader import resolve_skill_alias
-        assert resolve_skill_alias("terry-davis") == "senior-engineer"
 
     def test_alias_map_passthrough_unknown(self):
         """Unknown skill names pass through unchanged."""
@@ -302,29 +211,8 @@ class TestDomainSpecificity:
         assert top_skill(r) == "research-explainer", f"got {top_skill(r)}"
 
 
-# ── Dual mode overlays (behavioral — skip in CI) ──────────────────────────────
-
-@pytest.mark.manual
-@pytest.mark.skip(reason="Dual mode overlays are behavioral — requires LLM-as-judge")
-class TestDualModeOverlays:
-    def test_T39_minidual_medium(self):
-        """T-39: /minidual in MEDIUM → 1 round Codex, ≤500 tokens, no mode escalation."""
-
-    def test_T40_dual_rejected_in_low(self):
-        """T-40: /low /dual → rejection message, offer MEDIUM/HIGH."""
-
-    def test_T41_maxdual_high_confirm(self):
-        """T-41: /high /maxdual → confirmation prompt before 5 rounds."""
-
-    def test_T42_contrast_dual(self):
-        """T-42: /ultra /contrast --dual → FASE 4 via Codex."""
-
-    def test_T43_dual_rounds_override(self):
-        """T-43: /high /dual --rounds=2 → exactly 2 rounds."""
-
-
-# ── Extension policy ──────────────────────────────────────────────────────────
-# New tiebreak → add case in TestTiebreaks
-# New persona → add case in TestLayer1ClearSignals
-# Bug detected → add the exact failing input
-# New combo → add case in TestPersonaPluginCombos
+# Extension policy:
+#   New tiebreak    -> add case in TestTiebreaks
+#   New persona     -> add case in TestLayer1ClearSignals
+#   Bug detected    -> add the exact failing input
+#   New combo       -> add case in TestPersonaPluginCombos
