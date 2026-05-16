@@ -1,76 +1,212 @@
-# ULTRON
+<!--
+  ULTRON — README (English)
+  Spanish version: README.es.md
+-->
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v15.2.0-green.svg)](CHANGELOG.md)
-[![Platform](https://img.shields.io/badge/platform-Windows%2011-lightgrey.svg)](#requisitos--requirements)
-[![Built on](https://img.shields.io/badge/built%20on-Claude%20Code-blueviolet.svg)](https://claude.com/claude-code)
+<div align="center">
 
-**ULTRON — Tu centro de mando local para Claude Code.**
-**ULTRON — Your local command center for Claude Code.**
+<h1>ULTRON</h1>
 
-Memoria jerárquica, personas opt-in, hooks endurecidos y un panel desktop que convierte el trabajo de varios días con Claude (y, si quieres, Codex y Gemini) en algo que puedes gestionar de verdad.
+<p><b>Your local AI command center for Claude Code.</b></p>
 
-Hierarchical memory, opt-in personas, hardened hooks, and a desktop cockpit that turns multi-day work with Claude (and optionally Codex and Gemini) into something you can actually manage.
+<p>
+  Hierarchical memory · opt-in personas · hardened hooks · a desktop cockpit that turns
+  multi-day work with Claude (and optionally Codex and Gemini) into something you can actually manage.
+</p>
 
----
+<p>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.2-44cc11.svg" /></a>
+  <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2011-lightgrey.svg" />
+  <a href="https://claude.com/claude-code"><img alt="Built on Claude Code" src="https://img.shields.io/badge/built%20on-Claude%20Code-blueviolet.svg" /></a>
+  <img alt="Status" src="https://img.shields.io/badge/status-active-success.svg" />
+  <img alt="Made with" src="https://img.shields.io/badge/Tauri%202-React%2019-orange.svg" />
+</p>
 
-## 1. ¿Qué es ULTRON?
+<p>
+  <b>Read in:</b>
+  <a href="README.md">English</a>
+  ·
+  <a href="README.es.md">Espanol</a>
+</p>
 
-### Español
+<sub>Plain-text, opt-in, zero SaaS, zero telemetry. The plumbing is the product.</sub>
 
-ULTRON es un **centro de mando local** que se monta encima del CLI oficial de [Claude Code](https://claude.com/claude-code). Vive entero en tu carpeta de usuario (`~/.ultron/`), guarda todo en archivos de texto plano y resuelve un problema concreto: cuando trabajas con Claude Code en proyectos de varios días, el contexto se pierde entre sesiones, las skills y hooks viven dispersas, y no hay forma de ver de un vistazo el estado de tu sistema.
-
-Lo que ULTRON añade:
-
-- Una **capa de memoria jerárquica** (L0 a L3) que sobrevive a los reinicios y mantiene a Claude orientado entre sesiones.
-- Un **sistema de personas y skills** que activa el experto adecuado según la intención del usuario (debugger, code-reviewer, ui-designer, etc.).
-- Una **batería de hooks** que se enchufan al `settings.json` de Claude Code: anti-prompt-injection, auto-recall de notas, sesión-log, sincronización con el vault.
-- Un **panel desktop** (Tauri 2 + React 19) con 15 pestañas que orquesta memoria, skills, hooks, planes, sesiones, costes y MCPs.
-
-**Filosofía:** archivos de texto plano, todo opt-in, cero SaaS, cero telemetría externa. No hay backend en la nube. Si quieres tirar una pieza, la tiras. Si quieres forkearla, la forkeas. La fontanería es el producto.
-
-### English
-
-ULTRON is a **local command center** layered on top of the official [Claude Code](https://claude.com/claude-code) CLI. It lives entirely in your home folder (`~/.ultron/`), stores everything in plain text files, and solves a concrete problem: when you work with Claude Code on multi-day projects, context is lost between sessions, skills and hooks live scattered, and there is no single view of your system's state.
-
-What ULTRON adds:
-
-- A **hierarchical memory layer** (L0 to L3) that survives reboots and keeps Claude oriented across sessions.
-- A **personas and skills system** that activates the right specialist by user intent (debugger, code-reviewer, ui-designer, etc.).
-- A **battery of hooks** wired into Claude Code's `settings.json`: anti-prompt-injection, note auto-recall, session logging, vault sync.
-- A **desktop cockpit** (Tauri 2 + React 19) with 15 tabs that orchestrates memory, skills, hooks, plans, sessions, costs, and MCPs.
-
-**Philosophy:** plain text files, everything opt-in, zero SaaS, zero external telemetry. There is no cloud backend. If you want to rip a piece out, rip it. If you want to fork it, fork it. The plumbing is the product.
+</div>
 
 ---
 
-## 2. ¿Para qué sirve? — What is it for?
+## Table of contents
 
-### Español
+<details>
+<summary><b>Click to expand</b></summary>
 
-Casos de uso concretos:
+1. [What is ULTRON](#what-is-ultron)
+2. [What it solves](#what-it-solves)
+3. [How it works](#how-it-works)
+4. [Quick start](#quick-start)
+5. [Features](#features)
+6. [Architecture](#architecture)
+7. [Customize it](#customize-it)
+8. [Tech stack](#tech-stack)
+9. [Roadmap](#roadmap)
+10. [Contributing](#contributing)
+11. [Origin and attribution](#origin-and-attribution)
+12. [License](#license)
+13. [Credits](#credits)
 
-- **Proyectos largos en Claude Code sin perder contexto.** Cada sesión nueva arranca leyendo un primer (`context.md`, ≤400 tokens) que resume dónde lo dejaste.
-- **Personas especializadas que se activan por intención.** Escribes "revisa este código" y el dispatcher invoca `code-reviewer`. Escribes "depúrame este test" y entra `debugger`. No tienes que recordar los nombres.
-- **Memoria semántica de tus decisiones técnicas.** Notas en el vault (`~/.ultron-vault/`) se indexan en SQLite FTS5 y, opcionalmente, en Qdrant para búsqueda por significado.
-- **Panel para todo lo que orbita Claude Code:** Qdrant, hooks, memoria, planes en curso, sesiones pasadas, costes, MCPs instalados.
-- **Hooks automáticos** que se ejecutan en cada paso del ciclo de Claude Code: escaneo anti-prompt-injection, recall de notas relevantes, log de sesión al cerrar, sync con el vault.
-
-### English
-
-Concrete use cases:
-
-- **Long projects in Claude Code without losing context.** Every new session starts by reading a primer (`context.md`, ≤400 tokens) that summarizes where you left off.
-- **Specialized personas activated by intent.** Type "review this code" and the dispatcher invokes `code-reviewer`. Type "debug this test" and `debugger` takes over. No need to remember names.
-- **Semantic memory of your technical decisions.** Vault notes (`~/.ultron-vault/`) are indexed in SQLite FTS5 and optionally Qdrant for meaning-based search.
-- **A dashboard for everything orbiting Claude Code:** Qdrant, hooks, memory, in-flight plans, past sessions, costs, installed MCPs.
-- **Automatic hooks** that run at each step of Claude Code's lifecycle: anti-prompt-injection scanning, relevant note recall, session log on close, vault sync.
+</details>
 
 ---
 
-## 3. ¿Cómo funciona? — How does it work?
+## What is ULTRON
 
-### Diagrama / Diagram
+ULTRON is a **local command center** layered on top of the official [Claude Code](https://claude.com/claude-code) CLI. It lives entirely under your home folder (`~/.ultron/`), stores everything in plain text, and pairs the runtime with a Tauri desktop cockpit so a multi-day project never feels like ten orphaned chat sessions stitched together.
+
+> [!NOTE]
+> ULTRON does not replace Claude Code. It wraps it, gives it persistent memory, routes specialized personas, and exposes the moving parts in a UI you can audit and edit.
+
+| Pillar | What you get |
+|---|---|
+| **Hierarchical memory** | Four layers (L0 hot context to L3 remote mirror) so Claude resumes on the same page after every reboot. |
+| **Personas & skills** | A dispatcher activates the right specialist by intent — `debugger`, `code-reviewer`, `ui-designer`, etc. |
+| **Hardened hooks** | Anti-prompt-injection, note auto-recall, session logging and vault sync, wired into `settings.json`. |
+| **Desktop cockpit** | Tauri 2 + React 19 with 15 tabs for memory, skills, hooks, plans, sessions, costs and MCPs. |
+
+**Philosophy.** Plain text files. Everything opt-in. Zero SaaS. Zero external telemetry. No cloud backend. Rip pieces out, fork them, or hand-edit the JSON — the system is designed to be taken apart.
+
+---
+
+## What it solves
+
+When you work with Claude Code on real projects, the same problems keep showing up:
+
+- Context evaporates between sessions; you spend the first ten minutes re-briefing the model.
+- Skills, hooks and MCP servers live in different folders and there is no single pane of glass.
+- Long plans drift; you cannot tell what was decided three days ago without scrolling chat logs.
+- Costs and tool usage accumulate without visibility.
+
+ULTRON addresses all of that locally, without renting a backend:
+
+- Every new session reads a pre-computed primer (`context.md`, capped at ~400 tokens).
+- Personas auto-route by user intent — no need to remember exact skill names.
+- The vault (`~/.ultron-vault/`) is indexed in SQLite FTS5 and optionally Qdrant for semantic recall.
+- The cockpit surfaces hooks, plans, sessions, costs and installed MCPs in one window.
+
+---
+
+## How it works
+
+When you launch Claude Code, it reads `~/.claude/CLAUDE.md` (your global instructions). That file contains a **wake-up protocol** that pulls in `~/.ultron/.tmp/context.md` (L0 memory) and `~/.ultron/SYSTEM-MAP.md` (a stable path index). In under a second Claude knows who you are, what you were doing and where to look for the rest.
+
+From there, hooks wired into `~/.claude/settings.json` participate in the lifecycle:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant CC as Claude Code CLI
+    participant H as Hooks
+    participant M as Memory (L0-L3)
+    participant V as Vault
+
+    U->>CC: Start session
+    CC->>H: SessionStart
+    H->>M: Read L0 context + SYSTEM-MAP
+    M-->>CC: Primer injected
+    U->>CC: Prompt
+    CC->>H: UserPromptSubmit
+    H->>H: Anti-PI scan + mode + intent route
+    CC->>H: PreToolUse
+    H-->>CC: Allow / block tool call
+    CC->>H: PostToolUse
+    H->>M: Log telemetry
+    U->>CC: End session
+    CC->>H: Stop
+    H->>V: Sync vault + write session log
+```
+
+The **four memory layers**:
+
+| Layer | Where it lives | What it does |
+|---|---|---|
+| **L0** hot context | `~/.ultron/.tmp/context.md` | Pre-computed primer, <=400 tokens, read on every session |
+| **L1** indexed | `~/.ultron/brain_index/index.db` | SQLite FTS5 over the chunked vault, BM25 retrieval |
+| **L2** vault | `~/.ultron-vault/*.md` | Curated markdown notes with wikilinks — the source of truth |
+| **L3** remote | optional git remote | Off-machine mirror of L2, drained by the `Stop` hook |
+
+On top of L1 lives an optional **Qdrant** instance (local vector store) for semantic recall over the same corpus. A decay system bubbles stale notes back to the surface every time you start a session.
+
+---
+
+## Quick start
+
+> [!IMPORTANT]
+> Windows 11 is the primary target. macOS and Linux are not officially tested at v15.2.
+
+**One-liner.**
+
+```powershell
+git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
+cd $env:USERPROFILE\.ultron
+.\install.ps1
+```
+
+**Common flags.**
+
+```powershell
+.\install.ps1                  # interactive (recommended)
+.\install.ps1 -NonInteractive  # CI / unattended (accept defaults)
+.\install.ps1 -Verbose         # debug what each step is doing
+.\install.ps1 -NoApp -NoDocker # bare bones: skip Tauri build and Qdrant
+```
+
+The installer is **idempotent** — rerun it any time; it detects what is already done and only applies pending changes. If something fails, see [`INSTALL.md`](INSTALL.md) for manual troubleshooting.
+
+<details>
+<summary><b>What the installer does (11 steps)</b></summary>
+
+| # | Step | What it does |
+|---|---|---|
+| 1 | Preflight | OS / PowerShell / RAM / disk / internet checks |
+| 2 | Claude Code | Verifies the CLI is installed and authenticated |
+| 3 | uv | Installs uv if missing |
+| 4 | Docker | Detects Docker Desktop (optional) |
+| 5 | Qdrant | Runs the `qdrant/qdrant` container on port 6333 |
+| 6 | Layout | Creates `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
+| 7 | Hooks | Merges `templates/settings-hooks.json` into `settings.json` (non-destructive, with backup) |
+| 8 | Skills | Interactive picker: 12 core (always ON) + opt-in slots |
+| 9 | brain_index | Initializes the SQLite FTS5 index |
+| 10 | Cockpit | `npm install` and optionally `tauri build` |
+| 11 | Doctor | Final verification via `doctor.py` (0 = clean, 1 = warn, 2 = block) |
+
+</details>
+
+---
+
+## Features
+
+| Area | Highlights |
+|---|---|
+| **Memory** | L0-L3 hierarchy, SQLite FTS5 index, optional Qdrant semantic recall, decay surfacing |
+| **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
+| **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — all auditable |
+| **Cockpit** | 15 tabs: Dashboard, Memory, Skills, Plans, Sessions, Costs, MCPs, Personal, Hooks, System, Settings, Newsletter, Backups, Schedules, Diagnostics |
+| **Dual-mode** | Optional Codex CLI peer review + Gemini CLI long-context delegation, both subscription-only |
+| **Security** | Anti-prompt-injection scanner, quarantine folder, Tauri IPC allow-list |
+| **Privacy** | No telemetry, no external calls without user action, vault is yours |
+
+<details>
+<summary><b>Core skills (12, installed by default)</b></summary>
+
+`ultron` &middot; `senior-engineer` &middot; `code-reviewer` &middot; `debugger` &middot; `refactoring-specialist` &middot; `ui-designer` &middot; `business-strategist` &middot; `skill-creator` &middot; `superpowers` &middot; `webapp-testing` &middot; `windows-admin` &middot; `second-opinion`
+
+Opt-in slots ship as **empty templates**: fork ULTRON and fill them with your own personas (finance assistant, creative-writing voice, game-engine engineer, personal mail/calendar agent, etc.). The picker in `install.ps1` asks one at a time.
+
+</details>
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart LR
@@ -81,11 +217,11 @@ flowchart LR
         Memory[(Memory<br/>L0 L1 L2 L3)]
         Skills[Skills<br/>personas]
         Cockpit[Cockpit<br/>Python tools]
-        GUI[Control Center<br/>Tauri 2 + React]
+        GUI[Control Center<br/>Tauri 2 + React 19]
     end
     Vault[(Vault L2<br/>markdown)]
     FTS[(SQLite FTS5)]
-    Q[(Qdrant)]
+    Q[(Qdrant - optional)]
 
     User --> CC
     CC --> Hooks
@@ -98,235 +234,95 @@ flowchart LR
     GUI --> Cockpit
 ```
 
-### Español
+<details>
+<summary><b>Compatibility matrix</b></summary>
 
-Cuando arrancas Claude Code, lee primero `~/.claude/CLAUDE.md` (instrucciones globales). Ese archivo contiene un "wake-up protocol" que dispara la lectura de `~/.ultron/.tmp/context.md` (memoria L0) y `~/.ultron/SYSTEM-MAP.md` (índice estable de rutas). En menos de un segundo, Claude sabe quién eres, qué estabas haciendo y dónde buscar lo demás.
+| Platform | Status |
+|---|---|
+| Windows 11 | Supported |
+| Windows 10 | Best effort (not in CI) |
+| macOS | Planned for v16 |
+| Linux | Planned for v16 |
 
-A partir de ahí, los hooks definidos en `~/.claude/settings.json` se enchufan al ciclo:
+</details>
 
-- **SessionStart** prepara el contexto y avisa de bloqueantes.
-- **UserPromptSubmit** escanea tu prompt contra reglas anti-prompt-injection, decide modo (MEDIUM / HIGH / ULTRA) y enrutador de intención.
-- **PreToolUse** valida cada llamada a herramienta (bloquea bash peligroso, auto-aprueba lectura).
-- **PostToolUse** registra telemetría y captura feedback.
-- **Stop** sincroniza el vault, escribe el log de sesión y limpia archivos temporales.
+---
 
-Las **cuatro capas de memoria** funcionan así:
+## Customize it
 
-| Capa | Dónde vive | Para qué sirve |
+ULTRON is built to be taken apart and rewired. Everything lives in plain text under your home folder:
+
+- **`~/.claude/CLAUDE.md`** — your global instructions for every Claude Code session. Edit directly or use the cockpit's `Personal` tab.
+- **`~/.claude/settings.json`** — hooks and permissions. The `Hooks` tab is a typed editor over this file.
+- **`~/.claude/skills/<name>/SKILL.md`** — activate / deactivate / edit personas. Delete a folder to uninstall a skill.
+- **`~/.ultron-vault/`** — your L2 vault. Plain markdown with wikilinks. Anything you write here gets indexed on the next `brain_index.py update` run.
+- **`~/.ultron/plans/PLANS.json`** — in-flight plans. The `Plans` tab is a frontend over this file.
+- **`~/.ultron/personal/profile.md`** — your personal profile (interests, context, preferences).
+
+> [!TIP]
+> This is **your** system. Fork it. Modify it. The philosophy is plain text plus Git, so everything is diff-able and reviewable.
+
+---
+
+## Tech stack
+
+| Layer | Tech |
+|---|---|
+| Cockpit shell | Tauri 2 + React 19 + TypeScript (strict) |
+| Desktop backend | Rust (stable) |
+| Cockpit scripts | Python 3.13 + uv |
+| Memory store | SQLite FTS5 + optional Qdrant |
+| OS scripting | PowerShell 5.1+ |
+| LLM runtimes | Claude Code CLI (primary), Codex CLI (peer review, optional), Gemini CLI (long context, optional) |
+
+---
+
+## Roadmap
+
+| Release | Status | Highlights |
 |---|---|---|
-| **L0** hot context | `~/.ultron/.tmp/context.md` | Primer pre-computado, ≤400 tokens, leído en cada sesión |
-| **L1** indexed | `~/.ultron/brain_index/index.db` | SQLite FTS5 sobre el vault troceado, recall BM25 |
-| **L2** vault | `~/.ultron-vault/*.md` | Notas markdown curadas con wikilinks (fuente de verdad) |
-| **L3** remote | git remote opcional | Mirror externo de L2, drenado por el hook Stop |
+| **v15.2** | Current | Cockpit with 15 tabs, L0-L3 memory, hardened hooks, 12 core skills, dual-mode v2 via subscription CLIs |
+| **v15.3** | Next | Anti-hallucination layer, cross-session event bus, supervisor daemon |
+| **v16** | Future | Pipeline DAG, overnight loop, mobile companion PWA, multi-platform expansion |
 
-Encima de L1 vive opcionalmente **Qdrant** (vector store local) para recall semántico sobre el mismo corpus. Un sistema de decay devuelve notas estancadas a la superficie cada vez que arrancas sesión.
-
-### English
-
-When you start Claude Code, it first reads `~/.claude/CLAUDE.md` (global instructions). That file contains a "wake-up protocol" that triggers reading `~/.ultron/.tmp/context.md` (L0 memory) and `~/.ultron/SYSTEM-MAP.md` (stable path index). In under a second, Claude knows who you are, what you were doing, and where to look for the rest.
-
-From there, the hooks defined in `~/.claude/settings.json` plug into the lifecycle:
-
-- **SessionStart** primes context and surfaces blockers.
-- **UserPromptSubmit** scans your prompt against anti-prompt-injection rules, decides mode (MEDIUM / HIGH / ULTRA), and dispatches by intent.
-- **PreToolUse** validates each tool call (blocks dangerous bash, auto-approves read-only).
-- **PostToolUse** logs telemetry and captures feedback.
-- **Stop** syncs the vault, writes the session log, and cleans up temp files.
-
-The **four memory layers** work like this:
-
-| Layer | Where it lives | What it does |
-|---|---|---|
-| **L0** hot context | `~/.ultron/.tmp/context.md` | Pre-computed primer, ≤400 tokens, read on every session |
-| **L1** indexed | `~/.ultron/brain_index/index.db` | SQLite FTS5 over chunked vault, BM25 retrieval |
-| **L2** vault | `~/.ultron-vault/*.md` | Curated markdown notes with wikilinks (source of truth) |
-| **L3** remote | optional git remote | Off-machine mirror of L2, drained by Stop hook |
-
-On top of L1 lives an optional **Qdrant** instance (local vector store) for semantic recall over the same corpus. A decay system bubbles stale notes back to the surface every time you start a session.
+Detailed release notes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
-## 4. Requisitos / Requirements
+## Contributing
 
-### Español
+PRs welcome on architecture, packaging, cross-platform support and core skills. Personal-flavored content (the author's news feeds, expense categories, gaming libraries) is out of scope — fork those for yourself. Full guide in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
-- **Windows 11** (plataforma principal; macOS / Linux no testeados oficialmente)
-- **Claude Code CLI** autenticado contra tu cuenta de Claude
-- **Node.js 22+** y npm (para el Control Center)
-- **Rust toolchain estable** (para compilar el binario del Control Center)
-- **uv** para Python (el installer lo instala si falta)
-- **Docker Desktop** (opcional; solo si quieres Qdrant local para recall semántico)
-- 8 GB de RAM mínimos recomendados, 5 GB libres en disco
-
-### English
-
-- **Windows 11** (primary platform; macOS / Linux not officially tested)
-- **Claude Code CLI** authenticated against your Claude account
-- **Node.js 22+** and npm (for the Control Center)
-- **Rust stable toolchain** (to compile the Control Center binary)
-- **uv** for Python (the installer fetches it if missing)
-- **Docker Desktop** (optional; only if you want local Qdrant for semantic recall)
-- 8 GB RAM minimum recommended, 5 GB free disk space
+Report security issues privately per [`SECURITY.md`](SECURITY.md).
 
 ---
 
-## 5. Instalación / Installation
-
-### One-liner
-
-```powershell
-git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
-cd $env:USERPROFILE\.ultron
-.\install.ps1
-```
-
-Flags útiles / Useful flags:
-
-```powershell
-.\install.ps1                  # interactive (recommended)
-.\install.ps1 -NonInteractive  # CI / unattended (accept defaults)
-.\install.ps1 -Verbose         # debug what each step is doing
-.\install.ps1 -NoApp -NoDocker # bare-bones: skip Tauri build and Qdrant
-```
-
-### Qué hace el installer / What the installer does
-
-| Paso / Step | Español | English |
-|---|---|---|
-| 1. Preflight | Comprueba OS, PowerShell, RAM, disco e internet | Checks OS, PowerShell, RAM, disk, internet |
-| 2. Claude Code | Verifica que el CLI está instalado y autenticado | Verifies the CLI is installed and authenticated |
-| 3. uv | Instala uv si falta | Installs uv if missing |
-| 4. Docker | Detecta Docker Desktop (opcional) | Detects Docker Desktop (optional) |
-| 5. Qdrant | Lanza el contenedor `qdrant/qdrant` en el puerto 6333 | Runs the `qdrant/qdrant` container on port 6333 |
-| 6. Layout | Crea `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` | Creates `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
-| 7. Hooks | Fusiona `templates/settings-hooks.json` en `settings.json` (no destructivo, hace backup) | Merges `templates/settings-hooks.json` into `settings.json` (non-destructive, with backup) |
-| 8. Skills | Picker interactivo: 12 core (siempre ON) + 8 personales (opt-in) | Interactive picker: 12 core (always ON) + 8 personal (opt-in) |
-| 9. brain_index | Inicializa el índice SQLite FTS5 | Initializes the SQLite FTS5 index |
-| 10. Control Center | `npm install` y opcionalmente `tauri build` | `npm install` and optionally `tauri build` |
-| 11. Doctor | Verificación final con `doctor.py` (0=clean, 1=warn, 2=block) | Final verification via `doctor.py` (0=clean, 1=warn, 2=block) |
-
-**Idempotente / Idempotent.** Puedes correr `install.ps1` varias veces sin miedo: detecta lo que ya está hecho y solo aplica los cambios pendientes.
-
-You can run `install.ps1` multiple times safely: it detects what is already done and only applies pending changes.
-
-Si algo falla, consulta [`INSTALL.md`](INSTALL.md) para los pasos manuales de troubleshooting.
-If something fails, see [`INSTALL.md`](INSTALL.md) for manual troubleshooting steps.
-
-### Skills disponibles / Available skills
-
-**Core (12, instaladas por defecto / installed by default):**
-
-`ultron` · `senior-engineer` · `code-reviewer` · `debugger` · `refactoring-specialist` · `ui-designer` · `business-strategist` · `skill-creator` · `superpowers` · `webapp-testing` · `windows-admin` · `second-opinion`
-
-**Personales (opt-in, ejemplos / opt-in, examples):**
-
-Los slots opt-in son **plantillas vacías**: forkea ULTRON y rellena las tuyas (asistente personal, finanzas, escritura creativa, motor de juegos, etc.). El installer pregunta una por una.
-
-The opt-in slots are **empty templates**: fork ULTRON and fill in your own (personal assistant, finances, creative writing, game engine, etc.). The installer asks one at a time.
-
----
-
-## 6. Personalización / Customization
-
-### Español
-
-ULTRON está construido para que lo desmontes y lo recables a tu gusto. Todo es texto plano debajo de tu home:
-
-- **`~/.claude/CLAUDE.md`** — Tus instrucciones globales para cada sesión de Claude Code. Edita directamente o usa la pestaña `Personal` del Control Center.
-- **`~/.claude/settings.json`** — Hooks y permisos. La pestaña `Hooks` es un editor tipado sobre este archivo.
-- **`~/.claude/skills/<name>/SKILL.md`** — Activar / desactivar / editar personas. Borra una carpeta para desinstalar la skill.
-- **`~/.ultron-vault/`** — Tu vault L2. Markdown plano con wikilinks. Lo que escribas aquí se indexa en la próxima ejecución de `brain_index.py update`.
-- **`~/.ultron/plans/PLANS.json`** — Tus planes en curso. La pestaña `Plans` es un frontend sobre este archivo.
-- **`~/.ultron/personal/profile.md`** — Tu perfil personal (intereses, contexto, preferencias).
-
-**Esto es TU sistema. Fork it. Modifícalo. La filosofía es texto plano + Git.**
-
-### English
-
-ULTRON is built to be taken apart and rewired to your taste. Everything is plain text under your home:
-
-- **`~/.claude/CLAUDE.md`** — Your global instructions for every Claude Code session. Edit directly or use the Control Center's `Personal` tab.
-- **`~/.claude/settings.json`** — Hooks and permissions. The `Hooks` tab is a typed editor over this file.
-- **`~/.claude/skills/<name>/SKILL.md`** — Activate / deactivate / edit personas. Delete a folder to uninstall a skill.
-- **`~/.ultron-vault/`** — Your L2 vault. Plain markdown with wikilinks. Whatever you write here is indexed on the next `brain_index.py update` run.
-- **`~/.ultron/plans/PLANS.json`** — Your in-flight plans. The `Plans` tab is a frontend over this file.
-- **`~/.ultron/personal/profile.md`** — Your personal profile (interests, context, preferences).
-
-**This is YOUR system. Fork it. Modify it. The philosophy is plain text + Git.**
-
----
-
-## 7. Stack técnico / Tech stack
-
-- **Control Center**: Tauri 2 + React 19 + TypeScript
-- **Backend desktop**: Rust (estable / stable)
-- **Cockpit**: Python 3.13 + uv
-- **Memoria / Memory**: SQLite FTS5 + Qdrant (opcional / optional)
-- **Scripts Windows**: PowerShell 5.1+
-- **Runtime LLM**: Claude Code CLI (Anthropic) — opcionalmente Codex CLI (OpenAI) y Gemini CLI (Google) para review y delegación
-
----
-
-## 8. Roadmap
-
-### Español
-
-- **Actual — v15.2.** Control Center estable con 15 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core + slots opt-in personalizables, dual-mode v2 vía CLIs de suscripción.
-- **Siguiente — v15.3.** Capa anti-alucinación, bus de eventos cross-session, supervisor daemon.
-- **Futuro — v16.** Pipeline DAG, overnight loop, mobile companion PWA, expansión multi-plataforma.
-
-Notas de release en [`CHANGELOG.md`](CHANGELOG.md).
-
-### English
-
-- **Current — v15.2.** Stable Control Center with 15 tabs, L0-L3 memory, hardened hooks, 12 core skills + customizable opt-in slots, dual-mode v2 via subscription CLIs.
-- **Next — v15.3.** Anti-hallucination layer, cross-session event bus, supervisor daemon.
-- **Future — v16.** Pipeline DAG, overnight loop, mobile companion PWA, multi-platform expansion.
-
-Release notes in [`CHANGELOG.md`](CHANGELOG.md).
-
----
-
-## 9. Origen y atribución / Origin and attribution
-
-ULTRON fue originalmente creado por **USER SURNAME** en 2026.
+## Origin and attribution
 
 ULTRON was originally created by **USER SURNAME** in 2026.
-
-El proyecto es open source bajo MIT (ver [`LICENSE`](LICENSE)). Forks y modificaciones son bienvenidos — contribuidores que extiendan sustancialmente el trabajo pueden añadirse a [`AUTHORS.md`](AUTHORS.md). Por los términos de MIT, cualquier copia o trabajo derivado debe conservar el aviso de copyright original que nombra a USER SURNAME como autor original de ULTRON. El nombre "ULTRON" identifica al proyecto original; los proyectos derivados deberían elegir un nombre distinto salvo que pretendan upstream sus cambios. Política completa en [`NOTICE`](NOTICE).
 
 The project is open source under MIT (see [`LICENSE`](LICENSE)). Forks and modifications are welcome — contributors who substantially extend the work may add themselves to [`AUTHORS.md`](AUTHORS.md). Per MIT terms, any copy or derivative work must retain the original copyright notice naming USER SURNAME as the originator of ULTRON. The name "ULTRON" identifies the original project; derivative projects are encouraged to pick a distinct name unless they intend to upstream their changes. Full attribution policy in [`NOTICE`](NOTICE).
 
 ---
 
-## 10. Licencia / License
+## License
 
-MIT — ver / see [`LICENSE`](LICENSE).
+MIT — see [`LICENSE`](LICENSE).
 
 ---
 
-## 11. Créditos / Credits
-
-ULTRON orquesta tres herramientas que no le pertenecen y sin las que no existiría:
+## Credits
 
 ULTRON orchestrates three tools it does not own and could not exist without:
 
-- [**Claude Code**](https://claude.com/claude-code) — Anthropic. El runtime que ULTRON envuelve. / The runtime ULTRON wraps.
-- [**Codex CLI**](https://github.com/openai/codex) — OpenAI. Peer review y rescue opcional. / Optional peer review and rescue.
-- [**Gemini CLI**](https://github.com/google-gemini/gemini-cli) — Google. Long-context delegate e image generation opcional. / Optional long-context delegate and image generation.
-
-La capa vectorial usa [Qdrant](https://qdrant.tech). El shell desktop es [Tauri](https://tauri.app). El pipeline Python corre sobre [uv](https://github.com/astral-sh/uv). Gracias a los cuatro proyectos.
+- [**Claude Code**](https://claude.com/claude-code) — Anthropic. The runtime ULTRON wraps.
+- [**Codex CLI**](https://github.com/openai/codex) — OpenAI. Optional peer review and rescue.
+- [**Gemini CLI**](https://github.com/google-gemini/gemini-cli) — Google. Optional long-context delegate and image generation.
 
 The vector layer runs on [Qdrant](https://qdrant.tech). The desktop shell is [Tauri](https://tauri.app). The Python pipeline runs on [uv](https://github.com/astral-sh/uv). Thanks to all four projects.
 
----
+<div align="center">
 
-## 12. Contribuir / Contributing
+<sub>Built by <a href="https://github.com/SkiTemplar">USER SURNAME</a> &middot; MIT &middot; 2026</sub>
 
-PRs bienvenidos en arquitectura, packaging, soporte cross-platform y skills core. El contenido personal (feeds de noticias del autor, categorías de gasto, librerías de juegos) está fuera de scope — forkéalos para ti. Ver [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-PRs welcome on architecture, packaging, cross-platform support, and core skills. Personal-flavored content (the author's news feeds, expense categories, gaming libraries) is out of scope — fork those for yourself. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
-
-Reporta problemas de seguridad de forma privada según [`SECURITY.md`](SECURITY.md). Expectativas de comportamiento en [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
-
-Report security issues privately per [`SECURITY.md`](SECURITY.md). Behavioral expectations live in [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+</div>

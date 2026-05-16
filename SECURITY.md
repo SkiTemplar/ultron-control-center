@@ -1,14 +1,33 @@
-# Security Policy
+<div align="center">
 
-ULTRON is a local-first system that wraps Claude Code and runs untrusted user-authored skills, hooks, and MCP servers. The attack surface is real even though the binary never opens a public port.
+<h1>Security Policy</h1>
+
+<p>
+  ULTRON is a local-first system that wraps Claude Code and runs untrusted user-authored
+  skills, hooks and MCP servers. The attack surface is real even though the binary never
+  opens a public port.
+</p>
+
+<p>
+  <a href="README.md">README</a>
+  &middot;
+  <a href="CONTRIBUTING.md">Contributing</a>
+  &middot;
+  <a href="LICENSE">License</a>
+</p>
+
+</div>
+
+---
 
 ## Reporting a vulnerability
 
-Please do **not** open a public GitHub issue for security problems. Email:
+> [!IMPORTANT]
+> Please do **not** open a public GitHub issue for security problems.
 
-> **anonuser [at] gmail.com**
+Email: **anonuser [at] gmail.com**
 
-Use a subject line that starts with `[ULTRON SECURITY]`. Include:
+Use a subject line that starts with `[ULTRON SECURITY]` and include:
 
 - A short description of the issue.
 - Reproduction steps or a minimal PoC.
@@ -16,36 +35,54 @@ Use a subject line that starts with `[ULTRON SECURITY]`. Include:
 - Your assessment of impact and severity.
 - Whether you intend to disclose publicly, and on what timeline.
 
-I aim to acknowledge new reports within 72 hours. For valid issues, a fix or mitigation will land on `main` before any public disclosure, and the report will be credited in the changelog unless you ask otherwise.
+I aim to acknowledge new reports within **72 hours**. For valid issues, a fix or mitigation will land on `main` before any public disclosure, and the report will be credited in the changelog unless you ask otherwise.
+
+---
 
 ## In scope
 
-The following are considered security issues for this project:
+The following are considered security issues for this project.
 
-- **Prompt injection** through a skill manifest, persona description, or hook payload that bypasses the PI001-PI013 ruleset enforced by `skill_sync_security.py`.
-- **Hook injection** that allows an untrusted file under `~/.claude/` or `~/.ultron/` to escalate into arbitrary command execution outside the documented hook contract.
-- **Secrets leakage** from `~/.claude/settings.json`, `~/.ultron/.env`, or per-skill config files into log output, telemetry files, alerts, or the news generator.
-- **Command-injection** in any cockpit Python script that shells out to PowerShell, `git`, `claude`, `codex`, or `gemini`.
-- **Path traversal** in `brain_index.py`, `embed_vault.py`, `skill_sync_security.py`, or any installer step that touches user files.
-- **Insecure defaults** in the bundled `settings.json` template or the install script.
-- **Tauri IPC misuse** that lets the React frontend invoke commands not declared in `src-tauri/`'s allow-list.
+| Category | Detail |
+|---|---|
+| **Prompt injection** | Skill manifest, persona description or hook payload that bypasses the PI001-PI013 ruleset enforced by `skill_sync_security.py`. |
+| **Hook injection** | Untrusted file under `~/.claude/` or `~/.ultron/` that escalates into arbitrary command execution outside the documented hook contract. |
+| **Secrets leakage** | `~/.claude/settings.json`, `~/.ultron/.env` or per-skill config files leaking into log output, telemetry, alerts or the news generator. |
+| **Command injection** | Any cockpit Python script that shells out to PowerShell, `git`, `claude`, `codex` or `gemini`. |
+| **Path traversal** | `brain_index.py`, `embed_vault.py`, `skill_sync_security.py` or any installer step that touches user files. |
+| **Insecure defaults** | Bundled `settings.json` template or the install script. |
+| **Tauri IPC misuse** | React frontend invoking commands not declared in `src-tauri/`'s allow-list. |
+
+---
 
 ## Out of scope
 
-These are user-owned risks, not project vulnerabilities:
+These are user-owned risks, not project vulnerabilities.
 
-- A user installing a malicious skill from a third party. ULTRON warns on unsigned skills via the PI ruleset; the final trust call is the user's.
-- A user sharing their own `~/.ultron-vault/` or `~/.ultron-vault/CC-memories/` contents publicly. Vaults are personal data by design.
-- A user committing secrets to a fork. The repo gitignores the obvious paths; verifying your own commit history is your responsibility.
-- A user running with `--dangerously-skip-permissions`. That flag is exactly what it says it is.
-- Issues in upstream tools (Claude Code, Codex CLI, Gemini CLI, Qdrant, Tauri). Report those to the respective projects.
+| Item | Owner |
+|---|---|
+| User installs a malicious skill from a third party | User (ULTRON warns on unsigned skills via the PI ruleset; final trust call is the user's) |
+| User shares their own `~/.ultron-vault/` contents publicly | User (vaults are personal data by design) |
+| User commits secrets to a fork | User (the repo gitignores the obvious paths; verifying your own history is your responsibility) |
+| User runs with `--dangerously-skip-permissions` | User (the flag is exactly what it says it is) |
+| Issues in upstream tools (Claude Code, Codex CLI, Gemini CLI, Qdrant, Tauri) | Upstream project |
+
+---
 
 ## Hardening references
 
-- **Prompt-injection ruleset:** `scripts/cockpit/skill_sync_security.py` enforces rules PI001 through PI013 on every persona during sync. A skill that flags `security_status: warned` will route only with explicit user confirmation; a skill that fails outright is quarantined under `~/.ultron/quarantine/`.
-- **Constitution:** `~/.ultron/config/constitution.json` declares per-persona safety gates that the dispatcher checks before invocation.
-- **Hook allow-list:** the install script merges a known set of hooks into `settings.json`. Any additional handlers a user adds are their responsibility.
+| Component | Where to look |
+|---|---|
+| **Prompt-injection ruleset** | `scripts/cockpit/skill_sync_security.py` enforces rules PI001 through PI013 on every persona during sync. A skill flagged `security_status: warned` only routes with explicit user confirmation; a skill that fails outright is quarantined under `~/.ultron/quarantine/`. |
+| **Constitution** | `~/.ultron/config/constitution.json` declares per-persona safety gates that the dispatcher checks before invocation. |
+| **Hook allow-list** | The install script merges a known set of hooks into `settings.json`. Any additional handlers a user adds are their responsibility. |
+
+---
 
 ## Disclosure
 
 Once a fix is shipped, a CVE-style summary will be added to the relevant changelog entry. The reporter is credited unless they request anonymity.
+
+<div align="center">
+<sub>Thanks for keeping ULTRON safe to run on real machines.</sub>
+</div>

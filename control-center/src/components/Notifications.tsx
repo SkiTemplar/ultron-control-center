@@ -216,9 +216,76 @@ function saveDateFilter(d: DateFilter) {
 // Row
 // ---------------------------------------------------------------------------
 
+// Build the seed prompt the user pastes into the spawned Claude/Codex session.
+// Kept in module scope (not inside Row) so tests can target it later without
+// rendering React. The wording is deliberately verbose: the LLM benefits from
+// the full source/severity/count tuple plus pointer hints to the most likely
+// repos involved (scripts/ for python tooling, control-center/ for the UI).
+function buildFixPrompt(g: Grouped): string {
+  return [
+    "I just got a CRITICAL ULTRON notification:",
+    "",
+    `Source: ${g.source}`,
+    `Severity: ${g.severity}`,
+    `Count: ${g.count} occurrence(s)`,
+    `First seen: ${g.first_ts}`,
+    `Last seen: ${g.last_ts}`,
+    "",
+    "Message:",
+    g.message,
+    "",
+    "Please investigate the root cause and propose a fix. The relevant files",
+    "are likely under ~/.ultron/scripts/ or ~/.ultron/control-center/. If this",
+    "is a security scan blocking a skill, check the skill's SKILL.md frontmatter",
+    "and the security ruleset at ~/.ultron/scripts/cockpit/skill_sync_security.py.",
+  ].join("\n");
+}
+
+type FixProvider = "claude" | "codex";
+
 function Row({ g }: { g: Grouped }) {
   const s = severityStyle(g.severity);
   const subtle = s.weight === 0;
+  // The Fix button is only meaningful for severity buckets that severityStyle
+  // maps to weight 2 ("critical" or "blocking"). Warn/info show nothing —
+  // the user explicitly didn't want noise on those.
+  const isCritical = s.weight === 2;
+
+  // Per-row spawn state. Local state (not lifted) because each card spawns
+  // independently — two simultaneous Fix clicks on different cards should
+  // both work without one stomping the other's status.
+  const [fixBusy, setFixBusy] = useState<FixProvider | null>(null);
+  const [fixError, setFixError] = useState<string | null>(null);
+  const [fixToast, setFixToast] = useState<string | null>(null);
+
+  async function openFixSession(provider: FixProvider) {
+    if (fixBusy) return;
+    setFixBusy(provider);
+    setFixError(null);
+    setFixToast(null);
+    try {
+      const prompt = buildFixPrompt(g);
+      await invoke("spawn_session", {
+        provider,
+        prompt,
+        cwd: null,
+        // paste_only = true → wrapper copies the prompt to the clipboard and
+        // opens the terminal. The user pastes with Ctrl+V and hits Enter.
+        // Mirrors the F1.9 Diagnose flow so behaviour is consistent.
+        flags: { dangerouslySkipPermissions: false, pasteOnly: true },
+      });
+      const label = provider === "claude" ? "Claude" : "Codex";
+      setFixToast(`${label} session opened — paste prompt with Ctrl+V`);
+      // Auto-clear the toast after a few seconds so the card returns to its
+      // resting state. The error path intentionally does not auto-clear.
+      window.setTimeout(() => setFixToast(null), 5000);
+    } catch (e) {
+      setFixError(String(e));
+    } finally {
+      setFixBusy(null);
+    }
+  }
+
   return (
     <div
       className="flex items-start gap-3 rounded p-3"
@@ -278,6 +345,55 @@ function Row({ g }: { g: Grouped }) {
         >
           {g.message}
         </div>
+        {isCritical && (
+          <div className="mt-2 flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => openFixSession("claude")}
+              disabled={fixBusy !== null}
+              title="Spawn an interactive Claude session with this error pre-loaded on the clipboard. Paste with Ctrl+V to start the fix."
+              className="rounded px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {fixBusy === "claude" ? "Opening…" : "🔧 Fix with Claude"}
+            </button>
+            <button
+              type="button"
+              onClick={() => openFixSession("codex")}
+              disabled={fixBusy !== null}
+              title="Same flow, but spawn a Codex session instead. Useful when you want a second opinion or Claude is rate-limited."
+              className="rounded px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
+              style={{
+                background: "transparent",
+                color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {fixBusy === "codex" ? "Opening…" : "Codex"}
+            </button>
+            {fixToast && (
+              <span
+                className="text-[10.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {fixToast}
+              </span>
+            )}
+            {fixError && (
+              <span
+                className="text-[10.5px]"
+                style={{ color: "var(--color-danger)" }}
+                title={fixError}
+              >
+                Failed to open session: {fixError.slice(0, 80)}
+              </span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

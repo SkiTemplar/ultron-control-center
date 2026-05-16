@@ -108,7 +108,25 @@ pub async fn diagnose_with_ai_inner(
         system, report_capped
     );
 
-    let provider = provider.as_deref().unwrap_or("claude").to_string();
+    // v15.2: the AI Router config decides BOTH provider and model for the
+    // "diagnose" zone. The explicit `provider` argument from the frontend
+    // still wins (lets users override per-call), but the model is sourced
+    // from the router whenever the provider matches the router's choice —
+    // otherwise we fall back to the provider's account default.
+    let router_zone = crate::ai_router::read_ai_router_inner()
+        .ok()
+        .and_then(|cfg| cfg.zone("diagnose").cloned());
+    let provider = provider
+        .as_deref()
+        .map(|s| s.to_string())
+        .or_else(|| router_zone.as_ref().map(|z| z.provider.clone()))
+        .unwrap_or_else(|| "claude".to_string());
+    let router_model = router_zone
+        .as_ref()
+        .filter(|z| z.provider == provider)
+        .and_then(|z| z.model.clone())
+        .filter(|m| !m.is_empty());
+
     // paste_only = true → wrapper copies prompt to clipboard and opens the
     // CLI WITHOUT auto-submitting. User pastes with Ctrl+V and decides
     // whether to edit before sending. This avoids the (perceived) auto-send
@@ -116,6 +134,7 @@ pub async fn diagnose_with_ai_inner(
     // tweak it before firing it at Claude.
     let flags = crate::sessions::SpawnFlags {
         paste_only: true,
+        model: router_model,
         ..Default::default()
     };
     let spawn = crate::sessions::spawn_session_inner(

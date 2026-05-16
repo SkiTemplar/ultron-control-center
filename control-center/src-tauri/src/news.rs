@@ -147,6 +147,21 @@ pub async fn generate_news_session_inner(
     }
     let script_str = script.to_string_lossy().to_string();
 
+    // v15.2: respect the AI Router routing for the "news_generate" zone.
+    // The provider is fixed to gemini (this whole pipeline is Gemini-only;
+    // changing provider needs a different generator script) but the MODEL
+    // dropdown is wired through end-to-end. If the user picks
+    // gemini-3.1-flash for cheaper drafts, that's what we pass to both the
+    // Python script and the wt.exe seed banner.
+    let router_model = match crate::ai_router::read_ai_router_inner() {
+        Ok(cfg) => cfg
+            .zone("news_generate")
+            .and_then(|z| z.model.clone())
+            .filter(|m| !m.is_empty()),
+        Err(_) => None,
+    };
+    let effective_model = router_model.unwrap_or_else(|| "gemini-3.1-pro".to_string());
+
     // First step: build the prompt and copy to clipboard via the script's
     // --clipboard mode. No Gemini call happens here.
     let mut args: Vec<String> = vec![
@@ -201,8 +216,8 @@ pub async fn generate_news_session_inner(
         format!("{:04}-{:02}-{:02}", year, m, d)
     };
     let seed = format!(
-        "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Guarda el HTML final en ~/.ultron/cockpit/news/newsletter-{}.html y usa el modelo gemini-3.1-pro.",
-        today
+        "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Guarda el HTML final en ~/.ultron/cockpit/news/newsletter-{}.html y usa el modelo {}.",
+        today, effective_model
     );
     // F1.8: pin Gemini to 3.1-pro explicitly. Without this the wt.exe tab
     // launches `gemini --yolo` (no -m) and falls back to whatever the user's
@@ -214,7 +229,7 @@ pub async fn generate_news_session_inner(
     // prompt there via --clipboard; the `seed` we pass is just a short hint
     // shown as a banner in the new wt.exe tab.
     let gemini_flags = crate::sessions::SpawnFlags {
-        model: Some("gemini-3.1-pro".to_string()),
+        model: Some(effective_model.clone()),
         respect_clipboard: true,
         ..Default::default()
     };

@@ -1005,17 +1005,37 @@ type Section = "general" | "auth" | "mode" | "ai-router" | "raw" | "backups";
 // up in subsequent iterations; for now we just persist the config.
 // ---------------------------------------------------------------------------
 
-type AiRouterConfig = {
-  diagnose: string;
-  summarize: string;
-  brainstorm_plans: string;
-  news_generate: string;
-  skill_edit: string;
-  mcp_create: string;
-  repo_review: string;
+type AiProvider = "claude" | "codex" | "gemini";
+
+type AiRouterEntry = {
+  provider: AiProvider;
+  // `null` (or absent) → use the provider's account default. Empty string is
+  // treated like null on the frontend; the backend rejects "" on save.
+  model: string | null;
 };
 
-const AI_PROVIDERS = ["claude", "codex", "gemini"] as const;
+type AiRouterConfig = {
+  diagnose: AiRouterEntry;
+  summarize: AiRouterEntry;
+  brainstorm_plans: AiRouterEntry;
+  news_generate: AiRouterEntry;
+  skill_edit: AiRouterEntry;
+  mcp_create: AiRouterEntry;
+  repo_review: AiRouterEntry;
+};
+
+const AI_PROVIDERS: AiProvider[] = ["claude", "codex", "gemini"];
+
+// Hard-coded model choices per provider. Keeping this static (vs.
+// shelling out to `codex --list-models` etc.) keeps the Settings tab
+// snappy and avoids a second permission prompt on first paint. Power
+// users editing `~/.ultron/.tmp/ai-router.json` by hand can pick any
+// model string; the dropdown is just the curated set we know works.
+const MODEL_OPTIONS: Record<AiProvider, string[]> = {
+  claude: ["claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5"],
+  codex: ["gpt-5.5", "gpt-5.4"],
+  gemini: ["gemini-3.1-pro", "gemini-3.1-flash", "gemini-3.0-pro"],
+};
 
 const AI_ROUTER_ZONES: { key: keyof AiRouterConfig; label: string; help: string }[] = [
   {
@@ -1101,12 +1121,31 @@ function AiRouterSection() {
 
   const dirty = useMemo(() => {
     if (!config || !draft) return false;
-    return AI_ROUTER_ZONES.some((z) => config[z.key] !== draft[z.key]);
+    return AI_ROUTER_ZONES.some((z) => {
+      const a = config[z.key];
+      const b = draft[z.key];
+      return a.provider !== b.provider || (a.model ?? null) !== (b.model ?? null);
+    });
   }, [config, draft]);
 
-  function updateZone(key: keyof AiRouterConfig, value: string) {
+  function updateProvider(key: keyof AiRouterConfig, provider: AiProvider) {
     if (!draft) return;
-    setDraft({ ...draft, [key]: value });
+    // Changing the provider invalidates the previously selected model
+    // (claude-opus-4-7 doesn't make sense for the codex provider), so we
+    // reset to null = "provider default". The user can pick a model
+    // afterwards from the new dropdown.
+    setDraft({ ...draft, [key]: { provider, model: null } });
+  }
+
+  function updateModel(key: keyof AiRouterConfig, model: string) {
+    if (!draft) return;
+    // Empty string from the select = "use provider default" → store as null
+    // so the backend sees a clean missing-model state (it rejects "").
+    const next: AiRouterEntry = {
+      ...draft[key],
+      model: model === "" ? null : model,
+    };
+    setDraft({ ...draft, [key]: next });
   }
 
   return (
@@ -1119,15 +1158,16 @@ function AiRouterSection() {
           className="mt-1 text-[11.5px] leading-relaxed"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Selecciona qué modelo dispara cada acción del Control Center: Diagnose
-          PC, summarize newsletter, AI brainstorm de plans, generación de
-          newsletter, skill editor, MCP generator y repo review. El config se
-          persiste en{" "}
+          Selecciona qué provider y qué modelo dispara cada acción del Control
+          Center: Diagnose PC, summarize newsletter, AI brainstorm de plans,
+          generación de newsletter, skill editor, MCP generator y repo review.
+          El segundo dropdown (modelo) es opcional — déjalo en{" "}
+          <span style={{ fontFamily: "var(--font-mono)" }}>default</span> para
+          usar el modelo por defecto del provider. El config se persiste en{" "}
           <span style={{ fontFamily: "var(--font-mono)" }}>
             ~/.ultron/.tmp/ai-router.json
           </span>{" "}
-          para que cualquier script de ULTRON pueda leerlo. Las próximas
-          iteraciones cablearán cada zona para que respete este routing.
+          para que cualquier script de ULTRON pueda leerlo.
         </p>
       </header>
 
@@ -1201,27 +1241,53 @@ function AiRouterSection() {
                     {z.help}
                   </p>
                 </div>
-                <select
-                  value={draft[z.key]}
-                  onChange={(e) => updateZone(z.key, e.target.value)}
-                  disabled={saving}
-                  className="shrink-0 rounded px-2 py-1 text-[12px]"
-                  style={{
-                    background: "var(--color-surface-1)",
-                    color: "var(--color-text)",
-                    border: "1px solid var(--color-border-strong)",
-                    outline: "none",
-                    fontFamily: "var(--font-mono)",
-                    minWidth: 110,
-                  }}
-                  title={`Provider para ${z.label}`}
-                >
-                  {AI_PROVIDERS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex shrink-0 items-center gap-2">
+                  <select
+                    value={draft[z.key].provider}
+                    onChange={(e) =>
+                      updateProvider(z.key, e.target.value as AiProvider)
+                    }
+                    disabled={saving}
+                    className="rounded px-2 py-1 text-[12px]"
+                    style={{
+                      background: "var(--color-surface-1)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border-strong)",
+                      outline: "none",
+                      fontFamily: "var(--font-mono)",
+                      minWidth: 110,
+                    }}
+                    title={`Provider para ${z.label}`}
+                  >
+                    {AI_PROVIDERS.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={draft[z.key].model ?? ""}
+                    onChange={(e) => updateModel(z.key, e.target.value)}
+                    disabled={saving}
+                    className="rounded px-2 py-1 text-[12px]"
+                    style={{
+                      background: "var(--color-surface-1)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border-strong)",
+                      outline: "none",
+                      fontFamily: "var(--font-mono)",
+                      minWidth: 170,
+                    }}
+                    title={`Modelo para ${z.label} (vacío = default del provider)`}
+                  >
+                    <option value="">default</option>
+                    {MODEL_OPTIONS[draft[z.key].provider].map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
             ))}
           </div>
