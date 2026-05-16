@@ -1,0 +1,96 @@
+name: release
+
+# -----------------------------------------------------------------------------
+# ULTRON Control Center — public release pipeline.
+#
+# Trigger: push a tag matching v*.*.* (e.g. `git tag v15.2.0 && git push --tags`).
+# Output: a GitHub Release containing the Windows installer (.msi / setup.exe)
+#         plus `latest.json`, the manifest consumed by the Tauri auto-updater.
+#
+# Free-tier friendly: runs on the GitHub-hosted `windows-latest` runner only.
+# macOS and Linux jobs are intentionally absent from v15.2.0; add them by
+# extending the matrix below when the cross-platform build is verified.
+# -----------------------------------------------------------------------------
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# Required so tauri-action can create the GitHub Release and upload assets.
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows x64 only for v15.2.0. To add platforms later, append
+          # entries here, e.g.:
+          #   - platform: macos-latest
+          #     args: "--target universal-apple-darwin"
+          #   - platform: ubuntu-22.04
+          #     args: ""
+          - platform: windows-latest
+            args: ""
+
+    runs-on: ${{ matrix.platform.platform || matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: control-center/package-lock.json
+
+      - name: Setup Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./control-center/src-tauri -> target"
+
+      - name: Install frontend dependencies
+        working-directory: ./control-center
+        run: npm ci
+
+      - name: Build and publish Tauri release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # GitHub token is auto-provided; tauri-action uses it to create the
+          # release and upload installer assets.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri signing key for the auto-updater. Generated locally once via
+          # `npx tauri signer generate`. Stored as repo secret. See
+          # docs/RELEASE-PROCESS.md for setup steps.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # The tag name pushed by the user (e.g. v15.2.0).
+          tagName: ${{ github.ref_name }}
+          releaseName: "ULTRON Control Center ${{ github.ref_name }}"
+          releaseBody: |
+            Automated release built from tag `${{ github.ref_name }}`.
+
+            Download the Windows installer below. On first launch Windows
+            SmartScreen may warn that the publisher is unverified — this is
+            expected for self-signed releases. Click "More info" then
+            "Run anyway".
+
+            See docs/INSTALL.md for full install notes and
+            docs/RELEASE-PROCESS.md for how releases are produced.
+          releaseDraft: false
+          prerelease: false
+          # Tauri config lives inside control-center/src-tauri/tauri.conf.json.
+          projectPath: ./control-center
+          # `updaterJsonPreferNsis: true` keeps the updater pointed at the
+          # NSIS setup.exe rather than the .msi when both are produced.
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}

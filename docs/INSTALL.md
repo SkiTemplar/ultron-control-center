@@ -150,6 +150,67 @@ claude login
 If `claude` is installed but not found by the installer, your shell hasn't
 picked up the new `PATH`. Open a fresh terminal and re-run.
 
+## Auto-update behavior
+
+Starting with v15.2.0 the desktop app ships with a built-in auto-updater
+(Tauri's official `tauri-plugin-updater`). It checks for a newer release on
+startup and, if one is available, downloads and installs it silently the
+next time you launch the app.
+
+How it works in practice:
+
+- On launch, the app fetches `latest.json` from the GitHub Releases feed.
+  No personal data is sent — only an HTTP GET to a public URL.
+- If the remote version is newer than the installed version, the app
+  prompts you once. On confirmation, it downloads the signed installer in
+  the background.
+- The next launch applies the update with Windows' `passive` install mode:
+  the installer flashes briefly with a progress bar but never blocks you on
+  prompts.
+- The update is cryptographically signed with the project's Tauri updater
+  key. An update with a bad or missing signature is refused — there is no
+  way to push a malicious update from a forked repo or a typo-squatted
+  domain.
+
+### Disabling auto-update
+
+Open the app and go to **Settings -> General -> "Check for updates on
+startup"** and toggle it off. The app then never reaches out for updates
+and you can update manually whenever you like by downloading the installer
+from the GitHub Releases page and re-running it.
+
+### Manual update
+
+You can always update by hand:
+
+1. Download the newest installer from
+   `https://github.com/<owner>/ultron/releases/latest`.
+2. Run it. The installer detects the existing install and upgrades in
+   place without touching your `~/.ultron/` data directory.
+
+### Windows SmartScreen warning
+
+ULTRON ships self-signed for v15.2.0 because EV (Extended Validation) code
+signing certificates cost several hundred dollars per year and this project
+is free and open source. The practical consequence:
+
+- The first time you run the installer Windows SmartScreen will pop a blue
+  "Windows protected your PC" dialog and refuse to launch the binary
+  unattended.
+- Click **More info**, then **Run anyway**. The installer is a normal NSIS
+  setup.exe; you can verify its integrity by checking the SHA-256 listed
+  on the release page.
+- Subsequent updates installed by the auto-updater inherit the same
+  trust state — you only see the SmartScreen prompt on the very first
+  install. The auto-updater verifies updates against the embedded Tauri
+  public key, not via SmartScreen reputation.
+
+If you would prefer to vet the source yourself, the build is fully
+reproducible from the public GitHub Actions workflow at
+`.github/workflows/release.yml`. Every release artifact is built on a
+GitHub-hosted runner from a tagged commit and signed there with the
+project's updater key.
+
 ## Uninstall
 
 Run the matching uninstall script. It moves any backups out of the way

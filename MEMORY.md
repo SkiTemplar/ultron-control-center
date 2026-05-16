@@ -1,11 +1,11 @@
-# ULTRON MEMORY · auto-gen 2026-05-10
+# ULTRON MEMORY · auto-gen 2026-05-16
 > `context.md` (≤400 tok) · `ultron status` · `brain_index.py query "<x>"` · vault L2 = SoT.
 
 ---
 
 ## SISTEMA
 
-brain_index: 723 notas · skills: 223 · plans en `~/.ultron/plans/PLANS.json` · changelog en `~/.claude/skills/ultron/references/changelog.md`.
+brain_index: 785 notas · skills: 47 · plans en `~/.ultron/plans/PLANS.json` · changelog en `~/.claude/skills/ultron/references/changelog.md`.
 
 ---
 
@@ -13,11 +13,11 @@ brain_index: 723 notas · skills: 223 · plans en `~/.ultron/plans/PLANS.json` �
 
 | Nombre | Stack | Last |
 |---|---|---|
+| sparkling-luxury | TypeScript | 2026-05-13 |
+| Tortunabo | C++ | 2026-05-13 |
+| ultron | Markdown | 2026-05-13 |
+| OrbitalDB | Kotlin | 2026-05-11 |
 | ProgGrafica | C++ | 2026-05-09 |
-| FUUX Web | TypeScript | 2026-05-09 |
-| OrbitalDB | Kotlin | 2026-05-09 |
-| sparkling-luxury | TypeScript | 2026-05-09 |
-| IA_Template | C# | 2026-05-09 |
 
 Total en cockpit/projects.json. Detalle: `ultron status`.
 
@@ -25,7 +25,7 @@ Total en cockpit/projects.json. Detalle: `ultron status`.
 
 ## SKILL GRAPH (14 personas)
 
-don-claudio · novalbos · terry-davis · einstein · warren · tio-gilito · alfred · openjarvis · obliteratus · manolo-lama · tolkien · pana · shannon · jordan-belfort.
+gamedev-engineer · don-claudio · novalbos · terry-davis · einstein · warren · tio-gilito · windows-admin · alfred · openjarvis · obliteratus · manolo-lama · tolkien · personal-assistant.
 
 Detalle por persona en `~/.claude/skills/ultron/references/routing-tables.md` (Layer 1) + `cockpit/skill_graph.json` (knowledge_files).
 

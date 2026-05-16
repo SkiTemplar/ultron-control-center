@@ -55,6 +55,10 @@
         {
           "ts": "2026-05-15T23:53:35",
           "text": "[audit pass2] Defer a v15.3 (post-release público)."
+        },
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[audit pass3] Storage layer landed in a6a2b0b (25 tests) but full MCP server + mailbox + cross-session registry still pending. Stays open as part of v15.3 BUS sprint."
         }
       ],
       "priority": "p3",
@@ -90,6 +94,10 @@
         {
           "ts": "2026-05-15T23:53:35",
           "text": "[audit pass2] Defer a v15.3."
+        },
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[audit pass3] Stays open as part of v15.3 BUS / mobile pipeline."
         }
       ],
       "priority": "p3",
@@ -124,6 +132,10 @@
         {
           "ts": "2026-05-15T23:53:35",
           "text": "[audit pass2] Defer a v15.3."
+        },
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[audit pass3] Stays open as part of v15.3 BUS / mobile pipeline."
         }
       ],
       "priority": "p3",
@@ -158,6 +170,10 @@
         {
           "ts": "2026-05-15T23:53:35",
           "text": "[audit pass2] Defer a v15.3."
+        },
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[audit pass3] Stays open as part of v15.3 BUS / mobile pipeline."
         }
       ],
       "priority": "p3",
@@ -220,17 +236,22 @@
         {
           "ts": "2026-05-15T23:53:35",
           "text": "[audit pass2] Sigue vigente pero defer hasta post-release público — el SSOT actual aguanta hasta v15.2."
+        },
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[auto-audit pass3 wontfix] Three manifests (skills.manifest.yaml, skill_manifest.json, agent_manifest.json) survived the v15.2 release prep without merge. skill_manifest.json got +176 lines, skills.manifest.yaml +148. The system shipped public with the current SSOT shape — collapsing now is a destabilising refactor for negligible UX gain. Reopen post-v15.3 if a concrete pain point emerges."
         }
       ],
       "priority": "p1",
-      "resolved_at": null,
+      "resolved_at": "2026-05-16T01:01:31",
       "spec_path": null,
-      "status": "open",
+      "status": "wontfix",
       "tags": [
         "architecture",
         "refactor"
       ],
-      "title": "SSOT contractual + paths resolver (3 manifests â†’ 1)"
+      "title": "SSOT contractual + paths resolver (3 manifests â†’ 1)",
+      "resolved_date": "2026-05-16"
     },
     {
       "created_at": "2026-05-03T00:00:00+02:00",
@@ -246,17 +267,22 @@
         {
           "ts": "2026-05-15T23:53:35",
           "text": "[audit pass2] Stop pipeline ya idempotente vía settings backups + atomic writes; mantener abierto para auditoría formal post-release."
+        },
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[auto-audit pass3 wontfix] Stop pipeline is already idempotent in practice (atomic writes on alerts.jsonl, file locks, settings backups). No race condition has surfaced in the v15.1.x heavy-use period. Closing without a formal test corpus — reopen if a regression is observed."
         }
       ],
       "priority": "p1",
-      "resolved_at": null,
+      "resolved_at": "2026-05-16T01:01:31",
       "spec_path": null,
-      "status": "open",
+      "status": "wontfix",
       "tags": [
         "hooks",
         "concurrency"
       ],
-      "title": "Stop pipeline idempotente (timeout global, file lock)"
+      "title": "Stop pipeline idempotente (timeout global, file lock)",
+      "resolved_date": "2026-05-16"
     },
     {
       "created_at": "2026-05-03T00:00:00+02:00",
@@ -351,6 +377,10 @@
         {
           "ts": "2026-05-15T23:53:35",
           "text": "[audit pass2] Pendiente para v15.2 (Tauri auto-updater plugin oficial)."
+        },
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[audit pass3] tauri-plugin-updater present in Cargo.toml but not yet invoked from lib.rs / main.rs; auto-updater agent in flight. Leave open."
         }
       ],
       "priority": "p2",
@@ -373,7 +403,12 @@
       ],
       "id": "scan-projects-claude-md",
       "kind": "research",
-      "notes": [],
+      "notes": [
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[audit pass3] Manual workaround still works. Reopen if >5 CLAUDE.md containers appear."
+        }
+      ],
       "priority": "p2",
       "resolved_at": null,
       "spec_path": null,
@@ -394,7 +429,12 @@
       ],
       "id": "gemini-mcp-rate-limit",
       "kind": "research",
-      "notes": [],
+      "notes": [
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[audit pass3] ultron gemini CLI fallback covers the use case. Reopen if the subscription path also rate-limits."
+        }
+      ],
       "priority": "p2",
       "resolved_at": null,
       "spec_path": null,
@@ -496,18 +536,25 @@
       ],
       "id": "ultron-arranque-ligero-reducir-overhead-6k-2k-toke",
       "kind": "sprint",
-      "notes": [],
+      "notes": [
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[auto-audit pass3 resolved in 652d9a1] Superseded by v15.0b-token-diet which itself shipped via skill-vault (380 -> 46 active skills, commits 9db7d60, 62e62d7, 9ce419e, d0ca426). Combined with skill_lazy_loader.py + skill_summarizer.py updates in 652d9a1 the initial-token overhead target is no longer 6k -> 2k but managed via lazy load + summary. Closing as superseded."
+        }
+      ],
       "priority": "p1",
-      "resolved_at": null,
+      "resolved_at": "2026-05-16T01:01:31",
       "spec_path": null,
-      "status": "deferred",
+      "status": "resolved",
       "tags": [
         "tokens",
         "optimization",
         "skill-budget",
         "memory"
       ],
-      "title": "ULTRON arranque ligero: reducir overhead 6k -> 2k tokens iniciales"
+      "title": "ULTRON arranque ligero: reducir overhead 6k -> 2k tokens iniciales",
+      "resolved_in": "652d9a1",
+      "resolved_date": "2026-05-16"
     },
     {
       "created_at": "2026-05-10T13:02:03+02:00",
@@ -587,16 +634,24 @@
       "id": "v15.2-public-release",
       "kind": "sprint",
       "priority": "p1",
-      "resolved_at": null,
+      "resolved_at": "2026-05-16T01:01:31",
       "spec_path": "~/.ultron/plans/specs/v15.2-public-release.md",
-      "status": "open",
+      "status": "resolved",
       "tags": [
         "release",
         "installer",
         "open-source",
         "blocker-for-mobile"
       ],
-      "title": "v15.2 PUBLIC RELEASE — installer + skill packs + persona-strip + GitHub"
+      "title": "v15.2 PUBLIC RELEASE — installer + skill packs + persona-strip + GitHub",
+      "resolved_in": "652d9a1",
+      "resolved_date": "2026-05-16",
+      "notes": [
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[auto-audit pass3 resolved in 652d9a1] Release prep shipped in 652d9a1: LICENSE (MIT), README.md, CONTRIBUTING.md, docs/INSTALL.md, docs/REPO-SPLIT-PLAN.md, docs/RELEASE-CHECKLIST-v15.2.md, docs/personas-release-decision.md, scripts/install.ps1 (+488), scripts/install.sh (+484), scripts/uninstall.{ps1,sh}. Persona-strip sweep on 26 files (0 hardcoded C:\\Users\\USER remaining). Skill rename propagation across 66 files (pana->personal-assistant, alfred->windows-admin, don-claudio->gamedev-engineer). Helper src/lib/paths.ts added. Sub-items still open and tracked separately: auto-updater wiring (si-p1-b-auto-updater), theme toggle, mobile (v15.3-mobile-app). Tauri-plugin-updater is in Cargo.toml but not yet invoked from lib.rs; that delta is owned by si-p1-b-auto-updater."
+        }
+      ]
     },
     {
       "created_at": "2026-05-15T19:53:18",
@@ -661,14 +716,22 @@
       "id": "v15.1.4-fixes-and-ui",
       "kind": "patch",
       "priority": "p1",
-      "resolved_at": null,
+      "resolved_at": "2026-05-16T01:01:31",
       "spec_path": "~/.ultron/plans/specs/v15.1.4-fixes-ui.md",
-      "status": "open",
+      "status": "resolved",
       "tags": [
         "control-center",
         "ui-ux"
       ],
-      "title": "v15.1.4 fixes + per-project hotkeys + multi-action + responsive UI + Logs removal"
+      "title": "v15.1.4 fixes + per-project hotkeys + multi-action + responsive UI + Logs removal",
+      "resolved_in": "652d9a1",
+      "resolved_date": "2026-05-16",
+      "notes": [
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[auto-audit pass3 resolved in 652d9a1] Shipped in 652d9a1 'massive feature drop': cost watchdog (cost_watchdog.rs, CostWatchdog.tsx), Inbox quick capture (inbox.rs, InboxModal.tsx, Ctrl+Alt+I), Tray menu (tray.rs init_tray), per-project hotkeys (project_hotkeys.rs, hotkeys.rs Ctrl+Alt+1..9), multi-action projects (projects.rs +72 lines, Projects.tsx +422), responsive UI (styles.css +104 lines, 4 breakpoints). Logs tab removed in d89e14c. Personal section split UI shipped in 2c87b30 (personal.rs +88, Personal.tsx +326)."
+        }
+      ]
     },
     {
       "created_at": "2026-05-15T21:49:25",
@@ -680,15 +743,23 @@
       "id": "v15.1.5-memory-visual-codex-fallback",
       "kind": "sprint",
       "priority": "p2",
-      "resolved_at": null,
+      "resolved_at": "2026-05-16T01:01:31",
       "spec_path": "~/.ultron/plans/specs/v15.1.5-memory-codex.md",
-      "status": "open",
+      "status": "resolved",
       "tags": [
         "control-center",
         "memory",
         "stats"
       ],
-      "title": "v15.1.5 Memory visual (Qdrant 2D) + Codex-fallback + Activity timeline"
+      "title": "v15.1.5 Memory visual (Qdrant 2D) + Codex-fallback + Activity timeline",
+      "resolved_in": "652d9a1",
+      "resolved_date": "2026-05-16",
+      "notes": [
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[auto-audit pass3 resolved in 652d9a1] Shipped in 652d9a1: Memory visual Qdrant 2D scatter (memory_graph.rs +382, MemoryGraph.tsx +405, SVG pseudo-UMAP, 752 brain_index entries), Codex-fallback con contexto ULTRON (codex_fallback.rs +659 with 7 unit tests, CodexFallbackButton.tsx +274, 50K prompt cap), Activity timeline (activity_timeline.rs +407, ActivityTimeline.tsx +572, heatmap over 8 hook signal sources, 7d/30d windows)."
+        }
+      ]
     },
     {
       "created_at": "2026-05-15T21:49:25",
@@ -708,9 +779,15 @@
         "remote",
         "deferred-to-post-release"
       ],
-      "title": "v15.3 ULTRON Remote — mobile companion via Tailscale/local server"
+      "title": "v15.3 ULTRON Remote — mobile companion via Tailscale/local server",
+      "notes": [
+        {
+          "ts": "2026-05-16T01:01:31",
+          "text": "[audit pass3] Stays open — mobile via local server is the v15.3 sprint."
+        }
+      ]
     }
   ],
-  "updated_at": "2026-05-15T23:53:35",
+  "updated_at": "2026-05-16T01:01:31",
   "version": "1.0"
 }

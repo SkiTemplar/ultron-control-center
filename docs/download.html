@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="description" content="ULTRON Control Center — local-first cockpit for orchestrating Claude Code, Codex, and Gemini across long sessions." />
+<meta name="robots" content="index,follow" />
+<meta name="referrer" content="no-referrer" />
+<title>ULTRON Control Center — Download</title>
+<style>
+  /* -----------------------------------------------------------------
+   * Tokens mirrored from control-center/src/styles.css. Keep in sync
+   * if the in-app design tokens are revised.
+   * ----------------------------------------------------------------- */
+  :root {
+    --bg: #000000;
+    --surface-1: #0a0a0a;
+    --surface-2: #111111;
+    --surface-3: #1a1a1a;
+    --border: #1f1f1f;
+    --border-strong: #2a2a2a;
+    --text: #f5f5f5;
+    --text-secondary: #a0a0a0;
+    --text-tertiary: #6e6e6e;
+    --text-faint: #4a4a4a;
+    --accent: #ffffff;
+    --accent-text: #000000;
+    --success: #3fb950;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 Oxygen, Ubuntu, Cantarell, "Helvetica Neue", Arial,
+                 sans-serif;
+    --font-mono: "JetBrains Mono", "Cascadia Code", Consolas,
+                 "Liberation Mono", Menlo, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  a {
+    color: var(--text);
+    text-decoration: underline;
+    text-decoration-color: var(--text-faint);
+    text-underline-offset: 3px;
+  }
+  a:hover { text-decoration-color: var(--text); }
+
+  .page {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 64px 24px 96px;
+  }
+
+  /* Header */
+  header.site {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 48px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 64px;
+  }
+  header.site .brand {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    font-size: 14px;
+  }
+  header.site nav a {
+    margin-left: 24px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    text-decoration: none;
+  }
+  header.site nav a:hover { color: var(--text); }
+
+  /* Hero */
+  .hero h1 {
+    font-size: 48px;
+    line-height: 1.1;
+    margin: 0 0 16px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .hero .tagline {
+    font-size: 18px;
+    color: var(--text-secondary);
+    margin: 0 0 40px;
+    max-width: 640px;
+  }
+  .cta-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+  }
+  .cta-primary {
+    display: inline-block;
+    background: var(--accent);
+    color: var(--accent-text);
+    padding: 14px 28px;
+    font-weight: 600;
+    font-size: 15px;
+    border-radius: 6px;
+    text-decoration: none;
+    border: 1px solid var(--accent);
+  }
+  .cta-primary:hover { background: #e6e6e6; }
+  .cta-secondary {
+    display: inline-block;
+    background: transparent;
+    color: var(--text);
+    padding: 14px 24px;
+    font-weight: 500;
+    font-size: 15px;
+    border-radius: 6px;
+    text-decoration: none;
+    border: 1px solid var(--border-strong);
+  }
+  .cta-secondary:hover { background: var(--surface-2); }
+  .cta-meta {
+    color: var(--text-tertiary);
+    font-size: 13px;
+    margin-top: 16px;
+  }
+  .cta-meta code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--surface-2);
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+
+  /* Sections */
+  section {
+    padding-top: 64px;
+    margin-top: 64px;
+    border-top: 1px solid var(--border);
+  }
+  section h2 {
+    font-size: 13px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--text-secondary);
+    margin: 0 0 24px;
+  }
+
+  /* Requirements list */
+  .req-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    gap: 12px 24px;
+    font-size: 14px;
+  }
+  .req-grid dt {
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    padding-top: 2px;
+  }
+  .req-grid dd { margin: 0; }
+
+  /* Features */
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 20px;
+  }
+  .feature {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px;
+  }
+  .feature h3 {
+    font-size: 14px;
+    margin: 0 0 8px;
+    font-weight: 600;
+  }
+  .feature p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  /* Privacy note */
+  .privacy {
+    background: var(--surface-1);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 20px 24px;
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+  .privacy strong { color: var(--text); }
+  .privacy .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  /* Footer */
+  footer.site {
+    margin-top: 96px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    color: var(--text-tertiary);
+    font-size: 13px;
+  }
+  footer.site .badges { display: flex; gap: 8px; align-items: center; }
+  .badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 3px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+    color: var(--text-secondary);
+  }
+
+  @media (max-width: 640px) {
+    .hero h1 { font-size: 36px; }
+    header.site { flex-direction: column; align-items: flex-start; gap: 16px; }
+    header.site nav a { margin-left: 0; margin-right: 16px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="site">
+    <div class="brand">ULTRON</div>
+    <nav>
+      <a href="https://github.com/&lt;owner&gt;/ultron">Source</a>
+      <a href="https://github.com/&lt;owner&gt;/ultron/releases">Releases</a>
+      <a href="https://github.com/&lt;owner&gt;/ultron/blob/main/docs/INSTALL.md">Docs</a>
+    </nav>
+  </header>
+
+  <section class="hero" style="border-top: none; padding-top: 0; margin-top: 0;">
+    <h1>ULTRON Control Center</h1>
+    <p class="tagline">
+      A local-first cockpit for orchestrating Claude Code, Codex, and Gemini
+      across long, multi-day sessions. Three layers of hierarchical memory,
+      an AI router that picks the right model for the task, and a Plans tab
+      that turns scattered work into something you can actually finish.
+    </p>
+    <div class="cta-row">
+      <a class="cta-primary"
+         href="https://github.com/&lt;owner&gt;/ultron/releases/latest/download/ULTRON.Control.Center_x64-setup.exe">
+        Download for Windows
+      </a>
+      <a class="cta-secondary"
+         href="https://github.com/&lt;owner&gt;/ultron/releases">
+        All releases
+      </a>
+    </div>
+    <p class="cta-meta">
+      Windows 10 / 11 x64 &nbsp;&middot;&nbsp; Self-signed installer
+      (SmartScreen may warn on first run) &nbsp;&middot;&nbsp;
+      <code>v15.2.0</code>
+    </p>
+  </section>
+
+  <section>
+    <h2>System requirements</h2>
+    <dl class="req-grid">
+      <dt>OS</dt>          <dd>Windows 10 or 11, 64-bit. macOS and Linux builds are planned, not shipped yet.</dd>
+      <dt>RAM</dt>         <dd>200 MB idle. Peaks around 600 MB when indexing the vault or running embeddings.</dd>
+      <dt>Disk</dt>        <dd>500 MB for the app, plus whatever your memory vault and Qdrant store grow to.</dd>
+      <dt>CPU</dt>         <dd>Any 64-bit x86 from the last decade. No GPU required.</dd>
+      <dt>Network</dt>     <dd>Only outbound calls you trigger (Claude / Codex / Gemini CLIs). No telemetry.</dd>
+      <dt>Required</dt>    <dd>Claude Code CLI logged into your subscription. Rust, Node 22, and uv if you build from source.</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2>What you get</h2>
+    <div class="features">
+      <div class="feature">
+        <h3>3-layer memory</h3>
+        <p>L0 hot context, L1 FTS5 brain index, L2 vault notes. Optional Qdrant
+           layer for semantic recall over the same corpus.</p>
+      </div>
+      <div class="feature">
+        <h3>AI router</h3>
+        <p>Picks Claude for orchestration, Codex for peer review, Gemini for
+           long context and image work. Never leave the editor.</p>
+      </div>
+      <div class="feature">
+        <h3>Plans tab</h3>
+        <p>One source of truth for in-flight work. AI brainstorm, archive on
+           resolve, and Claude-driven execute or review actions.</p>
+      </div>
+      <div class="feature">
+        <h3>Skills browser</h3>
+        <p>Navigate your local <code>~/.claude/skills/</code> tree plus an
+           archived skill-vault for packs the model should not auto-load.</p>
+      </div>
+      <div class="feature">
+        <h3>MCP dashboard</h3>
+        <p>Inspect and toggle Model Context Protocol servers registered in
+           <code>~/.claude/settings.json</code>. Health checks on demand.</p>
+      </div>
+      <div class="feature">
+        <h3>News, schedules, stats</h3>
+        <p>Daily HTML newsletter generator, scheduled tasks surface, and
+           per-session telemetry (tokens, skills, memories, time on task).</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Privacy</h2>
+    <div class="privacy">
+      <p style="margin-top: 0;">
+        <span class="dot" aria-hidden="true"></span>
+        <strong>100 percent local.</strong> No telemetry, no analytics, no
+        crash reporters, no outbound network traffic except the calls you
+        trigger through the Claude, Codex, or Gemini CLIs you have already
+        authenticated.
+      </p>
+      <p style="margin-bottom: 0;">
+        Memory, plans, skills, and indexes live under <code>~/.ultron/</code>
+        and <code>~/.claude/</code>. The optional L3 vault sync is an explicit
+        <code>git push</code> you control.
+      </p>
+    </div>
+  </section>
+
+  <footer class="site">
+    <div>
+      &copy; 2026 USER SURNAME &middot;
+      <a href="https://github.com/&lt;owner&gt;/ultron">github.com/&lt;owner&gt;/ultron</a>
+    </div>
+    <div class="badges">
+      <span class="badge">MIT</span>
+      <span class="badge">No telemetry</span>
+      <span class="badge">Tauri 2</span>
+    </div>
+  </footer>
+
+</div>
+</body>
+</html>

@@ -12,6 +12,8 @@ mod backup_status;
 mod claude_sessions;
 mod codex_fallback;
 mod cost_watchdog;
+mod features;
+mod hooks_admin;
 mod hotkeys;
 mod inbox;
 mod instructions;
@@ -20,6 +22,7 @@ mod gaming;
 mod mcps;
 mod memory;
 mod memory_graph;
+mod memory_highlights;
 mod mode;
 mod news;
 mod personal;
@@ -102,6 +105,63 @@ async fn update_project_actions(
     actions: Vec<String>,
 ) -> Result<projects::UpdateProjectResult, String> {
     projects::update_project_actions_inner(projects::UpdateProjectActionsPayload { id, actions })
+}
+
+#[tauri::command]
+async fn list_hooks() -> Result<hooks_admin::HooksList, String> {
+    hooks_admin::list_hooks_inner()
+}
+
+#[tauri::command]
+async fn add_hook(
+    event: String,
+    matcher: Option<String>,
+    command: String,
+) -> Result<hooks_admin::HookMutationResult, String> {
+    hooks_admin::add_hook_inner(event, matcher, command)
+}
+
+#[tauri::command]
+async fn update_hook(
+    id: String,
+    command: Option<String>,
+    enabled: Option<bool>,
+    matcher: Option<String>,
+) -> Result<hooks_admin::HookMutationResult, String> {
+    hooks_admin::update_hook_inner(id, command, enabled, matcher)
+}
+
+#[tauri::command]
+async fn toggle_hook(id: String) -> Result<hooks_admin::HookMutationResult, String> {
+    hooks_admin::toggle_hook_inner(id)
+}
+
+#[tauri::command]
+async fn delete_hook(id: String) -> Result<hooks_admin::HookMutationResult, String> {
+    hooks_admin::delete_hook_inner(id)
+}
+
+#[tauri::command]
+async fn test_hook(
+    id: String,
+    mock_payload: Option<String>,
+) -> Result<hooks_admin::HookTestResult, String> {
+    hooks_admin::test_hook_inner(id, mock_payload)
+}
+
+#[tauri::command]
+async fn recent_hook_fires(
+    limit: Option<usize>,
+) -> Result<hooks_admin::HookFiresReport, String> {
+    hooks_admin::recent_hook_fires_inner(limit)
+}
+
+#[tauri::command]
+async fn request_hook_via_ai(
+    app: tauri::AppHandle,
+    description: String,
+) -> Result<String, String> {
+    hooks_admin::request_hook_via_ai_inner(&app, description).await
 }
 
 fn read_jsonl_tail<T>(path: PathBuf, limit: usize) -> Result<Vec<T>, String>
@@ -1099,7 +1159,20 @@ pub fn run() {
             codex_fallback::build_fallback_prompt,
             codex_fallback::launch_codex_fallback,
             project_hotkeys::project_at_slot,
-            update_project_actions
+            update_project_actions,
+            features::read_features,
+            features::save_features,
+            memory_highlights::compute_memory_highlights,
+            memory_highlights::compute_memory_link_graph,
+            memory_highlights::mark_orphan_for_review,
+            list_hooks,
+            add_hook,
+            update_hook,
+            toggle_hook,
+            delete_hook,
+            test_hook,
+            recent_hook_fires,
+            request_hook_via_ai
         ])
         .setup(|app| {
             // Persisted main toggle hotkey (Ctrl+Alt+U by default).

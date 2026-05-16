@@ -555,9 +555,9 @@
       "slug": "users-USER"
     },
     "C:\\Users\\USER\\.claude\\projects\\C--Users-USER--claude-skills-ultron\\memory\\MEMORY.md": {
-      "hash": "975c794331c9",
+      "hash": "9a086dd8cceb",
       "vault_path": "C:\\Users\\USER\\.ultron-vault\\CC-memories\\claude-skills-ultron\\MEMORY.md",
-      "ingested_at": "2026-05-09T21:58:44.772102",
+      "ingested_at": "2026-05-10T13:17:01.819401",
       "project": "C--Users-USER--claude-skills-ultron",
       "slug": "claude-skills-ultron"
     },
@@ -672,7 +672,49 @@
       "ingested_at": "2026-05-09T21:58:44.771513",
       "project": "C--Users-USER--claude-skills-ultron",
       "slug": "claude-skills-ultron"
+    },
+    "C:\\Users\\USER\\.claude\\projects\\C--Users-USER--claude-skills-ultron\\memory\\project_qdrant_infra_2026-05-10.md": {
+      "hash": "9ca394fb741d",
+      "vault_path": "C:\\Users\\USER\\.ultron-vault\\CC-memories\\claude-skills-ultron\\project_qdrant_infra_2026-05-10.md",
+      "ingested_at": "2026-05-10T13:17:01.820088",
+      "project": "C--Users-USER--claude-skills-ultron",
+      "slug": "claude-skills-ultron"
+    },
+    "C:\\Users\\USER\\.claude\\projects\\C--Users-USER--ultron\\memory\\batch-nocturno-validated.md": {
+      "hash": "9ea8121d323b",
+      "vault_path": "C:\\Users\\USER\\.ultron-vault\\CC-memories\\ultron\\batch-nocturno-validated.md",
+      "ingested_at": "2026-05-15T03:21:42.235565",
+      "project": "C--Users-USER--ultron",
+      "slug": "ultron"
+    },
+    "C:\\Users\\USER\\.claude\\projects\\C--Users-USER--ultron\\memory\\MEMORY.md": {
+      "hash": "9a2c031c6613",
+      "vault_path": "C:\\Users\\USER\\.ultron-vault\\CC-memories\\ultron\\MEMORY.md",
+      "ingested_at": "2026-05-16T03:06:23.796387",
+      "project": "C--Users-USER--ultron",
+      "slug": "ultron"
+    },
+    "C:\\Users\\USER\\.claude\\projects\\C--Users-USER--ultron\\memory\\windows-tauri-cli-gotcha.md": {
+      "hash": "d4196ffe0d09",
+      "vault_path": "C:\\Users\\USER\\.ultron-vault\\CC-memories\\ultron\\windows-tauri-cli-gotcha.md",
+      "ingested_at": "2026-05-15T03:21:42.236566",
+      "project": "C--Users-USER--ultron",
+      "slug": "ultron"
+    },
+    "C:\\Users\\USER\\.claude\\projects\\C--Users-USER--ultron\\memory\\parallel-agents-overnight-pattern.md": {
+      "hash": "020b23e80dae",
+      "vault_path": "C:\\Users\\USER\\.ultron-vault\\CC-memories\\ultron\\parallel-agents-overnight-pattern.md",
+      "ingested_at": "2026-05-16T03:06:23.796913",
+      "project": "C--Users-USER--ultron",
+      "slug": "ultron"
+    },
+    "C:\\Users\\USER\\.claude\\projects\\C--Users-USER--ultron\\memory\\spawn-session-clipboard-always.md": {
+      "hash": "e457e65eb1e6",
+      "vault_path": "C:\\Users\\USER\\.ultron-vault\\CC-memories\\ultron\\spawn-session-clipboard-always.md",
+      "ingested_at": "2026-05-16T03:06:23.797834",
+      "project": "C--Users-USER--ultron",
+      "slug": "ultron"
     }
   },
-  "updated": "2026-05-10T12:55:03.047653"
+  "updated": "2026-05-16T03:20:45.419156"
 }

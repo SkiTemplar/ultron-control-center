@@ -6,7 +6,8 @@ import type {
   MemoryActionResult,
   MemoryStatusInfo,
 } from "../types";
-import { MemoryGraph } from "./MemoryGraph";
+import { MemoryGraphForce } from "./MemoryGraphForce";
+import { MemoryHighlights } from "./MemoryHighlights";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -353,9 +354,14 @@ export function Memory() {
   const [recent, setRecent] = useState<RecentNote[]>([]);
   const [recentLoading, setRecentLoading] = useState(true);
 
-  // List vs 2D Map view. Default to "list" so the existing UX is
-  // preserved on first open. The toggle lives next to Refresh.
-  const [viewMode, setViewMode] = useState<"list" | "graph">("list");
+  // View modes: List (default, original UX) | Highlights (curated
+  // "interesting zone" — most-linked / recent / by-topic / orphans /
+  // long-form) | Graph (Obsidian-style force-directed wikilink graph
+  // with tag-similarity fallback). The old "2D Map" hash scatter is
+  // gone — see MemoryGraph.tsx shim notes.
+  const [viewMode, setViewMode] = useState<"list" | "highlights" | "graph">(
+    "list",
+  );
 
   async function load() {
     setRefreshing(true);
@@ -444,34 +450,57 @@ export function Memory() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {/* List vs 2D Map toggle — same pattern as News.tsx Inline/Summary */}
-            <div className="flex items-center gap-1 rounded p-0.5" style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}>
-              <button
-                type="button"
-                onClick={() => setViewMode("list")}
-                className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors"
-                style={{
-                  background: viewMode === "list" ? "var(--color-surface-3)" : "transparent",
-                  color: viewMode === "list" ? "var(--color-text)" : "var(--color-text-tertiary)",
-                  border: `1px solid ${viewMode === "list" ? "var(--color-border-strong)" : "transparent"}`,
-                }}
-                title="List + search view (default)"
-              >
-                List
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode("graph")}
-                className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors"
-                style={{
-                  background: viewMode === "graph" ? "var(--color-surface-3)" : "transparent",
-                  color: viewMode === "graph" ? "var(--color-text)" : "var(--color-text-tertiary)",
-                  border: `1px solid ${viewMode === "graph" ? "var(--color-border-strong)" : "transparent"}`,
-                }}
-                title="2D scatter-plot projection of the brain index"
-              >
-                2D Map
-              </button>
+            {/* List | Highlights | Graph toggle — same pattern as News.tsx Inline/Summary */}
+            <div
+              className="flex items-center gap-1 rounded p-0.5"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {(
+                [
+                  {
+                    key: "list" as const,
+                    label: "List",
+                    title: "List + search view (default)",
+                  },
+                  {
+                    key: "highlights" as const,
+                    label: "Highlights",
+                    title:
+                      "Curated zone: most linked, recently active, by topic, orphans, long form",
+                  },
+                  {
+                    key: "graph" as const,
+                    label: "Graph",
+                    title:
+                      "Force-directed wikilink graph (tag-similarity fallback if no wikilinks)",
+                  },
+                ]
+              ).map((opt) => {
+                const active = viewMode === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setViewMode(opt.key)}
+                    className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors"
+                    style={{
+                      background: active
+                        ? "var(--color-surface-3)"
+                        : "transparent",
+                      color: active
+                        ? "var(--color-text)"
+                        : "var(--color-text-tertiary)",
+                      border: `1px solid ${active ? "var(--color-border-strong)" : "transparent"}`,
+                    }}
+                    title={opt.title}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
             </div>
             <button
               type="button"
@@ -533,8 +562,8 @@ export function Memory() {
           <StatusRow vault={data.vault} brain={data.brain} qdrant={data.qdrant} />
         )}
 
-        {/* List-mode body (actions + search + recent). Hidden in 2D Map mode
-            so the graph gets full vertical real estate. */}
+        {/* List-mode body (actions + search + recent). Hidden in Highlights /
+            Graph modes so those views get full vertical real estate. */}
         {viewMode === "list" && (
         <>
 
@@ -784,13 +813,23 @@ export function Memory() {
         </div>
       )}
 
-      {/* 2D Map mode — fills the rest of the available height */}
+      {/* Highlights mode — curated interesting zone */}
+      {viewMode === "highlights" && (
+        <div
+          className="flex flex-1 overflow-hidden border-t"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <MemoryHighlights />
+        </div>
+      )}
+
+      {/* Graph mode — Obsidian-style force-directed wikilink graph */}
       {viewMode === "graph" && (
         <div
           className="flex flex-1 overflow-hidden border-t"
           style={{ borderColor: "var(--color-border)" }}
         >
-          <MemoryGraph />
+          <MemoryGraphForce />
         </div>
       )}
     </div>

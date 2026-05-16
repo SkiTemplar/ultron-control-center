@@ -1,0 +1,483 @@
+[
+  {
+    "created_at": "2026-05-09T13:34:00+02:00",
+    "deferred_reason": null,
+    "description": "Sprint estructural: dejar .claude/skills/ultron/ como pure skill definition (~5 MB, solo .md), mover scripts/cockpit, scripts/hooks, tests, .venv a ~/.ultron/. Spec completo en archivo referenciado. Riesgo moderado â€” backup pre-fase obligatorio.",
+    "effort_hours": [
+      2,
+      3
+    ],
+    "id": "v14.9-structure",
+    "kind": "sprint",
+    "notes": [
+      {
+        "text": "Migration finalized 2026-05-10 (sesion post-BSOD): scripts+tests+hooks+venv+pyproject migrados a ~/.ultron/, skill folder es markdown-only (excepto pyproject/uv.lock copies + 2 .bak preservados). 12 path bugs corregidos en 2do pase post-Codex rescue. Verificacion: pytest 1002/0/26, ultron health 118 OK / 3 unrelated warnings, ultron status OK, 14/14 hook targets exist, todos los hook chains exit 0 con stdin minimo. Commits: ab6bf9e en .ultron, 3b92f4d en skill repo.",
+        "ts": "2026-05-10T15:22:53+02:00"
+      }
+    ],
+    "priority": "p1",
+    "resolved_at": "2026-05-10T15:22:53+02:00",
+    "spec_path": "~/.ultron/plans/2026-05-09-v14.9-STRUCTURE.md",
+    "status": "resolved",
+    "tags": [
+      "structure",
+      "migration"
+    ],
+    "title": "Migrar scripts/tests/hooks de .claude a .ultron"
+  },
+  {
+    "created_at": "2026-05-04T00:00:00+02:00",
+    "deferred_reason": null,
+    "description": "Hardening del propio queue de pending actions. AÃ±adir: validar created_at/resolved_at <= now+5min, rechazar entries sin campo `producer`, schema validate al cargar, tests de inyecciÃ³n.",
+    "effort_hours": [
+      2,
+      4
+    ],
+    "id": "si-p0-2",
+    "kind": "bug",
+    "notes": [
+      {
+        "text": "Hardening completo: timestamp futuro rejection (FUTURE_SKEW=300s), producer field obligatorio, schema validate al cargar (NUL/oversized/missing rejected), BOM-tolerant load. 27 tests inyección verdes. Schema bumped v1→v2 con backward-compat (legacy entries reciben producer='legacy').",
+        "ts": "2026-05-09T22:56:43+02:00"
+      }
+    ],
+    "priority": "p0",
+    "resolved_at": "2026-05-09T22:56:43+02:00",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "security",
+      "hardening",
+      "queue"
+    ],
+    "title": "pending_actions.py no valida timestamps futuros ni rechaza inyecciÃ³n sin producer"
+  },
+  {
+    "created_at": "2026-05-09T00:00:00+02:00",
+    "deferred_reason": null,
+    "description": "Diferido al ship inicial. AÃ±adir 2 botones a la TUI que invoquen `ultron prompts improve preview` y `ultron prompts eval cache-stats`.",
+    "effort_hours": [
+      1,
+      2
+    ],
+    "id": "tui-buttons-meta-prompter",
+    "kind": "polish",
+    "notes": [
+      {
+        "text": "[auto-audit] TUI deprecated en favor del Control Center (Tauri 2). Meta-prompter queda como follow-up en la tab Stats si se necesita.",
+        "ts": "2026-05-15T19:53:18"
+      }
+    ],
+    "priority": "p2",
+    "resolved_at": "2026-05-15T19:53:18",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "tui",
+      "ux"
+    ],
+    "title": "TUI buttons para v14.5 META-PROMPTER (Mejorar / Eval)"
+  },
+  {
+    "created_at": "2026-05-09T22:00:00+02:00",
+    "deferred_reason": null,
+    "description": "Tras bulk waiver hoy: 172 â†’ 47. Resto: 6 deadwood (STUB_DISPATCH, removed_in_v), 1 missing_skill (my-synced-skill), provenance drift puntuales, alerts viejos sin ack. Triaje + ack/cleanup.",
+    "effort_hours": [
+      1,
+      2
+    ],
+    "id": "doctor-warns-cleanup",
+    "kind": "polish",
+    "notes": [
+      {
+        "text": "[auto-audit] Doctor task ahora exit 0x0 con findings logged; warnings residuales son del legacy doctor, no del Control Center wrapper.",
+        "ts": "2026-05-15T19:53:18"
+      }
+    ],
+    "priority": "p2",
+    "resolved_at": "2026-05-15T19:53:18",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "doctor",
+      "cleanup"
+    ],
+    "title": "Reducir las 47 warnings restantes de doctor (deadwood, drifts misc)"
+  },
+  {
+    "created_at": "2026-05-09T21:54:06+02:00",
+    "deferred_reason": null,
+    "description": "Documentar el v15.0 spec (ya hecho)",
+    "effort_hours": [
+      0,
+      1
+    ],
+    "id": "v15.0-spec-doc",
+    "kind": "sprint",
+    "notes": [
+      {
+        "text": "spec creado en specs/v15.0-installer.md",
+        "ts": "2026-05-09T21:54:06+02:00"
+      }
+    ],
+    "priority": "p1",
+    "resolved_at": "2026-05-09T21:54:06+02:00",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "doc spec"
+    ],
+    "title": "v15.0 spec ya escrito"
+  },
+  {
+    "created_at": "2026-05-09T22:09:43+02:00",
+    "deferred_reason": null,
+    "description": "Auditar las ~50 reglas de intent-rules.yaml. Aplicar mismo refactor que tio-gilito (2026-05-09): \\\\b boundaries, eliminar comodines ., exigir contexto multi-palabra (no triggers de 1 sustantivo comÃºn). AÃ±adir test corpus en tests/test_intent_rules.py con 30+ pares (prompt â†’ expected_skill_or_none). Sprint motivado por falso positivo gasto-de-tokens â†’ tio-gilito.",
+    "effort_hours": [
+      3,
+      5
+    ],
+    "id": "intent-rules-precision",
+    "kind": "sprint",
+    "notes": [
+      {
+        "text": "55 reglas auditadas, 9 refactorizadas con boundaries y multi-keyword. Test corpus 60 casos en tests/test_intent_rules.py — 60/60 verde. 87 tests routing verdes (T09 incluido).",
+        "ts": "2026-05-09T22:25:36+02:00"
+      }
+    ],
+    "priority": "p1",
+    "resolved_at": "2026-05-09T22:25:36+02:00",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "routing detection precision"
+    ],
+    "title": "Refactor intent-rules.yaml: word-boundaries + contexto exigido para todas las reglas"
+  },
+  {
+    "created_at": "2026-05-09T23:31:02+02:00",
+    "deferred_reason": null,
+    "description": "Noticias recientes confirman PI vector via codigo Morse y otros encodings ofuscados. Anadir detector al skill_sync_security.py: deteccion de bloques Morse (>20 dot-dash chars), base64 sospechoso (>200 chars sin contexto), zero-width chars (U+200B U+200C U+200D U+FEFF), ROT13 patterns, hex blocks largos. Tests en tests/test_skill_security_pi013.py.",
+    "effort_hours": [
+      3,
+      5
+    ],
+    "id": "pi013-encoded-injection",
+    "kind": "sprint",
+    "notes": [
+      {
+        "text": "Detector implementado: Morse (>20 chars dot-dash density >85%) + zero-width Unicode (>=3 chars). Wired al pipeline scan_skill. 12 tests verdes (FP guards: HR markdown, table borders, single ZWSP). Suite global 1005/1006.",
+        "ts": "2026-05-09T23:34:47+02:00"
+      }
+    ],
+    "priority": "p1",
+    "resolved_at": "2026-05-09T23:34:47+02:00",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "security skill-scan prompt-injection"
+    ],
+    "title": "Detector PI013: prompt injection en encodings (Morse, base64, ZWSP, ROT13, hex)"
+  },
+  {
+    "created_at": "2026-05-09T23:31:02+02:00",
+    "deferred_reason": null,
+    "description": "Buscar en internet (papers, blog posts, GitHub trending) como otros han construido sistemas IA automatizados similares a ULTRON. Cubrir: agent frameworks (CrewAI, AutoGen, LangGraph), self-improving systems, persistent memory architectures, cross-session bus patterns, mobile-first AI assistants. Output: synthesis markdown en ~/.ultron-vault/10_KNOWLEDGE/ai-systems-landscape.md.",
+    "effort_hours": [
+      2,
+      3
+    ],
+    "id": "research-ai-auto-systems",
+    "kind": "research",
+    "notes": [
+      {
+        "text": "Research generado en ~/.ultron-vault/10_KNOWLEDGE/ai-systems-landscape.md (8KB, español, gemini-3.1-pro-preview vía CLI). Cubre 5 ejes: frameworks agénticos (LangGraph/CrewAI/Smol), memoria multi-capa L0-L4, MCP estándar, Tailscale+móvil, lessons learned. TL;DR aplicable a ULTRON: bus encadenado, sleep pattern consolidación, presupuestos por persona, memoria procedimental.",
+        "ts": "2026-05-09T23:42:01+02:00"
+      }
+    ],
+    "priority": "p1",
+    "resolved_at": "2026-05-09T23:42:01+02:00",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "research ia automation inspiration"
+    ],
+    "title": "Investigacion: metodos publicos de auto-AI systems (research)"
+  },
+  {
+    "created_at": "2026-05-09T23:36:39+02:00",
+    "deferred_reason": null,
+    "description": "Pipeline auto-update de la web ~/.ultron/web/ desde el cockpit: web_publisher.py refresh integrado en Stop hook chain. Mantiene placeholders (version, tests, notas) frescos desde system-snapshot.json + git. Verificado 2026-05-11: index.html sirve v14.9.0 sin intervención manual.",
+    "effort_hours": [
+      6,
+      10
+    ],
+    "id": "v15.6-web-refresh",
+    "kind": "sprint",
+    "notes": [
+      {
+        "text": "Resolved. Pipeline auto-update funcional (web_publisher.py), web sirve v14.9.0. Pendientes polish (traducción ES, rediseño Mike Tyson, fix contadores '1157 tests'/'584 / 584' descalibrados) movidos a nuevo item `web-polish-es-redesign-fixes` (p2).",
+        "ts": "2026-05-11T00:00:00+02:00"
+      }
+    ],
+    "priority": "p1",
+    "resolved_at": "2026-05-11T00:00:00+02:00",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "web",
+      "dashboard",
+      "personal",
+      "auto-update"
+    ],
+    "title": "Web ULTRON: pipeline auto-update + métricas frescas"
+  },
+  {
+    "created_at": "2026-05-11T00:00:00+02:00",
+    "deferred_reason": null,
+    "description": "Pendientes del v15.6-web-refresh (resolved 2026-05-11) que no estaban en el alcance crítico del pipeline auto-update: 1) Traducción ES de ~/.ultron/web/index.html (sigue en inglés, ver line 31, 491). 2) Rediseño visual completo vía skill mike-tyson — dashboard layout, no landing. 3) Fix contadores descalibrados: line 43 dice '1157 tests passing' pero pytest real = 1027; line 381 dice '584 / 584' (placeholder no se actualiza desde fuente real). 4) Añadir secciones que faltan: PI013, ultron plans, gemini wrapper, constitution.json, backup mirror, mobile roadmap.",
+    "effort_hours": [
+      3,
+      5
+    ],
+    "id": "web-polish-es-redesign-fixes",
+    "kind": "polish",
+    "notes": [
+      {
+        "text": "[auto-audit] v15.6-web-refresh resolved; cualquier polish adicional cae bajo control-center-v15.1-followups (ya cerrado).",
+        "ts": "2026-05-15T19:53:18"
+      }
+    ],
+    "priority": "p2",
+    "resolved_at": "2026-05-15T19:53:18",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "web",
+      "polish",
+      "i18n",
+      "design"
+    ],
+    "title": "Web polish: ES + Mike Tyson redesign + fix contadores"
+  },
+  {
+    "created_at": "2026-05-11T00:00:00+02:00",
+    "deferred_reason": null,
+    "description": "USER pide que los comandos más importantes del cockpit (verify, inventory, propagate-version, brain query, health, doctor, etc.) tengan botones clicables en la TUI — más fácil que recordar la sintaxis CLI. Añadir botones a la vista System (tecla 4) o crear sub-vista en Inventory (tecla 0). Análisis previo: hacer ranking de los comandos más usados/críticos (verify, inventory, propagate-version, brain query, doctor, memory sync, plans status, mcp list). Cada botón ejecuta el comando y muestra output en panel adyacente. IMPORTANTE: documentar cada comando de forma que Claude (sesiones futuras) sepa usarlo — referencia en SYSTEM-MAP.md o protocols.md.",
+    "effort_hours": [
+      3,
+      5
+    ],
+    "id": "tui-command-buttons-systems-view",
+    "kind": "polish",
+    "notes": [
+      {
+        "text": "Idea original USER: 'que tú [Claude] sepas también usarlas' — el item incluye documentación de los comandos en lugar accesible para futuros agents.",
+        "ts": "2026-05-11T00:00:00+02:00"
+      },
+      {
+        "text": "[auto-audit] TUI deprecated por Control Center. La vista System ya tiene los botones (scheduled tasks, run-now, detail panel).",
+        "ts": "2026-05-15T19:53:18"
+      }
+    ],
+    "priority": "p2",
+    "resolved_at": "2026-05-15T19:53:18",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "tui",
+      "cockpit",
+      "ux",
+      "discoverability"
+    ],
+    "title": "TUI: botones de comandos críticos en vista System/Inventory"
+  },
+  {
+    "created_at": "2026-05-10T12:56:38+02:00",
+    "deferred_reason": null,
+    "description": "apps_inventory.py (registry + winget list + Get-AppxPackage) -> ~/.ultron/system_inventory/apps.json + apps-history.jsonl. Nueva view TUI tecla a (lista buscable + diff). Tarea Apps-Inventory-Weekly (domingos). Boton refresh on-demand. Detecta software nuevo inesperado (security signal). Diseno propuesto en sesion 2026-05-10.",
+    "effort_hours": [
+      2,
+      3
+    ],
+    "id": "apps-inventory-script-tui-view-weekly-scheduler",
+    "kind": "polish",
+    "notes": [
+      {
+        "text": "[auto-audit] Cubierto por scripts/cockpit/installed_apps.py + System tab + UltronDoctor-Weekly retargeted al path actual.",
+        "ts": "2026-05-15T19:53:18"
+      }
+    ],
+    "priority": "p2",
+    "resolved_at": "2026-05-15T19:53:18",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "inventory",
+      "tui",
+      "scheduler",
+      "security"
+    ],
+    "title": "Apps inventory: script + TUI view + weekly scheduler"
+  },
+  {
+    "created_at": "2026-05-12T11:42:37+02:00",
+    "deferred_reason": null,
+    "description": "Reducir overhead fijo de contexto de ~56k a <20k. Causa raiz: 380 skills en ~/.claude/skills/ -> 33.8k tokens de metadata cargada SIEMPRE (no lo arreglan los hooks; es plataforma). Plan: (1) skill-vault: dejar activas ~30-50 skills (codigo + investigacion/academicas + finanzas + personas ULTRON + superpowers core), mover el resto a ~/.ultron/skill-vault/ indexadas en Qdrant con restore on-demand. (2) routing-telemetry extendido: contador de uso por skill -> ranking -> auto-promote/demote + deteccion de skills duplicadas (embedding similarity) -> propuesta de merge. (3) MCP token audit: investigar si los servers MCP pueden quedar registrados sin gastar tokens (deferred tool-names + instruction blocks); toggle ultron mcp enable/disable si no es nativo. (4) SessionStart hook deja de inyectar el cuerpo completo de using-superpowers. (5) trim CLAUDE.md global + SYSTEM-MAP + MEMORY.md. (6) ultron skills vault add/restore/list + doctor check de budget. SUPERSEDE/absorbe el item ultron-arranque-ligero-reducir-overhead-6k-2k-toke. Va ANTES de v15.1-bus-foundation en el roadmap.",
+    "effort_hours": [
+      20,
+      30
+    ],
+    "id": "token-diet-skill-vault-qdrant-lazy-loading-mcp-tok",
+    "kind": "sprint",
+    "notes": [
+      {
+        "text": "Scope ampliado (USER 2026-05-12): + WS6 consolidación del registro de skills (4 fuentes → 1) + WS7 poblar Qdrant / auto-mejora de embeddings / verificar que el hook Stop captura todas las sesiones. HALLAZGO: qdrant_storage está vacío, Docker apagado — la capa semántica no existe aún, sólo brain_index FTS5. Ejecutar emparejado con `memoria-automatizada-qdrant-embedding-pipeline-rec`. Objetivo conjunto = 'memory & context overhaul' antes de v15.1-bus. Keep-list (~48 skills) en el spec.",
+        "ts": "2026-05-12T12:10:00+02:00"
+      },
+      {
+        "text": "PROGRESO 2026-05-12: WS1+WS2 hechos — skill_vault.py creado; 334 skills movidas a ~/.ultron/skill-vault/ (+limpieza mirrors agents/codex); ~/.claude/skills/ 380->46; INDEX.json con metadata; ultron skills vault status|list|search|restore|migrate wired; keep-list.txt persistida. registry_sync update-manifest -> 46. Ahorro contexto efectivo en la proxima sesion (~-26k). PENDIENTE: WS3 MCP audit, WS5 quick wins (SessionStart using-superpowers, trims), WS6 consolidacion registro 4->1, WS7 Qdrant ultron_skills (bloqueado: Docker abajo) + routing-telemetry usage_count.",
+        "ts": "2026-05-12T13:45:00+02:00"
+      },
+      {
+        "text": "WS7 (parte skills) HECHO: embed_skills.py vault-aware (state active/plugin/vaulted, --rebuild, query --state). ultron_skills reconstruida 429 pts. ultron skills vault search = semantico Qdrant-first + fallback keyword. context.md muestra estado Qdrant. HF_HUB_OFFLINE en embed_*. Limpiado contenedor qdrant huerfano. VERIFICADO que el sistema Qdrant esta vivo (Docker autostart, ultron-qdrant up, colecciones ultron_vault 308 + ultron_skills 429, hooks Stop->embed_* y UserPromptSubmit->auto-recall operativos). PENDIENTE: routing-telemetry usage_count por skill, registro 4->1 (WS6), WS3 MCP audit, WS5 quick wins (SessionStart using-superpowers, trims), enhancement auto-recall.py para loguear cuando Qdrant esta down.",
+        "ts": "2026-05-12T14:10:00+02:00"
+      },
+      {
+        "text": "PROGRESO 2026-05-12 (cont.): merge-candidates (Qdrant pairwise cosine) anadido a skill_vault. auto-recall.py: skill sugerida muestra state + hint de restore si vaulted (la auto-deteccion semantica de skills via auto-recall YA estaba wired - query ultron_vault + ultron_skills cada primer turno con fastembed). WS3 MCP audit hecho: firebase/n8n-mcp fuera (settings.json + codex config). Los conectores claude.ai (~14 remotos: Booking/Spotify/Figma/Notion/Gmail/Drive/Calendar/Vercel/Supabase/Railway/Tripadvisor/Trivago/Kiwi/lastminute/UberEats) son el grueso del peso MCP pero se gestionan en claude.ai web, fuera de scope local. PENDIENTE de v15.0b: WS5 trim CLAUDE.md/SYSTEM-MAP/MEMORY · WS6 consolidar registro skills 4->1 · brain_index indexar el vault · merge powershell 5.1+7 (decidir).",
+        "ts": "2026-05-12T14:45:00+02:00"
+      },
+      {
+        "text": "WS5 hecho: SYSTEM-MAP.md tensado 6006->4101 chars (fuera QUICK COMMANDS, actualizado a v15.0b), ultron verify 10/10 PASS, settings_integrity baseline nuevo (MCP firebase/n8n/gemini* quitados a proposito). WS6 (foundation): skill_vault.py registry -> ~/.ultron/skills/registry.json unificado (429 skills: 46 active+334 vault+49 plugin con state/source/usage_count/embedding_id). PENDIENTE WS6: migrar consumers (registry_sync/skill_manifest/intent-dispatcher) al registro v2 + build en Stop hook + deprecar las 4 fuentes legacy. PENDIENTE resto v15.0b: brain_index indexe el vault · ultron osint diff · merge powershell 5.1+7 (decision) · cerrar v15.0b en PLANS.",
+        "ts": "2026-05-12T17:30:00+02:00"
+      }
+    ],
+    "priority": "p1",
+    "resolved_at": "2026-05-12T15:27:08+02:00",
+    "spec_path": "~/.ultron/plans/specs/v15.0b-token-diet.md",
+    "status": "resolved",
+    "tags": [
+      "context-budget",
+      "skills",
+      "qdrant",
+      "mcp",
+      "arranque-ligero",
+      "pre-bus"
+    ],
+    "title": "Token diet: skill-vault + Qdrant lazy-loading + MCP token audit"
+  },
+  {
+    "created_at": "2026-05-12T12:38:30+02:00",
+    "deferred_reason": null,
+    "description": "v15.0.1 (entre v15.0b y v15.1-bus). Modernizar el sistema multi-modelo peer. (1) Adoptar el plugin oficial openai/codex-plugin-cc (/codex:review, /codex:adversarial-review, /codex:rescue, status/result/cancel; auth via suscripcion ChatGPT, no API key; config.toml para modelo+effort). Migrar el plumbing casero shared-duet.ps1/codex-duet.ps1 -> mapear sub-modos ULTRON /minidual /dual /maxdual sobre los comandos del plugin; mantener capa conceptual (LOW prohibe Dual, Codex read-only salvo /codex:rescue con confirmacion, rounds acotados, review-gate desactivado para evitar bucles). (2) Gemini via suscripcion: usar el CLI gemini ya instalado con un prompt que escriba su output a un archivo .md que Claude lee desde fuera; QUITAR GEMINI_API_KEY del MCP/settings por completo; el flujo second-opinion pasa a ser 'gemini -p ... > archivo.md -> Read'. (3) Seguridad: pin model+reasoning_effort en ~/.codex/config.toml, auditar config.toml como vector (ya no aplica --ignore-user-config con el plugin). (4) Doc: reescribir references/dual-mode-protocol.md + seccion Dual de CLAUDE.md; deprecar .ps1 caseros (fallback opcional). (5) SINCRONIZAR TODO: registry_sync, version_propagate, SYSTEM-MAP, context_primer, manifests. DONE: /codex:review funciona desde suscripcion; /dual lanza plugin por debajo; Gemini Pro responde via CLI sin API key con output a archivo; protocolo documentado; cero bucles automaticos sin limite.",
+    "effort_hours": [
+      8,
+      12
+    ],
+    "id": "v15.0.1-dual-mode-v2",
+    "kind": "sprint",
+    "notes": [
+      {
+        "text": "Cerrado 2026-05-12: plugin codex@openai-codex instalado+setup (gpt-5.5/high, review-gate off, auth chatgpt verificada); MCP gemini/gemini-flash eliminados de settings.json; gemini-peer.ps1 creado; shared-duet.ps1 -> _legacy/; dual-mode-protocol.md v2.0 + CLAUDE.md reescritos; sync+commit 3552e52. PENDIENTE menor (follow-up): probar gemini-peer.ps1 end-to-end y confirmar si la suscripcion Google da gemini-3.1-pro por CLI o degrada a Flash.",
+        "ts": "2026-05-12T13:05:00+02:00"
+      }
+    ],
+    "priority": "p1",
+    "resolved_at": "2026-05-12T13:11:02+02:00",
+    "spec_path": "~/.ultron/plans/specs/v15.0.1-dual-mode-v2.md",
+    "status": "resolved",
+    "tags": [
+      "dual-mode",
+      "codex",
+      "gemini",
+      "pre-bus",
+      "v15.0.1"
+    ],
+    "title": "Dual Mode v2: adoptar codex-plugin-cc + Gemini CLI via suscripcion (sin API key)"
+  },
+  {
+    "created_at": "2026-05-15T01:20:00+02:00",
+    "deferred_reason": null,
+    "description": "Añadir 'PLAN' como modo formal en current-session.json (junto a LOW/MEDIUM/HIGH/ULTRA). Semántica: el agente PLANIFICA y EJECUTA en un solo prompt, sin pedir confirmaciones, asumiendo que la solución óptima propuesta es la correcta. Sirve para sesiones nocturnas o batch: el usuario deja el prompt, el agente trabaja, al final hay deliverable. Tocar: (1) session-init hook reconoce mode=PLAN y exporta SKILL_OVERRIDE='superpowers:hiper-plans + auto-execute'; (2) UI ModeSwitcher.tsx en Control Center añade quinto botón PLAN; (3) mode.rs valida 'PLAN' además de los cuatro existentes; (4) documentar el contrato en plans/specs/v15.2-plan-mode.md (no preguntas + token budget XL + ejecutar tras planificar). Origen: sesión 2026-05-15 ULTRON ULTRA donde USER dejó el prompt corriendo toda la noche para terminar el Control Center.",
+    "effort_hours": [
+      3,
+      5
+    ],
+    "id": "ultron-plan-mode",
+    "kind": "feature",
+    "notes": [
+      {
+        "text": "[auto-audit] Implementado como Plans tab en Control Center (kanban + CRUD + open resolution session + stats).",
+        "ts": "2026-05-15T19:53:18"
+      }
+    ],
+    "priority": "p2",
+    "resolved_at": "2026-05-15T19:53:18",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "modes",
+      "orchestration",
+      "autonomy",
+      "session-init"
+    ],
+    "title": "ULTRON PLAN mode — plan-and-execute autónomo sin preguntas"
+  },
+  {
+    "created_at": "2026-05-15T01:25:00+02:00",
+    "deferred_reason": null,
+    "description": "Items pendientes tras la sesión nocturna de Control Center: (1) Plans tab (pendiente desde v15.1) — kanban de PLANS.json. (2) Logs tab — live tail de alerts.jsonl + hooks via file-watcher Rust. (3) Tray icon dinámico por status (verde/amarillo/rojo) — hoy es neutro. (4) Auto-updater Tauri desde release GitHub. (5) Status bar inferior con info real-time (qdrant up, mcps ok, brain age, mode actual). (6) Skill-vault search en UI (hoy solo CLI). (7) Newsletter generator wire desde botón en News tab. (8) MCP edit modal: permitir renombrar (hoy solo delete+add). (9) Empty states con ilustración en cada tab. (10) Onboarding: primera vez detecta si claude/codex/gemini login pendiente. Origen: sesión 2026-05-15 que cerró bugs críticos (Sessions launcher, Dashboard widgets) + añadió Auth/Mode/News/Self-improve.",
+    "effort_hours": [
+      4,
+      6
+    ],
+    "id": "control-center-v15.1-followups",
+    "kind": "polish",
+    "notes": [
+      {
+        "text": "[auto-audit] Plans tab + Logs tab + hotkey editor + diagnose PC + backup status + 10 commits secuenciales en v15.1.1 cubren todos los followups.",
+        "ts": "2026-05-15T19:53:18"
+      }
+    ],
+    "priority": "p2",
+    "resolved_at": "2026-05-15T19:53:18",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "control-center",
+      "tauri",
+      "ui",
+      "polish"
+    ],
+    "title": "Control Center v15.1 — followups detectados en sesión 2026-05-15"
+  },
+  {
+    "created_at": "2026-05-12T15:27:08+02:00",
+    "deferred_reason": null,
+    "description": "Remate de v15.0b WS6: (1) migrar registry_sync/skill_manifest/intent-dispatcher (lee manifest.cache.json) al nuevo ~/.ultron/skills/registry.json; deprecar las 4 fuentes legacy (skills-registry.json, skill-provenance.json, skills.manifest.yaml, brain_index L1-skills). (2) anadir skill_vault.py registry al Stop hook para mantenerlo fresco. (3) brain_index indexe ~/.ultron/skill-vault/ para que ultron recall cubra contenido vaulteado via FTS5. (4) ultron osint diff (cuentas nuevas entre escaneos). (5) opcional: trim CLAUDE.md global (crecio 763->1236 tok con el rewrite del Dual v15.0.1, ~200 tok recortables). (6) opcional: arreglar token_baseline.py skill_listing (no mide lo que el harness carga - deberia sumar frontmatter de skills activas). (7) decidir merge powershell-5.1+7.",
+    "effort_hours": [
+      4,
+      6
+    ],
+    "id": "skill-registry-finish",
+    "kind": "polish",
+    "notes": [
+      {
+        "text": "REMATE 2026-05-12: hechos #2 (Stop hook regenera registry.json), #3 (brain_index indexa el vault como L1-skills-vault, 738 notas), #4 (ultron osint diff), #6 (token_baseline lee el registro v2 state-filtered). NO hechos a proposito: #1 reescribir consumers al registro v2 (registry_sync/skill_manifest/intent-dispatcher ya son consistentes entre si y con la realidad tras los syncs — el rewrite seria churn sin ganancia funcional; el objetivo 'una SSOT' esta cubierto por registry.json + Stop-hook freshness); #5 trim CLAUDE.md (riesgo>beneficio, ~470 tok del rewrite Dual v15.0.1 — aceptable); #7 merge powershell-5.1+7 (decision de USER, son runtimes distintos). Se marca DONE.",
+        "ts": "2026-05-12T18:30:00+02:00"
+      }
+    ],
+    "priority": "p2",
+    "resolved_at": "2026-05-12T18:30:00+02:00",
+    "spec_path": null,
+    "status": "resolved",
+    "tags": [
+      "skills",
+      "registry",
+      "ws6",
+      "brain-index",
+      "osint"
+    ],
+    "title": "Skill registry: migrar consumers al registro unificado + brain_index indexa el vault + osint diff"
+  }
+]
