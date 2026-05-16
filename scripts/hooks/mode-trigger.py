@@ -25,15 +25,14 @@ from datetime import datetime
 from pathlib import Path
 
 # F02 fix: cockpit path injection so hook_input_validator imports cleanly.
-_COCKPIT_PATH = str(
-    Path.home() / ".claude" / "skills" / "ultron" / "scripts" / "cockpit"
-)
+# Resolve from this installed hook, not from the legacy
+# ~/.claude/skills/ultron mirror, which may not contain scripts.
+_SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+_COCKPIT_PATH = str(_SCRIPTS_ROOT / "cockpit")
 if _COCKPIT_PATH not in sys.path:
     sys.path.insert(0, _COCKPIT_PATH)
 
-MEMORY_SYNC = (
-    Path.home() / ".claude" / "skills" / "ultron" / "scripts" / "cockpit" / "memory_sync.py"
-)
+MEMORY_SYNC = _SCRIPTS_ROOT / "cockpit" / "memory_sync.py"
 
 # Map trigger → canonical mode name accepted by memory_sync.py
 _MODE_MAP = {

@@ -64,6 +64,15 @@ def _user_home() -> Path:
     return Path.home()
 
 
+def _ultron_home() -> Path:
+    return _user_home() / ".ultron"
+
+
+def _ultron_venv_python() -> Path:
+    venv_py = _ultron_home() / ".venv" / "Scripts" / "python.exe"
+    return venv_py if venv_py.exists() else Path(sys.executable)
+
+
 def _report_json() -> Path:
     return _user_home() / ".ultron" / ".tmp" / "validate-last-run.json"
 
@@ -130,7 +139,7 @@ def _timed(check_name: str, fn: Callable[[], tuple[str, str]]) -> CheckResult:
 
 
 def _check_intent_dispatcher_runs() -> tuple[str, str]:
-    hook = _user_home() / ".claude" / "skills" / "ultron" / "hooks" / "intent-dispatcher.py"
+    hook = _ultron_home() / "scripts" / "hooks" / "intent-dispatcher.py"
     if not hook.exists():
         return "fail", "intent-dispatcher.py missing"
     # Use a prompt known to match the architect rule (confidence 0.95) per
@@ -141,9 +150,7 @@ def _check_intent_dispatcher_runs() -> tuple[str, str]:
         "session_id": "validate-id",
         "hook_event_name": "UserPromptSubmit",
     })
-    venv_py = _user_home() / ".claude" / "skills" / "ultron" / ".venv" / "Scripts" / "python.exe"
-    if not venv_py.exists():
-        venv_py = Path(sys.executable)
+    venv_py = _ultron_venv_python()
     proc = subprocess.run(
         [str(venv_py), str(hook)],
         input=payload, capture_output=True, text=True, timeout=10,
@@ -160,12 +167,10 @@ def _check_intent_dispatcher_runs() -> tuple[str, str]:
 
 
 def _check_auto_recall_kill_switch() -> tuple[str, str]:
-    hook = _user_home() / ".claude" / "skills" / "ultron" / "hooks" / "auto-recall.py"
+    hook = _ultron_home() / "scripts" / "hooks" / "auto-recall.py"
     if not hook.exists():
         return "fail", "auto-recall.py missing"
-    venv_py = _user_home() / ".claude" / "skills" / "ultron" / ".venv" / "Scripts" / "python.exe"
-    if not venv_py.exists():
-        venv_py = Path(sys.executable)
+    venv_py = _ultron_venv_python()
     payload = json.dumps({
         "prompt": "irrelevante porque kill switch",
         "session_id": "validate-kill",
@@ -239,9 +244,9 @@ def _check_qdrant_collection_populated() -> tuple[str, str]:
 
 def _check_stop_hook_chain() -> tuple[str, str]:
     chain = (
-        _user_home() / ".ultron" / "hooks" / "session-init.ps1",
-        _user_home() / ".ultron" / "hooks" / "stop-memory-sync.ps1",
-        _user_home() / ".ultron" / "hooks" / "session-cleanup.ps1",
+        _ultron_home() / "scripts" / "hooks" / "session-init.ps1",
+        _ultron_home() / "scripts" / "hooks" / "stop-memory-sync.ps1",
+        _ultron_home() / "scripts" / "hooks" / "session-cleanup.ps1",
     )
     missing = [p.name for p in chain if not p.exists()]
     if missing:
@@ -278,9 +283,7 @@ def validate_memory() -> SubsystemReport:
 
 
 def _check_skill_manifest_no_drift() -> tuple[str, str]:
-    venv_py = _user_home() / ".claude" / "skills" / "ultron" / ".venv" / "Scripts" / "python.exe"
-    if not venv_py.exists():
-        venv_py = Path(sys.executable)
+    venv_py = _ultron_venv_python()
     script = _HERE / "skill_manifest.py"
     if not script.exists():
         return "fail", "skill_manifest.py missing"

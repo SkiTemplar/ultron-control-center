@@ -35,8 +35,10 @@ from typing import Any
 
 # ── Cockpit path injection (lazy imports from context_packet_builder) ──────────
 # Inserted once at module level so cockpit imports resolve without subprocess.
-# Must come before any local cockpit import attempt.
-_COCKPIT_PATH = str(Path.home() / ".claude" / "skills" / "ultron" / "scripts" / "cockpit")
+# Must come before any local cockpit import attempt. Resolve from this
+# installed hook; the legacy ~/.claude/skills/ultron mirror is markdown-only.
+_SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+_COCKPIT_PATH = str(_SCRIPTS_ROOT / "cockpit")
 if _COCKPIT_PATH not in sys.path:
     sys.path.insert(0, _COCKPIT_PATH)
 

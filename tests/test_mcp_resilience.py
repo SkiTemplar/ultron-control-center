@@ -76,7 +76,7 @@ def real_fallbacks_path():
 # 1. fallbacks YAML schema
 # ---------------------------------------------------------------------------
 
-def test_load_fallbacks_returns_all_9_mcps(real_fallbacks_path):
+def test_load_fallbacks_returns_all_configured_mcps(real_fallbacks_path):
     """The shipped mcp-fallbacks.yaml lists every MCP server in settings.json
     with the required schema fields.
     """
@@ -94,10 +94,12 @@ def test_load_fallbacks_returns_all_9_mcps(real_fallbacks_path):
 
     fallbacks = mod._load_fallbacks()
 
-    expected = {
-        "sequential-thinking", "n8n-mcp", "gemini", "gemini-flash",
-        "context7", "playwright", "firebase", "unity", "codex",
-    }
+    settings_path = Path.home() / ".claude" / "settings.json"
+    if not settings_path.exists():
+        pytest.skip(f"settings file missing: {settings_path}")
+    settings = json.loads(settings_path.read_text(encoding="utf-8-sig"))
+    expected = set((settings.get("mcpServers") or {}).keys())
+    assert expected, "settings.json has no configured MCP servers"
     assert set(fallbacks.keys()) >= expected, (
         f"missing MCPs in fallbacks: {expected - set(fallbacks.keys())}"
     )
@@ -267,6 +269,20 @@ def test_emit_alerts_skips_ok(mhc, isolated_home):
     fallbacks = {"gemini": {"mcp_name": "gemini", "alert_severity": "warn",
                               "fallback_message": "x"}}
     results = {"gemini": "ok"}
+    assert mhc.emit_alerts(results, fallbacks) == 0
+
+
+def test_emit_alerts_suppresses_expected_offline_info(mhc, isolated_home):
+    """Expected-offline info MCPs stay in health JSON but do not notify."""
+    fallbacks = {
+        "unity": {
+            "mcp_name": "unity",
+            "alert_severity": "info",
+            "fallback_message": "Unity Editor is offline.",
+            "expected_offline": True,
+        }
+    }
+    results = {"unity": "degraded"}
     assert mhc.emit_alerts(results, fallbacks) == 0
 
 

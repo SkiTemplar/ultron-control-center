@@ -155,7 +155,7 @@ def test_safe_load_stdin_emits_alert_on_failure(monkeypatch):
     monkeypatch.setattr(sys, "stdin", io.StringIO("{not json"))
     out = hv.safe_load_stdin("UserPromptSubmit")
     assert out is None
-    assert captured.get("severity") == "warn"
+    assert captured.get("severity") == "info"
     assert captured.get("dedupe_tag") == "hookval:UserPromptSubmit"
     assert captured.get("source") == "UserPromptSubmit"
 

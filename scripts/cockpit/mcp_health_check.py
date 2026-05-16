@@ -516,12 +516,12 @@ def emit_alerts(results: dict[str, str],
         if len(msg) > 240:
             msg = msg[:237] + "..."
 
-        # Suppress recurring info alerts for MCPs that are expected offline.
+        # Suppress info alerts for MCPs that are expected offline. Their
+        # degraded state remains visible in mcp-health.json for dashboards.
         expected_offline = bool(meta.get("expected_offline"))
         if expected_offline and severity == "info":
-            window = max(dedupe_window_seconds, 24 * 3600)
-        else:
-            window = dedupe_window_seconds
+            continue
+        window = dedupe_window_seconds
 
         try:
             aid = _alerts.write_dedupe(

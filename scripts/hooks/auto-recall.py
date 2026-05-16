@@ -40,6 +40,13 @@ import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Resolve cockpit helpers from the installed .ultron tree. The
+# ~/.claude/skills/ultron mirror may only contain markdown skill files.
+_SCRIPTS_ROOT = Path(__file__).resolve().parents[1]
+_COCKPIT_PATH = str(_SCRIPTS_ROOT / "cockpit")
+if _COCKPIT_PATH not in sys.path:
+    sys.path.insert(0, _COCKPIT_PATH)
+
 # Silence fastembed/transformers noise that would otherwise pollute the stderr
 # system-reminder injection. Specifically the mean-pooling UserWarning on
 # multilingual MPNet is informational and irrelevant to the user.
@@ -338,20 +345,17 @@ def main() -> int:
         _log("exit", "kill_switch")
         return EXIT_SILENT
 
-    # Read stdin payload
+    # Read stdin payload through the shared hook validator. Malformed JSON is
+    # surfaced through the deduped alerts bus as info; suspicious validation
+    # failures remain warn-level inside hook_input_validator.
     try:
-        raw = sys.stdin.read()
+        from hook_input_validator import safe_load_stdin
     except Exception as e:
-        _log("exit", f"stdin_read_error:{e!r}")
+        _log("exit", f"validator_import_error:{e!r}")
         return EXIT_SILENT
-    if not raw:
-        _log("exit", "empty_stdin")
-        return EXIT_SILENT
-    _log("stdin", f"len={len(raw)}")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        _log("exit", f"json_decode:{e!r}")
+    data = safe_load_stdin("UserPromptSubmit")
+    if data is None:
+        _log("exit", "invalid_or_empty_stdin")
         return EXIT_SILENT
 
     prompt = (data.get("prompt") or "").strip()
