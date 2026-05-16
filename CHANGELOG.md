@@ -16,6 +16,73 @@ Note: the project is **Windows-only by design** — no macOS / Linux ports
 planned. The hooks, installer and dual-mode wiring all assume PowerShell
 + winget + Windows-specific APIs.
 
+## [15.2.31] - 2026-05-16
+
+### Added — hook bundle inspired by donchitos/Claude-Code-Game-Studios
+- `scripts/hooks/pre_compact.py` — dumps L0 context.md, active plans,
+  recent routing decisions and critical un-acked alerts to stdout RIGHT
+  before Claude Code compacts the conversation. The dump survives
+  summarisation, so the model retains its working state across compactions.
+- `scripts/hooks/post_compact.py` — logs the compaction event and prints
+  a short recovery roadmap pointing at context.md / Plans tab.
+- `scripts/hooks/detect_gaps.py` — SessionStart hook. Lists open loops:
+  skills on disk missing from registry.json, plans idle >7 days, backups
+  stale >14 days, skills currently quarantined, critical alerts un-acked
+  >24h. `--json` mode is consumed by the Dashboard "Pending items" widget.
+- `scripts/hooks/validate_push.py` — PreToolUse Bash matcher. Blocks
+  `git push --force` / `-f` / `--force-with-lease` to protected branches
+  (main / master / release / production). Exit 2 stops the tool call and
+  raises a warn-level alert.
+- `scripts/cockpit/ultron_statusline.py` — Claude Code statusline command.
+  Renders one line at the bottom of the conversation: current mode,
+  un-acked alerts count, last skill invoked, vault context age.
+- `templates/settings-hooks.json` schema bumped to v2: added
+  `permissions.deny` defense-in-depth list (rm -rf, force-push, sudo,
+  *.env / credentials / *-secret reads), the new hooks across SessionStart
+  / PreToolUse Bash / PreCompact / PostCompact, plus the statusLine entry.
+  Re-run `install.ps1` to merge into `~/.claude/settings.json`.
+- Tauri command `run_detect_gaps` invokes the same Python script the hook
+  uses and returns `GapsReport { count, gaps[] }` for the Dashboard
+  "Pending items" widget. Renders each gap with category, severity
+  pill, detail and suggestion. Auto-refreshes on mount.
+
+### Fixed
+- Memory graph: replaced the square box-clamp with a soft circular
+  confinement field. Nodes outside `MAX_RADIUS = VIEW * 0.42` get a
+  return force proportional to overshoot — the "line of beads along the
+  cube border" is gone, distribution looks organic.
+
+## [15.2.30] - 2026-05-16
+
+### Changed
+- Notifications: deletion is now final. `delete_alerts_by_fingerprints`
+  no longer writes silent backups under `~/.ultron/backups/alerts/`, and
+  it evicts any ack-tombstone whose id belongs to a deleted alert. No
+  history of dismissed notifications survives.
+
+### Docs
+- README EN+ES: public-beta banner up top and a Docs nav row linking
+  Install / Changelog / Contributing / Security / Authors / Notice /
+  License so GitHub-rendered README surfaces all of them.
+
+## [15.2.29] - 2026-05-16
+
+### Added
+- Dashboard "Maintenance commands" panel with whitelisted one-shot
+  cockpit operations grouped by skills / memory / system (skill registry
+  rebuild, skill security audit, registry sync, vault sync, brain index
+  update, MCP health, weekly backup). Output streams inline.
+- Skills tab "Quarantined" filter pill (active by default), per-row
+  security badge, security-first preview that auto-opens the findings
+  panel when a skill carries warn/quarantine/block (SKILL.md dims behind).
+- Projects: changing default_provider retargets the first claude/codex/
+  gemini chip in the row to the new provider, optimistically and on disk.
+
+### Fixed
+- Memory graph tuning pass 1 (further refined in v15.2.31): world 5000
+  -> 3500, gravity 0.002 -> 0.005, zoom range (0.15..5) -> (0.4..10),
+  spring rest 220 -> 170, polar init 0.42 -> 0.3.
+
 ## [15.2.28] - 2026-05-16
 
 ### Added

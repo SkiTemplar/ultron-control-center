@@ -4,6 +4,8 @@ import type {
   QdrantHealth,
   AlertEntry,
   ChangelogEntry,
+  DetectedGap,
+  GapsReport,
   GlobalStatus,
   MaintenanceCommand,
   MaintenanceResult,
@@ -11,6 +13,154 @@ import type {
   MemoryStatusInfo,
 } from "../types";
 import { statusColor } from "../lib/status";
+
+// ---------------------------------------------------------------------------
+// Pending items — surfaces the detect_gaps.py hook output as a Dashboard
+// card. Same script that runs on SessionStart is invoked on demand here
+// so the user can see open loops without opening a Claude session.
+// ---------------------------------------------------------------------------
+
+function gapColor(sev: string): string {
+  if (sev === "critical") return "var(--color-danger)";
+  if (sev === "warn") return "#e8a93a";
+  return "var(--color-text-tertiary)";
+}
+
+function PendingItemsPanel() {
+  const [report, setReport] = useState<GapsReport | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function refresh() {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await invoke<GapsReport>("run_detect_gaps");
+      setReport(r);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <section className="mt-8">
+      <div className="flex items-baseline justify-between">
+        <div>
+          <h2 className="text-[14px] font-semibold">Pending items</h2>
+          <p
+            className="mt-1 text-[12px]"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            Open loops detected across the cockpit: skills drift, idle plans,
+            stale backups, quarantined skills, critical alerts un-acked. Runs
+            the same script Claude sees on SessionStart.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={busy}
+          className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-2)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          {busy ? "Scanning…" : "Refresh"}
+        </button>
+      </div>
+      {err && (
+        <div
+          className="mt-3 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {err}
+        </div>
+      )}
+      {!err && report && report.count === 0 && (
+        <div
+          className="mt-3 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.06)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          No open loops detected. Cockpit is clean.
+        </div>
+      )}
+      {!err && report && report.count > 0 && (
+        <div className="mt-3 space-y-2">
+          {report.gaps.map((g: DetectedGap, i: number) => (
+            <div
+              key={`${g.category}-${i}`}
+              className="rounded p-3 text-[12px]"
+              style={{
+                background: "var(--color-surface-2)",
+                border: `1px solid ${gapColor(g.severity)}33`,
+                borderLeft: `3px solid ${gapColor(g.severity)}`,
+              }}
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="min-w-0">
+                  <span
+                    className="text-[10.5px] font-medium uppercase tracking-wide"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {g.category}
+                  </span>
+                  <span
+                    className="ml-2 text-[12px] font-semibold"
+                    style={{ color: "var(--color-text)" }}
+                  >
+                    {g.title}
+                  </span>
+                </div>
+                <span
+                  className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                  style={{
+                    background: `${gapColor(g.severity)}22`,
+                    color: gapColor(g.severity),
+                  }}
+                >
+                  {g.severity}
+                </span>
+              </div>
+              {g.detail && (
+                <div
+                  className="mt-1 text-[11.5px]"
+                  style={{ color: "var(--color-text-secondary)" }}
+                >
+                  {g.detail}
+                </div>
+              )}
+              {g.suggestion && (
+                <div
+                  className="mt-1 text-[11px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  → {g.suggestion}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Maintenance panel — buttons that fire whitelisted Rust commands (see
@@ -749,6 +899,8 @@ export function Dashboard({
       </section>
 
       <MaintenancePanel />
+
+      <PendingItemsPanel />
 
       {/* PC Diagnostics (existing) + Auto-fix entry point */}
       <section className="mt-8">

@@ -24,6 +24,55 @@ pub struct MaintenanceResult {
     pub elapsed_ms: u128,
 }
 
+#[derive(Debug, serde::Deserialize, Serialize)]
+pub struct DetectedGap {
+    pub severity: String,
+    pub category: String,
+    pub title: String,
+    pub detail: String,
+    pub suggestion: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize, Serialize)]
+pub struct GapsReport {
+    pub generated_at: String,
+    pub count: u32,
+    pub gaps: Vec<DetectedGap>,
+}
+
+pub fn run_detect_gaps_inner() -> Result<GapsReport, String> {
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let script = home
+        .join(".ultron")
+        .join("scripts")
+        .join("hooks")
+        .join("detect_gaps.py");
+    if !script.is_file() {
+        return Err(format!("detect_gaps.py missing: {}", script.display()));
+    }
+    let mut command = Command::new("uv");
+    command
+        .arg("run")
+        .arg("python")
+        .arg(&script)
+        .arg("--json")
+        .current_dir(home.join(".ultron"));
+    #[cfg(windows)]
+    {
+        command.creation_flags(0x08000000);
+    }
+    let output = command
+        .output()
+        .map_err(|e| format!("spawn uv: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        return Err(format!("detect_gaps exit {:?}: {}", output.status.code(), stderr));
+    }
+    serde_json::from_str::<GapsReport>(&stdout)
+        .map_err(|e| format!("parse detect_gaps json: {} — raw: {}", e, stdout.chars().take(200).collect::<String>()))
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct MaintenanceCommand {
     pub kind: String,

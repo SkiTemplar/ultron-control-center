@@ -82,19 +82,22 @@ type Particle = {
   fixed: boolean; // user-pinned via drag
 };
 
-// v15.2.29 pass: world shrunk 5000→3500 (was too vast — nodes hugged
-// corners because the disk init only filled 42% of it), gravity bumped to
-// 0.005 so the cluster keeps a real center, zoom-out floor raised to 0.4
-// so the user can't shrink everything into illegibility, zoom-in ceiling
-// raised to 10 so single-cluster reads are possible. Spring rest down to
-// 170 so edges don't yank disconnected siblings into corners.
+// v15.2.31 pass: kill the square frontier. The previous box-clamp pinned
+// any overshooting node to a flat edge (x=120 / x=VIEW-120 / etc.), which
+// produced the "line of beads along the cube border" the user kept seeing.
+// We swap the hard box clamp for a SOFT CIRCULAR field: nodes outside
+// MAX_RADIUS get a return force proportional to their overshoot. Gravity
+// stays as a gentle central pull so the cluster keeps a center, but the
+// confinement shape is a disk, not a square — distribution looks organic.
 const VIEW = 3500;
 const CENTER = VIEW / 2;
+const MAX_RADIUS = VIEW * 0.42; // soft disk radius — outside → return force
+const RADIAL_RETURN_K = 0.045; // strength of the radial push-back per px overshoot
 const NODE_RADIUS_BASE = 16;
 const REPULSION = 900; // pushes nodes apart in a smaller world
 const SPRING_K = 0.04;
 const SPRING_REST = 170; // edges shorter — cluster stays compact
-const GRAVITY = 0.005; // stronger pull to center so nodes don't drift to edges
+const GRAVITY = 0.003; // softer central pull now that the disk field caps wandering
 const DAMPING = 0.6;
 const COLLIDE_RADIUS = 26;
 const COLLIDE_STRENGTH = 0.5;
@@ -195,13 +198,21 @@ function step(
     p.py = p.y;
     p.x += vx + p.ax;
     p.y += vy + p.ay;
-    // Box clamp so nodes don't fly off the SVG. With the smaller world,
-    // a 120 px inner margin keeps node circles fully visible at all
-    // zoom levels without forcing them to crowd the center.
-    if (p.x < 120) p.x = 120;
-    if (p.x > VIEW - 120) p.x = VIEW - 120;
-    if (p.y < 120) p.y = 120;
-    if (p.y > VIEW - 120) p.y = VIEW - 120;
+    // Soft circular confinement — replaces the square box clamp.
+    // If the node is outside MAX_RADIUS from CENTER, push it back toward
+    // the center proportionally to how far it overshot. The push is a
+    // velocity-like correction (apply to x/y directly, not to ax/ay),
+    // so it overrides whatever the integrator just did without fighting
+    // the next step's damping.
+    const dxC = p.x - CENTER;
+    const dyC = p.y - CENTER;
+    const distC = Math.sqrt(dxC * dxC + dyC * dyC);
+    if (distC > MAX_RADIUS) {
+      const overshoot = distC - MAX_RADIUS;
+      const factor = (overshoot * RADIAL_RETURN_K) / distC;
+      p.x -= dxC * factor;
+      p.y -= dyC * factor;
+    }
   }
 }
 

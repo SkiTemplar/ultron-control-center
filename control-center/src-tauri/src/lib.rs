@@ -421,6 +421,11 @@ async fn run_maintenance_command(kind: String) -> Result<maintenance::Maintenanc
 }
 
 #[tauri::command]
+async fn run_detect_gaps() -> Result<maintenance::GapsReport, String> {
+    maintenance::run_detect_gaps_inner()
+}
+
+#[tauri::command]
 async fn allow_skill_manually(
     name: String,
     rules: Vec<String>,
@@ -1276,6 +1281,7 @@ pub fn run() {
             allow_skill_manually,
             list_maintenance_commands,
             run_maintenance_command,
+            run_detect_gaps,
             memory_status,
             spawn_session,
             run_inline,

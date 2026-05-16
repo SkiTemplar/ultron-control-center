@@ -1,6 +1,31 @@
 {
   "_comment": "ULTRON hook template. Merged into ~/.claude/settings.json by install.ps1. The token {USERPROFILE} is expanded to the user's home (forward-slash form) at install time.",
-  "_schema_version": 1,
+  "_schema_version": 2,
+
+  "permissions": {
+    "_comment": "Defense-in-depth deny list. Hooks run AFTER this filter, so this is the cheapest layer to block obvious foot-guns.",
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(rm -rf /*)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean -f*)",
+      "Bash(sudo *)",
+      "Bash(chmod 777*)",
+      "Bash(*>.env*)",
+      "Bash(cat *.env*)",
+      "Bash(type *.env*)",
+      "Read(**/.env*)",
+      "Read(**/credentials*)",
+      "Read(**/*-secret*)"
+    ]
+  },
+
+  "statusLine": {
+    "type": "command",
+    "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/cockpit/ultron_statusline.py"
+  },
 
   "hooks": {
     "SessionStart": [
@@ -9,6 +34,10 @@
           {
             "type": "command",
             "command": "PowerShell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -File {USERPROFILE}/.ultron/scripts/hooks/session-init.ps1"
+          },
+          {
+            "type": "command",
+            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/detect_gaps.py"
           }
         ]
       }
@@ -30,6 +59,10 @@
           {
             "type": "command",
             "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/block-dangerous-bash.py"
+          },
+          {
+            "type": "command",
+            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/validate_push.py"
           }
         ]
       },
@@ -78,6 +111,28 @@
           {
             "type": "command",
             "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/track-knowledge-reads.py"
+          }
+        ]
+      }
+    ],
+
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/pre_compact.py"
+          }
+        ]
+      }
+    ],
+
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/post_compact.py"
           }
         ]
       }
