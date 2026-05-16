@@ -7,6 +7,7 @@ import type {
   LauncherItemKind,
   ProjectActionResult,
   ProjectInfo,
+  SessionProvider,
 } from "../types";
 
 // ---------------------------------------------------------------------------
@@ -142,12 +143,39 @@ function CodexMark() {
   );
 }
 
+/** Star mark for Gemini — Google blue tile. Used only by the default-provider
+ *  selector (no `gemini` launcher kind exists in this PR; the dispatcher is
+ *  untouched). */
+function GeminiMark() {
+  return (
+    <span
+      aria-hidden
+      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11px] font-bold leading-none"
+      style={{
+        background: "#4285f4",
+        color: "#fafaf7",
+        fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, monospace)",
+      }}
+    >
+      G
+    </span>
+  );
+}
+
 /** Icon picked from the item kind for built-in chips. */
 function BuiltinIcon({ kind }: { kind: string }) {
   if (kind === "folder") return <FolderIcon />;
   if (kind === "claude") return <ClaudeMark />;
   if (kind === "codex") return <CodexMark />;
+  if (kind === "gemini") return <GeminiMark />;
   return <PlayIcon />;
+}
+
+/** Map a default-provider value to the launcher-item `kind` it would match.
+ *  The chip-highlight logic uses this to decide which item (if any) on the
+ *  row should render with the "default" border + glow. */
+function providerToKind(p: SessionProvider): string {
+  return p; // 1:1 today; kept as a helper so future renames stay local.
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +235,7 @@ function Row({
   onLaunchItem,
   onAddItem,
   onRemoveItem,
+  onSetDefaultProvider,
   busyItem,
   launchingAll,
 }: {
@@ -221,11 +250,17 @@ function Row({
   onLaunchItem: (index: number) => void;
   onAddItem: () => void;
   onRemoveItem: (index: number) => void;
+  onSetDefaultProvider: (provider: SessionProvider) => void;
   busyItem: number | null;
   launchingAll: boolean;
 }) {
   const b = statusBadge(p.status);
   const items = p.items ?? [];
+  // Backend normalises this on load, so the ?? is belt-and-braces for the
+  // optimistic case where the UI just mutated the value before reloading.
+  const defaultProvider: SessionProvider =
+    (p.default_provider as SessionProvider | null | undefined) ?? "claude";
+  const defaultKind = providerToKind(defaultProvider);
   return (
     <div
       className="flex flex-col gap-2 rounded p-3 transition-colors"
@@ -374,6 +409,14 @@ function Row({
           const busy = busyItem === i;
           if (builtin) {
             const tip = builtinTooltip(it);
+            // True when this chip matches the project's default provider — we
+            // give it an accent border + soft glow so the user spots the
+            // "main launch" path at a glance. Folder/exe chips are never the
+            // default (the radio is provider-only).
+            const isDefault =
+              (it.kind === "claude" || it.kind === "codex" || it.kind === "gemini") &&
+              it.kind === defaultKind;
+            const tipFull = isDefault ? `${tip} — default provider` : tip;
             return (
               <div key={i} className="relative inline-flex">
                 <button
@@ -384,10 +427,13 @@ function Row({
                   style={{
                     background: "var(--color-surface-1)",
                     color: "var(--color-text)",
-                    border: "1px solid var(--color-border-strong)",
+                    border: `1px solid ${isDefault ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+                    boxShadow: isDefault
+                      ? "0 0 0 1px var(--color-accent), 0 0 6px rgba(88, 166, 255, 0.35)"
+                      : "none",
                   }}
-                  title={tip}
-                  aria-label={tip}
+                  title={tipFull}
+                  aria-label={tipFull}
                 >
                   {busy ? (
                     <span className="text-[10px]">…</span>
@@ -466,6 +512,50 @@ function Row({
         >
           + Add item
         </button>
+        {/* Inline default-provider selector — 3 segmented radio buttons,
+            persisted via set_default_provider on click. We render it on the
+            same row as the chips so the relationship between "selected
+            default" and "highlighted chip" is visually obvious. */}
+        <div
+          className="ml-auto flex items-center gap-1 rounded px-1 py-0.5"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border)",
+          }}
+          title="Default provider — the chip with this provider is the main launch path"
+          aria-label="Default provider selector"
+        >
+          <span
+            className="px-1 text-[9.5px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            default
+          </span>
+          {(["claude", "codex", "gemini"] as SessionProvider[]).map((prov) => {
+            const active = prov === defaultProvider;
+            return (
+              <button
+                key={prov}
+                type="button"
+                onClick={() => {
+                  if (!active) onSetDefaultProvider(prov);
+                }}
+                className="flex h-5 items-center justify-center rounded px-1.5 text-[10px] font-medium capitalize transition-colors"
+                style={{
+                  background: active ? "var(--color-accent)" : "transparent",
+                  color: active
+                    ? "var(--color-accent-text)"
+                    : "var(--color-text-secondary)",
+                  border: `1px solid ${active ? "var(--color-accent)" : "transparent"}`,
+                }}
+                aria-pressed={active}
+                title={`Set ${prov} as the default provider for this project`}
+              >
+                {prov}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -808,6 +898,25 @@ export function Projects() {
       await load();
     } catch (e) {
       setError(String(e));
+    }
+  }
+
+  async function setDefaultProvider(
+    projectId: string,
+    provider: SessionProvider,
+  ) {
+    // Optimistic update so the highlight moves instantly. If the invoke
+    // fails we surface the error and roll back from the canonical reload.
+    setProjects((prev) =>
+      prev.map((proj) =>
+        proj.id === projectId ? { ...proj, default_provider: provider } : proj,
+      ),
+    );
+    try {
+      await invoke("set_default_provider", { projectId, provider });
+    } catch (e) {
+      setError(String(e));
+      await load();
     }
   }
 
@@ -1340,6 +1449,7 @@ export function Projects() {
                   onLaunchItem={(i) => launchItem(p.id, i)}
                   onAddItem={() => openAddItem(p)}
                   onRemoveItem={(i) => removeItem(p.id, i)}
+                  onSetDefaultProvider={(prov) => setDefaultProvider(p.id, prov)}
                   busyItem={busyItem[p.id] ?? null}
                   launchingAll={!!launchingAll[p.id]}
                 />

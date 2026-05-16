@@ -52,6 +52,13 @@ pub struct ProjectInfo {
     /// keep working without an on-disk migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<LauncherItem>>,
+    /// Preferred session provider when the user hits the project's "main
+    /// launch" path: one of "claude" | "codex" | "gemini". The frontend uses
+    /// it to mark the corresponding chip as the default. Old registries
+    /// without the field default to "claude" at read time — see
+    /// `list_projects_inner`. The launch dispatch is provider-agnostic; this
+    /// field is pure metadata.
+    pub default_provider: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,6 +88,27 @@ struct RegEntry {
     tags: Vec<String>,
     #[serde(default)]
     items: Option<Vec<LauncherItem>>,
+    #[serde(default)]
+    default_provider: Option<String>,
+}
+
+/// Allowed values for `Project.default_provider`. Centralised so backend
+/// commands (set_default_provider, create_project, update_project) and the
+/// load-time normaliser stay in lock-step.
+const VALID_PROVIDERS: &[&str] = &["claude", "codex", "gemini"];
+
+fn normalise_provider(raw: Option<&str>) -> String {
+    match raw.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(s) => {
+            let lower = s.to_ascii_lowercase();
+            if VALID_PROVIDERS.contains(&lower.as_str()) {
+                lower
+            } else {
+                "claude".to_string()
+            }
+        }
+        None => "claude".to_string(),
+    }
 }
 
 fn registry_path() -> Option<PathBuf> {
@@ -221,6 +249,9 @@ pub struct CreateProjectPayload {
     pub ide: Option<String>,
     pub language: Option<String>,
     pub tags: Option<Vec<String>>,
+    /// One of "claude" | "codex" | "gemini". Anything else (or absent) is
+    /// normalised to "claude" before being written to projects.json.
+    pub default_provider: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -334,6 +365,7 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         })
         .unwrap_or_else(|_| "1970-01-01".to_string());
 
+    let default_provider = normalise_provider(p.default_provider.as_deref());
     let new_entry = serde_json::json!({
         "id": id,
         "name": p.name.trim(),
@@ -347,6 +379,7 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         "tags": p.tags.unwrap_or_default(),
         "auto_tags": [],
         "items": [],
+        "default_provider": default_provider,
     });
     projects.push(new_entry);
 
@@ -377,6 +410,10 @@ pub struct UpdateProjectPayload {
     pub ide: Option<String>,
     pub language: Option<String>,
     pub tags: Option<Vec<String>>,
+    /// Optional update for the project's default provider. None = leave the
+    /// existing value untouched (consistent with the rest of the patch
+    /// fields). Any non-`claude/codex/gemini` value collapses to "claude".
+    pub default_provider: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -448,12 +485,44 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
             .collect();
         entry["tags"] = serde_json::Value::Array(arr);
     }
+    if let Some(prov) = p.default_provider.as_deref() {
+        // Normalise unconditionally so a bad client value can't poison the
+        // registry. Storing "" or a typo would force the frontend into a
+        // fallback path on every render.
+        entry["default_provider"] = serde_json::Value::String(normalise_provider(Some(prov)));
+    }
 
     let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
     atomic_write(&registry, &serialized)?;
     Ok(UpdateProjectResult {
         success: true,
         id: p.id,
+    })
+}
+
+/// Single-field patch for `default_provider`. Used by the icon-only chip
+/// inline radio in the Projects tab — cheaper than threading every other
+/// Option through `update_project_inner` just to flip this one bit, and
+/// keeps the on-disk write surgical (only `default_provider` is touched).
+pub fn set_default_provider_inner(
+    project_id: String,
+    provider: String,
+) -> Result<UpdateProjectResult, String> {
+    if project_id.trim().is_empty() {
+        return Err("project_id is empty".to_string());
+    }
+    let normalised = normalise_provider(Some(provider.as_str()));
+    let (registry, mut root) = load_registry_mut()?;
+    {
+        let entry = find_entry_mut(&mut root, &project_id)?;
+        entry["default_provider"] = serde_json::Value::String(normalised);
+    }
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    atomic_write(&registry, &serialized)?;
+    Ok(UpdateProjectResult {
+        success: true,
+        id: project_id,
     })
 }
 
@@ -546,6 +615,10 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             _ => None,
         };
 
+        // Backwards-compat: registry entries written before v15.x carry no
+        // `default_provider`. Normalise to "claude" so the frontend always
+        // gets a usable value and never has to defend itself against `None`.
+        let default_provider = Some(normalise_provider(p.default_provider.as_deref()));
         out.push(ProjectInfo {
             id: p.id,
             name: p.name,
@@ -557,6 +630,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             last_active: p.last_active,
             tags: p.tags,
             items: synthesised_items,
+            default_provider,
         });
     }
     // Sort by last_active desc (ISO yyyy-mm-dd compares lexicographically).
@@ -974,8 +1048,7 @@ pub fn delete_project_inner_with_emit(
 }
 
 // LIB_RS_WIRING:
-//   Replace the `create_project` and `delete_project` commands so they
-//   pass the AppHandle to the emit-aware wrappers:
+//   1. Existing emit-aware wrappers (kept for reference):
 //
 //     #[tauri::command]
 //     async fn create_project(
@@ -985,10 +1058,13 @@ pub fn delete_project_inner_with_emit(
 //         ide: Option<String>,
 //         language: Option<String>,
 //         tags: Option<Vec<String>>,
+//         default_provider: Option<String>,
 //     ) -> Result<projects::CreateProjectResult, String> {
 //         projects::create_project_inner_with_emit(
 //             &app,
-//             projects::CreateProjectPayload { name, path, ide, language, tags },
+//             projects::CreateProjectPayload {
+//                 name, path, ide, language, tags, default_provider,
+//             },
 //         )
 //     }
 //
@@ -998,4 +1074,37 @@ pub fn delete_project_inner_with_emit(
 //         id: String,
 //     ) -> Result<projects::DeleteProjectResult, String> {
 //         projects::delete_project_inner_with_emit(&app, id)
+//     }
+//
+//   2. New command for the inline default-provider selector. Add this
+//      function next to `update_project` in lib.rs and reference it in the
+//      `tauri::generate_handler![...]` invocation:
+//
+//     #[tauri::command]
+//     async fn set_default_provider(
+//         project_id: String,
+//         provider: String,
+//     ) -> Result<projects::UpdateProjectResult, String> {
+//         projects::set_default_provider_inner(project_id, provider)
+//     }
+//
+//      Handler list addition:
+//          set_default_provider,
+//
+//   3. `update_project` now also accepts an optional `default_provider`
+//      arg; thread it through `UpdateProjectPayload`:
+//
+//     #[tauri::command]
+//     async fn update_project(
+//         id: String,
+//         name: Option<String>,
+//         path: Option<String>,
+//         ide: Option<String>,
+//         language: Option<String>,
+//         tags: Option<Vec<String>>,
+//         default_provider: Option<String>,
+//     ) -> Result<projects::UpdateProjectResult, String> {
+//         projects::update_project_inner(projects::UpdateProjectPayload {
+//             id, name, path, ide, language, tags, default_provider,
+//         })
 //     }

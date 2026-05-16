@@ -82,22 +82,30 @@ type Particle = {
   fixed: boolean; // user-pinned via drag
 };
 
-const VIEW = 1000;
+// World is 2.4x larger than before (was 1000) so nodes have room to spread
+// instead of being crammed into a "square edge" near the center. Gravity
+// drops drastically so the equilibrium is naturally diffuse; zoom-out
+// now reveals the full sprawl rather than a compact island in empty space.
+const VIEW = 2400;
 const CENTER = VIEW / 2;
-const NODE_RADIUS_BASE = 9; // bumped from 4 — bigger nodes, easier to click
-const REPULSION = 500; // pairwise repulsion (reduced from 900 — denser, less explosive)
-const SPRING_K = 0.04; // edge spring stiffness
-const SPRING_REST = 80; // resting edge length
-const GRAVITY = 0.015; // looser pull to center (was 0.03 — let cluster breathe)
+const NODE_RADIUS_BASE = 14; // bigger so nodes stay visible when zoomed far out
+const REPULSION = 700; // stronger to keep the larger world feeling lively
+const SPRING_K = 0.04; // edge spring stiffness (unchanged)
+const SPRING_REST = 150; // longer rest length matches the bigger world
+const GRAVITY = 0.005; // VERY soft — lets the cluster fill the canvas
 const DAMPING = 0.6; // velocity retention per frame
-const COLLIDE_RADIUS = 18; // grew with NODE_RADIUS_BASE so overlap stays sane
+const COLLIDE_RADIUS = 22; // grew with NODE_RADIUS_BASE so overlap stays sane
 const COLLIDE_STRENGTH = 0.5;
-const PRE_FRAMES = 320; // higher pre-render so the SVG mounts already settled
+const PRE_FRAMES = 500; // larger world needs more frames to settle pre-mount
 const MAX_RENDER_NODES = 200; // cap client-side; backend may still send more
 const ALPHA_DECAY = 0.985; // multiplicative cooling on per-step force scale
 const ALPHA_MIN = 0.01; // below this we freeze physics (alpha=0)
 const MOTION_IDLE_THRESHOLD = 4.0; // per-frame total squared motion below this → idle
 const IDLE_FRAMES_TO_STOP = 12;
+// Zoom limits — widened so the user can pull all the way out to see the
+// whole world, or punch in close on a single cluster.
+const ZOOM_MIN = 0.15;
+const ZOOM_MAX = 5;
 
 function step(
   particles: Particle[],
@@ -472,7 +480,7 @@ export function MemoryGraphForce({
     const wx = (cx - t.tx) / t.scale;
     const wy = (cy - t.ty) / t.scale;
     const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
-    const next = Math.max(0.25, Math.min(4, t.scale * factor));
+    const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, t.scale * factor));
     // Solve so the world point stays anchored under the cursor.
     t.tx = cx - wx * next;
     t.ty = cy - wy * next;

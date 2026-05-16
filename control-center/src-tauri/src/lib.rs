@@ -555,6 +555,7 @@ async fn create_project(
     ide: Option<String>,
     language: Option<String>,
     tags: Option<Vec<String>>,
+    default_provider: Option<String>,
 ) -> Result<projects::CreateProjectResult, String> {
     // F2: route through *_with_emit so project.created notifications fire
     projects::create_project_inner_with_emit(&app, projects::CreateProjectPayload {
@@ -563,6 +564,7 @@ async fn create_project(
         ide,
         language,
         tags,
+        default_provider,
     })
 }
 
@@ -574,6 +576,7 @@ async fn update_project(
     ide: Option<String>,
     language: Option<String>,
     tags: Option<Vec<String>>,
+    default_provider: Option<String>,
 ) -> Result<projects::UpdateProjectResult, String> {
     projects::update_project_inner(projects::UpdateProjectPayload {
         id,
@@ -582,7 +585,19 @@ async fn update_project(
         ide,
         language,
         tags,
+        default_provider,
     })
+}
+
+/// Surgical patch for `Project.default_provider`. The Projects tab's inline
+/// radio invokes this on every selection change without needing to assemble
+/// a full update payload; keeps the on-disk write to a single field.
+#[tauri::command]
+async fn set_default_provider(
+    project_id: String,
+    provider: String,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::set_default_provider_inner(project_id, provider)
 }
 
 #[tauri::command]
@@ -1227,6 +1242,7 @@ pub fn run() {
             create_project,
             update_project,
             delete_project,
+            set_default_provider,
             brain_query,
             read_vault_note,
             memory_action,

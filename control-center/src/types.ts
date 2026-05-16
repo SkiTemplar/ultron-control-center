@@ -389,6 +389,11 @@ export type ProjectInfo = {
    *  `[folder(path), claude(path)]` pair so old-style entries keep working
    *  without an on-disk migration. */
   items?: LauncherItem[] | null;
+  /** Preferred session provider for this project. Always one of
+   *  "claude" | "codex" | "gemini" — the Rust loader normalises legacy
+   *  entries (missing field / typos) to "claude" before returning, so the
+   *  UI can safely read it without a null check. */
+  default_provider?: SessionProvider | null;
 };
 
 export type ProjectActionResult = {
