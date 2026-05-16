@@ -568,6 +568,43 @@ function Install-Skills {
 }
 
 # ----------------------------------------------------------------------
+# Step 8b: community skills from SkiTemplar/ultron-skills (optional)
+# ----------------------------------------------------------------------
+function Install-CommunitySkills {
+    Write-Step "8b. community skills from SkiTemplar/ultron-skills (optional)"
+    $want = Confirm-YesNo -Question "Install curated community skills from ultron-skills repo?" -Default $false
+    if (-not $want) { Write-Skip "user declined"; return }
+    if (-not (Get-Command "git" -ErrorAction SilentlyContinue)) {
+        Write-Warn2 "git not on PATH; cannot clone ultron-skills"
+        return
+    }
+    $skillsDest = Join-Path $env:USERPROFILE ".claude\skills"
+    $tmp = Join-Path $env:TEMP "ultron-skills-clone"
+    if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
+    try {
+        & git clone --depth 1 https://github.com/SkiTemplar/ultron-skills.git $tmp 2>&1 | ForEach-Object { Write-V $_ }
+        if ($LASTEXITCODE -ne 0) { Write-Warn2 "clone failed"; return }
+        # Copy each skill that has SKILL.md, skip existing
+        Get-ChildItem -Directory $tmp | ForEach-Object {
+            $skill = $_.Name
+            if ($skill -eq ".git") { return }
+            $src = Join-Path $_.FullName "SKILL.md"
+            $dst = Join-Path $skillsDest "$skill\SKILL.md"
+            if ((Test-Path $src) -and -not (Test-Path $dst)) {
+                New-Item -ItemType Directory -Path (Split-Path $dst) -Force | Out-Null
+                Copy-Item -LiteralPath $src -Destination $dst -Force
+                Write-V "copied $skill"
+            }
+        }
+        Write-OK "community skills installed"
+    } catch {
+        Write-Warn2 ("community skills failed: " + $_.Exception.Message)
+    } finally {
+        if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue }
+    }
+}
+
+# ----------------------------------------------------------------------
 # Step 9: brain_index init
 # ----------------------------------------------------------------------
 function Initialize-BrainIndex {
@@ -766,6 +803,7 @@ try {
     Initialize-PythonVenv
     Update-ClaudeSettings
     Install-Skills
+    Install-CommunitySkills
     Initialize-BrainIndex
     Build-ControlCenter
     Invoke-Doctor
