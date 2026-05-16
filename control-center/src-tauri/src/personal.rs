@@ -257,15 +257,35 @@ pub async fn request_personal_analysis_inner(
         .unwrap_or_else(|| "~/.ultron/personal/known.json".to_string());
 
     let prompt = format!(
-        "Lee los últimos 30 transcripts en ~/.claude/projects/, los últimos 20 \
-commits del repo ~/.ultron, y MEMORY.md. Genera un análisis de mi estilo de \
-escritura, temas recurrentes y rutinas. Escribe el resultado en {} con shape: \
-{{\"style_fingerprint\": \"...\", \"recent_topics\": [], \"routines\": [], \
-\"last_updated\": \"<iso>\", \"source\": \"<descripción>\"}}. Token-eficiente: \
-máximo 50 líneas leídas por fuente. style_fingerprint = 1-3 líneas. \
-recent_topics: máximo 8 strings cortos. routines: máximo 4 frases tipo \
-\"trabaja entre 22:00-02:00\". NO inventes datos: si una fuente no aporta \
-nada, déjalo vacío.",
+        "You are analyzing the user's conversations and writing samples to build a \
+style fingerprint stored at ~/.ultron/personal/known.json.\n\n\
+Read up to 30 most recent JSONL files in ~/.claude/projects/C--Users-USER--ultron/ \
+(skip auto-generated/system messages). Read MEMORY.md. Read ~/.ultron/MEMORY.md. \
+Read recent commits via `git log --pretty=format:\"%s%n%b\" -n 30`.\n\n\
+Output JSON with this exact shape (no other fields, no fences):\n\n\
+{{\n\
+  \"style_fingerprint\": \"<a paragraph describing tone, formality, register, code-switching (Spanish/English), common opening/closing phrases, sentence rhythm, how the user expresses frustration vs satisfaction vs urgency>\",\n\
+  \"writing_style\": {{\n\
+    \"tone\": \"<concise / verbose / blunt / diplomatic — pick one or two>\",\n\
+    \"primary_language\": \"<es / en / mixed>\",\n\
+    \"code_switching\": \"<how often and when does the user switch ES->EN or EN->ES — name the triggers (tech terms? frustration? quotes?)>\",\n\
+    \"characteristic_phrases\": [\"...\", \"...\", \"...\"],\n\
+    \"typo_patterns\": [\"...\", \"...\"],\n\
+    \"formatting_habits\": \"<uses markdown? bullets? CAPS for emphasis? em-dashes? emojis (explicit count — should be ~0 based on the no-emoji rule)?>\",\n\
+    \"average_message_length_chars\": <integer>,\n\
+    \"punctuation_quirks\": \"<e.g., uses ... a lot, or commas everywhere, or no question marks>\"\n\
+  }},\n\
+  \"recent_topics\": [\"...\", \"...\", \"...\"],\n\
+  \"routines\": [\"...\", \"...\"],\n\
+  \"last_updated\": \"<ISO 8601 timestamp now>\",\n\
+  \"source\": \"claude-analysis-v2\"\n\
+}}\n\n\
+Hard rules:\n\
+- Do NOT invent. If you can't extract a field with confidence, set it to \"(unknown — needs more data)\".\n\
+- Read at most 50 lines per file to keep token usage bounded.\n\
+- Output JSON only, no prose, no fences.\n\
+- Total content < 3 KB.\n\n\
+When done, write the JSON to {} (overwrite). Then exit.",
         known
     );
 

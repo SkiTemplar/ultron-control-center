@@ -61,10 +61,10 @@ SKILL_MD_TRIM_CHARS = 30000
 # Patterns in news titles that suggest a specific skill needs review
 NEWS_SKILL_TRIGGERS = {
     "ultron":        [r"\bClaude\s*Code\b", r"\bskill\s*update", r"\bMCP\b.*server"],
-    "terry-davis":   [r"\bgit\b.*new", r"\brebase\s*update", r"\bworkflow\s*change"],
+    "senior-engineer":   [r"\bgit\b.*new", r"\brebase\s*update", r"\bworkflow\s*change"],
     "gamedev-engineer": [r"\bUE5", r"\bUnity\s*\d", r"\bnetcode"],
     "novalbos":      [r"\bC\+\+\s*2[3-9]", r"\bVulkan", r"\bCUDA"],
-    "warren":        [r"\bSEC\s*rule", r"\bregulation\b.*market"],
+    "investment-advisor": [r"\bSEC\s*rule", r"\bregulation\b.*market"],
     "tio-gilito":    [r"\bbank\s*API\b", r"\bSpain.*finance"],
 }
 

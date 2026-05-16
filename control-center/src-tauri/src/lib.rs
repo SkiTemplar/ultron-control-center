@@ -100,11 +100,45 @@ async fn list_inbox(limit: Option<usize>) -> Result<Vec<inbox::InboxEntry>, Stri
 }
 
 #[tauri::command]
-async fn update_project_actions(
-    id: String,
-    actions: Vec<String>,
+async fn add_launcher_item(
+    project_id: String,
+    item: projects::LauncherItem,
 ) -> Result<projects::UpdateProjectResult, String> {
-    projects::update_project_actions_inner(projects::UpdateProjectActionsPayload { id, actions })
+    projects::add_launcher_item_inner(projects::AddLauncherItemPayload { project_id, item })
+}
+
+#[tauri::command]
+async fn remove_launcher_item(
+    project_id: String,
+    index: usize,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::remove_launcher_item_inner(project_id, index)
+}
+
+#[tauri::command]
+async fn reorder_launcher_items(
+    project_id: String,
+    from: usize,
+    to: usize,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::reorder_launcher_items_inner(project_id, from, to)
+}
+
+#[tauri::command]
+async fn launch_item(
+    app: tauri::AppHandle,
+    project_id: String,
+    index: usize,
+) -> Result<(), String> {
+    projects::launch_item_inner(app, project_id, index).await
+}
+
+#[tauri::command]
+async fn launch_all_items(
+    app: tauri::AppHandle,
+    project_id: String,
+) -> Result<usize, String> {
+    projects::launch_all_items_inner(app, project_id).await
 }
 
 #[tauri::command]
@@ -1159,7 +1193,11 @@ pub fn run() {
             codex_fallback::build_fallback_prompt,
             codex_fallback::launch_codex_fallback,
             project_hotkeys::project_at_slot,
-            update_project_actions,
+            add_launcher_item,
+            remove_launcher_item,
+            reorder_launcher_items,
+            launch_item,
+            launch_all_items,
             features::read_features,
             features::save_features,
             memory_highlights::compute_memory_highlights,

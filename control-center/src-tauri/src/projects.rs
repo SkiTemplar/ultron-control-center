@@ -2,12 +2,38 @@
 //
 // Reads ~/.ultron/cockpit/projects.json (registry built by
 // scripts/cockpit/scan_projects.py). Exposes a flat list with the fields
-// the UI needs for the workspace picker + future Projects tab.
+// the UI needs for the workspace picker + Projects tab.
+//
+// v15.2 — Projects are reframed as "launch groups": each entry holds a
+// list of `items` (exe, folder, claude, codex) that can be launched
+// together. The old per-project `actions` whitelist is gone.
 
 use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+/// One thing to launch as part of a project. `kind` discriminates the
+/// payload:
+///   - "exe"    → `path` (absolute), optional `args[]`. Spawned with
+///                Start-Process so the parent doesn't wait.
+///   - "folder" → `path` (absolute directory). Revealed in Explorer.
+///   - "claude" → `cwd` (absolute directory). Forwarded to
+///                `sessions::spawn_session_inner`.
+///   - "codex"  → `cwd` (absolute directory). Same as claude but for codex.
+/// `label` is optional UI text; when absent the UI derives one from the path.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LauncherItem {
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ProjectInfo {
@@ -20,13 +46,12 @@ pub struct ProjectInfo {
     pub status: Option<String>,
     pub last_active: Option<String>,
     pub tags: Vec<String>,
-    /// Per-project preferred actions for the Projects tab UI. When `None`,
-    /// the frontend renders a default set (open_ide, new_claude, open_folder).
-    /// Known values today: "open_ide", "new_claude", "new_codex",
-    /// "open_folder", "git_status". The list is intentionally loose so new
-    /// actions can ship without a registry migration.
+    /// Per-project launcher items. When the registry entry omits an
+    /// `items[]` array AND has a `path`, the loader synthesises a default
+    /// `[folder(path), claude(path)]` pair at read time so old-style entries
+    /// keep working without an on-disk migration.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub actions: Option<Vec<String>>,
+    pub items: Option<Vec<LauncherItem>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -55,7 +80,7 @@ struct RegEntry {
     #[serde(default)]
     tags: Vec<String>,
     #[serde(default)]
-    actions: Option<Vec<String>>,
+    items: Option<Vec<LauncherItem>>,
 }
 
 fn registry_path() -> Option<PathBuf> {
@@ -209,41 +234,46 @@ pub struct CreateProjectResult {
 /// invoking project_editor.py (which routes through an LLM for description
 /// generation we don't need here). Idempotency: if the id collides, we
 /// suffix -2, -3, etc.
+///
+/// `path` is now optional in spirit — the user may create a "launch group"
+/// with no root path and rely entirely on `items[]`. We keep accepting an
+/// empty string and skip the existence check in that case, but still reject
+/// UNC paths defensively.
 pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResult, String> {
     use std::path::Path;
     if p.name.trim().is_empty() {
         return Err("name is empty".to_string());
     }
-    if p.path.trim().is_empty() {
-        return Err("path is empty".to_string());
-    }
-    let path = Path::new(&p.path);
-    // Reject UNC and exotic prefixes — only local drive paths. UNC opens the
-    // door to "create project pointing at \\\\evil.example.com\\share\\stage.exe"
-    // and then "Open" runs the remote binary via Start-Process. Defense in
-    // depth on top of the registry write being authenticated.
-    let path_str = path.to_string_lossy();
-    if path_str.starts_with(r"\\") || path_str.starts_with("//") {
-        return Err("UNC paths are not allowed".into());
-    }
-    if !path.is_dir() && !path.is_file() {
-        return Err(format!("path does not exist: {}", p.path));
-    }
-    // For file entries, restrict the extension to the known launcher types.
-    // Anything else (.dll, .vbs, .ps1, etc.) is suspicious in this context.
-    if path.is_file() {
-        let allowed_ext = ["exe", "lnk", "bat", "cmd", "url", "html", "pdf"];
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|s| s.to_ascii_lowercase())
-            .unwrap_or_default();
-        if !allowed_ext.contains(&ext.as_str()) {
-            return Err(format!(
-                "file extension '{}' not allowed for project path (allowed: {})",
-                ext,
-                allowed_ext.join(", ")
-            ));
+    let raw_path = p.path.trim().to_string();
+    let path_provided = !raw_path.is_empty();
+    if path_provided {
+        let path = Path::new(&raw_path);
+        // Reject UNC and exotic prefixes — only local drive paths. UNC opens
+        // the door to "create project pointing at \\\\evil.example.com\\share\\stage.exe"
+        // and then "Open" runs the remote binary via Start-Process. Defense in
+        // depth on top of the registry write being authenticated.
+        let path_str = path.to_string_lossy();
+        if path_str.starts_with(r"\\") || path_str.starts_with("//") {
+            return Err("UNC paths are not allowed".into());
+        }
+        if !path.is_dir() && !path.is_file() {
+            return Err(format!("path does not exist: {}", raw_path));
+        }
+        // For file entries, restrict the extension to the known launcher types.
+        if path.is_file() {
+            let allowed_ext = ["exe", "lnk", "bat", "cmd", "url", "html", "pdf"];
+            let ext = path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|s| s.to_ascii_lowercase())
+                .unwrap_or_default();
+            if !allowed_ext.contains(&ext.as_str()) {
+                return Err(format!(
+                    "file extension '{}' not allowed for project path (allowed: {})",
+                    ext,
+                    allowed_ext.join(", ")
+                ));
+            }
         }
     }
     let base_id = slugify(&p.name);
@@ -307,7 +337,7 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
     let new_entry = serde_json::json!({
         "id": id,
         "name": p.name.trim(),
-        "path": path.to_string_lossy().to_string(),
+        "path": raw_path,
         "ide": p.ide.unwrap_or_default(),
         "language": p.language.unwrap_or_default(),
         "type": "",
@@ -316,6 +346,7 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         "status": "manual",
         "tags": p.tags.unwrap_or_default(),
         "auto_tags": [],
+        "items": [],
     });
     projects.push(new_entry);
 
@@ -329,10 +360,7 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
 
     let serialized =
         serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
-    // Atomic write
-    let tmp = registry.with_extension("json.tmp");
-    std::fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
-    std::fs::rename(&tmp, &registry).map_err(|e| format!("rename: {}", e))?;
+    atomic_write(&registry, &serialized)?;
 
     Ok(CreateProjectResult {
         success: true,
@@ -422,71 +450,7 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
     }
 
     let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
-    let tmp = registry.with_extension("json.tmp");
-    std::fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
-    std::fs::rename(&tmp, &registry).map_err(|e| format!("rename: {}", e))?;
-    Ok(UpdateProjectResult {
-        success: true,
-        id: p.id,
-    })
-}
-
-#[derive(Debug, _Deserialize)]
-pub struct UpdateProjectActionsPayload {
-    pub id: String,
-    pub actions: Vec<String>,
-}
-
-/// Persist a per-project actions whitelist to projects.json. Validation
-/// rejects unknown action keys so a typo from the UI cannot poison the
-/// registry; new actions need to be added here on the way in.
-pub fn update_project_actions_inner(
-    p: UpdateProjectActionsPayload,
-) -> Result<UpdateProjectResult, String> {
-    if p.id.trim().is_empty() {
-        return Err("id is empty".to_string());
-    }
-    const ALLOWED: &[&str] = &[
-        "open_ide",
-        "new_claude",
-        "new_codex",
-        "open_folder",
-        "git_status",
-    ];
-    for a in &p.actions {
-        if !ALLOWED.contains(&a.as_str()) {
-            return Err(format!("unknown action '{}'", a));
-        }
-    }
-    let registry = dirs::home_dir()
-        .ok_or_else(|| "no HOME".to_string())?
-        .join(".ultron/cockpit/projects.json");
-    let raw = std::fs::read_to_string(&registry)
-        .map_err(|e| format!("read projects.json: {}", e))?;
-    let mut root: serde_json::Value =
-        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
-    let projects = root
-        .get_mut("projects")
-        .and_then(|v| v.as_array_mut())
-        .ok_or_else(|| "projects.json has no projects[]".to_string())?;
-    let target = projects.iter_mut().find(|v| {
-        v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone())
-    });
-    let entry = match target {
-        Some(e) => e,
-        None => return Err(format!("project '{}' not found", p.id)),
-    };
-    let arr: Vec<serde_json::Value> = p
-        .actions
-        .iter()
-        .map(|a| serde_json::Value::String(a.clone()))
-        .collect();
-    entry["actions"] = serde_json::Value::Array(arr);
-    let serialized =
-        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
-    let tmp = registry.with_extension("json.tmp");
-    std::fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
-    std::fs::rename(&tmp, &registry).map_err(|e| format!("rename: {}", e))?;
+    atomic_write(&registry, &serialized)?;
     Ok(UpdateProjectResult {
         success: true,
         id: p.id,
@@ -515,9 +479,7 @@ pub fn delete_project_inner(id: String) -> Result<DeleteProjectResult, String> {
     let after = projects.len();
 
     let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
-    let tmp = registry.with_extension("json.tmp");
-    std::fs::write(&tmp, &serialized).map_err(|e| format!("write tmp: {}", e))?;
-    std::fs::rename(&tmp, &registry).map_err(|e| format!("rename: {}", e))?;
+    atomic_write(&registry, &serialized)?;
 
     Ok(DeleteProjectResult {
         success: before != after,
@@ -557,6 +519,33 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
 
     let mut out: Vec<ProjectInfo> = Vec::with_capacity(root.projects.len());
     for p in root.projects.into_iter() {
+        // Backwards-compat synthesis: an old-style entry with no `items[]`
+        // but a real `path` gets a default `[folder, claude]` pair so the
+        // UI can present launch buttons without forcing the user to migrate.
+        // The on-disk file is NOT rewritten — this keeps projects.json
+        // portable for the python scanner.
+        let synthesised_items = match (&p.items, p.path.as_deref()) {
+            (Some(items), _) if !items.is_empty() => Some(items.clone()),
+            (Some(_), _) => Some(Vec::new()),
+            (None, Some(path)) if !path.trim().is_empty() => Some(vec![
+                LauncherItem {
+                    kind: "folder".to_string(),
+                    path: Some(path.to_string()),
+                    cwd: None,
+                    args: None,
+                    label: Some("Open folder".to_string()),
+                },
+                LauncherItem {
+                    kind: "claude".to_string(),
+                    path: None,
+                    cwd: Some(path.to_string()),
+                    args: None,
+                    label: Some("New Claude session".to_string()),
+                },
+            ]),
+            _ => None,
+        };
+
         out.push(ProjectInfo {
             id: p.id,
             name: p.name,
@@ -567,10 +556,376 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             status: p.status,
             last_active: p.last_active,
             tags: p.tags,
-            actions: p.actions,
+            items: synthesised_items,
         });
     }
     // Sort by last_active desc (ISO yyyy-mm-dd compares lexicographically).
     out.sort_by(|a, b| b.last_active.cmp(&a.last_active));
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Launcher item management
+// ---------------------------------------------------------------------------
+
+/// Tmp-file + rename atomic write. Used everywhere we touch projects.json
+/// so a crash between two writes never leaves the registry truncated.
+fn atomic_write(registry: &PathBuf, content: &str) -> Result<(), String> {
+    let tmp = registry.with_extension("json.tmp");
+    std::fs::write(&tmp, content).map_err(|e| format!("write tmp: {}", e))?;
+    std::fs::rename(&tmp, registry).map_err(|e| format!("rename: {}", e))?;
+    Ok(())
+}
+
+/// Validate a launcher item before persisting it. Centralised so add/edit
+/// share the same security envelope.
+fn validate_launcher_item(item: &LauncherItem) -> Result<(), String> {
+    match item.kind.as_str() {
+        "exe" | "folder" => {
+            let path = item
+                .path
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!("{} item missing path", item.kind))?;
+            if path.starts_with(r"\\") || path.starts_with("//") {
+                return Err("UNC paths are not allowed".into());
+            }
+            // We don't require the path to exist at validation time — the
+            // user may be authoring an entry before the binary is installed
+            // (e.g. on a fresh Windows box). At launch time the missing-
+            // path error surfaces naturally.
+        }
+        "claude" | "codex" => {
+            let cwd = item
+                .cwd
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| format!("{} item missing cwd", item.kind))?;
+            if cwd.starts_with(r"\\") || cwd.starts_with("//") {
+                return Err("UNC paths are not allowed".into());
+            }
+        }
+        other => return Err(format!("unknown launcher kind '{}'", other)),
+    }
+    Ok(())
+}
+
+fn load_registry_mut() -> Result<(PathBuf, serde_json::Value), String> {
+    let registry = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/cockpit/projects.json");
+    let raw = std::fs::read_to_string(&registry)
+        .map_err(|e| format!("read projects.json: {}", e))?;
+    let root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    Ok((registry, root))
+}
+
+fn find_entry_mut<'a>(
+    root: &'a mut serde_json::Value,
+    id: &str,
+) -> Result<&'a mut serde_json::Value, String> {
+    let projects = root
+        .get_mut("projects")
+        .and_then(|v| v.as_array_mut())
+        .ok_or_else(|| "projects.json has no projects[]".to_string())?;
+    projects
+        .iter_mut()
+        .find(|v| v.get("id").and_then(|x| x.as_str()) == Some(id))
+        .ok_or_else(|| format!("project '{}' not found", id))
+}
+
+#[derive(Debug, _Deserialize)]
+pub struct AddLauncherItemPayload {
+    pub project_id: String,
+    pub item: LauncherItem,
+}
+
+/// Append a new launcher item to `project.items[]`. Creates the array if
+/// it doesn't exist on disk yet (old-style entries).
+pub fn add_launcher_item_inner(p: AddLauncherItemPayload) -> Result<UpdateProjectResult, String> {
+    if p.project_id.trim().is_empty() {
+        return Err("project_id is empty".to_string());
+    }
+    validate_launcher_item(&p.item)?;
+    let (registry, mut root) = load_registry_mut()?;
+    {
+        let entry = find_entry_mut(&mut root, &p.project_id)?;
+        let items = match entry.get_mut("items").and_then(|v| v.as_array_mut()) {
+            Some(arr) => arr,
+            None => {
+                entry["items"] = serde_json::Value::Array(Vec::new());
+                entry
+                    .get_mut("items")
+                    .and_then(|v| v.as_array_mut())
+                    .ok_or_else(|| "items array missing after init".to_string())?
+            }
+        };
+        items.push(serde_json::to_value(&p.item).map_err(|e| format!("serialize item: {}", e))?);
+    }
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    atomic_write(&registry, &serialized)?;
+    Ok(UpdateProjectResult {
+        success: true,
+        id: p.project_id,
+    })
+}
+
+/// Drop the launcher item at the given index. No-op if out of range, which
+/// keeps the UI optimistic-update behaviour predictable.
+pub fn remove_launcher_item_inner(
+    project_id: String,
+    index: usize,
+) -> Result<UpdateProjectResult, String> {
+    if project_id.trim().is_empty() {
+        return Err("project_id is empty".to_string());
+    }
+    let (registry, mut root) = load_registry_mut()?;
+    {
+        let entry = find_entry_mut(&mut root, &project_id)?;
+        if let Some(arr) = entry.get_mut("items").and_then(|v| v.as_array_mut()) {
+            if index < arr.len() {
+                arr.remove(index);
+            }
+        }
+    }
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    atomic_write(&registry, &serialized)?;
+    Ok(UpdateProjectResult {
+        success: true,
+        id: project_id,
+    })
+}
+
+/// Move an item from `from` to `to` inside the same project. Clamps both
+/// indices to the array length so a stale UI can't desync the file.
+pub fn reorder_launcher_items_inner(
+    project_id: String,
+    from: usize,
+    to: usize,
+) -> Result<UpdateProjectResult, String> {
+    if project_id.trim().is_empty() {
+        return Err("project_id is empty".to_string());
+    }
+    let (registry, mut root) = load_registry_mut()?;
+    {
+        let entry = find_entry_mut(&mut root, &project_id)?;
+        if let Some(arr) = entry.get_mut("items").and_then(|v| v.as_array_mut()) {
+            let n = arr.len();
+            if n == 0 {
+                return Ok(UpdateProjectResult {
+                    success: true,
+                    id: project_id,
+                });
+            }
+            let from = from.min(n - 1);
+            let to = to.min(n - 1);
+            if from != to {
+                let item = arr.remove(from);
+                arr.insert(to, item);
+            }
+        }
+    }
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    atomic_write(&registry, &serialized)?;
+    Ok(UpdateProjectResult {
+        success: true,
+        id: project_id,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Launch dispatch
+// ---------------------------------------------------------------------------
+
+/// Read the live items[] for a project, applying the same backwards-compat
+/// synthesis as `list_projects_inner` so launch_item works on legacy entries.
+fn load_items_for(project_id: &str) -> Result<Vec<LauncherItem>, String> {
+    let registry = registry_path().ok_or_else(|| "no HOME".to_string())?;
+    let raw = std::fs::read_to_string(&registry)
+        .map_err(|e| format!("read projects.json: {}", e))?;
+    let root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
+    let arr = root
+        .get("projects")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| "projects.json has no projects[]".to_string())?;
+    let entry = arr
+        .iter()
+        .find(|p| p.get("id").and_then(|x| x.as_str()) == Some(project_id))
+        .ok_or_else(|| format!("project '{}' not found", project_id))?;
+    // First try the explicit items[] field.
+    if let Some(items_v) = entry.get("items").and_then(|v| v.as_array()) {
+        if !items_v.is_empty() {
+            let items: Vec<LauncherItem> = items_v
+                .iter()
+                .map(|v| serde_json::from_value(v.clone()))
+                .collect::<Result<_, _>>()
+                .map_err(|e| format!("parse items: {}", e))?;
+            return Ok(items);
+        }
+    }
+    // Backwards-compat fallback.
+    if let Some(path) = entry.get("path").and_then(|v| v.as_str()) {
+        if !path.trim().is_empty() {
+            return Ok(vec![
+                LauncherItem {
+                    kind: "folder".to_string(),
+                    path: Some(path.to_string()),
+                    cwd: None,
+                    args: None,
+                    label: Some("Open folder".to_string()),
+                },
+                LauncherItem {
+                    kind: "claude".to_string(),
+                    path: None,
+                    cwd: Some(path.to_string()),
+                    args: None,
+                    label: Some("New Claude session".to_string()),
+                },
+            ]);
+        }
+    }
+    Ok(Vec::new())
+}
+
+/// Spawn a single launcher item. Returns Ok(()) on success; per-item errors
+/// surface up so the UI can render a toast. Used both directly (single-item
+/// "Open" button) and as the loop body of `launch_all_items_inner`.
+pub async fn launch_item_inner(
+    app: tauri::AppHandle,
+    project_id: String,
+    index: usize,
+) -> Result<(), String> {
+    if !project_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(format!("invalid project id '{}'", project_id));
+    }
+    let items = load_items_for(&project_id)?;
+    let item = items
+        .get(index)
+        .ok_or_else(|| format!("item index {} out of range (len={})", index, items.len()))?;
+    dispatch_item(&app, item).await
+}
+
+/// Best-effort batch launch. Iterates items in order, logging per-item
+/// errors instead of aborting; returns the count of items that launched
+/// successfully. The UI surfaces this so the user knows "3 of 4 started".
+pub async fn launch_all_items_inner(
+    app: tauri::AppHandle,
+    project_id: String,
+) -> Result<usize, String> {
+    if !project_id
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(format!("invalid project id '{}'", project_id));
+    }
+    let items = load_items_for(&project_id)?;
+    let mut launched = 0usize;
+    for (i, item) in items.iter().enumerate() {
+        match dispatch_item(&app, item).await {
+            Ok(_) => launched += 1,
+            Err(e) => {
+                eprintln!("[projects] launch_all_items[{}] {}: {}", project_id, i, e);
+            }
+        }
+    }
+    Ok(launched)
+}
+
+/// Per-kind dispatch. Pulled out so launch_item / launch_all share one
+/// implementation and we only have one place to update when a new kind
+/// joins the family.
+async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<(), String> {
+    validate_launcher_item(item)?;
+    match item.kind.as_str() {
+        "exe" => {
+            let path = item.path.as_deref().unwrap_or("").trim();
+            let exe_path = std::path::Path::new(path);
+            if !exe_path.is_file() {
+                return Err(format!("exe not found: {}", path));
+            }
+            // We hand the args[] as a Vec<String> to PowerShell's Start-Process
+            // via -ArgumentList; that side wraps each argument in single
+            // quotes, so embedded spaces/quotes survive. The alternative —
+            // CreateProcess directly with std::process::Command — works too
+            // but loses Start-Process's ShellExecute semantics (handy for .lnk).
+            let args = item.args.clone().unwrap_or_default();
+            let ps_path = format!("'{}'", path.replace('\'', "''"));
+            let cmd = if args.is_empty() {
+                format!("Start-Process -FilePath {}", ps_path)
+            } else {
+                let quoted: Vec<String> = args
+                    .iter()
+                    .map(|a| format!("'{}'", a.replace('\'', "''")))
+                    .collect();
+                format!(
+                    "Start-Process -FilePath {} -ArgumentList @({})",
+                    ps_path,
+                    quoted.join(", ")
+                )
+            };
+            let output = app
+                .shell()
+                .command("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &cmd,
+                ])
+                .output()
+                .await
+                .map_err(|e| format!("spawn exe: {}", e))?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                return Err(format!("Start-Process failed: {}", stderr.trim()));
+            }
+            Ok(())
+        }
+        "folder" => {
+            let path = item.path.as_deref().unwrap_or("").trim();
+            if !std::path::Path::new(path).is_dir() {
+                return Err(format!("folder not found: {}", path));
+            }
+            // explorer.exe ignores its exit code in some scenarios; treat
+            // spawn-success as enough. Quoting via PowerShell to keep the
+            // path with spaces intact.
+            let ps_path = format!("'{}'", path.replace('\'', "''"));
+            let cmd = format!("Start-Process -FilePath explorer.exe -ArgumentList {}", ps_path);
+            let _ = app
+                .shell()
+                .command("powershell.exe")
+                .args([
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &cmd,
+                ])
+                .output()
+                .await
+                .map_err(|e| format!("spawn explorer: {}", e))?;
+            Ok(())
+        }
+        "claude" | "codex" => {
+            let cwd = item.cwd.clone();
+            let kind = item.kind.clone();
+            crate::sessions::spawn_session_inner(app, kind, None, cwd, None)
+                .await
+                .map(|_| ())
+        }
+        other => Err(format!("unknown launcher kind '{}'", other)),
+    }
 }

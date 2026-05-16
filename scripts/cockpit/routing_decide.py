@@ -21,7 +21,7 @@ Guards (avoid using sparse data):
 Usage from mode handlers / cockpit scripts:
 
     from routing_decide import decide_persona
-    pick = decide_persona(["gamedev-engineer", "terry-davis"], context="ue5 multiplayer")
+    pick = decide_persona(["gamedev-engineer", "senior-engineer"], context="ue5 multiplayer")
     if pick is None:
         # fall back to original capability-based selection
         pass
@@ -30,8 +30,8 @@ Usage from mode handlers / cockpit scripts:
         pass
 
 CLI:
-    routing_decide.py decide --candidates gamedev-engineer terry-davis  # try a decision
-    routing_decide.py inspect --candidates gamedev-engineer terry-davis # show edge stats
+    routing_decide.py decide --candidates gamedev-engineer senior-engineer  # try a decision
+    routing_decide.py inspect --candidates gamedev-engineer senior-engineer # show edge stats
     routing_decide.py stats                                         # global telemetry summary
 """
 from __future__ import annotations

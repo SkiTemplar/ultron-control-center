@@ -1,150 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import {
-  ALL_PROJECT_ACTIONS,
-  DEFAULT_PROJECT_ACTIONS,
-  type CreateProjectResult,
-  type ProjectActionKey,
-  type ProjectActionResult,
-  type ProjectInfo,
+import type {
+  CreateProjectResult,
+  LauncherItem,
+  LauncherItemKind,
+  ProjectActionResult,
+  ProjectInfo,
 } from "../types";
 
 // ---------------------------------------------------------------------------
-// Per-project action runtime
+// Launcher item rendering helpers
 // ---------------------------------------------------------------------------
 
-/// Map a (frontend) action key to the actual Tauri invocation. The function
-/// resolves cleanly when the command exists, surfaces a typed error when it
-/// doesn't, and returns a flag the UI uses to disable / tooltip the button.
-///
-/// We can't introspect Tauri's invoke_handler at runtime, so we ship a
-/// hard-coded availability table. When a Rust command lands in lib.rs the
-/// matching entry below flips to `available: true`.
-type ActionRuntime = {
-  key: ProjectActionKey;
-  label: string;
-  hint: string;
-  available: boolean;
-  /** Returns true on success, false on error (already reported to the UI). */
-  run: (p: ProjectInfo) => Promise<boolean>;
+const KIND_LABEL: Record<string, string> = {
+  exe: "exe",
+  folder: "folder",
+  claude: "claude",
+  codex: "codex",
 };
 
-const NOT_YET_TOOLTIP = "Not yet implemented — will arrive in v15.1.5";
-
-function buildActionRuntime(
-  setLastAction: (r: ProjectActionResult | null) => void,
-  openLegacy: (id: string) => Promise<void>,
-): Record<ProjectActionKey, ActionRuntime> {
-  const wrap = async (
-    label: string,
-    fn: () => Promise<unknown>,
-  ): Promise<boolean> => {
-    try {
-      await fn();
-      return true;
-    } catch (e) {
-      setLastAction({
-        success: false,
-        stdout: "",
-        stderr: `${label}: ${String(e)}`,
-        exit_code: null,
-      });
-      return false;
-    }
-  };
-
-  return {
-    open_ide: {
-      key: "open_ide",
-      label: "Open in IDE",
-      hint: "Launch the configured editor (falls back to open_project)",
-      available: true,
-      run: async (p) => wrap("open_ide", () => openLegacy(p.id)),
-    },
-    new_claude: {
-      key: "new_claude",
-      label: "New Claude session",
-      hint: "wt.exe tab running claude in cwd",
-      available: true,
-      run: async (p) => {
-        if (!p.path) return false;
-        return wrap("new_claude", () =>
-          invoke("spawn_session", {
-            provider: "claude",
-            prompt: null,
-            cwd: p.path,
-            flags: { dangerouslySkipPermissions: false },
-          }),
-        );
-      },
-    },
-    new_codex: {
-      key: "new_codex",
-      label: "New Codex session",
-      hint: "wt.exe tab running codex in cwd",
-      available: true,
-      run: async (p) => {
-        if (!p.path) return false;
-        return wrap("new_codex", () =>
-          invoke("spawn_session", {
-            provider: "codex",
-            prompt: null,
-            cwd: p.path,
-            flags: {},
-          }),
-        );
-      },
-    },
-    open_folder: {
-      key: "open_folder",
-      label: "Open folder",
-      hint: NOT_YET_TOOLTIP,
-      // No dedicated open_folder / reveal_in_explorer command yet. Until
-      // one lands, the button stays disabled with a tooltip explaining why.
-      available: false,
-      run: async () => false,
-    },
-    git_status: {
-      key: "git_status",
-      label: "Git status",
-      hint:
-        "Opens a Claude session prefilled with `git status` (no native git_status command yet)",
-      // We can stand in for git_status by opening a Claude session with a
-      // prebaked prompt — that gives the user a usable terminal without
-      // requiring a brand new Rust command.
-      available: true,
-      run: async (p) => {
-        if (!p.path) return false;
-        return wrap("git_status", () =>
-          invoke("spawn_session", {
-            provider: "claude",
-            prompt: "run `git status` and summarize the working tree",
-            cwd: p.path,
-            flags: {},
-          }),
-        );
-      },
-    },
-  };
-}
-
-function actionsFor(p: ProjectInfo): ProjectActionKey[] {
-  const raw = p.actions;
-  if (!raw || raw.length === 0) return DEFAULT_PROJECT_ACTIONS;
-  // Filter to known keys so a stale registry can't crash the renderer.
-  const allowed = new Set<ProjectActionKey>(
-    ALL_PROJECT_ACTIONS.map((a) => a.key),
-  );
-  const seen = new Set<ProjectActionKey>();
-  const out: ProjectActionKey[] = [];
-  for (const a of raw) {
-    if (allowed.has(a) && !seen.has(a)) {
-      seen.add(a);
-      out.push(a);
-    }
-  }
-  return out.length > 0 ? out : DEFAULT_PROJECT_ACTIONS;
+/** Short label for a chip when the user didn't set one — falls back to the
+ *  last path/cwd component so long Windows paths stay readable. */
+function itemLabel(item: LauncherItem): string {
+  if (item.label && item.label.trim()) return item.label.trim();
+  const src = item.path ?? item.cwd ?? "";
+  if (!src) return item.kind;
+  const tail = src.replace(/[\/\\]+$/, "").split(/[\/\\]/).pop() ?? src;
+  return `${KIND_LABEL[item.kind] ?? item.kind}: ${tail}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -200,10 +83,12 @@ function Row({
   opening,
   onEdit,
   onDelete,
-  onOpenCombo,
-  actionRuntime,
-  onCustomize,
-  busyAction,
+  onLaunchAll,
+  onLaunchItem,
+  onAddItem,
+  onRemoveItem,
+  busyItem,
+  launchingAll,
 }: {
   p: ProjectInfo;
   selected: boolean;
@@ -212,194 +97,219 @@ function Row({
   opening: boolean;
   onEdit: () => void;
   onDelete: () => void;
-  onOpenCombo: () => void;
-  actionRuntime: Record<ProjectActionKey, ActionRuntime>;
-  onCustomize: () => void;
-  busyAction: ProjectActionKey | null;
+  onLaunchAll: () => void;
+  onLaunchItem: (index: number) => void;
+  onAddItem: () => void;
+  onRemoveItem: (index: number) => void;
+  busyItem: number | null;
+  launchingAll: boolean;
 }) {
-  const actions = actionsFor(p);
   const b = statusBadge(p.status);
+  const items = p.items ?? [];
   return (
     <div
-      className="flex items-baseline gap-3 rounded p-3 transition-colors"
+      className="flex flex-col gap-2 rounded p-3 transition-colors"
       style={{
         background: selected ? "var(--color-surface-3)" : "var(--color-surface-2)",
         border: `1px solid ${selected ? "var(--color-border-strong)" : "var(--color-border)"}`,
       }}
     >
-      <button
-        type="button"
-        onClick={onClick}
-        className="min-w-0 flex-1 text-left"
-      >
-        <div className="flex items-baseline gap-2">
-          <span
-            className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
-            style={{ background: b.bg, color: b.color, minWidth: 56, textAlign: "center" }}
-          >
-            {b.label}
-          </span>
-          <span className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
-            {p.name ?? p.id}
-          </span>
-          {p.ide && (
+      <div className="flex items-baseline gap-3">
+        <button
+          type="button"
+          onClick={onClick}
+          className="min-w-0 flex-1 text-left"
+        >
+          <div className="flex items-baseline gap-2">
             <span
-              className="text-[11px]"
-              style={{ color: "var(--color-text-tertiary)" }}
+              className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+              style={{ background: b.bg, color: b.color, minWidth: 56, textAlign: "center" }}
             >
-              {p.ide}
+              {b.label}
             </span>
+            <span className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+              {p.name ?? p.id}
+            </span>
+            {p.language && (
+              <span
+                className="text-[11px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                · {p.language}
+              </span>
+            )}
+          </div>
+          {p.path && (
+            <div
+              className="mt-1 truncate text-[10.5px]"
+              style={{
+                fontFamily: "var(--font-mono)",
+                color: "var(--color-text-tertiary)",
+              }}
+              title={p.path}
+            >
+              {p.path}
+            </div>
           )}
-          {p.language && (
+          {p.tags.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {p.tags.slice(0, 5).map((t) => (
+                <span
+                  key={t}
+                  className="rounded px-1 py-px text-[9.5px]"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    color: "var(--color-text-tertiary)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
+        </button>
+        <div className="flex flex-col items-end gap-1">
+          {p.last_active && (
             <span
-              className="text-[11px]"
+              className="text-[10.5px] tabular-nums"
               style={{ color: "var(--color-text-faint)" }}
             >
-              · {p.language}
+              {p.last_active}
             </span>
           )}
-        </div>
-        {p.path && (
-          <div
-            className="mt-1 truncate text-[10.5px]"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--color-text-tertiary)",
-            }}
-            title={p.path}
-          >
-            {p.path}
-          </div>
-        )}
-        {p.tags.length > 0 && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
-            {p.tags.slice(0, 5).map((t) => (
-              <span
-                key={t}
-                className="rounded px-1 py-px text-[9.5px]"
-                style={{
-                  background: "var(--color-surface-1)",
-                  color: "var(--color-text-tertiary)",
-                  border: "1px solid var(--color-border)",
-                }}
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-      </button>
-      <div className="flex flex-col items-end gap-1">
-        {p.last_active && (
-          <span
-            className="text-[10.5px] tabular-nums"
-            style={{ color: "var(--color-text-faint)" }}
-          >
-            {p.last_active}
-          </span>
-        )}
-        <div className="proj-action-group flex flex-wrap items-center justify-end gap-1">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded px-2 py-1 text-[10.5px] transition-colors"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Edit project metadata"
-          >
-            Edit
-          </button>
-          <button
-            type="button"
-            onClick={onCustomize}
-            className="rounded px-2 py-1 text-[10.5px] transition-colors"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Customize per-project actions"
-          >
-            {/* Plain text "Actions" instead of a gear glyph — repo policy
-                forbids emojis, and the unicode gear renders inconsistently
-                across Windows fonts in our dark theme. */}
-            Actions
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="rounded px-2 py-1 text-[10.5px] transition-colors"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-danger)",
-              border: "1px solid rgba(248, 81, 73, 0.32)",
-            }}
-            title="Remove from registry (no files touched)"
-          >
-            ×
-          </button>
-          {/* Per-project action whitelist. Default set (open_ide / new_claude
-              / open_folder) renders when the registry omits `actions`. Each
-              button maps to a Tauri command via `actionRuntime`; unavailable
-              commands render disabled with a deferred-feature tooltip. */}
-          {actions.map((a) => {
-            const rt = actionRuntime[a];
-            const noPath = !p.path && a !== "open_ide";
-            const disabled = !rt.available || noPath || busyAction === a;
-            const tooltip = !rt.available
-              ? NOT_YET_TOOLTIP
-              : noPath
-                ? "No path on file"
-                : rt.hint;
-            return (
+          <div className="proj-action-group flex flex-wrap items-center justify-end gap-1">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded px-2 py-1 text-[10.5px] transition-colors"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+              title="Edit project metadata"
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="rounded px-2 py-1 text-[10.5px] transition-colors"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-danger)",
+                border: "1px solid rgba(248, 81, 73, 0.32)",
+              }}
+              title="Remove from registry (no files touched)"
+            >
+              ×
+            </button>
+            {items.length > 1 && (
               <button
-                key={a}
                 type="button"
-                onClick={() => rt.run(p)}
-                disabled={disabled}
-                className="rounded px-2 py-1 text-[10.5px] transition-colors disabled:opacity-40"
+                onClick={onLaunchAll}
+                disabled={launchingAll}
+                className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
                 style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-secondary)",
-                  border: "1px solid var(--color-border-strong)",
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
                 }}
-                title={tooltip}
+                title={`Launch all ${items.length} items sequentially`}
               >
-                {rt.label}
+                {launchingAll ? "Launching…" : `Launch all (${items.length})`}
               </button>
-            );
-          })}
-          <button
-            type="button"
-            onClick={onOpenCombo}
-            disabled={opening || !p.path}
-            className="rounded px-2 py-1 text-[10.5px] transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Open IDE + new Claude session (legacy O+C)"
-          >
-            Open+Claude
-          </button>
-          <button
-            type="button"
-            onClick={onOpen}
-            disabled={opening || !p.path}
-            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-            title={p.path ? `Open ${p.id} in ${p.ide ?? "default IDE"}` : "No path on file"}
-          >
-            {opening ? "Opening…" : "Open"}
-          </button>
+            )}
+            {/* Legacy "Open" button — only when there are no launcher items
+                AND the project still has a `path`. Once the user adds items
+                the new model takes over completely. */}
+            {items.length === 0 && p.path && (
+              <button
+                type="button"
+                onClick={onOpen}
+                disabled={opening}
+                className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+                title={`Open ${p.id} (legacy)`}
+              >
+                {opening ? "Opening…" : "Open"}
+              </button>
+            )}
+          </div>
         </div>
+      </div>
+
+      {/* Launcher item chips: each chip has its own "Open" + remove. */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {items.map((it, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-1 rounded pl-2 pr-1 py-0.5 text-[11px]"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-secondary)",
+            }}
+            title={
+              it.path
+                ? `${it.kind}: ${it.path}${it.args && it.args.length > 0 ? " " + it.args.join(" ") : ""}`
+                : it.cwd
+                  ? `${it.kind}: ${it.cwd}`
+                  : it.kind
+            }
+          >
+            <span
+              className="text-[9.5px] uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {KIND_LABEL[it.kind] ?? it.kind}
+            </span>
+            <span className="max-w-[260px] truncate" style={{ fontFamily: "var(--font-mono)" }}>
+              {itemLabel(it).replace(/^[a-z]+:\s*/, "")}
+            </span>
+            <button
+              type="button"
+              onClick={() => onLaunchItem(i)}
+              disabled={busyItem === i}
+              className="rounded px-1.5 py-0.5 text-[10px] transition-colors disabled:opacity-40"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {busyItem === i ? "…" : "Open"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onRemoveItem(i)}
+              className="rounded px-1 text-[10px]"
+              style={{
+                background: "transparent",
+                color: "var(--color-danger)",
+              }}
+              title="Remove this item"
+            >
+              ×
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={onAddItem}
+          className="rounded px-2 py-0.5 text-[11px]"
+          style={{
+            background: "transparent",
+            color: "var(--color-text-tertiary)",
+            border: "1px dashed var(--color-border-strong)",
+          }}
+          title="Add a new launcher item to this project"
+        >
+          + Add item
+        </button>
       </div>
     </div>
   );
@@ -446,21 +356,13 @@ function Pill({
 // Main
 // ---------------------------------------------------------------------------
 
-type GroupBy = "none" | "language" | "ide";
+type GroupBy = "none" | "language" | "tag";
 
-const IDE_OPTIONS = [
-  "",
-  "VSCode",
-  "Cursor",
-  "Webstorm",
-  "Rider",
-  "PyCharm",
-  "AndroidStudio",
-  "UnityHub",
-  "Unreal",
-  "External",
-  "Game",
-  "Other",
+const ITEM_KINDS: { value: LauncherItemKind; label: string; hint: string }[] = [
+  { value: "exe", label: "Executable", hint: "Spawn a .exe / .lnk / .bat with optional args" },
+  { value: "folder", label: "Folder", hint: "Open the folder in Windows Explorer" },
+  { value: "claude", label: "Claude session", hint: "New wt.exe tab running claude in cwd" },
+  { value: "codex", label: "Codex session", hint: "New wt.exe tab running codex in cwd" },
 ];
 
 export function Projects() {
@@ -474,39 +376,38 @@ export function Projects() {
   const [languageFilters, setLanguageFilters] = useState<Set<string>>(
     () => new Set<string>(),
   );
-  const [ideFilters, setIdeFilters] = useState<Set<string>>(() => new Set<string>());
   const [groupBy, setGroupBy] = useState<GroupBy>("none");
   const [selected, setSelected] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
   const [lastAction, setLastAction] = useState<ProjectActionResult | null>(null);
 
+  // Per-row busy markers — keyed by project id so multiple rows can be
+  // launching concurrently without stepping on each other.
+  const [busyItem, setBusyItem] = useState<Record<string, number | null>>({});
+  const [launchingAll, setLaunchingAll] = useState<Record<string, boolean>>({});
+
   // New/edit project wizard state — same form for both flows; `editingId`
-  // distinguishes create vs update so the modal can call the right command
-  // and the submit button can reflect the action.
+  // distinguishes create vs update.
   const [wizardOpen, setWizardOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [wName, setWName] = useState("");
   const [wPath, setWPath] = useState("");
-  const [wIde, setWIde] = useState("");
-  const [wLang, setWLang] = useState("");
   const [wTags, setWTags] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
 
-  // Customize-actions modal: which project, the working copy of its
-  // actions list, and the save-status. Mirrors the editProject wizard
-  // shape so the keyboard / Esc behaviour stays consistent.
-  const [actionsTarget, setActionsTarget] = useState<ProjectInfo | null>(null);
-  const [actionsDraft, setActionsDraft] = useState<Set<ProjectActionKey>>(
-    new Set(),
-  );
-  const [actionsSaving, setActionsSaving] = useState(false);
-  const [actionsError, setActionsError] = useState<string | null>(null);
-  // Last-clicked action key (for optimistic disable while running).
-  const [_busyAction] = useState<ProjectActionKey | null>(null);
+  // Add-item modal state.
+  const [itemTarget, setItemTarget] = useState<ProjectInfo | null>(null);
+  const [iKind, setIKind] = useState<LauncherItemKind>("exe");
+  const [iPath, setIPath] = useState("");
+  const [iCwd, setICwd] = useState("");
+  const [iArgs, setIArgs] = useState("");
+  const [iLabel, setILabel] = useState("");
+  const [itemSaving, setItemSaving] = useState(false);
+  const [itemError, setItemError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -534,7 +435,7 @@ export function Projects() {
     }
   }
 
-  async function open(id: string) {
+  async function openLegacy(id: string) {
     setOpening(id);
     setLastAction(null);
     try {
@@ -552,49 +453,47 @@ export function Projects() {
     }
   }
 
-  // Memoized action runtime — built once so the rendered buttons share
-  // identity across rerenders. Each per-project action key resolves to a
-  // Tauri invocation here.
-  const actionRuntime = useMemo(
-    () => buildActionRuntime(setLastAction, open),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
-  // Combo: open the IDE (or app, if it's an external project) AND fire a
-  // Claude session in parallel. Mirrors the "O+C" hotkey from the toy CLI.
-  async function openCombo(p: ProjectInfo) {
-    await Promise.allSettled([open(p.id), actionRuntime.new_claude.run(p)]);
-  }
-
-  function openActionsModal(p: ProjectInfo) {
-    setActionsTarget(p);
-    setActionsDraft(new Set(actionsFor(p)));
-    setActionsError(null);
-  }
-
-  async function saveActions() {
-    if (!actionsTarget) return;
-    setActionsSaving(true);
-    setActionsError(null);
+  async function launchItem(projectId: string, index: number) {
+    setBusyItem((m) => ({ ...m, [projectId]: index }));
+    setLastAction(null);
     try {
-      const ordered = ALL_PROJECT_ACTIONS.map((a) => a.key).filter((k) =>
-        actionsDraft.has(k),
-      );
-      // The Rust command may not be wired into invoke_handler yet (the
-      // command lives in projects.rs but lib.rs has to register it). If it
-      // isn't, we report a friendly error and keep the modal open so the
-      // user doesn't lose their draft.
-      await invoke("update_project_actions", {
-        id: actionsTarget.id,
-        actions: ordered,
-      });
-      setActionsTarget(null);
-      await load();
+      await invoke("launch_item", { projectId, index });
     } catch (e) {
-      setActionsError(String(e));
+      setLastAction({
+        success: false,
+        stdout: "",
+        stderr: `launch_item: ${String(e)}`,
+        exit_code: null,
+      });
     } finally {
-      setActionsSaving(false);
+      setBusyItem((m) => ({ ...m, [projectId]: null }));
+    }
+  }
+
+  async function launchAll(projectId: string) {
+    setLaunchingAll((m) => ({ ...m, [projectId]: true }));
+    setLastAction(null);
+    try {
+      const launched = (await invoke("launch_all_items", { projectId })) as number;
+      const project = projects.find((p) => p.id === projectId);
+      const total = project?.items?.length ?? 0;
+      if (launched < total) {
+        setLastAction({
+          success: false,
+          stdout: "",
+          stderr: `Only ${launched}/${total} items launched — check terminal logs`,
+          exit_code: null,
+        });
+      }
+    } catch (e) {
+      setLastAction({
+        success: false,
+        stdout: "",
+        stderr: `launch_all_items: ${String(e)}`,
+        exit_code: null,
+      });
+    } finally {
+      setLaunchingAll((m) => ({ ...m, [projectId]: false }));
     }
   }
 
@@ -605,8 +504,6 @@ export function Projects() {
   function resetWizard() {
     setWName("");
     setWPath("");
-    setWIde("");
-    setWLang("");
     setWTags("");
     setEditingId(null);
     setCreateError(null);
@@ -616,8 +513,6 @@ export function Projects() {
     setEditingId(p.id);
     setWName(p.name ?? "");
     setWPath(p.path ?? "");
-    setWIde(p.ide ?? "");
-    setWLang(p.language ?? "");
     setWTags(p.tags.join(", "));
     setCreateError(null);
     setWizardOpen(true);
@@ -636,8 +531,8 @@ export function Projects() {
           id: editingId,
           name: wName || null,
           path: wPath || null,
-          ide: wIde || null,
-          language: wLang || null,
+          ide: null,
+          language: null,
           tags: tagList,
         });
         resetWizard();
@@ -646,9 +541,10 @@ export function Projects() {
       } else {
         const r = (await invoke("create_project", {
           name: wName,
+          // Empty path is allowed — the project becomes a pure launch group.
           path: wPath,
-          ide: wIde || null,
-          language: wLang || null,
+          ide: null,
+          language: null,
           tags: tagList.length > 0 ? tagList : null,
         })) as CreateProjectResult;
         if (r.success) {
@@ -663,6 +559,86 @@ export function Projects() {
       setCreateError(String(e));
     } finally {
       setCreating(false);
+    }
+  }
+
+  function openAddItem(p: ProjectInfo) {
+    setItemTarget(p);
+    setIKind("exe");
+    setIPath("");
+    setICwd("");
+    setIArgs("");
+    setILabel("");
+    setItemError(null);
+  }
+
+  async function pickItemFile() {
+    try {
+      const path = await openDialog({
+        directory: false,
+        multiple: false,
+        title: "Pick an executable, shortcut or batch file",
+      });
+      if (typeof path === "string" && path) setIPath(path);
+    } catch {}
+  }
+
+  async function pickItemFolder() {
+    try {
+      const path = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "Pick a folder",
+      });
+      if (typeof path === "string" && path) {
+        if (iKind === "folder") setIPath(path);
+        else setICwd(path);
+      }
+    } catch {}
+  }
+
+  async function saveItem() {
+    if (!itemTarget) return;
+    setItemSaving(true);
+    setItemError(null);
+    try {
+      const trimmed = (s: string) => (s.trim() ? s.trim() : null);
+      // Split args on whitespace, honouring simple double-quoted segments so
+      // `--launch-product="league of"` and `--name "with spaces"` both work.
+      const args: string[] = [];
+      if (iKind === "exe" && iArgs.trim()) {
+        const re = /"([^"]*)"|(\S+)/g;
+        let m;
+        while ((m = re.exec(iArgs)) !== null) {
+          args.push(m[1] !== undefined ? m[1] : m[2]);
+        }
+      }
+      const item: LauncherItem = {
+        kind: iKind,
+        path: iKind === "exe" || iKind === "folder" ? trimmed(iPath) : null,
+        cwd: iKind === "claude" || iKind === "codex" ? trimmed(iCwd) : null,
+        args: args.length > 0 ? args : null,
+        label: trimmed(iLabel),
+      };
+      await invoke("add_launcher_item", {
+        projectId: itemTarget.id,
+        item,
+      });
+      setItemTarget(null);
+      await load();
+    } catch (e) {
+      setItemError(String(e));
+    } finally {
+      setItemSaving(false);
+    }
+  }
+
+  async function removeItem(projectId: string, index: number) {
+    try {
+      await invoke("remove_launcher_item", { projectId, index });
+      await load();
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -691,20 +667,6 @@ export function Projects() {
     } catch {}
   }
 
-  async function pickWizardFile() {
-    try {
-      // For External / Game entries the path is a single executable, shortcut,
-      // or browser URL. We don't restrict the extension here — Start-Process
-      // handles .exe/.lnk/.bat/.url natively.
-      const path = await openDialog({
-        directory: false,
-        multiple: false,
-        title: "App / game executable or shortcut",
-      });
-      if (typeof path === "string" && path) setWPath(path);
-    } catch {}
-  }
-
   // Counts for filter pills
   const statusCounts = useMemo(() => {
     const c: Record<string, number> = {};
@@ -724,15 +686,6 @@ export function Projects() {
     return c;
   }, [projects]);
 
-  const ideCounts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const p of projects) {
-      const key = (p.ide ?? "").trim() || "—";
-      c[key] = (c[key] ?? 0) + 1;
-    }
-    return c;
-  }, [projects]);
-
   const sortByCountDesc = (counts: Record<string, number>) =>
     Object.keys(counts).sort((a, b) =>
       counts[b] - counts[a] !== 0 ? counts[b] - counts[a] : a.localeCompare(b),
@@ -740,7 +693,6 @@ export function Projects() {
 
   const statusKeys = useMemo(() => sortByCountDesc(statusCounts), [statusCounts]);
   const languageKeys = useMemo(() => sortByCountDesc(languageCounts), [languageCounts]);
-  const ideKeys = useMemo(() => sortByCountDesc(ideCounts), [ideCounts]);
 
   // Filtered + searched
   const filtered = useMemo(() => {
@@ -755,24 +707,22 @@ export function Projects() {
         return languageFilters.has((p.language ?? "").trim() || "—");
       })
       .filter((p) => {
-        if (ideFilters.size === 0) return true;
-        return ideFilters.has((p.ide ?? "").trim() || "—");
-      })
-      .filter((p) => {
         if (!q) return true;
         const hay = [
           p.id,
           p.name ?? "",
           p.path ?? "",
-          p.ide ?? "",
           p.language ?? "",
           ...(p.tags ?? []),
+          ...((p.items ?? []).map(
+            (it) => `${it.kind} ${it.path ?? ""} ${it.cwd ?? ""} ${it.label ?? ""}`,
+          )),
         ]
           .join(" ")
           .toLowerCase();
         return hay.includes(q);
       });
-  }, [projects, statusFilters, languageFilters, ideFilters, query]);
+  }, [projects, statusFilters, languageFilters, query]);
 
   // Group filtered by chosen dimension
   const grouped = useMemo(() => {
@@ -780,7 +730,9 @@ export function Projects() {
     const map = new Map<string, ProjectInfo[]>();
     for (const p of filtered) {
       const key =
-        (groupBy === "language" ? p.language : p.ide)?.trim() || "—";
+        groupBy === "language"
+          ? (p.language ?? "").trim() || "—"
+          : (p.tags[0] ?? "").trim() || "—";
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(p);
     }
@@ -802,12 +754,6 @@ export function Projects() {
     if (next.has(s)) next.delete(s);
     else next.add(s);
     setLanguageFilters(next);
-  }
-  function toggleIde(s: string) {
-    const next = new Set(ideFilters);
-    if (next.has(s)) next.delete(s);
-    else next.add(s);
-    setIdeFilters(next);
   }
 
   return (
@@ -891,7 +837,7 @@ export function Projects() {
                 type="text"
                 value={wName}
                 onChange={(e) => setWName(e.target.value)}
-                placeholder="e.g. my new game"
+                placeholder="e.g. League of Legends"
                 className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
                 style={{
                   background: "var(--color-surface-1)",
@@ -903,14 +849,14 @@ export function Projects() {
             </div>
             <div>
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-                Path
+                Path (optional — leave blank for pure launch group)
               </label>
               <div className="mt-1 flex gap-2">
                 <input
                   type="text"
                   value={wPath}
                   onChange={(e) => setWPath(e.target.value)}
-                  placeholder="C:\Users\...\project"
+                  placeholder="C:\Users\... (or leave empty)"
                   className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                   style={{
                     background: "var(--color-surface-1)",
@@ -929,63 +875,11 @@ export function Projects() {
                     color: "var(--color-text-secondary)",
                     border: "1px solid var(--color-border-strong)",
                   }}
-                  title="Pick a folder (classic project)"
+                  title="Pick a folder"
                 >
                   Folder
                 </button>
-                <button
-                  type="button"
-                  onClick={pickWizardFile}
-                  className="rounded px-2 py-1 text-[11px]"
-                  style={{
-                    background: "var(--color-surface-3)",
-                    color: "var(--color-text-secondary)",
-                    border: "1px solid var(--color-border-strong)",
-                  }}
-                  title="Pick an .exe, .lnk, .bat or .url (app / game / shortcut)"
-                >
-                  App
-                </button>
               </div>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-                IDE
-              </label>
-              <select
-                value={wIde}
-                onChange={(e) => setWIde(e.target.value)}
-                className="mt-1 w-full rounded px-2 py-1.5 text-[12px]"
-                style={{
-                  background: "var(--color-surface-1)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                {IDE_OPTIONS.map((ide) => (
-                  <option key={ide} value={ide}>
-                    {ide || "— (none)"}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
-                Language
-              </label>
-              <input
-                type="text"
-                value={wLang}
-                onChange={(e) => setWLang(e.target.value)}
-                placeholder="e.g. typescript, cpp, python"
-                className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
-                style={{
-                  background: "var(--color-surface-1)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                  outline: "none",
-                }}
-              />
             </div>
             <div className="col-span-2">
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
@@ -995,7 +889,7 @@ export function Projects() {
                 type="text"
                 value={wTags}
                 onChange={(e) => setWTags(e.target.value)}
-                placeholder="e.g. game, ue5, multiplayer"
+                placeholder="e.g. gaming, work, personal"
                 className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
                 style={{
                   background: "var(--color-surface-1)",
@@ -1015,7 +909,7 @@ export function Projects() {
             <button
               type="button"
               onClick={saveProject}
-              disabled={creating || !wName.trim() || !wPath.trim()}
+              disabled={creating || !wName.trim()}
               className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
               style={{
                 background: "var(--color-accent)",
@@ -1043,6 +937,13 @@ export function Projects() {
               Cancel
             </button>
           </div>
+          <p
+            className="mt-3 text-[11px] leading-relaxed"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            After creating the project, use "+ Add item" on the row to attach
+            launcher items (executables, folders, Claude/Codex sessions).
+          </p>
         </div>
       )}
 
@@ -1063,7 +964,7 @@ export function Projects() {
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <input
           type="text"
-          placeholder="Search id, name, path, ide, language, tag…"
+          placeholder="Search id, name, path, language, tag, item…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="flex-1 rounded px-3 py-1.5 text-[12.5px]"
@@ -1137,36 +1038,6 @@ export function Projects() {
         </div>
       )}
 
-      {ideKeys.length > 1 && (
-        <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          <span
-            className="text-[10px] font-medium uppercase tracking-[0.06em] w-16"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            IDE
-          </span>
-          {ideKeys.map((s) => (
-            <Pill
-              key={s}
-              label={s}
-              count={ideCounts[s]}
-              active={ideFilters.has(s)}
-              onClick={() => toggleIde(s)}
-            />
-          ))}
-          {ideFilters.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setIdeFilters(new Set())}
-              className="text-[10px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              clear
-            </button>
-          )}
-        </div>
-      )}
-
       {/* Group-by switch */}
       <div className="mb-4 flex items-center gap-1.5">
         <span
@@ -1175,7 +1046,7 @@ export function Projects() {
         >
           Group by
         </span>
-        {(["none", "language", "ide"] as GroupBy[]).map((g) => (
+        {(["none", "language", "tag"] as GroupBy[]).map((g) => (
           <button
             key={g}
             type="button"
@@ -1201,7 +1072,7 @@ export function Projects() {
             color: "var(--color-danger)",
           }}
         >
-          Open failed: {lastAction.stderr || lastAction.stdout || `exit ${lastAction.exit_code}`}
+          {lastAction.stderr || lastAction.stdout || `exit ${lastAction.exit_code}`}
         </div>
       )}
 
@@ -1248,14 +1119,16 @@ export function Projects() {
                   p={p}
                   selected={selected === p.id}
                   onClick={() => setSelected(p.id)}
-                  onOpen={() => open(p.id)}
+                  onOpen={() => openLegacy(p.id)}
                   opening={opening === p.id}
                   onEdit={() => startEdit(p)}
                   onDelete={() => setPendingDelete(p)}
-                  onOpenCombo={() => openCombo(p)}
-                  actionRuntime={actionRuntime}
-                  onCustomize={() => openActionsModal(p)}
-                  busyAction={_busyAction}
+                  onLaunchAll={() => launchAll(p.id)}
+                  onLaunchItem={(i) => launchItem(p.id, i)}
+                  onAddItem={() => openAddItem(p)}
+                  onRemoveItem={(i) => removeItem(p.id, i)}
+                  busyItem={busyItem[p.id] ?? null}
+                  launchingAll={!!launchingAll[p.id]}
                 />
               ))}
             </div>
@@ -1263,14 +1136,15 @@ export function Projects() {
         ))}
       </div>
 
-      {actionsTarget && (
+      {/* Add launcher item modal */}
+      {itemTarget && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center px-6"
           style={{ background: "rgba(0,0,0,0.55)" }}
-          onClick={() => !actionsSaving && setActionsTarget(null)}
+          onClick={() => !itemSaving && setItemTarget(null)}
         >
           <div
-            className="w-full max-w-[460px] rounded p-5"
+            className="w-full max-w-[520px] rounded p-5"
             style={{
               background: "var(--color-surface-1)",
               border: "1px solid var(--color-border-strong)",
@@ -1278,86 +1152,183 @@ export function Projects() {
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-[14px] font-semibold">
-              Customize actions — {actionsTarget.name ?? actionsTarget.id}
+              Add item — {itemTarget.name ?? itemTarget.id}
             </h3>
             <p
               className="mt-1 text-[11.5px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Toggle the action buttons that show up next to this project.
-              Saved to projects.json under <code>actions</code>.
+              Pick a kind and supply its path. The item appears as a chip on
+              the project row; clicking "Launch all" fires every item in order.
             </p>
-            <div className="mt-3 space-y-1.5">
-              {ALL_PROJECT_ACTIONS.map((a) => {
-                const checked = actionsDraft.has(a.key);
-                const rt = actionRuntime[a.key];
-                return (
+            <div className="mt-3 space-y-3">
+              <div>
+                <label
+                  className="text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Kind
+                </label>
+                <select
+                  value={iKind}
+                  onChange={(e) => setIKind(e.target.value as LauncherItemKind)}
+                  className="mt-1 w-full rounded px-2 py-1.5 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                >
+                  {ITEM_KINDS.map((k) => (
+                    <option key={k.value} value={k.value}>
+                      {k.label} — {k.hint}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {(iKind === "exe" || iKind === "folder") && (
+                <div>
                   <label
-                    key={a.key}
-                    className="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5"
-                    style={{
-                      background: checked
-                        ? "var(--color-surface-3)"
-                        : "transparent",
-                      border: `1px solid ${checked ? "var(--color-border-strong)" : "var(--color-border)"}`,
-                    }}
+                    className="text-[10px] uppercase tracking-wide"
+                    style={{ color: "var(--color-text-tertiary)" }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={(e) => {
-                        const next = new Set(actionsDraft);
-                        if (e.target.checked) next.add(a.key);
-                        else next.delete(a.key);
-                        setActionsDraft(next);
-                      }}
-                      className="mt-0.5"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className="text-[12.5px]"
-                          style={{ color: "var(--color-text)" }}
-                        >
-                          {a.label}
-                        </span>
-                        {!rt.available && (
-                          <span
-                            className="rounded px-1 py-px text-[9.5px] uppercase tracking-wide"
-                            style={{
-                              background: "var(--color-surface-2)",
-                              color: "var(--color-warn)",
-                              border: "1px solid rgba(210, 153, 34, 0.32)",
-                            }}
-                          >
-                            soon
-                          </span>
-                        )}
-                      </div>
-                      <div
-                        className="text-[10.5px]"
-                        style={{ color: "var(--color-text-tertiary)" }}
-                      >
-                        {a.hint}
-                      </div>
-                    </div>
+                    Path
                   </label>
-                );
-              })}
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      type="text"
+                      value={iPath}
+                      onChange={(e) => setIPath(e.target.value)}
+                      placeholder={
+                        iKind === "exe"
+                          ? "C:/Riot Games/Riot Client/RiotClientServices.exe"
+                          : "C:/Users/USER/.ultron/control-center"
+                      }
+                      className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
+                      style={{
+                        background: "var(--color-surface-2)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        fontFamily: "var(--font-mono)",
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={iKind === "exe" ? pickItemFile : pickItemFolder}
+                      className="rounded px-2 py-1 text-[11px]"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text-secondary)",
+                        border: "1px solid var(--color-border-strong)",
+                      }}
+                    >
+                      Pick
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {(iKind === "claude" || iKind === "codex") && (
+                <div>
+                  <label
+                    className="text-[10px] uppercase tracking-wide"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Cwd
+                  </label>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      type="text"
+                      value={iCwd}
+                      onChange={(e) => setICwd(e.target.value)}
+                      placeholder="C:/Users/USER/.ultron"
+                      className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
+                      style={{
+                        background: "var(--color-surface-2)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        fontFamily: "var(--font-mono)",
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={pickItemFolder}
+                      className="rounded px-2 py-1 text-[11px]"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text-secondary)",
+                        border: "1px solid var(--color-border-strong)",
+                      }}
+                    >
+                      Pick
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {iKind === "exe" && (
+                <div>
+                  <label
+                    className="text-[10px] uppercase tracking-wide"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Args (optional, space-separated; use double-quotes for spaces)
+                  </label>
+                  <input
+                    type="text"
+                    value={iArgs}
+                    onChange={(e) => setIArgs(e.target.value)}
+                    placeholder='--launch-product=league_of_legends --launch-patchline=live'
+                    className="mt-1 w-full rounded px-2 py-1.5 text-[11.5px]"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border-strong)",
+                      fontFamily: "var(--font-mono)",
+                      outline: "none",
+                    }}
+                  />
+                </div>
+              )}
+
+              <div>
+                <label
+                  className="text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Label (optional)
+                </label>
+                <input
+                  type="text"
+                  value={iLabel}
+                  onChange={(e) => setILabel(e.target.value)}
+                  placeholder="e.g. Launch League"
+                  className="mt-1 w-full rounded px-2 py-1.5 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                    outline: "none",
+                  }}
+                />
+              </div>
             </div>
-            {actionsError && (
+            {itemError && (
               <p
                 className="mt-2 text-[11.5px]"
                 style={{ color: "var(--color-danger)" }}
               >
-                {actionsError}
+                {itemError}
               </p>
             )}
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setActionsTarget(null)}
-                disabled={actionsSaving}
+                onClick={() => setItemTarget(null)}
+                disabled={itemSaving}
                 className="rounded px-3 py-1.5 text-[12px]"
                 style={{
                   background: "transparent",
@@ -1369,15 +1340,19 @@ export function Projects() {
               </button>
               <button
                 type="button"
-                onClick={saveActions}
-                disabled={actionsSaving}
-                className="rounded px-3 py-1.5 text-[12px] font-medium"
+                onClick={saveItem}
+                disabled={
+                  itemSaving ||
+                  ((iKind === "exe" || iKind === "folder") && !iPath.trim()) ||
+                  ((iKind === "claude" || iKind === "codex") && !iCwd.trim())
+                }
+                className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
                 style={{
                   background: "var(--color-accent)",
                   color: "var(--color-accent-text)",
                 }}
               >
-                {actionsSaving ? "Saving…" : "Save"}
+                {itemSaving ? "Saving…" : "Add"}
               </button>
             </div>
           </div>

@@ -7345,27 +7345,6 @@
   kind: meta
   category: game
   tier: L1
-- name: ui-designer
-  source: auto-discover
-  triggers:
-  - designer
-  - misc
-  tags:
-  - misc
-  - skill
-  - l1
-  cost_tier: medium
-  dispatcher_priority: 3
-  deprecated: true
-  replaces: []
-  last_used: null
-  last_synced: '2026-05-06'
-  description: 'Use this agent when designing visual interfaces, creating design systems, building component libraries, or refining u...'
-  kind: skill
-  category: misc
-  tier: L1
-  security_status: warned
-  security_status_reason: security_warned:PI012
 - name: ui-ux-pro-max
   source: auto-discover
   triggers:

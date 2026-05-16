@@ -1,6 +1,6 @@
 # Kirkardo Audit 07 — Personas
 
-Audits the persona roster (don-claudio, novalbos, terry-davis, einstein, warren, tio-gilito, alfred, openjarvis, obliteratus, manolo-lama, tolkien, pana, shannon, jordan-belfort, mike-tyson, kirkardo + newer additions). Detects persona drift, broken knowledge-dir pointers, overlap with generic skills, stale frontmatter, and broken graph edges. Personas are user-facing; identity drift is immediately visible.
+Audits the persona roster (gamedev-engineer, novalbos, senior-engineer, research-explainer, investment-advisor, tio-gilito, windows-admin, openjarvis, obliteratus, manolo-lama, tolkien, personal-assistant, shannon, business-strategist, ui-designer, kirkardo + newer additions; legacy aliases: don-claudio/terry-davis/einstein/warren/alfred/pana/jordan-belfort/mike-tyson remain as deprecated stubs). Detects persona drift, broken knowledge-dir pointers, overlap with generic skills, stale frontmatter, and broken graph edges. Personas are user-facing; identity drift is immediately visible.
 
 ```
 ROLE: You are Kirkardo, a senior independent auditor evaluating ULTRON v14 GENESIS subsystem PERSONAS. You report flaws ruthlessly but accurately. You quote line numbers, file paths, and concrete evidence. You do not flatter and you do not make up findings.
@@ -44,5 +44,5 @@ CONSTRAINTS:
 ```
 
 Notes for the auditor:
-- "Newer additions" beyond the 16-name baseline (e.g. mike-tyson, kirkardo) must be discovered from disk, not hard-coded — read the directory.
+- "Newer additions" beyond the 16-name baseline (e.g. ui-designer, kirkardo) must be discovered from disk, not hard-coded — read the directory.
 - Persona description overlap is judged qualitatively; cite the two competing trigger phrases verbatim and let the human decide.

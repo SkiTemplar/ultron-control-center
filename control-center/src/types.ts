@@ -349,12 +349,24 @@ export type InlineResult = {
 
 export type SessionProvider = "claude" | "gemini" | "codex";
 
-export type ProjectActionKey =
-  | "open_ide"
-  | "new_claude"
-  | "new_codex"
-  | "open_folder"
-  | "git_status";
+/** Kind of a launcher item inside a project's `items[]`. */
+export type LauncherItemKind = "exe" | "folder" | "claude" | "codex";
+
+/** A single thing to launch from a project. The Rust side dispatches on
+ *  `kind`; the other fields are payload-shaped:
+ *   - exe    → `path` (absolute) + optional `args[]`
+ *   - folder → `path` (absolute directory)
+ *   - claude → `cwd` (absolute directory)
+ *   - codex  → `cwd` (absolute directory)
+ *  `label` is free text shown in the row chip (falls back to a derived
+ *  string built from the path tail). */
+export type LauncherItem = {
+  kind: LauncherItemKind | string;
+  path?: string | null;
+  cwd?: string | null;
+  args?: string[] | null;
+  label?: string | null;
+};
 
 export type ProjectInfo = {
   id: string;
@@ -366,30 +378,12 @@ export type ProjectInfo = {
   status: string | null;
   last_active: string | null;
   tags: string[];
-  /** Optional per-project actions whitelist. When absent the UI falls
-   * back to DEFAULT_PROJECT_ACTIONS. */
-  actions?: ProjectActionKey[] | null;
+  /** Launch group items. When the registry omits this array but supplies a
+   *  `path`, the backend synthesises a default
+   *  `[folder(path), claude(path)]` pair so old-style entries keep working
+   *  without an on-disk migration. */
+  items?: LauncherItem[] | null;
 };
-
-/** Default action set when a project entry omits `actions`. Mirrors
- * the contract used by Projects.tsx and validated server-side. */
-export const DEFAULT_PROJECT_ACTIONS: ProjectActionKey[] = [
-  "open_ide",
-  "new_claude",
-  "open_folder",
-];
-
-export const ALL_PROJECT_ACTIONS: {
-  key: ProjectActionKey;
-  label: string;
-  hint: string;
-}[] = [
-  { key: "open_ide", label: "Open in IDE", hint: "Launch the configured editor" },
-  { key: "new_claude", label: "New Claude session", hint: "wt.exe tab with claude in cwd" },
-  { key: "new_codex", label: "New Codex session", hint: "wt.exe tab with codex in cwd" },
-  { key: "open_folder", label: "Open folder", hint: "Reveal in Explorer" },
-  { key: "git_status", label: "Git status", hint: "wt.exe tab running git status" },
-];
 
 export type ProjectActionResult = {
   success: boolean;

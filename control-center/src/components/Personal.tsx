@@ -17,15 +17,44 @@ type PersonalProfile = {
   content: string;
   last_modified: string | null;
   size_bytes: number;
+  // True when the backend returned the default template instead of the
+  // user's real content (file missing or below the "unedited" threshold).
+  seeded: boolean;
+};
+
+type WritingStyle = {
+  tone: string;
+  primary_language: string;
+  code_switching: string;
+  characteristic_phrases: string[];
+  typo_patterns: string[];
+  formatting_habits: string;
+  average_message_length_chars: number;
+  punctuation_quirks: string;
 };
 
 type PersonalKnown = {
   style_fingerprint: string;
+  writing_style: WritingStyle;
   recent_topics: string[];
   routines: string[];
   last_updated: string | null;
   source: string;
 };
+
+function isWritingStyleEmpty(w: WritingStyle | undefined | null): boolean {
+  if (!w) return true;
+  return (
+    !w.tone.trim() &&
+    !w.primary_language.trim() &&
+    !w.code_switching.trim() &&
+    w.characteristic_phrases.length === 0 &&
+    w.typo_patterns.length === 0 &&
+    !w.formatting_habits.trim() &&
+    w.average_message_length_chars === 0 &&
+    !w.punctuation_quirks.trim()
+  );
+}
 
 function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`;
@@ -305,6 +334,130 @@ export function Personal() {
                   </div>
                 )}
 
+                {!isWritingStyleEmpty(known!.writing_style) && (
+                  <div>
+                    <div
+                      className="mb-1.5 text-[10.5px] uppercase tracking-wide"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      Cómo escribes
+                    </div>
+                    <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-[12px] leading-relaxed">
+                      {known!.writing_style.tone.trim() && (
+                        <>
+                          <dt style={{ color: "var(--color-text-faint)" }}>Tono</dt>
+                          <dd style={{ color: "var(--color-text)" }}>
+                            {known!.writing_style.tone}
+                          </dd>
+                        </>
+                      )}
+                      {known!.writing_style.primary_language.trim() && (
+                        <>
+                          <dt style={{ color: "var(--color-text-faint)" }}>
+                            Idioma principal
+                          </dt>
+                          <dd style={{ color: "var(--color-text)" }}>
+                            {known!.writing_style.primary_language}
+                          </dd>
+                        </>
+                      )}
+                      {known!.writing_style.code_switching.trim() && (
+                        <>
+                          <dt style={{ color: "var(--color-text-faint)" }}>
+                            Code-switching
+                          </dt>
+                          <dd style={{ color: "var(--color-text)" }}>
+                            {known!.writing_style.code_switching}
+                          </dd>
+                        </>
+                      )}
+                      {known!.writing_style.characteristic_phrases.length > 0 && (
+                        <>
+                          <dt style={{ color: "var(--color-text-faint)" }}>
+                            Frases típicas
+                          </dt>
+                          <dd>
+                            <div className="flex flex-wrap gap-1">
+                              {known!.writing_style.characteristic_phrases.map(
+                                (p, i) => (
+                                  <span
+                                    key={`${p}-${i}`}
+                                    className="rounded px-1.5 py-0.5 text-[11px]"
+                                    style={{
+                                      background: "var(--color-surface-2)",
+                                      color: "var(--color-text)",
+                                      border: "1px solid var(--color-border)",
+                                      fontFamily: "var(--font-mono)",
+                                    }}
+                                  >
+                                    {p}
+                                  </span>
+                                ),
+                              )}
+                            </div>
+                          </dd>
+                        </>
+                      )}
+                      {known!.writing_style.typo_patterns.length > 0 && (
+                        <>
+                          <dt style={{ color: "var(--color-text-faint)" }}>
+                            Typos típicos
+                          </dt>
+                          <dd>
+                            <div className="flex flex-wrap gap-1">
+                              {known!.writing_style.typo_patterns.map((p, i) => (
+                                <span
+                                  key={`${p}-${i}`}
+                                  className="rounded px-1.5 py-0.5 text-[11px]"
+                                  style={{
+                                    background: "var(--color-surface-2)",
+                                    color: "var(--color-text-secondary)",
+                                    border: "1px solid var(--color-border)",
+                                    fontFamily: "var(--font-mono)",
+                                  }}
+                                >
+                                  {p}
+                                </span>
+                              ))}
+                            </div>
+                          </dd>
+                        </>
+                      )}
+                      {known!.writing_style.formatting_habits.trim() && (
+                        <>
+                          <dt style={{ color: "var(--color-text-faint)" }}>
+                            Formato
+                          </dt>
+                          <dd style={{ color: "var(--color-text)" }}>
+                            {known!.writing_style.formatting_habits}
+                          </dd>
+                        </>
+                      )}
+                      {known!.writing_style.average_message_length_chars > 0 && (
+                        <>
+                          <dt style={{ color: "var(--color-text-faint)" }}>
+                            Longitud media
+                          </dt>
+                          <dd style={{ color: "var(--color-text)" }}>
+                            {known!.writing_style.average_message_length_chars.toLocaleString()}{" "}
+                            chars
+                          </dd>
+                        </>
+                      )}
+                      {known!.writing_style.punctuation_quirks.trim() && (
+                        <>
+                          <dt style={{ color: "var(--color-text-faint)" }}>
+                            Puntuación
+                          </dt>
+                          <dd style={{ color: "var(--color-text)" }}>
+                            {known!.writing_style.punctuation_quirks}
+                          </dd>
+                        </>
+                      )}
+                    </dl>
+                  </div>
+                )}
+
                 {known!.recent_topics.length > 0 && (
                   <div>
                     <div
@@ -405,6 +558,20 @@ export function Personal() {
               Estilo, rutinas, preferencias, patrones de prompts
             </span>
           </div>
+
+          {profile?.seeded && (
+            <div
+              className="rounded p-2 text-[11.5px] leading-relaxed"
+              style={{
+                background: "rgba(210, 153, 34, 0.08)",
+                border: "1px solid rgba(210, 153, 34, 0.30)",
+                color: "var(--color-warn)",
+              }}
+            >
+              Esta es una plantilla. Edita y pulsa <strong>Save</strong> para
+              guardar tu perfil real.
+            </div>
+          )}
 
           <textarea
             value={draft}

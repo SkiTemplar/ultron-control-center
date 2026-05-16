@@ -5,7 +5,7 @@
 
 ## SISTEMA
 
-brain_index: 772 notas · skills: 47 · plans en `~/.ultron/plans/PLANS.json` · changelog en `~/.claude/skills/ultron/references/changelog.md`.
+brain_index: 759 notas · skills: 52 · plans en `~/.ultron/plans/PLANS.json` · changelog en `~/.claude/skills/ultron/references/changelog.md`.
 
 ---
 
@@ -25,7 +25,7 @@ Total en cockpit/projects.json. Detalle: `ultron status`.
 
 ## SKILL GRAPH (14 personas)
 
-gamedev-engineer · don-claudio · novalbos · terry-davis · einstein · warren · tio-gilito · windows-admin · alfred · openjarvis · obliteratus · manolo-lama · tolkien · personal-assistant.
+gamedev-engineer · don-claudio · novalbos · senior-engineer · terry-davis · research-explainer · einstein · investment-advisor · warren · tio-gilito · windows-admin · alfred · openjarvis · obliteratus.
 
 Detalle por persona en `~/.claude/skills/ultron/references/routing-tables.md` (Layer 1) + `cockpit/skill_graph.json` (knowledge_files).
 

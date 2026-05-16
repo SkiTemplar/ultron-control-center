@@ -275,7 +275,7 @@ from route_quality import _compute_score, resolve_conflict, mode_allows_level, R
 
 def _edge(**overrides) -> dict:
     base = {
-        "from": "ultron", "to": "terry-davis",
+        "from": "ultron", "to": "senior-engineer",
         "runs": 0, "successes": 0, "fallbacks": 0, "corrections": 0,
         "avg_token_cost": 0, "avg_duration_sec": 0,
         "last_outcome": "unknown", "last_used": None,
@@ -340,12 +340,12 @@ class TestResolveConflict:
         # Patch QUALITY_FILE to an empty store so scores are from neutral prior
         monkeypatch.setattr(route_quality, "QUALITY_FILE", tmp_path / "rq.json")
         candidates = [
-            {"from": "ultron", "to": "terry-davis", "domain_fit": 1.0, "safety_fit": 1.0},
+            {"from": "ultron", "to": "senior-engineer", "domain_fit": 1.0, "safety_fit": 1.0},
             {"from": "ultron", "to": "tolkien",     "domain_fit": 0.1, "safety_fit": 0.1},
         ]
         result = resolve_conflict(candidates)
         assert result is not None
-        assert result["to"] == "terry-davis"
+        assert result["to"] == "senior-engineer"
         assert "best score" in result.get("reason", "").lower()
 
     def test_result_contains_required_fields(self, monkeypatch, tmp_path):
@@ -493,12 +493,12 @@ class TestHandoffContracts:
             "handoff must not include broad context fields"
 
     def test_ultron_to_terry_davis_code_bug(self, tmp_path, monkeypatch):
-        """ultron → terry-davis for a code bug: compact debug contract, no L4."""
+        """ultron → senior-engineer for a code bug: compact debug contract, no L4."""
         contract = self._build_handoff(
-            "ultron", "terry-davis", "debug_unknown_bug", "HIGH", tmp_path, monkeypatch)
+            "ultron", "senior-engineer", "debug_unknown_bug", "HIGH", tmp_path, monkeypatch)
         self._assert_contract_valid(contract)
         assert contract["from"] == "ultron"
-        assert contract["to"] == "terry-davis"
+        assert contract["to"] == "senior-engineer"
         assert not contract["allow_l4"], "code debug must not load L4"
         assert contract["max_tokens"] <= 5000
 
@@ -520,12 +520,12 @@ class TestHandoffContracts:
         assert contract["to"] == "sharp-edges"
         assert not contract["allow_l4"], "code review must not load L4"
 
-    def test_mike_tyson_to_frontend_design_ui(self, tmp_path, monkeypatch):
-        """mike-tyson → frontend-design for UI: implementation levels, no L4."""
+    def test_ui_designer_to_frontend_design_ui(self, tmp_path, monkeypatch):
+        """ui-designer → frontend-design for UI: implementation levels, no L4."""
         contract = self._build_handoff(
-            "mike-tyson", "frontend-design", "code_implementation", "MEDIUM", tmp_path, monkeypatch)
+            "ui-designer", "frontend-design", "code_implementation", "MEDIUM", tmp_path, monkeypatch)
         self._assert_contract_valid(contract)
-        assert contract["from"] == "mike-tyson"
+        assert contract["from"] == "ui-designer"
         assert contract["to"] == "frontend-design"
         assert not contract["allow_l4"], "UI implementation must not load L4"
 

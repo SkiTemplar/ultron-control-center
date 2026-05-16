@@ -328,7 +328,7 @@ def _extract_domain(path: Path, layer: str) -> str:
     """Semantic domain for finer-grained routing (W3.1).
 
     L2-vault 10_KNOWLEDGE/<subdir>/ → "cpp-ue5", "opengl", "claude-platform", …
-    L1-skills                       → skill dir name ("gamedev-engineer", "terry-davis", …)
+    L1-skills                       → skill dir name ("gamedev-engineer", "senior-engineer", …)
     L1-sessions                     → "session"
     L1-projects                     → "project"
     """
