@@ -84,13 +84,13 @@ type Particle = {
 
 const VIEW = 1000;
 const CENTER = VIEW / 2;
-const NODE_RADIUS_BASE = 4;
-const REPULSION = 900; // pairwise repulsion strength (reduced — was 1400, too explosive)
-const SPRING_K = 0.04; // edge spring stiffness (raised — was 0.025, edges too slack)
+const NODE_RADIUS_BASE = 9; // bumped from 4 — bigger nodes, easier to click
+const REPULSION = 500; // pairwise repulsion (reduced from 900 — denser, less explosive)
+const SPRING_K = 0.04; // edge spring stiffness
 const SPRING_REST = 80; // resting edge length
-const GRAVITY = 0.03; // pull to center (raised — was 0.012, nodes drifted off-center)
-const DAMPING = 0.6; // velocity retention per frame (was 0.85 → too lively)
-const COLLIDE_RADIUS = 14; // soft collision min-distance to avoid overlap
+const GRAVITY = 0.015; // looser pull to center (was 0.03 — let cluster breathe)
+const DAMPING = 0.6; // velocity retention per frame
+const COLLIDE_RADIUS = 18; // grew with NODE_RADIUS_BASE so overlap stays sane
 const COLLIDE_STRENGTH = 0.5;
 const PRE_FRAMES = 320; // higher pre-render so the SVG mounts already settled
 const MAX_RENDER_NODES = 200; // cap client-side; backend may still send more
@@ -209,12 +209,28 @@ function initParticles(nodes: GraphNode[]): Particle[] {
 // React component
 // ---------------------------------------------------------------------------
 
-export function MemoryGraphForce() {
+type Props = {
+  /** External id to focus / select (drives the selection ring + pan-to). */
+  selectedId?: string | null;
+  /** Called when the user clicks a node — lets the parent pull details. */
+  onSelect?: (n: GraphNode | null) => void;
+  /** If true, hide the internal right-side detail aside (parent owns it). */
+  hideAside?: boolean;
+  /** If true, hide the bottom legend (compact embed mode). */
+  hideLegend?: boolean;
+};
+
+export function MemoryGraphForce({
+  selectedId,
+  onSelect,
+  hideAside,
+  hideLegend,
+}: Props = {}) {
   const [graph, setGraph] = useState<MemoryLinkGraph | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [selected, setSelected] = useState<GraphNode | null>(null);
+  const [internalSelected, setInternalSelected] = useState<GraphNode | null>(null);
   const [hover, setHover] = useState<{
     node: GraphNode;
     sx: number;
@@ -222,12 +238,42 @@ export function MemoryGraphForce() {
   } | null>(null);
   const [, forceRender] = useState(0);
 
+  // Zoom + pan transform applied to the inner <g> element.
+  // SVG coords transform = translate(tx, ty) scale(scale).
+  // We keep this in a ref so wheel/drag don't trigger re-renders by
+  // themselves; we manually forceRender to keep the loop visible.
+  const transformRef = useRef<{ scale: number; tx: number; ty: number }>({
+    scale: 1,
+    tx: 0,
+    ty: 0,
+  });
+  const panRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startTx: number;
+    startTy: number;
+  } | null>(null);
+
   const svgRef = useRef<SVGSVGElement | null>(null);
   const particlesRef = useRef<Particle[]>([]);
   const idIndexRef = useRef<Map<string, number>>(new Map());
   const rafRef = useRef<number | null>(null);
   const draggingRef = useRef<{ idx: number; offsetX: number; offsetY: number } | null>(null);
   const alphaRef = useRef<number>(1);
+
+  // Resolved selected node: prefer parent-driven selectedId, fall back to
+  // internal state so the component still works standalone.
+  const selected: GraphNode | null = (() => {
+    if (selectedId && graph) {
+      return graph.nodes.find((n) => n.id === selectedId) ?? null;
+    }
+    return internalSelected;
+  })();
+
+  function pickSelected(n: GraphNode | null) {
+    setInternalSelected(n);
+    onSelect?.(n);
+  }
 
   // Load graph on mount.
   useEffect(() => {
@@ -398,16 +444,102 @@ export function MemoryGraphForce() {
   // Mouse handlers — drag, hover, click
   // -------------------------------------------------------------------------
 
+  // Convert a client (px) event point into the simulation/world coord
+  // space, undoing the current transform so node-drag matches the
+  // cursor even when the user has zoomed or panned.
   function svgPoint(e: { clientX: number; clientY: number }): {
     x: number;
     y: number;
   } {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect) return { x: 0, y: 0 };
-    const x = ((e.clientX - rect.left) / rect.width) * VIEW;
-    const y = ((e.clientY - rect.top) / rect.height) * VIEW;
-    return { x, y };
+    const sx = ((e.clientX - rect.left) / rect.width) * VIEW;
+    const sy = ((e.clientY - rect.top) / rect.height) * VIEW;
+    const { scale, tx, ty } = transformRef.current;
+    return { x: (sx - tx) / scale, y: (sy - ty) / scale };
   }
+
+  // Wheel = zoom around the cursor. Holding ctrl/cmd accelerates.
+  function onWheel(e: React.WheelEvent<SVGSVGElement>) {
+    e.preventDefault();
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    // Cursor in svg viewBox coords (pre-transform).
+    const cx = ((e.clientX - rect.left) / rect.width) * VIEW;
+    const cy = ((e.clientY - rect.top) / rect.height) * VIEW;
+    const t = transformRef.current;
+    // World coord under cursor before zoom.
+    const wx = (cx - t.tx) / t.scale;
+    const wy = (cy - t.ty) / t.scale;
+    const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+    const next = Math.max(0.25, Math.min(4, t.scale * factor));
+    // Solve so the world point stays anchored under the cursor.
+    t.tx = cx - wx * next;
+    t.ty = cy - wy * next;
+    t.scale = next;
+    forceRender((n) => n + 1);
+  }
+
+  // Background drag = pan. Node-drag is intercepted earlier by the
+  // circle's own pointerdown so we won't conflict.
+  function onBackgroundPointerDown(e: React.PointerEvent<SVGSVGElement>) {
+    // Only react to primary button on the svg background (not on a node).
+    if (e.button !== 0) return;
+    const target = e.target as Element;
+    if (target.tagName !== "svg" && target.tagName !== "rect") return;
+    (e.currentTarget as SVGSVGElement).setPointerCapture(e.pointerId);
+    const t = transformRef.current;
+    panRef.current = {
+      startClientX: e.clientX,
+      startClientY: e.clientY,
+      startTx: t.tx,
+      startTy: t.ty,
+    };
+  }
+
+  function onBackgroundPointerMove(e: React.PointerEvent<SVGSVGElement>) {
+    if (!panRef.current) return;
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const dxClient = e.clientX - panRef.current.startClientX;
+    const dyClient = e.clientY - panRef.current.startClientY;
+    // Convert px delta to viewBox delta.
+    const dx = (dxClient / rect.width) * VIEW;
+    const dy = (dyClient / rect.height) * VIEW;
+    transformRef.current.tx = panRef.current.startTx + dx;
+    transformRef.current.ty = panRef.current.startTy + dy;
+    forceRender((n) => n + 1);
+  }
+
+  function onBackgroundPointerUp(e: React.PointerEvent<SVGSVGElement>) {
+    if (!panRef.current) return;
+    try {
+      (e.currentTarget as SVGSVGElement).releasePointerCapture(e.pointerId);
+    } catch {
+      /* ignore */
+    }
+    panRef.current = null;
+  }
+
+  function resetView() {
+    transformRef.current = { scale: 1, tx: 0, ty: 0 };
+    forceRender((n) => n + 1);
+  }
+
+  // When the parent changes selectedId (e.g. user clicked a Highlights
+  // row in the sidebar), pan the view so the selected node is visible.
+  useEffect(() => {
+    if (!selectedId || !graph) return;
+    const idx = idIndexRef.current.get(selectedId);
+    if (idx === undefined) return;
+    const p = particlesRef.current[idx];
+    if (!p) return;
+    const t = transformRef.current;
+    // Center the node in the viewBox while keeping current scale.
+    t.tx = CENTER - p.x * t.scale;
+    t.ty = CENTER - p.y * t.scale;
+    forceRender((n) => n + 1);
+  }, [selectedId, graph]);
 
   function onNodePointerDown(
     e: React.PointerEvent<SVGCircleElement>,
@@ -499,6 +631,19 @@ export function MemoryGraphForce() {
             outline: "none",
           }}
         />
+        <button
+          type="button"
+          onClick={resetView}
+          className="rounded px-2 py-1 text-[10.5px] transition-colors"
+          style={{
+            background: "var(--color-surface-2)",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Reset zoom + pan"
+        >
+          Reset view
+        </button>
         {graph && graph.edge_source === "tags" && (
           <div
             className="rounded px-2 py-1 text-[10.5px]"
@@ -545,9 +690,29 @@ export function MemoryGraphForce() {
               viewBox={`0 0 ${VIEW} ${VIEW}`}
               preserveAspectRatio="xMidYMid meet"
               className="block h-full w-full"
-              style={{ background: "var(--color-bg)" }}
+              style={{
+                background: "var(--color-bg)",
+                cursor: panRef.current ? "grabbing" : "grab",
+                touchAction: "none",
+              }}
               onMouseLeave={() => setHover(null)}
+              onWheel={onWheel}
+              onPointerDown={onBackgroundPointerDown}
+              onPointerMove={onBackgroundPointerMove}
+              onPointerUp={onBackgroundPointerUp}
             >
+              {/* Invisible capture rect so background drag has a hit target
+                  on empty regions (between nodes). */}
+              <rect
+                x={0}
+                y={0}
+                width={VIEW}
+                height={VIEW}
+                fill="transparent"
+              />
+              <g
+                transform={`translate(${transformRef.current.tx} ${transformRef.current.ty}) scale(${transformRef.current.scale})`}
+              >
               {/* Edges */}
               <g>
                 {graph.edges.map((e, i) => {
@@ -603,7 +768,7 @@ export function MemoryGraphForce() {
                         style={{ cursor: "pointer" }}
                         onMouseEnter={(e) => onNodeEnter(e, n)}
                         onMouseMove={(e) => onNodeEnter(e, n)}
-                        onClick={() => setSelected(n)}
+                        onClick={() => pickSelected(n)}
                         onPointerDown={(e) => onNodePointerDown(e, n.id)}
                         onPointerMove={onNodePointerMove}
                         onPointerUp={onNodePointerUp}
@@ -629,6 +794,7 @@ export function MemoryGraphForce() {
                     </g>
                   );
                 })}
+              </g>
               </g>
             </svg>
           )}
@@ -672,7 +838,9 @@ export function MemoryGraphForce() {
           )}
         </div>
 
-        {/* Detail panel */}
+        {/* Detail panel — hidden when the parent owns the sidebar
+            (Memory.tsx unified layout). */}
+        {!hideAside && (
         <aside
           className="w-[340px] shrink-0 overflow-auto border-l px-4 py-3"
           style={{ borderColor: "var(--color-border)" }}
@@ -751,9 +919,11 @@ export function MemoryGraphForce() {
             </div>
           )}
         </aside>
+        )}
       </div>
 
       {/* Legend */}
+      {!hideLegend && (
       <div
         className="shrink-0 border-t px-4 py-2"
         style={{ borderColor: "var(--color-border)" }}
@@ -787,6 +957,7 @@ export function MemoryGraphForce() {
           ))}
         </div>
       </div>
+      )}
     </div>
   );
 }

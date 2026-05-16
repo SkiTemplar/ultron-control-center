@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { SettingsSaveResult, SettingsSnapshot } from "../types";
 import { AuthStatus } from "./AuthStatus";
 import { ModeSwitcher, useUltronMode } from "./ModeSwitcher";
+import { JsonVisualEditor } from "./JsonVisualEditor";
 
 // v15.2 F7: MCPRow / McpServer type removed from Settings — MCP enable/disable
 // now lives in the MCPs top-level tab (see EnableDisableSection in MCPs.tsx).
@@ -129,6 +131,17 @@ function JsonEditor({
   // v15.2 F7: schema validation + scroll navigator.
   const [schemaErrors, setSchemaErrors] = useState<string[] | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // v15.2 F8 UX: View toggle (raw textarea vs. visual form). Persists per-user.
+  const [viewMode, setViewMode] = useState<"raw" | "visual">(() => {
+    if (typeof window === "undefined") return "raw";
+    const stored = window.localStorage.getItem("settings.editor.viewMode");
+    return stored === "visual" ? "visual" : "raw";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("settings.editor.viewMode", viewMode);
+    }
+  }, [viewMode]);
 
   // External `obj` changes (e.g. after Save reload) overwrite the textarea
   // — otherwise the buffer would go stale silently.
@@ -253,7 +266,7 @@ function JsonEditor({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div
           className="text-[11px]"
           style={{ color: "var(--color-text-tertiary)" }}
@@ -261,10 +274,47 @@ function JsonEditor({
           Editable copy of <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span> · {lines} líneas · cualquier cambio se hace efectivo al pulsar Save (backup automático)
         </div>
         <div className="flex items-center gap-2">
+          {/* v15.2 F8 UX: View toggle — raw JSON vs. visual form. */}
+          <div
+            className="flex rounded p-0.5"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            role="tablist"
+            aria-label="Editor view"
+          >
+            {([
+              { id: "raw" as const, label: "Raw JSON" },
+              { id: "visual" as const, label: "Visual form" },
+            ]).map((opt) => {
+              const selected = viewMode === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => setViewMode(opt.id)}
+                  className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+                  style={{
+                    background: selected ? "var(--color-surface-3)" : "transparent",
+                    color: selected ? "var(--color-text)" : "var(--color-text-tertiary)",
+                  }}
+                  title={
+                    opt.id === "raw"
+                      ? "Edit the JSON file as text"
+                      : "Edit the JSON as a hierarchical form"
+                  }
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
           <button
             type="button"
             onClick={validate}
-            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+            disabled={viewMode === "visual"}
+            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
             style={{
               background: "var(--color-surface-2)",
               color: "var(--color-text)",
@@ -277,7 +327,8 @@ function JsonEditor({
           <button
             type="button"
             onClick={() => setAiOpen(!aiOpen)}
-            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+            disabled={viewMode === "visual"}
+            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
             style={{
               background: aiOpen ? "var(--color-surface-3)" : "var(--color-surface-2)",
               color: "var(--color-text)",
@@ -290,6 +341,21 @@ function JsonEditor({
         </div>
       </div>
 
+      {viewMode === "visual" && (
+        <JsonVisualEditor
+          obj={obj}
+          onChange={(next) => {
+            // Keep the raw text buffer in sync so flipping to Raw shows the
+            // edited form.
+            setText(JSON.stringify(next, null, 2));
+            setParseError(null);
+            onChange(next);
+          }}
+        />
+      )}
+
+      {viewMode === "raw" && (
+        <>
       {schemaErrors !== null && (
         <div
           className="rounded p-2 text-[11.5px]"
@@ -515,6 +581,8 @@ function JsonEditor({
           {parseError}
         </div>
       )}
+        </>
+      )}
     </div>
   );
 }
@@ -593,7 +661,6 @@ type BackupRootInfo = {
 
 function BackupRootEditor({ onChanged }: { onChanged: () => void }) {
   const [info, setInfo] = useState<BackupRootInfo | null>(null);
-  const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -602,7 +669,6 @@ function BackupRootEditor({ onChanged }: { onChanged: () => void }) {
     try {
       const r = (await invoke("get_backup_root")) as BackupRootInfo;
       setInfo(r);
-      setDraft(r.current);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -619,7 +685,6 @@ function BackupRootEditor({ onChanged }: { onChanged: () => void }) {
     try {
       const r = (await invoke("set_backup_root", { path })) as BackupRootInfo;
       setInfo(r);
-      setDraft(r.current);
       setSuccess(`Backup root set to ${r.current}${r.exists ? "" : " (path does not exist yet)"}.`);
       window.setTimeout(() => setSuccess(null), 3500);
       onChanged();
@@ -627,6 +692,25 @@ function BackupRootEditor({ onChanged }: { onChanged: () => void }) {
       setError(String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  // v15.2 F8 UX: replace the free-text input with the Tauri native folder
+  // picker. Avoids the user pasting half-typed Windows paths.
+  async function browse() {
+    setError(null);
+    try {
+      const picked = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "Select backup root folder",
+        defaultPath: info?.current || info?.suggested || undefined,
+      });
+      if (typeof picked === "string" && picked.trim()) {
+        await save(picked.trim());
+      }
+    } catch (e) {
+      setError(String(e));
     }
   }
 
@@ -665,34 +749,32 @@ function BackupRootEditor({ onChanged }: { onChanged: () => void }) {
         <span style={{ fontFamily: "var(--font-mono)" }}>$env:ULTRON_BACKUP_ROOT</span>.
       </p>
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <input
-          type="text"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={info?.suggested ?? "D:\\BACKUP"}
-          spellCheck={false}
-          className="rounded px-3 py-1.5 text-[12.5px]"
+        <div
+          className="truncate rounded px-3 py-1.5 text-[12.5px]"
           style={{
             background: "var(--color-surface-1)",
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
-            outline: "none",
             fontFamily: "var(--font-mono)",
             minWidth: 280,
             flex: "1 1 280px",
           }}
-        />
+          title={info?.current ?? ""}
+        >
+          {info?.current ?? "—"}
+        </div>
         <button
           type="button"
-          onClick={() => save(draft.trim())}
-          disabled={busy || draft.trim() === (info?.current ?? "")}
+          onClick={browse}
+          disabled={busy}
           className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
           style={{
             background: "var(--color-accent)",
             color: "var(--color-accent-text)",
           }}
+          title="Open the Windows folder picker"
         >
-          {busy ? "Saving…" : "Save"}
+          {busy ? "Saving…" : "Browse…"}
         </button>
         <button
           type="button"
@@ -1453,62 +1535,15 @@ function GeneralSection() {
       {/* Global hotkey */}
       <HotkeyEditor />
 
-      {/* In-app keyboard map — read-only reference. The bindings live in
-          src/App.tsx (Alt+digit) and CommandPalette (Ctrl+K). When we add
-          custom bindings the helper here should grow to reflect them. */}
-      <div
-        className="rounded p-4"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-border)",
-        }}
-      >
-        <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
-          In-app shortcuts
-        </div>
-        <p
-          className="mt-1 text-[11.5px] leading-relaxed"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Atajos dentro del Control Center. Alt+digit no roba teclas si
-          estas escribiendo en un input.
-        </p>
-        <div
-          className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[11.5px]"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          {[
-            ["Ctrl + K", "Command palette"],
-            ["Ctrl + ,", "Settings"],
-            ["Ctrl + R", "Refresh top-level state"],
-            ["Alt + 1", "Dashboard"],
-            ["Alt + 2", "Usage"],
-            ["Alt + 3", "Notifications"],
-            ["Alt + 4", "Sessions"],
-            ["Alt + 5", "Projects"],
-            ["Alt + 6", "Plans"],
-            ["Alt + 7", "Memory"],
-            ["Alt + 8", "Skills"],
-            ["Alt + 9", "Logs"],
-            ["Alt + 0", "Settings"],
-          ].map(([k, label]) => (
-            <div key={k} className="flex items-baseline justify-between gap-2">
-              <kbd
-                className="rounded px-1.5 py-px text-[10.5px]"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {k}
-              </kbd>
-              <span style={{ color: "var(--color-text-tertiary)" }}>{label}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* In-app shortcuts — now editable. Persisted at
+          ~/.ultron/.tmp/in-app-shortcuts.json via get/set_in_app_shortcuts.
+          App.tsx mirrors the map and dispatches keys against it. */}
+      <InAppShortcutsEditor />
+
+      {/* Custom per-project global hotkeys (Settings → Project hotkeys).
+          Distinct from the legacy Ctrl+Alt+1..9 pin-derived slots —
+          these let the user pick (slot, combo, project_id) tuples. */}
+      <ProjectHotkeysEditor />
 
 
       {error && (

@@ -624,12 +624,18 @@ fn probe_docker() -> DiagItem {
         .output();
     let elapsed = now_epoch_ms() - t0;
     match out {
+        // Docker not installed → neutral gray (optional dependency).
+        // ULTRON only uses Docker to run the local Qdrant container; if the
+        // user does not need semantic recall, this is fine.
         Err(_) => DiagItem {
             key: "docker".into(),
             label: "Docker".into(),
-            color: "orange".into(),
-            metric: "not found".into(),
-            detail: Some("docker CLI not on PATH".into()),
+            color: "gray".into(),
+            metric: "not installed".into(),
+            detail: Some(
+                "Optional. Docker is only needed for the local Qdrant container."
+                    .into(),
+            ),
             fix: None,
             elapsed_ms: elapsed,
         },

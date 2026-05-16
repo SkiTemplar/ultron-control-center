@@ -63,6 +63,11 @@ pub struct SpawnFlags {
     /// off the resumed conversation instead of overwriting it.
     #[serde(default)]
     pub fork_session: bool,
+    /// When true, the wrapper script will NOT overwrite the clipboard with
+    /// the prompt — it assumes the caller has already seeded it with the
+    /// real prompt. The `prompt` value is shown as a banner only.
+    #[serde(default)]
+    pub respect_clipboard: bool,
     /// `--model <id>`. When `None` Claude uses the account default.
     #[serde(default)]
     pub model: Option<String>,

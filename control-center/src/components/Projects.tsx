@@ -13,21 +13,141 @@ import type {
 // Launcher item rendering helpers
 // ---------------------------------------------------------------------------
 
-const KIND_LABEL: Record<string, string> = {
-  exe: "exe",
-  folder: "folder",
-  claude: "claude",
-  codex: "codex",
-};
+/** Labels written by the backwards-compat synthesiser in projects.rs
+ *  (`load_items_for` / `list_projects_inner`). When an item carries one of
+ *  these, the user never picked a name — we treat it as built-in and render
+ *  the icon-only chip. Anything else is "custom". */
+const SYNTHETIC_LABELS = new Set<string>([
+  "Open folder",
+  "New Claude session",
+  "Claude session",
+  "Codex session",
+]);
 
-/** Short label for a chip when the user didn't set one — falls back to the
- *  last path/cwd component so long Windows paths stay readable. */
-function itemLabel(item: LauncherItem): string {
-  if (item.label && item.label.trim()) return item.label.trim();
+/** True when the item should render as an icon-only built-in chip. We treat
+ *  any item whose kind is a known launcher type AND whose label is either
+ *  empty or one of the synthesised defaults as built-in. Custom items are
+ *  those the user explicitly named. */
+function isBuiltinItem(item: LauncherItem): boolean {
+  const knownKind =
+    item.kind === "folder" ||
+    item.kind === "claude" ||
+    item.kind === "codex" ||
+    item.kind === "exe";
+  if (!knownKind) return false;
+  const label = (item.label ?? "").trim();
+  if (!label) return true;
+  return SYNTHETIC_LABELS.has(label);
+}
+
+/** Tooltip text for a built-in chip — full kind + target path. */
+function builtinTooltip(item: LauncherItem): string {
+  switch (item.kind) {
+    case "folder":
+      return `Open folder: ${item.path ?? ""}`;
+    case "claude":
+      return `Start Claude session in ${item.cwd ?? "cwd"}`;
+    case "codex":
+      return `Start Codex session in ${item.cwd ?? "cwd"}`;
+    case "exe": {
+      const args =
+        item.args && item.args.length > 0 ? " " + item.args.join(" ") : "";
+      return `Launch: ${item.path ?? ""}${args}`;
+    }
+    default:
+      return item.kind;
+  }
+}
+
+/** Display name for custom items — explicit label, else fall back to the
+ *  basename of the path/cwd so long Windows paths stay readable. */
+function customItemName(item: LauncherItem): string {
+  const label = (item.label ?? "").trim();
+  if (label) return label;
   const src = item.path ?? item.cwd ?? "";
   if (!src) return item.kind;
-  const tail = src.replace(/[\/\\]+$/, "").split(/[\/\\]/).pop() ?? src;
-  return `${KIND_LABEL[item.kind] ?? item.kind}: ${tail}`;
+  return src.replace(/[\/\\]+$/, "").split(/[\/\\]/).pop() ?? src;
+}
+
+// ---------------------------------------------------------------------------
+// Inline icons (no lucide-react dependency — keeps the bundle small).
+// 14×14 stroked paths matching the Lucide visual language.
+// ---------------------------------------------------------------------------
+
+function FolderIcon() {
+  // Lucide `Folder` path.
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M20 19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  // Lucide `Play` (filled triangle, matches "executable" semantic).
+  return (
+    <svg
+      width="13"
+      height="13"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden
+    >
+      <polygon points="6 4 20 12 6 20 6 4" />
+    </svg>
+  );
+}
+
+/** "C" mark for Claude — Anthropic-style orange tile, monospace cap. */
+function ClaudeMark() {
+  return (
+    <span
+      aria-hidden
+      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11px] font-bold leading-none"
+      style={{
+        background: "#cc785c",
+        color: "#fafaf7",
+        fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, monospace)",
+      }}
+    >
+      C
+    </span>
+  );
+}
+
+/** Spiral mark for Codex — OpenAI greyscale tile. */
+function CodexMark() {
+  return (
+    <span
+      aria-hidden
+      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11px] font-bold leading-none"
+      style={{
+        background: "#10a37f",
+        color: "#fafaf7",
+        fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, monospace)",
+      }}
+    >
+      X
+    </span>
+  );
+}
+
+/** Icon picked from the item kind for built-in chips. */
+function BuiltinIcon({ kind }: { kind: string }) {
+  if (kind === "folder") return <FolderIcon />;
+  if (kind === "claude") return <ClaudeMark />;
+  if (kind === "codex") return <CodexMark />;
+  return <PlayIcon />;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,79 +362,90 @@ function Row({
         </div>
       </div>
 
-      {/* Launcher item chips — compact row at the bottom of the card. The
-          launch button is an icon-only square (folder / cloud / exe glyph)
-          so a row with many items stays readable; full kind + path is in
-          the chip tooltip. */}
+      {/* Launcher items — two visual flavours sit on the same row:
+            built-in (folder/claude/codex/exe with no user-set name) →
+              28×28 icon-only square; the icon is the click target.
+            custom (user gave it a name) → wider name-card with the user's
+              label centered, surface-2 fill; whole card is the click target.
+          A small × in the corner of each chip removes it. */}
       <div className="flex flex-wrap items-center gap-1.5">
         {items.map((it, i) => {
-          const kindIcon =
-            it.kind === "folder"
-              ? "📁"
-              : it.kind === "claude" || it.kind === "codex"
-                ? "☁"
-                : "▶";
-          const launchTitle =
-            it.kind === "folder"
-              ? `Open folder: ${it.path ?? ""}`
-              : it.kind === "claude"
-                ? `Start Claude session in ${it.cwd ?? "cwd"}`
-                : it.kind === "codex"
-                  ? `Start Codex session in ${it.cwd ?? "cwd"}`
-                  : `Launch ${it.path ?? itemLabel(it)}`;
+          const builtin = isBuiltinItem(it);
+          const busy = busyItem === i;
+          if (builtin) {
+            const tip = builtinTooltip(it);
+            return (
+              <div key={i} className="relative inline-flex">
+                <button
+                  type="button"
+                  onClick={() => onLaunchItem(i)}
+                  disabled={busy}
+                  className="flex h-7 w-7 items-center justify-center rounded transition-colors disabled:opacity-40"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title={tip}
+                  aria-label={tip}
+                >
+                  {busy ? (
+                    <span className="text-[10px]">…</span>
+                  ) : (
+                    <BuiltinIcon kind={it.kind} />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemoveItem(i)}
+                  className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] leading-none opacity-0 transition-opacity hover:opacity-100 group-hover:opacity-100"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-danger)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title="Remove this item"
+                  aria-label="Remove item"
+                >
+                  ×
+                </button>
+              </div>
+            );
+          }
+          // Custom item: name-only card, larger target, whole card clickable.
+          const name = customItemName(it);
+          const tip =
+            it.path ?? it.cwd
+              ? `${name} — ${it.path ?? it.cwd}${it.args && it.args.length > 0 ? " " + it.args.join(" ") : ""}`
+              : name;
           return (
-            <div
-              key={i}
-              className="flex items-center gap-1 rounded pl-2 pr-0.5 py-0.5 text-[11px]"
-              style={{
-                background: "var(--color-surface-1)",
-                border: "1px solid var(--color-border)",
-                color: "var(--color-text-secondary)",
-              }}
-              title={
-                it.path
-                  ? `${it.kind}: ${it.path}${it.args && it.args.length > 0 ? " " + it.args.join(" ") : ""}`
-                  : it.cwd
-                    ? `${it.kind}: ${it.cwd}`
-                    : it.kind
-              }
-            >
-              <span
-                className="text-[9.5px] uppercase tracking-wide"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {KIND_LABEL[it.kind] ?? it.kind}
-              </span>
-              <span
-                className="max-w-[220px] truncate"
-                style={{ fontFamily: "var(--font-mono)" }}
-              >
-                {itemLabel(it).replace(/^[a-z]+:\s*/, "")}
-              </span>
+            <div key={i} className="relative inline-flex">
               <button
                 type="button"
                 onClick={() => onLaunchItem(i)}
-                disabled={busyItem === i}
-                className="flex h-5 w-5 items-center justify-center rounded text-[11px] transition-colors disabled:opacity-40"
+                disabled={busy}
+                className="flex h-7 items-center rounded px-3 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                 style={{
-                  background: "var(--color-surface-3)",
+                  background: "var(--color-surface-2)",
                   color: "var(--color-text)",
                   border: "1px solid var(--color-border-strong)",
+                  maxWidth: 220,
                 }}
-                title={launchTitle}
-                aria-label={launchTitle}
+                title={tip}
+                aria-label={tip}
               >
-                {busyItem === i ? "…" : kindIcon}
+                <span className="truncate">{busy ? "…" : name}</span>
               </button>
               <button
                 type="button"
                 onClick={() => onRemoveItem(i)}
-                className="flex h-5 w-4 items-center justify-center rounded text-[11px]"
+                className="absolute -right-1.5 -top-1.5 flex h-3.5 w-3.5 items-center justify-center rounded-full text-[9px] leading-none opacity-0 transition-opacity hover:opacity-100"
                 style={{
-                  background: "transparent",
+                  background: "var(--color-surface-3)",
                   color: "var(--color-danger)",
+                  border: "1px solid var(--color-border-strong)",
                 }}
-                title="Remove this item from the project"
+                title="Remove this item"
                 aria-label="Remove item"
               >
                 ×
@@ -325,7 +456,7 @@ function Row({
         <button
           type="button"
           onClick={onAddItem}
-          className="rounded px-2 py-0.5 text-[11px]"
+          className="flex h-7 items-center rounded px-2 text-[11px]"
           style={{
             background: "transparent",
             color: "var(--color-text-tertiary)",

@@ -17,6 +17,7 @@ mod features;
 mod full_diagnostic;
 mod hooks_admin;
 mod hotkeys;
+mod in_app_shortcuts;
 mod inbox;
 mod instructions;
 mod logs;
@@ -993,6 +994,22 @@ async fn get_global_hotkey() -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn pause_global_hotkeys(app: tauri::AppHandle) -> Result<(), String> {
+    hotkeys::pause_global_hotkeys_inner(&app)
+}
+
+#[tauri::command]
+async fn resume_global_hotkeys(app: tauri::AppHandle) -> Result<(), String> {
+    // Re-register inbox shortcut + restore the current main toggle binding.
+    hotkeys::resume_global_hotkeys_inner(&app)?;
+    let spec = load_hotkey_spec();
+    if let Ok(sc) = parse_hotkey(&spec) {
+        let _ = app.global_shortcut().register(sc);
+    }
+    Ok(())
+}
+
+#[tauri::command]
 async fn set_global_hotkey(app: tauri::AppHandle, spec: String) -> Result<String, String> {
     let new_shortcut = parse_hotkey(&spec)?;
     let handle = app.global_shortcut();
@@ -1272,6 +1289,8 @@ pub fn run() {
             toast_emit::set_toast_enabled,
             get_global_hotkey,
             set_global_hotkey,
+            pause_global_hotkeys,
+            resume_global_hotkeys,
             self_improve_report,
             run_codex_adversarial_review,
             run_doctor,
@@ -1286,6 +1305,11 @@ pub fn run() {
             codex_fallback::build_fallback_prompt,
             codex_fallback::launch_codex_fallback,
             project_hotkeys::project_at_slot,
+            project_hotkeys::get_project_hotkeys,
+            project_hotkeys::set_project_at_slot,
+            project_hotkeys::clear_project_at_slot,
+            in_app_shortcuts::get_in_app_shortcuts,
+            in_app_shortcuts::set_in_app_shortcuts,
             add_launcher_item,
             remove_launcher_item,
             reorder_launcher_items,
@@ -1325,6 +1349,13 @@ pub fn run() {
             // Project slot hotkeys (Ctrl+Alt+1..9).
             if let Err(e) = project_hotkeys::register_project_hotkeys(app.handle()) {
                 eprintln!("[ultron] project hotkeys init failed: {}", e);
+            }
+
+            // Custom per-project hotkeys defined in Settings →
+            // Project hotkeys, persisted at
+            // ~/.ultron/cockpit/project-hotkeys.json.
+            if let Err(e) = project_hotkeys::register_custom_hotkeys(app.handle()) {
+                eprintln!("[ultron] custom project hotkeys init failed: {}", e);
             }
 
             // Tray + close-to-tray.

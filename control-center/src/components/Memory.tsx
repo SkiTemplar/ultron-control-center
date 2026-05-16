@@ -7,7 +7,165 @@ import type {
   MemoryStatusInfo,
 } from "../types";
 import { MemoryGraphForce } from "./MemoryGraphForce";
-import { MemoryHighlights } from "./MemoryHighlights";
+
+// ---------------------------------------------------------------------------
+// Compact highlights for sidebar — uses compute_memory_highlights backend
+// endpoint but renders only top-N per category as clickable rows that
+// drive the graph selection in the parent.
+// ---------------------------------------------------------------------------
+
+type CompactHighlightNote = {
+  path: string;
+  title: string;
+  relative: string;
+  last_modified: string | null;
+  inbound?: number;
+  outbound?: number;
+};
+
+type CompactHighlightsData = {
+  most_linked: CompactHighlightNote[];
+  recently_active: CompactHighlightNote[];
+  orphans: CompactHighlightNote[];
+  total_notes: number;
+  total_wikilinks: number;
+};
+
+function pathToGraphId(p: string): string {
+  // Backend graph node ids = vault path strings (see memory_highlights.rs).
+  return p;
+}
+
+function CompactHighlights({
+  onPickPath,
+  selectedPath,
+}: {
+  onPickPath: (path: string) => void;
+  selectedPath: string | null;
+}) {
+  const [data, setData] = useState<CompactHighlightsData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    invoke("compute_memory_highlights")
+      .then((r) => {
+        if (!cancelled) setData(r as CompactHighlightsData);
+      })
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const sections: { key: string; title: string; rows: CompactHighlightNote[] }[] = data
+    ? [
+        { key: "most_linked", title: "Most linked", rows: data.most_linked.slice(0, 5) },
+        { key: "recently_active", title: "Recently active", rows: data.recently_active.slice(0, 5) },
+        { key: "orphans", title: "Orphans", rows: data.orphans.slice(0, 5) },
+      ]
+    : [];
+
+  if (error) {
+    return (
+      <div
+        className="rounded p-2 text-[11px]"
+        style={{
+          background: "rgba(248, 81, 73, 0.06)",
+          border: "1px solid rgba(248, 81, 73, 0.22)",
+          color: "var(--color-danger)",
+        }}
+      >
+        {error}
+      </div>
+    );
+  }
+
+  if (loading && !data) {
+    return (
+      <div className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+        Computing highlights…
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {sections.map((s) => (
+        <div
+          key={s.key}
+          className="rounded"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div
+            className="border-b px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{
+              color: "var(--color-text-tertiary)",
+              borderColor: "var(--color-border)",
+            }}
+          >
+            {s.title}
+            <span className="ml-2 tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+              top {s.rows.length}
+            </span>
+          </div>
+          {s.rows.length === 0 ? (
+            <div
+              className="px-3 py-2 text-[11px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              —
+            </div>
+          ) : (
+            s.rows.map((n, i) => {
+              const isSel = selectedPath === n.path;
+              return (
+                <button
+                  key={n.path}
+                  type="button"
+                  onClick={() => onPickPath(pathToGraphId(n.path))}
+                  className="block w-full px-3 py-1.5 text-left transition-colors"
+                  style={{
+                    borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
+                    background: isSel ? "var(--color-surface-3)" : "transparent",
+                  }}
+                  title={n.relative}
+                >
+                  <div className="flex items-baseline gap-2">
+                    <span
+                      className="truncate text-[11.5px] font-medium"
+                      style={{ color: "var(--color-text)" }}
+                    >
+                      {n.title}
+                    </span>
+                    {(n.inbound ?? 0) + (n.outbound ?? 0) > 0 && (
+                      <span
+                        className="ml-auto shrink-0 text-[10px] tabular-nums"
+                        style={{ color: "var(--color-text-faint)" }}
+                      >
+                        in {n.inbound ?? 0} · out {n.outbound ?? 0}
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -526,14 +684,12 @@ export function Memory() {
   const [recent, setRecent] = useState<RecentNote[]>([]);
   const [recentLoading, setRecentLoading] = useState(true);
 
-  // View modes: List (default, original UX) | Highlights (curated
-  // "interesting zone" — most-linked / recent / by-topic / orphans /
-  // long-form) | Graph (Obsidian-style force-directed wikilink graph
-  // with tag-similarity fallback). The old "2D Map" hash scatter is
-  // gone — see MemoryGraph.tsx shim notes.
-  const [viewMode, setViewMode] = useState<"list" | "highlights" | "graph">(
-    "list",
-  );
+  // Unified Memory layout (v15.1.6+): no internal toggle. Graph + sidebar
+  // share the lower pane (60/40). When a search returns rows, the
+  // sidebar collapses and search results take over the full width.
+  // `graphSelectedId` drives the graph's external selection so that
+  // clicking a Highlights row pans + highlights the corresponding node.
+  const [graphSelectedId, setGraphSelectedId] = useState<string | null>(null);
 
   async function load() {
     setRefreshing(true);
@@ -622,58 +778,6 @@ export function Memory() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {/* List | Highlights | Graph toggle — same pattern as News.tsx Inline/Summary */}
-            <div
-              className="flex items-center gap-1 rounded p-0.5"
-              style={{
-                background: "var(--color-surface-2)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              {(
-                [
-                  {
-                    key: "list" as const,
-                    label: "List",
-                    title: "List + search view (default)",
-                  },
-                  {
-                    key: "highlights" as const,
-                    label: "Highlights",
-                    title:
-                      "Curated zone: most-linked notes, recently active, orphans, long-form. Click to switch view.",
-                  },
-                  {
-                    key: "graph" as const,
-                    label: "Graph",
-                    title:
-                      "Force-directed wikilink graph (tag-similarity fallback if no wikilinks)",
-                  },
-                ]
-              ).map((opt) => {
-                const active = viewMode === opt.key;
-                return (
-                  <button
-                    key={opt.key}
-                    type="button"
-                    onClick={() => setViewMode(opt.key)}
-                    className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors"
-                    style={{
-                      background: active
-                        ? "var(--color-surface-3)"
-                        : "transparent",
-                      color: active
-                        ? "var(--color-text)"
-                        : "var(--color-text-tertiary)",
-                      border: `1px solid ${active ? "var(--color-border-strong)" : "transparent"}`,
-                    }}
-                    title={opt.title}
-                  >
-                    {opt.label}
-                  </button>
-                );
-              })}
-            </div>
             <button
               type="button"
               onClick={async () => {
@@ -734,10 +838,9 @@ export function Memory() {
           <StatusRow vault={data.vault} brain={data.brain} qdrant={data.qdrant} />
         )}
 
-        {/* List-mode body (actions + search + recent). Hidden in Highlights /
-            Graph modes so those views get full vertical real estate. */}
-        {viewMode === "list" && (
-        <>
+        {/* Actions + search are always visible (no more internal toggle).
+            The lower pane is graph+sidebar by default, or full-width search
+            results when a query is active. */}
 
         {/* Actions */}
         <div className="mt-5">
@@ -856,17 +959,14 @@ export function Memory() {
             {searchError}
           </p>
         )}
-
-        </>
-        )}
       </div>
 
-      {/* Bottom split — list mode only.
-          When a search returned rows: left = results, right = preview.
-          When no search active: left = "Recent vault notes", right =
-          preview of the selected note (or vault stats fallback).
-          This kills the giant right-side hole the user complained about. */}
-      {viewMode === "list" && (
+      {/* Bottom pane — search-active vs unified-graph layouts.
+          A search query with results (or in-flight) collapses the sidebar
+          and shows full-width results + preview. Otherwise we show the
+          unified Memory layout: 60% force-graph on the left, 40% sidebar
+          on the right (stats + compact highlights + recent notes). */}
+      {results.length > 0 || searching ? (
         <div
           className="flex flex-1 overflow-hidden border-t"
           style={{ borderColor: "var(--color-border)" }}
@@ -875,83 +975,220 @@ export function Memory() {
             className="w-[44%] min-w-[420px] overflow-auto border-r px-3 py-3"
             style={{ borderColor: "var(--color-border)" }}
           >
-            {results.length > 0 || searching ? (
-              <>
-                <div
-                  className="mb-2 flex items-baseline justify-between px-2"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
-                    {results.length} results
-                  </span>
-                </div>
-                <div className="space-y-px">
-                  {results.map((r) => (
-                    <ResultRow
-                      key={r.id}
-                      r={r}
-                      selected={selectedPath === r.path}
-                      onClick={() => setSelectedPath(r.path)}
-                    />
-                  ))}
-                </div>
-              </>
+            <div
+              className="mb-2 flex items-baseline justify-between px-2"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
+                {results.length} results
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setQuery("");
+                  setResults([]);
+                  setSearchError(null);
+                  setSelectedPath(null);
+                }}
+                className="text-[10.5px] transition-colors"
+                style={{ color: "var(--color-text-faint)" }}
+                title="Clear search and return to graph view"
+              >
+                Clear
+              </button>
+            </div>
+            <div className="space-y-px">
+              {results.map((r) => (
+                <ResultRow
+                  key={r.id}
+                  r={r}
+                  selected={selectedPath === r.path}
+                  onClick={() => setSelectedPath(r.path)}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex-1 overflow-hidden">
+            {selectedPath ? (
+              <NotePreview path={selectedPath} />
             ) : (
-              <>
+              <VaultQuickStats data={data} recent={recent} />
+            )}
+          </div>
+        </div>
+      ) : (
+        <div
+          className="flex flex-1 overflow-hidden border-t"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          {/* Graph — 60% width, full height of the pane. */}
+          <div className="flex w-[60%] min-w-[480px] flex-col overflow-hidden border-r"
+            style={{ borderColor: "var(--color-border)" }}
+          >
+            <MemoryGraphForce
+              selectedId={graphSelectedId}
+              onSelect={(n) => setGraphSelectedId(n?.id ?? null)}
+              hideAside
+              hideLegend
+            />
+          </div>
+
+          {/* Sidebar — 40% width, scrollable. Stats + compact highlights
+              + recent notes. */}
+          <aside className="flex w-[40%] min-w-[320px] flex-col overflow-auto px-4 py-4">
+            <div
+              className="mb-3 text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Quick stats
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div
+                className="rounded p-2.5"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
                 <div
-                  className="mb-2 flex items-baseline justify-between px-2"
+                  className="text-[10px] uppercase tracking-wide"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  <span className="text-[10px] font-medium uppercase tracking-[0.06em]">
-                    Recent vault notes
-                  </span>
-                  <button
-                    type="button"
-                    onClick={loadRecent}
-                    disabled={recentLoading}
-                    className="text-[10.5px] transition-colors disabled:opacity-50"
-                    style={{ color: "var(--color-text-faint)" }}
-                  >
-                    {recentLoading ? "Loading..." : "Refresh"}
-                  </button>
+                  Notes
                 </div>
-                {recent.length === 0 && !recentLoading && (
-                  <div
-                    className="rounded p-4 text-[12px]"
-                    style={{
-                      background: "var(--color-surface-2)",
-                      border: "1px solid var(--color-border)",
-                      color: "var(--color-text-tertiary)",
-                    }}
-                  >
-                    Vault vacío o no encontrado.
-                  </div>
-                )}
+                <div className="mt-0.5 text-[15px] font-semibold tabular-nums">
+                  {data?.vault.note_count.toLocaleString() ?? "—"}
+                </div>
+              </div>
+              <div
+                className="rounded p-2.5"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
                 <div
-                  className="rounded"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    border: "1px solid var(--color-border)",
-                  }}
+                  className="text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  {recent.map((n, i) => (
+                  Qdrant points
+                </div>
+                <div className="mt-0.5 text-[15px] font-semibold tabular-nums">
+                  {data?.qdrant.up
+                    ? data.qdrant.collections
+                        .reduce((a, c) => a + (c.points_count ?? 0), 0)
+                        .toLocaleString()
+                    : "—"}
+                </div>
+              </div>
+              <div
+                className="rounded p-2.5"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                <div
+                  className="text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Last touch
+                </div>
+                <div className="mt-0.5 text-[12.5px] font-medium">
+                  {relTime(recent[0]?.last_modified ?? null)}
+                </div>
+              </div>
+              <div
+                className="rounded p-2.5"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                <div
+                  className="text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Brain
+                </div>
+                <div className="mt-0.5 text-[12.5px] font-medium">
+                  {data?.brain.exists
+                    ? data.brain.age_hours !== null
+                      ? `${Math.floor(data.brain.age_hours)}h old`
+                      : "fresh"
+                    : "missing"}
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="mb-3 mt-5 text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Highlights
+            </div>
+            <CompactHighlights
+              onPickPath={(p) => {
+                setGraphSelectedId(p);
+                setSelectedPath(p);
+              }}
+              selectedPath={graphSelectedId}
+            />
+
+            <div
+              className="mb-2 mt-5 flex items-baseline justify-between text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              <span>Recent notes</span>
+              <button
+                type="button"
+                onClick={loadRecent}
+                disabled={recentLoading}
+                className="text-[10px] transition-colors disabled:opacity-50"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                {recentLoading ? "..." : "Refresh"}
+              </button>
+            </div>
+            {recent.length === 0 && !recentLoading ? (
+              <div
+                className="rounded p-3 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                Vault vacío o no encontrado.
+              </div>
+            ) : (
+              <div
+                className="rounded"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                {recent.slice(0, 10).map((n, i) => {
+                  const isSel = graphSelectedId === n.path;
+                  return (
                     <button
                       key={n.path}
                       type="button"
-                      onClick={() => setSelectedPath(n.path)}
-                      className="block w-full px-3 py-2 text-left transition-colors"
-                      style={{
-                        borderTop:
-                          i === 0 ? "none" : "1px solid var(--color-border)",
-                        background:
-                          selectedPath === n.path
-                            ? "var(--color-surface-3)"
-                            : "transparent",
+                      onClick={() => {
+                        setGraphSelectedId(n.path);
+                        setSelectedPath(n.path);
                       }}
+                      className="block w-full px-3 py-1.5 text-left transition-colors"
+                      style={{
+                        borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
+                        background: isSel ? "var(--color-surface-3)" : "transparent",
+                      }}
+                      title={n.relative}
                     >
                       <div className="flex items-baseline gap-2">
                         <span
-                          className="truncate text-[12px] font-medium"
+                          className="truncate text-[11.5px] font-medium"
                           style={{ color: "var(--color-text)" }}
                         >
                           {n.title ?? n.relative}
@@ -963,48 +1200,12 @@ export function Memory() {
                           {relTime(n.last_modified)}
                         </span>
                       </div>
-                      <div
-                        className="mt-0.5 truncate text-[10.5px]"
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          color: "var(--color-text-tertiary)",
-                        }}
-                      >
-                        {n.relative}
-                      </div>
                     </button>
-                  ))}
-                </div>
-              </>
+                  );
+                })}
+              </div>
             )}
-          </div>
-          <div className="flex-1 overflow-hidden">
-            {selectedPath ? (
-              <NotePreview path={selectedPath} />
-            ) : (
-              <VaultQuickStats data={data} recent={recent} />
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Highlights mode — curated interesting zone */}
-      {viewMode === "highlights" && (
-        <div
-          className="flex flex-1 overflow-hidden border-t"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          <MemoryHighlights />
-        </div>
-      )}
-
-      {/* Graph mode — Obsidian-style force-directed wikilink graph */}
-      {viewMode === "graph" && (
-        <div
-          className="flex flex-1 overflow-hidden border-t"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          <MemoryGraphForce />
+          </aside>
         </div>
       )}
     </div>

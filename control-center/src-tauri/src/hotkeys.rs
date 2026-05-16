@@ -105,3 +105,26 @@ pub fn emit_open_inbox(app: &AppHandle) {
         let _ = w.emit("open-inbox", ());
     }
 }
+
+/// Temporarily unregister ALL global shortcuts so the Settings hotkey
+/// editor can capture combos that would otherwise be swallowed by the
+/// OS-level listener (e.g. user wants to test Ctrl+Alt+U — the same combo
+/// that toggles the window — without the window closing on every keypress).
+/// The frontend calls `pause_global_hotkeys` on entering capture mode and
+/// `resume_global_hotkeys` on commit/cancel.
+pub fn pause_global_hotkeys_inner(app: &AppHandle) -> Result<(), String> {
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| format!("unregister_all: {}", e))
+}
+
+/// Re-register the inbox shortcut after a `pause`. The main toggle hotkey
+/// is re-registered separately by `lib.rs::register_global_hotkey` which
+/// the frontend invokes after editing via `set_global_hotkey`.
+pub fn resume_global_hotkeys_inner(app: &AppHandle) -> Result<(), String> {
+    // Re-register the inbox combo. The main toggle combo is re-registered
+    // by whichever component edited it (or stays unregistered if the user
+    // just visited the editor without changing).
+    register_inbox_shortcut(app)?;
+    Ok(())
+}

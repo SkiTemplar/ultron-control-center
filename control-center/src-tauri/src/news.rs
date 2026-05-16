@@ -208,8 +208,14 @@ pub async fn generate_news_session_inner(
     // launches `gemini --yolo` (no -m) and falls back to whatever the user's
     // gemini CLI default model is (typically "auto"), which produces lower
     // quality newsletters than what the prompt header asks for.
+    //
+    // F10 fix: respect_clipboard=true so the spawn script does NOT overwrite
+    // the clipboard. The Python step above already put the real (large)
+    // prompt there via --clipboard; the `seed` we pass is just a short hint
+    // shown as a banner in the new wt.exe tab.
     let gemini_flags = crate::sessions::SpawnFlags {
         model: Some("gemini-3.1-pro".to_string()),
+        respect_clipboard: true,
         ..Default::default()
     };
     let _spawn = crate::sessions::spawn_session_inner(

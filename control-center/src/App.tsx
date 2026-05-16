@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { Changelog } from "./components/Changelog";
@@ -97,20 +98,39 @@ export default function App() {
   }, []);
 
   // In-app keyboard shortcuts. The OS-wide Ctrl+Alt+U lives in the Rust
-  // setup; the bindings below are window-scoped. Alt+<digit> jumps to a
-  // specific tab without colliding with browser shortcuts.
-  const ALT_TAB_MAP: Record<string, Tab> = {
-    "1": "dashboard",
-    "2": "usage",
-    "3": "notifications",
-    "4": "sessions",
-    "5": "projects",
-    "6": "plans",
-    "7": "memory",
-    "8": "skills",
-    "9": "logs",
-    "0": "settings",
-  };
+  // setup; the bindings below are window-scoped. Bindings now live in
+  // ~/.ultron/.tmp/in-app-shortcuts.json and are editable via Settings →
+  // General → In-app shortcuts. The map below is a runtime mirror we
+  // refresh on mount + whenever Settings persists a change (via the
+  // "in-app-shortcuts-updated" event the Settings panel emits).
+  //
+  // Action keys recognised here (must match defaults in the Rust module
+  // `in_app_shortcuts::default_bindings`):
+  //   command.palette · open.settings · refresh.all
+  //   tab.<dashboard|usage|notifications|sessions|projects|plans|memory|skills|logs|settings>
+  const bindingsRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const map = (await invoke("get_in_app_shortcuts")) as Record<
+          string,
+          string
+        >;
+        if (!cancelled) bindingsRef.current = map ?? {};
+      } catch (err) {
+        console.warn("[ultron] get_in_app_shortcuts failed", err);
+      }
+    }
+    void load();
+    const handler = () => void load();
+    window.addEventListener("in-app-shortcuts-updated", handler);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("in-app-shortcuts-updated", handler);
+    };
+  }, []);
 
   useEffect(() => {
     const teardownPromise = setupTrayEventListeners({ setTab });
@@ -119,36 +139,118 @@ export default function App() {
     };
   }, []);
 
+  // Custom per-project hotkeys (defined in Settings → Project hotkeys).
+  // Backend emits "project-hotkey-custom" with { slot, project_id, combo }.
+  // Behaviour: open Control Center on the Projects tab, then invoke
+  // open_project so the user lands on the configured project ready to go.
   useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    void listen<{ slot: number; project_id: string; combo: string }>(
+      "project-hotkey-custom",
+      async (event) => {
+        const pid = event.payload?.project_id;
+        if (!pid) return;
+        setTab("projects");
+        try {
+          await invoke("open_project", { id: pid });
+        } catch (err) {
+          console.error("[ultron] custom project hotkey open_project failed", err);
+        }
+      },
+    ).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Parse a stored combo string ("Ctrl+Alt+K", "Alt+1", ...) into a
+    // predicate against a KeyboardEvent. Returns null when the combo is
+    // unparseable so it's silently ignored rather than throwing.
+    function matchCombo(combo: string, e: KeyboardEvent): boolean {
+      const parts = combo
+        .split("+")
+        .map((p) => p.trim().toLowerCase())
+        .filter(Boolean);
+      if (parts.length === 0) return false;
+      let needCtrl = false;
+      let needAlt = false;
+      let needShift = false;
+      let needMeta = false;
+      let keyPart: string | null = null;
+      for (const p of parts) {
+        if (p === "ctrl" || p === "control") needCtrl = true;
+        else if (p === "alt" || p === "option") needAlt = true;
+        else if (p === "shift") needShift = true;
+        else if (p === "meta" || p === "super" || p === "win" || p === "cmd")
+          needMeta = true;
+        else keyPart = p;
+      }
+      if (!keyPart) return false;
+      if (e.ctrlKey !== needCtrl) return false;
+      if (e.altKey !== needAlt) return false;
+      if (e.shiftKey !== needShift) return false;
+      if (e.metaKey !== needMeta) return false;
+      const k = e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase();
+      return k === keyPart;
+    }
+
+    function isTypingTarget(active: Element | null): boolean {
+      const tag = active?.tagName?.toLowerCase();
+      return (
+        tag === "input" ||
+        tag === "textarea" ||
+        (active as HTMLElement | null)?.isContentEditable === true
+      );
+    }
+
     function onKey(e: KeyboardEvent) {
-      const meta = e.ctrlKey || e.metaKey;
-      if (meta && (e.key === "k" || e.key === "K")) {
+      const b = bindingsRef.current;
+      if (!b || Object.keys(b).length === 0) return;
+
+      // Palette / settings / refresh — always active, even inside inputs
+      // because the historical behaviour was Ctrl+K etc. swallows the
+      // input chord anyway.
+      if (b["command.palette"] && matchCombo(b["command.palette"], e)) {
         e.preventDefault();
         setPaletteOpen((open) => !open);
         return;
       }
-      if (meta && e.key === "," ) {
+      if (b["open.settings"] && matchCombo(b["open.settings"], e)) {
         e.preventDefault();
         setTab("settings");
         return;
       }
-      if (meta && e.key === "r" && !e.shiftKey) {
-        // Refresh top-level state; don't reload the whole webview.
+      if (b["refresh.all"] && matchCombo(b["refresh.all"], e)) {
         e.preventDefault();
         refreshAll();
         return;
       }
-      // Alt+1..0 jump to tab. We use Alt so it doesn't clash with browser /
-      // input-field shortcuts (Ctrl+1..9 cycles tabs on most webviews).
-      if (e.altKey && !e.ctrlKey && !e.metaKey && ALT_TAB_MAP[e.key]) {
-        // Skip when typing inside an input/textarea so it doesn't eat keys.
-        const active = document.activeElement;
-        const tag = active?.tagName?.toLowerCase();
-        if (tag === "input" || tag === "textarea" || (active as HTMLElement | null)?.isContentEditable) {
+
+      // Tab jumps — suppressed while typing so they don't eat keystrokes.
+      if (isTypingTarget(document.activeElement)) return;
+
+      const TAB_ACTIONS: [string, Tab][] = [
+        ["tab.dashboard", "dashboard"],
+        ["tab.usage", "usage"],
+        ["tab.notifications", "notifications"],
+        ["tab.sessions", "sessions"],
+        ["tab.projects", "projects"],
+        ["tab.plans", "plans"],
+        ["tab.memory", "memory"],
+        ["tab.skills", "skills"],
+        ["tab.logs", "logs"],
+        ["tab.settings", "settings"],
+      ];
+      for (const [actionKey, tabKey] of TAB_ACTIONS) {
+        const combo = b[actionKey];
+        if (combo && matchCombo(combo, e)) {
+          e.preventDefault();
+          setTab(tabKey);
           return;
         }
-        e.preventDefault();
-        setTab(ALT_TAB_MAP[e.key]);
       }
     }
     window.addEventListener("keydown", onKey);

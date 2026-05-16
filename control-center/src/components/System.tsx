@@ -12,12 +12,11 @@ import type {
 import { Hooks } from "./Hooks";
 import { useFeatures } from "../lib/features";
 
-// v15.2 F7: System now hosts four inner sub-tabs:
+// v15.2 F8 UX: System now hosts three inner sub-tabs (Processes/Tweaks removed):
+//   - Overview  : RAM / CPU / disk health + read-only top procs (informational)
 //   - Schedules : scheduled task list (formerly the whole pane)
-//   - Processes : top processes view (re-uses RichInfo top-procs card)
-//   - Tweaks    : per-host tweaks (placeholder; F7+ will add registry tweaks)
 //   - Hooks     : embedded Hooks admin (moved from sidebar)
-type SystemSubTab = "schedules" | "processes" | "tweaks" | "hooks";
+type SystemSubTab = "overview" | "schedules" | "hooks";
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -1078,7 +1077,7 @@ function KV({ label, v, mono = false }: { label: string; v: React.ReactNode; mon
 // ---------------------------------------------------------------------------
 
 export function System() {
-  const [subTab, setSubTab] = useState<SystemSubTab>("schedules");
+  const [subTab, setSubTab] = useState<SystemSubTab>("overview");
   const { features } = useFeatures();
   const hooksEnabled = features.hooks !== false;
 
@@ -1193,6 +1192,25 @@ export function System() {
         </div>
       )}
 
+      {/* Sub-tab: Overview — RAM/CPU/disk + read-only top processes. */}
+      {subTab === "overview" && (
+        <section className="mb-6">
+          {!rich && !loading && (
+            <div
+              className="rounded p-6 text-center text-[12.5px]"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-tertiary)",
+              }}
+            >
+              No system info available.
+            </div>
+          )}
+          {rich && <RichInfo info={rich} />}
+        </section>
+      )}
+
       {/* Sub-tab: Schedules — scheduled task list */}
       {subTab === "schedules" && (
       <section className="mb-6">
@@ -1252,83 +1270,7 @@ export function System() {
           ))}
         </div>
 
-        {/* Rich system info still shown under Schedules — gives a one-glance
-            health check next to the scheduled task list. */}
-        {rich && (
-          <div className="mt-6">
-            <RichInfo info={rich} />
-          </div>
-        )}
       </section>
-      )}
-
-      {/* Sub-tab: Processes — full top-process list with refresh button. */}
-      {subTab === "processes" && rich && (
-        <section className="mb-6">
-          <h2 className="mb-2 text-[13px] font-semibold">Processes (top by RAM)</h2>
-          <div
-            className="rounded p-3"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            {rich.top_procs.length === 0 ? (
-              <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-                No processes returned.
-              </div>
-            ) : (
-              <ul className="space-y-1">
-                {rich.top_procs.map((p) => (
-                  <li
-                    key={`${p.name}-${p.pid}`}
-                    className="flex items-baseline justify-between text-[12.5px]"
-                  >
-                    <span style={{ color: "var(--color-text)" }}>
-                      {p.name}{" "}
-                      <span style={{ color: "var(--color-text-faint)" }}>
-                        ({p.pid})
-                      </span>
-                    </span>
-                    <span
-                      className="tabular-nums"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      {p.ram_mb >= 1024
-                        ? `${(p.ram_mb / 1024).toFixed(1)} GB`
-                        : `${p.ram_mb.toFixed(0)} MB`}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </section>
-      )}
-
-      {/* Sub-tab: Tweaks — registry/perf tweaks (F7+ placeholder). */}
-      {subTab === "tweaks" && (
-        <section className="mb-6">
-          <h2 className="mb-2 text-[13px] font-semibold">System tweaks</h2>
-          <div
-            className="rounded p-6 text-[12.5px]"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-text-tertiary)",
-            }}
-          >
-            <p className="mb-2" style={{ color: "var(--color-text-secondary)" }}>
-              Per-host system tweaks (registry, scheduled defrag, fast-boot,
-              gaming optimisations) will land here in v15.2+ once we wire
-              them safely. For now this is a placeholder.
-            </p>
-            <p>
-              Use the Hooks sub-tab to manage Claude Code hooks, or the
-              Schedules sub-tab to manage Windows scheduled tasks.
-            </p>
-          </div>
-        </section>
       )}
       </div>
     </div>
@@ -1353,9 +1295,8 @@ function SystemHeader({
   loading: boolean;
 }) {
   const TABS: { id: SystemSubTab; label: string; hidden?: boolean }[] = [
+    { id: "overview", label: "Overview" },
     { id: "schedules", label: "Schedules" },
-    { id: "processes", label: "Processes" },
-    { id: "tweaks", label: "Tweaks" },
     { id: "hooks", label: "Hooks", hidden: !hooksEnabled },
   ];
   return (
@@ -1366,7 +1307,7 @@ function SystemHeader({
           className="mt-1 text-[13px]"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Scheduled tasks · processes · per-host tweaks · Claude Code hooks.
+          System health overview · scheduled tasks · Claude Code hooks.
         </p>
         <div
           className="mt-3 inline-flex rounded p-0.5"
