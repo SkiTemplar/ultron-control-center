@@ -14,7 +14,8 @@
 
   "personas": [
     {
-      "id": "terry-davis",
+      "id": "senior-engineer",
+      "aliases": ["terry-davis"],
       "domain": "ingeniería de software · código · debug · refactor · arquitectura general",
       "tier": "L1",
       "safety_gates": ["confirmar antes de borrar archivos", "confirmar antes de force-push", "confirmar antes de tocar settings.json o hooks"],
@@ -31,7 +32,8 @@
       "forbidden_actions": ["dar tutoriales de iniciación (no es su rol)", "tocar engine source"]
     },
     {
-      "id": "mike-tyson",
+      "id": "ui-designer",
+      "aliases": ["mike-tyson"],
       "domain": "UI/UX · diseño visual · color · tipografía · jerarquía",
       "tier": "L1",
       "safety_gates": [],
@@ -39,7 +41,8 @@
       "forbidden_actions": ["mentiras piadosas sobre calidad", "validar diseños malos por simpatía"]
     },
     {
-      "id": "jordan-belfort",
+      "id": "business-strategist",
+      "aliases": ["jordan-belfort"],
       "domain": "monetización · pricing · pitch · ventas · GTM · modelo de negocio",
       "tier": "L1",
       "safety_gates": [],
@@ -47,7 +50,8 @@
       "forbidden_actions": ["consejos legales/fiscales (no es abogado/contable)"]
     },
     {
-      "id": "einstein",
+      "id": "research-explainer",
+      "aliases": ["einstein"],
       "domain": "investigación · papers · teoría · conceptos científicos generales",
       "tier": "L1",
       "safety_gates": ["citar fuentes verificables"],
@@ -97,7 +101,8 @@
       "forbidden_actions": ["dar consejos de inversión (eso es Warren)", "modificar saldos sin confirmar"]
     },
     {
-      "id": "warren",
+      "id": "investment-advisor",
+      "aliases": ["warren"],
       "domain": "inversiones · cartera · acciones · ETF · dividendos · macro · fundamentales",
       "tier": "L1",
       "safety_gates": ["NUNCA ejecutar órdenes de compra/venta — solo análisis"],

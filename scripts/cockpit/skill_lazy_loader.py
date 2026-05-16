@@ -92,6 +92,11 @@ SKILL_ALIASES = {
     "pana": "personal-assistant",
     "alfred": "windows-admin",
     "don-claudio": "gamedev-engineer",
+    "einstein": "research-explainer",
+    "jordan-belfort": "business-strategist",
+    "mike-tyson": "ui-designer",
+    "warren": "investment-advisor",
+    "terry-davis": "senior-engineer",
 }
 
 
@@ -110,13 +115,13 @@ ULTRON_PERSONAS = frozenset({
     "windows-admin",
     "novalbos",
     "gamedev-engineer",
-    "terry-davis",
+    "senior-engineer",
     "tio-gilito",
-    "mike-tyson",
-    "warren",
-    "einstein",
+    "ui-designer",
+    "investment-advisor",
+    "research-explainer",
     "manolo-lama",
-    "jordan-belfort",
+    "business-strategist",
     "personal-assistant",
     "tolkien",
     "repo-evaluator",
@@ -125,6 +130,11 @@ ULTRON_PERSONAS = frozenset({
     "alfred",
     "don-claudio",
     "pana",
+    "einstein",
+    "jordan-belfort",
+    "mike-tyson",
+    "warren",
+    "terry-davis",
 })
 
 

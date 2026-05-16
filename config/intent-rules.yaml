@@ -70,18 +70,18 @@ rules:
 
   - id: monetize
     match: "(monetiz[a\xe1]r?|c[o\xf3]mo.cobrar|c[o\xf3]mo.vender|qu[e\xe9].pricing|cu[a\xe1]nto.cobrar)"
-    skill: "jordan-belfort"
+    skill: "business-strategist"
     confidence: 0.92
 
   - id: saas-pricing
     match: "(pricing|suscripci[o\xf3]n|freemium|tier|plan.de.precios).*(SaaS|app|producto|negocio|plugin)"
-    skill: "jordan-belfort"
+    skill: "business-strategist"
     confidence: 0.92
 
   - id: business-validate
     # "validar" suelto matcheaba "validar el código / la entrada". Restringido a contexto comercial.
     match: "\\b(?:idea de negocio|modelo de negocio|mercado objetivo|\\bTAM\\b|\\bSAM\\b|validar (?:la idea|el negocio|el modelo|el producto|el pitch)|go.to.market|pitch (?:deck|investor|comercial))\\b"
-    skill: "jordan-belfort"
+    skill: "business-strategist"
     confidence: 0.88
 
   # ── Academic code evaluation (BEFORE generic code rules) ────────────────────
@@ -152,58 +152,58 @@ rules:
     skill: "novalbos"
     confidence: 0.88
 
-  # ── Unity / .cs → terry-davis (tiebreak: Unity+cs → terry, not don-claudio) ─
+  # ── Unity / .cs → senior-engineer (tiebreak: Unity+cs → senior-engineer, not gamedev-engineer) ─
 
   - id: unity-cs
     match: "(\\.cs|MonoBehaviour|NGO|NetworkObject).*(Unity|Android|iOS|mobile)"
-    skill: "terry-davis"
+    skill: "senior-engineer"
     confidence: 0.90
 
-  # ── Code bugs / refactors → terry-davis ────────────────────────────────────
+  # ── Code bugs / refactors → senior-engineer ───────────────────────────────
 
   - id: typescript-bug
     match: "(\\.ts|\\.tsx|TypeScript).*(bug|error|no.funciona|crash|falla)|(bug|error|crash).*\\.tsx?"
-    skill: "terry-davis"
+    skill: "senior-engineer"
     confidence: 0.90
 
   - id: code-bug-general
     # Acepta orden síntoma→objeto u objeto→síntoma. Género/número flexible.
     match: "\\b(?:(?:bug|error|crash|stack trace|exception|no funciona|est[aá] (?:roto|rota|rotos|rotas)|fall[ao])\\b\\s+(?:\\w+\\s+){0,5}(?:c[oó]digo|archivo|m[oó]dulo|funci[oó]n|clase|m[eé]todo|script)\\b|(?:el|la|los|las|este|esta|mi|un|una)\\s+(?:c[oó]digo|archivo|m[oó]dulo|funci[oó]n|clase|m[eé]todo|script)(?:\\s+\\w+){0,4}\\s+(?:est[aá] (?:roto|rota|rotos|rotas)|tiene un? (?:bug|error)|falla|crashe[ao]|no funciona|se rompe))"
-    skill: "terry-davis"
+    skill: "senior-engineer"
     confidence: 0.85
 
   - id: refactor
     match: "(refactori[sz]|reescribe|limpia|reorganiza).*(m[o\xf3]dulo|c[o\xf3]dig[o\xf3]|clase|funci[o\xf3]n)"
-    skill: "terry-davis"
+    skill: "senior-engineer"
     confidence: 0.85
 
   - id: implementa
     match: "(implementa|crea|escribe|desarrolla).*(en.TypeScript|en.Python|en.C#|server.action|api.route|endpoint)"
-    skill: "terry-davis"
+    skill: "senior-engineer"
     confidence: 0.82
 
-  # ── Design / UI → mike-tyson ────────────────────────────────────────────────
+  # ── Design / UI → ui-designer ──────────────────────────────────────────────
 
   - id: ui-design
     match: "(dise\xf1a|diseña|revisa|critica|mira).*(UI|pantalla|layout|wireframe|mockup|interfaz)"
-    skill: "mike-tyson"
+    skill: "ui-designer"
     confidence: 0.90
 
   - id: design-system
     match: "(design.system|sistema.de.dise\xf1o|tipograf\xeda|paleta.de.colores|spacing|tokens.de.dise\xf1o)"
-    skill: "mike-tyson"
+    skill: "ui-designer"
     confidence: 0.88
 
-  # ── Science / concepts → einstein ──────────────────────────────────────────
+  # ── Science / concepts → research-explainer ────────────────────────────────
 
   - id: sky-science
     match: "por.qu[e\xe9].el.cielo.es|scattering.de.Rayleigh"
-    skill: "einstein"
+    skill: "research-explainer"
     confidence: 0.95
 
   - id: science-concept
     match: "(por.qu[e\xe9].el|c[o\xf3]mo.funciona.la).*(f\xedsica|qu\xedmica|bioLog\xeda|astronom\xeda|mec\xe1nica.cu\xe1ntica)"
-    skill: "einstein"
+    skill: "research-explainer"
     confidence: 0.88
 
   # ── Web research (before concept-explain — explicit internet intent beats generic how-it-works) ──
@@ -217,7 +217,7 @@ rules:
   - id: concept-explain
     # "concepto" suelto era trampa. Lista cerrada de conceptos comunes + sin .* glotón.
     match: "\\b(?:qu[eé] es (?:un|el|la)|c[oó]mo funciona (?:un|el|la)|expl[ií]came (?:el|la|un|una))\\s+(?:\\w+\\s+){0,3}(?:transformer|red neuronal|algoritmo|protocolo|encoder|decoder|backprop|attention|gradient)\\b"
-    skill: "einstein"
+    skill: "research-explainer"
     confidence: 0.85
 
   # ── Personal assistant / personal-assistant ─────────────────────────────────
@@ -265,17 +265,17 @@ rules:
     skill: "tio-gilito"
     confidence: 0.90
 
-  # ── Investments → warren ────────────────────────────────────────────────────
+  # ── Investments → investment-advisor ───────────────────────────────────────
 
   - id: investment
     # "cartera" suelto matcheaba "cartera de productos" (corporativo). Exigir contexto financiero.
     match: "\\b(?:mi cartera(?:\\s+(?:de\\s+(?:inversi[oó]n|acciones|ETFs?)|burs[aá]til|stock))?|cartera de inversi[oó]n|inversiones?\\b|tracker de cartera|dashboard de inversiones|ETFs?\\b|compro? (?:acciones|NVDA|AAPL|MSFT|TSLA)|an[aá]lisis fundamental|P/?E ratio|moat (?:competitivo|empresarial)|dividendos|fondo (?:indexado|de inversi[oó]n))\\b"
-    skill: "warren"
+    skill: "investment-advisor"
     confidence: 0.90
 
   - id: stock-query
     match: "(\\b(NVDA|AAPL|MSFT|AMZN|TSLA|SPY|QQQ)\\b|bolsa|mercado.de.valores)"
-    skill: "warren"
+    skill: "investment-advisor"
     confidence: 0.88
 
   # ── System/Windows → windows-admin ──────────────────────────────────────────

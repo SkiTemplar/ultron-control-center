@@ -1,13 +1,15 @@
 academic-deep-research
 windows-admin
+business-strategist
 citation-management
 code-reviewer
 consolidate-memory
 cpp-pro
 debugger
 docx
-gamedev-engineer
 einstein
+gamedev-engineer
+research-explainer
 focused-fix
 frontend-design
 generate-image
@@ -15,6 +17,7 @@ git-conflict-resolver
 git-workflow-manager
 hiper-plans
 humanizer
+investment-advisor
 jordan-belfort
 literature-review
 loki-mode
@@ -32,6 +35,7 @@ refactoring-specialist
 repo-evaluator
 scientific-writing
 second-opinion
+senior-engineer
 shader-fundamentals
 skill-creator
 superpowers
@@ -40,6 +44,7 @@ tio-gilito
 tolkien
 typescript-pro
 ue5-dev
+ui-designer
 ui-ux-pro-max
 ultron
 warren

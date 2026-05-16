@@ -9,14 +9,14 @@ API keys, no cloud services, no admin rights.
 
 ```bash
 # Windows (PowerShell 5+)
-git clone https://github.com/anonuser/ultron.git
+git clone https://github.com/SkiTemplar/ultron.git
 cd ultron
 ./scripts/install.ps1
 ```
 
 ```bash
 # macOS / Linux (bash)
-git clone https://github.com/anonuser/ultron.git
+git clone https://github.com/SkiTemplar/ultron.git
 cd ultron
 chmod +x scripts/install.sh
 ./scripts/install.sh
@@ -184,7 +184,7 @@ from the GitHub Releases page and re-running it.
 You can always update by hand:
 
 1. Download the newest installer from
-   `https://github.com/<owner>/ultron/releases/latest`.
+   `https://github.com/SkiTemplar/ultron/releases/latest`.
 2. Run it. The installer detects the existing install and upgrades in
    place without touching your `~/.ultron/` data directory.
 

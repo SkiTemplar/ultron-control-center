@@ -6,7 +6,7 @@ opinion about how it should be built, so please read this before opening a PR.
 ## Setup
 
 ```powershell
-git clone https://github.com/<owner>/ultron.git
+git clone https://github.com/SkiTemplar/ultron.git
 cd ultron
 
 # Python side

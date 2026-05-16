@@ -31,7 +31,7 @@ def _load_hook():
     return mod
 
 
-# e.g. [ULTRON·85%] skill=terry-davis | ctx=some/path (123tok) | via=rules
+# e.g. [ULTRON·85%] skill=senior-engineer | ctx=some/path (123tok) | via=rules
 _LINE_RE = re.compile(r"\[ULTRON·(\d+)%\]\s+skill=(\S+)\s+\|")
 
 

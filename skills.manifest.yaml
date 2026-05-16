@@ -11,8 +11,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Universal deep research agent team. 13-agent pipeline for rigorous
-    academic research on any topic. 7 modes: full rese...'
+  description: 'Universal deep research agent team. 13-agent pipeline for rigorous academic research on any topic. 7 modes: full rese...'
 - name: academic-paper-reviewer
   source: auto-discover
   triggers:
@@ -26,8 +25,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Multi-perspective academic paper review with dynamic reviewer personas.
-    Simulates 5 independent reviewers (EIC + 3 pe...
+  description: 'Multi-perspective academic paper review with dynamic reviewer personas. Simulates 5 independent reviewers (EIC + 3 pe...'
 - name: academic-pipeline
   source: auto-discover
   triggers:
@@ -40,8 +38,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Orchestrator for the full academic research pipeline: research ->
-    write -> integrity check -> review -> revise -> re-...'
+  description: 'Orchestrator for the full academic research pipeline: research -> write -> integrity check -> review -> revise -> re-...'
 - name: accessibility-tester
   source: auto-discover
   triggers:
@@ -58,8 +55,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need comprehensive accessibility testing, WCAG
-    compliance verification, or assessment of assi...
+  description: 'Use this agent when you need comprehensive accessibility testing, WCAG compliance verification, or assessment of assi...'
   kind: skill
   category: misc
   tier: L1
@@ -80,8 +76,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to audit Active Directory security posture,
-    evaluate privilege escalation risks, review ...
+  description: 'Use this agent when you need to audit Active Directory security posture, evaluate privilege escalation risks, review ...'
   kind: skill
   category: security
   tier: L1
@@ -102,8 +97,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: How to use the Adaptyv Bio Foundry API and Python SDK for protein experiment
-    design, submission, and results retrieva...
+  description: 'How to use the Adaptyv Bio Foundry API and Python SDK for protein experiment design, submission, and results retrieva...'
   kind: skill
   category: misc
   tier: L1
@@ -122,8 +116,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: This skill should be used for time series machine learning tasks including
-    classification, regression, clustering, fo...
+  description: 'This skill should be used for time series machine learning tasks including classification, regression, clustering, fo...'
   kind: skill
   category: misc
   tier: L1
@@ -143,8 +136,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when assembling and optimizing multi-agent teams to execute complex
-    projects that require careful task decomposit...
+  description: 'Use when assembling and optimizing multi-agent teams to execute complex projects that require careful task decomposit...'
   kind: skill
   category: misc
   tier: L1
@@ -165,8 +157,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when architecting, implementing, or optimizing end-to-end
-    AI systems—from model selection and training...
+  description: 'Use this agent when architecting, implementing, or optimizing end-to-end AI systems—from model selection and training...'
   kind: skill
   category: misc
   tier: L1
@@ -188,8 +179,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to audit content for AI writing patterns
-    and rewrite text to remove them.
+  description: 'Use this agent when you need to audit content for AI writing patterns and rewrite text to remove them.'
   kind: skill
   category: misc
   tier: L1
@@ -212,8 +202,7 @@
   replaced_by: windows-admin
   last_used: null
   last_synced: '2026-05-16'
-  description: DEPRECATED — renamed to windows-admin. Stub kept for backwards compatibility
-    until v15.3.
+  description: 'DEPRECATED — renamed to windows-admin. Stub kept for backwards compatibility until v15.3.'
   kind: persona
   category: persona
   tier: L1
@@ -237,9 +226,7 @@
   - alfred
   last_used: null
   last_synced: '2026-05-16'
-  description: Windows system administration helper for managing files, folders, processes,
-    services, drivers, the registry, scheduled tasks and software installation on
-    a local PC...
+  description: 'Windows system administration helper for managing files, folders, processes, services, drivers, the registry, scheduled tasks and software installation on a local PC...'
   kind: persona
   category: persona
   tier: L1
@@ -260,8 +247,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Scans Algorand smart contracts for 11 common vulnerabilities including
-    rekeying attacks, unchecked transaction fees, ...
+  description: 'Scans Algorand smart contracts for 11 common vulnerabilities including rekeying attacks, unchecked transaction fees, ...'
   kind: skill
   category: security
   tier: L1
@@ -281,8 +267,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Creating algorithmic art using p5.js with seeded randomness and interactive
-    parameter exploration. Use this when user...
+  description: 'Creating algorithmic art using p5.js with seeded randomness and interactive parameter exploration. Use this when user...'
   kind: skill
   category: misc
   tier: L1
@@ -302,8 +287,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Production Android development with Jetpack Compose, MVVM, Hilt, Room,
-    and Kotlin Coroutines/Flow. Activate when buil...
+  description: 'Production Android development with Jetpack Compose, MVVM, Hilt, Room, and Kotlin Coroutines/Flow. Activate when buil...'
   kind: skill
   category: mobile
   tier: L1
@@ -323,8 +307,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when architecting enterprise Angular 15+ applications with complex
-    state management, optimizing RxJS patterns, de...
+  description: 'Use when architecting enterprise Angular 15+ applications with complex state management, optimizing RxJS patterns, de...'
   kind: skill
   category: web
   tier: L1
@@ -345,8 +328,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Data structure for annotated matrices in single-cell analysis. Use
-    when working with .h5ad files or integrating with ...
+  description: 'Data structure for annotated matrices in single-cell analysis. Use when working with .h5ad files or integrating with ...'
   kind: skill
   category: misc
   tier: L1
@@ -365,8 +347,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Anti-Vibe-Coding protocol. Learn what AI writes, don't just accept
-    it. Use for architectural deep dives and decision ...
+  description: 'Anti-Vibe-Coding protocol. Learn what AI writes, don''t just accept it. Use for architectural deep dives and decision ...'
   kind: skill
   category: workflow
   tier: L1
@@ -387,8 +368,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Revisión de diseño de APIs REST: convenciones, breaking changes, seguridad,
-    versionado. Activar cuando: diseñando end...'
+  description: 'Revisión de diseño de APIs REST: convenciones, breaking changes, seguridad, versionado. Activar cuando: diseñando end...'
   kind: skill
   category: engineering
   tier: L1
@@ -408,8 +388,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when designing new APIs, creating API specifications,
-    or refactoring existing API architecture for sca...
+  description: 'Use this agent when designing new APIs, creating API specifications, or refactoring existing API architecture for sca...'
   kind: skill
   category: misc
   tier: L1
@@ -431,8 +410,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when creating or improving API documentation, writing
-    OpenAPI specifications, building interactive doc...
+  description: 'Use this agent when creating or improving API documentation, writing OpenAPI specifications, building interactive doc...'
   kind: skill
   category: docs
   tier: L1
@@ -453,8 +431,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Infer gene regulatory networks (GRNs) from gene expression data using
-    scalable algorithms (GRNBoost2, GENIE3). Use wh...
+  description: 'Infer gene regulatory networks (GRNs) from gene expression data using scalable algorithms (GRNBoost2, GENIE3). Use wh...'
   kind: skill
   category: misc
   tier: L1
@@ -474,8 +451,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to evaluate system design decisions, architectural
-    patterns, and technology choices at t...
+  description: 'Use this agent when you need to evaluate system design decisions, architectural patterns, and technology choices at t...'
   kind: skill
   category: misc
   tier: L1
@@ -498,7 +474,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Clarify requirements before implementing. Use when serious doubts arise.
+  description: 'Clarify requirements before implementing. Use when serious doubts arise.'
   kind: skill
   category: testing
   tier: L1
@@ -519,7 +495,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Clarify requirements before implementing. Use when serious doubts arise.
+  description: 'Clarify requirements before implementing. Use when serious doubts arise.'
   kind: skill
   category: misc
   tier: L1
@@ -538,8 +514,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive Python library for astronomy and astrophysics. This skill
-    should be used when working with astronomical...
+  description: 'Comprehensive Python library for astronomy and astrophysics. This skill should be used when working with astronomical...'
   kind: skill
   category: misc
   tier: L1
@@ -560,8 +535,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Enables ultra-granular, line-by-line code analysis to build deep architectural
-    context before vulnerability or bug fi...
+  description: 'Enables ultra-granular, line-by-line code analysis to build deep architectural context before vulnerability or bug fi...'
   kind: skill
   category: memory
   tier: L3
@@ -582,8 +556,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Prepares codebases for security review using Trail of Bits' checklist.
-    Helps set review goals, runs static analysis t...
+  description: 'Prepares codebases for security review using Trail of Bits'' checklist. Helps set review goals, runs static analysis t...'
   kind: skill
   category: misc
   tier: L1
@@ -604,8 +577,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when designing, deploying, or managing Azure infrastructure with
-    focus on network architecture, Entra ID integrat...
+  description: 'Use when designing, deploying, or managing Azure infrastructure with focus on network architecture, Entra ID integrat...'
   kind: skill
   category: devops
   tier: L1
@@ -627,8 +599,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building server-side APIs, microservices, and backend
-    systems that require robust architecture, s...
+  description: 'Use this agent when building server-side APIs, microservices, and backend systems that require robust architecture, s...'
   kind: skill
   category: misc
   tier: L1
@@ -650,8 +621,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Benchling R&D platform integration. Access registry (DNA, proteins),
-    inventory, ELN entries, workflows via API, build...
+  description: 'Benchling R&D platform integration. Access registry (DNA, proteins), inventory, ELN entries, workflows via API, build...'
   kind: skill
   category: misc
   tier: L1
@@ -674,8 +644,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Search scientific papers and retrieve structured experimental data
-    extracted from full-text studies via the BGPT MCP ...
+  description: 'Search scientific papers and retrieve structured experimental data extracted from full-text studies via the BGPT MCP ...'
   kind: skill
   category: misc
   tier: L1
@@ -696,8 +665,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive molecular biology toolkit. Use for sequence manipulation,
-    file parsing (FASTA/GenBank/PDB), phylogeneti...
+  description: 'Comprehensive molecular biology toolkit. Use for sequence manipulation, file parsing (FASTA/GenBank/PDB), phylogeneti...'
   kind: skill
   category: misc
   tier: L1
@@ -716,8 +684,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Unified Python interface to 40+ bioinformatics services. Use when querying
-    multiple databases (UniProt, KEGG, ChEMBL,...
+  description: 'Unified Python interface to 40+ bioinformatics services. Use when querying multiple databases (UniProt, KEGG, ChEMBL,...'
   kind: skill
   category: misc
   tier: L1
@@ -737,8 +704,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building smart contracts, DApps, and blockchain
-    protocols that require expertise in Solidity, gas...
+  description: 'Use this agent when building smart contracts, DApps, and blockchain protocols that require expertise in Solidity, gas...'
   kind: skill
   category: security
   tier: L1
@@ -760,8 +726,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Applies Anthropic's official brand colors and typography to any sort
-    of artifact that may benefit from having Anthrop...
+  description: 'Applies Anthropic''s official brand colors and typography to any sort of artifact that may benefit from having Anthrop...'
   kind: skill
   category: misc
   tier: L1
@@ -781,8 +746,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to optimize build performance, reduce
-    compilation times, or scale build systems across g...
+  description: 'Use this agent when you need to optimize build performance, reduce compilation times, or scale build systems across g...'
   kind: skill
   category: devops
   tier: L1
@@ -805,8 +769,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Searches and explores Burp Suite project files (.burp) from the command
-    line. Use when searching response headers or ...
+  description: 'Searches and explores Burp Suite project files (.burp) from the command line. Use when searching response headers or ...'
   kind: skill
   category: security
   tier: L1
@@ -828,8 +791,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when analyzing business processes, gathering requirements from
-    stakeholders, or identifying process improvement o...
+  description: 'Use when analyzing business processes, gathering requirements from stakeholders, or identifying process improvement o...'
   kind: skill
   category: misc
   tier: L1
@@ -852,8 +814,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Scans Cairo/StarkNet smart contracts for 6 critical vulnerabilities
-    including felt252 arithmetic overflow, L1-L2 mess...
+  description: 'Scans Cairo/StarkNet smart contracts for 6 critical vulnerabilities including felt252 arithmetic overflow, L1-L2 mess...'
   kind: skill
   category: security
   tier: L1
@@ -873,8 +834,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Create beautiful visual art in .png and .pdf documents using design
-    philosophy. You should use this skill when the us...
+  description: 'Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the us...'
   kind: skill
   category: misc
   tier: L1
@@ -894,8 +854,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Query the CELLxGENE Census (61M+ cells) programmatically. Use when
-    you need expression data across tissues, diseases,...
+  description: 'Query the CELLxGENE Census (61M+ cells) programmatically. Use when you need expression data across tissues, diseases,...'
   kind: skill
   category: misc
   tier: L1
@@ -915,8 +874,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to design and execute controlled failure
-    experiments, validate system resilience before ...
+  description: 'Use this agent when you need to design and execute controlled failure experiments, validate system resilience before ...'
   kind: skill
   category: misc
   tier: L1
@@ -937,8 +895,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Debugging de pipelines CI/CD: GitHub Actions, GitLab CI, errores de
-    workflows. Activar cuando: GitHub Actions failing...'
+  description: 'Debugging de pipelines CI/CD: GitHub Actions, GitLab CI, errores de workflows. Activar cuando: GitHub Actions failing...'
   kind: skill
   category: devops
   tier: L1
@@ -957,8 +914,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Google quantum computing framework. Use when targeting Google Quantum
-    AI hardware, designing noise-aware circuits, or...
+  description: 'Google quantum computing framework. Use when targeting Google Quantum AI hardware, designing noise-aware circuits, or...'
   kind: skill
   category: misc
   tier: L1
@@ -978,8 +934,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive citation management for academic research. Search Google
-    Scholar and PubMed for papers, extract accurat...
+  description: 'Comprehensive citation management for academic research. Search Google Scholar and PubMed for papers, extract accurat...'
   kind: skill
   category: misc
   tier: L1
@@ -1001,8 +956,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Build, debug, and optimize Claude API / Anthropic SDK apps. Apps built
-    with this skill should include prompt caching....
+  description: 'Build, debug, and optimize Claude API / Anthropic SDK apps. Apps built with this skill should include prompt caching....'
   kind: skill
   category: misc
   tier: L1
@@ -1023,8 +977,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Diagnose and fix Claude in Chrome MCP extension connectivity issues.
-    Use when mcp__claude-in-chrome__* tools fail, re...
+  description: 'Diagnose and fix Claude in Chrome MCP extension connectivity issues. Use when mcp__claude-in-chrome__* tools fail, re...'
   kind: skill
   category: misc
   tier: L1
@@ -1044,8 +997,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Generalist engineering collection (AlirezaRezvani). 230+ skills for
-    engineering, compliance, and advisory.
+  description: 'Generalist engineering collection (AlirezaRezvani). 230+ skills for engineering, compliance, and advisory.'
   kind: meta
   category: misc
   tier: L1
@@ -1065,8 +1017,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building command-line tools and terminal applications
-    that require intuitive command design, cros...
+  description: 'Use this agent when building command-line tools and terminal applications that require intuitive command design, cros...'
   kind: skill
   category: misc
   tier: L1
@@ -1089,8 +1040,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Generate professional clinical decision support (CDS) documents for
-    pharmaceutical and clinical research settings, in...
+  description: 'Generate professional clinical decision support (CDS) documents for pharmaceutical and clinical research settings, in...'
   kind: skill
   category: misc
   tier: L1
@@ -1112,8 +1062,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Write comprehensive clinical reports including case reports (CARE guidelines),
-    diagnostic reports (radiology/patholog...
+  description: 'Write comprehensive clinical reports including case reports (CARE guidelines), diagnostic reports (radiology/patholog...'
   kind: skill
   category: misc
   tier: L1
@@ -1135,8 +1084,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to design, evaluate, or optimize cloud
-    infrastructure architecture at scale. Invoke when...
+  description: 'Use this agent when you need to design, evaluate, or optimize cloud infrastructure architecture at scale. Invoke when...'
   kind: skill
   category: devops
   tier: L1
@@ -1157,8 +1105,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Constraint-based metabolic modeling (COBRA). FBA, FVA, gene knockouts,
-    flux sampling, SBML models, for systems biolog...
+  description: 'Constraint-based metabolic modeling (COBRA). FBA, FVA, gene knockouts, flux sampling, SBML models, for systems biolog...'
   kind: skill
   category: misc
   tier: L1
@@ -1179,8 +1126,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Systematic code maturity assessment using Trail of Bits' 9-category
-    framework. Analyzes codebase for arithmetic safet...
+  description: 'Systematic code maturity assessment using Trail of Bits'' 9-category framework. Analyzes codebase for arithmetic safet...'
   kind: skill
   category: misc
   tier: L1
@@ -1201,8 +1147,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Provides comprehensive code review guidance for React 19, Vue 3, Rust,
-    TypeScript, Java, Python, and C/C++.
+  description: 'Provides comprehensive code review guidance for React 19, Vue 3, Rust, TypeScript, Java, Python, and C/C++.
 
     Helps cat...'
   kind: meta
@@ -1226,8 +1171,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to conduct comprehensive code reviews
-    focusing on code quality, security vulnerabilities...
+  description: 'Use this agent when you need to conduct comprehensive code reviews focusing on code quality, security vulnerabilities...'
   kind: skill
   category: misc
   tier: L1
@@ -1249,8 +1193,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need repository-wide refactor governance with
-    explicit approval loops, weighted risk prioriti...
+  description: 'Use this agent when you need repository-wide refactor governance with explicit approval loops, weighted risk prioriti...'
   kind: skill
   category: misc
   tier: L1
@@ -1272,8 +1215,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when you need to analyze direct and indirect competitors, benchmark
-    against market leaders, or develop strategies...
+  description: 'Use when you need to analyze direct and indirect competitors, benchmark against market leaders, or develop strategies...'
   kind: skill
   category: misc
   tier: L1
@@ -1293,8 +1235,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to achieve regulatory compliance, implement
-    compliance controls, or prepare for audits a...
+  description: 'Use this agent when you need to achieve regulatory compliance, implement compliance controls, or prepare for audits a...'
   kind: skill
   category: misc
   tier: L1
@@ -1314,8 +1255,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Run a multi-perspective Mind Council deliberation on any question,
-    decision, or creative challenge. Use this skill wh...
+  description: 'Run a multi-perspective Mind Council deliberation on any question, decision, or creative challenge. Use this skill wh...'
   kind: skill
   category: misc
   tier: L1
@@ -1337,8 +1277,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Reflective pass over your memory files — merge duplicates, fix stale
-    facts, prune the index. Activar cuando USER d...
+  description: 'Reflective pass over your memory files — merge duplicates, fix stale facts, prune the index. Activar cuando USER d...'
   kind: meta
   category: meta
   tier: L2
@@ -1359,8 +1298,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Detects timing side-channel vulnerabilities in cryptographic code.
-    Use when implementing or reviewing crypto code, en...
+  description: 'Detects timing side-channel vulnerabilities in cryptographic code. Use when implementing or reviewing crypto code, en...'
   kind: skill
   category: security
   tier: L1
@@ -1380,8 +1318,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to develop comprehensive content strategies,
-    create SEO-optimized marketing content, or ...
+  description: 'Use this agent when you need to develop comprehensive content strategies, create SEO-optimized marketing content, or ...'
   kind: skill
   category: misc
   tier: L1
@@ -1403,8 +1340,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use for managing shared state, information retrieval, and data synchronization
-    when multiple agents need coordinated ...
+  description: 'Use for managing shared state, information retrieval, and data synchronization when multiple agents need coordinated ...'
   kind: skill
   category: misc
   tier: L1
@@ -1427,8 +1363,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Scans Cosmos SDK blockchain modules and CosmWasm contracts for consensus-critical
-    vulnerabilities — chain halts, fund...
+  description: 'Scans Cosmos SDK blockchain modules and CosmWasm contracts for consensus-critical vulnerabilities — chain halts, fund...'
   kind: skill
   category: security
   tier: L1
@@ -1447,8 +1382,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building high-performance C++ systems requiring
-    modern C++20/23 features, template metaprogrammin...
+  description: 'Use this agent when building high-performance C++ systems requiring modern C++20/23 features, template metaprogrammin...'
   kind: skill
   category: systems
   tier: L1
@@ -1470,8 +1404,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building ASP.NET Core web APIs, cloud-native .NET
-    solutions, or modern C# applications requiring ...
+  description: 'Use this agent when building ASP.NET Core web APIs, cloud-native .NET solutions, or modern C# applications requiring ...'
   kind: skill
   category: systems
   tier: L1
@@ -1494,8 +1427,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to assess customer health, develop retention
-    strategies, identify upsell opportunities, ...
+  description: 'Use this agent when you need to assess customer health, develop retention strategies, identify upsell opportunities, ...'
   kind: skill
   category: misc
   tier: L1
@@ -1517,8 +1449,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Creating interactive data visualisations using d3.js. This skill should
-    be used when creating custom charts, graphs, ...
+  description: 'Creating interactive data visualisations using d3.js. This skill should be used when creating custom charts, graphs, ...'
   kind: skill
   category: misc
   tier: L1
@@ -1537,8 +1468,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Distributed computing for larger-than-RAM pandas/NumPy workflows. Use
-    when you need to scale existing pandas/NumPy co...
+  description: 'Distributed computing for larger-than-RAM pandas/NumPy workflows. Use when you need to scale existing pandas/NumPy co...'
   kind: skill
   category: misc
   tier: L1
@@ -1557,8 +1487,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when you need to extract insights from business data, create dashboards
-    and reports, or perform statistical analy...
+  description: 'Use when you need to extract insights from business data, create dashboards and reports, or perform statistical analy...'
   kind: skill
   category: data
   tier: L1
@@ -1579,8 +1508,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to design, build, or optimize data pipelines,
-    ETL/ELT processes, and data infrastructure...
+  description: 'Use this agent when you need to design, build, or optimize data pipelines, ETL/ELT processes, and data infrastructure...'
   kind: skill
   category: data
   tier: L1
@@ -1601,8 +1529,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to discover, collect, and validate data
-    from multiple sources to fuel analysis and decis...
+  description: 'Use this agent when you need to discover, collect, and validate data from multiple sources to fuel analysis and decis...'
   kind: skill
   category: data
   tier: L1
@@ -1621,8 +1548,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to analyze data patterns, build predictive
-    models, or extract statistical insights from ...
+  description: 'Use this agent when you need to analyze data patterns, build predictive models, or extract statistical insights from ...'
   kind: skill
   category: data
   tier: L1
@@ -1643,8 +1569,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when optimizing database performance, implementing high-availability
-    architectures, setting up disaste...
+  description: 'Use this agent when optimizing database performance, implementing high-availability architectures, setting up disaste...'
   kind: skill
   category: database
   tier: L1
@@ -1665,8 +1590,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Search 78 public scientific, biomedical, materials science, and economic
-    databases via REST APIs. Covers physics/astr...
+  description: 'Search 78 public scientific, biomedical, materials science, and economic databases via REST APIs. Covers physics/astr...'
   kind: skill
   category: database
   tier: L1
@@ -1685,8 +1609,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to analyze slow queries, optimize database
-    performance across multiple systems, or imple...
+  description: 'Use this agent when you need to analyze slow queries, optimize database performance across multiple systems, or imple...'
   kind: skill
   category: database
   tier: L1
@@ -1709,8 +1632,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Diseño de schemas de base de datos relacionales con generación de migraciones,
-    tipos TypeScript, RLS policies y estra...
+  description: 'Diseño de schemas de base de datos relacionales con generación de migraciones, tipos TypeScript, RLS policies y estra...'
   kind: skill
   category: engineering
   tier: L1
@@ -1729,8 +1651,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Pythonic wrapper around RDKit with simplified interface and sensible
-    defaults. Preferred for standard drug discovery ...
+  description: 'Pythonic wrapper around RDKit with simplified interface and sensible defaults. Preferred for standard drug discovery ...'
   kind: skill
   category: misc
   tier: L1
@@ -1750,8 +1671,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Seguridad en migraciones de base de datos: zero-downtime, rollback,
-    operaciones peligrosas. Activar cuando: database ...'
+  description: 'Seguridad en migraciones de base de datos: zero-downtime, rollback, operaciones peligrosas. Activar cuando: database ...'
   kind: skill
   category: database
   tier: L1
@@ -1771,8 +1691,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Debugs the Buttercup CRS (Cyber Reasoning System) running on Kubernetes.
-    Use when diagnosing pod crashes, restart loo...
+  description: 'Debugs the Buttercup CRS (Cyber Reasoning System) running on Kubernetes. Use when diagnosing pod crashes, restart loo...'
   kind: skill
   category: misc
   tier: L1
@@ -1791,8 +1710,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to diagnose and fix bugs, identify root
-    causes of failures, or analyze error logs and st...
+  description: 'Use this agent when you need to diagnose and fix bugs, identify root causes of failures, or analyze error logs and st...'
   kind: skill
   category: misc
   tier: L1
@@ -1813,8 +1731,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Molecular ML with diverse featurizers and pre-built datasets. Use for
-    property prediction (ADMET, toxicity) with trad...
+  description: 'Molecular ML with diverse featurizers and pre-built datasets. Use for property prediction (ADMET, toxicity) with trad...'
   kind: skill
   category: misc
   tier: L1
@@ -1833,8 +1750,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: NGS analysis toolkit. BAM to bigWig conversion, QC (correlation, PCA,
-    fingerprints), heatmaps/profiles (TSS, peaks), ...
+  description: 'NGS analysis toolkit. BAM to bigWig conversion, QC (correlation, PCA, fingerprints), heatmaps/profiles (TSS, peaks), ...'
   kind: skill
   category: misc
   tier: L1
@@ -1854,8 +1770,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to audit dependencies for vulnerabilities,
-    resolve version conflicts, optimize bundle si...
+  description: 'Use this agent when you need to audit dependencies for vulnerabilities, resolve version conflicts, optimize bundle si...'
   kind: skill
   category: misc
   tier: L1
@@ -1877,8 +1792,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when designing, building, or optimizing CI/CD pipelines
-    and deployment automation strategies.
+  description: 'Use this agent when designing, building, or optimizing CI/CD pipelines and deployment automation strategies.'
   kind: skill
   category: devops
   tier: L1
@@ -1899,8 +1813,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Query the Cancer Dependency Map (DepMap) for cancer cell line gene
-    dependency scores (CRISPR Chronos), drug sensitivi...
+  description: 'Query the Cancer Dependency Map (DepMap) for cancer cell line gene dependency scores (CRISPR Chronos), drug sensitivi...'
   kind: skill
   category: misc
   tier: L1
@@ -1920,8 +1833,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to translate a DESIGN.md from the VoltAgent/awesome-design-md
-    repository into polished C...
+  description: 'Use this agent when you need to translate a DESIGN.md from the VoltAgent/awesome-design-md repository into polished C...'
   kind: skill
   category: misc
   tier: L1
@@ -1943,8 +1855,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Creates devcontainers with Claude Code, language-specific tooling (Python/Node/Rust/Go),
-    and persistent volumes. Use ...
+  description: 'Creates devcontainers with Claude Code, language-specific tooling (Python/Node/Rust/Go), and persistent volumes. Use ...'
   kind: skill
   category: misc
   tier: L1
@@ -1964,8 +1875,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Developer-focused framework (JeffAllan). Specialized skills for NestJS,
-    React, and Tailwind CSS.
+  description: 'Developer-focused framework (JeffAllan). Specialized skills for NestJS, React, and Tailwind CSS.'
   kind: skill
   category: workflow
   tier: L1
@@ -1984,8 +1894,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Senior DevOps engineer covering CI/CD pipelines, Infrastructure as
-    Code (Terraform/Ansible), container orchestration,...
+  description: 'Senior DevOps engineer covering CI/CD pipelines, Infrastructure as Code (Terraform/Ansible), container orchestration,...'
   kind: skill
   category: devops
   tier: L1
@@ -2005,8 +1914,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when actively responding to production incidents, diagnosing critical
-    service failures, or conducting incident po...
+  description: 'Use when actively responding to production incidents, diagnosing critical service failures, or conducting incident po...'
   kind: skill
   category: devops
   tier: L1
@@ -2028,8 +1936,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Extract cognitive patterns and thinking fingerprints from any text.
-    Use this skill when the user wants to analyze how...
+  description: 'Extract cognitive patterns and thinking fingerprints from any text. Use this skill when the user wants to analyze how...'
   kind: skill
   category: misc
   tier: L1
@@ -2050,8 +1957,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Diffusion-based molecular docking. Predict protein-ligand binding poses
-    from PDB/SMILES, confidence scores, virtual s...
+  description: 'Diffusion-based molecular docking. Predict protein-ligand binding poses from PDB/SMILES, confidence scores, virtual s...'
   kind: skill
   category: misc
   tier: L1
@@ -2071,8 +1977,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Performs security-focused differential review of code changes (PRs,
-    commits, diffs). Adapts analysis depth to codebas...
+  description: 'Performs security-focused differential review of code changes (PRs, commits, diffs). Adapts analysis depth to codebas...'
   kind: skill
   category: engineering
   tier: L2
@@ -2094,8 +1999,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Annotates codebases with dimensional analysis comments documenting
-    units, dimensions, and decimal scaling. Use when s...
+  description: 'Annotates codebases with dimensional analysis comments documenting units, dimensions, and decimal scaling. Use when s...'
   kind: skill
   category: engineering
   tier: L1
@@ -2117,8 +2021,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building Django 4+ web applications, REST APIs, or modernizing
-    existing Django projects with async views and...
+  description: 'Use when building Django 4+ web applications, REST APIs, or modernizing existing Django projects with async views and...'
   kind: skill
   category: web
   tier: L1
@@ -2140,8 +2043,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: DNAnexus cloud genomics platform. Build apps/applets, manage data (upload/download),
-    dxpy Python SDK, run workflows, ...
+  description: 'DNAnexus cloud genomics platform. Build apps/applets, manage data (upload/download), dxpy Python SDK, run workflows, ...'
   kind: skill
   category: misc
   tier: L1
@@ -2163,8 +2065,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Guide users through a structured workflow for co-authoring documentation.
-    Use when user wants to write documentation,...
+  description: 'Guide users through a structured workflow for co-authoring documentation. Use when user wants to write documentation,...'
   kind: skill
   category: misc
   tier: L1
@@ -2184,8 +2085,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Docker containerization expert covering multi-stage builds, security
-    hardening, optimization, and production-grade im...
+  description: 'Docker containerization expert covering multi-stage builds, security hardening, optimization, and production-grade im...'
   kind: skill
   category: devops
   tier: L1
@@ -2205,8 +2105,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to create, architect, or overhaul comprehensive
-    documentation systems including API docs...
+  description: 'Use this agent when you need to create, architect, or overhaul comprehensive documentation systems including API docs...'
   kind: skill
   category: docs
   tier: L1
@@ -2227,8 +2126,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this skill whenever the user wants to create, read, edit, or manipulate
-    Word documents (.docx files). Triggers in...
+  description: 'Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx files). Triggers in...'
   kind: skill
   category: misc
   tier: L1
@@ -2250,8 +2148,7 @@
   replaced_by: gamedev-engineer
   last_used: null
   last_synced: '2026-05-16'
-  description: DEPRECATED — renamed to gamedev-engineer. Stub kept for backwards compatibility
-    until v15.3.
+  description: 'DEPRECATED — renamed to gamedev-engineer. Stub kept for backwards compatibility until v15.3.'
   kind: persona
   category: persona
   tier: L2
@@ -2276,7 +2173,7 @@
   - don-claudio
   last_used: null
   last_synced: '2026-05-16'
-  description: "Senior game-development engineer for Unreal Engine and Unity projects: gameplay C++, Blueprints, multiplayer replication, netcode, the Gameplay Ability System (GAS)..."
+  description: 'Senior game-development engineer for Unreal Engine and Unity projects: gameplay C++, Blueprints, multiplayer replication, netcode, the Gameplay Ability System (GAS)...'
   kind: persona
   category: persona
   tier: L2
@@ -2297,8 +2194,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building .NET Core applications requiring cloud-native architecture,
-    high-performance microservices, modern ...
+  description: 'Use when building .NET Core applications requiring cloud-native architecture, high-performance microservices, modern ...'
   kind: skill
   category: systems
   tier: L1
@@ -2322,8 +2218,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when working on legacy .NET Framework 4.8 enterprise
-    applications that require maintenance, modernizat...
+  description: 'Use this agent when working on legacy .NET Framework 4.8 enterprise applications that require maintenance, modernizat...'
   kind: skill
   category: systems
   tier: L1
@@ -2345,8 +2240,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Provides expertise for analyzing DWARF debug files and understanding
-    the DWARF debug format/standard (v3-v5). Trigger...
+  description: 'Provides expertise for analyzing DWARF debug files and understanding the DWARF debug format/standard (v3-v5). Trigger...'
   kind: skill
   category: misc
   tier: L1
@@ -2367,8 +2261,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when optimizing the complete developer workflow including
-    build times, feedback loops, testing efficie...
+  description: 'Use this agent when optimizing the complete developer workflow including build times, feedback loops, testing efficie...'
   kind: skill
   category: misc
   tier: L1
@@ -2383,14 +2276,35 @@
   - persona
   - persona
   - l1
+  - deprecated
+  cost_tier: medium
+  dispatcher_priority: 3
+  deprecated: true
+  replaces: []
+  last_used: null
+  last_synced: '2026-05-16'
+  description: 'DEPRECATED — renamed to research-explainer. Stub kept for backwards compatibility until v15.3.'
+  kind: persona
+  category: persona
+  tier: L1
+  replaced_by: research-explainer
+- name: research-explainer
+  source: auto-discover
+  triggers:
+  - research-explainer
+  - persona
+  tags:
+  - persona
+  - persona
+  - l1
   cost_tier: medium
   dispatcher_priority: 3
   deprecated: false
-  replaces: []
+  replaces:
+  - einstein
   last_used: null
-  last_synced: '2026-05-06'
-  description: Activa a EINSTEIN — el científico, pensador y explorador intelectual
-    universal de USER. Activar SIEMPRE cuando Rod...
+  last_synced: '2026-05-16'
+  description: 'Cross-disciplinary research and concept explainer. Activate when the user asks "how does X work", "explain X", "research X", "what does the science say about X", or any conceptual question across physics, mathematics, chemistry, astronomy, biology, geology, history, philosophy, psychology, neuroscience, medicine, economics, literature, or CS/AI. Layered explanations from analogy to mechanism. Prefers primary sources.'
   kind: persona
   category: persona
   tier: L1
@@ -2409,8 +2323,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building Electron desktop applications that require
-    native OS integration, cross-platform distrib...
+  description: 'Use this agent when building Electron desktop applications that require native OS integration, cross-platform distrib...'
   kind: skill
   category: web
   tier: L1
@@ -2432,8 +2345,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to build fault-tolerant, concurrent systems
-    leveraging OTP patterns, GenServer architect...
+  description: 'Use this agent when you need to build fault-tolerant, concurrent systems leveraging OTP patterns, GenServer architect...'
   kind: skill
   category: systems
   tier: L1
@@ -2454,8 +2366,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when developing firmware for resource-constrained microcontrollers,
-    implementing RTOS-based applications, or opti...
+  description: 'Use when developing firmware for resource-constrained microcontrollers, implementing RTOS-based applications, or opti...'
   kind: skill
   category: systems
   tier: L1
@@ -2478,8 +2389,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Analyzes smart contract codebases to identify state-changing entry
-    points for security auditing. Detects externally c...
+  description: 'Analyzes smart contract codebases to identify state-changing entry points for security auditing. Detects externally c...'
   kind: skill
   category: misc
   tier: L1
@@ -2501,8 +2411,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when distributed system errors occur and need coordinated
-    handling across multiple components, or when...
+  description: 'Use this agent when distributed system errors occur and need coordinated handling across multiple components, or when...'
   kind: skill
   category: misc
   tier: L1
@@ -2524,8 +2433,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to diagnose why errors are occurring in
-    your system, correlate errors across services, i...
+  description: 'Use this agent when you need to diagnose why errors are occurring in your system, correlate errors across services, i...'
   kind: skill
   category: misc
   tier: L1
@@ -2546,8 +2454,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive toolkit for protein language models including ESM3 (generative
-    multimodal protein design across sequenc...
+  description: 'Comprehensive toolkit for protein language models including ESM3 (generative multimodal protein design across sequenc...'
   kind: skill
   category: misc
   tier: L1
@@ -2566,8 +2473,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Phylogenetic tree toolkit (ETE). Tree manipulation (Newick/NHX), evolutionary
-    event detection, orthology/paralogy, NC...
+  description: 'Phylogenetic tree toolkit (ETE). Tree manipulation (Newick/NHX), evolutionary event detection, orthology/paralogy, NC...'
   kind: skill
   category: misc
   tier: L1
@@ -2588,8 +2494,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Performance-focused agent harness. Advanced memory optimization and
-    security scanning for large codebases.
+  description: 'Performance-focused agent harness. Advanced memory optimization and security scanning for large codebases.'
   kind: meta
   category: workflow
   tier: L1
@@ -2609,8 +2514,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Perform comprehensive exploratory data analysis on scientific data
-    files across 200+ file formats. This skill should ...
+  description: 'Perform comprehensive exploratory data analysis on scientific data files across 200+ file formats. This skill should ...'
   kind: skill
   category: data
   tier: L1
@@ -2632,8 +2536,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building mobile applications with Expo and React Native that
-    require native module integration, navigation s...
+  description: 'Use when building mobile applications with Expo and React Native that require native module integration, navigation s...'
   kind: skill
   category: mobile
   tier: L1
@@ -2655,8 +2558,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building modern async Python APIs with FastAPI, implementing
-    Pydantic v2 validation, dependency injection pa...
+  description: 'Use when building modern async Python APIs with FastAPI, implementing Pydantic v2 validation, dependency injection pa...'
   kind: skill
   category: web
   tier: L1
@@ -2678,8 +2580,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Expert guidance for ffuf web fuzzing during penetration testing, including
-    authenticated fuzzing with raw requests, a...
+  description: 'Expert guidance for ffuf web fuzzing during penetration testing, including authenticated fuzzing with raw requests, a...'
   kind: skill
   category: security
   tier: L1
@@ -2699,8 +2600,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building payment systems, financial integrations, or compliance-heavy
-    financial applications that require se...
+  description: 'Use when building payment systems, financial integrations, or compliance-heavy financial applications that require se...'
   kind: skill
   category: misc
   tier: L1
@@ -2723,8 +2623,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Scans Android APKs for Firebase security misconfigurations including
-    open databases, storage buckets, authentication ...
+  description: 'Scans Android APKs for Firebase security misconfigurations including open databases, storage buckets, authentication ...'
   kind: skill
   category: security
   tier: L1
@@ -2743,8 +2642,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Parse FCS (Flow Cytometry Standard) files v2.0-3.1. Extract events
-    as NumPy arrays, read metadata/channels, convert t...
+  description: 'Parse FCS (Flow Cytometry Standard) files v2.0-3.1. Extract events as NumPy arrays, read metadata/channels, convert t...'
   kind: skill
   category: misc
   tier: L1
@@ -2763,8 +2661,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Framework for computational fluid dynamics simulations using Python.
-    Use when running fluid dynamics simulations incl...
+  description: 'Framework for computational fluid dynamics simulations using Python. Use when running fluid dynamics simulations incl...'
   kind: skill
   category: misc
   tier: L1
@@ -2784,8 +2681,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building cross-platform mobile applications with Flutter 3+
-    that require custom UI implementation, complex s...
+  description: 'Use when building cross-platform mobile applications with Flutter 3+ that require custom UI implementation, complex s...'
   kind: skill
   category: mobile
   tier: L1
@@ -2807,8 +2703,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Reparación sistemática de features rotas o módulos con fallos complejos.
-    Activar cuando: "haz que X funcione" · featu...'
+  description: 'Reparación sistemática de features rotas o módulos con fallos complejos. Activar cuando: "haz que X funcione" · featu...'
   kind: skill
   category: engineering
   tier: L1
@@ -2827,8 +2722,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Systematically verifies suspected security bugs to eliminate false
-    positives. Produces TRUE POSITIVE or FALSE POSITIV...
+  description: 'Systematically verifies suspected security bugs to eliminate false positives. Produces TRUE POSITIVE or FALSE POSITIV...'
   kind: skill
   category: misc
   tier: L1
@@ -2849,8 +2743,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Pushes Claude to move beyond generic UI and adopt specific aesthetics
-    (minimalist, brutalist, glassmorphism, etc.).
+  description: 'Pushes Claude to move beyond generic UI and adopt specific aesthetics (minimalist, brutalist, glassmorphism, etc.).'
   kind: skill
   category: design
   tier: L1
@@ -2870,8 +2763,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building complete frontend applications across React, Vue,
-    and Angular frameworks requiring multi-framework ...
+  description: 'Use when building complete frontend applications across React, Vue, and Angular frameworks requiring multi-framework ...'
   kind: skill
   category: web
   tier: L1
@@ -2893,8 +2785,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Create stunning, animation-rich HTML presentations from scratch or
-    by converting PowerPoint files. Use when the user ...
+  description: 'Create stunning, animation-rich HTML presentations from scratch or by converting PowerPoint files. Use when the user ...'
   kind: skill
   category: misc
   tier: L1
@@ -2914,8 +2805,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to build complete features spanning database,
-    API, and frontend layers together as a coh...
+  description: 'Use this agent when you need to build complete features spanning database, API, and frontend layers together as a coh...'
   kind: skill
   category: web
   tier: L1
@@ -2936,8 +2826,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Game development expert covering Unity, Unreal Engine, Godot, and custom
-    engines. Covers ECS, rendering pipelines, ph...
+  description: 'Game development expert covering Unity, Unreal Engine, Godot, and custom engines. Covers ECS, rendering pipelines, ph...'
   kind: skill
   category: game
   tier: L1
@@ -2957,8 +2846,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Generate or edit images using AI models (FLUX, Nano Banana 2). Use
-    for general-purpose image generation including pho...
+  description: 'Generate or edit images using AI models (FLUX, Nano Banana 2). Use for general-purpose image generation including pho...'
   kind: skill
   category: misc
   tier: L1
@@ -2979,8 +2867,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: This skill should be used when working with genomic interval data (BED
-    files) for machine learning tasks. Use for tra...
+  description: 'This skill should be used when working with genomic interval data (BED files) for machine learning tasks. Use for tra...'
   kind: skill
   category: misc
   tier: L1
@@ -2999,8 +2886,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive geospatial science skill covering remote sensing, GIS,
-    spatial analysis, machine learning for earth obs...
+  description: 'Comprehensive geospatial science skill covering remote sensing, GIS, spatial analysis, machine learning for earth obs...'
   kind: skill
   category: misc
   tier: L1
@@ -3019,8 +2905,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Python library for working with geospatial vector data including shapefiles,
-    GeoJSON, and GeoPackage files. Use when ...
+  description: 'Python library for working with geospatial vector data including shapefiles, GeoJSON, and GeoPackage files. Use when ...'
   kind: skill
   category: misc
   tier: L1
@@ -3041,8 +2926,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: This skill should be used at the start of any computationally intensive
-    scientific task to detect and report availabl...
+  description: 'This skill should be used at the start of any computationally intensive scientific task to detect and report availabl...'
   kind: skill
   category: misc
   tier: L1
@@ -3061,8 +2945,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Fast CLI/Python queries to 20+ bioinformatics databases. Use for quick
-    lookups: gene info, BLAST searches, AlphaFold ...'
+  description: 'Fast CLI/Python queries to 20+ bioinformatics databases. Use for quick lookups: gene info, BLAST searches, AlphaFold ...'
   kind: skill
   category: misc
   tier: L1
@@ -3085,8 +2968,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Submit and manage protocols on Ginkgo Bioworks Cloud Lab (cloud.ginkgo.bio),
-    a web-based interface for autonomous lab...
+  description: 'Submit and manage protocols on Ginkgo Bioworks Cloud Lab (cloud.ginkgo.bio), a web-based interface for autonomous lab...'
   kind: skill
   category: misc
   tier: L1
@@ -3106,8 +2988,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Safely analyzes and cleans up local git branches and worktrees by categorizing
-    them as merged, squash-merged, superse...
+  description: 'Safely analyzes and cleans up local git branches and worktrees by categorizing them as merged, squash-merged, superse...'
   kind: skill
   category: workflow
   tier: L1
@@ -3130,8 +3011,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Resolución de merge conflicts, estrategias de rebase, gestión de stash.
-    Activar cuando: resolviendo merge conflicts ·...'
+  description: 'Resolución de merge conflicts, estrategias de rebase, gestión de stash. Activar cuando: resolviendo merge conflicts ·...'
   kind: skill
   category: workflow
   tier: L1
@@ -3151,8 +3031,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to design, establish, or optimize Git
-    workflows, branching strategies, and merge managem...
+  description: 'Use this agent when you need to design, establish, or optimize Git workflows, branching strategies, and merge managem...'
   kind: skill
   category: workflow
   tier: L1
@@ -3174,8 +3053,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: GitHub Actions CI/CD workflows for mobile (React Native iOS/Android
-    builds) and general CI pipelines. Activate when s...
+  description: 'GitHub Actions CI/CD workflows for mobile (React Native iOS/Android builds) and general CI pipelines. Activate when s...'
   kind: skill
   category: devops
   tier: L1
@@ -3194,8 +3072,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Analyze and engineer protein glycosylation. Scan sequences for N-glycosylation
-    sequons (N-X-S/T), predict O-glycosyla...
+  description: 'Analyze and engineer protein glycosylation. Scan sequences for N-glycosylation sequons (N-X-S/T), predict O-glycosyla...'
   kind: skill
   category: misc
   tier: L1
@@ -3216,8 +3093,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building Go applications requiring concurrent programming,
-    high-performance systems, microservices, or cloud...
+  description: 'Use when building Go applications requiring concurrent programming, high-performance systems, microservices, or cloud...'
   kind: skill
   category: systems
   tier: L1
@@ -3239,8 +3115,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when designing or evolving GraphQL schemas across microservices,
-    implementing federation architectures...
+  description: 'Use this agent when designing or evolving GraphQL schemas across microservices, implementing federation architectures...'
   kind: skill
   category: web
   tier: L1
@@ -3261,8 +3136,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: High-performance toolkit for genomic interval analysis in Rust with
-    Python bindings. Use when working with genomic re...
+  description: 'High-performance toolkit for genomic interval analysis in Rust with Python bindings. Use when working with genomic re...'
   kind: skill
   category: misc
   tier: L1
@@ -3282,8 +3156,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Smart contract development advisor based on Trail of Bits' best practices.
-    Analyzes codebase to generate documentatio...
+  description: 'Smart contract development advisor based on Trail of Bits'' best practices. Analyzes codebase to generate documentatio...'
   kind: skill
   category: misc
   tier: L1
@@ -3302,8 +3175,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Lightweight WSI tile extraction and preprocessing. Use for basic slide
-    processing tissue detection, tile extraction, ...
+  description: 'Lightweight WSI tile extraction and preprocessing. Use for basic slide processing tissue detection, tile extraction, ...'
   kind: skill
   category: misc
   tier: L1
@@ -3323,8 +3195,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Curated catalog of scientific ML datasets/models/Spaces (huggingscience.co
-    + hugging-science HF org). Use when the us...
+  description: 'Curated catalog of scientific ML datasets/models/Spaces (huggingscience.co + hugging-science HF org). Use when the us...'
   kind: skill
   category: misc
   tier: L1
@@ -3341,8 +3212,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Remove signs of AI-generated writing from text. Use when editing or
-    reviewing
+  description: 'Remove signs of AI-generated writing from text. Use when editing or reviewing
 
     text to make it sound more natural and ...'
 - name: hyperframes
@@ -3360,8 +3230,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Open-source video rendering framework by HeyGen. Enables authoring
-    video compositions using HTML and GSAP.
+  description: 'Open-source video rendering framework by HeyGen. Enables authoring video compositions using HTML and GSAP.'
   kind: skill
   category: workflow
   tier: L1
@@ -3380,8 +3249,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Automated LLM-driven hypothesis generation and testing on tabular datasets.
-    Use when you want to systematically explo...
+  description: 'Automated LLM-driven hypothesis generation and testing on tabular datasets. Use when you want to systematically explo...'
   kind: skill
   category: misc
   tier: L1
@@ -3401,8 +3269,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Structured hypothesis formulation from observations. Use when you have
-    experimental observations or data and need to ...
+  description: 'Structured hypothesis formulation from observations. Use when you have experimental observations or data and need to ...'
   kind: skill
   category: misc
   tier: L1
@@ -3424,8 +3291,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when an active security breach, service outage, or operational
-    incident requires immediate response, e...
+  description: 'Use this agent when an active security breach, service outage, or operational incident requires immediate response, e...'
   kind: skill
   category: misc
   tier: L1
@@ -3446,8 +3312,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Create professional infographics using Nano Banana Pro AI with smart
-    iterative refinement. Uses Gemini 3 Pro for qual...
+  description: 'Create professional infographics using Nano Banana Pro AI with smart iterative refinement. Uses Gemini 3 Pro for qual...'
   kind: skill
   category: misc
   tier: L1
@@ -3469,8 +3334,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Detects fail-open insecure defaults (hardcoded secrets, weak auth,
-    permissive security) that allow apps to run insecu...
+  description: 'Detects fail-open insecure defaults (hardcoded secrets, weak auth, permissive security) that allow apps to run insecu...'
   kind: skill
   category: engineering
   tier: L1
@@ -3492,8 +3356,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: A set of resources to help me write all kinds of internal communications,
-    using the formats that my company likes to ...
+  description: 'A set of resources to help me write all kinds of internal communications, using the formats that my company likes to ...'
   kind: skill
   category: misc
   tier: L1
@@ -3514,8 +3377,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Interprets Culture Index (CI) surveys, behavioral profiles, and personality
-    assessment data. Supports individual prof...
+  description: 'Interprets Culture Index (CI) surveys, behavioral profiles, and personality assessment data. Supports individual prof...'
   kind: skill
   category: misc
   tier: L1
@@ -3538,8 +3400,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 22 production-ready scripts for iOS app testing, building, and automation.
-    Provides semantic UI navigation, build aut...
+  description: '22 production-ready scripts for iOS app testing, building, and automation. Provides semantic UI navigation, build aut...'
   kind: skill
   category: mobile
   tier: L1
@@ -3559,8 +3420,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when designing and deploying IoT solutions requiring expertise
-    in device management, edge computing, cloud integr...
+  description: 'Use when designing and deploying IoT solutions requiring expertise in device management, edge computing, cloud integr...'
   kind: skill
   category: misc
   tier: L1
@@ -3583,8 +3443,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive toolkit for preparing ISO 13485 certification documentation
-    for medical device Quality Management Syste...
+  description: 'Comprehensive toolkit for preparing ISO 13485 certification documentation for medical device Quality Management Syste...'
   kind: skill
   category: misc
   tier: L1
@@ -3604,8 +3463,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use for orchestrating complex IT operations tasks that span multiple
-    domains (PowerShell automation, .NET development...
+  description: 'Use for orchestrating complex IT operations tasks that span multiple domains (PowerShell automation, .NET development...'
   kind: skill
   category: devops
   tier: L1
@@ -3627,8 +3485,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when designing enterprise Java architectures, migrating
-    Spring Boot applications, or establishing micr...
+  description: 'Use this agent when designing enterprise Java architectures, migrating Spring Boot applications, or establishing micr...'
   kind: skill
   category: systems
   tier: L1
@@ -3649,8 +3506,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to build, optimize, or refactor modern
-    JavaScript code for browser, Node.js, or full-sta...
+  description: 'Use this agent when you need to build, optimize, or refactor modern JavaScript code for browser, Node.js, or full-sta...'
   kind: skill
   category: web
   tier: L1
@@ -3666,14 +3522,35 @@
   - persona
   - persona
   - l1
+  - deprecated
   cost_tier: medium
   dispatcher_priority: 3
-  deprecated: false
+  deprecated: true
   replaces: []
   last_used: null
   last_synced: '2026-05-16'
-  description: Activa a JORDAN BELFORT — el estratega de negocio implacable de USER.
-    Director de Proyecto, emprendedor serial y m...
+  description: 'DEPRECATED — renamed to business-strategist. Stub kept for backwards compatibility until v15.3.'
+  kind: persona
+  category: persona
+  tier: L1
+  replaced_by: business-strategist
+- name: business-strategist
+  source: auto-discover
+  triggers:
+  - business-strategist
+  - persona
+  tags:
+  - persona
+  - persona
+  - l1
+  cost_tier: medium
+  dispatcher_priority: 3
+  deprecated: false
+  replaces:
+  - jordan-belfort
+  last_used: null
+  last_synced: '2026-05-16'
+  description: 'B2B SaaS business strategist. Activate for niche discovery, market validation, business model design, SaaS pricing, GTM strategy, pitch crafting, competitor analysis, B2B sales tactics or revenue projections. Six-phase workflow (niche -> validation -> business model -> GTM -> sales -> growth) ending with three concrete next steps ranked by impact.'
   kind: persona
   category: persona
   tier: L1
@@ -3693,8 +3570,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when you need to extract actionable patterns from agent interactions,
-    synthesize insights across multiple workflo...
+  description: 'Use when you need to extract actionable patterns from agent interactions, synthesize insights across multiple workflo...'
   kind: skill
   category: misc
   tier: L1
@@ -3716,8 +3592,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Modern Kotlin 1.9+ specialist covering coroutines, Kotlin Multiplatform
-    (KMP), Android development, and server-side K...
+  description: 'Modern Kotlin 1.9+ specialist covering coroutines, Kotlin Multiplatform (KMP), Android development, and server-side K...'
   kind: skill
   category: systems
   tier: L1
@@ -3737,8 +3612,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Kubernetes cluster design, deployment, security hardening, and operations.
-    Activate when designing Kubernetes archite...
+  description: 'Kubernetes cluster design, deployment, security hardening, and operations. Activate when designing Kubernetes archite...'
   kind: skill
   category: devops
   tier: L1
@@ -3758,8 +3632,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Electronic lab notebook API integration. Access notebooks, manage entries/attachments,
-    backup notebooks, integrate wi...
+  description: 'Electronic lab notebook API integration. Access notebooks, manage entries/attachments, backup notebooks, integrate wi...'
   kind: skill
   category: misc
   tier: L1
@@ -3778,8 +3651,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: This skill should be used when working with LaminDB, an open-source
-    data framework for biology that makes data querya...
+  description: 'This skill should be used when working with LaminDB, an open-source data framework for biology that makes data querya...'
   kind: skill
   category: misc
   tier: L1
@@ -3799,8 +3671,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building Laravel 10+ applications, architecting Eloquent models
-    with complex relationships, implementing que...
+  description: 'Use when building Laravel 10+ applications, architecting Eloquent models with complex relationships, implementing que...'
   kind: skill
   category: web
   tier: L1
@@ -3822,8 +3693,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Latch platform for bioinformatics workflows. Build pipelines with Latch
-    SDK, @workflow/@task decorators, deploy serve...
+  description: 'Latch platform for bioinformatics workflows. Build pipelines with Latch SDK, @workflow/@task decorators, deploy serve...'
   kind: skill
   category: misc
   tier: L1
@@ -3843,8 +3713,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Create professional research posters in LaTeX using beamerposter, tikzposter,
-    or baposter. Support for conference pre...
+  description: 'Create professional research posters in LaTeX using beamerposter, tikzposter, or baposter. Support for conference pre...'
   kind: skill
   category: misc
   tier: L1
@@ -3866,8 +3735,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when modernizing legacy systems that need incremental
-    migration strategies, technical debt reduction, ...
+  description: 'Use this agent when modernizing legacy systems that need incremental migration strategies, technical debt reduction, ...'
   kind: skill
   category: misc
   tier: L1
@@ -3889,8 +3757,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to draft contracts, review compliance
-    requirements, develop IP protection strategies, or...
+  description: 'Use this agent when you need to draft contracts, review compliance requirements, develop IP protection strategies, or...'
   kind: skill
   category: misc
   tier: L1
@@ -3913,8 +3780,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Draws 4 Tarot cards to inject entropy into planning when prompts are
-    vague, ambiguous, or casually delegated. Interpr...
+  description: 'Draws 4 Tarot cards to inject entropy into planning when prompts are vague, ambiguous, or casually delegated. Interpr...'
   kind: skill
   category: misc
   tier: L1
@@ -3936,8 +3802,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when architecting, implementing, or optimizing end-to-end
-    legal licensing systems—from OSI standard se...
+  description: 'Use this agent when architecting, implementing, or optimizing end-to-end legal licensing systems—from OSI standard se...'
   kind: skill
   category: misc
   tier: L1
@@ -3959,8 +3824,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Conduct comprehensive, systematic literature reviews using multiple
-    academic databases (PubMed, arXiv, bioRxiv, Seman...
+  description: 'Conduct comprehensive, systematic literature reviews using multiple academic databases (PubMed, arXiv, bioRxiv, Seman...'
   kind: skill
   category: misc
   tier: L1
@@ -3982,8 +3846,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when designing LLM systems for production, implementing fine-tuning
-    or RAG architectures, optimizing inference se...
+  description: 'Use when designing LLM systems for production, implementing fine-tuning or RAG architectures, optimizing inference se...'
   kind: skill
   category: ml
   tier: L1
@@ -4003,8 +3866,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when validating Stories, plans, or tasks through the evaluation
-    platform with mandatory research, parallel eviden...
+  description: 'Use when validating Stories, plans, or tasks through the evaluation platform with mandatory research, parallel eviden...'
 - name: loki-mode
   source: auto-discover
   triggers:
@@ -4021,8 +3883,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Multi-agent autonomous startup system. Triggers on "Loki Mode". Takes
-    a spec (PRD, GitHub issue, OpenAPI doc, etc.) t...
+  description: 'Multi-agent autonomous startup system. Triggers on "Loki Mode". Takes a spec (PRD, GitHub issue, OpenAPI doc, etc.) t...'
   kind: skill
   category: misc
   tier: L1
@@ -4042,8 +3903,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when automating Microsoft 365 administrative tasks including Exchange
-    Online mailbox provisioning, Teams collabor...
+  description: 'Use when automating Microsoft 365 administrative tasks including Exchange Online mailbox provisioning, Teams collabor...'
   kind: skill
   category: devops
   tier: L1
@@ -4066,8 +3926,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to deploy, optimize, or serve machine
-    learning models at scale in production environments.
+  description: 'Use this agent when you need to deploy, optimize, or serve machine learning models at scale in production environments.'
   kind: skill
   category: ml
   tier: L1
@@ -4089,8 +3948,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Activa a MANOLO LAMA — el comentarista deportivo de USER. Habla
-    exactamente como Manolo Lama en sus comentarios má...
+  description: 'Activa a MANOLO LAMA — el comentarista deportivo de USER. Habla exactamente como Manolo Lama en sus comentarios má...'
   kind: persona
   category: persona
   tier: L1
@@ -4111,8 +3969,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive markdown and Mermaid diagram writing skill. Use when
-    creating any scientific document, report, analysis...
+  description: 'Comprehensive markdown and Mermaid diagram writing skill. Use when creating any scientific document, report, analysis...'
   kind: skill
   category: docs
   tier: L1
@@ -4135,8 +3992,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Generate comprehensive market research reports (50+ pages) in the style
-    of top consulting firms (McKinsey, BCG, Gartn...
+  description: 'Generate comprehensive market research reports (50+ pages) in the style of top consulting firms (McKinsey, BCG, Gartn...'
   kind: skill
   category: misc
   tier: L1
@@ -4158,8 +4014,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to analyze markets, understand consumer
-    behavior, assess competitive landscapes, and siz...
+  description: 'Use this agent when you need to analyze markets, understand consumer behavior, assess competitive landscapes, and siz...'
   kind: skill
   category: misc
   tier: L1
@@ -4178,8 +4033,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Convert files and office documents to Markdown. Supports PDF, DOCX,
-    PPTX, XLSX, images (with OCR), audio (with transc...
+  description: 'Convert files and office documents to Markdown. Supports PDF, DOCX, PPTX, XLSX, images (with OCR), audio (with transc...'
   kind: skill
   category: misc
   tier: L1
@@ -4200,8 +4054,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Spectral similarity and compound identification for metabolomics. Use
-    for comparing mass spectra, computing similarit...
+  description: 'Spectral similarity and compound identification for metabolomics. Use for comparing mass spectra, computing similarit...'
   kind: skill
   category: misc
   tier: L1
@@ -4221,8 +4074,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Expert in Material Design 3 (Material You). Generates themes, tokens,
-    components, and audits UIs.
+  description: 'Expert in Material Design 3 (Material You). Generates themes, tokens, components, and audits UIs.'
   kind: skill
   category: design
   tier: L1
@@ -4241,8 +4093,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: MATLAB and GNU Octave numerical computing for matrix operations, data
-    analysis, visualization, and scientific computi...
+  description: 'MATLAB and GNU Octave numerical computing for matrix operations, data analysis, visualization, and scientific computi...'
   kind: skill
   category: misc
   tier: L1
@@ -4261,8 +4112,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Low-level plotting library for full customization. Use when you need
-    fine-grained control over every plot element, cr...
+  description: 'Low-level plotting library for full customization. Use when you need fine-grained control over every plot element, cr...'
   kind: skill
   category: misc
   tier: L1
@@ -4282,8 +4132,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to build, debug, or optimize Model Context
-    Protocol (MCP) servers and clients that conne...
+  description: 'Use this agent when you need to build, debug, or optimize Model Context Protocol (MCP) servers and clients that conne...'
   kind: skill
   category: misc
   tier: L1
@@ -4304,8 +4153,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Medicinal chemistry filters. Apply drug-likeness rules (Lipinski, Veber),
-    PAINS filters, structural alerts, complexit...
+  description: 'Medicinal chemistry filters. Apply drug-likeness rules (Lipinski, Veber), PAINS filters, structural alerts, complexit...'
   kind: skill
   category: misc
   tier: L1
@@ -4325,8 +4173,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when designing distributed system architecture, decomposing monolithic
-    applications into independent microservice...
+  description: 'Use when designing distributed system architecture, decomposing monolithic applications into independent microservice...'
   kind: skill
   category: misc
   tier: L1
@@ -4342,14 +4189,35 @@
   - persona
   - persona
   - l2
+  - deprecated
+  cost_tier: medium
+  dispatcher_priority: 3
+  deprecated: true
+  replaces: []
+  last_used: null
+  last_synced: '2026-05-16'
+  description: 'DEPRECATED — renamed to ui-designer. Stub kept for backwards compatibility until v15.3.'
+  kind: persona
+  category: persona
+  tier: L2
+  replaced_by: ui-designer
+- name: ui-designer
+  source: auto-discover
+  triggers:
+  - ui-designer
+  - persona
+  tags:
+  - persona
+  - persona
+  - l2
   cost_tier: medium
   dispatcher_priority: 3
   deprecated: false
-  replaces: []
+  replaces:
+  - mike-tyson
   last_used: null
-  last_synced: '2026-05-06'
-  description: Activa a MIKE TYSON — diseñador UI/UX de élite con la personalidad
-    brutal, directa y filosófica de Mike Tyson. Sin ro...
+  last_synced: '2026-05-16'
+  description: 'UI/UX critic and designer. Activate to review designs, create UIs, evaluate UX, critique color/typography/hierarchy, design components, audit WCAG accessibility, build design systems, define tokens, or work on responsive layouts. Honest about quality. Mobile-first by default.'
   kind: persona
   category: persona
   tier: L2
@@ -4368,8 +4236,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building production ML systems requiring model
-    training pipelines, model serving infrastructure, ...
+  description: 'Use this agent when building production ML systems requiring model training pipelines, model serving infrastructure, ...'
   kind: skill
   category: ml
   tier: L1
@@ -4391,8 +4258,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to design and implement ML infrastructure,
-    set up CI/CD for machine learning models, est...
+  description: 'Use this agent when you need to design and implement ML infrastructure, set up CI/CD for machine learning models, est...'
   kind: skill
   category: ml
   tier: L1
@@ -4414,8 +4280,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when developing iOS and Android mobile applications
-    with focus on native or cross-platform implementat...
+  description: 'Use this agent when developing iOS and Android mobile applications with focus on native or cross-platform implementat...'
   kind: skill
   category: mobile
   tier: L1
@@ -4436,8 +4301,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building cross-platform mobile applications requiring
-    native performance optimization, platform-s...
+  description: 'Use this agent when building cross-platform mobile applications requiring native performance optimization, platform-s...'
   kind: skill
   category: mobile
   tier: L1
@@ -4459,8 +4323,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Configures Python projects with modern tooling (uv, ruff, ty). Use
-    when creating projects, writing standalone scripts...
+  description: 'Configures Python projects with modern tooling (uv, ruff, ty). Use when creating projects, writing standalone scripts...'
   kind: skill
   category: engineering
   tier: L1
@@ -4480,8 +4343,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Run and analyze molecular dynamics simulations with OpenMM and MDAnalysis.
-    Set up protein/small molecule systems, def...
+  description: 'Run and analyze molecular dynamics simulations with OpenMM and MDAnalysis. Set up protein/small molecule systems, def...'
   kind: skill
   category: misc
   tier: L1
@@ -4500,8 +4362,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Molecular featurization for ML (100+ featurizers). ECFP, MACCS, descriptors,
-    pretrained models (ChemBERTa), convert S...
+  description: 'Molecular featurization for ML (100+ featurizers). ECFP, MACCS, descriptors, pretrained models (ChemBERTa), convert S...'
   kind: skill
   category: misc
   tier: L1
@@ -4522,8 +4383,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when coordinating multiple concurrent agents that need to communicate,
-    share state, synchronize work, and handle ...
+  description: 'Use when coordinating multiple concurrent agents that need to communicate, share state, synchronize work, and handle ...'
   kind: skill
   category: misc
   tier: L1
@@ -4544,8 +4404,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Configures mewt or muton mutation testing campaigns — scopes targets,
-    tunes timeouts, and optimizes long-running runs...
+  description: 'Configures mewt or muton mutation testing campaigns — scopes targets, tunes timeouts, and optimizes long-running runs...'
   kind: skill
   category: testing
   tier: L1
@@ -4567,8 +4426,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when designing, optimizing, or troubleshooting cloud
-    and hybrid network infrastructures, or when addre...
+  description: 'Use this agent when designing, optimizing, or troubleshooting cloud and hybrid network infrastructures, or when addre...'
   kind: skill
   category: misc
   tier: L1
@@ -4589,8 +4447,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive toolkit for creating, analyzing, and visualizing complex
-    networks and graphs in Python. Use when workin...
+  description: 'Comprehensive toolkit for creating, analyzing, and visualizing complex networks and graphs in Python. Use when workin...'
   kind: skill
   category: misc
   tier: L1
@@ -4609,8 +4466,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive biosignal processing toolkit for analyzing physiological
-    data including ECG, EEG, EDA, RSP, PPG, EMG, a...
+  description: 'Comprehensive biosignal processing toolkit for analyzing physiological data including ECG, EEG, EDA, RSP, PPG, EMG, a...'
   kind: skill
   category: misc
   tier: L1
@@ -4630,8 +4486,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Neuropixels neural recording analysis. Load SpikeGLX/OpenEphys data,
-    preprocess, motion correction, Kilosort4 spike s...
+  description: 'Neuropixels neural recording analysis. Load SpikeGLX/OpenEphys data, preprocess, motion correction, Kilosort4 spike s...'
   kind: skill
   category: misc
   tier: L1
@@ -4651,8 +4506,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Next.js 14+ full-stack development with App Router, Server Components,
-    Server Actions, and performance optimization. ...
+  description: 'Next.js 14+ full-stack development with App Router, Server Components, Server Actions, and performance optimization. ...'
   kind: skill
   category: web
   tier: L1
@@ -4672,8 +4526,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building production NLP systems, implementing text processing
-    pipelines, developing language models, or solv...
+  description: 'Use when building production NLP systems, implementing text processing pipelines, developing language models, or solv...'
   kind: skill
   category: ml
   tier: L1
@@ -4695,8 +4548,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to build, optimize, or debug Node.js backend
-    applications, APIs, CLIs, or microservices ...
+  description: 'Use this agent when you need to build, optimize, or debug Node.js backend applications, APIs, CLIs, or microservices ...'
   kind: skill
   category: web
   tier: L1
@@ -4717,8 +4569,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-16'
-  description: Activa a NOVALBOS — el profesor técnico personal de USER. Especialista
-    en C++, Programación Gráfica (OpenGL, Vulka...
+  description: 'Activa a NOVALBOS — el profesor técnico personal de USER. Especialista en C++, Programación Gráfica (OpenGL, Vulka...'
   kind: persona
   category: persona
   tier: L2
@@ -4738,8 +4589,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Microscopy data management platform. Access images via Python, retrieve
-    datasets, analyze pixels, manage ROIs/annotat...
+  description: 'Microscopy data management platform. Access images via Python, retrieve datasets, analyze pixels, manage ROIs/annotat...'
   kind: skill
   category: misc
   tier: L1
@@ -4759,8 +4609,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Validación de specs OpenAPI/Swagger 3.x: completitud, consistencia,
-    breaking changes, seguridad. Activar cuando: escr...'
+  description: 'Validación de specs OpenAPI/Swagger 3.x: completitud, consistencia, breaking changes, seguridad. Activar cuando: escr...'
   kind: skill
   category: misc
   tier: L1
@@ -4780,8 +4629,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Official Opentrons Protocol API for OT-2 and Flex robots. Use when
-    writing protocols specifically for Opentrons hardw...
+  description: 'Official Opentrons Protocol API for OT-2 and Flex robots. Use when writing protocols specifically for Opentrons hardw...'
   kind: skill
   category: misc
   tier: L1
@@ -4802,8 +4650,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: GPU-accelerate Python code using CuPy, Numba CUDA, Warp, cuDF, cuML,
-    cuGraph, KvikIO, cuCIM, cuxfilter, cuVS, cuSpati...
+  description: 'GPU-accelerate Python code using CuPy, Numba CUDA, Warp, cuDF, cuML, cuGraph, KvikIO, cuCIM, cuxfilter, cuVS, cuSpati...'
   kind: skill
   category: game
   tier: L1
@@ -4824,8 +4671,7 @@
   replaced_by: personal-assistant
   last_used: null
   last_synced: '2026-05-16'
-  description: DEPRECATED — renamed to personal-assistant. Stub kept for backwards
-    compatibility until v15.3.
+  description: 'DEPRECATED — renamed to personal-assistant. Stub kept for backwards compatibility until v15.3.'
   kind: persona
   category: persona
   tier: L1
@@ -4850,9 +4696,7 @@
   - pana
   last_used: null
   last_synced: '2026-05-16'
-  description: Personal productivity orchestrator that coordinates Gmail, Google Calendar,
-    Notion, Google Drive and Playwright web scraping in parallel to deliver daily
-    briefings...
+  description: 'Personal productivity orchestrator that coordinates Gmail, Google Calendar, Notion, Google Drive and Playwright web scraping in parallel to deliver daily briefings...'
   kind: persona
   category: persona
   tier: L1
@@ -4872,8 +4716,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Search 10 academic paper databases via REST APIs for research papers,
-    preprints, and scholarly articles. Covers PubMe...
+  description: 'Search 10 academic paper databases via REST APIs for research papers, preprints, and scholarly articles. Covers PubMe...'
   kind: skill
   category: misc
   tier: L1
@@ -4892,8 +4735,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Chat with your agent about projects, recommendations, and canonical
-    papers in Paperzilla. Use when users ask for rece...
+  description: 'Chat with your agent about projects, recommendations, and canonical papers in Paperzilla. Use when users ask for rece...'
   kind: skill
   category: misc
   tier: L1
@@ -4913,8 +4755,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: All-in-one web toolkit powered by parallel-cli, with a strong emphasis
-    on academic and scientific sources. Use this s...
+  description: 'All-in-one web toolkit powered by parallel-cli, with a strong emphasis on academic and scientific sources. Use this s...'
   kind: skill
   category: misc
   tier: L1
@@ -4935,8 +4776,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Full-featured computational pathology toolkit. Use for advanced WSI
-    analysis including multiplexed immunofluorescence...
+  description: 'Full-featured computational pathology toolkit. Use for advanced WSI analysis including multiplexed immunofluorescence...'
   kind: skill
   category: misc
   tier: L1
@@ -4956,8 +4796,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when implementing payment systems, integrating payment
-    gateways, or handling financial transactions th...
+  description: 'Use this agent when implementing payment systems, integrating payment gateways, or handling financial transactions th...'
   kind: skill
   category: web
   tier: L1
@@ -4978,8 +4817,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this skill whenever the user wants to do anything with PDF files.
-    This includes reading or extracting text/tables...
+  description: 'Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables...'
   kind: skill
   category: misc
   tier: L1
@@ -4999,8 +4837,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Structured manuscript/grant review with checklist-based evaluation.
-    Use when writing formal peer reviews with specifi...
+  description: 'Structured manuscript/grant review with checklist-based evaluation. Use when writing formal peer reviews with specifi...'
   kind: skill
   category: misc
   tier: L1
@@ -5022,8 +4859,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to conduct authorized security penetration
-    tests to identify real vulnerabilities throug...
+  description: 'Use this agent when you need to conduct authorized security penetration tests to identify real vulnerabilities throug...'
   kind: skill
   category: security
   tier: L1
@@ -5044,8 +4880,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Hardware-agnostic quantum ML framework with automatic differentiation.
-    Use when training quantum circuits via gradien...
+  description: 'Hardware-agnostic quantum ML framework with automatic differentiation. Use when training quantum circuits via gradien...'
   kind: skill
   category: misc
   tier: L1
@@ -5065,8 +4900,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to identify and eliminate performance
-    bottlenecks in applications, databases, or infrast...
+  description: 'Use this agent when you need to identify and eliminate performance bottlenecks in applications, databases, or infrast...'
   kind: skill
   category: misc
   tier: L1
@@ -5088,8 +4922,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when establishing observability infrastructure to track system
-    metrics, detect performance anomalies, and optimiz...
+  description: 'Use when establishing observability infrastructure to track system metrics, detect performance anomalies, and optimiz...'
   kind: skill
   category: misc
   tier: L1
@@ -5111,8 +4944,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Profiling sistemático de rendimiento para Node.js, Python, C++/UE5,
-    y web. Activar cuando: lento · bottleneck · frame...'
+  description: 'Profiling sistemático de rendimiento para Node.js, Python, C++/UE5, y web. Activar cuando: lento · bottleneck · frame...'
   kind: skill
   category: engineering
   tier: L1
@@ -5131,8 +4963,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when working with PHP 8.3+ projects that require strict
-    typing, modern language features, and enterpri...
+  description: 'Use this agent when working with PHP 8.3+ projects that require strict typing, modern language features, and enterpri...'
   kind: skill
   category: web
   tier: L1
@@ -5153,8 +4984,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Build and analyze phylogenetic trees using MAFFT (multiple alignment),
-    IQ-TREE 2 (maximum likelihood), and FastTree (...
+  description: 'Build and analyze phylogenetic trees using MAFFT (multiple alignment), IQ-TREE 2 (maximum likelihood), and FastTree (...'
   kind: skill
   category: misc
   tier: L1
@@ -5174,8 +5004,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building or improving internal developer platforms (IDPs),
-    designing self-service infrastructure, or optimiz...
+  description: 'Use when building or improving internal developer platforms (IDPs), designing self-service infrastructure, or optimiz...'
   kind: skill
   category: devops
   tier: L1
@@ -5197,8 +5026,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Complete browser automation with Playwright. Auto-detects dev servers,
-    writes clean test scripts to /tmp. Test pages,...
+  description: 'Complete browser automation with Playwright. Auto-detects dev servers, writes clean test scripts to /tmp. Test pages,...'
   kind: skill
   category: misc
   tier: L1
@@ -5217,8 +5045,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Fast in-memory DataFrame library for datasets that fit in RAM. Use
-    when pandas is too slow but data still fits in mem...
+  description: 'Fast in-memory DataFrame library for datasets that fit in RAM. Use when pandas is too slow but data still fits in mem...'
   kind: skill
   category: misc
   tier: L1
@@ -5238,8 +5065,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: High-performance genomic interval operations and bioinformatics file
-    I/O on Polars DataFrames. Overlap, nearest, merg...
+  description: 'High-performance genomic interval operations and bioinformatics file I/O on Polars DataFrames. Overlap, nearest, merg...'
   kind: skill
   category: misc
   tier: L1
@@ -5258,8 +5084,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: PostgreSQL expert covering query optimization, indexing, replication,
-    partitioning, and advanced features. Activate w...
+  description: 'PostgreSQL expert covering query optimization, indexing, replication, partitioning, and advanced features. Activate w...'
   kind: skill
   category: database
   tier: L1
@@ -5280,8 +5105,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when automating Windows infrastructure tasks requiring PowerShell
-    5.1 scripts with RSAT modules for Active Direct...
+  description: 'Use when automating Windows infrastructure tasks requiring PowerShell 5.1 scripts with RSAT modules for Active Direct...'
   kind: skill
   category: misc
   tier: L1
@@ -5301,8 +5125,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building cross-platform cloud automation scripts, Azure infrastructure
-    orchestration, or CI/CD pipelines req...
+  description: 'Use when building cross-platform cloud automation scripts, Azure infrastructure orchestration, or CI/CD pipelines req...'
   kind: skill
   category: misc
   tier: L1
@@ -5323,8 +5146,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when architecting and refactoring PowerShell modules,
-    designing profile systems, or creating cross-ver...
+  description: 'Use this agent when architecting and refactoring PowerShell modules, designing profile systems, or creating cross-ver...'
   kind: skill
   category: misc
   tier: L1
@@ -5345,8 +5167,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to harden PowerShell automation, secure
-    remoting configuration, enforce least-privilege ...
+  description: 'Use this agent when you need to harden PowerShell automation, secure remoting configuration, enforce least-privilege ...'
   kind: skill
   category: misc
   tier: L1
@@ -5366,8 +5187,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when designing or building desktop graphical interfaces (WinForms,
-    WPF, Metro-style dashboards) or terminal user ...
+  description: 'Use when designing or building desktop graphical interfaces (WinForms, WPF, Metro-style dashboards) or terminal user ...'
   kind: skill
   category: misc
   tier: L1
@@ -5386,8 +5206,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Use this skill any time a .pptx file is involved in any way — as input,
-    output, or both. This includes: creating slid...'
+  description: 'Use this skill any time a .pptx file is involved in any way — as input, output, or both. This includes: creating slid...'
   kind: skill
   category: misc
   tier: L1
@@ -5407,8 +5226,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Create research posters using HTML/CSS that can be exported to PDF
-    or PPTX. Use this skill ONLY when the user explici...
+  description: 'Create research posters using HTML/CSS that can be exported to PDF or PPTX. Use this skill ONLY when the user explici...'
   kind: skill
   category: misc
   tier: L1
@@ -5429,8 +5247,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Query the Precision Medicine Knowledge Graph (PrimeKG) for multiscale
-    biological data including genes, drugs, disease...
+  description: 'Query the Precision Medicine Knowledge Graph (PrimeKG) for multiscale biological data including genes, drugs, disease...'
   kind: skill
   category: misc
   tier: L1
@@ -5450,8 +5267,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Prisma ORM expertise covering v6 patterns and v7 breaking changes (ESM-only,
-    driver adapters, prisma.config.ts). Acti...
+  description: 'Prisma ORM expertise covering v6 patterns and v7 breaking changes (ESM-only, driver adapters, prisma.config.ts). Acti...'
   kind: skill
   category: database
   tier: L1
@@ -5471,8 +5287,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to make product strategy decisions, prioritize
-    features, or define roadmap plans based o...
+  description: 'Use this agent when you need to make product strategy decisions, prioritize features, or define roadmap plans based o...'
   kind: skill
   category: misc
   tier: L1
@@ -5494,8 +5309,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Profesor personal de Física de USER. Activar SIEMPRE que USER
-    mencione física, cinemática, dinámica, energía, c...
+  description: 'Profesor personal de Física de USER. Activar SIEMPRE que USER mencione física, cinemática, dinámica, energía, c...'
   kind: persona
   category: persona
   tier: L1
@@ -5516,8 +5330,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need an idea pressure-tested with brutal honesty,
-    competitor teardown, market validation, and...
+  description: 'Use this agent when you need an idea pressure-tested with brutal honesty, competitor teardown, market validation, and...'
   kind: skill
   category: misc
   tier: L1
@@ -5539,8 +5352,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to establish project plans, track execution
-    progress, manage risks, control budget/sched...
+  description: 'Use this agent when you need to establish project plans, track execution progress, manage risks, control budget/sched...'
   kind: skill
   category: misc
   tier: L1
@@ -5562,8 +5374,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to design, optimize, test, or evaluate
-    prompts for large language models in production s...
+  description: 'Use this agent when you need to design, optimize, test, or evaluate prompts for large language models in production s...'
   kind: skill
   category: misc
   tier: L1
@@ -5585,8 +5396,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Provides guidance for property-based testing across multiple languages
-    and smart contracts. Use when writing tests, r...
+  description: 'Provides guidance for property-based testing across multiple languages and smart contracts. Use when writing tests, r...'
   kind: skill
   category: testing
   tier: L1
@@ -5606,8 +5416,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Integration with protocols.io API for managing scientific protocols.
-    This skill should be used when working with prot...
+  description: 'Integration with protocols.io API for managing scientific protocols. This skill should be used when working with prot...'
   kind: skill
   category: misc
   tier: L1
@@ -5626,8 +5435,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: High-performance reinforcement learning framework optimized for speed
-    and scale. Use when you need fast parallel trai...
+  description: 'High-performance reinforcement learning framework optimized for speed and scale. Use when you need fast parallel trai...'
   kind: skill
   category: misc
   tier: L1
@@ -5646,8 +5454,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Differential gene expression analysis (Python DESeq2). Identify DE
-    genes from bulk RNA-seq counts, Wald tests, FDR co...
+  description: 'Differential gene expression analysis (Python DESeq2). Identify DE genes from bulk RNA-seq counts, Wald tests, FDR co...'
   kind: skill
   category: misc
   tier: L1
@@ -5666,8 +5473,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Python library for working with DICOM (Digital Imaging and Communications
-    in Medicine) files. Use this skill when rea...
+  description: 'Python library for working with DICOM (Digital Imaging and Communications in Medicine) files. Use this skill when rea...'
   kind: skill
   category: misc
   tier: L1
@@ -5686,8 +5492,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Build clinical/healthcare deep-learning pipelines with PyHealth — loading
-    EHR/signal/imaging datasets (MIMIC-III/IV, ...
+  description: 'Build clinical/healthcare deep-learning pipelines with PyHealth — loading EHR/signal/imaging datasets (MIMIC-III/IV, ...'
   kind: skill
   category: misc
   tier: L1
@@ -5706,8 +5511,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Vendor-agnostic lab automation framework. Use when controlling multiple
-    equipment types (Hamilton, Tecan, Opentrons, ...
+  description: 'Vendor-agnostic lab automation framework. Use when controlling multiple equipment types (Hamilton, Tecan, Opentrons, ...'
   kind: skill
   category: misc
   tier: L1
@@ -5726,8 +5530,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Materials science toolkit. Crystal structures (CIF, POSCAR), phase
-    diagrams, band structure, DOS, Materials Project i...
+  description: 'Materials science toolkit. Crystal structures (CIF, POSCAR), phase diagrams, band structure, DOS, Materials Project i...'
   kind: skill
   category: misc
   tier: L1
@@ -5746,8 +5549,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Bayesian modeling with PyMC. Build hierarchical models, MCMC (NUTS),
-    variational inference, LOO/WAIC comparison, post...
+  description: 'Bayesian modeling with PyMC. Build hierarchical models, MCMC (NUTS), variational inference, LOO/WAIC comparison, post...'
   kind: skill
   category: misc
   tier: L1
@@ -5766,8 +5568,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Multi-objective optimization framework. NSGA-II, NSGA-III, MOEA/D,
-    Pareto fronts, constraint handling, benchmarks (ZD...
+  description: 'Multi-objective optimization framework. NSGA-II, NSGA-III, MOEA/D, Pareto fronts, constraint handling, benchmarks (ZD...'
   kind: skill
   category: misc
   tier: L1
@@ -5786,8 +5587,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Complete mass spectrometry analysis platform. Use for proteomics workflows
-    feature detection, peptide identification,...
+  description: 'Complete mass spectrometry analysis platform. Use for proteomics workflows feature detection, peptide identification,...'
   kind: skill
   category: misc
   tier: L1
@@ -5806,8 +5606,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Genomic file toolkit. Read/write SAM/BAM/CRAM alignments, VCF/BCF variants,
-    FASTA/FASTQ sequences, extract regions, c...
+  description: 'Genomic file toolkit. Read/write SAM/BAM/CRAM alignments, VCF/BCF variants, FASTA/FASTQ sequences, extract regions, c...'
   kind: skill
   category: misc
   tier: L1
@@ -5826,8 +5625,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Therapeutics Data Commons. AI-ready drug discovery datasets (ADME,
-    toxicity, DTI), benchmarks, scaffold splits, molec...
+  description: 'Therapeutics Data Commons. AI-ready drug discovery datasets (ADME, toxicity, DTI), benchmarks, scaffold splits, molec...'
   kind: skill
   category: misc
   tier: L1
@@ -5846,8 +5644,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-16'
-  description: Use this agent when you need to build type-safe, production-ready Python
-    code for web APIs, system utilities, or comp...
+  description: 'Use this agent when you need to build type-safe, production-ready Python code for web APIs, system utilities, or comp...'
   kind: skill
   category: systems
   tier: L1
@@ -5869,8 +5666,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Deep learning framework (PyTorch Lightning). Organize PyTorch code
-    into LightningModules, configure Trainers for mult...
+  description: 'Deep learning framework (PyTorch Lightning). Organize PyTorch code into LightningModules, configure Trainers for mult...'
   kind: skill
   category: ml
   tier: L1
@@ -5889,8 +5685,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Interact with Zotero reference management libraries using the pyzotero
-    Python client. Retrieve, create, update, and d...
+  description: 'Interact with Zotero reference management libraries using the pyzotero Python client. Retrieve, create, update, and d...'
   kind: skill
   category: misc
   tier: L1
@@ -5911,8 +5706,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need comprehensive quality assurance strategy,
-    test planning across the entire development cy...
+  description: 'Use this agent when you need comprehensive quality assurance strategy, test planning across the entire development cy...'
   kind: skill
   category: misc
   tier: L1
@@ -5933,8 +5727,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: IBM quantum computing framework. Use when targeting IBM Quantum hardware,
-    working with Qiskit Runtime for production ...
+  description: 'IBM quantum computing framework. Use when targeting IBM Quantum hardware, working with Qiskit Runtime for production ...'
   kind: skill
   category: misc
   tier: L1
@@ -5954,8 +5747,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to develop quantitative trading strategies,
-    build financial models with rigorous mathema...
+  description: 'Use this agent when you need to develop quantitative trading strategies, build financial models with rigorous mathema...'
   kind: skill
   category: data
   tier: L1
@@ -5976,8 +5768,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Quantum physics simulation library for open quantum systems. Use when
-    studying master equations, Lindblad dynamics, d...
+  description: 'Quantum physics simulation library for open quantum systems. Use when studying master equations, Lindblad dynamics, d...'
   kind: skill
   category: misc
   tier: L1
@@ -5997,8 +5788,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building or modernizing Rails applications requiring API development,
-    Hotwire reactivity, real-time features...
+  description: 'Use when building or modernizing Rails applications requiring API development, Hotwire reactivity, real-time features...'
   kind: skill
   category: web
   tier: L1
@@ -6019,8 +5809,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Cheminformatics toolkit for fine-grained molecular control. SMILES/SDF
-    parsing, descriptors (MW, LogP, TPSA), fingerp...
+  description: 'Cheminformatics toolkit for fine-grained molecular control. SMILES/SDF parsing, descriptors (MW, LogP, TPSA), fingerp...'
   kind: skill
   category: misc
   tier: L1
@@ -6041,8 +5830,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: React Native performance optimization for FPS, TTI, bundle size, memory
-    leaks, re-renders, and animations. Activate w...
+  description: 'React Native performance optimization for FPS, TTI, bundle size, memory leaks, re-renders, and animations. Activate w...'
   kind: skill
   category: mobile
   tier: L1
@@ -6062,8 +5850,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: React 18+ specialist covering advanced patterns, performance optimization,
-    state management, and production architect...
+  description: 'React 18+ specialist covering advanced patterns, performance optimization, state management, and production architect...'
   kind: skill
   category: web
   tier: L1
@@ -6083,8 +5870,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need a maintainer-ready README built from exact
-    repository reality, with deep codebase scanni...
+  description: 'Use this agent when you need a maintainer-ready README built from exact repository reality, with deep codebase scanni...'
   kind: skill
   category: docs
   tier: L1
@@ -6106,8 +5892,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when you need to transform poorly structured, complex, or duplicated
-    code into clean, maintainable systems while ...
+  description: 'Use when you need to transform poorly structured, complex, or duplicated code into clean, maintainable systems while ...'
   kind: skill
   category: misc
   tier: L1
@@ -6130,8 +5915,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when designing RL environments, training agents with reward optimization,
-    implementing policy gradient methods, o...
+  description: 'Use when designing RL environments, training agents with reward optimization, implementing policy gradient methods, o...'
   kind: skill
   category: ml
   tier: L1
@@ -6153,8 +5937,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need comprehensive research across multiple
-    sources with synthesis of findings into actionabl...
+  description: 'Use this agent when you need comprehensive research across multiple sources with synthesis of findings into actionabl...'
   kind: skill
   category: misc
   tier: L1
@@ -6174,8 +5957,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Write competitive research proposals for NSF, NIH, DOE, DARPA, and
-    Taiwan NSTC. Agency-specific formatting, review cr...
+  description: 'Write competitive research proposals for NSF, NIH, DOE, DARPA, and Taiwan NSTC. Agency-specific formatting, review cr...'
   kind: skill
   category: misc
   tier: L1
@@ -6197,8 +5979,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: "Look up current research information using parallel-cli search (primary,\
-    \ fast web search),\n the Parallel Chat API (de..."
+  description: "Look up current research information using parallel-cli search (primary, fast web search),\n the Parallel Chat API (de..."
   kind: skill
   category: misc
   tier: L1
@@ -6220,8 +6001,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to identify, quantify, and mitigate enterprise-level
-    risks across financial, operational...
+  description: 'Use this agent when you need to identify, quantify, and mitigate enterprise-level risks across financial, operational...'
   kind: skill
   category: misc
   tier: L1
@@ -6242,8 +6022,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Rowan is a cloud-native molecular modeling and medicinal-chemistry
-    workflow platform with a Python API. Use for pKa a...
+  description: 'Rowan is a cloud-native molecular modeling and medicinal-chemistry workflow platform with a Python API. Use for pKa a...'
   kind: skill
   category: misc
   tier: L1
@@ -6265,8 +6044,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building Rust systems where memory safety, ownership patterns,
-    zero-cost abstractions, and performance optim...
+  description: 'Use when building Rust systems where memory safety, ownership patterns, zero-cost abstractions, and performance optim...'
   kind: skill
   category: systems
   tier: L1
@@ -6288,8 +6066,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to conduct technical pre-sales activities
-    including solution architecture, proof-of-conc...
+  description: 'Use this agent when you need to conduct technical pre-sales activities including solution architecture, proof-of-conc...'
   kind: skill
   category: misc
   tier: L1
@@ -6310,8 +6087,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Standard single-cell RNA-seq analysis pipeline. Use for QC, normalization,
-    dimensionality reduction (PCA/UMAP/t-SNE),...
+  description: 'Standard single-cell RNA-seq analysis pipeline. Use for QC, normalization, dimensionality reduction (PCA/UMAP/t-SNE),...'
   kind: skill
   category: misc
   tier: L1
@@ -6331,8 +6107,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Systematically evaluate scholarly work using the ScholarEval framework,
-    providing structured assessment across resear...
+  description: 'Systematically evaluate scholarly work using the ScholarEval framework, providing structured assessment across resear...'
   kind: skill
   category: misc
   tier: L1
@@ -6352,8 +6127,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Creative research ideation and exploration. Use for open-ended brainstorming
-    sessions, exploring interdisciplinary co...
+  description: 'Creative research ideation and exploration. Use for open-ended brainstorming sessions, exploring interdisciplinary co...'
   kind: skill
   category: misc
   tier: L1
@@ -6374,8 +6148,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Evaluate scientific claims and evidence quality. Use for assessing
-    experimental design validity, identifying biases a...
+  description: 'Evaluate scientific claims and evidence quality. Use for assessing experimental design validity, identifying biases a...'
   kind: skill
   category: misc
   tier: L1
@@ -6398,8 +6171,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when you need to search scientific literature and retrieve structured
-    experimental data from published studies. I...
+  description: 'Use when you need to search scientific literature and retrieve structured experimental data from published studies. I...'
   kind: skill
   category: misc
   tier: L1
@@ -6419,8 +6191,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Create publication-quality scientific diagrams using Nano Banana 2
-    AI with smart iterative refinement. Uses Gemini 3....
+  description: 'Create publication-quality scientific diagrams using Nano Banana 2 AI with smart iterative refinement. Uses Gemini 3....'
   kind: skill
   category: misc
   tier: L1
@@ -6442,8 +6213,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Build slide decks and presentations for research talks. Use this for
-    making PowerPoint slides, conference presentatio...
+  description: 'Build slide decks and presentations for research talks. Use this for making PowerPoint slides, conference presentatio...'
   kind: skill
   category: misc
   tier: L1
@@ -6465,8 +6235,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Meta-skill for publication-ready figures. Use when creating journal
-    submission figures requiring multi-panel layouts,...
+  description: 'Meta-skill for publication-ready figures. Use when creating journal submission figures requiring multi-panel layouts,...'
   kind: skill
   category: misc
   tier: L1
@@ -6486,8 +6255,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Core skill for the deep research and writing tool. Write scientific
-    manuscripts in full paragraphs (never bullet poin...
+  description: 'Core skill for the deep research and writing tool. Write scientific manuscripts in full paragraphs (never bullet poin...'
   kind: skill
   category: misc
   tier: L1
@@ -6509,8 +6277,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Biological data toolkit. Sequence analysis, alignments, phylogenetic
-    trees, diversity metrics (alpha/beta, UniFrac), ...
+  description: 'Biological data toolkit. Sequence analysis, alignments, phylogenetic trees, diversity metrics (alpha/beta, UniFrac), ...'
   kind: skill
   category: misc
   tier: L1
@@ -6530,8 +6297,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Machine learning in Python with scikit-learn. Use when working with
-    supervised learning (classification, regression),...
+  description: 'Machine learning in Python with scikit-learn. Use when working with supervised learning (classification, regression),...'
   kind: skill
   category: ml
   tier: L1
@@ -6551,8 +6317,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive toolkit for survival analysis and time-to-event modeling
-    in Python using scikit-survival. Use this skil...
+  description: 'Comprehensive toolkit for survival analysis and time-to-event modeling in Python using scikit-survival. Use this skil...'
   kind: skill
   category: misc
   tier: L1
@@ -6572,8 +6337,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when teams need facilitation, process optimization, velocity improvement,
-    or agile ceremony management—especially...
+  description: 'Use when teams need facilitation, process optimization, velocity improvement, or agile ceremony management—especially...'
   kind: skill
   category: misc
   tier: L1
@@ -6594,8 +6358,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: RNA velocity analysis with scVelo. Estimate cell state transitions
-    from unspliced/spliced mRNA dynamics, infer trajec...
+  description: 'RNA velocity analysis with scVelo. Estimate cell state transitions from unspliced/spliced mRNA dynamics, infer trajec...'
   kind: skill
   category: misc
   tier: L1
@@ -6615,8 +6378,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Deep generative models for single-cell omics. Use when you need probabilistic
-    batch correction (scVI), transfer learn...
+  description: 'Deep generative models for single-cell omics. Use when you need probabilistic batch correction (scVI), transfer learn...'
   kind: skill
   category: misc
   tier: L1
@@ -6636,8 +6398,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when you need to find specific information across multiple sources
-    using advanced search strategies, query optimi...
+  description: 'Use when you need to find specific information across multiple sources using advanced search strategies, query optimi...'
   kind: skill
   category: misc
   tier: L1
@@ -6657,8 +6418,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Generates minimal macOS Seatbelt sandbox configurations. Use when sandboxing,
-    isolating, or restricting macOS applica...
+  description: 'Generates minimal macOS Seatbelt sandbox configurations. Use when sandboxing, isolating, or restricting macOS applica...'
   kind: skill
   category: misc
   tier: L1
@@ -6680,8 +6440,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-16'
-  description: Runs external LLM code reviews (OpenAI Codex or Google Gemini CLI)
-    on uncommitted changes, branch diffs, or specific ...
+  description: 'Runs external LLM code reviews (OpenAI Codex or Google Gemini CLI) on uncommitted changes, branch diffs, or specific ...'
   kind: meta
   category: engineering
   tier: L1
@@ -6704,8 +6463,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Guides through Trail of Bits' 5-step secure development workflow. Runs
-    Slither scans, checks special features (upgrad...
+  description: 'Guides through Trail of Bits'' 5-step secure development workflow. Runs Slither scans, checks special features (upgrad...'
   kind: skill
   category: security
   tier: L1
@@ -6724,8 +6482,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive security auditor covering OWASP, compliance frameworks
-    (SOC2, GDPR, HIPAA), penetration testing methodo...
+  description: 'Comprehensive security auditor covering OWASP, compliance frameworks (SOC2, GDPR, HIPAA), penetration testing methodo...'
   kind: skill
   category: security
   tier: L1
@@ -6744,8 +6501,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when implementing comprehensive security solutions across
-    infrastructure, building automated security ...
+  description: 'Use this agent when implementing comprehensive security solutions across infrastructure, building automated security ...'
   kind: skill
   category: security
   tier: L1
@@ -6769,8 +6525,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Creates language variants of existing Semgrep rules. Use when porting
-    a Semgrep rule to specified target languages. T...
+  description: 'Creates language variants of existing Semgrep rules. Use when porting a Semgrep rule to specified target languages. T...'
   kind: skill
   category: security
   tier: L1
@@ -6792,8 +6547,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need comprehensive SEO optimization encompassing
-    technical audits, keyword strategy, content ...
+  description: 'Use this agent when you need comprehensive SEO optimization encompassing technical audits, keyword strategy, content ...'
   kind: skill
   category: misc
   tier: L1
@@ -6813,8 +6567,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: GLSL shader development covering 36 techniques for real-time visual
-    effects. Activate when writing shaders, working w...
+  description: 'GLSL shader development covering 36 techniques for real-time visual effects. Activate when writing shaders, working w...'
   kind: skill
   category: game
   tier: L1
@@ -6833,8 +6586,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Autonomous AI Pentester. Performs white-box security testing by combining
-    source code analysis with live exploitation.
+  description: 'Autonomous AI Pentester. Performs white-box security testing by combining source code analysis with live exploitation.'
   kind: skill
   category: security
   tier: L1
@@ -6854,8 +6606,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Identifies error-prone APIs, dangerous configurations, and footgun
-    designs that enable security mistakes. Use when re...
+  description: 'Identifies error-prone APIs, dangerous configurations, and footgun designs that enable security mistakes. Use when re...'
   kind: skill
   category: engineering
   tier: L1
@@ -6875,8 +6626,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: skill-creator v2.0 — Crear, editar y SINCRONIZAR skills entre Claude
-    Code (Desktop) y Cowork. Activar SIEMPRE cuando ...
+  description: 'skill-creator v2.0 — Crear, editar y SINCRONIZAR skills entre Claude Code (Desktop) y Cowork. Activar SIEMPRE cuando ...'
   kind: meta
   category: meta
   tier: L2
@@ -6896,8 +6646,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Iteratively reviews and fixes Claude Code skill quality issues until
-    they meet standards. Runs automated fix-review c...
+  description: 'Iteratively reviews and fixes Claude Code skill quality issues until they meet standards. Runs automated fix-review c...'
   kind: meta
   category: meta
   tier: L1
@@ -6919,8 +6668,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Automatically detect source types and build AI skills using Skill Seekers.
-    Use when the user wants to create skills f...
+  description: 'Automatically detect source types and build AI skills using Skill Seekers. Use when the user wants to create skills f...'
   kind: skill
   category: misc
   tier: L1
@@ -6940,8 +6688,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when developing Slack applications, implementing Slack
-    API integrations, or reviewing Slack bot code f...
+  description: 'Use this agent when developing Slack applications, implementing Slack API integrations, or reviewing Slack bot code f...'
   kind: skill
   category: misc
   tier: L1
@@ -6964,8 +6711,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Knowledge and utilities for creating animated GIFs optimized for Slack.
-    Provides constraints, validation tools, and a...
+  description: 'Knowledge and utilities for creating animated GIFs optimized for Slack. Provides constraints, validation tools, and a...'
   kind: skill
   category: misc
   tier: L1
@@ -6986,8 +6732,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Scans Solana programs for 6 critical vulnerabilities including arbitrary
-    CPI, improper PDA validation, missing signer...
+  description: 'Scans Solana programs for 6 critical vulnerabilities including arbitrary CPI, improper PDA validation, missing signer...'
   kind: skill
   category: security
   tier: L1
@@ -7008,8 +6753,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Verifies code implements exactly what documentation specifies for blockchain
-    audits. Use when comparing code against ...
+  description: 'Verifies code implements exactly what documentation specifies for blockchain audits. Use when comparing code against ...'
   kind: skill
   category: testing
   tier: L1
@@ -7030,8 +6774,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building enterprise Spring Boot 3+ applications
-    requiring microservices architecture, cloud-nativ...
+  description: 'Use this agent when building enterprise Spring Boot 3+ applications requiring microservices architecture, cloud-nativ...'
   kind: skill
   category: web
   tier: L1
@@ -7052,8 +6795,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to optimize complex SQL queries, design
-    efficient database schemas, or solve performance...
+  description: 'Use this agent when you need to optimize complex SQL queries, design efficient database schemas, or solve performance...'
   kind: skill
   category: database
   tier: L1
@@ -7075,8 +6817,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to establish or improve system reliability
-    through SLO definition, error budget manageme...
+  description: 'Use this agent when you need to establish or improve system reliability through SLO definition, error budget manageme...'
   kind: skill
   category: devops
   tier: L1
@@ -7099,8 +6840,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Scans Substrate/Polkadot pallets for 7 critical vulnerabilities including
-    arithmetic overflow, panic DoS, incorrect w...
+  description: 'Scans Substrate/Polkadot pallets for 7 critical vulnerabilities including arithmetic overflow, panic DoS, incorrect w...'
   kind: skill
   category: security
   tier: L1
@@ -7119,8 +6859,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Comprehensive Supabase development covering Auth, RLS, Storage, Realtime,
-    Edge Functions, and CLI/MCP tooling. Activa...
+  description: 'Comprehensive Supabase development covering Auth, RLS, Storage, Realtime, Edge Functions, and CLI/MCP tooling. Activa...'
   kind: skill
   category: database
   tier: L1
@@ -7140,8 +6879,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: PostgreSQL performance optimization guidelines specifically for Supabase
-    projects. Activate when optimizing Supabase ...
+  description: 'PostgreSQL performance optimization guidelines specifically for Supabase projects. Activate when optimizing Supabase ...'
   kind: skill
   category: database
   tier: L1
@@ -7160,8 +6898,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Mandatory workflow for all tasks. Enforces skill discovery and disciplined
-    execution via the 7 phases.
+  description: 'Mandatory workflow for all tasks. Enforces skill discovery and disciplined execution via the 7 phases.'
   kind: skill
   category: workflow
   tier: L1
@@ -7183,8 +6920,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Identifies dependencies at heightened risk of exploitation or takeover.
-    Use when assessing supply chain attack surfac...
+  description: 'Identifies dependencies at heightened risk of exploitation or takeover. Use when assessing supply chain attack surfac...'
   kind: skill
   category: security
   tier: L1
@@ -7206,8 +6942,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building native iOS, macOS, or server-side Swift
-    applications requiring advanced concurrency patt...
+  description: 'Use this agent when building native iOS, macOS, or server-side Swift applications requiring advanced concurrency patt...'
   kind: skill
   category: systems
   tier: L1
@@ -7229,8 +6964,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building Symfony 6+/7+/8+ applications, architecting Doctrine
-    ORM entities with complex relationships, imple...
+  description: 'Use when building Symfony 6+/7+/8+ applications, architecting Doctrine ORM entities with complex relationships, imple...'
   kind: skill
   category: web
   tier: L1
@@ -7252,8 +6986,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when distributing tasks across multiple agents or workers, managing
-    queues, and balancing workloads to maximize t...
+  description: 'Use when distributing tasks across multiple agents or workers, managing queues, and balancing workloads to maximize t...'
   kind: skill
   category: misc
   tier: L1
@@ -7276,8 +7009,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Identificación, priorización y gestión de deuda técnica en proyectos
-    activos. Activar cuando: "refactor planificado" ...'
+  description: 'Identificación, priorización y gestión de deuda técnica en proyectos activos. Activar cuando: "refactor planificado" ...'
   kind: skill
   category: engineering
   tier: L1
@@ -7297,8 +7029,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to create, improve, or maintain technical
-    documentation including API references, user g...
+  description: 'Use this agent when you need to create, improve, or maintain technical documentation including API references, user g...'
   kind: skill
   category: docs
   tier: L1
@@ -7320,8 +7051,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when building, refactoring, or scaling infrastructure as code using
-    Terraform with focus on multi-cloud deploymen...
+  description: 'Use when building, refactoring, or scaling infrastructure as code using Terraform with focus on multi-cloud deploymen...'
   kind: skill
   category: devops
   tier: L1
@@ -7343,8 +7073,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Expert Terragrunt specialist mastering infrastructure orchestration,
-    DRY configurations, and multi-environment deploy...
+  description: 'Expert Terragrunt specialist mastering infrastructure orchestration, DRY configurations, and multi-environment deploy...'
   kind: skill
   category: devops
   tier: L1
@@ -7360,14 +7089,35 @@
   - persona
   - persona
   - l2
+  - deprecated
+  cost_tier: medium
+  dispatcher_priority: 3
+  deprecated: true
+  replaces: []
+  last_used: null
+  last_synced: '2026-05-16'
+  description: 'DEPRECATED — renamed to senior-engineer. Stub kept for backwards compatibility until v15.3.'
+  kind: persona
+  category: persona
+  tier: L2
+  replaced_by: senior-engineer
+- name: senior-engineer
+  source: auto-discover
+  triggers:
+  - senior-engineer
+  - persona
+  tags:
+  - persona
+  - persona
+  - l2
   cost_tier: medium
   dispatcher_priority: 3
   deprecated: false
-  replaces: []
+  replaces:
+  - terry-davis
   last_used: null
-  last_synced: '2026-05-06'
-  description: 'Activa el MODO TERRY DAVIS — el ingeniero de élite legendario: frío,
-    quirúrgico, obsesivo con la corrección técnica. ...'
+  last_synced: '2026-05-16'
+  description: 'Senior full-stack software engineer for code, debugging, refactoring, system design, deployment and code review. Activate for any software-engineering task across C++/UE5, C#/Unity, TypeScript/React/Next.js, Python, shell, graphics (HLSL/GLSL) or low-level C/systems. Auto detects the active stack and loads the matching reference. Surgical mode by default.'
   kind: persona
   category: persona
   tier: L2
@@ -7387,8 +7137,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to build, implement, or enhance automated
-    test frameworks, create test scripts, or integ...
+  description: 'Use this agent when you need to build, implement, or enhance automated test frameworks, create test scripts, or integ...'
   kind: skill
   category: misc
   tier: L1
@@ -7410,8 +7159,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Toolkit for styling artifacts with a theme. These artifacts can be
-    slides, docs, reportings, HTML landing pages, etc....
+  description: 'Toolkit for styling artifacts with a theme. These artifacts can be slides, docs, reportings, HTML landing pages, etc....'
   kind: skill
   category: design
   tier: L2
@@ -7431,8 +7179,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Activa a TÍO GILITO — el asesor financiero personal e implacable de
-    USER, con la personalidad del mismísimo Scroog...
+  description: 'Activa a TÍO GILITO — el asesor financiero personal e implacable de USER, con la personalidad del mismísimo Scroog...'
   kind: persona
   category: persona
   tier: L1
@@ -7453,8 +7200,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Token integration and implementation analyzer based on Trail of Bits'
-    token integration checklist. Analyzes token imp...
+  description: 'Token integration and implementation analyzer based on Trail of Bits'' token integration checklist. Analyzes token imp...'
   kind: skill
   category: misc
   tier: L1
@@ -7473,8 +7219,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Activa a TOLKIEN — el escritor y guardián del universo narrativo del
-    Libro. Activar SIEMPRE cuando USER diga "Tolk...
+  description: 'Activa a TOLKIEN — el escritor y guardián del universo narrativo del Libro. Activar SIEMPRE cuando USER diga "Tolk...'
   kind: persona
   category: persona
   tier: L1
@@ -7495,8 +7240,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Scans TON (The Open Network) smart contracts for 3 critical vulnerabilities
-    including integer-as-boolean misuse, fake...
+  description: 'Scans TON (The Open Network) smart contracts for 3 critical vulnerabilities including integer-as-boolean misuse, fake...'
   kind: skill
   category: security
   tier: L1
@@ -7516,8 +7260,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to build or enhance developer tools including
-    CLIs, code generators, build tools, and ID...
+  description: 'Use this agent when you need to build or enhance developer tools including CLIs, code generators, build tools, and ID...'
   kind: skill
   category: misc
   tier: L1
@@ -7538,8 +7281,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Builds and queries multi-language source code graphs for security analysis.
-    Includes pre-analysis passes for blast ra...
+  description: 'Builds and queries multi-language source code graphs for security analysis. Includes pre-analysis passes for blast ra...'
   kind: skill
   category: memory
   tier: L1
@@ -7559,8 +7301,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when analyzing emerging patterns, predicting industry shifts, or
-    developing future scenarios to inform strategic ...
+  description: 'Use when analyzing emerging patterns, predicting industry shifts, or developing future scenarios to inform strategic ...'
   kind: skill
   category: misc
   tier: L1
@@ -7579,8 +7320,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-16'
-  description: Use when implementing TypeScript code requiring advanced type system
-    patterns, complex generics, type-level programmi...
+  description: 'Use when implementing TypeScript code requiring advanced type system patterns, complex generics, type-level programmi...'
   kind: skill
   category: web
   tier: L1
@@ -7601,8 +7341,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-16'
-  description: Comprehensive Unreal Engine C++ and Blueprint development assistant
-    with deep project structure understanding. Use wh...
+  description: 'Comprehensive Unreal Engine C++ and Blueprint development assistant with deep project structure understanding. Use wh...'
   kind: meta
   category: game
   tier: L1
@@ -7621,8 +7360,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when designing visual interfaces, creating design systems,
-    building component libraries, or refining u...
+  description: 'Use this agent when designing visual interfaces, creating design systems, building component libraries, or refining u...'
   kind: skill
   category: misc
   tier: L1
@@ -7643,8 +7381,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Inteligencia de diseño UI/UX de nivel profesional. Activa cuando el
-    usuario pide diseñar, revisar, implementar o mejo...
+  description: 'Inteligencia de diseño UI/UX de nivel profesional. Activa cuando el usuario pide diseñar, revisar, implementar o mejo...'
   kind: skill
   category: design
   tier: L1
@@ -7663,8 +7400,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need exhaustive UI and UX functionality testing
-    driven by documented user flows, with browser...
+  description: 'Use this agent when you need exhaustive UI and UX functionality testing driven by documented user flows, with browser...'
   kind: skill
   category: misc
   tier: L1
@@ -7685,8 +7421,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-16'
-  description: ULTRON v13.4.0 "SILENT + ALERTS" — Orquestador maestro tri-model de
-    USER con memoria jerárquica L1/L2/L3 (hot · Ob...
+  description: 'ULTRON v13.4.0 "SILENT + ALERTS" — Orquestador maestro tri-model de USER con memoria jerárquica L1/L2/L3 (hot · Ob...'
   kind: meta
   category: meta
   tier: L1
@@ -7707,8 +7442,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to conduct user research, analyze user
-    behavior, or generate actionable insights to vali...
+  description: 'Use this agent when you need to conduct user research, analyze user behavior, or generate actionable insights to vali...'
   kind: skill
   category: misc
   tier: L1
@@ -7728,8 +7462,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Find similar vulnerabilities and bugs across codebases using pattern-based
-    analysis. Use when hunting bug variants, b...
+  description: 'Find similar vulnerabilities and bugs across codebases using pattern-based analysis. Use when hunting bug variants, b...'
   kind: skill
   category: security
   tier: L1
@@ -7749,8 +7482,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when building Vue 3 applications that require Composition
-    API mastery, reactivity optimization, or Nux...
+  description: 'Use this agent when building Vue 3 applications that require Composition API mastery, reactivity optimization, or Nux...'
   kind: skill
   category: web
   tier: L1
@@ -7765,14 +7497,35 @@
   - persona
   - persona
   - l1
+  - deprecated
+  cost_tier: medium
+  dispatcher_priority: 3
+  deprecated: true
+  replaces: []
+  last_used: null
+  last_synced: '2026-05-16'
+  description: 'DEPRECATED — renamed to investment-advisor. Stub kept for backwards compatibility until v15.3.'
+  kind: persona
+  category: persona
+  tier: L1
+  replaced_by: investment-advisor
+- name: investment-advisor
+  source: auto-discover
+  triggers:
+  - investment-advisor
+  - persona
+  tags:
+  - persona
+  - persona
+  - l1
   cost_tier: medium
   dispatcher_priority: 3
   deprecated: false
-  replaces: []
+  replaces:
+  - warren
   last_used: null
-  last_synced: '2026-05-06'
-  description: Activa a WARREN — el asesor de inversiones de USER. Analítico, paciente,
-    largo plazo. Activar SIEMPRE cuando Rodri...
+  last_synced: '2026-05-16'
+  description: 'Long-term investment analysis and portfolio strategy. Activate for stocks, ETFs, dividends, sector rotation, fundamental analysis (P/E, P/B, ROE, FCF, DCF), valuation, macro cycles, portfolio rebalancing, behavioural biases. Time horizon: months to years, never intraday. Never executes trades, never promises returns.'
   kind: persona
   category: persona
   tier: L1
@@ -7793,8 +7546,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Suite of tools for creating elaborate, multi-component claude.ai HTML
-    artifacts using modern frontend web technologie...
+  description: 'Suite of tools for creating elaborate, multi-component claude.ai HTML artifacts using modern frontend web technologie...'
   kind: skill
   category: misc
   tier: L1
@@ -7815,8 +7567,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Generate web assets including favicons, app icons (PWA), and social
-    media meta images (Open Graph) for Facebook, Twit...
+  description: 'Generate web assets including favicons, app icons (PWA), and social media meta images (Open Graph) for Facebook, Twit...'
   kind: skill
   category: misc
   tier: L1
@@ -7835,8 +7586,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Toolkit for interacting with and testing local web applications using
-    Playwright. Supports verifying frontend functio...
+  description: 'Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functio...'
   kind: skill
   category: testing
   tier: L1
@@ -7856,8 +7606,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when implementing real-time bidirectional communication
-    features using WebSockets, Socket.IO, or simil...
+  description: 'Use this agent when implementing real-time bidirectional communication features using WebSockets, Socket.IO, or simil...'
   kind: skill
   category: web
   tier: L1
@@ -7880,8 +7629,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when managing Windows Server infrastructure, Active Directory,
-    DNS, DHCP, and Group Policy configurations, especi...
+  description: 'Use when managing Windows Server infrastructure, Active Directory, DNS, DHCP, and Group Policy configurations, especi...'
   kind: skill
   category: devops
   tier: L1
@@ -7903,8 +7651,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to architect, optimize, or troubleshoot
-    WordPress implementations ranging from custom th...
+  description: 'Use this agent when you need to architect, optimize, or troubleshoot WordPress implementations ranging from custom th...'
   kind: skill
   category: misc
   tier: L1
@@ -7926,8 +7673,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when you need to design, implement, or optimize complex
-    business process workflows with multiple state...
+  description: 'Use this agent when you need to design, implement, or optimize complex business process workflows with multiple state...'
   kind: skill
   category: misc
   tier: L1
@@ -7948,8 +7694,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this skill any time a spreadsheet file is the primary input or
-    output. This means any task where the user wants t...
+  description: 'Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants t...'
   kind: skill
   category: misc
   tier: L1
@@ -7969,8 +7714,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Detects missing zeroization of sensitive data in source code and identifies
-    zeroization removed by compiler optimizat...
+  description: 'Detects missing zeroization of sensitive data in source code and identifies zeroization removed by compiler optimizat...'
   kind: skill
   category: security
   tier: L1
@@ -7992,8 +7736,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use this agent when the user wants to discover, browse, or install
-    Claude Code agents from the awesome-claude-code-su...
+  description: 'Use this agent when the user wants to discover, browse, or install Claude Code agents from the awesome-claude-code-su...'
   kind: skill
   category: misc
   tier: L1
@@ -8014,8 +7757,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Audits GitHub Actions workflows for security vulnerabilities in AI
-    agent integrations including Claude Code Action, G...
+  description: 'Audits GitHub Actions workflows for security vulnerabilities in AI agent integrations including Claude Code Action, G...'
   kind: skill
   category: misc
   tier: L1
@@ -8036,8 +7778,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Guides the design and structuring of workflow-based Claude Code skills
-    with multi-step phases, decision trees, subage...
+  description: 'Guides the design and structuring of workflow-based Claude Code skills with multi-step phases, decision trees, subage...'
   kind: skill
   category: misc
   tier: L1
@@ -8057,8 +7798,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: 'Linting y best practices para Dockerfiles: seguridad, layer optimization,
-    tamaño de imagen. Activar cuando: escribien...'
+  description: 'Linting y best practices para Dockerfiles: seguridad, layer optimization, tamaño de imagen. Activar cuando: escribien...'
   kind: skill
   category: devops
   tier: L1
@@ -8078,8 +7818,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Use when working on healthcare administration tasks including revenue
-    cycle management, HIPAA/compliance auditing, me...
+  description: 'Use when working on healthcare administration tasks including revenue cycle management, HIPAA/compliance auditing, me...'
   kind: skill
   category: misc
   tier: L1
@@ -8100,8 +7839,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Query and download public cancer imaging data from NCI Imaging Data
-    Commons using idc-index. Use for accessing large-...
+  description: 'Query and download public cancer imaging data from NCI Imaging Data Commons using idc-index. Use for accessing large-...'
   kind: skill
   category: misc
   tier: L1
@@ -8118,8 +7856,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Checks structured logging, health checks, metrics collection, request
-    tracing, log levels. Use when auditing observab...
+  description: 'Checks structured logging, health checks, metrics collection, request tracing, log levels. Use when auditing observab...'
 - name: mcp-builder
   source: auto-discover
   triggers:
@@ -8136,8 +7873,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Guide for creating high-quality MCP (Model Context Protocol) servers
-    that enable LLMs to interact with external servi...
+  description: 'Guide for creating high-quality MCP (Model Context Protocol) servers that enable LLMs to interact with external servi...'
   kind: meta
   category: meta
   tier: L1
@@ -8156,8 +7892,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Cloud computing platform for running Python on GPUs and serverless
-    infrastructure. Use when deploying AI/ML models, r...
+  description: 'Cloud computing platform for running Python on GPUs and serverless infrastructure. Use when deploying AI/ML models, r...'
   kind: skill
   category: misc
   tier: L1
@@ -8177,8 +7912,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Skill de noticiero oficial ULTRON Times — diseña HTML5 estilo periódico
-    con dark theme, hero, grid 3-4 col, badges po...
+  description: 'Skill de noticiero oficial ULTRON Times — diseña HTML5 estilo periódico con dark theme, hero, grid 3-4 col, badges po...'
   kind: meta
   category: workflow
   tier: L2
@@ -8198,8 +7932,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Self-hosted, open-source alternative to Google NotebookLM for AI-powered
-    research and document analysis. Use when org...
+  description: 'Self-hosted, open-source alternative to Google NotebookLM for AI-powered research and document analysis. Use when org...'
   kind: skill
   category: misc
   tier: L1
@@ -8219,8 +7952,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Kirkardo — evaluador de repos al estilo de un profesor estricto. Activar
-    SIEMPRE cuando USER diga Kirkardo, llame ...
+  description: 'Kirkardo — evaluador de repos al estilo de un profesor estricto. Activar SIEMPRE cuando USER diga Kirkardo, llame ...'
   kind: persona
   category: persona
   tier: L2
@@ -8241,8 +7973,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Creates custom Semgrep rules for detecting security vulnerabilities,
-    bug patterns, and code patterns. Use when writin...
+  description: 'Creates custom Semgrep rules for detecting security vulnerabilities, bug patterns, and code patterns. Use when writin...'
   kind: skill
   category: security
   tier: L1
@@ -8263,8 +7994,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Meta-skill that analyzes the Trail of Bits Testing Handbook (appsec.guide)
-    and generates Claude Code skills for secur...
+  description: 'Meta-skill that analyzes the Trail of Bits Testing Handbook (appsec.guide) and generates Claude Code skills for secur...'
   kind: skill
   category: misc
   tier: L1
@@ -8285,8 +8015,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-06'
-  description: Guides authoring of high-quality YARA-X detection rules for malware
-    identification. Use when writing, reviewing, or o...
+  description: 'Guides authoring of high-quality YARA-X detection rules for malware identification. Use when writing, reviewing, or o...'
   kind: skill
   category: security
   tier: L1
@@ -8312,7 +8041,7 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-16'
-  description: Root-cause debugging methodology via systematic 5-step process
+  description: 'Root-cause debugging methodology via systematic 5-step process'
 - name: superpowers:test-driven-development
   source: plugin
   triggers:
@@ -8539,5 +8268,4 @@
   replaces: []
   last_used: null
   last_synced: '2026-05-08'
-  description: Use when the user asks for planning of a complex, multi-step or multi-file
-    task in mode HIGH or ULTRON ULTRA, OR when...
+  description: 'Use when the user asks for planning of a complex, multi-step or multi-file task in mode HIGH or ULTRON ULTRA, OR when...'

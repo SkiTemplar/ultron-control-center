@@ -38,7 +38,7 @@ FAST_PATH = [
         "bajo nivel", "asm", "compilador", "gpu pipeline", "apuntes técnicos",
         "memory coalescing", "c++ profundo",
     ]),
-    ("warren", [
+    ("investment-advisor", [
         "bolsa", "inversión", "cartera", "acciones", "etf", "dividendos",
         "mercado", "análisis fundamental", "¿compro", "macro", "sector",
     ]),
@@ -46,7 +46,7 @@ FAST_PATH = [
         "cinemática", "dinámica", "energía", "examen física", "examen de física",
         "sólido rígido", "trabajo y potencia", "inercia",
     ]),
-    ("jordan-belfort", [
+    ("business-strategist", [
         "monetizar", "pricing", "pitch", "clientes", "ventas", "gtm",
         "modelo de negocio", "b2b", "saas",
     ]),
@@ -57,7 +57,7 @@ FAST_PATH = [
     ("repo-evaluator", [
         "corrige", "evalúa", "kirkardo", "ponme nota", "nota", "entrega", "repo",
     ]),
-    ("mike-tyson", [
+    ("ui-designer", [
         "layout", "wireframe", "landing", "interfaz visual", "mockup",
     ]),
     ("personal-assistant", [
@@ -76,12 +76,12 @@ FAST_PATH = [
         "capítulo", "escena", "worldbuilding", "escribe la historia",
         "plot", "narrativa", "personaje", "libro",
     ]),
-    ("einstein", [
+    ("research-explainer", [
         "investiga", "explica", "explícame", "paper", "ciencia",
         "por qué", "teoría", "concepto", "cómo funciona", "mecánica cuántica",
         "transformer",
     ]),
-    ("terry-davis", [
+    ("senior-engineer", [
         ".cpp", ".cs", ".ts", ".py", "bug", "commit", "deploy", "refactor",
         "compila", "crash", "typescript", "código", "implementa",
     ]),
@@ -92,9 +92,9 @@ FAST_PATH = [
 def apply_tiebreaks(text: str) -> str | None:
     t = text.lower()
 
-    # .cs + Unity → terry-davis (especial: .cs gana sobre don-claudio)
+    # .cs + Unity → senior-engineer (tiebreak: .cs wins over gamedev-engineer)
     if ".cs" in t and "unity" in t:
-        return "terry-davis"
+        return "senior-engineer"
 
     # UE5/Unreal + .cpp / bug / crash / blueprint → don-claudio
     is_ue5 = any(s in t for s in ["ue5", "unreal", "blueprint"])
@@ -105,34 +105,34 @@ def apply_tiebreaks(text: str) -> str | None:
     if "shader" in t and any(s in t for s in ["ue5", "material pbr", "material", "pbr"]):
         return "gamedev-engineer"
 
-    # CUDA / GPU bajo nivel → novalbos (no einstein, aunque haya "investiga")
+    # CUDA / GPU bajo nivel → novalbos (no research-explainer, aunque haya "investiga")
     is_gpu = any(s in t for s in ["cuda", "memory coalescing", "opengl", "vulkan", "simd"])
     if is_gpu:
         return "novalbos"
 
-    # transformer en contexto conceptual → einstein (no novalbos)
+    # transformer en contexto conceptual → research-explainer (no novalbos)
     if "transformer" in t and any(s in t for s in ["explica", "explícame", "qué es", "cómo funciona", "atención"]):
-        return "einstein"
+        return "research-explainer"
 
-    # bolsa/cartera + código/construir → warren
+    # bolsa/cartera + código/construir → investment-advisor
     is_financial = any(s in t for s in ["cartera", "bolsa", "inversión", "tracker"])
     is_code = any(s in t for s in [".ts", ".py", "typescript", "python", "código", "construye", "construir", "build", "tracker"])
     if is_financial and is_code:
-        return "warren"
+        return "investment-advisor"
 
     # física + código → profesor-fisica
     is_fisica = any(s in t for s in ["física", "colisiones", "cinemática", "dinámica", "mecánica", "examen de física"])
     if is_fisica and any(s in t for s in [".py", "python", "código", "simul", "hacerlo en"]):
         return "profesor-fisica"
 
-    # investiga + dominio específico → persona de ese dominio (no einstein)
+    # investiga + dominio específico → persona de ese dominio (no research-explainer)
     if any(s in t for s in ["investiga", "investiga"]):
         if any(s in t for s in ["monetizar", "pricing"]):
-            return "jordan-belfort"
+            return "business-strategist"
         if any(s in t for s in ["ue5", "unreal", "blueprint"]):
             return "gamedev-engineer"
         if any(s in t for s in ["bolsa", "cartera", "inversión"]):
-            return "warren"
+            return "investment-advisor"
 
     return None  # sin tiebreak — usar tabla de prioridad
 

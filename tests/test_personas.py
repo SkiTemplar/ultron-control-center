@@ -45,21 +45,21 @@ def confidence(result: dict) -> float:
 # ── Routing tests (Layer A) ────────────────────────────────────────────────────
 
 @pytest.mark.routing
-class TestTerryDavisRouting:
+class TestSeniorEngineerRouting:
     def test_P01_ts_bug(self):
-        """Bug in .ts file → terry-davis."""
+        """Bug in .ts file → senior-engineer."""
         r = dispatch("tengo un bug en este .ts, échale un ojo")
-        assert top_skill(r) == "terry-davis", f"got {top_skill(r)}"
+        assert top_skill(r) == "senior-engineer", f"got {top_skill(r)}"
 
     def test_P01b_refactor(self):
-        """Refactor request → terry-davis."""
+        """Refactor request → senior-engineer."""
         r = dispatch("refactoriza este módulo, está hecho un desastre")
-        assert top_skill(r) == "terry-davis", f"got {top_skill(r)}"
+        assert top_skill(r) == "senior-engineer", f"got {top_skill(r)}"
 
     def test_P02_persistent_bug_high_mode(self):
-        """Long-standing bug → systematic-debugging or terry-davis, confidence > 0.70."""
+        """Long-standing bug → systematic-debugging or senior-engineer, confidence > 0.70."""
         r = dispatch("llevo 3 sesiones intentando arreglar este bug y no encuentro la causa")
-        assert top_skill(r) in ("terry-davis", "superpowers:systematic-debugging"), \
+        assert top_skill(r) in ("senior-engineer", "superpowers:systematic-debugging"), \
             f"got {top_skill(r)}"
         assert confidence(r) >= 0.70
 
@@ -91,43 +91,43 @@ class TestNovalbosRouting:
 
 
 @pytest.mark.routing
-class TestEinsteinRouting:
+class TestResearchExplainerRouting:
     def test_P07_basic_science(self):
-        """General science question → einstein."""
+        """General science question → research-explainer."""
         r = dispatch("por qué el cielo es azul realmente")
-        assert top_skill(r) == "einstein", f"got {top_skill(r)}"
+        assert top_skill(r) == "research-explainer", f"got {top_skill(r)}"
 
     def test_P08_cuda_tiebreak(self):
-        """CUDA/GPU query → should route to novalbos (tiebreak over einstein)."""
+        """CUDA/GPU query → should route to novalbos (tiebreak over research-explainer)."""
         r = dispatch("investiga cómo funcionan los memory coalescing patterns en CUDA")
-        # einstein vs novalbos tiebreak: GPU/CUDA → novalbos wins
-        assert top_skill(r) in ("novalbos", "einstein"), f"got {top_skill(r)}"
+        # research-explainer vs novalbos tiebreak: GPU/CUDA → novalbos wins
+        assert top_skill(r) in ("novalbos", "research-explainer"), f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
-class TestMikeTysonRouting:
+class TestUiDesignerRouting:
     def test_P09_ui_critique(self):
-        """UI critique → mike-tyson."""
+        """UI critique → ui-designer."""
         r = dispatch("mira esta UI y dime si tiene sentido")
-        assert top_skill(r) == "mike-tyson", f"got {top_skill(r)}"
+        assert top_skill(r) == "ui-designer", f"got {top_skill(r)}"
 
     def test_P09b_design_system(self):
-        """Design system → mike-tyson."""
+        """Design system → ui-designer."""
         r = dispatch("necesito revisar mi design system de colores y tipografía")
-        assert top_skill(r) == "mike-tyson", f"got {top_skill(r)}"
+        assert top_skill(r) == "ui-designer", f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
-class TestWarrenRouting:
+class TestInvestmentAdvisorRouting:
     def test_P10_stock_query(self):
-        """Stock investment query → warren."""
+        """Stock investment query → investment-advisor."""
         r = dispatch("¿compro NVDA ahora?")
-        assert top_skill(r) == "warren", f"got {top_skill(r)}"
+        assert top_skill(r) == "investment-advisor", f"got {top_skill(r)}"
 
     def test_P10b_portfolio(self):
-        """Portfolio query → warren."""
+        """Portfolio query → investment-advisor."""
         r = dispatch("cómo va mi cartera de ETFs")
-        assert top_skill(r) == "warren", f"got {top_skill(r)}"
+        assert top_skill(r) == "investment-advisor", f"got {top_skill(r)}"
 
 
 @pytest.mark.routing
@@ -217,16 +217,16 @@ class TestManoloLamaRouting:
 
 
 @pytest.mark.routing
-class TestJordanBelfortRouting:
+class TestBusinessStrategistRouting:
     def test_P19_saas_pricing(self):
-        """SaaS pricing → jordan-belfort."""
+        """SaaS pricing → business-strategist."""
         r = dispatch("qué pricing pongo a mi SaaS")
-        assert top_skill(r) == "jordan-belfort", f"got {top_skill(r)}"
+        assert top_skill(r) == "business-strategist", f"got {top_skill(r)}"
 
     def test_P19b_business_validation(self):
-        """Idea validation → jordan-belfort."""
+        """Idea validation → business-strategist."""
         r = dispatch("quiero saber si esta idea de negocio tiene mercado real")
-        assert top_skill(r) == "jordan-belfort", f"got {top_skill(r)}"
+        assert top_skill(r) == "business-strategist", f"got {top_skill(r)}"
 
 
 # ── Behavior contracts (Layer B — manual/documented) ──────────────────────────

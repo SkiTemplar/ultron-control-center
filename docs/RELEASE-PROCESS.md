@@ -47,7 +47,7 @@ Commit and push this change. The public key is not a secret.
 
 ### 0.3 Replace the repo owner placeholder
 
-Search the repository for the literal `<owner>` placeholder and replace it
+Search the repository for the literal `SkiTemplar` placeholder and replace it
 with the GitHub user or org that hosts the public repo. The placeholder
 appears in (at minimum):
 
@@ -182,7 +182,7 @@ key will:
    (`installMode: passive` means a brief installer flash, no full UI).
 
 Because the `latest.json` URL points at
-`https://github.com/<owner>/ultron/releases/latest/download/latest.json`,
+`https://github.com/SkiTemplar/ultron/releases/latest/download/latest.json`,
 GitHub always redirects to the most recent release. There is no manifest
 hosting service to maintain.
 

@@ -35,20 +35,21 @@ CACHE_DIR = Path.home() / ".ultron" / "skill_cache"
 # ── Tier A personas requiring constitution + digest ────────────────────────────
 TIER_A = {
     "ultron", "skill-creator", "consolidate-memory", "repo-evaluator",
-    "terry-davis", "mike-tyson", "gamedev-engineer", "personal-assistant", "windows-admin",
+    "senior-engineer", "ui-designer", "gamedev-engineer", "personal-assistant", "windows-admin",
     # backwards-compat aliases
     "don-claudio", "pana", "alfred",
+    "terry-davis", "mike-tyson",
 }
 
 # ── Hardcoded trigger phrases per skill ───────────────────────────────────────
 _TRIGGERS: dict[str, list[str]] = {
     "ultron":               ["modo", "high", "ultra", "low", "dual", "triple", "orchestrator"],
-    "terry-davis":          [".cpp", ".py", ".ts", "bug", "fix", "refactor", "commit", "deploy", "código"],
+    "senior-engineer":      [".cpp", ".py", ".ts", "bug", "fix", "refactor", "commit", "deploy", "código"],
     "gamedev-engineer":     ["UE5", "Unreal", "Unity", "Blueprint", "GAS", "netcode", "game dev", "shader"],
-    "mike-tyson":           ["UI", "UX", "diseño", "layout", "color", "wireframe", "interfaz visual"],
-    "jordan-belfort":       ["monetizar", "pricing", "pitch", "ventas", "GTM", "modelo de negocio"],
-    "warren":               ["bolsa", "inversión", "cartera", "ETF", "acciones", "dividendos", "macro"],
-    "einstein":             ["investiga", "explica", "paper", "ciencia", "por qué", "teoría"],
+    "ui-designer":          ["UI", "UX", "diseño", "layout", "color", "wireframe", "interfaz visual"],
+    "business-strategist":  ["monetizar", "pricing", "pitch", "ventas", "GTM", "modelo de negocio"],
+    "investment-advisor":   ["bolsa", "inversión", "cartera", "ETF", "acciones", "dividendos", "macro"],
+    "research-explainer":   ["investiga", "explica", "paper", "ciencia", "por qué", "teoría"],
     "novalbos":             ["C++", "shader", "GPU", "OpenGL", "Vulkan", "SIMD", "compilador", "bajo nivel"],
     "personal-assistant":   ["email", "agenda", "Notion", "Spotify", "briefing", "organización"],
     "windows-admin":        ["proceso", "PowerShell", "driver", "carpeta", "Windows", "sistema"],
@@ -98,7 +99,6 @@ _TRIGGERS: dict[str, list[str]] = {
     "code-review-excellence": ["code review", "auditoría de código"],
     "security-review":      ["security review", "auditoría seguridad", "CVE", "SAST"],
     "second-opinion":       ["segunda opinión", "review externo"],
-    "einstein":             ["investiga", "explica", "paper", "teoría", "ciencia"],
 }
 
 # ── Memory policy phrases ─────────────────────────────────────────────────────
@@ -111,9 +111,9 @@ _MEMORY_POLICY_TEXT: dict[str, str] = {
 
 # ── Expensive dependencies per skill ─────────────────────────────────────────
 _EXPENSIVE_DEPS: dict[str, list[str]] = {
-    "terry-davis":          ["superpowers (TDD/debug)", "second-opinion (L4 if Codex)"],
-    "gamedev-engineer":     ["terry-davis (C++ impl)", "ue5-dev (external)", "unreal-engine"],
-    "mike-tyson":           ["frontend-design (impl)", "webapp-testing (Playwright)"],
+    "senior-engineer":      ["superpowers (TDD/debug)", "second-opinion (L4 if Codex)"],
+    "gamedev-engineer":     ["senior-engineer (C++ impl)", "ue5-dev (external)", "unreal-engine"],
+    "ui-designer":          ["frontend-design (impl)", "webapp-testing (Playwright)"],
     "repo-evaluator":       ["differential-review", "sharp-edges", "insecure-defaults"],
     "audit-context-building": ["brain_index (FTS5)", "Gemini long context (L4)"],
     "ultron":               ["Codex CLI (dual/triple)", "Gemini MCP (L4)", "all personas"],

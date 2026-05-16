@@ -20,6 +20,34 @@ pub struct PersonalProfile {
     pub content: String,
     pub last_modified: Option<String>,
     pub size_bytes: u64,
+    /// True when the content returned is the in-memory seed template
+    /// (file missing, empty, or below the "looks unedited" threshold).
+    /// The UI uses this to show a "this is a template" banner.
+    pub seeded: bool,
+}
+
+/// Structured fingerprint of *how* the user writes — tone, register,
+/// code-switching, typos, etc. Intentionally optional so analyses generated
+/// before this struct existed still parse: missing fields default to empty
+/// strings / empty vecs / 0.
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
+pub struct WritingStyle {
+    #[serde(default)]
+    pub tone: String,
+    #[serde(default)]
+    pub primary_language: String,
+    #[serde(default)]
+    pub code_switching: String,
+    #[serde(default)]
+    pub characteristic_phrases: Vec<String>,
+    #[serde(default)]
+    pub typo_patterns: Vec<String>,
+    #[serde(default)]
+    pub formatting_habits: String,
+    #[serde(default)]
+    pub average_message_length_chars: u32,
+    #[serde(default)]
+    pub punctuation_quirks: String,
 }
 
 /// "What ULTRON knows about you" — the auto-generated mirror that lives
@@ -34,6 +62,12 @@ pub struct PersonalProfile {
 pub struct PersonalKnown {
     #[serde(default)]
     pub style_fingerprint: String,
+    /// New in v15.1.2: detailed style fields. Older `known.json` files that
+    /// only have `style_fingerprint` keep working — `writing_style` will
+    /// just deserialize as `WritingStyle::default()` until the next
+    /// analysis overwrites the file.
+    #[serde(default)]
+    pub writing_style: WritingStyle,
     #[serde(default)]
     pub recent_topics: Vec<String>,
     #[serde(default)]
@@ -82,44 +116,70 @@ fn iso_from_systime(t: SystemTime) -> Option<String> {
     Some(format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, h, m, s))
 }
 
-const DEFAULT_TEMPLATE: &str = r#"# Personal profile
+/// Seed template returned (in memory, NOT written to disk) when
+/// `profile.md` is missing or looks unedited. The UI shows a banner so
+/// the user knows what they're seeing is a starter — once they hit Save
+/// the real file is written and the banner disappears on the next read.
+const DEFAULT_TEMPLATE: &str = r#"# Mi perfil
 
-Texto libre que ULTRON usará como contexto persistente. Edita lo que
-necesites — todo lo que escribas aquí queda disponible para los skills
-que carguen `~/.ultron/personal/profile.md`.
+## Quien soy
+(rol profesional, intereses principales, dominios donde paso mas tiempo)
 
-## Estilo de escritura
-(Frases que sueles usar, tono, idioma preferido, longitud objetivo...)
+## Cómo trabajo
+(stack favorito, horario, herramientas, anti-patrones que evito)
 
-## Rutinas
-(Bloques horarios, días que sueles trabajar, when not to interrupt...)
+## Cómo me gusta que ULTRON me hable
+(tono, nivel de detalle por defecto, cuándo prefiero brief vs. expansivo)
 
-## Preferencias técnicas
-(Stack favorito, frameworks que evitas, naming conventions...)
+## Lo que NO quiero que haga el sistema
+(things to never auto-launch, paths off-limits, etc.)
 
-## Patrones de prompts
-(Cuando dices X normalmente quieres Y. Atajos que usas...)
-
-## Otros datos relevantes
+## Notas personales libres
 "#;
+
+/// Below this many bytes the file is treated as "still the template" and
+/// the seed is returned with `seeded: true` instead. Tuned just above the
+/// length of an empty-section template so an actually-filled-in profile
+/// (even a terse one) is never flagged.
+const PROFILE_SEEDED_THRESHOLD_BYTES: u64 = 50;
 
 pub fn read_personal_profile_inner() -> Result<PersonalProfile, String> {
     let path = profile_path().ok_or_else(|| "no HOME".to_string())?;
+
+    // Missing file → return the template in memory, do NOT write to disk.
+    // The user will write the file the first time they hit Save.
     if !path.exists() {
-        // Seed the file with the default template on first read so the
-        // user has somewhere to start typing.
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
-        }
-        fs::write(&path, DEFAULT_TEMPLATE).map_err(|e| format!("write seed: {}", e))?;
+        return Ok(PersonalProfile {
+            path: path.to_string_lossy().to_string(),
+            content: DEFAULT_TEMPLATE.to_string(),
+            last_modified: None,
+            size_bytes: 0,
+            seeded: true,
+        });
     }
+
     let content = fs::read_to_string(&path).map_err(|e| format!("read: {}", e))?;
     let meta = fs::metadata(&path).map_err(|e| format!("metadata: {}", e))?;
+    let size = meta.len();
+
+    // File exists but is suspiciously small → user never really edited it.
+    // Show the new template instead so they get a useful starting point.
+    if size < PROFILE_SEEDED_THRESHOLD_BYTES {
+        return Ok(PersonalProfile {
+            path: path.to_string_lossy().to_string(),
+            content: DEFAULT_TEMPLATE.to_string(),
+            last_modified: meta.modified().ok().and_then(iso_from_systime),
+            size_bytes: size,
+            seeded: true,
+        });
+    }
+
     Ok(PersonalProfile {
         path: path.to_string_lossy().to_string(),
         content,
         last_modified: meta.modified().ok().and_then(iso_from_systime),
-        size_bytes: meta.len(),
+        size_bytes: size,
+        seeded: false,
     })
 }
 

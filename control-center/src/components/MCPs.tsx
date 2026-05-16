@@ -504,23 +504,6 @@ function Card({
           </button>
           <button
             type="button"
-            onClick={() => onAction("hide")}
-            className="rounded px-2.5 py-1 text-[11px] transition-colors"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title={
-              hidden
-                ? "Volver a mostrar este MCP en la lista"
-                : "Ocultar SOLO en el UI (settings.json sigue tal cual; Claude Code lo seguirá cargando). Útil para limpiar la vista cuando un MCP está offline esperado o no quieres verlo cada día."
-            }
-          >
-            {hidden ? "Unhide" : "Hide"}
-          </button>
-          <button
-            type="button"
             onClick={() => onAction("delete")}
             className="rounded px-2.5 py-1 text-[11px] transition-colors"
             style={{

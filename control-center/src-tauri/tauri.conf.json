@@ -43,7 +43,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/<owner>/ultron/releases/latest/download/latest.json"
+        "https://github.com/SkiTemplar/ultron/releases/latest/download/latest.json"
       ],
       "pubkey": "<TAURI_PUBKEY_HERE>",
       "windows": {

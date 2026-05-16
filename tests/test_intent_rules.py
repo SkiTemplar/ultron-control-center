@@ -70,12 +70,12 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("el presupuesto de la API key se acaba",              None,          "FP — presupuesto suelto"),
     ("el modelo gasta mucha memoria",                      None,          "verbo gastar técnico"),
 
-    # ── terry-davis (code) ────────────────────────────────────────────────
-    ("hay un bug en el código del módulo X",               "terry-davis", "bug + código próximo"),
-    ("refactoriza el módulo de auth",                      "terry-davis", "verb + módulo"),
-    ("el código está roto en producción",                  "terry-davis", "está roto + código"),
+    # ── senior-engineer (code) ────────────────────────────────────────────────
+    ("hay un bug en el código del módulo X",               "senior-engineer", "bug + código próximo"),
+    ("refactoriza el módulo de auth",                      "senior-engineer", "verb + módulo"),
+    ("el código está roto en producción",                  "senior-engineer", "está roto + código"),
 
-    # terry-davis false positives potenciales
+    # senior-engineer false positives potenciales
     ("error 429 en la API de OpenAI",                      None,          "error sin objeto código próximo"),
     ("hay un error en mi vida personal",                   None,          "error en contexto humano"),
 
@@ -88,22 +88,22 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("ejecuté el modelo en GPU coloquial",                 None,          "GPU coloquial sin contexto"),
     ("la tarjeta GPU del servidor",                        None,          "GPU como hardware mention"),
 
-    # ── jordan-belfort (business) ─────────────────────────────────────────
-    ("validar la idea de negocio para el SaaS",            "jordan-belfort", "negocio explícito"),
-    ("modelo de negocio freemium",                          "jordan-belfort", "modelo de negocio"),
-    ("pitch deck para investors",                           "jordan-belfort", "pitch deck"),
+    # ── business-strategist (business) ─────────────────────────────────────────
+    ("validar la idea de negocio para el SaaS",            "business-strategist", "negocio explícito"),
+    ("modelo de negocio freemium",                          "business-strategist", "modelo de negocio"),
+    ("pitch deck para investors",                           "business-strategist", "pitch deck"),
 
-    # jordan-belfort false positives potenciales
+    # business-strategist false positives potenciales
     ("validar el código antes del commit",                  None,          "validar código (no negocio)"),
     ("validar la entrada del usuario",                      None,          "validar input"),
-    ("mercado de valores hoy",                              "warren",      "mercado bursátil → warren correcto"),
+    ("mercado de valores hoy",                              "investment-advisor",      "mercado bursátil → investment-advisor correcto"),
 
-    # ── einstein (science) ────────────────────────────────────────────────
-    ("qué es un transformer en deep learning",              "einstein",    "concepto IA explícito"),
-    ("cómo funciona la red neuronal de attention",          "einstein",    "concepto + técnico"),
-    ("por qué el cielo es azul",                            "einstein",    "sky-science specific"),
+    # ── research-explainer (science) ────────────────────────────────────────────────
+    ("qué es un transformer en deep learning",              "research-explainer",    "concepto IA explícito"),
+    ("cómo funciona la red neuronal de attention",          "research-explainer",    "concepto + técnico"),
+    ("por qué el cielo es azul",                            "research-explainer",    "sky-science specific"),
 
-    # einstein false positives potenciales
+    # research-explainer false positives potenciales
     ("explícame el concepto del proyecto",                  None,          "concepto suelto coloquial"),
     ("qué es un endpoint REST",                             None,          "endpoint no es concepto científico"),
 
@@ -137,7 +137,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
 
     # ── kirkardo-audit (skill audit) ──────────────────────────────────────
     ("Kirkardo, audita la skill de tio-gilito",             "ultron",      "Kirkardo + audita skill"),
-    ("auditar la skill de mike-tyson",                      "ultron",      "auditar skill"),
+    ("auditar la skill de ui-designer",                      "ultron",      "auditar skill"),
 
     # kirkardo false positives potenciales
     ("audita el código de auth",                            None,          "audit código → security/repo-eval, no kirkardo"),
@@ -148,7 +148,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("haz unos tests unitarios",                            "superpowers:test-driven-development", "haz tests"),
 
     # tests-create false positives potenciales
-    ("crea un endpoint y luego mira los tests del proyecto", "terry-davis", "crea endpoint → terry, gap a tests OK"),
+    ("crea un endpoint y luego mira los tests del proyecto", "senior-engineer", "crea endpoint → senior-engineer, gap a tests OK"),
 
     # ── personal-assistant ─────────────────────────────────────────
     ("buenos días, dame el briefing de hoy",                "personal-assistant",        "morning mode"),
@@ -182,54 +182,54 @@ CORPUS: list[tuple[str, str | None, str]] = [
     # novalbos false positives
     ("DirectX 12 desde Unity",                                "novalbos",    "DirectX → novalbos OK"),
 
-    # ── terry-davis extended ──────────────────────────────────────────────
-    ("hay un bug en el archivo auth.ts",                      "terry-davis", "ts bug archivo"),
-    ("la función parseJSON está rota",                        "terry-davis", "función rota"),
-    ("crash en el módulo de pagos",                           "terry-davis", "crash módulo"),
-    ("refactoriza la clase UserService",                      "terry-davis", "refactor clase"),
-    ("reescribe el código de autenticación",                  "terry-davis", "reescribe código"),
-    ("implementa un endpoint POST en TypeScript",             "terry-davis", "implementa endpoint TS"),
-    ("desarrolla una server action en Next.js",               "terry-davis", "server action"),
-    ("crea una API route",                                    "terry-davis", "api route"),
-    # terry-davis tiebreaks
+    # ── senior-engineer extended ──────────────────────────────────────────────
+    ("hay un bug en el archivo auth.ts",                      "senior-engineer", "ts bug archivo"),
+    ("la función parseJSON está rota",                        "senior-engineer", "función rota"),
+    ("crash en el módulo de pagos",                           "senior-engineer", "crash módulo"),
+    ("refactoriza la clase UserService",                      "senior-engineer", "refactor clase"),
+    ("reescribe el código de autenticación",                  "senior-engineer", "reescribe código"),
+    ("implementa un endpoint POST en TypeScript",             "senior-engineer", "implementa endpoint TS"),
+    ("desarrolla una server action en Next.js",               "senior-engineer", "server action"),
+    ("crea una API route",                                    "senior-engineer", "api route"),
+    # senior-engineer tiebreaks
     ("error en el código UE5",                                "gamedev-engineer", "UE5 beats code-bug"),
-    ("Unity error en MonoBehaviour Android",                  "terry-davis", "Unity+cs+Android → terry"),
-    # terry-davis false positives
+    ("Unity error en MonoBehaviour Android",                  "senior-engineer", "Unity+cs+Android → senior-engineer"),
+    # senior-engineer false positives
     ("error humano en la planificación",                       None,          "error humano no código"),
     ("crash bursátil de 2008",                                None,          "crash económico"),
     ("la función pública del producto",                       None,          "función no técnica"),
 
-    # ── mike-tyson (UI design) ────────────────────────────────────────────
-    ("diseña la UI del dashboard",                            "mike-tyson",  "diseña UI"),
-    ("revisa este wireframe",                                 "mike-tyson",  "wireframe"),
-    ("critica el mockup",                                     "mike-tyson",  "critica mockup"),
-    ("design system con tokens de diseño",                    "mike-tyson",  "design system"),
-    ("paleta de colores y tipografía",                         "mike-tyson",  "paleta + tipografía"),
-    ("revisa la pantalla de login",                            "mike-tyson",  "pantalla login"),
-    # mike-tyson false positives
+    # ── ui-designer (UI design) ────────────────────────────────────────────
+    ("diseña la UI del dashboard",                            "ui-designer",  "diseña UI"),
+    ("revisa este wireframe",                                 "ui-designer",  "wireframe"),
+    ("critica el mockup",                                     "ui-designer",  "critica mockup"),
+    ("design system con tokens de diseño",                    "ui-designer",  "design system"),
+    ("paleta de colores y tipografía",                         "ui-designer",  "paleta + tipografía"),
+    ("revisa la pantalla de login",                            "ui-designer",  "pantalla login"),
+    # ui-designer false positives
     ("pantalla de error 500 del backend",                      None,          "pantalla técnica no UI design"),
 
-    # ── jordan-belfort extended ───────────────────────────────────────────
-    ("cómo monetizar este SaaS",                              "jordan-belfort", "monetizar SaaS"),
-    ("qué pricing pongo a mi plugin",                         "jordan-belfort", "pricing"),
-    ("cuánto cobrar por la consultoría",                      "jordan-belfort", "cuánto cobrar"),
-    ("freemium vs tier de suscripción del SaaS",              "jordan-belfort", "freemium tier SaaS"),
-    ("modelo de negocio para mi app",                         "jordan-belfort", "modelo de negocio"),
-    ("TAM SAM SOM del producto",                              "jordan-belfort", "TAM SAM"),
-    # jordan-belfort false positives
+    # ── business-strategist extended ───────────────────────────────────────────
+    ("cómo monetizar este SaaS",                              "business-strategist", "monetizar SaaS"),
+    ("qué pricing pongo a mi plugin",                         "business-strategist", "pricing"),
+    ("cuánto cobrar por la consultoría",                      "business-strategist", "cuánto cobrar"),
+    ("freemium vs tier de suscripción del SaaS",              "business-strategist", "freemium tier SaaS"),
+    ("modelo de negocio para mi app",                         "business-strategist", "modelo de negocio"),
+    ("TAM SAM SOM del producto",                              "business-strategist", "TAM SAM"),
+    # business-strategist false positives
     ("el mercado del frontend está saturado",                  None,          "mercado coloquial sin contexto biz"),
     ("plan de precios del API rate limit",                     None,          "plan de precios técnico"),
 
-    # ── einstein extended ─────────────────────────────────────────────────
-    ("cómo funciona la mecánica cuántica",                    "einstein",    "mecánica cuántica"),
-    ("por qué el cielo es azul de día",                        "einstein",    "sky-science full"),
-    ("scattering de Rayleigh",                                "einstein",    "Rayleigh"),
-    ("qué es un transformer en NLP",                          "einstein",    "transformer concept"),
-    ("cómo funciona la red neuronal recurrente",              "einstein",    "RNN concept"),
-    ("explícame el algoritmo de attention",                   "einstein",    "attention algoritmo"),
-    # einstein vs novalbos tiebreak (C++/GPU técnico)
-    ("cómo funciona el algoritmo de coalescing en CUDA",      "novalbos",    "CUDA beats einstein"),
-    # einstein false positives
+    # ── research-explainer extended ─────────────────────────────────────────────────
+    ("cómo funciona la mecánica cuántica",                    "research-explainer",    "mecánica cuántica"),
+    ("por qué el cielo es azul de día",                        "research-explainer",    "sky-science full"),
+    ("scattering de Rayleigh",                                "research-explainer",    "Rayleigh"),
+    ("qué es un transformer en NLP",                          "research-explainer",    "transformer concept"),
+    ("cómo funciona la red neuronal recurrente",              "research-explainer",    "RNN concept"),
+    ("explícame el algoritmo de attention",                   "research-explainer",    "attention algoritmo"),
+    # research-explainer vs novalbos tiebreak (C++/GPU técnico)
+    ("cómo funciona el algoritmo de coalescing en CUDA",      "novalbos",    "CUDA beats research-explainer"),
+    # research-explainer false positives
     ("cómo funciona la app móvil",                             None,          "app no es concepto científico"),
     ("qué es un endpoint REST",                                None,          "endpoint coloquial"),
 
@@ -286,20 +286,20 @@ CORPUS: list[tuple[str, str | None, str]] = [
     # windows-admin false positives
     ("registro de auditoría de la app",                        None,          "registro coloquial no Windows"),
 
-    # ── investments / warren ─────────────────────────────────────────────
-    ("compro NVDA",                                            "warren",      "NVDA stock"),
-    ("análisis fundamental de TSLA",                          "warren",      "análisis fundamental"),
-    ("dividendos del SPY",                                    "warren",      "dividendos"),
-    ("ETF para mi cartera",                                   "warren",      "ETF cartera"),
-    ("cómo va la bolsa hoy",                                  "warren",      "bolsa"),
-    ("P/E ratio de AAPL",                                     "warren",      "P/E ratio"),
-    # warren false positives
+    # ── investments / investment-advisor ─────────────────────────────────────────────
+    ("compro NVDA",                                            "investment-advisor",      "NVDA stock"),
+    ("análisis fundamental de TSLA",                          "investment-advisor",      "análisis fundamental"),
+    ("dividendos del SPY",                                    "investment-advisor",      "dividendos"),
+    ("ETF para mi cartera",                                   "investment-advisor",      "ETF cartera"),
+    ("cómo va la bolsa hoy",                                  "investment-advisor",      "bolsa"),
+    ("P/E ratio de AAPL",                                     "investment-advisor",      "P/E ratio"),
+    # investment-advisor false positives
     ("la cartera de productos de la empresa",                  None,          "cartera no financiera (corporativa)"),
 
     # ── kirkardo audit ────────────────────────────────────────────────────
     ("Kirkardo, audita las skills",                            "ultron",      "Kirkardo direct"),
     ("kirkardo evalúa mi skill",                               "ultron",      "kirkardo lower"),
-    ("auditar la skill terry-davis",                           "ultron",      "auditar skill"),
+    ("auditar la skill senior-engineer",                           "ultron",      "auditar skill"),
     # kirkardo false positives
     ("auditar la calidad del producto",                        None,          "auditar coloquial"),
 
@@ -347,7 +347,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("CUDA",                                                   "novalbos",    "CUDA solo (nombre propio único)"),
     ("UE5",                                                    "gamedev-engineer", "UE5 1-word"),
     ("Kirkardo",                                               "ultron",      "Kirkardo 1-word"),
-    ("Mike",                                                   None,          "Mike 1-word ambiguo (no es exact 'mike-tyson')"),
+    ("Mike",                                                   None,          "Mike 1-word ambiguo (no es exact 'ui-designer')"),
 
     # ── EDGE CASES: prompts largos con multiple skills ──────────────────
     ("estoy debugging un bug en TypeScript pero también quiero hacer review del PR",

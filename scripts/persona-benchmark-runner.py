@@ -8,7 +8,7 @@ Stage 2 (futuro): integración LLM-as-judge para ejecutar cada caso contra Claud
 
 Uso:
     python scripts/persona-benchmark-runner.py
-    python scripts/persona-benchmark-runner.py --persona terry-davis
+    python scripts/persona-benchmark-runner.py --persona senior-engineer
     python scripts/persona-benchmark-runner.py --validate-only
 """
 from __future__ import annotations
@@ -26,11 +26,12 @@ ULTRON_DIR = Path(__file__).parent.parent
 BENCHMARK_FILE = ULTRON_DIR / "references" / "persona-benchmarks.md"
 
 KNOWN_PERSONAS = {
-    "terry-davis", "gamedev-engineer", "mike-tyson", "jordan-belfort", "einstein",
-    "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "warren",
+    "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist", "research-explainer",
+    "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "investment-advisor",
     "repo-evaluator", "manolo-lama", "tolkien",
     # backwards-compat aliases for deprecated stubs
     "don-claudio", "pana", "alfred",
+    "terry-davis", "mike-tyson", "jordan-belfort", "einstein", "warren",
 }
 
 KNOWN_MODES = {"LOW", "MEDIUM", "HIGH", "ULTRA"}

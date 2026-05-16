@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ActivityTimeline } from "./ActivityTimeline";
-import { CostWatchdog } from "./CostWatchdog";
+// v15.1.6: CostWatchdog import retained for future use (e.g., metered API
+// providers) but unmounted by default — user runs on subscriptions only,
+// so daily-cost projection doesn't apply. Re-enable by uncommenting below.
+// import { CostWatchdog } from "./CostWatchdog";
 
 // Self-improvement panel — surfaces telemetry the system already collects
 // (routing-telemetry.jsonl, skill usage counts, recent errors) and lets
@@ -56,7 +59,8 @@ export function SelfImprove() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewOutput, setReviewOutput] = useState<string | null>(null);
   const [codexOpen, setCodexOpen] = useState(false);
-  const [hookView, setHookView] = useState<"table" | "timeline">("table");
+  // v15.1.6: Table view was not useful per user feedback — Timeline only.
+  const hookView: "timeline" = "timeline";
 
   async function load() {
     try {
@@ -96,7 +100,6 @@ export function SelfImprove() {
 
   return (
     <div className="space-y-5">
-      <CostWatchdog />
       <header>
         <h3 className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
           Self-improvement signals
@@ -322,47 +325,7 @@ export function SelfImprove() {
             >
               Hook signals
             </div>
-            <div
-              className="flex items-center gap-1 rounded p-0.5"
-              style={{
-                background: "var(--color-surface-2)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              {(["table", "timeline"] as const).map((v) => {
-                const active = hookView === v;
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    onClick={() => setHookView(v)}
-                    className="rounded px-2 py-[1px] text-[10.5px] font-medium transition-colors"
-                    style={{
-                      background: active
-                        ? "var(--color-surface-3)"
-                        : "transparent",
-                      color: active
-                        ? "var(--color-text)"
-                        : "var(--color-text-tertiary)",
-                      border: active
-                        ? "1px solid var(--color-border-strong)"
-                        : "1px solid transparent",
-                    }}
-                  >
-                    {v === "table" ? "Table view" : "Timeline"}
-                  </button>
-                );
-              })}
-            </div>
           </div>
-          {hookView === "table" && data && data.hook_signals && (
-            <div
-              className="text-[10px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              {data.hook_signals.length} most recent
-            </div>
-          )}
         </div>
 
         {hookView === "timeline" ? (

@@ -140,11 +140,18 @@ class TestLazySkillBuilder:
 
     def test_skill_alias_resolution(self, lazy):
         """Case 4b: SKILL_ALIASES maps deprecated names to canonical ones."""
+        # Batch 1 (v15.2.0)
         assert lazy.resolve_skill_alias("pana") == "personal-assistant"
         assert lazy.resolve_skill_alias("alfred") == "windows-admin"
         assert lazy.resolve_skill_alias("don-claudio") == "gamedev-engineer"
+        # Batch 2 (v15.2.0)
+        assert lazy.resolve_skill_alias("einstein") == "research-explainer"
+        assert lazy.resolve_skill_alias("jordan-belfort") == "business-strategist"
+        assert lazy.resolve_skill_alias("mike-tyson") == "ui-designer"
+        assert lazy.resolve_skill_alias("warren") == "investment-advisor"
+        assert lazy.resolve_skill_alias("terry-davis") == "senior-engineer"
         # Unknown / already-canonical names pass through
-        assert lazy.resolve_skill_alias("terry-davis") == "terry-davis"
+        assert lazy.resolve_skill_alias("senior-engineer") == "senior-engineer"
         assert lazy.resolve_skill_alias("unknown") == "unknown"
 
     def test_full_mode_returns_empty_overrides(self, lazy):

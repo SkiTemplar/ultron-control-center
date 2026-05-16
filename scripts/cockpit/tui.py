@@ -1618,11 +1618,12 @@ class UltronTUI(App):
         # ── Categorías canónicas (v12) ───────────────────────────────────────
         LAYER0_META = {"ultron", "skill-creator", "consolidate-memory", "mcp-builder"}
         LAYER1_PERSONAS = {
-            "terry-davis", "gamedev-engineer", "mike-tyson", "jordan-belfort", "einstein",
-            "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "warren",
+            "senior-engineer", "gamedev-engineer", "ui-designer", "business-strategist", "research-explainer",
+            "novalbos", "personal-assistant", "windows-admin", "profesor-fisica", "tio-gilito", "investment-advisor",
             "repo-evaluator", "manolo-lama", "tolkien",
             # backwards-compat aliases (deprecated stubs)
             "don-claudio", "pana", "alfred",
+            "terry-davis", "mike-tyson", "jordan-belfort", "einstein", "warren",
         }
         LAYER2_CATEGORIES = {
             "Engineering": {"focused-fix", "performance-profiler", "tech-debt-tracker",
@@ -1633,7 +1634,7 @@ class UltronTUI(App):
             "Testing":     {"property-based-testing", "mutation-testing", "webapp-testing",
                             "spec-to-code-compliance"},
             "Database/API":{"database-schema-designer", "dimensional-analysis"},
-            "UI/Design":   {"frontend-design", "ui-ux-pro-max", "theme-factory", "mike-tyson"},
+            "UI/Design":   {"frontend-design", "ui-ux-pro-max", "theme-factory", "ui-designer"},
             "Game":        {"ue5-dev", "unreal-engine"},
             "AI Platform": {"claude-api", "second-opinion", "skill-improver", "news-publisher"},
             # v12 FASE D: Workflow plugins (namespaced — always available in Claude Code,

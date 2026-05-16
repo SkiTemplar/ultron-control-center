@@ -41,10 +41,15 @@ fn backup_root() -> PathBuf {
             return PathBuf::from(v);
         }
     }
+    // v15.1.6: prefer D:\BACKUP on Windows if it exists (this user's setup),
+    // otherwise fall back to ~/BACKUP for portability.
+    let d_drive = PathBuf::from(r"D:\BACKUP");
+    if d_drive.exists() {
+        return d_drive;
+    }
     if let Some(home) = dirs::home_dir() {
         return home.join("BACKUP");
     }
-    // Last-resort fallback; the caller surfaces "root_exists=false" anyway.
     PathBuf::from(r"C:\BACKUP")
 }
 

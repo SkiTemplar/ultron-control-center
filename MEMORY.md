@@ -5,7 +5,7 @@
 
 ## SISTEMA
 
-brain_index: 785 notas · skills: 47 · plans en `~/.ultron/plans/PLANS.json` · changelog en `~/.claude/skills/ultron/references/changelog.md`.
+brain_index: 772 notas · skills: 47 · plans en `~/.ultron/plans/PLANS.json` · changelog en `~/.claude/skills/ultron/references/changelog.md`.
 
 ---
 

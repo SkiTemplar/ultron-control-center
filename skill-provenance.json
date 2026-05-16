@@ -143,7 +143,9 @@
       "source_kind": "unknown",
       "source_url": null,
       "trust_level": "untrusted",
-      "aliases": ["alfred"]
+      "aliases": [
+        "alfred"
+      ]
     },
     "algorand-vulnerability-scanner": {
       "declared_source": null,
@@ -1096,7 +1098,9 @@
       "source_kind": "unknown",
       "source_url": null,
       "trust_level": "untrusted",
-      "aliases": ["don-claudio"]
+      "aliases": [
+        "don-claudio"
+      ]
     },
     "dotnet-core-expert": {
       "declared_source": "awesome-claude-code-subagents",
@@ -1146,7 +1150,9 @@
       "skill_md_sha1": "a64183fef334db4a1c0a4bd14f8ba5dc736ddea0",
       "source_kind": "unknown",
       "source_url": null,
-      "trust_level": "untrusted"
+      "trust_level": "untrusted",
+      "deprecated": true,
+      "replaced_by": "research-explainer"
     },
     "electron-pro": {
       "declared_source": "awesome-claude-code-subagents",
@@ -1766,7 +1772,9 @@
       "skill_md_sha1": "3cc70c8a4c7e1eb4ccc8e6daeec74a46272a0bf2",
       "source_kind": "unknown",
       "source_url": null,
-      "trust_level": "untrusted"
+      "trust_level": "untrusted",
+      "deprecated": true,
+      "replaced_by": "business-strategist"
     },
     "knowledge-synthesizer": {
       "declared_source": "awesome-claude-code-subagents",
@@ -2096,7 +2104,9 @@
       "skill_md_sha1": "6e79a8d5e32a65b16df1aff96a077accf2f9c579",
       "source_kind": "unknown",
       "source_url": null,
-      "trust_level": "untrusted"
+      "trust_level": "untrusted",
+      "deprecated": true,
+      "replaced_by": "ui-designer"
     },
     "ml-engineer": {
       "declared_source": "awesome-claude-code-subagents",
@@ -2369,7 +2379,9 @@
       "source_kind": "unknown",
       "source_url": null,
       "trust_level": "untrusted",
-      "aliases": ["pana"]
+      "aliases": [
+        "pana"
+      ]
     },
     "paper-lookup": {
       "declared_source": null,
@@ -3549,7 +3561,9 @@
       "skill_md_sha1": "ac63d831945d71b4979ea5b4cd70ded33ceddf9e",
       "source_kind": "unknown",
       "source_url": null,
-      "trust_level": "untrusted"
+      "trust_level": "untrusted",
+      "deprecated": true,
+      "replaced_by": "senior-engineer"
     },
     "test-automator": {
       "declared_source": "awesome-claude-code-subagents",
@@ -3672,14 +3686,17 @@
       "trust_level": "untrusted"
     },
     "ui-designer": {
-      "declared_source": "awesome-claude-code-subagents",
-      "installed_at": "2026-05-05T22:26:53Z",
-      "last_scanned": "2026-05-07T21:04:37Z",
-      "scan_decision": "warn",
-      "skill_md_sha1": "7886053871b191f491e40d3276617c7020289cb0",
-      "source_kind": "github",
-      "source_url": "awesome-claude-code-subagents",
-      "trust_level": "trusted"
+      "declared_source": null,
+      "installed_at": "2026-05-05T22:26:51Z",
+      "last_scanned": "2026-05-06T10:18:47Z",
+      "scan_decision": "allow",
+      "skill_md_sha1": "6e79a8d5e32a65b16df1aff96a077accf2f9c579",
+      "source_kind": "unknown",
+      "source_url": null,
+      "trust_level": "untrusted",
+      "aliases": [
+        "mike-tyson"
+      ]
     },
     "ui-ux-pro-max": {
       "declared_source": null,
@@ -3749,7 +3766,9 @@
       "skill_md_sha1": "f8ab5c1636b134e1e93fe19f9bd407a8e3404b4a",
       "source_kind": "unknown",
       "source_url": null,
-      "trust_level": "untrusted"
+      "trust_level": "untrusted",
+      "deprecated": true,
+      "replaced_by": "investment-advisor"
     },
     "web-artifacts-builder": {
       "declared_source": null,
@@ -3850,6 +3869,58 @@
       "source_kind": "unknown",
       "source_url": null,
       "trust_level": "untrusted"
+    },
+    "research-explainer": {
+      "declared_source": null,
+      "installed_at": "2026-05-05T22:26:51Z",
+      "last_scanned": "2026-05-06T10:18:42Z",
+      "scan_decision": "allow",
+      "skill_md_sha1": "a64183fef334db4a1c0a4bd14f8ba5dc736ddea0",
+      "source_kind": "unknown",
+      "source_url": null,
+      "trust_level": "untrusted",
+      "aliases": [
+        "einstein"
+      ]
+    },
+    "business-strategist": {
+      "declared_source": null,
+      "installed_at": "2026-05-05T22:26:56Z",
+      "last_scanned": "2026-05-06T10:18:42Z",
+      "scan_decision": "allow",
+      "skill_md_sha1": "3cc70c8a4c7e1eb4ccc8e6daeec74a46272a0bf2",
+      "source_kind": "unknown",
+      "source_url": null,
+      "trust_level": "untrusted",
+      "aliases": [
+        "jordan-belfort"
+      ]
+    },
+    "investment-advisor": {
+      "declared_source": null,
+      "installed_at": "2026-05-05T22:26:53Z",
+      "last_scanned": "2026-05-06T10:18:42Z",
+      "scan_decision": "allow",
+      "skill_md_sha1": "f8ab5c1636b134e1e93fe19f9bd407a8e3404b4a",
+      "source_kind": "unknown",
+      "source_url": null,
+      "trust_level": "untrusted",
+      "aliases": [
+        "warren"
+      ]
+    },
+    "senior-engineer": {
+      "declared_source": null,
+      "installed_at": "2026-05-05T22:26:53Z",
+      "last_scanned": "2026-05-06T10:18:41Z",
+      "scan_decision": "allow",
+      "skill_md_sha1": "ac63d831945d71b4979ea5b4cd70ded33ceddf9e",
+      "source_kind": "unknown",
+      "source_url": null,
+      "trust_level": "untrusted",
+      "aliases": [
+        "terry-davis"
+      ]
     }
   }
 }

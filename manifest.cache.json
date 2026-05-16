@@ -21,7 +21,7 @@
         "alfred",
         "persona"
       ],
-      "description": "DEPRECATED stub — renamed to windows-admin.",
+      "description": "DEPRECATED stub \u2014 renamed to windows-admin.",
       "deprecated": true,
       "replaced_by": "windows-admin",
       "source": "auto-discover",
@@ -37,7 +37,9 @@
       ],
       "description": "Windows system administration helper for files, processes, services, drivers, registry, scheduled tasks, software install.",
       "deprecated": false,
-      "aliases": ["alfred"],
+      "aliases": [
+        "alfred"
+      ],
       "source": "auto-discover",
       "cost_tier": "medium"
     },
@@ -60,7 +62,7 @@
         "memory",
         "meta"
       ],
-      "description": "Reflective pass over your memory files — merge duplicates, fix stale facts, prune the index. Activar cuando USER d...",
+      "description": "Reflective pass over your memory files \u2014 merge duplicates, fix stale facts, prune the index. Activar cuando USER d...",
       "deprecated": false,
       "source": "auto-discover",
       "cost_tier": "high"
@@ -83,7 +85,7 @@
         "claudio",
         "persona"
       ],
-      "description": "DEPRECATED stub — renamed to gamedev-engineer.",
+      "description": "DEPRECATED stub \u2014 renamed to gamedev-engineer.",
       "deprecated": true,
       "replaced_by": "gamedev-engineer",
       "source": "auto-discover",
@@ -101,7 +103,9 @@
       ],
       "description": "Senior game-development engineer for Unreal Engine and Unity projects: gameplay C++, Blueprints, replication, GAS, ECS/DOTS.",
       "deprecated": false,
-      "aliases": ["don-claudio"],
+      "aliases": [
+        "don-claudio"
+      ],
       "source": "auto-discover",
       "cost_tier": "medium"
     },
@@ -111,10 +115,25 @@
         "einstein",
         "persona"
       ],
-      "description": "Activa a EINSTEIN — el científico, pensador y explorador intelectual universal de USER. Activar SIEMPRE cuando Rod...",
+      "description": "DEPRECATED stub \u2014 renamed to research-explainer.",
+      "deprecated": true,
+      "source": "auto-discover",
+      "cost_tier": "medium",
+      "replaced_by": "research-explainer"
+    },
+    {
+      "id": "research-explainer",
+      "triggers": [
+        "einstein",
+        "persona"
+      ],
+      "description": "DEPRECATED stub \u2014 renamed to research-explainer.",
       "deprecated": false,
       "source": "auto-discover",
-      "cost_tier": "medium"
+      "cost_tier": "medium",
+      "aliases": [
+        "einstein"
+      ]
     },
     {
       "id": "focused-fix",
@@ -123,7 +142,7 @@
         "fix",
         "engineering"
       ],
-      "description": "Reparación sistemática de features rotas o módulos con fallos complejos. Activar cuando: \"haz que X funcione\" · featu...",
+      "description": "Reparaci\u00f3n sistem\u00e1tica de features rotas o m\u00f3dulos con fallos complejos. Activar cuando: \"haz que X funcione\" \u00b7 featu...",
       "deprecated": false,
       "source": "auto-discover",
       "cost_tier": "medium"
@@ -159,7 +178,7 @@
         "resolver",
         "workflow"
       ],
-      "description": "Resolución de merge conflicts, estrategias de rebase, gestión de stash. Activar cuando: resolviendo merge conflicts ·...",
+      "description": "Resoluci\u00f3n de merge conflicts, estrategias de rebase, gesti\u00f3n de stash. Activar cuando: resolviendo merge conflicts \u00b7...",
       "deprecated": false,
       "source": "auto-discover",
       "cost_tier": "medium"
@@ -171,10 +190,26 @@
         "belfort",
         "persona"
       ],
-      "description": "Activa a JORDAN BELFORT — el estratega de negocio implacable de USER. Director de Proyecto, emprendedor serial y m...",
+      "description": "DEPRECATED stub \u2014 renamed to business-strategist.",
+      "deprecated": true,
+      "source": "auto-discover",
+      "cost_tier": "medium",
+      "replaced_by": "business-strategist"
+    },
+    {
+      "id": "business-strategist",
+      "triggers": [
+        "jordan",
+        "belfort",
+        "persona"
+      ],
+      "description": "DEPRECATED stub \u2014 renamed to business-strategist.",
       "deprecated": false,
       "source": "auto-discover",
-      "cost_tier": "medium"
+      "cost_tier": "medium",
+      "aliases": [
+        "jordan-belfort"
+      ]
     },
     {
       "id": "literature-review",
@@ -220,10 +255,26 @@
         "tyson",
         "persona"
       ],
-      "description": "Activa a MIKE TYSON — diseñador UI/UX de élite con la personalidad brutal, directa y filosófica de Mike Tyson. Sin ro...",
+      "description": "DEPRECATED stub \u2014 renamed to ui-designer.",
+      "deprecated": true,
+      "source": "auto-discover",
+      "cost_tier": "medium",
+      "replaced_by": "ui-designer"
+    },
+    {
+      "id": "ui-designer",
+      "triggers": [
+        "mike",
+        "tyson",
+        "persona"
+      ],
+      "description": "DEPRECATED stub \u2014 renamed to ui-designer.",
       "deprecated": false,
       "source": "auto-discover",
-      "cost_tier": "medium"
+      "cost_tier": "medium",
+      "aliases": [
+        "mike-tyson"
+      ]
     },
     {
       "id": "novalbos",
@@ -231,7 +282,7 @@
         "novalbos",
         "persona"
       ],
-      "description": "Activa a NOVALBOS — el profesor técnico personal de USER. Especialista en C++, Programación Gráfica (OpenGL, Vulka...",
+      "description": "Activa a NOVALBOS \u2014 el profesor t\u00e9cnico personal de USER. Especialista en C++, Programaci\u00f3n Gr\u00e1fica (OpenGL, Vulka...",
       "deprecated": false,
       "source": "auto-discover",
       "cost_tier": "medium"
@@ -242,7 +293,7 @@
         "pana",
         "persona"
       ],
-      "description": "DEPRECATED stub — renamed to personal-assistant.",
+      "description": "DEPRECATED stub \u2014 renamed to personal-assistant.",
       "deprecated": true,
       "replaced_by": "personal-assistant",
       "source": "auto-discover",
@@ -257,7 +308,9 @@
       ],
       "description": "Personal productivity orchestrator: Gmail, Google Calendar, Notion, Google Drive, Playwright. Daily briefings, planning, journal.",
       "deprecated": false,
-      "aliases": ["pana"],
+      "aliases": [
+        "pana"
+      ],
       "source": "auto-discover",
       "cost_tier": "medium"
     },
@@ -315,7 +368,7 @@
         "creator",
         "meta"
       ],
-      "description": "skill-creator v2.0 — Crear, editar y SINCRONIZAR skills entre Claude Code (Desktop) y Cowork. Activar SIEMPRE cuando ...",
+      "description": "skill-creator v2.0 \u2014 Crear, editar y SINCRONIZAR skills entre Claude Code (Desktop) y Cowork. Activar SIEMPRE cuando ...",
       "deprecated": false,
       "source": "auto-discover",
       "cost_tier": "high"
@@ -338,10 +391,26 @@
         "davis",
         "persona"
       ],
-      "description": "Activa el MODO TERRY DAVIS — el ingeniero de élite legendario: frío, quirúrgico, obsesivo con la corrección técnica. ...",
+      "description": "DEPRECATED stub \u2014 renamed to senior-engineer.",
+      "deprecated": true,
+      "source": "auto-discover",
+      "cost_tier": "medium",
+      "replaced_by": "senior-engineer"
+    },
+    {
+      "id": "senior-engineer",
+      "triggers": [
+        "terry",
+        "davis",
+        "persona"
+      ],
+      "description": "DEPRECATED stub \u2014 renamed to senior-engineer.",
       "deprecated": false,
       "source": "auto-discover",
-      "cost_tier": "medium"
+      "cost_tier": "medium",
+      "aliases": [
+        "terry-davis"
+      ]
     },
     {
       "id": "tio-gilito",
@@ -350,7 +419,7 @@
         "gilito",
         "persona"
       ],
-      "description": "Activa a TÍO GILITO — el asesor financiero personal e implacable de USER, con la personalidad del mismísimo Scroog...",
+      "description": "Activa a T\u00cdO GILITO \u2014 el asesor financiero personal e implacable de USER, con la personalidad del mism\u00edsimo Scroog...",
       "deprecated": false,
       "source": "auto-discover",
       "cost_tier": "medium"
@@ -361,7 +430,7 @@
         "tolkien",
         "persona"
       ],
-      "description": "Activa a TOLKIEN — el escritor y guardián del universo narrativo del Libro. Activar SIEMPRE cuando USER diga \"Tolk...",
+      "description": "Activa a TOLKIEN \u2014 el escritor y guardi\u00e1n del universo narrativo del Libro. Activar SIEMPRE cuando USER diga \"Tolk...",
       "deprecated": false,
       "source": "auto-discover",
       "cost_tier": "medium"
@@ -372,7 +441,7 @@
         "max",
         "design"
       ],
-      "description": "Inteligencia de diseño UI/UX de nivel profesional. Activa cuando el usuario pide diseñar, revisar, implementar o mejo...",
+      "description": "Inteligencia de dise\u00f1o UI/UX de nivel profesional. Activa cuando el usuario pide dise\u00f1ar, revisar, implementar o mejo...",
       "deprecated": false,
       "source": "auto-discover",
       "cost_tier": "medium"
@@ -383,10 +452,25 @@
         "warren",
         "persona"
       ],
-      "description": "Activa a WARREN — el asesor de inversiones de USER. Analítico, paciente, largo plazo. Activar SIEMPRE cuando Rodri...",
+      "description": "DEPRECATED stub \u2014 renamed to investment-advisor.",
+      "deprecated": true,
+      "source": "auto-discover",
+      "cost_tier": "medium",
+      "replaced_by": "investment-advisor"
+    },
+    {
+      "id": "investment-advisor",
+      "triggers": [
+        "warren",
+        "persona"
+      ],
+      "description": "DEPRECATED stub \u2014 renamed to investment-advisor.",
       "deprecated": false,
       "source": "auto-discover",
-      "cost_tier": "medium"
+      "cost_tier": "medium",
+      "aliases": [
+        "warren"
+      ]
     },
     {
       "id": "webapp-testing",
@@ -440,7 +524,7 @@
       "triggers": [
         "review",
         "revisa",
-        "código",
+        "c\u00f3digo",
         "code review",
         "check my code",
         "feedback on code"
@@ -523,7 +607,7 @@
         "plan",
         "arquitectura",
         "architecture",
-        "diseña",
+        "dise\u00f1a",
         "design",
         "system design"
       ],

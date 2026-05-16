@@ -767,6 +767,15 @@
         "agents",
         "claude",
         "codex"
+      ],
+      "deprecated": true,
+      "replaced_by": "research-explainer"
+    },
+    "research-explainer": {
+      "registries": [
+        "agents",
+        "claude",
+        "codex"
       ]
     },
     "electron-pro": {
@@ -1178,6 +1187,15 @@
         "agents",
         "claude",
         "codex"
+      ],
+      "deprecated": true,
+      "replaced_by": "business-strategist"
+    },
+    "business-strategist": {
+      "registries": [
+        "agents",
+        "claude",
+        "codex"
       ]
     },
     "knowledge-synthesizer": {
@@ -1395,7 +1413,9 @@
         "agents",
         "claude",
         "codex"
-      ]
+      ],
+      "deprecated": true,
+      "replaced_by": "ui-designer"
     },
     "ml-engineer": {
       "registries": [
@@ -2398,6 +2418,15 @@
         "agents",
         "claude",
         "codex"
+      ],
+      "deprecated": true,
+      "replaced_by": "senior-engineer"
+    },
+    "senior-engineer": {
+      "registries": [
+        "agents",
+        "claude",
+        "codex"
       ]
     },
     "test-automator": {
@@ -2534,6 +2563,15 @@
       ]
     },
     "warren": {
+      "registries": [
+        "agents",
+        "claude",
+        "codex"
+      ],
+      "deprecated": true,
+      "replaced_by": "investment-advisor"
+    },
+    "investment-advisor": {
       "registries": [
         "agents",
         "claude",

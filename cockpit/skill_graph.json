@@ -47,7 +47,8 @@
     ]
   },
   {
-    "persona": "terry-davis",
+    "persona": "senior-engineer",
+    "aliases": ["terry-davis"],
     "domain": "refactor·git·deuda",
     "connects_to": [
       "focused-fix"
@@ -56,7 +57,19 @@
     "knowledge_files": []
   },
   {
-    "persona": "einstein",
+    "persona": "terry-davis",
+    "deprecated": true,
+    "replaced_by": "senior-engineer",
+    "domain": "refactor·git·deuda",
+    "connects_to": [
+      "focused-fix"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "research-explainer",
+    "aliases": ["einstein"],
     "domain": "investiga·física·math",
     "connects_to": [
       "novalbos [C++/GPU/IA]"
@@ -65,7 +78,30 @@
     "knowledge_files": []
   },
   {
+    "persona": "einstein",
+    "deprecated": true,
+    "replaced_by": "research-explainer",
+    "domain": "investiga·física·math",
+    "connects_to": [
+      "novalbos [C++/GPU/IA]"
+    ],
+    "memory_layer": "knowledge/physics/",
+    "knowledge_files": []
+  },
+  {
+    "persona": "investment-advisor",
+    "aliases": ["warren"],
+    "domain": "bolsa·finanzas",
+    "connects_to": [
+      "tio-gilito"
+    ],
+    "memory_layer": "knowledge/finance/",
+    "knowledge_files": []
+  },
+  {
     "persona": "warren",
+    "deprecated": true,
+    "replaced_by": "investment-advisor",
     "domain": "bolsa·finanzas",
     "connects_to": [
       "tio-gilito"
@@ -124,7 +160,7 @@
     "persona": "obliteratus",
     "domain": "rewrite·purga·deuda",
     "connects_to": [
-      "terry-davis"
+      "senior-engineer"
     ],
     "memory_layer": "",
     "knowledge_files": []
@@ -174,10 +210,43 @@
     "knowledge_files": []
   },
   {
-    "persona": "jordan-belfort",
+    "persona": "business-strategist",
+    "aliases": ["jordan-belfort"],
     "domain": "pitch·estrategia",
     "connects_to": [
-      "warren"
+      "investment-advisor"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "jordan-belfort",
+    "deprecated": true,
+    "replaced_by": "business-strategist",
+    "domain": "pitch·estrategia",
+    "connects_to": [
+      "investment-advisor"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "ui-designer",
+    "aliases": ["mike-tyson"],
+    "domain": "UI·UX·design",
+    "connects_to": [
+      "senior-engineer"
+    ],
+    "memory_layer": "",
+    "knowledge_files": []
+  },
+  {
+    "persona": "mike-tyson",
+    "deprecated": true,
+    "replaced_by": "ui-designer",
+    "domain": "UI·UX·design",
+    "connects_to": [
+      "senior-engineer"
     ],
     "memory_layer": "",
     "knowledge_files": []
