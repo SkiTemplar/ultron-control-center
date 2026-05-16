@@ -30,10 +30,14 @@ const SYNTHETIC_LABELS = new Set<string>([
  *  empty or one of the synthesised defaults as built-in. Custom items are
  *  those the user explicitly named. */
 function isBuiltinItem(item: LauncherItem): boolean {
+  // v15.2.37 fix: "gemini" was missing from this list, so setting
+  // default_provider=gemini retargetted the chip kind correctly but the
+  // row then rendered it as a custom (text-only) item — no GeminiMark.
   const knownKind =
     item.kind === "folder" ||
     item.kind === "claude" ||
     item.kind === "codex" ||
+    item.kind === "gemini" ||
     item.kind === "exe";
   if (!knownKind) return false;
   const label = (item.label ?? "").trim();

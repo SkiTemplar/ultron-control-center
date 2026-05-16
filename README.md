@@ -15,6 +15,7 @@
 </p>
 
 <p>
+  <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
   <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.2-44cc11.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2011-lightgrey.svg" />
@@ -26,6 +27,7 @@
 <p>
   <b>Docs:</b>
   <a href="INSTALL.md">Install</a> ·
+  <a href="docs/QUICKSTART.md">Quickstart</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="SECURITY.md">Security</a> ·
@@ -47,6 +49,20 @@
 
 > [!WARNING]
 > **Public beta.** ULTRON is open-sourced as a working preview. Expect rough edges, breaking changes between minor versions and a steady stream of fixes. Bug reports and PRs are very welcome — open an issue in this repo. New releases land in the [Changelog](CHANGELOG.md) as bugs surface.
+
+<p align="center">
+  <img alt="ULTRON Dashboard" src="assets/screenshots/dashboard.png" width="820" />
+  <br />
+  <sub><i>Dashboard — Full Diagnostic, Maintenance commands, Pending items.</i></sub>
+</p>
+
+<p align="center">
+  <img alt="Skills security panel — quarantined finding with Allow anyway form" src="assets/screenshots/skills-quarantined.png" width="820" />
+  <br />
+  <sub><i>Skills tab — strict security scan, quarantined skills surfaced first, findings + waiver flow inline.</i></sub>
+</p>
+
+> Screenshots will fill in as the public beta gets capture cycles — the layout you see in the GIFs is the current one.
 
 ---
 

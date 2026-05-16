@@ -1,0 +1,41 @@
+#!/bin/sh
+# ULTRON post-commit hook — keeps CHANGELOG.md up to date after every commit,
+# whether the commit was made inside a Claude Code session or with bare `git
+# commit` from a terminal.
+#
+# The same Python script (auto-changelog.py) runs as a Stop hook from Claude
+# Code, so behaviour is identical regardless of who fired the commit.
+#
+# Installed by scripts/setup-git-hooks.ps1. Idempotent.
+
+set -e
+
+# Locate the cockpit script. Use the repo we just committed in — the post-commit
+# hook always runs inside the .git directory of that repo.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+SCRIPT="${REPO_ROOT}/scripts/hooks/auto-changelog.py"
+
+if [ ! -f "$SCRIPT" ]; then
+    # No script in this repo — nothing to do.
+    exit 0
+fi
+
+# Prefer uv run (matches how the Stop hook calls it). Fall back to bare
+# python if uv isn't on PATH.
+if command -v uv >/dev/null 2>&1; then
+    uv run python "$SCRIPT" </dev/null >/dev/null 2>&1 || true
+elif command -v python >/dev/null 2>&1; then
+    python "$SCRIPT" </dev/null >/dev/null 2>&1 || true
+fi
+
+# If auto-changelog modified CHANGELOG.md, stage it for the NEXT commit.
+# We deliberately do NOT amend the current commit — that would rewrite
+# history in a hook and confuse signed / pushed commits. The user runs
+# a follow-up `git commit -m "chore: changelog"` when convenient, or the
+# next feature commit picks it up.
+if ! git diff --quiet HEAD -- CHANGELOG.md 2>/dev/null; then
+    echo "[ULTRON] CHANGELOG.md updated — stage and commit when ready:"
+    echo "         git add CHANGELOG.md && git commit -m 'chore: refresh changelog'"
+fi
+
+exit 0

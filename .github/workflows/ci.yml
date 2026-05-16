@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'AUTHORS.md'
+      - 'NOTICE'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - 'AUTHORS.md'
+      - 'NOTICE'
+
+# Windows-only project. The cockpit hooks, installer and the Tauri build
+# all assume PowerShell + Windows APIs, so there's no point matrixing
+# macOS / Linux runners. Sticking to windows-latest keeps minutes cheap.
+jobs:
+  cargo:
+    name: Rust (cargo check + clippy)
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo registry + build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: control-center/src-tauri
+
+      - name: cargo check
+        working-directory: control-center/src-tauri
+        run: cargo check --all-targets
+
+      - name: cargo clippy (warnings allowed, errors block)
+        working-directory: control-center/src-tauri
+        run: cargo clippy --all-targets -- -A warnings
+
+  typescript:
+    name: TypeScript (tsc --noEmit)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: control-center/package-lock.json
+
+      - name: Install dependencies
+        working-directory: control-center
+        run: npm ci
+
+      - name: Type-check
+        working-directory: control-center
+        run: npx tsc --noEmit
+
+  python:
+    name: Python (uv sync + pytest)
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+        continue-on-error: false
+
+      - name: Run tests
+        run: uv run pytest tests/ -q --tb=short
+        env:
+          # The cockpit Python suite reads ULTRON_HOME for path resolution.
+          # Point it at the checkout so tests stay hermetic.
+          ULTRON_HOME: ${{ github.workspace }}

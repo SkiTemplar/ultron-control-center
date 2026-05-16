@@ -1,5 +1,29 @@
 # Changelog
 
+<!-- v15.2.36 -->
+## v15.2.36 — 2026-05-16
+
+- feat(v15.2.36): Settings App lifecycle tab â€” Uninstall + Update (Rebuild) buttons
+
+_Auto-generated from 14794051 by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.2.35 -->
+## v15.2.35 — 2026-05-16
+
+- fix(v15.2.35): hashtable splat for inner installer + relax EAP around every native binary
+
+_Auto-generated from 5fd57f56 by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.2.34 -->
+## v15.2.34 — 2026-05-16
+
+- fix(v15.2.34): inner installer skips redundant uv sync to avoid Windows file locks
+
+_Auto-generated from 688ed986 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.2.33 -->
 ## v15.2.33 — 2026-05-16
 

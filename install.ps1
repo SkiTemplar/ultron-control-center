@@ -1010,6 +1010,115 @@ function Initialize-BrainIndex {
 }
 
 # ----------------------------------------------------------------------
+# Step 8c: optional feature toggles (writes ~/.ultron/cockpit/features.json)
+#
+# Asked interactively unless -NonInteractive. Each toggle:
+#   news         -> off by default (Gemini tokens)
+#   gaming       -> on
+#   personal     -> on
+#   schedules    -> on
+#   self_improve -> on
+# The Control Center reads this file at startup and gates tab visibility.
+# Re-running install.ps1 keeps the previous answers — we never silently
+# overwrite a user's choice without prompting.
+# ----------------------------------------------------------------------
+function Read-FeatureToggle {
+    param(
+        [string]$Name,
+        [bool]$Default,
+        [string]$Note
+    )
+    if ($NonInteractive) { return $Default }
+    $defLabel = if ($Default) { "Y/n" } else { "y/N" }
+    $line = "  " + $Name.PadRight(22) + "[" + $defLabel + "]"
+    if ($Note) { $line += "  " + $Note }
+    $resp = Read-Host $line
+    if ($null -eq $resp) { $resp = "" }
+    $resp = $resp.Trim().ToLower()
+    if ($resp -eq "") { return $Default }
+    if ($resp -in @("y", "yes")) { return $true }
+    if ($resp -in @("n", "no"))  { return $false }
+    return $Default
+}
+
+function Set-FeatureFlags {
+    Write-Step "8c. optional feature toggles"
+    $cockpitDir = Join-Path $env:USERPROFILE ".ultron\cockpit"
+    if (-not (Test-Path -LiteralPath $cockpitDir)) {
+        New-Item -ItemType Directory -Path $cockpitDir -Force | Out-Null
+    }
+    $featuresFile = Join-Path $cockpitDir "features.json"
+
+    # Read previous answers as the defaults; falls back to baseline values
+    # the first time around.
+    $defaults = [ordered]@{
+        news         = $false  # Gemini tokens — off by default
+        gaming       = $true
+        personal     = $true
+        schedules    = $true
+        self_improve = $true
+    }
+    if (Test-Path -LiteralPath $featuresFile) {
+        try {
+            $prev = Get-Content -LiteralPath $featuresFile -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($k in $defaults.Keys) {
+                if ($null -ne $prev.$k) { $defaults[$k] = [bool]$prev.$k }
+            }
+        } catch {
+            # corrupt JSON — fall back to baseline.
+        }
+    }
+
+    if ($NonInteractive) {
+        Write-Info "non-interactive: keeping existing features.json (or defaults if new)"
+    } else {
+        Write-Info "Enable optional features? Press Enter to accept the default."
+    }
+
+    $features = [ordered]@{
+        news         = Read-FeatureToggle -Name "News digest"      -Default $defaults.news         -Note "Gemini-generated daily newsletter (cost-heavy)"
+        gaming       = Read-FeatureToggle -Name "Gaming utilities" -Default $defaults.gaming       -Note "game detector + tweaks panel"
+        personal     = Read-FeatureToggle -Name "Personal section" -Default $defaults.personal     -Note "private profile slots in the cockpit"
+        schedules    = Read-FeatureToggle -Name "Schedules"        -Default $defaults.schedules    -Note "Windows scheduled-task management"
+        self_improve = Read-FeatureToggle -Name "Self-improve"     -Default $defaults.self_improve -Note "route telemetry feeds the dispatcher tuner"
+    }
+
+    try {
+        ($features | ConvertTo-Json -Depth 3) | Set-Content -LiteralPath $featuresFile -Encoding UTF8
+        Write-OK ("features.json -> " + $featuresFile)
+    } catch {
+        Write-Warn2 ("could not write features.json: " + $_.Exception.Message)
+    }
+}
+
+# ----------------------------------------------------------------------
+# Step 9b: git hooks (post-commit auto-changelog, etc.)
+#
+# Git hooks under .git/hooks/ are NOT versioned. We keep canonical copies
+# in git-hooks/ at the repo root and let setup-git-hooks.ps1 copy them
+# into the local clone. This is what guarantees CHANGELOG.md updates
+# after every commit instead of only at Stop hook time.
+# ----------------------------------------------------------------------
+function Install-GitHooks {
+    Write-Step "9b. git hooks (post-commit auto-changelog)"
+    $setup = Join-Path $Script:RepoRoot "scripts\setup-git-hooks.ps1"
+    if (-not (Test-Path -LiteralPath $setup)) {
+        Write-Skip "setup-git-hooks.ps1 not in repo (older release?)"
+        return
+    }
+    try {
+        & $setup -Quiet
+        if ($LASTEXITCODE -eq 0) {
+            Write-OK "post-commit hook installed"
+        } else {
+            Write-Warn2 "setup-git-hooks.ps1 exited $LASTEXITCODE"
+        }
+    } catch {
+        Write-Warn2 ("git hooks setup failed: " + $_.Exception.Message)
+    }
+}
+
+# ----------------------------------------------------------------------
 # Step 10: control-center build (delegated to scripts/install.ps1)
 # ----------------------------------------------------------------------
 # Sync Python venv via uv. Runs ALWAYS (even with -NoApp) because the
@@ -1214,7 +1323,9 @@ try {
     Update-ClaudeSettings
     Install-Skills
     Install-CommunitySkills
+    Set-FeatureFlags
     Initialize-BrainIndex
+    Install-GitHooks
     Build-ControlCenter
     Invoke-Doctor
     Write-Summary

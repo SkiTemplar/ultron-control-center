@@ -82,22 +82,28 @@ type Particle = {
   fixed: boolean; // user-pinned via drag
 };
 
-// v15.2.31 pass: kill the square frontier. The previous box-clamp pinned
-// any overshooting node to a flat edge (x=120 / x=VIEW-120 / etc.), which
-// produced the "line of beads along the cube border" the user kept seeing.
-// We swap the hard box clamp for a SOFT CIRCULAR field: nodes outside
-// MAX_RADIUS get a return force proportional to their overshoot. Gravity
-// stays as a gentle central pull so the cluster keeps a center, but the
-// confinement shape is a disk, not a square — distribution looks organic.
+// v15.2.37 pass: nodes were piling on the MAX_RADIUS ring instead of
+// filling the disk interior. Cause: REPULSION (900) was so much stronger
+// than the central GRAVITY (0.003) that every node escaped outward, hit
+// the soft confinement wall, and parked there — producing a hollow
+// circumference. New equilibrium:
+//   * GRAVITY 0.003 → 0.014 (4-5x stronger central pull).
+//   * REPULSION 900 → 500 (less outward kick).
+//   * MAX_RADIUS 0.42 → 0.48 (cap moved further out so the wall is rarely hit).
+//   * RADIAL_RETURN_K 0.045 → 0.09 (when nodes DO hit the wall they bounce
+//     in harder, instead of sticking to it).
+//   * Initial polar radius 0.30 → 0.55 of MAX_RADIUS (seed across the
+//     full disk so the simulation doesn't have to expand the cluster
+//     from a tight center).
 const VIEW = 3500;
 const CENTER = VIEW / 2;
-const MAX_RADIUS = VIEW * 0.42; // soft disk radius — outside → return force
-const RADIAL_RETURN_K = 0.045; // strength of the radial push-back per px overshoot
+const MAX_RADIUS = VIEW * 0.48; // soft disk radius — outside → return force
+const RADIAL_RETURN_K = 0.09; // bigger return-force coefficient: no more sticky rim
 const NODE_RADIUS_BASE = 16;
-const REPULSION = 900; // pushes nodes apart in a smaller world
+const REPULSION = 500; // gentler outward kick
 const SPRING_K = 0.04;
-const SPRING_REST = 170; // edges shorter — cluster stays compact
-const GRAVITY = 0.003; // softer central pull now that the disk field caps wandering
+const SPRING_REST = 170;
+const GRAVITY = 0.014; // pulls hard enough to keep interior populated
 const DAMPING = 0.6;
 const COLLIDE_RADIUS = 26;
 const COLLIDE_STRENGTH = 0.5;
@@ -232,7 +238,9 @@ function initParticles(nodes: GraphNode[]): Particle[] {
     const angle = ((seed & 0xffff) / 0xffff) * Math.PI * 2;
     // sqrt() makes the radius distribution uniform in area (not in radius).
     const radNorm = Math.sqrt(((seed >>> 16) & 0xffff) / 0xffff);
-    const dist = radNorm * (VIEW * 0.3);
+    // Seed across the full soft-confinement disk (radNorm is sqrt-uniform
+    // so density stays uniform per unit area, not per unit radius).
+    const dist = radNorm * (MAX_RADIUS * 0.85);
     const rx = CENTER + Math.cos(angle) * dist;
     const ry = CENTER + Math.sin(angle) * dist;
     return { id: n.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };

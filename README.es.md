@@ -16,6 +16,7 @@
 </p>
 
 <p>
+  <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-blue.svg" /></a>
   <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.2-44cc11.svg" /></a>
   <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011-lightgrey.svg" />
@@ -27,6 +28,7 @@
 <p>
   <b>Docs:</b>
   <a href="INSTALL.md">Instalacion</a> &middot;
+  <a href="docs/QUICKSTART.md">Quickstart</a> &middot;
   <a href="CHANGELOG.md">Changelog</a> &middot;
   <a href="CONTRIBUTING.md">Contribuir</a> &middot;
   <a href="SECURITY.md">Seguridad</a> &middot;
@@ -48,6 +50,20 @@
 
 > [!WARNING]
 > **Beta publica.** ULTRON se publica como preview funcional. Hay bordes sin pulir, cambios incompatibles entre minor releases y una cola continua de arreglos. Los reports y PRs son MUY bienvenidos &mdash; abre un issue en este repo. Cada release nueva entra en el [Changelog](CHANGELOG.md) a medida que aparecen bugs.
+
+<p align="center">
+  <img alt="ULTRON Dashboard" src="assets/screenshots/dashboard.png" width="820" />
+  <br />
+  <sub><i>Dashboard &mdash; Full Diagnostic, Maintenance commands, Pending items.</i></sub>
+</p>
+
+<p align="center">
+  <img alt="Panel de seguridad de Skills &mdash; finding en quarantine con formulario Allow anyway" src="assets/screenshots/skills-quarantined.png" width="820" />
+  <br />
+  <sub><i>Pesta&ntilde;a Skills &mdash; scanner de seguridad estricto, skills quarantined arriba del todo, findings + waiver inline.</i></sub>
+</p>
+
+> Los screenshots se llenar&aacute;n a medida que avance la beta p&uacute;blica &mdash; el layout que ves coincide con la versi&oacute;n actual.
 
 ---
 
