@@ -1,5 +1,24 @@
 # Changelog
 
+<!-- v15.3.0 -->
+## v15.3.0 — 2026-05-16
+
+- feat(v15.3.0): agent ecosystem â€” catalog, embeddings, telemetry, refreshed roster
+- feat(v15.3.0-alpha): Agents tab â€” list / preview / edit / delete / AI / Discover
+- chore: refresh changelog (auto)
+
+_Auto-generated from 27d6d913 by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.3.0-alpha -->
+## v15.3.0-alpha — 2026-05-16
+
+- feat(v15.3.0-alpha): Agents tab â€” list / preview / edit / delete / AI / Discover
+- chore: refresh changelog (auto)
+
+_Auto-generated from fe2d3297 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.2.39 -->
 ## v15.2.39 — 2026-05-16
 
