@@ -611,14 +611,27 @@ def main() -> int:
 
     # ── Clipboard mode ────────────────────────────────────────────────────────
     if args.clipboard:
-        out_name = section_output_path(cfg, date_str).name
-        ok = copy_to_clipboard(prompt)
+        out_path = NEWS_DIR / section_output_path(cfg, date_str).name
+        # Inject the explicit save instruction so Gemini writes the HTML
+        # to the right path. Without this, Gemini guesses cwd root and
+        # the newsletter ends up in C:\Users\<user>\ instead of
+        # ~/.ultron/cockpit/news/.
+        save_instruction = (
+            "\n\n[SAVE INSTRUCTION — CRITICAL]\n"
+            f"Save the final HTML to this exact ABSOLUTE path:\n"
+            f"  {out_path}\n"
+            "Use your file-write tool (e.g. write_file). Do NOT save to the\n"
+            "current working directory root. The directory already exists.\n"
+            "After saving, confirm with a single line: 'Saved to <path>'.\n"
+        )
+        full_prompt = prompt + save_instruction
+        ok = copy_to_clipboard(full_prompt)
         if ok:
             print("[clipboard] ✓ Prompt copiado al portapapeles.")
-            print(f"[clipboard] Guarda el resultado como: {NEWS_DIR / out_name}")
+            print(f"[clipboard] Gemini guardará el resultado en: {out_path}")
         else:
             print("[clipboard] ✗ No pude copiar. Imprimiendo prompt:\n")
-            print(prompt)
+            print(full_prompt)
         return 0
 
     # ── Gemini headless mode ──────────────────────────────────────────────────
