@@ -101,6 +101,24 @@ struct AlertShape {
     source: Option<String>,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    severity: Option<String>,
+    #[serde(default)]
+    ack: Option<bool>,
+}
+
+impl AlertShape {
+    /// An ack-only tombstone is a row with `ack:true` and no displayable
+    /// fields (no source / message / severity). It is a marker for a prior
+    /// alert that has been acknowledged; the Notifications tab never wants
+    /// to see it, and bulk deletes should evict it so the file stays clean.
+    fn is_orphan_tombstone(&self) -> bool {
+        let has_message = self.message.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+        let has_source = self.source.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+        let has_severity = self.severity.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+        let acked = self.ack.unwrap_or(false);
+        acked && !has_message && !has_source && !has_severity
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -199,9 +217,8 @@ pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize,
     if !path.exists() {
         return Ok(0);
     }
-    if fingerprints.is_empty() {
-        return Ok(0);
-    }
+    // Empty fingerprints is still a valid call — we use it as an
+    // opportunity to evict orphan ack-tombstones (see is_orphan_tombstone).
     let targets: std::collections::HashSet<String> = fingerprints.into_iter().collect();
 
     let original =
@@ -220,8 +237,14 @@ pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize,
         }
         match serde_json::from_str::<AlertShape>(trimmed) {
             Ok(parsed) => {
-                let src = parsed.source.unwrap_or_default();
-                let msg = parsed.message.unwrap_or_default();
+                // Always evict orphan ack-tombstones — they are never UI
+                // items and accumulating them is pure noise.
+                if parsed.is_orphan_tombstone() {
+                    removed += 1;
+                    continue;
+                }
+                let src = parsed.source.clone().unwrap_or_default();
+                let msg = parsed.message.clone().unwrap_or_default();
                 let fp = fingerprint(&src, &msg);
                 if targets.contains(&fp) {
                     removed += 1;

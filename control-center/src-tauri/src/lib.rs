@@ -286,7 +286,21 @@ async fn qdrant_health() -> Result<serde_json::Value, String> {
 async fn read_alerts(limit: Option<usize>) -> Result<Vec<serde_json::Value>, String> {
     let path = ultron_root()?.join("alerts.jsonl");
     let lim = limit.unwrap_or(100).max(1).min(2000);
-    read_jsonl_tail::<serde_json::Value>(path, lim)
+    let raw = read_jsonl_tail::<serde_json::Value>(path, lim)?;
+    // Drop ack-only tombstones: rows that carry no source/message/severity
+    // and only exist to flag a prior alert as acknowledged. They are pure
+    // markers, never UI items. Without this filter they render as
+    // "info" with empty text in the Notifications tab.
+    let filtered: Vec<serde_json::Value> = raw
+        .into_iter()
+        .filter(|v| {
+            let has_message = v.get("message").and_then(|m| m.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+            let has_source = v.get("source").and_then(|s| s.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+            let has_severity = v.get("severity").and_then(|s| s.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+            has_message || has_source || has_severity
+        })
+        .collect();
+    Ok(filtered)
 }
 
 #[tauri::command]
