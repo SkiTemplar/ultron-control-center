@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AlertEntry } from "../types";
+import { getUltronRoot } from "../lib/paths";
 
 type Props = {
   alerts: AlertEntry[];
@@ -360,10 +361,14 @@ function Row({ g }: { g: Grouped }) {
     setFixToast(null);
     try {
       const prompt = buildFixPrompt(g);
+      // cwd = ~/.ultron so the spawned shell starts where the relevant
+      // scripts, hooks, alerts.jsonl and logs live — diagnosing a system
+      // alert from C:\Users\<user>\ has zero context.
+      const cwd = await getUltronRoot().catch(() => null);
       await invoke("spawn_session", {
         provider,
         prompt,
-        cwd: null,
+        cwd,
         // paste_only = true → wrapper copies the prompt to the clipboard and
         // opens the terminal. The user pastes with Ctrl+V and hits Enter.
         // Mirrors the F1.9 Diagnose flow so behaviour is consistent.
@@ -670,10 +675,14 @@ export function Notifications({ alerts, onDeleted }: Props) {
     setBulkFixToast(null);
     try {
       const prompt = buildBulkFixPrompt(actionableGroups);
+      // cwd = ~/.ultron so the spawned shell starts where the relevant
+      // scripts, hooks, alerts.jsonl and logs live — diagnosing a system
+      // alert from C:\Users\<user>\ has zero context.
+      const cwd = await getUltronRoot().catch(() => null);
       await invoke("spawn_session", {
         provider,
         prompt,
-        cwd: null,
+        cwd,
         // paste_only mirrors the per-row Fix flow: the prompt lands on
         // the clipboard so the user controls when the session actually
         // starts answering (avoids accidental autoruns of multi-issue

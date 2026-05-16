@@ -36,7 +36,6 @@ export function News() {
   const [selected, setSelected] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [showGen, setShowGen] = useState(false);
-  const [genTheme, setGenTheme] = useState("");
   const [genDays, setGenDays] = useState(3);
   const [info, setInfo] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<NewsEntry | null>(null);
@@ -136,7 +135,7 @@ export function News() {
     setInfo(null);
     try {
       const r = (await invoke("generate_news", {
-        theme: genTheme.trim() || null,
+        theme: null,
         days: genDays,
       })) as { success: boolean; path: string | null; stderr: string };
       if (!r.success) {
@@ -144,7 +143,6 @@ export function News() {
       } else {
         setInfo(r.path ? `Newsletter generada: ${r.path}` : "Newsletter generada.");
         setShowGen(false);
-        setGenTheme("");
         await load();
         if (r.path) setSelected(r.path);
       }
@@ -237,27 +235,6 @@ export function News() {
                     outline: "none",
                   }}
                 />
-                <label
-                  className="text-[10px] uppercase tracking-wide"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  Theme
-                </label>
-                <input
-                  type="text"
-                  value={genTheme}
-                  onChange={(e) => setGenTheme(e.target.value)}
-                  placeholder="(opcional)"
-                  maxLength={200}
-                  className="flex-1 rounded px-2 py-0.5 text-[12px]"
-                  style={{
-                    background: "var(--color-surface-1)",
-                    color: "var(--color-text)",
-                    border: "1px solid var(--color-border-strong)",
-                    outline: "none",
-                    minWidth: 140,
-                  }}
-                />
               </div>
               <div className="mt-2 flex items-center justify-end gap-2">
                 <button
@@ -268,7 +245,7 @@ export function News() {
                     setInfo(null);
                     try {
                       const r = (await invoke("generate_news_session", {
-                        theme: genTheme.trim() || null,
+                        theme: null,
                         days: genDays,
                       })) as { success: boolean; stdout: string; stderr: string };
                       if (!r.success) {
