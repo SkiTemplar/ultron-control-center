@@ -323,26 +323,51 @@ def cmd_mode(args) -> int:
 
 
 def cmd_should_push(_args) -> int:
-    """Exit 0 if the most recent session was HIGH+ AND fresh (<MODE_TTL).
-    Used by Stop hook: only sync if HIGH/ULTRA/LEARN within the TTL window."""
-    if not SESSION_MODE_FILE.exists():
-        return 1
+    """Exit 0 if (a) recent session was HIGH+ AND fresh, OR
+    (b) vault has uncommitted changes AND last push was >12h ago.
+    Used by Stop hook: only sync if push is meaningfully due."""
+    # Fast path: HIGH+ session within TTL.
+    if SESSION_MODE_FILE.exists():
+        try:
+            data = json.loads(SESSION_MODE_FILE.read_text(encoding="utf-8"))
+            mode = data.get("mode", "MEDIUM").upper()
+            ts_raw = data.get("ts", "")
+            stored_at = datetime.fromisoformat(ts_raw)
+            if mode in HIGH_MODES and datetime.now() - stored_at <= _mode_ttl():
+                return 0
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+
+    # Stale fallback: if vault has been silent for >12h AND has dirty content,
+    # push anyway so the L3 remote does not drift more than half a day.
+    # This is what USER expects: vault syncs at least daily regardless of mode.
     try:
-        data = json.loads(SESSION_MODE_FILE.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return 1
-    mode = data.get("mode", "MEDIUM").upper()
-    if mode not in HIGH_MODES:
-        return 1
-    ts_raw = data.get("ts", "")
-    try:
-        stored_at = datetime.fromisoformat(ts_raw)
-    except (TypeError, ValueError):
-        return 1
-    if datetime.now() - stored_at > _mode_ttl():
-        # Stale — downgrade to MEDIUM. Don't auto-push for an old session.
-        return 1
-    return 0
+        import subprocess
+        vault = Path.home() / ".ultron-vault"
+        if not (vault / ".git").exists():
+            return 1
+        # Has uncommitted changes?
+        dirty = subprocess.run(
+            ["git", "-C", str(vault), "status", "--porcelain"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if dirty.returncode != 0 or not dirty.stdout.strip():
+            return 1  # clean tree, nothing to push
+        # Time since last commit on HEAD
+        last = subprocess.run(
+            ["git", "-C", str(vault), "log", "-1", "--format=%ct"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if last.returncode != 0:
+            return 1
+        last_ts = int(last.stdout.strip() or "0")
+        age_hours = (datetime.now().timestamp() - last_ts) / 3600.0
+        if age_hours > 12.0:
+            return 0
+    except Exception:
+        pass
+
+    return 1
 
 
 def main() -> int:
