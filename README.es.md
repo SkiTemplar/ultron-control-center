@@ -163,6 +163,14 @@ cd $env:USERPROFILE\.ultron
 
 El installer es **idempotente** — puedes ejecutarlo varias veces sin miedo; detecta lo que ya esta hecho y solo aplica los cambios pendientes. Si algo falla, mira [`INSTALL.md`](INSTALL.md) para troubleshooting manual.
 
+Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills en `~/.claude/skills/`):
+
+```powershell
+.\uninstall.ps1            # interactivo: confirma antes de borrar
+.\uninstall.ps1 -DryRun    # solo enseña lo que tocaría
+.\uninstall.ps1 -KeepBackups   # renombra ~/.ultron/ en vez de borrarlo
+```
+
 <details>
 <summary><b>Que hace el installer (11 pasos)</b></summary>
 

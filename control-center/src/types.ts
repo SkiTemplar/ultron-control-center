@@ -339,7 +339,41 @@ export type UsageReport = {
   hour_counts: number[];
 };
 
-export type SkillState = "active" | "plugin" | "vaulted" | string;
+export type SkillState = "active" | "plugin" | "vaulted" | "quarantined" | string;
+
+export type SecurityDecision = "allow" | "warn" | "quarantine" | "block";
+
+export type SecurityInfo = {
+  decision: SecurityDecision | string;
+  findings_count?: number;
+  high_severity_rules?: string[];
+  sha1?: string | null;
+  scanned_at?: string | null;
+};
+
+export type SkillFinding = {
+  rule_id: string;
+  severity: string;
+  pattern_name: string;
+  excerpt: string;
+  line_number: number | null;
+  waived: boolean;
+};
+
+export type SkillSecurityReport = {
+  name: string;
+  decision: string;
+  sha1: string | null;
+  findings: SkillFinding[];
+  stderr: string;
+};
+
+export type AllowSkillResult = {
+  success: boolean;
+  name: string;
+  sha1: string;
+  waiver_path: string;
+};
 
 export type SpawnResult = {
   launched: boolean;
@@ -417,6 +451,7 @@ export type SkillInfo = {
   tags: string[];
   path: string | null;
   usage_count: number;
+  security?: SecurityInfo | null;
 };
 
 export type SkillCreateResult = {

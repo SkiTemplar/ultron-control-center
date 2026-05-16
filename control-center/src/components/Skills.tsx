@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  AllowSkillResult,
   SkillCreateResult,
   SkillDeleteResult,
   SkillInfo,
+  SkillSecurityReport,
   SkillState,
   SkillUpdateResult,
 } from "../types";
@@ -18,7 +20,7 @@ const NEW_SKILL_TEMPLATE = `# Overview\n\nWhat does this skill do?\n\n# When to 
 // State styling
 // ---------------------------------------------------------------------------
 
-type StateKey = "active" | "plugin" | "vaulted";
+type StateKey = "active" | "plugin" | "vaulted" | "quarantined";
 
 function stateBadge(s: SkillState): { color: string; bg: string; label: string } {
   switch (s) {
@@ -40,6 +42,12 @@ function stateBadge(s: SkillState): { color: string; bg: string; label: string }
         bg: "var(--color-surface-2)",
         label: "vault",
       };
+    case "quarantined":
+      return {
+        color: "#e8a93a",
+        bg: "rgba(232, 169, 58, 0.12)",
+        label: "quarantine",
+      };
     default:
       return {
         color: "var(--color-text-tertiary)",
@@ -47,6 +55,31 @@ function stateBadge(s: SkillState): { color: string; bg: string; label: string }
         label: String(s),
       };
   }
+}
+
+// Per-skill security badge shown next to the state pill in each Row.
+// Returns null when there is nothing notable to surface.
+function securityHint(s: SkillInfo): { color: string; bg: string; label: string; title: string } | null {
+  const sec = s.security;
+  if (!sec) return null;
+  const d = sec.decision;
+  if (d === "block" || d === "quarantine") {
+    return {
+      color: "#f85149",
+      bg: "rgba(248, 81, 73, 0.10)",
+      label: d === "block" ? "blocked" : `${sec.findings_count ?? 0} findings`,
+      title: `Security ${d.toUpperCase()} — ${(sec.high_severity_rules ?? []).join(", ") || "review required"}`,
+    };
+  }
+  if (d === "warn") {
+    return {
+      color: "#e8a93a",
+      bg: "rgba(232, 169, 58, 0.10)",
+      label: `warn ${sec.findings_count ?? 0}`,
+      title: `Security WARN — ${(sec.high_severity_rules ?? []).join(", ") || "low-severity findings"}`,
+    };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +96,7 @@ function Row({
   onClick: () => void;
 }) {
   const b = stateBadge(s.state);
+  const sec = securityHint(s);
   return (
     <button
       type="button"
@@ -88,6 +122,15 @@ function Row({
       >
         {b.label}
       </span>
+      {sec && (
+        <span
+          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium tabular-nums"
+          style={{ background: sec.bg, color: sec.color }}
+          title={sec.title}
+        >
+          {sec.label}
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <div
           className="truncate text-[12.5px] font-medium"
@@ -196,7 +239,7 @@ function HeaderBtn({
   );
 }
 
-type PreviewMode = "view" | "edit" | "ai-edit" | "confirm-delete";
+type PreviewMode = "view" | "edit" | "ai-edit" | "confirm-delete" | "security";
 type ViewKind = "rich" | "raw";
 
 function Preview({
@@ -218,6 +261,12 @@ function Preview({
   const [view, setView] = useState<ViewKind>("rich");
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
+  // Security drawer state
+  const [secReport, setSecReport] = useState<SkillSecurityReport | null>(null);
+  const [secLoading, setSecLoading] = useState(false);
+  const [secError, setSecError] = useState<string | null>(null);
+  const [allowReason, setAllowReason] = useState("");
+  const [allowBusy, setAllowBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -321,6 +370,58 @@ function Preview({
     }
   }
 
+  async function openSecurity() {
+    setMode("security");
+    setSecError(null);
+    setSecLoading(true);
+    setSecReport(null);
+    try {
+      const report = await invoke<SkillSecurityReport>("get_skill_findings", {
+        name: skill.name,
+      });
+      setSecReport(report);
+    } catch (e) {
+      setSecError(String(e));
+    } finally {
+      setSecLoading(false);
+    }
+  }
+
+  async function handleAllowAnyway() {
+    if (!secReport || allowBusy) return;
+    if (!allowReason.trim()) {
+      setSecError("Reason is required for the audit trail.");
+      return;
+    }
+    setAllowBusy(true);
+    setSecError(null);
+    try {
+      const rules = Array.from(
+        new Set(
+          secReport.findings.filter((f) => !f.waived).map((f) => f.rule_id),
+        ),
+      );
+      if (rules.length === 0) {
+        setSecError("No active findings to waive.");
+        setAllowBusy(false);
+        return;
+      }
+      const res = await invoke<AllowSkillResult>("allow_skill_manually", {
+        name: skill.name,
+        rules,
+        reason: allowReason.trim(),
+      });
+      flash(`Waiver written (sha1 ${res.sha1.slice(0, 10)}…). Re-run registry sync to refresh state.`);
+      setMode("view");
+      setAllowReason("");
+      onMutated();
+    } catch (e) {
+      setSecError(String(e));
+    } finally {
+      setAllowBusy(false);
+    }
+  }
+
   async function handleDelete(soft: boolean) {
     setBusy(true);
     setError(null);
@@ -381,6 +482,14 @@ function Preview({
                   onClick={() => setMode("ai-edit")}
                   disabled={busy || loading}
                 />
+                {skill.security && skill.security.decision !== "allow" && (
+                  <HeaderBtn
+                    label="Security"
+                    variant="danger"
+                    onClick={openSecurity}
+                    disabled={busy || loading}
+                  />
+                )}
                 <HeaderBtn
                   label="Delete"
                   variant="danger"
@@ -408,6 +517,17 @@ function Preview({
             )}
             {mode === "confirm-delete" && (
               <HeaderBtn label="Cancel" onClick={() => { setMode("view"); setError(null); }} disabled={busy} />
+            )}
+            {mode === "security" && (
+              <HeaderBtn
+                label="Close"
+                onClick={() => {
+                  setMode("view");
+                  setSecError(null);
+                  setAllowReason("");
+                }}
+                disabled={allowBusy}
+              />
             )}
           </div>
         </div>
@@ -489,6 +609,165 @@ function Preview({
               onClick={() => handleDelete(false)}
               disabled={busy}
             />
+          </div>
+        )}
+        {mode === "security" && (
+          <div
+            className="mt-3 rounded p-3"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid rgba(232, 169, 58, 0.32)",
+            }}
+          >
+            <div
+              className="flex items-baseline justify-between"
+            >
+              <span
+                className="text-[10px] font-medium uppercase tracking-[0.06em]"
+                style={{ color: "#e8a93a" }}
+              >
+                Security findings
+              </span>
+              {secReport && (
+                <span
+                  className="text-[10.5px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  decision: <strong style={{ color: "var(--color-text)" }}>{secReport.decision}</strong>
+                  {" · "}
+                  {secReport.findings.length} finding(s)
+                  {secReport.sha1 && (
+                    <>
+                      {" · sha1 "}
+                      <code style={{ fontFamily: "var(--font-mono)" }}>
+                        {secReport.sha1.slice(0, 10)}…
+                      </code>
+                    </>
+                  )}
+                </span>
+              )}
+            </div>
+            <p
+              className="mt-1 text-[11.5px] leading-relaxed"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Strict mode keeps these skills out of the active list. Review each finding below —
+              if you trust this skill, write a justification and click "Allow anyway" to record
+              a per-SHA1 waiver in <code style={{ fontFamily: "var(--font-mono)" }}>~/.ultron/config/skill-trust.yaml</code>.
+              Editing the SKILL.md invalidates the waiver, forcing a fresh review.
+            </p>
+            {secLoading && (
+              <div
+                className="mt-3 text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Running scanner…
+              </div>
+            )}
+            {secError && (
+              <div
+                className="mt-2 rounded px-2 py-1 text-[11px]"
+                style={{
+                  background: "rgba(248, 81, 73, 0.06)",
+                  border: "1px solid rgba(248, 81, 73, 0.22)",
+                  color: "var(--color-danger)",
+                }}
+              >
+                {secError}
+              </div>
+            )}
+            {secReport && secReport.findings.length > 0 && (
+              <div className="mt-3 space-y-1.5">
+                {secReport.findings.map((f, i) => (
+                  <div
+                    key={`${f.rule_id}-${i}`}
+                    className="rounded p-2 text-[11px]"
+                    style={{
+                      background: "var(--color-surface-1)",
+                      border: "1px solid var(--color-border)",
+                      opacity: f.waived ? 0.55 : 1,
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                        style={{
+                          background:
+                            f.severity === "critical" || f.severity === "high"
+                              ? "rgba(248, 81, 73, 0.12)"
+                              : "rgba(232, 169, 58, 0.10)",
+                          color:
+                            f.severity === "critical" || f.severity === "high"
+                              ? "#f85149"
+                              : "#e8a93a",
+                        }}
+                      >
+                        {f.severity}
+                      </span>
+                      <code
+                        className="text-[10.5px]"
+                        style={{ fontFamily: "var(--font-mono)", color: "var(--color-text)" }}
+                      >
+                        {f.rule_id}
+                      </code>
+                      <span style={{ color: "var(--color-text-secondary)" }}>{f.pattern_name}</span>
+                      {f.waived && (
+                        <span
+                          className="ml-auto text-[10px] uppercase tracking-wide"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                        >
+                          waived
+                        </span>
+                      )}
+                    </div>
+                    {f.excerpt && (
+                      <pre
+                        className="mt-1 overflow-x-auto whitespace-pre-wrap text-[10.5px]"
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-tertiary)",
+                        }}
+                      >
+                        {f.excerpt}
+                      </pre>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {secReport && secReport.findings.filter((f) => !f.waived).length > 0 && (
+              <div className="mt-3">
+                <label
+                  className="mb-1 block text-[10px] font-medium uppercase tracking-[0.06em]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Reason (audit trail · required)
+                </label>
+                <textarea
+                  value={allowReason}
+                  onChange={(e) => setAllowReason(e.target.value)}
+                  placeholder="Por qué confío en esta skill (proveniencia, revisión, etc.)"
+                  className="w-full rounded p-2 text-[11.5px] leading-relaxed"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    background: "var(--color-surface-1)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                    outline: "none",
+                    minHeight: 60,
+                    resize: "vertical",
+                  }}
+                />
+                <div className="mt-2 flex justify-end">
+                  <HeaderBtn
+                    label={allowBusy ? "Writing waiver…" : "Allow anyway"}
+                    onClick={handleAllowAnyway}
+                    disabled={allowBusy || !allowReason.trim()}
+                    variant="danger"
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
         {mode === "ai-edit" && (
@@ -795,7 +1074,7 @@ export function Skills() {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [states, setStates] = useState<Set<StateKey>>(() => new Set(["active", "plugin"]));
+  const [states, setStates] = useState<Set<StateKey>>(() => new Set(["active", "plugin", "quarantined"]));
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [onlyUsed, setOnlyUsed] = useState(false);
@@ -822,7 +1101,7 @@ export function Skills() {
   }, []);
 
   const counts = useMemo(() => {
-    const c: Record<StateKey, number> = { active: 0, plugin: 0, vaulted: 0 };
+    const c: Record<StateKey, number> = { active: 0, plugin: 0, vaulted: 0, quarantined: 0 };
     for (const s of skills) {
       if (s.state in c) c[s.state as StateKey] += 1;
     }
@@ -866,9 +1145,10 @@ export function Skills() {
         return false;
       })
       .sort((a, b) => {
-        const order = { active: 0, plugin: 1, vaulted: 2 } as Record<string, number>;
-        const oa = order[a.state] ?? 3;
-        const ob = order[b.state] ?? 3;
+        // Quarantined goes first so security issues are impossible to miss.
+        const order = { quarantined: 0, active: 1, plugin: 2, vaulted: 3 } as Record<string, number>;
+        const oa = order[a.state] ?? 4;
+        const ob = order[b.state] ?? 4;
         if (oa !== ob) return oa - ob;
         // Within same state, used skills first
         if (a.usage_count !== b.usage_count) return b.usage_count - a.usage_count;
@@ -977,6 +1257,13 @@ export function Skills() {
               color="var(--color-text-tertiary)"
               active={states.has("vaulted")}
               onClick={() => toggleState("vaulted")}
+            />
+            <Pill
+              label="Quarantined"
+              count={counts.quarantined}
+              color="#e8a93a"
+              active={states.has("quarantined")}
+              onClick={() => toggleState("quarantined")}
             />
             <span className="mx-1 my-auto h-4 w-px" style={{ background: "var(--color-border-strong)" }} />
             <Pill

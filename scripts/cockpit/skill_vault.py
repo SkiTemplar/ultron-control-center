@@ -256,29 +256,81 @@ def cmd_stats(args) -> int:
 def cmd_registry(args) -> int:
     """WS6: genera el registro unificado de skills (~/.ultron/skills/registry.json).
 
-    SSOT go-forward: 1 entrada por skill con state (active|vaulted|plugin), source,
-    path, description, tags, usage_count (de routing.jsonl), embedding_id (= point id
-    en Qdrant ultron_skills). Reemplaza a las 4 fuentes legacy — la migración de los
-    consumers (registry_sync/skill_manifest/intent-dispatcher) es pendiente.
+    SSOT go-forward: 1 entrada por skill con state (active|vaulted|plugin|quarantined),
+    source, path, description, tags, usage_count, embedding_id, security{decision,
+    findings_count, high_severity_rules, sha1, scanned_at}.
+
+    v15.2.28: strict security mode — skills active cuyo scan devuelva decision
+    'quarantine' o 'block' se etiquetan con state='quarantined' (no 'active').
+    El usuario las ve en la pestaña Skills, sección Quarantined, y puede liberar
+    una manualmente vía el botón "Allow anyway" (waiver SHA1 en skill-trust.yaml).
     """
     idx = _load_index()
     usage = _routing_usage()
     entries: dict[str, dict] = {}
 
-    def _add(name, state, source, path, desc, tags, kind_for_id):
-        entries[f"{state}::{name}"] = {
+    # Optional security scanner — never break registry generation if it fails.
+    _scanner = None
+    try:
+        sys.path.insert(0, str(Path(__file__).parent))
+        import skill_sync_security as _scanner  # type: ignore[import-not-found]
+    except Exception:  # noqa: BLE001
+        _scanner = None
+
+    def _sha1(path: Path) -> str | None:
+        if not path.is_file():
+            return None
+        try:
+            import hashlib as _hl
+            return _hl.sha1(path.read_bytes()).hexdigest()
+        except OSError:
+            return None
+
+    def _scan(skill_dir: Path) -> dict | None:
+        if _scanner is None:
+            return None
+        try:
+            verdict = _scanner.scan_skill(skill_dir, source=None)
+        except Exception:  # noqa: BLE001 — never fail the registry build
+            return None
+        findings = list(getattr(verdict, "findings", []) or [])
+        # Drop waived findings — they stay in the audit log but no longer
+        # influence the visible registry decision.
+        live = [f for f in findings if not getattr(f, "waived", False)]
+        high_rules = sorted({
+            f.rule_id for f in live
+            if getattr(f, "severity", "") in ("high", "critical")
+        })
+        return {
+            "decision": getattr(verdict, "decision", "allow"),
+            "findings_count": len(live),
+            "high_severity_rules": high_rules,
+            "sha1": _sha1(skill_dir / "SKILL.md"),
+            "scanned_at": _now(),
+        }
+
+    def _add(name, state, source, path, desc, tags, kind_for_id, security=None):
+        entry = {
             "name": name, "state": state, "source": source, "path": str(path),
             "description": (desc or "")[:600], "tags": tags or [],
             "usage_count": usage.get(name, 0),
             "embedding_id": _embedding_id(kind_for_id, name),
         }
+        if security is not None:
+            entry["security"] = security
+        entries[f"{state}::{name}"] = entry
 
-    # active — ~/.claude/skills/
+    # active — ~/.claude/skills/  (strict scan: quarantine/block → state=quarantined)
     if PRIMARY.exists():
         for d in sorted(PRIMARY.iterdir()):
             if _is_skill_dir(d):
                 meta = _parse_frontmatter(d / "SKILL.md")
-                _add(d.name, "active", "local", d, meta["description"], meta["tags"], "local")
+                sec = _scan(d)
+                state = "active"
+                if sec is not None and sec["decision"] in ("quarantine", "block"):
+                    state = "quarantined"
+                _add(d.name, state, "local", d, meta["description"],
+                     meta["tags"], "local", security=sec)
     # vaulted — desde INDEX.json (autoritativo) + verifica que el dir exista
     for name, d in idx["skills"].items():
         path = VAULT_DIR / name

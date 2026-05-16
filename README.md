@@ -162,6 +162,14 @@ cd $env:USERPROFILE\.ultron
 
 The installer is **idempotent** — rerun it any time; it detects what is already done and only applies pending changes. If something fails, see [`INSTALL.md`](INSTALL.md) for manual troubleshooting.
 
+To remove everything ULTRON installed (without touching your Claude Code skills in `~/.claude/skills/`):
+
+```powershell
+.\uninstall.ps1            # interactive: confirms before deleting
+.\uninstall.ps1 -DryRun    # preview what would be removed
+.\uninstall.ps1 -KeepBackups   # rename ~/.ultron/ instead of deleting
+```
+
 <details>
 <summary><b>What the installer does (11 steps)</b></summary>
 

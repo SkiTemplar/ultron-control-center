@@ -391,6 +391,20 @@ async fn delete_skill(name: String, soft: bool) -> Result<skills::SkillDeleteRes
 }
 
 #[tauri::command]
+async fn get_skill_findings(name: String) -> Result<skills::SkillSecurityReport, String> {
+    skills::get_skill_findings_inner(name)
+}
+
+#[tauri::command]
+async fn allow_skill_manually(
+    name: String,
+    rules: Vec<String>,
+    reason: String,
+) -> Result<skills::AllowSkillResult, String> {
+    skills::allow_skill_manually_inner(name, rules, reason)
+}
+
+#[tauri::command]
 async fn memory_status(app: tauri::AppHandle) -> Result<memory::MemoryStatus, String> {
     // F2: route through *_with_emit so qdrant.health alerts fire on probe failure
     Ok(memory::memory_status_with_emit(&app))
@@ -1233,6 +1247,8 @@ pub fn run() {
             create_skill,
             update_skill_md,
             delete_skill,
+            get_skill_findings,
+            allow_skill_manually,
             memory_status,
             spawn_session,
             run_inline,

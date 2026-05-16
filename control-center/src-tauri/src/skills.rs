@@ -30,6 +30,21 @@ pub struct SkillInfo {
     pub tags: Vec<String>,
     pub path: Option<String>,
     pub usage_count: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<SecurityInfo>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SecurityInfo {
+    pub decision: String,
+    #[serde(default)]
+    pub findings_count: u64,
+    #[serde(default)]
+    pub high_severity_rules: Vec<String>,
+    #[serde(default)]
+    pub sha1: Option<String>,
+    #[serde(default)]
+    pub scanned_at: Option<String>,
 }
 
 // registry.json shape (v2): "skills" is a *map* keyed by composite ids like
@@ -58,6 +73,8 @@ struct RegistrySkill {
     path: Option<String>,
     #[serde(default)]
     usage_count: u64,
+    #[serde(default)]
+    security: Option<SecurityInfo>,
 }
 
 fn registry_path() -> Option<PathBuf> {
@@ -136,6 +153,7 @@ pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
             tags: cleaned_tags,
             path: s.path,
             usage_count: s.usage_count,
+            security: s.security,
         });
     }
     Ok(out)
@@ -395,4 +413,251 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Security — findings + manual allow ("Allow anyway")
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct SkillFinding {
+    pub rule_id: String,
+    pub severity: String,
+    pub pattern_name: String,
+    pub excerpt: String,
+    pub line_number: Option<u64>,
+    pub waived: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SkillSecurityReport {
+    pub name: String,
+    pub decision: String,
+    pub sha1: Option<String>,
+    pub findings: Vec<SkillFinding>,
+    pub stderr: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AllowSkillResult {
+    pub success: bool,
+    pub name: String,
+    pub sha1: String,
+    pub waiver_path: String,
+}
+
+/// Convert a unix timestamp (UTC seconds) into a `YYYY-MM-DD` string.
+/// Howard Hinnant's civil-from-days algorithm — pure stdlib, no deps.
+fn format_ymd_local(ts: u64) -> String {
+    let days = (ts / 86400) as i64;
+    let z = days + 719468;
+    let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
+    let doe = (z - era * 146097) as i64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let mut y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    if m <= 2 {
+        y += 1;
+    }
+    format!("{:04}-{:02}-{:02}", y, m, d)
+}
+
+fn sha1_of_file(p: &Path) -> Result<String, String> {
+    let data = fs::read(p).map_err(|e| format!("read {}: {}", p.display(), e))?;
+    let mut hasher = Sha1Engine::new();
+    hasher.update(&data);
+    Ok(hasher.hex())
+}
+
+/// Run the Python security scanner against the skill and return its findings
+/// as parsed JSON. Falls back to "scanner unavailable" if the scanner errors.
+pub fn get_skill_findings_inner(name: String) -> Result<SkillSecurityReport, String> {
+    validate_slug(&name)?;
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let skill_dir = locate_skill_dir(&home, &name)?;
+    let scanner = home.join(".ultron/scripts/cockpit/skill_sync_security.py");
+    if !scanner.is_file() {
+        return Err(format!("scanner missing: {}", scanner.display()));
+    }
+    // Use uv run to honour the cockpit's lockfile (PI rule set lives there).
+    let output = std::process::Command::new("uv")
+        .arg("run")
+        .arg("python")
+        .arg(&scanner)
+        .arg("scan")
+        .arg(&skill_dir)
+        .arg("--json")
+        .current_dir(home.join(".ultron"))
+        .output()
+        .map_err(|e| format!("spawn uv: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&stdout).map_err(|e| format!("parse scanner json: {} — raw: {}", e, stdout.chars().take(200).collect::<String>()))?;
+    let decision = parsed.get("decision").and_then(|v| v.as_str()).unwrap_or("allow").to_string();
+    let sha1 = parsed.get("sha1").and_then(|v| v.as_str()).map(String::from);
+    let mut findings: Vec<SkillFinding> = Vec::new();
+    if let Some(arr) = parsed.get("findings").and_then(|v| v.as_array()) {
+        for f in arr {
+            findings.push(SkillFinding {
+                rule_id: f.get("rule_id").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
+                severity: f.get("severity").and_then(|v| v.as_str()).unwrap_or("low").to_string(),
+                pattern_name: f.get("pattern_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                excerpt: f.get("excerpt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                line_number: f.get("line_number").and_then(|v| v.as_u64()),
+                waived: f.get("waived").and_then(|v| v.as_bool()).unwrap_or(false),
+            });
+        }
+    }
+    Ok(SkillSecurityReport { name, decision, sha1, findings, stderr })
+}
+
+/// Write a per-skill waiver to ~/.ultron/config/skill-trust.yaml so the
+/// scanner downgrades the listed rules on the *current* SKILL.md sha1.
+/// Editing the file invalidates the waiver — that is by design.
+pub fn allow_skill_manually_inner(
+    name: String,
+    rules: Vec<String>,
+    reason: String,
+) -> Result<AllowSkillResult, String> {
+    validate_slug(&name)?;
+    if rules.is_empty() {
+        return Err("waived rules cannot be empty".to_string());
+    }
+    if reason.trim().is_empty() {
+        return Err("reason is required (audit trail)".to_string());
+    }
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let skill_dir = locate_skill_dir(&home, &name)?;
+    let md_path = skill_dir.join("SKILL.md");
+    let sha1 = sha1_of_file(&md_path)?;
+
+    let trust_path = home.join(".ultron/config/skill-trust.yaml");
+    if !trust_path.is_file() {
+        return Err(format!("trust config missing: {}", trust_path.display()));
+    }
+    let mut yaml = fs::read_to_string(&trust_path)
+        .map_err(|e| format!("read {}: {}", trust_path.display(), e))?;
+
+    // We don't pull a full YAML library to avoid the dep churn — the file
+    // is hand-authored append-only. Validate that we won't double-add the
+    // exact same waiver for this sha1, then append a new block.
+    let marker = format!("skill_md_sha1: \"{}\"", sha1);
+    let name_marker = format!("skill_name: \"{}\"", name);
+    if yaml.contains(&marker) && yaml.contains(&name_marker) {
+        return Err(format!(
+            "waiver already present for {} @ sha1 {}",
+            name, sha1
+        ));
+    }
+    if !yaml.ends_with('\n') {
+        yaml.push('\n');
+    }
+
+    let today = format_ymd_local(unix_ts());
+    let rules_yaml: String = rules
+        .iter()
+        .map(|r| format!("\"{}\"", r.replace('"', "")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let reason_one_line = reason.replace('\n', " ").replace('"', "'");
+    let entry = format!(
+        "\n  - skill_name: \"{}\"\n    skill_md_sha1: \"{}\"\n    waived_rules: [{}]\n    reason: \"{}\"\n    approved_by: \"USER@local\"\n    approved_at: \"{}\"\n",
+        name, sha1, rules_yaml, reason_one_line, today
+    );
+    yaml.push_str(&entry);
+    fs::write(&trust_path, yaml)
+        .map_err(|e| format!("write {}: {}", trust_path.display(), e))?;
+
+    Ok(AllowSkillResult {
+        success: true,
+        name,
+        sha1,
+        waiver_path: trust_path.to_string_lossy().to_string(),
+    })
+}
+
+// Minimal in-tree SHA1 to avoid a new crate dep just for this command.
+struct Sha1Engine {
+    state: [u32; 5],
+    buf: Vec<u8>,
+    len: u64,
+}
+
+impl Sha1Engine {
+    fn new() -> Self {
+        Self {
+            state: [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0],
+            buf: Vec::new(),
+            len: 0,
+        }
+    }
+    fn update(&mut self, data: &[u8]) {
+        self.len += data.len() as u64;
+        self.buf.extend_from_slice(data);
+        let mut idx = 0;
+        while self.buf.len() - idx >= 64 {
+            self.process_block(&self.buf[idx..idx + 64].try_into().unwrap());
+            idx += 64;
+        }
+        self.buf.drain(..idx);
+    }
+    fn hex(mut self) -> String {
+        let bit_len = self.len * 8;
+        self.buf.push(0x80);
+        while self.buf.len() % 64 != 56 {
+            self.buf.push(0);
+        }
+        self.buf.extend_from_slice(&bit_len.to_be_bytes());
+        let mut idx = 0;
+        while idx < self.buf.len() {
+            let block: [u8; 64] = self.buf[idx..idx + 64].try_into().unwrap();
+            self.process_block(&block);
+            idx += 64;
+        }
+        let mut out = String::with_capacity(40);
+        for word in self.state {
+            out.push_str(&format!("{:08x}", word));
+        }
+        out
+    }
+    fn process_block(&mut self, block: &[u8; 64]) {
+        let mut w = [0u32; 80];
+        for i in 0..16 {
+            w[i] = u32::from_be_bytes(block[i * 4..i * 4 + 4].try_into().unwrap());
+        }
+        for i in 16..80 {
+            let val = w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16];
+            w[i] = val.rotate_left(1);
+        }
+        let mut a = self.state[0];
+        let mut b = self.state[1];
+        let mut c = self.state[2];
+        let mut d = self.state[3];
+        let mut e = self.state[4];
+        for i in 0..80 {
+            let (f, k) = match i {
+                0..=19 => ((b & c) | (!b & d), 0x5A827999),
+                20..=39 => (b ^ c ^ d, 0x6ED9EBA1),
+                40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDC),
+                _ => (b ^ c ^ d, 0xCA62C1D6),
+            };
+            let temp = a.rotate_left(5).wrapping_add(f).wrapping_add(e).wrapping_add(k).wrapping_add(w[i]);
+            e = d;
+            d = c;
+            c = b.rotate_left(30);
+            b = a;
+            a = temp;
+        }
+        self.state[0] = self.state[0].wrapping_add(a);
+        self.state[1] = self.state[1].wrapping_add(b);
+        self.state[2] = self.state[2].wrapping_add(c);
+        self.state[3] = self.state[3].wrapping_add(d);
+        self.state[4] = self.state[4].wrapping_add(e);
+    }
 }
