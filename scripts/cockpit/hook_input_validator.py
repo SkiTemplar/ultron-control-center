@@ -144,7 +144,12 @@ def _is_session_id(value: Any) -> bool:
 
 def _validate_user_prompt_submit(payload: dict[str, Any]) -> list[str]:
     errs: list[str] = []
-    if payload.get("hook_event_name") != "UserPromptSubmit":
+    # v15.2.38: only flag a mismatch if the field is PRESENT and wrong.
+    # Newer Claude Code builds sometimes omit the discriminator and rely
+    # on the hook entry-point to know its own event. Trusting the caller
+    # here removes a sea of false-positive warns.
+    hen = payload.get("hook_event_name")
+    if hen is not None and hen != "UserPromptSubmit":
         errs.append("hook_event_name_mismatch")
     prompt = payload.get("prompt")
     if not isinstance(prompt, str):
@@ -158,7 +163,8 @@ def _validate_user_prompt_submit(payload: dict[str, Any]) -> list[str]:
 
 def _validate_pre_tool_use(payload: dict[str, Any]) -> list[str]:
     errs: list[str] = []
-    if payload.get("hook_event_name") != "PreToolUse":
+    hen = payload.get("hook_event_name")
+    if hen is not None and hen != "PreToolUse":
         errs.append("hook_event_name_mismatch")
     tool = payload.get("tool_name")
     if not isinstance(tool, str) or not _TOOL_NAME_RE.match(tool):
@@ -174,7 +180,8 @@ def _validate_pre_tool_use(payload: dict[str, Any]) -> list[str]:
 def _validate_post_tool_use(payload: dict[str, Any]) -> list[str]:
     errs = _validate_pre_tool_use({**payload,
                                     "hook_event_name": "PreToolUse"})
-    if payload.get("hook_event_name") != "PostToolUse":
+    hen = payload.get("hook_event_name")
+    if hen is not None and hen != "PostToolUse":
         errs = [e for e in errs if e != "hook_event_name_mismatch"]
         errs.append("hook_event_name_mismatch")
     return errs
@@ -182,7 +189,8 @@ def _validate_post_tool_use(payload: dict[str, Any]) -> list[str]:
 
 def _validate_stop(payload: dict[str, Any]) -> list[str]:
     errs: list[str] = []
-    if payload.get("hook_event_name") != "Stop":
+    hen = payload.get("hook_event_name")
+    if hen is not None and hen != "Stop":
         errs.append("hook_event_name_mismatch")
     if not _is_session_id(payload.get("session_id", "")):
         errs.append("session_id_invalid")
@@ -191,7 +199,8 @@ def _validate_stop(payload: dict[str, Any]) -> list[str]:
 
 def _validate_session_start(payload: dict[str, Any]) -> list[str]:
     errs: list[str] = []
-    if payload.get("hook_event_name") != "SessionStart":
+    hen = payload.get("hook_event_name")
+    if hen is not None and hen != "SessionStart":
         errs.append("hook_event_name_mismatch")
     if not _is_session_id(payload.get("session_id", "")):
         errs.append("session_id_invalid")
@@ -203,7 +212,8 @@ def _validate_session_start(payload: dict[str, Any]) -> list[str]:
 
 def _validate_notification(payload: dict[str, Any]) -> list[str]:
     errs: list[str] = []
-    if payload.get("hook_event_name") != "Notification":
+    hen = payload.get("hook_event_name")
+    if hen is not None and hen != "Notification":
         errs.append("hook_event_name_mismatch")
     if not _is_session_id(payload.get("session_id", "")):
         errs.append("session_id_invalid")
@@ -215,7 +225,8 @@ def _validate_notification(payload: dict[str, Any]) -> list[str]:
 
 def _validate_subagent_stop(payload: dict[str, Any]) -> list[str]:
     errs: list[str] = []
-    if payload.get("hook_event_name") != "SubagentStop":
+    hen = payload.get("hook_event_name")
+    if hen is not None and hen != "SubagentStop":
         errs.append("hook_event_name_mismatch")
     if not _is_session_id(payload.get("session_id", "")):
         errs.append("session_id_invalid")

@@ -351,6 +351,32 @@ function Row({
             >
               Edit
             </button>
+            {p.path && (
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    // Try VS Code first (the most common IDE on this stack).
+                    // openPath with a folder uses the shell default, which is
+                    // explorer; we want the IDE. Use a small Tauri command
+                    // wrapper that runs `code <path>` if `code` is on PATH,
+                    // falling back to explorer.
+                    await invoke("open_project_in_ide", { path: p.path });
+                  } catch (e) {
+                    console.error("open in IDE failed", e);
+                  }
+                }}
+                className="rounded px-2 py-1 text-[10.5px] transition-colors"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text-secondary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+                title={`Open ${p.path} in your default IDE (VS Code if installed, else file explorer)`}
+              >
+                IDE
+              </button>
+            )}
             <button
               type="button"
               onClick={onDelete}

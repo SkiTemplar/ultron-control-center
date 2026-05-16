@@ -144,6 +144,68 @@ def render_section(version: str, sha: str, subjects: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def append_to_ndjson(root: Path, version: str, sha: str, subject: str, subjects: list[str]) -> None:
+    """Mirror the changelog entry into ~/.ultron/cockpit/changelog.ndjson —
+    that's what the Control Center reads. Idempotent: skip if the version
+    is already represented in the ndjson.
+    """
+    ndjson = root / "cockpit" / "changelog.ndjson"
+    if not ndjson.parent.exists():
+        try:
+            ndjson.parent.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            return
+    # Skip if already recorded.
+    if ndjson.exists():
+        try:
+            for line in ndjson.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if version in (rec.get("related_ids") or []):
+                    return
+                if rec.get("id") == f"v{version.replace('.', '-')}":
+                    return
+        except OSError:
+            pass
+
+    # Best-effort type / scope extraction from the bump subject:
+    #   feat(v15.2.x): blah        -> type=feat, scope=v15.2.x
+    #   fix(v15.2.x-thing): blah  -> type=fix,  scope=v15.2.x-thing
+    m = re.match(r"^(\w+)\(([^)]+)\):\s*(.*)$", subject)
+    if m:
+        kind = m.group(1)
+        scope = m.group(2)
+        title = m.group(3).strip()
+    else:
+        kind = "feat"
+        scope = f"v{version}"
+        title = subject.strip()
+
+    body_lines = [s for s in subjects[:8] if s.strip() and s != subject]
+    body = "\n".join(f"- {s}" for s in body_lines) if body_lines else f"Release v{version}"
+
+    entry = {
+        "id": f"v{version.replace('.', '-')}",
+        "ts": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S"),
+        "type": kind,
+        "scope": scope,
+        "title": title[:200] if title else f"ULTRON Control Center v{version}",
+        "body": body,
+        "related_ids": [f"v{version}"],
+        "applied_by": "auto-changelog",
+    }
+    try:
+        with ndjson.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError:
+        return
+
+
 def prepend_section(changelog: Path, section: str) -> None:
     existing = ""
     if changelog.exists():
@@ -191,6 +253,8 @@ def main() -> int:
     section = render_section(version, sha, section_subjects)
     try:
         prepend_section(changelog, section)
+        # Mirror into the ndjson the Control Center reads.
+        append_to_ndjson(root, version, sha, _subject, section_subjects)
     except OSError as e:
         # Best-effort: write a one-line debug trace next to ~/.ultron/logs
         # so the user can investigate but we still exit 0.

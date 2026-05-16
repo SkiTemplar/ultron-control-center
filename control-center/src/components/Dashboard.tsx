@@ -917,6 +917,42 @@ export function Dashboard({
             </button>
             <button
               type="button"
+              onClick={async () => {
+                if (!pcReport?.report_json) return;
+                try {
+                  const prompt = [
+                    "Analiza este reporte de diagnostico PC y dime exactamente que esta mal, por orden de gravedad. Para cada problema, propon un fix concreto (comando o accion). Si todo esta bien, dilo en una linea.",
+                    "",
+                    "Reporte (JSON):",
+                    "```json",
+                    pcReport.report_json,
+                    "```",
+                  ].join("\n");
+                  const { getHomeDir, joinPath } = await import("../lib/paths");
+                  const cwd = joinPath(await getHomeDir(), ".ultron");
+                  await invoke("spawn_session", {
+                    provider: "claude",
+                    prompt,
+                    cwd,
+                    flags: { dangerouslySkipPermissions: false },
+                  });
+                } catch (e) {
+                  console.error("PC diagnostic Claude session failed", e);
+                }
+              }}
+              disabled={!pcReport}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+              title="Open a Claude session preloaded with this report — Claude analyses it and proposes concrete fixes"
+            >
+              Analyse with Claude
+            </button>
+            <button
+              type="button"
               onClick={() => {
                 setFixSelected(new Set());
                 setFixResults([]);

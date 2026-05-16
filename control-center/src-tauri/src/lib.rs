@@ -430,6 +430,54 @@ async fn run_app_lifecycle(kind: String) -> Result<(), String> {
     maintenance::run_app_lifecycle_inner(kind)
 }
 
+/// Open a project path in the user's IDE.
+/// Order: VS Code (`code <path>`) -> Cursor (`cursor <path>`) -> file explorer.
+/// Path is canonicalised to reject relative / traversal payloads.
+#[tauri::command]
+async fn open_project_in_ide(path: String) -> Result<String, String> {
+    use std::path::PathBuf;
+    let p = PathBuf::from(&path);
+    if !p.is_dir() && !p.is_file() {
+        return Err(format!("path not found: {}", path));
+    }
+    let canonical = p.canonicalize().map_err(|e| format!("canonicalize: {}", e))?;
+    let canonical_str = canonical.to_string_lossy().to_string();
+    // Strip the Windows extended path prefix \\?\ which `code` doesn't like.
+    let cleaned = canonical_str
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&canonical_str)
+        .to_string();
+
+    // VS Code first — most common.
+    for cli in &["code", "cursor", "code-insiders"] {
+        if std::process::Command::new("where").arg(cli).output()
+            .map(|o| o.status.success()).unwrap_or(false)
+        {
+            // Use cmd /C to invoke the .cmd shim winget installs.
+            let mut cmd = std::process::Command::new("cmd");
+            cmd.args(["/C", cli, &cleaned]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            cmd.spawn().map_err(|e| format!("spawn {}: {}", cli, e))?;
+            return Ok(format!("opened in {}", cli));
+        }
+    }
+
+    // Fallback: file explorer.
+    let mut explorer = std::process::Command::new("explorer.exe");
+    explorer.arg(&cleaned);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        explorer.creation_flags(0x08000000);
+    }
+    explorer.spawn().map_err(|e| format!("spawn explorer: {}", e))?;
+    Ok("opened in file explorer (no IDE on PATH)".to_string())
+}
+
 #[tauri::command]
 async fn allow_skill_manually(
     name: String,
@@ -1288,6 +1336,7 @@ pub fn run() {
             run_maintenance_command,
             run_detect_gaps,
             run_app_lifecycle,
+            open_project_in_ide,
             memory_status,
             spawn_session,
             run_inline,
