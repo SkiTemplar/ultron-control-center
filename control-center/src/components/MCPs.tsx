@@ -804,23 +804,11 @@ export function MCPs() {
           >
             + Add MCP
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setGenDescription("");
-              setGenResult(null);
-              setGenError(null);
-              setGenOpen(true);
-            }}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text-primary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-          >
-            Generate from prompt
-          </button>
+          {/* "Generate from prompt" retired in favor of "Add with AI" —
+              the inline modal kept choking on prompts with special chars
+              and the wt.exe-based flow gives Claude full conversation
+              control, which matters when the user needs to clarify
+              command/args/env shape. */}
           <button
             type="button"
             onClick={async () => {

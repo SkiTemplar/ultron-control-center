@@ -164,6 +164,60 @@
           ]
         },
         {
+          "name": "system-tasks-edit",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            "-Action",
+            "edit",
+            "-Name",
+            { "validator": "^(ULTRON|Ultron)[A-Za-z0-9._\\-]{1,80}$" },
+            "-NewTriggerType",
+            { "validator": "^(Daily|Weekly|AtLogon)$" },
+            "-NewTriggerAt",
+            { "validator": "^([01][0-9]|2[0-3]):[0-5][0-9]$" }
+          ]
+        },
+        {
+          "name": "system-tasks-edit-atlogon",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            "-Action",
+            "edit",
+            "-Name",
+            { "validator": "^(ULTRON|Ultron)[A-Za-z0-9._\\-]{1,80}$" },
+            "-NewTriggerType",
+            { "validator": "^AtLogon$" }
+          ]
+        },
+        {
+          "name": "system-tasks-delete",
+          "cmd": "powershell.exe",
+          "args": [
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            "-Action",
+            "delete",
+            "-Name",
+            { "validator": "^(ULTRON|Ultron)[A-Za-z0-9._\\-]{1,80}$" }
+          ]
+        },
+        {
           "name": "mcp-health",
           "cmd": "uv",
           "args": [

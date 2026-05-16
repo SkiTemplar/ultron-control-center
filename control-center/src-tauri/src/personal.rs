@@ -12,7 +12,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct PersonalProfile {
@@ -22,12 +22,42 @@ pub struct PersonalProfile {
     pub size_bytes: u64,
 }
 
+/// "What ULTRON knows about you" — the auto-generated mirror that lives
+/// next to `profile.md` and is composed by a Claude session reading
+/// transcripts, commits and MEMORY.md. The UI shows this read-only on the
+/// left side of the Personal tab; the right side is the editable profile.
+///
+/// The struct is intentionally permissive on deserialize so a partially
+/// written `known.json` (e.g. Claude wrote half the fields) doesn't blow
+/// up the whole tab.
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct PersonalKnown {
+    #[serde(default)]
+    pub style_fingerprint: String,
+    #[serde(default)]
+    pub recent_topics: Vec<String>,
+    #[serde(default)]
+    pub routines: Vec<String>,
+    #[serde(default)]
+    pub last_updated: Option<String>,
+    #[serde(default)]
+    pub source: String,
+}
+
 fn profile_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron/personal/profile.md"))
 }
 
 fn backups_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron/personal/profile.backups"))
+}
+
+fn known_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".ultron/personal/known.json"))
+}
+
+fn personal_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".ultron/personal"))
 }
 
 fn iso_from_systime(t: SystemTime) -> Option<String> {
@@ -132,4 +162,60 @@ pub fn save_personal_profile_inner(content: String) -> Result<PersonalProfile, S
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
 
     read_personal_profile_inner()
+}
+
+/// Read the JSON mirror of "what ULTRON knows about you". When the file is
+/// missing we return an empty struct with `last_updated: None` so the UI
+/// can render the empty-state message — we deliberately do NOT invent any
+/// content, that's Claude's job once the user clicks the generate button.
+pub fn read_personal_known_inner() -> Result<PersonalKnown, String> {
+    let path = known_path().ok_or_else(|| "no HOME".to_string())?;
+    if !path.exists() {
+        return Ok(PersonalKnown::default());
+    }
+    let raw = fs::read_to_string(&path).map_err(|e| format!("read known: {}", e))?;
+    let parsed: PersonalKnown = serde_json::from_str(&raw)
+        .map_err(|e| format!("parse known.json: {}", e))?;
+    Ok(parsed)
+}
+
+/// Spawn a Claude session in `~/.ultron/personal/` with a token-efficient
+/// prompt that tells Claude to compose `known.json` from transcripts,
+/// recent commits and MEMORY.md. We just open the terminal — the user
+/// presses Refresh on the UI after Claude finishes writing the file.
+pub async fn request_personal_analysis_inner(
+    app: &tauri::AppHandle,
+) -> Result<String, String> {
+    let dir = personal_dir().ok_or_else(|| "no HOME".to_string())?;
+    // Ensure the directory exists so Claude's session starts in a valid
+    // cwd even on a fresh install.
+    fs::create_dir_all(&dir).map_err(|e| format!("mkdir personal: {}", e))?;
+
+    let cwd = dir.to_string_lossy().to_string();
+    let known = known_path()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_else(|| "~/.ultron/personal/known.json".to_string());
+
+    let prompt = format!(
+        "Lee los últimos 30 transcripts en ~/.claude/projects/, los últimos 20 \
+commits del repo ~/.ultron, y MEMORY.md. Genera un análisis de mi estilo de \
+escritura, temas recurrentes y rutinas. Escribe el resultado en {} con shape: \
+{{\"style_fingerprint\": \"...\", \"recent_topics\": [], \"routines\": [], \
+\"last_updated\": \"<iso>\", \"source\": \"<descripción>\"}}. Token-eficiente: \
+máximo 50 líneas leídas por fuente. style_fingerprint = 1-3 líneas. \
+recent_topics: máximo 8 strings cortos. routines: máximo 4 frases tipo \
+\"trabaja entre 22:00-02:00\". NO inventes datos: si una fuente no aporta \
+nada, déjalo vacío.",
+        known
+    );
+
+    crate::sessions::spawn_session_inner(
+        app,
+        "claude".to_string(),
+        Some(prompt),
+        Some(cwd),
+        None,
+    )
+    .await?;
+    Ok("Claude session abierta".to_string())
 }

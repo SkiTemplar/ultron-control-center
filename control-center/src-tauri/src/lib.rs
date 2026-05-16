@@ -5,6 +5,7 @@
 //   - read_changelog: parse ~/.ultron/cockpit/changelog.ndjson into entries
 //   - Tray icon: stays neutral for now (Phase 2.5 swaps icon by global status)
 
+mod ai_router;
 mod auth;
 mod backup_status;
 mod claude_sessions;
@@ -278,6 +279,24 @@ async fn rich_system_info(
 }
 
 #[tauri::command]
+async fn edit_scheduled_task(
+    app: tauri::AppHandle,
+    name: String,
+    new_trigger_type: String,
+    new_trigger_at: Option<String>,
+) -> Result<system::EditTaskResult, String> {
+    system::edit_task_inner(&app, name, new_trigger_type, new_trigger_at).await
+}
+
+#[tauri::command]
+async fn delete_scheduled_task(
+    app: tauri::AppHandle,
+    name: String,
+) -> Result<system::DeleteTaskResult, String> {
+    system::delete_task_inner(&app, name).await
+}
+
+#[tauri::command]
 async fn list_killable_processes(
     app: tauri::AppHandle,
 ) -> Result<Vec<gaming::GameProcessInfo>, String> {
@@ -464,6 +483,18 @@ async fn set_ultron_mode(mode: String) -> Result<mode::ModeSetResult, String> {
 }
 
 #[tauri::command]
+async fn read_ai_router() -> Result<ai_router::AiRouterConfig, String> {
+    ai_router::read_ai_router_inner()
+}
+
+#[tauri::command]
+async fn save_ai_router(
+    config: ai_router::AiRouterConfig,
+) -> Result<ai_router::AiRouterConfig, String> {
+    ai_router::save_ai_router_inner(config)
+}
+
+#[tauri::command]
 async fn list_news() -> Result<Vec<news::NewsEntry>, String> {
     news::list_news_inner()
 }
@@ -489,6 +520,11 @@ async fn generate_news_session(
 #[tauri::command]
 async fn delete_news(path: String) -> Result<bool, String> {
     news::delete_news_inner(path)
+}
+
+#[tauri::command]
+async fn read_news_html(path: String) -> Result<String, String> {
+    news::read_news_html_inner(path)
 }
 
 #[tauri::command]
@@ -526,6 +562,16 @@ async fn save_personal_profile(
     content: String,
 ) -> Result<personal::PersonalProfile, String> {
     personal::save_personal_profile_inner(content)
+}
+
+#[tauri::command]
+async fn read_personal_known() -> Result<personal::PersonalKnown, String> {
+    personal::read_personal_known_inner()
+}
+
+#[tauri::command]
+async fn request_personal_analysis(app: tauri::AppHandle) -> Result<String, String> {
+    personal::request_personal_analysis_inner(&app).await
 }
 
 /// Append a UI-side alert to alerts.jsonl so Notifications picks it up.
@@ -942,6 +988,8 @@ pub fn run() {
             system_info,
             task_detail,
             rich_system_info,
+            edit_scheduled_task,
+            delete_scheduled_task,
             list_killable_processes,
             kill_processes,
             windows_tweaks_status,
@@ -949,10 +997,13 @@ pub fn run() {
             auth_status,
             get_ultron_mode,
             set_ultron_mode,
+            read_ai_router,
+            save_ai_router,
             list_news,
             generate_news,
             generate_news_session,
             delete_news,
+            read_news_html,
             summarize_news,
             list_claude_sessions,
             run_diagnose,
@@ -964,6 +1015,8 @@ pub fn run() {
             instruction_path,
             read_personal_profile,
             save_personal_profile,
+            read_personal_known,
+            request_personal_analysis,
             record_ui_alert,
             list_plans,
             patch_plan_status,

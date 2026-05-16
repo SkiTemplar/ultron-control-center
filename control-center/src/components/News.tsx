@@ -54,6 +54,16 @@ export function News() {
   });
   const [summarizing, setSummarizing] = useState(false);
 
+  // Inline HTML body cache (in-memory only — newsletters can hit ~80 KB so
+  // persisting in localStorage would balloon storage fast). Keyed by path.
+  // `null` means we tried and failed; falsy means not yet loaded.
+  const [htmlCache, setHtmlCache] = useState<Record<string, string | null>>({});
+  const [htmlLoading, setHtmlLoading] = useState(false);
+  const [htmlError, setHtmlError] = useState<string | null>(null);
+  // View toggle per selection. Default to inline so the user immediately
+  // sees the newsletter content (the original ask).
+  const [viewMode, setViewMode] = useState<"inline" | "summary">("inline");
+
   async function load() {
     setLoading(true);
     try {
@@ -89,6 +99,34 @@ export function News() {
   useEffect(() => {
     load();
   }, []);
+
+  // Fetch full HTML when the selected newsletter changes (inline view). We
+  // cache aggressively per path so toggling Summary/Inline back and forth
+  // doesn't re-read the file. If the read fails (>500 KB cap, missing
+  // file, permission), we store `null` so the UI can fall back to excerpt.
+  useEffect(() => {
+    if (!selected) return;
+    if (selected in htmlCache) return;
+    let cancelled = false;
+    setHtmlLoading(true);
+    setHtmlError(null);
+    invoke<string>("read_news_html", { path: selected })
+      .then((body) => {
+        if (cancelled) return;
+        setHtmlCache((prev) => ({ ...prev, [selected]: body }));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setHtmlCache((prev) => ({ ...prev, [selected]: null }));
+        setHtmlError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setHtmlLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected, htmlCache]);
 
   // @ts-expect-error retained as a callable for power-user JS console / future debugging
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -404,72 +442,174 @@ export function News() {
                 </button>
               </div>
             </header>
-            <div className="flex-1 overflow-auto px-5 py-4">
-              <p
-                className="text-[12px] leading-relaxed"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {sel.excerpt ?? "No excerpt extracted yet. Open the file in a browser to read."}
-              </p>
-
-              <div
-                className="mt-5 flex items-baseline justify-between gap-2 border-t pt-3"
-                style={{ borderColor: "var(--color-border)" }}
-              >
-                <h3 className="text-[11px] font-medium uppercase tracking-[0.06em]"
-                  style={{ color: "var(--color-text-secondary)" }}
-                >
-                  AI summary
-                </h3>
+            <div
+              className="border-b px-5 py-2"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => summarize(sel.path)}
-                  disabled={summarizing || !!summaries[sel.path]}
-                  className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+                  onClick={() => setViewMode("inline")}
+                  className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors"
                   style={{
-                    background: summaries[sel.path]
-                      ? "var(--color-surface-2)"
-                      : "var(--color-accent)",
-                    color: summaries[sel.path]
-                      ? "var(--color-text-tertiary)"
-                      : "var(--color-accent-text)",
-                    border: summaries[sel.path]
-                      ? "1px solid var(--color-border)"
-                      : "none",
+                    background:
+                      viewMode === "inline"
+                        ? "var(--color-surface-3)"
+                        : "transparent",
+                    color:
+                      viewMode === "inline"
+                        ? "var(--color-text)"
+                        : "var(--color-text-tertiary)",
+                    border: `1px solid ${viewMode === "inline" ? "var(--color-border-strong)" : "transparent"}`,
                   }}
-                  title={
-                    summaries[sel.path]
-                      ? "Already summarised (cached)"
-                      : "Resume con Claude (6 bullets + conclusion)"
-                  }
+                  title="Renderiza el HTML completo dentro de la app (sin scripts)"
                 >
-                  {summarizing
-                    ? "Summarising..."
-                    : summaries[sel.path]
-                      ? "Cached"
-                      : "Summarise"}
+                  Inline render
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewMode("summary")}
+                  className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors"
+                  style={{
+                    background:
+                      viewMode === "summary"
+                        ? "var(--color-surface-3)"
+                        : "transparent",
+                    color:
+                      viewMode === "summary"
+                        ? "var(--color-text)"
+                        : "var(--color-text-tertiary)",
+                    border: `1px solid ${viewMode === "summary" ? "var(--color-border-strong)" : "transparent"}`,
+                  }}
+                  title="Resumen AI + excerpt (texto plano)"
+                >
+                  Summary
                 </button>
               </div>
-              {summaries[sel.path] ? (
-                <pre
-                  className="mt-2 text-[12.5px] leading-relaxed"
-                  style={{
-                    color: "var(--color-text-secondary)",
-                    whiteSpace: "pre-wrap",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  {summaries[sel.path]}
-                </pre>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              {viewMode === "inline" ? (
+                <div className="flex h-full flex-col">
+                  {htmlLoading && !htmlCache[sel.path] && (
+                    <div
+                      className="px-5 py-3 text-[11.5px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      Loading newsletter...
+                    </div>
+                  )}
+                  {htmlCache[sel.path] ? (
+                    <iframe
+                      key={sel.path}
+                      title={sel.title ?? sel.filename}
+                      srcDoc={htmlCache[sel.path] as string}
+                      sandbox="allow-same-origin"
+                      referrerPolicy="no-referrer"
+                      className="flex-1 w-full"
+                      style={{
+                        border: "none",
+                        background: "#000",
+                        minHeight: "80vh",
+                      }}
+                    />
+                  ) : (
+                    !htmlLoading && (
+                      <div className="overflow-auto px-5 py-4">
+                        {htmlError && (
+                          <div
+                            className="mb-3 rounded p-2 text-[11.5px]"
+                            style={{
+                              background: "rgba(248, 81, 73, 0.06)",
+                              border: "1px solid rgba(248, 81, 73, 0.22)",
+                              color: "var(--color-danger)",
+                            }}
+                          >
+                            Inline render failed: {htmlError}. Falling back to
+                            excerpt; use "Open in browser" for the full file.
+                          </div>
+                        )}
+                        <p
+                          className="text-[12px] leading-relaxed"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                        >
+                          {sel.excerpt ??
+                            "No excerpt extracted yet. Open the file in a browser to read."}
+                        </p>
+                      </div>
+                    )
+                  )}
+                </div>
               ) : (
-                <p
-                  className="mt-2 text-[11.5px]"
-                  style={{ color: "var(--color-text-faint)" }}
-                >
-                  Pulsa Summarise para que Claude resuma esta newsletter en 6
-                  bullets. El resumen se cachea local para no gastar turnos al
-                  revisitarla.
-                </p>
+                <div className="h-full overflow-auto px-5 py-4">
+                  <p
+                    className="text-[12px] leading-relaxed"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {sel.excerpt ??
+                      "No excerpt extracted yet. Open the file in a browser to read."}
+                  </p>
+
+                  <div
+                    className="mt-5 flex items-baseline justify-between gap-2 border-t pt-3"
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
+                    <h3
+                      className="text-[11px] font-medium uppercase tracking-[0.06em]"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      AI summary
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => summarize(sel.path)}
+                      disabled={summarizing || !!summaries[sel.path]}
+                      className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+                      style={{
+                        background: summaries[sel.path]
+                          ? "var(--color-surface-2)"
+                          : "var(--color-accent)",
+                        color: summaries[sel.path]
+                          ? "var(--color-text-tertiary)"
+                          : "var(--color-accent-text)",
+                        border: summaries[sel.path]
+                          ? "1px solid var(--color-border)"
+                          : "none",
+                      }}
+                      title={
+                        summaries[sel.path]
+                          ? "Already summarised (cached)"
+                          : "Resume con Claude (6 bullets + conclusion)"
+                      }
+                    >
+                      {summarizing
+                        ? "Summarising..."
+                        : summaries[sel.path]
+                          ? "Cached"
+                          : "Summarise"}
+                    </button>
+                  </div>
+                  {summaries[sel.path] ? (
+                    <pre
+                      className="mt-2 text-[12.5px] leading-relaxed"
+                      style={{
+                        color: "var(--color-text-secondary)",
+                        whiteSpace: "pre-wrap",
+                        fontFamily: "inherit",
+                      }}
+                    >
+                      {summaries[sel.path]}
+                    </pre>
+                  ) : (
+                    <p
+                      className="mt-2 text-[11.5px]"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      Pulsa Summarise para que Claude resuma esta newsletter
+                      en 6 bullets. El resumen se cachea local para no gastar
+                      turnos al revisitarla.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           </div>

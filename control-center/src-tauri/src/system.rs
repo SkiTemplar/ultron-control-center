@@ -143,6 +143,22 @@ pub struct RunTaskResult {
     pub stderr: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct EditTaskResult {
+    pub success: bool,
+    pub name: String,
+    pub trigger_type: String,
+    pub trigger_at: String,
+    pub error: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct DeleteTaskResult {
+    pub success: bool,
+    pub name: String,
+    pub error: String,
+}
+
 fn script_path() -> Result<PathBuf, String> {
     dirs::home_dir()
         .map(|h| h.join(".ultron/scripts/cockpit/system_tasks.ps1"))
@@ -285,4 +301,130 @@ pub async fn rich_system_info_inner(
     }
     serde_json::from_str::<RichSystemInfo>(stdout.trim())
         .map_err(|e| format!("parse rich info: {} (output: {})", e, stdout.trim()))
+}
+
+fn validate_task_name(name: &str) -> Result<(), String> {
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+    {
+        return Err(format!("invalid task name '{}'", name));
+    }
+    if !name.starts_with("ULTRON") && !name.starts_with("Ultron") {
+        return Err("only ULTRON-* tasks allowed".to_string());
+    }
+    if name.is_empty() || name.len() > 80 {
+        return Err("task name length out of range".to_string());
+    }
+    Ok(())
+}
+
+fn validate_trigger_type(t: &str) -> Result<(), String> {
+    match t {
+        "Daily" | "Weekly" | "AtLogon" => Ok(()),
+        _ => Err(format!("invalid trigger type '{}'", t)),
+    }
+}
+
+fn validate_trigger_at(at: &str) -> Result<(), String> {
+    // HH:MM with HH in 00-23, MM in 00-59
+    let bytes = at.as_bytes();
+    if bytes.len() != 5 || bytes[2] != b':' {
+        return Err(format!("invalid trigger time '{}' (expected HH:MM)", at));
+    }
+    let h: u32 = at[0..2].parse().map_err(|_| format!("invalid hour in '{}'", at))?;
+    let m: u32 = at[3..5].parse().map_err(|_| format!("invalid minute in '{}'", at))?;
+    if h > 23 || m > 59 {
+        return Err(format!("invalid trigger time '{}'", at));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+struct EditPsResult {
+    ok: bool,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    trigger_type: Option<String>,
+    #[serde(default)]
+    trigger_at: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DeletePsResult {
+    ok: bool,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+pub async fn edit_task_inner(
+    app: &tauri::AppHandle,
+    name: String,
+    new_trigger_type: String,
+    new_trigger_at: Option<String>,
+) -> Result<EditTaskResult, String> {
+    validate_task_name(&name)?;
+    validate_trigger_type(&new_trigger_type)?;
+
+    let at_value = new_trigger_at.unwrap_or_default();
+    // For Daily/Weekly the HH:MM is required; AtLogon does not need it.
+    if new_trigger_type != "AtLogon" {
+        validate_trigger_at(&at_value)?;
+    }
+
+    let mut args: Vec<&str> = vec![
+        "-Action",
+        "edit",
+        "-Name",
+        &name,
+        "-NewTriggerType",
+        &new_trigger_type,
+    ];
+    if !at_value.is_empty() {
+        args.push("-NewTriggerAt");
+        args.push(&at_value);
+    }
+    let (stdout, stderr, code, ok) = run_ps(app, &args).await?;
+    if !ok {
+        return Err(format!(
+            "system_tasks.ps1 edit failed (exit {:?}): {}",
+            code, stderr
+        ));
+    }
+    let parsed: EditPsResult = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("parse edit json: {} (output: {})", e, stdout.trim()))?;
+    Ok(EditTaskResult {
+        success: parsed.ok,
+        name: parsed.name.unwrap_or(name),
+        trigger_type: parsed.trigger_type.unwrap_or(new_trigger_type),
+        trigger_at: parsed.trigger_at.unwrap_or(at_value),
+        error: parsed.error.unwrap_or_default(),
+    })
+}
+
+pub async fn delete_task_inner(
+    app: &tauri::AppHandle,
+    name: String,
+) -> Result<DeleteTaskResult, String> {
+    validate_task_name(&name)?;
+    let (stdout, stderr, code, ok) =
+        run_ps(app, &["-Action", "delete", "-Name", &name]).await?;
+    if !ok {
+        return Err(format!(
+            "system_tasks.ps1 delete failed (exit {:?}): {}",
+            code, stderr
+        ));
+    }
+    let parsed: DeletePsResult = serde_json::from_str(stdout.trim())
+        .map_err(|e| format!("parse delete json: {} (output: {})", e, stdout.trim()))?;
+    Ok(DeleteTaskResult {
+        success: parsed.ok,
+        name: parsed.name.unwrap_or(name),
+        error: parsed.error.unwrap_or_default(),
+    })
 }

@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  DeleteTaskResult,
+  EditTaskResult,
   RichSystemInfo,
   RunTaskResult,
   ScheduledTaskInfo,
+  ScheduledTriggerType,
   TaskDetail,
 } from "../types";
 
@@ -86,10 +89,177 @@ function taskDot(state: string, code: number): string {
 // Detail panel (expanded under a task)
 // ---------------------------------------------------------------------------
 
-function DetailPanel({ name }: { name: string }) {
+function EditTriggerModal({
+  name,
+  onClose,
+  onSaved,
+}: {
+  name: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [triggerType, setTriggerType] = useState<ScheduledTriggerType>("Daily");
+  const [triggerAt, setTriggerAt] = useState("09:00");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const payload: {
+        name: string;
+        newTriggerType: ScheduledTriggerType;
+        newTriggerAt?: string;
+      } = { name, newTriggerType: triggerType };
+      if (triggerType !== "AtLogon") {
+        payload.newTriggerAt = triggerAt;
+      }
+      const r = (await invoke("edit_scheduled_task", payload)) as EditTaskResult;
+      if (!r.success) {
+        setError(r.error || "edit failed");
+        return;
+      }
+      onSaved();
+      onClose();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.45)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-sm rounded p-4"
+        style={{
+          background: "var(--color-surface-1)",
+          border: "1px solid var(--color-border)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
+          Edit trigger
+        </div>
+        <div
+          className="mb-3 truncate text-[11px]"
+          style={{
+            color: "var(--color-text-tertiary)",
+            fontFamily: "var(--font-mono)",
+          }}
+          title={name}
+        >
+          {name}
+        </div>
+        <div className="space-y-3">
+          <div>
+            <div
+              className="mb-1 text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Trigger type
+            </div>
+            <select
+              value={triggerType}
+              onChange={(e) =>
+                setTriggerType(e.target.value as ScheduledTriggerType)
+              }
+              className="w-full rounded px-2 py-1.5 text-[12px]"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text)",
+              }}
+            >
+              <option value="Daily">Daily</option>
+              <option value="Weekly">Weekly (Mondays)</option>
+              <option value="AtLogon">At logon</option>
+            </select>
+          </div>
+          {triggerType !== "AtLogon" && (
+            <div>
+              <div
+                className="mb-1 text-[10px] font-medium uppercase tracking-[0.06em]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Time (HH:MM)
+              </div>
+              <input
+                type="time"
+                value={triggerAt}
+                onChange={(e) => setTriggerAt(e.target.value)}
+                className="w-full rounded px-2 py-1.5 text-[12px] tabular-nums"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text)",
+                }}
+              />
+            </div>
+          )}
+          {error && (
+            <div
+              className="rounded p-2 text-[11.5px]"
+              style={{
+                background: "rgba(248, 81, 73, 0.06)",
+                border: "1px solid rgba(248, 81, 73, 0.22)",
+                color: "var(--color-danger)",
+              }}
+            >
+              {error}
+            </div>
+          )}
+        </div>
+        <div className="mt-4 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={save}
+            disabled={busy}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailPanel({
+  name,
+  onChanged,
+}: {
+  name: string;
+  onChanged: () => void;
+}) {
   const [detail, setDetail] = useState<TaskDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showEdit, setShowEdit] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +279,28 @@ function DetailPanel({ name }: { name: string }) {
       cancelled = true;
     };
   }, [name]);
+
+  async function handleDelete() {
+    const ok = window.confirm(
+      `Delete scheduled task "${name}"? This calls Unregister-ScheduledTask and cannot be undone.`,
+    );
+    if (!ok) return;
+    setDeleteBusy(true);
+    setActionMsg(null);
+    try {
+      const r = (await invoke("delete_scheduled_task", { name })) as DeleteTaskResult;
+      if (r.success) {
+        setActionMsg("Deleted.");
+        onChanged();
+      } else {
+        setActionMsg(`Delete failed: ${r.error || "unknown"}`);
+      }
+    } catch (e) {
+      setActionMsg(`Delete failed: ${e}`);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
 
   if (loading) {
     return (
@@ -274,6 +466,56 @@ function DetailPanel({ name }: { name: string }) {
           </ul>
         </div>
       )}
+
+      {/* Mutations */}
+      <div
+        className="flex items-center gap-2 pt-2"
+        style={{ borderTop: "1px solid var(--color-border)" }}
+      >
+        <button
+          type="button"
+          onClick={() => setShowEdit(true)}
+          className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Re-point this task's trigger (Set-ScheduledTask)"
+        >
+          Edit trigger
+        </button>
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleteBusy}
+          className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "rgba(248, 81, 73, 0.08)",
+            color: "var(--color-danger)",
+            border: "1px solid rgba(248, 81, 73, 0.32)",
+          }}
+          title="Unregister this scheduled task"
+        >
+          {deleteBusy ? "Deleting…" : "Delete"}
+        </button>
+        {actionMsg && (
+          <span
+            className="ml-2 text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {actionMsg}
+          </span>
+        )}
+      </div>
+
+      {showEdit && (
+        <EditTriggerModal
+          name={name}
+          onClose={() => setShowEdit(false)}
+          onSaved={onChanged}
+        />
+      )}
     </div>
   );
 }
@@ -299,12 +541,14 @@ function TaskRow({
   expanded,
   onRun,
   onToggle,
+  onChanged,
 }: {
   task: ScheduledTaskInfo;
   busy: boolean;
   expanded: boolean;
   onRun: () => void;
   onToggle: () => void;
+  onChanged: () => void;
 }) {
   const dot = taskDot(task.state, task.last_result);
   const resultLabel = explainTaskResult(task.last_result).label;
@@ -393,7 +637,7 @@ function TaskRow({
           {busy ? "Running…" : "Run now"}
         </button>
       </div>
-      {expanded && <DetailPanel name={task.name} />}
+      {expanded && <DetailPanel name={task.name} onChanged={onChanged} />}
     </div>
   );
 }
@@ -796,6 +1040,7 @@ export function System() {
               expanded={expanded === t.name}
               onToggle={() => setExpanded(expanded === t.name ? null : t.name)}
               onRun={() => run(t.name)}
+              onChanged={load}
             />
           ))}
         </div>

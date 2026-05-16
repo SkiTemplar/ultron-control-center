@@ -13,6 +13,13 @@ export type TelemetryRow = {
   confidence: number | null;
 };
 
+export type HookSignal = {
+  source: string;
+  kind: string;
+  ts: string;
+  summary: string;
+};
+
 export type SelfImproveReport = {
   total_routes: number;
   matched_routes: number;
@@ -21,13 +28,32 @@ export type SelfImproveReport = {
   recent_errors: { source: string; message: string; ts: string }[];
   session_metrics?: { label: string; value: number; unit: string }[];
   recent_memory_paths?: string[];
+  hook_signals?: HookSignal[];
 };
+
+const HOOK_SOURCE_COLORS: Record<string, { bg: string; fg: string }> = {
+  "hyper-plans": { bg: "rgba(88, 166, 255, 0.12)", fg: "rgb(88, 166, 255)" },
+  doctor: { bg: "rgba(248, 81, 73, 0.12)", fg: "rgb(248, 81, 73)" },
+  "prompt-feedback": { bg: "rgba(210, 153, 34, 0.12)", fg: "rgb(210, 153, 34)" },
+  "token-usage": { bg: "rgba(63, 185, 80, 0.12)", fg: "rgb(63, 185, 80)" },
+  "auto-updater": { bg: "rgba(163, 113, 247, 0.12)", fg: "rgb(163, 113, 247)" },
+  "mcp-audit": { bg: "rgba(255, 138, 0, 0.14)", fg: "rgb(255, 138, 0)" },
+};
+
+function hookSourceStyle(source: string): { background: string; color: string } {
+  const c = HOOK_SOURCE_COLORS[source] ?? {
+    bg: "rgba(125, 133, 144, 0.14)",
+    fg: "rgb(125, 133, 144)",
+  };
+  return { background: c.bg, color: c.fg };
+}
 
 export function SelfImprove() {
   const [data, setData] = useState<SelfImproveReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [reviewOutput, setReviewOutput] = useState<string | null>(null);
+  const [codexOpen, setCodexOpen] = useState(false);
 
   async function load() {
     try {
@@ -283,54 +309,168 @@ export function SelfImprove() {
         </div>
       )}
 
-      <div
-        className="rounded p-4"
+      {data && data.hook_signals && data.hook_signals.length > 0 && (
+        <div>
+          <div
+            className="mb-2 flex items-baseline justify-between"
+          >
+            <div
+              className="text-[10px] font-medium uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Hook signals (last 24h)
+            </div>
+            <div
+              className="text-[10px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              {data.hook_signals.length} most recent
+            </div>
+          </div>
+          <div
+            className="overflow-hidden rounded"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <table className="w-full text-[11px]" style={{ borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "var(--color-surface-3)" }}>
+                  <th
+                    className="px-3 py-1.5 text-left text-[10px] font-medium uppercase tracking-[0.06em]"
+                    style={{ color: "var(--color-text-tertiary)", width: 140 }}
+                  >
+                    Timestamp
+                  </th>
+                  <th
+                    className="px-3 py-1.5 text-left text-[10px] font-medium uppercase tracking-[0.06em]"
+                    style={{ color: "var(--color-text-tertiary)", width: 110 }}
+                  >
+                    Source
+                  </th>
+                  <th
+                    className="px-3 py-1.5 text-left text-[10px] font-medium uppercase tracking-[0.06em]"
+                    style={{ color: "var(--color-text-tertiary)", width: 120 }}
+                  >
+                    Kind
+                  </th>
+                  <th
+                    className="px-3 py-1.5 text-left text-[10px] font-medium uppercase tracking-[0.06em]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Summary
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.hook_signals.slice(0, 30).map((h, i) => (
+                  <tr
+                    key={`${h.source}-${h.ts}-${i}`}
+                    style={{
+                      borderTop: "1px solid var(--color-border)",
+                    }}
+                  >
+                    <td
+                      className="px-3 py-1 tabular-nums"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      {h.ts.slice(0, 16).replace("T", " ")}
+                    </td>
+                    <td className="px-3 py-1">
+                      <span
+                        className="inline-block rounded px-1.5 py-[1px] text-[9.5px] font-medium uppercase tracking-[0.04em]"
+                        style={hookSourceStyle(h.source)}
+                      >
+                        {h.source}
+                      </span>
+                    </td>
+                    <td
+                      className="px-3 py-1"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      {h.kind}
+                    </td>
+                    <td
+                      className="px-3 py-1 truncate"
+                      style={{
+                        color: "var(--color-text)",
+                        maxWidth: 0,
+                      }}
+                      title={h.summary}
+                    >
+                      {h.summary}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <details
+        className="rounded"
         style={{
           background: "var(--color-surface-2)",
           border: "1px solid var(--color-border)",
         }}
+        open={codexOpen}
+        onToggle={(e) =>
+          setCodexOpen((e.currentTarget as HTMLDetailsElement).open)
+        }
       >
-        <div className="flex items-baseline justify-between gap-3">
-          <div className="min-w-0">
-            <div className="text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
-              Run Codex adversarial review
-            </div>
+        <summary
+          className="cursor-pointer list-none px-3 py-2 text-[11.5px]"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          <span style={{ color: "var(--color-text-tertiary)" }}>
+            {codexOpen ? "▾" : "▸"}
+          </span>{" "}
+          Codex adversarial review (read-only, optional)
+        </summary>
+        <div
+          className="px-3 pb-3"
+          style={{ borderTop: "1px solid var(--color-border)" }}
+        >
+          <div className="mt-2 flex items-baseline justify-between gap-3">
             <p
-              className="mt-1 text-[11px] leading-relaxed"
+              className="m-0 text-[11px] leading-relaxed"
               style={{ color: "var(--color-text-tertiary)" }}
             >
               Asks Codex to challenge the recent design decisions on this
-              branch (read-only). Useful as a sanity check after big edits.
+              branch. Run it after big edits if you want a second opinion.
             </p>
+            <button
+              type="button"
+              onClick={runAdversarial}
+              disabled={reviewBusy}
+              className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-50"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {reviewBusy ? "Running..." : "Run review"}
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={runAdversarial}
-            disabled={reviewBusy}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-          >
-            {reviewBusy ? "Running..." : "Run review"}
-          </button>
+          {reviewOutput && (
+            <pre
+              className="mt-3 max-h-72 overflow-auto rounded p-3 text-[11px] leading-relaxed"
+              style={{
+                background: "var(--color-surface-1)",
+                border: "1px solid var(--color-border)",
+                fontFamily: "var(--font-mono)",
+                color: "var(--color-text-secondary)",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {reviewOutput}
+            </pre>
+          )}
         </div>
-        {reviewOutput && (
-          <pre
-            className="mt-3 max-h-72 overflow-auto rounded p-3 text-[11px] leading-relaxed"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border)",
-              fontFamily: "var(--font-mono)",
-              color: "var(--color-text-secondary)",
-              whiteSpace: "pre-wrap",
-            }}
-          >
-            {reviewOutput}
-          </pre>
-        )}
-      </div>
+      </details>
 
       <KirkardoCard />
     </div>

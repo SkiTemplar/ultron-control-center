@@ -165,6 +165,22 @@ export type RunTaskResult = {
   stderr: string;
 };
 
+export type EditTaskResult = {
+  success: boolean;
+  name: string;
+  trigger_type: string;
+  trigger_at: string;
+  error: string;
+};
+
+export type DeleteTaskResult = {
+  success: boolean;
+  name: string;
+  error: string;
+};
+
+export type ScheduledTriggerType = "Daily" | "Weekly" | "AtLogon";
+
 export type SystemInfo = {
   hostname: string;
   user: string;

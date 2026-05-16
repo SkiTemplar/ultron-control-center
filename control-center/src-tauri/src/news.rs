@@ -329,6 +329,36 @@ pub async fn summarize_news_inner(
     )
 }
 
+/// Read the full HTML body of a newsletter for inline rendering in the
+/// webview. Strict: only `.html` files inside the news directory are
+/// accepted (same canonicalize-then-starts_with check used by delete).
+///
+/// We cap the payload at 500 KB so a runaway file can't lock the webview
+/// when the iframe parses it. Newsletters in production sit around 80 KB
+/// (CSS inline + base64 image stubs), so 500 KB leaves generous headroom.
+pub fn read_news_html_inner(path_str: String) -> Result<String, String> {
+    const MAX_BYTES: u64 = 500 * 1024;
+    let p = std::path::PathBuf::from(&path_str);
+    let dir = news_dir().ok_or_else(|| "no HOME".to_string())?;
+    let canon_p = std::fs::canonicalize(&p).map_err(|e| format!("canonicalize: {}", e))?;
+    let canon_dir = std::fs::canonicalize(&dir).map_err(|e| format!("canonicalize dir: {}", e))?;
+    if !canon_p.starts_with(&canon_dir) {
+        return Err("path is not inside the news directory".into());
+    }
+    if canon_p.extension().and_then(|e| e.to_str()) != Some("html") {
+        return Err("only .html newsletters can be rendered".into());
+    }
+    let meta = fs::metadata(&canon_p).map_err(|e| format!("stat: {}", e))?;
+    if meta.len() > MAX_BYTES {
+        return Err(format!(
+            "newsletter is {} bytes (>{}); open in browser instead",
+            meta.len(),
+            MAX_BYTES
+        ));
+    }
+    fs::read_to_string(&canon_p).map_err(|e| format!("read: {}", e))
+}
+
 /// Delete a single newsletter HTML file. Strict: only files inside the news
 /// directory with a .html extension are accepted.
 pub fn delete_news_inner(path_str: String) -> Result<bool, String> {

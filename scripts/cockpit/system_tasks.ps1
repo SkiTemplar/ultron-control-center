@@ -1,10 +1,17 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('list', 'run', 'info', 'detail', 'richinfo')]
+    [ValidateSet('list', 'run', 'info', 'detail', 'richinfo', 'edit', 'delete')]
     [string]$Action,
 
     [Parameter(Mandatory = $false)]
-    [string]$Name
+    [string]$Name,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateSet('Daily', 'Weekly', 'AtLogon')]
+    [string]$NewTriggerType,
+
+    [Parameter(Mandatory = $false)]
+    [string]$NewTriggerAt
 )
 
 # ULTRON Control Center — scheduled task helper.
@@ -164,6 +171,78 @@ switch ($Action) {
             actions          = $actions
             history          = $history
         } | ConvertTo-Json -Depth 6 -Compress
+    }
+
+    'edit' {
+        try {
+            if (-not $Name) { throw 'edit requires -Name' }
+            if ($Name -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "invalid name '$Name'" }
+            if ($Name -notmatch '^(ULTRON|Ultron)') {
+                throw "only ULTRON-* tasks allowed (got '$Name')"
+            }
+            if (-not $NewTriggerType) { throw 'edit requires -NewTriggerType (Daily|Weekly|AtLogon)' }
+            if ($NewTriggerType -ne 'AtLogon') {
+                if (-not $NewTriggerAt) { throw 'edit requires -NewTriggerAt HH:MM for Daily/Weekly' }
+                if ($NewTriggerAt -notmatch '^([01]\d|2[0-3]):[0-5]\d$') {
+                    throw "invalid -NewTriggerAt '$NewTriggerAt' (expected HH:MM)"
+                }
+            }
+
+            $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+            if (-not $task) { throw "task not found: $Name" }
+
+            $today = (Get-Date).Date
+            $newTrigger = switch ($NewTriggerType) {
+                'Daily'   {
+                    $parts = $NewTriggerAt.Split(':')
+                    $at = $today.AddHours([int]$parts[0]).AddMinutes([int]$parts[1])
+                    New-ScheduledTaskTrigger -Daily -At $at
+                }
+                'Weekly'  {
+                    $parts = $NewTriggerAt.Split(':')
+                    $at = $today.AddHours([int]$parts[0]).AddMinutes([int]$parts[1])
+                    New-ScheduledTaskTrigger -Weekly -At $at -DaysOfWeek Monday
+                }
+                'AtLogon' { New-ScheduledTaskTrigger -AtLogOn }
+            }
+
+            # Re-point trigger only; existing actions / principal / settings stay.
+            Set-ScheduledTask -TaskName $Name -Trigger $newTrigger | Out-Null
+
+            @{
+                ok            = $true
+                name          = $Name
+                trigger_type  = $NewTriggerType
+                trigger_at    = if ($NewTriggerAt) { $NewTriggerAt } else { '' }
+            } | ConvertTo-Json -Compress
+        } catch {
+            @{
+                ok    = $false
+                error = $_.Exception.Message
+            } | ConvertTo-Json -Compress
+        }
+    }
+
+    'delete' {
+        try {
+            if (-not $Name) { throw 'delete requires -Name' }
+            if ($Name -notmatch '^[A-Za-z0-9._\-]{1,80}$') { throw "invalid name '$Name'" }
+            if ($Name -notmatch '^(ULTRON|Ultron)') {
+                throw "only ULTRON-* tasks allowed (got '$Name')"
+            }
+            $task = Get-ScheduledTask -TaskName $Name -ErrorAction SilentlyContinue
+            if (-not $task) { throw "task not found: $Name" }
+            Unregister-ScheduledTask -TaskName $Name -Confirm:$false
+            @{
+                ok   = $true
+                name = $Name
+            } | ConvertTo-Json -Compress
+        } catch {
+            @{
+                ok    = $false
+                error = $_.Exception.Message
+            } | ConvertTo-Json -Compress
+        }
     }
 
     'richinfo' {

@@ -642,9 +642,9 @@ export function Projects() {
               color: "var(--color-text)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Re-scan filesystem for projects (ultron scan)"
+            title="Walk del filesystem en busca de proyectos nuevos (ultron.ps1 scan + rewrite de projects.json). Tarda más; ejecuta sólo cuando hayas añadido carpetas en disco."
           >
-            {scanning ? "Scanning…" : "Rescan"}
+            {scanning ? "Scanning…" : "Rescan disk"}
           </button>
           <button
             type="button"
@@ -656,8 +656,9 @@ export function Projects() {
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
+            title="Re-lee projects.json sin tocar disco. Útil si has editado proyectos en otra herramienta."
           >
-            {loading ? "Loading…" : "Reload"}
+            {loading ? "Loading…" : "Refresh list"}
           </button>
         </div>
       </header>

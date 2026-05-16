@@ -1,16 +1,30 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
-// Personal tab — free-form profile note that ULTRON skills can pull as
-// persistent context. Stored at ~/.ultron/personal/profile.md. Saves are
-// backed up to a sibling backups/ folder (rotating last 30) so editing
-// here is always reversible.
+// Personal tab — split view.
+//
+// Left side: read-only "what ULTRON knows about you" composed by a Claude
+// session that scans transcripts, recent commits and MEMORY.md. Stored as
+// JSON at ~/.ultron/personal/known.json (the user does not edit it
+// directly; pressing the button spawns Claude to (re)compose it).
+//
+// Right side: free-form profile note at ~/.ultron/personal/profile.md that
+// the user maintains by hand. Saves are backed up to a sibling
+// profile.backups/ folder (rotating last 30) so editing here is reversible.
 
 type PersonalProfile = {
   path: string;
   content: string;
   last_modified: string | null;
   size_bytes: number;
+};
+
+type PersonalKnown = {
+  style_fingerprint: string;
+  recent_topics: string[];
+  routines: string[];
+  last_updated: string | null;
+  source: string;
 };
 
 function formatBytes(b: number): string {
@@ -32,6 +46,16 @@ function formatRel(iso: string | null): string {
   return `${d}d ago`;
 }
 
+function isKnownEmpty(k: PersonalKnown | null): boolean {
+  if (!k) return true;
+  return (
+    !k.style_fingerprint.trim() &&
+    k.recent_topics.length === 0 &&
+    k.routines.length === 0 &&
+    !k.last_updated
+  );
+}
+
 export function Personal() {
   const [profile, setProfile] = useState<PersonalProfile | null>(null);
   const [draft, setDraft] = useState<string>("");
@@ -40,7 +64,13 @@ export function Personal() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
 
-  async function load() {
+  const [known, setKnown] = useState<PersonalKnown | null>(null);
+  const [knownLoading, setKnownLoading] = useState(true);
+  const [knownError, setKnownError] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisMsg, setAnalysisMsg] = useState<string | null>(null);
+
+  async function loadProfile() {
     setLoading(true);
     try {
       const r = (await invoke("read_personal_profile")) as PersonalProfile;
@@ -51,6 +81,19 @@ export function Personal() {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadKnown() {
+    setKnownLoading(true);
+    try {
+      const r = (await invoke("read_personal_known")) as PersonalKnown;
+      setKnown(r);
+      setKnownError(null);
+    } catch (e) {
+      setKnownError(String(e));
+    } finally {
+      setKnownLoading(false);
     }
   }
 
@@ -71,11 +114,29 @@ export function Personal() {
     }
   }
 
+  async function generateAnalysis() {
+    setAnalyzing(true);
+    setAnalysisMsg(null);
+    setKnownError(null);
+    try {
+      const msg = (await invoke("request_personal_analysis")) as string;
+      setAnalysisMsg(
+        `${msg} — vuelve cuando termine el análisis y pulsa Refresh.`
+      );
+    } catch (e) {
+      setKnownError(String(e));
+    } finally {
+      setAnalyzing(false);
+    }
+  }
+
   useEffect(() => {
-    load();
+    loadProfile();
+    loadKnown();
   }, []);
 
   const dirty = profile != null && draft !== profile.content;
+  const empty = isKnownEmpty(known);
 
   return (
     <div className="flex h-full flex-col overflow-hidden px-8 py-6">
@@ -83,9 +144,9 @@ export function Personal() {
         <div>
           <h1 className="text-[20px] font-semibold leading-tight">Personal</h1>
           <p className="mt-1 text-[12.5px]" style={{ color: "var(--color-text-secondary)" }}>
-            Texto libre que ULTRON usa como contexto persistente. Estilo de
-            escritura, rutinas, preferencias técnicas, patrones de prompts.
-            Cualquier skill puede leerlo bajo
+            A la izquierda, lo que ULTRON ha aprendido de ti analizando
+            transcripts, commits y memoria. A la derecha, texto libre que tú
+            mantienes y que los skills cargan desde
             <span style={{ fontFamily: "var(--font-mono)" }}> ~/.ultron/personal/profile.md</span>.
           </p>
         </div>
@@ -101,8 +162,11 @@ export function Personal() {
           )}
           <button
             type="button"
-            onClick={load}
-            disabled={loading || saving}
+            onClick={() => {
+              loadProfile();
+              loadKnown();
+            }}
+            disabled={loading || saving || knownLoading}
             className="rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-50"
             style={{
               background: "transparent",
@@ -110,7 +174,7 @@ export function Personal() {
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Reload
+            Refresh
           </button>
           <button
             type="button"
@@ -153,31 +217,219 @@ export function Personal() {
         </div>
       )}
 
-      <textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        spellCheck={false}
-        placeholder={loading ? "Loading..." : ""}
-        className="flex-1 rounded p-4 text-[12.5px] leading-relaxed"
-        style={{
-          fontFamily: "var(--font-mono)",
-          background: "var(--color-surface-1)",
-          color: "var(--color-text)",
-          border: `1px solid ${dirty ? "var(--color-warn)" : "var(--color-border-strong)"}`,
-          outline: "none",
-          minHeight: 400,
-          resize: "none",
-        }}
-      />
-      <div
-        className="mt-2 flex items-baseline justify-between text-[10.5px]"
-        style={{ color: "var(--color-text-faint)" }}
-      >
-        <span>{draft.length.toLocaleString()} chars · {draft.split("\n").length} líneas</span>
-        <span>
-          Backups rotativos (últimos 30) en
-          <span style={{ fontFamily: "var(--font-mono)" }}> ~/.ultron/personal/profile.backups/</span>
-        </span>
+      <div className="flex flex-1 gap-4 overflow-hidden">
+        {/* Left: what ULTRON knows */}
+        <section
+          className="flex w-1/2 flex-col gap-3 overflow-hidden rounded p-4"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-[14px] font-semibold leading-tight">
+              Lo que ULTRON sabe de ti
+            </h2>
+            <span
+              className="text-[10.5px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              {known?.last_updated
+                ? `actualizado ${formatRel(known.last_updated)}`
+                : "sin análisis"}
+            </span>
+          </div>
+
+          {knownError && (
+            <div
+              className="rounded p-2 text-[11.5px]"
+              style={{
+                background: "rgba(248, 81, 73, 0.06)",
+                border: "1px solid rgba(248, 81, 73, 0.22)",
+                color: "var(--color-danger)",
+              }}
+            >
+              {knownError}
+            </div>
+          )}
+
+          {analysisMsg && (
+            <div
+              className="rounded p-2 text-[11.5px]"
+              style={{
+                background: "rgba(56, 139, 253, 0.08)",
+                border: "1px solid rgba(56, 139, 253, 0.22)",
+                color: "var(--color-text-secondary)",
+              }}
+            >
+              {analysisMsg}
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto pr-1">
+            {knownLoading ? (
+              <p
+                className="text-[12px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                Cargando...
+              </p>
+            ) : empty ? (
+              <p
+                className="text-[12.5px] leading-relaxed"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
+                Aún no se ha generado un análisis. Pulsa el botón debajo para
+                que Claude lo genere.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-4">
+                {known!.style_fingerprint.trim() && (
+                  <div>
+                    <div
+                      className="mb-1 text-[10.5px] uppercase tracking-wide"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      Estilo de escritura
+                    </div>
+                    <p
+                      className="text-[12.5px] leading-relaxed"
+                      style={{ color: "var(--color-text)" }}
+                    >
+                      {known!.style_fingerprint}
+                    </p>
+                  </div>
+                )}
+
+                {known!.recent_topics.length > 0 && (
+                  <div>
+                    <div
+                      className="mb-1.5 text-[10.5px] uppercase tracking-wide"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      Temas recientes
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {known!.recent_topics.map((t, i) => (
+                        <span
+                          key={`${t}-${i}`}
+                          className="rounded-full px-2 py-0.5 text-[11px]"
+                          style={{
+                            background: "var(--color-surface-2)",
+                            color: "var(--color-text-secondary)",
+                            border: "1px solid var(--color-border)",
+                          }}
+                        >
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {known!.routines.length > 0 && (
+                  <div>
+                    <div
+                      className="mb-1 text-[10.5px] uppercase tracking-wide"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      Rutinas
+                    </div>
+                    <ul className="flex flex-col gap-1">
+                      {known!.routines.map((r, i) => (
+                        <li
+                          key={`${i}-${r.slice(0, 20)}`}
+                          className="text-[12.5px] leading-relaxed"
+                          style={{ color: "var(--color-text)" }}
+                        >
+                          <span style={{ color: "var(--color-text-faint)" }}>
+                            ·{" "}
+                          </span>
+                          {r}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {known!.source.trim() && (
+                  <div
+                    className="text-[10.5px]"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    Fuente: {known!.source}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between gap-2 border-t pt-2"
+            style={{ borderColor: "var(--color-border)" }}>
+            <span
+              className="text-[10.5px]"
+              style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+            >
+              ~/.ultron/personal/known.json
+            </span>
+            <button
+              type="button"
+              onClick={generateAnalysis}
+              disabled={analyzing}
+              className="rounded px-3 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-50"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {analyzing ? "Abriendo sesión..." : "Generate analysis with Claude"}
+            </button>
+          </div>
+        </section>
+
+        {/* Right: editable profile */}
+        <section className="flex w-1/2 flex-col gap-2 overflow-hidden">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="text-[14px] font-semibold leading-tight">
+              Profile (editable)
+            </h2>
+            <span
+              className="text-[10.5px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              Estilo, rutinas, preferencias, patrones de prompts
+            </span>
+          </div>
+
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            placeholder={loading ? "Loading..." : ""}
+            className="flex-1 rounded p-4 text-[12.5px] leading-relaxed"
+            style={{
+              fontFamily: "var(--font-mono)",
+              background: "var(--color-surface-1)",
+              color: "var(--color-text)",
+              border: `1px solid ${dirty ? "var(--color-warn)" : "var(--color-border-strong)"}`,
+              outline: "none",
+              resize: "none",
+            }}
+          />
+          <div
+            className="flex items-baseline justify-between text-[10.5px]"
+            style={{ color: "var(--color-text-faint)" }}
+          >
+            <span>
+              {draft.length.toLocaleString()} chars · {draft.split("\n").length} líneas
+            </span>
+            <span>
+              Backups (últimos 30) en
+              <span style={{ fontFamily: "var(--font-mono)" }}> ~/.ultron/personal/profile.backups/</span>
+            </span>
+          </div>
+        </section>
       </div>
     </div>
   );

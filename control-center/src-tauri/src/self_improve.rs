@@ -43,6 +43,14 @@ pub struct SessionMetric {
 }
 
 #[derive(Debug, Serialize, Clone)]
+pub struct HookSignal {
+    pub source: String,
+    pub kind: String,
+    pub ts: String,
+    pub summary: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
 pub struct SelfImproveReport {
     pub total_routes: u64,
     pub matched_routes: u64,
@@ -57,6 +65,11 @@ pub struct SelfImproveReport {
     /// actually reads vs. what gets indexed but never opened.
     #[serde(default)]
     pub recent_memory_paths: Vec<String>,
+    /// Aggregated, normalised hook telemetry (hyper-plan signals,
+    /// doctor fixes, prompt feedback, token usage, auto-updater,
+    /// MCP audit). Top 30 most recent across all six sources.
+    #[serde(default)]
+    pub hook_signals: Vec<HookSignal>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -272,6 +285,7 @@ pub fn self_improve_report_inner() -> Result<SelfImproveReport, String> {
     let recent_errors = read_recent_errors(&root);
     let session_metrics = compute_session_metrics().unwrap_or_default();
     let recent_memory_paths = recent_memory_paths(10);
+    let hook_signals = read_hook_signals(&root);
     Ok(SelfImproveReport {
         total_routes,
         matched_routes,
@@ -280,7 +294,182 @@ pub fn self_improve_report_inner() -> Result<SelfImproveReport, String> {
         recent_errors,
         session_metrics,
         recent_memory_paths,
+        hook_signals,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Hook signals — multi-source JSONL aggregator
+// ---------------------------------------------------------------------------
+
+fn read_tail_lines(path: &PathBuf, max_lines: usize) -> Vec<String> {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
+    let n = lines.len();
+    let start = if n > max_lines { n - max_lines } else { 0 };
+    lines[start..].iter().map(|s| s.to_string()).collect()
+}
+
+fn truncate_summary(s: &str, max: usize) -> String {
+    let cleaned = s.replace('\n', " ").replace('\r', " ");
+    if cleaned.chars().count() <= max {
+        return cleaned;
+    }
+    let mut out: String = cleaned.chars().take(max).collect();
+    out.push('…');
+    out
+}
+
+/// Aggregate the six JSONL telemetry sources into a single, normalised list.
+/// Reads last 200 lines per file (so we sample recent history without
+/// blowing memory on huge logs) then takes the top 30 globally by timestamp.
+pub fn read_hook_signals(root: &PathBuf) -> Vec<HookSignal> {
+    let mut out: Vec<HookSignal> = Vec::new();
+
+    // 1. hyper-plan signals — { ts, signal, mode, prompt_preview }
+    for line in read_tail_lines(&root.join(".tmp/hiper-plans-signals.jsonl"), 200) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let ts = v.get("ts").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let kind = v
+            .get("signal")
+            .and_then(|x| x.as_str())
+            .unwrap_or("signal")
+            .to_string();
+        let mode = v.get("mode").and_then(|x| x.as_str()).unwrap_or("");
+        let preview = v.get("prompt_preview").and_then(|x| x.as_str()).unwrap_or("");
+        let summary = if mode.is_empty() {
+            preview.to_string()
+        } else {
+            format!("[{}] {}", mode, preview)
+        };
+        out.push(HookSignal {
+            source: "hyper-plans".to_string(),
+            kind,
+            ts,
+            summary: truncate_summary(&summary, 140),
+        });
+    }
+
+    // 2. doctor-fix-log — { ts, finding_id, fix_action, exit_code }
+    for line in read_tail_lines(&root.join(".tmp/doctor-fix-log.jsonl"), 200) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let ts = v.get("ts").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let finding = v.get("finding_id").and_then(|x| x.as_str()).unwrap_or("");
+        let action = v.get("fix_action").and_then(|x| x.as_str()).unwrap_or("");
+        let exit_code = v.get("exit_code").and_then(|x| x.as_i64());
+        let exit_part = match exit_code {
+            Some(c) => format!(" (exit {})", c),
+            None => String::new(),
+        };
+        let summary = format!("{} -> {}{}", finding, action, exit_part);
+        out.push(HookSignal {
+            source: "doctor".to_string(),
+            kind: action.to_string(),
+            ts,
+            summary: truncate_summary(&summary, 140),
+        });
+    }
+
+    // 3. prompt-feedback — { ts, session_id, kind, target, output_chars }
+    for line in read_tail_lines(&root.join(".tmp/prompt-feedback.jsonl"), 200) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let ts = v.get("ts").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let kind = v
+            .get("kind")
+            .and_then(|x| x.as_str())
+            .unwrap_or("feedback")
+            .to_string();
+        let target = v.get("target").and_then(|x| x.as_str()).unwrap_or("");
+        let chars = v.get("output_chars").and_then(|x| x.as_i64()).unwrap_or(0);
+        let summary = format!("{} ({} chars)", target, chars);
+        out.push(HookSignal {
+            source: "prompt-feedback".to_string(),
+            kind,
+            ts,
+            summary: truncate_summary(&summary, 140),
+        });
+    }
+
+    // 4. token-usage — { ts, layer, tokens, limit }
+    for line in read_tail_lines(&root.join(".tmp/token-usage.jsonl"), 200) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let ts = v.get("ts").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let layer = v
+            .get("layer")
+            .and_then(|x| x.as_str())
+            .unwrap_or("?")
+            .to_string();
+        let tokens = v.get("tokens").and_then(|x| x.as_i64()).unwrap_or(0);
+        let limit = v.get("limit").and_then(|x| x.as_i64()).unwrap_or(0);
+        let summary = if limit > 0 {
+            format!("{} tok / {} limit", tokens, limit)
+        } else {
+            format!("{} tok", tokens)
+        };
+        out.push(HookSignal {
+            source: "token-usage".to_string(),
+            kind: layer,
+            ts,
+            summary: truncate_summary(&summary, 140),
+        });
+    }
+
+    // 5. auto_updater — { ts, action, target, model, exit_code }
+    for line in read_tail_lines(&root.join("cockpit/auto_updater.jsonl"), 200) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let ts = v.get("ts").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let action = v
+            .get("action")
+            .and_then(|x| x.as_str())
+            .unwrap_or("update")
+            .to_string();
+        let target = v.get("target").and_then(|x| x.as_str()).unwrap_or("");
+        let model = v.get("model").and_then(|x| x.as_str()).unwrap_or("");
+        let exit_code = v.get("exit_code").and_then(|x| x.as_i64());
+        let exit_part = match exit_code {
+            Some(c) => format!(" exit={}", c),
+            None => String::new(),
+        };
+        let summary = format!("{} via {}{}", target, model, exit_part);
+        out.push(HookSignal {
+            source: "auto-updater".to_string(),
+            kind: action,
+            ts,
+            summary: truncate_summary(&summary, 140),
+        });
+    }
+
+    // 6. mcp-audit — { event, server, detail?, ts }
+    for line in read_tail_lines(&root.join("cockpit/mcp-audit.jsonl"), 200) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let ts = v.get("ts").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let event = v
+            .get("event")
+            .and_then(|x| x.as_str())
+            .unwrap_or("mutation")
+            .to_string();
+        let server = v.get("server").and_then(|x| x.as_str()).unwrap_or("");
+        let detail = v.get("detail").and_then(|x| x.as_str()).unwrap_or("");
+        let summary = if detail.is_empty() {
+            server.to_string()
+        } else {
+            format!("{} · {}", server, detail)
+        };
+        out.push(HookSignal {
+            source: "mcp-audit".to_string(),
+            kind: event,
+            ts,
+            summary: truncate_summary(&summary, 140),
+        });
+    }
+
+    // Sort descending by timestamp lexically — ISO 8601 sorts correctly as
+    // string. Entries with empty ts go to the bottom.
+    out.sort_by(|a, b| b.ts.cmp(&a.ts));
+    out.truncate(30);
+    out
 }
 
 /// Scan ~/.claude/projects/*.jsonl to compute aggregate session metrics:

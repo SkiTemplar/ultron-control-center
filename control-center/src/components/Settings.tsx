@@ -559,7 +559,268 @@ function DiskBackupStatus() {
 // Main
 // ---------------------------------------------------------------------------
 
-type Section = "general" | "auth" | "mode" | "mcps" | "raw" | "backups";
+type Section = "general" | "auth" | "mode" | "ai-router" | "mcps" | "raw" | "backups";
+
+// ---------------------------------------------------------------------------
+// AI Router section — pick which provider runs which zone of the UI.
+// Persisted to ~/.ultron/.tmp/ai-router.json by the Rust backend. Call sites
+// (Diagnose PC, summarize newsletter, plan brainstorm, etc.) will pick this
+// up in subsequent iterations; for now we just persist the config.
+// ---------------------------------------------------------------------------
+
+type AiRouterConfig = {
+  diagnose: string;
+  summarize: string;
+  brainstorm_plans: string;
+  news_generate: string;
+  skill_edit: string;
+  mcp_create: string;
+  repo_review: string;
+};
+
+const AI_PROVIDERS = ["claude", "codex", "gemini"] as const;
+
+const AI_ROUTER_ZONES: { key: keyof AiRouterConfig; label: string; help: string }[] = [
+  {
+    key: "diagnose",
+    label: "Diagnose PC",
+    help: "Análisis del informe de diagnóstico del sistema (Dashboard / Doctor).",
+  },
+  {
+    key: "summarize",
+    label: "Summarize newsletter",
+    help: "Resumen rápido de un newsletter HTML desde la pestaña News.",
+  },
+  {
+    key: "brainstorm_plans",
+    label: "Brainstorm de plans",
+    help: "Generar borradores/refinar specs de planes desde la pestaña Plans.",
+  },
+  {
+    key: "news_generate",
+    label: "Generate newsletter",
+    help: "Generación del cuerpo del newsletter (ULTRON Times).",
+  },
+  {
+    key: "skill_edit",
+    label: "Skill editor",
+    help: "Asistencia AI al editar SKILL.md desde la pestaña Skills.",
+  },
+  {
+    key: "mcp_create",
+    label: "MCP generator",
+    help: "Generar plantillas de servidores MCP a partir de descripción.",
+  },
+  {
+    key: "repo_review",
+    label: "Repo review",
+    help: "Revisión adversarial de repos / cambios uncommitted.",
+  },
+];
+
+function AiRouterSection() {
+  const [config, setConfig] = useState<AiRouterConfig | null>(null);
+  const [draft, setDraft] = useState<AiRouterConfig | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = (await invoke("read_ai_router")) as AiRouterConfig;
+      setConfig(r);
+      setDraft({ ...r });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function save() {
+    if (!draft) return;
+    setSaving(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = (await invoke("save_ai_router", { config: draft })) as AiRouterConfig;
+      setConfig(r);
+      setDraft({ ...r });
+      setSuccess("AI Router actualizado.");
+      window.setTimeout(() => setSuccess(null), 2500);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const dirty = useMemo(() => {
+    if (!config || !draft) return false;
+    return AI_ROUTER_ZONES.some((z) => config[z.key] !== draft[z.key]);
+  }, [config, draft]);
+
+  function updateZone(key: keyof AiRouterConfig, value: string) {
+    if (!draft) return;
+    setDraft({ ...draft, [key]: value });
+  }
+
+  return (
+    <div className="space-y-4">
+      <header>
+        <h3 className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+          AI Router
+        </h3>
+        <p
+          className="mt-1 text-[11.5px] leading-relaxed"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Selecciona qué modelo dispara cada acción del Control Center: Diagnose
+          PC, summarize newsletter, AI brainstorm de plans, generación de
+          newsletter, skill editor, MCP generator y repo review. El config se
+          persiste en{" "}
+          <span style={{ fontFamily: "var(--font-mono)" }}>
+            ~/.ultron/.tmp/ai-router.json
+          </span>{" "}
+          para que cualquier script de ULTRON pueda leerlo. Las próximas
+          iteraciones cablearán cada zona para que respete este routing.
+        </p>
+      </header>
+
+      {error && (
+        <div
+          className="rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {success && (
+        <div
+          className="rounded px-2 py-1 text-[11.5px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.08)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {success}
+        </div>
+      )}
+
+      {loading && !draft && (
+        <div
+          className="rounded p-4 text-[12px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-tertiary)",
+          }}
+        >
+          Loading…
+        </div>
+      )}
+
+      {draft && (
+        <>
+          <div
+            className="rounded"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {AI_ROUTER_ZONES.map((z, i) => (
+              <div
+                key={z.key}
+                className="flex items-start gap-4 px-3 py-3"
+                style={{
+                  borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
+                }}
+              >
+                <div className="min-w-0 flex-1">
+                  <div
+                    className="text-[12.5px] font-medium"
+                    style={{ color: "var(--color-text)" }}
+                  >
+                    {z.label}
+                  </div>
+                  <p
+                    className="mt-0.5 text-[11px] leading-relaxed"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {z.help}
+                  </p>
+                </div>
+                <select
+                  value={draft[z.key]}
+                  onChange={(e) => updateZone(z.key, e.target.value)}
+                  disabled={saving}
+                  className="shrink-0 rounded px-2 py-1 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                    outline: "none",
+                    fontFamily: "var(--font-mono)",
+                    minWidth: 110,
+                  }}
+                  title={`Provider para ${z.label}`}
+                >
+                  {AI_PROVIDERS.map((p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => config && setDraft({ ...config })}
+              disabled={!dirty || saving}
+              className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-40"
+              style={{
+                background: "transparent",
+                color: "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              Reset
+            </button>
+            <button
+              type="button"
+              onClick={save}
+              disabled={!dirty || saving}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-accent-text)",
+              }}
+            >
+              {saving ? "Guardando…" : "Save"}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 function HotkeyEditor() {
   const [spec, setSpec] = useState<string>("");
@@ -1050,6 +1311,7 @@ export function Settings() {
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
           { id: "mode" as Section, label: "Mode" },
+          { id: "ai-router" as Section, label: "AI Router" },
           { id: "mcps" as Section, label: "MCPs" },
           { id: "raw" as Section, label: "Editor" },
           { id: "backups" as Section, label: "Backups" },
@@ -1102,6 +1364,7 @@ export function Settings() {
         {section === "general" && <GeneralSection />}
         {section === "auth" && <AuthStatus />}
         {section === "mode" && <ModeSection />}
+        {section === "ai-router" && <AiRouterSection />}
         {section === "mcps" && (
           <>
             <p
