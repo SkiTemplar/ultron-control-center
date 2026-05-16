@@ -1,5 +1,14 @@
 # Changelog
 
+<!-- v15.3.1 -->
+## v15.3.1 — 2026-05-16
+
+- feat(v15.3.1): agent security scanner + AI Router agent slot + editable button prompts + 15 community agents + Cockpit naming cleanup
+- chore: refresh changelog (auto)
+
+_Auto-generated from 0094caea by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.3.0 -->
 ## v15.3.0 — 2026-05-16
 
