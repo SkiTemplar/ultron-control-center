@@ -263,13 +263,13 @@ def check_news_freshness() -> Check:
 
 
 def check_consistency() -> Check:
-    """v10.5: run consistency-check.py and reflect its exit code in health.
+    """v10.5: run consistency_check.py and reflect its exit code in health.
 
     Avoids the 'ALL GREEN with 2 problems detected' inconsistency.
     """
-    script = Path.home() / ".ultron" / "scripts" / "consistency-check.py"
+    script = Path.home() / ".ultron" / "scripts" / "consistency_check.py"
     if not script.exists():
-        return Check("consistency", "warn", "consistency-check.py missing")
+        return Check("consistency", "warn", "consistency_check.py missing")
     try:
         r = subprocess.run([sys.executable, str(script)],
                            capture_output=True, text=True, timeout=120,

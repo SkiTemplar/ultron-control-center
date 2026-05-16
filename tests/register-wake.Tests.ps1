@@ -1,4 +1,4 @@
-# Pester tests for scripts/register_wake_triggers.ps1
+# Pester tests for scripts/cockpit/register_wake_triggers.ps1
 # Run: Invoke-Pester tests/register-wake.Tests.ps1
 
 $ScriptPath = Join-Path $PSScriptRoot '..\scripts\register_wake_triggers.ps1'
