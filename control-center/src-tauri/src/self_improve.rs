@@ -715,17 +715,33 @@ pub async fn run_codex_adversarial_review_inner(
     app: &tauri::AppHandle,
 ) -> Result<ReviewResult, String> {
     // Route through run-inline.ps1 so the prompt isn't subject to cmd.exe
-    // quoting weirdness. Codex needs to run with cwd = ~/.ultron so
+    // quoting weirdness. The CLI needs to run with cwd = ~/.ultron so
     // `git diff` sees the actual repo (previously inherited the Tauri exe
     // cwd which is the WindowsApps install dir → "not a git repository").
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let ultron_repo = home.join(".ultron");
     let script = home.join(".ultron/scripts/cockpit/run-inline.ps1");
     let prompt = "Read the current git diff in this repo (run `git diff --stat HEAD~10` if needed). Challenge the most recent design decisions: name 3 risks I'm probably missing, and 1 thing I should reverse. Stay read-only.";
+
+    // v15.2 AI Router: the "repo_review" zone decides BOTH provider and
+    // model. Default zone provider is codex (cheap, fast, and the natural
+    // adversarial reviewer for ULTRON). If the user reassigns to
+    // claude/gemini, we honor it — both providers go through the same
+    // run-inline.ps1 wrapper, which already validates provider names and
+    // forwards `model` correctly. On any router error we fall back to the
+    // old hardcoded codex default so the button never silently breaks.
+    let (provider, model) = match crate::ai_router::read_ai_router_inner() {
+        Ok(cfg) => cfg
+            .zone("repo_review")
+            .map(|z| (z.provider.clone(), z.model.clone().unwrap_or_default()))
+            .unwrap_or_else(|| ("codex".to_string(), String::new())),
+        Err(_) => ("codex".to_string(), String::new()),
+    };
+
     let payload_json = serde_json::json!({
-        "provider": "codex",
+        "provider": provider,
         "prompt": prompt,
-        "model": "",
+        "model": model,
     })
     .to_string();
     let payload = crate::sessions::base64_encode(&payload_json);

@@ -771,14 +771,32 @@ export function Plans() {
         "Lee ~/.ultron/instructions/plans/GUIDE.md antes de empezar para no",
         "inventar campos.",
       ].join("\n");
+      // v15.2 AI Router: read the "brainstorm_plans" zone so the user's
+      // Settings → AI Router choice (provider + model) wins. Default zone
+      // provider is codex but historically this button defaulted to
+      // claude — both are valid; whichever the router says wins. On any
+      // router error we fall back to claude (the previous hardcoded
+      // value) so the button never silently breaks.
+      type Zone = { provider: string; model: string | null };
+      let zone: Zone = { provider: "claude", model: null };
+      try {
+        const cfg = (await invoke("read_ai_router")) as Record<string, Zone>;
+        if (cfg && cfg.brainstorm_plans) zone = cfg.brainstorm_plans;
+      } catch {
+        // keep default
+      }
       await invoke("spawn_session", {
-        provider: "claude",
+        provider: zone.provider,
         prompt: seed,
         cwd: null,
-        flags: { dangerouslySkipPermissions: false, pasteOnly: true },
+        flags: {
+          dangerouslySkipPermissions: false,
+          pasteOnly: true,
+          model: zone.model ?? undefined,
+        },
       });
       setInfo(
-        "Claude brainstorm abierto en wt.exe. El prompt está en el portapapeles — pega con Ctrl+V y dale Enter.",
+        `${zone.provider} brainstorm abierto en wt.exe. El prompt está en el portapapeles — pega con Ctrl+V y dale Enter.`,
       );
       window.setTimeout(() => setInfo(null), 5000);
     } catch (e) {

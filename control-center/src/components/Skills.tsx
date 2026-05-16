@@ -290,11 +290,26 @@ function Preview({
       ].join("\n");
       const skillDir =
         skill.path ?? joinPath(await getHomeDir(), ".claude", "skills", skill.name);
+      // v15.2 AI Router: the "skill_edit" zone decides provider + model.
+      // Default zone provider is claude (best at preserving SKILL.md
+      // structure / YAML frontmatter). On any router error we fall back
+      // to the previous hardcoded "claude" so the button keeps working.
+      type Zone = { provider: string; model: string | null };
+      let zone: Zone = { provider: "claude", model: null };
+      try {
+        const cfg = (await invoke("read_ai_router")) as Record<string, Zone>;
+        if (cfg && cfg.skill_edit) zone = cfg.skill_edit;
+      } catch {
+        // keep default
+      }
       await invoke("spawn_session", {
-        provider: "claude",
+        provider: zone.provider,
         prompt: promptText,
         cwd: skillDir,
-        flags: { dangerouslySkipPermissions: false },
+        flags: {
+          dangerouslySkipPermissions: false,
+          model: zone.model ?? undefined,
+        },
       });
       setMode("view");
       setAiInstruction("");

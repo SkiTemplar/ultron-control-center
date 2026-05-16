@@ -382,12 +382,31 @@ pub async fn summarize_news_inner(
     // .cmd shim rejects as "unexpected argument <body>" when passed
     // inline). spawn_session_inner copies the prompt to clipboard for
     // any payload with newlines or >1200 chars.
-    crate::sessions::spawn_session_inner(app, "codex".into(), Some(prompt), None, None)
+    //
+    // v15.2 AI Router: the "summarize" zone decides BOTH provider and
+    // model. Default zone provider is codex (cheap for throwaway
+    // summaries), but the user can pick claude/gemini from the
+    // Settings → AI Router UI and the model dropdown propagates through
+    // SpawnFlags.model. On any router error we fall back to the old
+    // hardcoded "codex" default so this call site never silently breaks.
+    let (provider, model) = match crate::ai_router::read_ai_router_inner() {
+        Ok(cfg) => cfg
+            .zone("summarize")
+            .map(|z| (z.provider.clone(), z.model.clone().filter(|m| !m.is_empty())))
+            .unwrap_or_else(|| ("codex".to_string(), None)),
+        Err(_) => ("codex".to_string(), None),
+    };
+    let flags = crate::sessions::SpawnFlags {
+        model,
+        ..Default::default()
+    };
+    crate::sessions::spawn_session_inner(app, provider.clone(), Some(prompt), None, Some(flags))
         .await
         .map_err(|e| e)?;
-    Ok(
-        "Sesion Codex abierta en wt.exe. El prompt (newsletter strip + instruccion) esta en tu clipboard; pulsa Ctrl+V alli.".to_string(),
-    )
+    Ok(format!(
+        "Sesion {} abierta en wt.exe. El prompt (newsletter strip + instruccion) esta en tu clipboard; pulsa Ctrl+V alli.",
+        provider
+    ))
 }
 
 /// Read the full HTML body of a newsletter for inline rendering in the
