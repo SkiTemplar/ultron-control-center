@@ -253,7 +253,6 @@ export function News() {
                       } else {
                         setInfo("Gemini session abierta en wt.exe. El prompt está en tu clipboard — pulsa Ctrl+V allí.");
                         setShowGen(false);
-                        setGenTheme("");
                       }
                     } catch (e) {
                       setError(String(e));
