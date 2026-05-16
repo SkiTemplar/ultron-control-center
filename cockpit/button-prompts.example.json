@@ -1,0 +1,7 @@
+{
+  "_comment": "Override file for AI button prompts. Auto-managed by the Control Center (Settings > Button prompts). Only entries you have customised are stored here; defaults live in src-tauri/src/button_prompts.rs. Delete a key to revert to the canonical default.",
+  "schema_version": 1,
+  "overrides": {
+    "dashboard.pc_diagnose_analyse": "Analiza este reporte de diagnostico PC y dame un plan de accion de 3 pasos maximo.\n\nReporte:\n```json\n{report_json}\n```"
+  }
+}

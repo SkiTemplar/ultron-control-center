@@ -1,13 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { AgentInfo, AgentMutationResult } from "../types";
+import type {
+  AgentInfo,
+  AgentMutationResult,
+  AgentSecurityReport,
+  AllowAgentResult,
+} from "../types";
 import { getHomeDir, joinPath } from "../lib/paths";
+import { SecurityPanel, securityHintFromInfo } from "./SecurityPanel";
 
 // ---------------------------------------------------------------------------
 // Agents tab — sister to Skills, scoped to ~/.claude/agents/*.md.
-// Same UX (list / preview / edit / delete / AI-assist) but tailored to
-// the simpler agent shape (no quarantine flow in the first cut — we add
-// the prompt-injection scanner pass in a follow-up release).
+// Same UX (list / preview / edit / delete / AI-assist), now plus the
+// prompt-injection scanner pass and Allow-anyway flow. The Security
+// panel is shared with Skills via <SecurityPanel/>; the per-agent
+// badge in each Row uses the shared `securityHintFromInfo` helper so
+// colour/copy stay in lock-step across the two tabs.
 // ---------------------------------------------------------------------------
 
 const NEW_AGENT_TEMPLATE = `You are <role>. <One-line purpose>.
@@ -42,6 +50,7 @@ function Row({
   selected: boolean;
   onClick: () => void;
 }) {
+  const sec = securityHintFromInfo(agent.security ?? null);
   return (
     <button
       type="button"
@@ -71,6 +80,15 @@ function Row({
       >
         agent
       </span>
+      {sec && (
+        <span
+          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium tabular-nums"
+          style={{ background: sec.bg, color: sec.color }}
+          title={sec.title}
+        >
+          {sec.label}
+        </span>
+      )}
       <div className="min-w-0 flex-1">
         <div className="truncate text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
           {agent.name}
@@ -94,7 +112,7 @@ function Row({
   );
 }
 
-type PreviewMode = "view" | "edit" | "confirm-delete";
+type PreviewMode = "view" | "edit" | "confirm-delete" | "security";
 
 function Preview({
   agent,
@@ -112,13 +130,27 @@ function Preview({
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Security drawer state. The reason textarea + submit button live
+  // inside the shared <SecurityPanel/>; we only keep RPC coordination
+  // state here (the report, in-flight flag, transient error).
+  const [secReport, setSecReport] = useState<AgentSecurityReport | null>(null);
+  const [secLoading, setSecLoading] = useState(false);
+  const [secError, setSecError] = useState<string | null>(null);
+  const [allowBusy, setAllowBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
     setStatus(null);
-    setMode("view");
+    // Security-first preview: if the agent already carries a non-allow
+    // verdict in its registry entry, open the Security panel up front so
+    // the findings are foreground. Otherwise the user lands on the
+    // normal preview.
+    const hasFindings = !!agent.security && agent.security.decision !== "allow";
+    setMode(hasFindings ? "security" : "view");
+    setSecReport(null);
+    setSecError(null);
     invoke<string>("read_agent_md", { name: agent.name })
       .then((c) => {
         if (!cancelled) {
@@ -132,10 +164,69 @@ function Preview({
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    if (hasFindings) {
+      setSecLoading(true);
+      invoke<AgentSecurityReport>("get_agent_findings", { name: agent.name })
+        .then((r) => {
+          if (!cancelled) setSecReport(r);
+        })
+        .catch((e) => {
+          if (!cancelled) setSecError(String(e));
+        })
+        .finally(() => {
+          if (!cancelled) setSecLoading(false);
+        });
+    }
     return () => {
       cancelled = true;
     };
   }, [agent.name]);
+
+  async function openSecurity() {
+    setMode("security");
+    setSecError(null);
+    setSecLoading(true);
+    setSecReport(null);
+    try {
+      const report = await invoke<AgentSecurityReport>("get_agent_findings", {
+        name: agent.name,
+      });
+      setSecReport(report);
+    } catch (e) {
+      setSecError(String(e));
+    } finally {
+      setSecLoading(false);
+    }
+  }
+
+  // Called by the shared SecurityPanel once the user submits a non-empty
+  // reason and there is at least one active finding.
+  async function handleAllowAnyway(rules: string[], reason: string) {
+    if (allowBusy) return;
+    setAllowBusy(true);
+    setSecError(null);
+    try {
+      if (rules.length === 0) {
+        setSecError("No active findings to waive.");
+        setAllowBusy(false);
+        return;
+      }
+      const res = await invoke<AllowAgentResult>("allow_agent_manually", {
+        name: agent.name,
+        rules,
+        reason,
+      });
+      flash(
+        `Waiver written (sha1 ${res.sha1.slice(0, 10)}…). Re-run an agent scan to refresh.`,
+      );
+      setMode("view");
+      onMutated();
+    } catch (e) {
+      setSecError(String(e));
+    } finally {
+      setAllowBusy(false);
+    }
+  }
 
   function flash(msg: string) {
     setStatus(msg);
@@ -177,11 +268,12 @@ function Preview({
   async function openInClaude() {
     try {
       const agentsDir = joinPath(await getHomeDir(), ".claude", "agents");
-      const prompt = [
-        `Quiero editar este agent (~/.claude/agents/${agent.name}.md).`,
-        "",
-        "Lee primero el archivo y proponme cambios concretos. Mantén el frontmatter YAML válido.",
-      ].join("\n");
+      // v15.2: prompt comes from the central catalog
+      // (key "agents.edit_with_ai"). Editable via Settings → Button prompts.
+      const { getPrompt } = await import("../lib/button-prompts");
+      const prompt = await getPrompt("agents.edit_with_ai", {
+        agent_name: agent.name,
+      });
       await invoke("spawn_session", {
         provider: "claude",
         prompt,
@@ -235,6 +327,22 @@ function Preview({
                 >
                   AI
                 </button>
+                {agent.security && agent.security.decision !== "allow" && (
+                  <button
+                    type="button"
+                    onClick={() => void openSecurity()}
+                    disabled={busy || loading}
+                    className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      color: "var(--color-danger)",
+                      border: "1px solid rgba(248, 81, 73, 0.32)",
+                    }}
+                    title="Open the prompt-injection scan report for this agent"
+                  >
+                    Security
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setMode("confirm-delete")}
@@ -249,6 +357,24 @@ function Preview({
                   Delete
                 </button>
               </>
+            )}
+            {mode === "security" && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("view");
+                  setSecError(null);
+                }}
+                disabled={allowBusy}
+                className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text-secondary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                Close
+              </button>
             )}
             {mode === "edit" && (
               <>
@@ -384,6 +510,15 @@ function Preview({
             </button>
           </div>
         )}
+        <SecurityPanel
+          open={mode === "security"}
+          loading={secLoading}
+          error={secError}
+          report={secReport}
+          busy={allowBusy}
+          onAllow={(rules, reason) => void handleAllowAnyway(rules, reason)}
+          targetLabel="agent"
+        />
       </header>
       <div className="flex-1 overflow-auto px-5 py-4">
         {loading && (
@@ -410,7 +545,17 @@ function Preview({
         {!loading && mode !== "edit" && (
           <pre
             className="whitespace-pre-wrap text-[11.5px] leading-relaxed"
-            style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}
+            style={{
+              fontFamily: "var(--font-mono)",
+              color: "var(--color-text-secondary)",
+              // Dim the body when the Security panel is open so the
+              // findings drawer is the visual foreground — mirrors the
+              // Skills tab's behaviour.
+              opacity: mode === "security" ? 0.35 : 1,
+              filter: mode === "security" ? "grayscale(0.7)" : "none",
+              transition: "opacity 120ms, filter 120ms",
+              pointerEvents: mode === "security" ? "none" : "auto",
+            }}
           >
             {content}
           </pre>
@@ -625,6 +770,51 @@ function NewAgentModal({
   );
 }
 
+// Tiny filter pill — mirrors the one in Skills.tsx so the Agents tab's
+// chrome is visually consistent. Local to this file because the Skills
+// version embeds a `count` slot we want here too; extracting yet another
+// shared component would be overkill for a 25-line widget.
+function Pill({
+  active,
+  label,
+  count,
+  onClick,
+  color,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+  color?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] transition-colors"
+      style={{
+        background: active ? "var(--color-surface-3)" : "transparent",
+        color: active ? "var(--color-text)" : "var(--color-text-tertiary)",
+        border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}`,
+      }}
+    >
+      {color && (
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ background: color, opacity: active ? 1 : 0.4 }}
+        />
+      )}
+      <span>{label}</span>
+      <span
+        className="tabular-nums"
+        style={{ color: active ? "var(--color-text-secondary)" : "var(--color-text-faint)" }}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
 export function Agents() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -632,6 +822,10 @@ export function Agents() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
+  // "Quarantined" filter pill — when active, only agents with a non-allow
+  // security decision are shown. Off by default (we don't want to hide
+  // the bulk of the tab on first paint).
+  const [onlyQuarantined, setOnlyQuarantined] = useState(false);
 
   function reload(): Promise<AgentInfo[]> {
     return invoke<AgentInfo[]>("list_agents")
@@ -651,15 +845,32 @@ export function Agents() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Count agents whose pre-computed security verdict is anything other
+  // than "allow". This is best-effort: if no registry has populated
+  // `security` yet, the count stays at 0 and the pill becomes a no-op.
+  const quarantinedCount = useMemo(
+    () =>
+      agents.filter(
+        (a) => !!a.security && a.security.decision !== "allow",
+      ).length,
+    [agents],
+  );
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return agents;
-    return agents.filter(
-      (a) =>
-        a.name.toLowerCase().includes(q) ||
-        (a.description ?? "").toLowerCase().includes(q),
-    );
-  }, [agents, query]);
+    return agents
+      .filter((a) => {
+        if (!onlyQuarantined) return true;
+        return !!a.security && a.security.decision !== "allow";
+      })
+      .filter((a) => {
+        if (!q) return true;
+        return (
+          a.name.toLowerCase().includes(q) ||
+          (a.description ?? "").toLowerCase().includes(q)
+        );
+      });
+  }, [agents, query, onlyQuarantined]);
 
   const selectedAgent = useMemo(
     () => agents.find((a) => a.name === selected) ?? null,
@@ -745,6 +956,15 @@ export function Agents() {
               outline: "none",
             }}
           />
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <Pill
+              label="Quarantined"
+              count={quarantinedCount}
+              color="#e8a93a"
+              active={onlyQuarantined}
+              onClick={() => setOnlyQuarantined(!onlyQuarantined)}
+            />
+          </div>
         </header>
         <div className="flex-1 overflow-auto px-2 py-2">
           {loading && (

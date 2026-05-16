@@ -52,8 +52,17 @@ except Exception:  # noqa: BLE001 — alerts bus is optional during checks
 ULTRON_HOME = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".ultron"
 CLAUDE_HOME = Path(os.environ.get("USERPROFILE", os.path.expanduser("~"))) / ".claude"
 SKILLS_ROOT = CLAUDE_HOME / "skills"
+# Agents live as flat markdown files (not directories): ~/.claude/agents/<name>.md
+AGENTS_ROOT = CLAUDE_HOME / "agents"
 QUARANTINE_DIR = ULTRON_HOME / "quarantine"
 TRUST_CONFIG = ULTRON_HOME / "config" / "skill-trust.yaml"
+
+# Target-type discriminator for the unified scanner. Keeps the same regex
+# rule-set and decision ladder; differs only in the on-disk shape:
+#   "skill" → ~/.claude/skills/<name>/SKILL.md   (directory with SKILL.md)
+#   "agent" → ~/.claude/agents/<name>.md         (flat markdown file)
+TARGET_SKILL = "skill"
+TARGET_AGENT = "agent"
 
 # ---------------------------------------------------------------------------
 # Severity / decision ladder
@@ -253,12 +262,25 @@ def load_trust_config(path: Path | None = None) -> dict[str, Any]:
 
 
 def _is_trusted_source(source: str | None, skill_path: Path,
-                       trust_config: dict[str, Any] | None = None) -> bool:
-    """True iff source matches the trust config OR skill lives under
-    local_skill_root.
+                       trust_config: dict[str, Any] | None = None,
+                       target_type: str = TARGET_SKILL) -> bool:
+    """True iff source matches the trust config OR target lives under
+    its local-owned root.
+
+    For ``target_type="skill"`` the local root is ``local_skill_root``
+    (default ``~/.claude/skills``); for ``target_type="agent"`` the
+    canonical local root is ``~/.claude/agents`` (configurable via
+    ``local_agent_root``). Agents shipped by the user under that path
+    are always trusted exactly like local skills.
     """
     cfg = trust_config or load_trust_config()
-    local_root = cfg.get("local_skill_root", "")
+    # Pick the right local-owned root for this target type. We accept both
+    # the legacy `local_skill_root` and a new `local_agent_root` (added
+    # for the agents port — defaults to ~/.claude/agents).
+    if target_type == TARGET_AGENT:
+        local_root = cfg.get("local_agent_root", "") or str(AGENTS_ROOT)
+    else:
+        local_root = cfg.get("local_skill_root", "")
     if local_root:
         try:
             # F28 fix: expand ~ and env vars so the YAML can use portable
@@ -315,9 +337,14 @@ def _lookup_provenance_source(skill_name: str) -> str | None:
 
 
 def _exception_for(skill_name: str, sha1: str,
-                    trust_config: dict[str, Any] | None = None) -> dict[str, Any] | None:
+                    trust_config: dict[str, Any] | None = None,
+                    target_type: str = TARGET_SKILL) -> dict[str, Any] | None:
     """F06 fix: return the active exception block for *skill_name* iff
     *sha1* matches the recorded `skill_md_sha1`. Returns None otherwise.
+
+    Waivers tagged with ``target_type`` only match the matching target
+    type. Legacy entries without that field are treated as skills (the
+    default) so existing skill waivers keep working unchanged.
     """
     cfg = trust_config or load_trust_config()
     raw = cfg.get("exceptions") or []
@@ -330,6 +357,10 @@ def _exception_for(skill_name: str, sha1: str,
             continue
         recorded = str(entry.get("skill_md_sha1") or "").strip()
         if not recorded or recorded != sha1:
+            continue
+        # target_type discriminator — defaults to "skill" for legacy entries.
+        entry_tt = str(entry.get("target_type") or TARGET_SKILL).strip().lower()
+        if entry_tt != target_type:
             continue
         return entry
     return None
@@ -907,15 +938,36 @@ def _confidence(findings: list[SecurityFinding]) -> float:
 # Public API
 # ---------------------------------------------------------------------------
 
-def scan_skill(skill_path: Path, source: str | None = None) -> SecurityVerdict:
+def scan_skill(skill_path: Path, source: str | None = None,
+               target_type: str = TARGET_SKILL) -> SecurityVerdict:
     """Scan a skill directory (or SKILL.md path). Returns a SecurityVerdict.
 
     `source` may be the marketplace owner / repo (e.g. "anthropics") for
     trust evaluation. If None, the skill is treated as untrusted unless its
     path is under `local_skill_root`.
+
+    ``target_type`` controls the on-disk shape:
+      - ``"skill"`` (default): directory with ``SKILL.md`` inside.
+      - ``"agent"``: a single ``.md`` file (``skill_path`` may be either
+        the file itself or the ``~/.claude/agents`` directory holding it).
+        Trust evaluation, exception lookups and the verdict name all key
+        off the file stem so the rest of the pipeline (waivers,
+        registry, UI) is symmetric with skills.
     """
     skill_path = Path(skill_path)
-    if skill_path.is_file():
+    if target_type == TARGET_AGENT:
+        # Agents are flat ``.md`` files. ``skill_dir`` is set to the file
+        # itself (used by trust-path resolution) and ``skill_md`` is the
+        # same path so the existing read/sha1 logic doesn't need a fork.
+        # The "name" used for exception lookup is the file stem.
+        if skill_path.is_dir():
+            # Defensive: caller passed the agents root — refuse, ambiguous.
+            raise ValueError(
+                f"scan_skill(target_type='agent') requires a file path, got dir: {skill_path}"
+            )
+        skill_dir = skill_path
+        skill_md = skill_path
+    elif skill_path.is_file():
         skill_dir = skill_path.parent
         skill_md = skill_path
     else:
@@ -942,16 +994,19 @@ def scan_skill(skill_path: Path, source: str | None = None) -> SecurityVerdict:
         ))
 
     trust_cfg = load_trust_config()
-    trusted = _is_trusted_source(source, skill_dir, trust_cfg)
+    trusted = _is_trusted_source(source, skill_dir, trust_cfg, target_type=target_type)
 
     # F01 fix: NEVER trust frontmatter `source` field — a malicious skill
     # could declare itself trusted by writing `source: anthropics`. Trust
     # comes only from external metadata: `skill-provenance.json` (recorded
     # at install time) or path under `local_skill_root`.
-    if not source and not trusted:
+    # Agents have no provenance ledger today, so this branch is a no-op
+    # for them — they fall back to path-trust only.
+    if not source and not trusted and target_type == TARGET_SKILL:
         prov_src = _lookup_provenance_source(skill_dir.name)
         if prov_src:
-            trusted = _is_trusted_source(prov_src, skill_dir, trust_cfg)
+            trusted = _is_trusted_source(prov_src, skill_dir, trust_cfg,
+                                          target_type=target_type)
 
     # If the SKILL.md frontmatter declared a `source`, log a low-severity
     # finding so audits see the spoofing attempt but it has NO effect on
@@ -996,7 +1051,16 @@ def scan_skill(skill_path: Path, source: str | None = None) -> SecurityVerdict:
             cur_sha1 = h.hexdigest()
     except OSError:
         cur_sha1 = ""
-    excep = _exception_for(skill_dir.name, cur_sha1, trust_cfg) if cur_sha1 else None
+    # Resolve the "name" used for waiver matching. For skills that's the
+    # directory name (legacy behaviour); for agents it's the file stem
+    # because each agent lives as a flat <name>.md file.
+    name_for_waiver = (
+        skill_md.stem if target_type == TARGET_AGENT else skill_dir.name
+    )
+    excep = (
+        _exception_for(name_for_waiver, cur_sha1, trust_cfg, target_type=target_type)
+        if cur_sha1 else None
+    )
     waived_rules: set[str] = set()
     if excep:
         rules_raw = excep.get("waived_rules") or []
@@ -1047,9 +1111,17 @@ def scan_skill(skill_path: Path, source: str | None = None) -> SecurityVerdict:
     raw_decision = _aggregate_decision(decisive_findings)
     # F28: detect if this is a user-owned skill (under local_skill_root) so
     # the downgrade can be slightly more permissive (block -> quarantine).
+    # For agents the local-owned root is ~/.claude/agents (or whatever the
+    # YAML overrides via ``local_agent_root``).
     local_owned = False
     try:
-        local_root = trust_cfg.get("local_skill_root", "") if trust_cfg else ""
+        if target_type == TARGET_AGENT:
+            local_root = (
+                (trust_cfg.get("local_agent_root", "") if trust_cfg else "")
+                or str(AGENTS_ROOT)
+            )
+        else:
+            local_root = trust_cfg.get("local_skill_root", "") if trust_cfg else ""
         if local_root:
             expanded = os.path.expanduser(os.path.expandvars(str(local_root)))
             lr = Path(expanded).resolve()
@@ -1092,6 +1164,35 @@ def scan_all_installed(skills_root: Path | None = None) -> list[SecurityVerdict]
             # source=None forces scan_skill to consult provenance/path-trust.
             out.append(scan_skill(d, source=None))
         except Exception:  # noqa: BLE001 — one bad skill must not crash sweep
+            continue
+    return out
+
+
+def scan_all_agents(agents_root: Path | None = None) -> list[SecurityVerdict]:
+    """Scan every ``<name>.md`` agent in ~/.claude/agents/.
+
+    Mirrors :func:`scan_all_installed` but for the flat-file agent layout.
+    One bad file must not crash the sweep — exceptions are swallowed per
+    entry so the doctor can still report on the rest.
+    """
+    root = agents_root or AGENTS_ROOT
+    if not root.exists():
+        return []
+    out: list[SecurityVerdict] = []
+    try:
+        entries = sorted(root.iterdir())
+    except OSError:
+        return []
+    for f in entries:
+        if not f.is_file():
+            continue
+        if f.suffix.lower() != ".md":
+            continue
+        if f.name.startswith("."):
+            continue
+        try:
+            out.append(scan_skill(f, source=None, target_type=TARGET_AGENT))
+        except Exception:  # noqa: BLE001 — one bad agent must not crash sweep
             continue
     return out
 
@@ -1165,7 +1266,9 @@ def _print_verdict_human(v: SecurityVerdict) -> None:
 
 
 def _cli_scan(args: argparse.Namespace) -> int:
-    verdict = scan_skill(Path(args.path), source=args.source)
+    target_type = getattr(args, "target_type", TARGET_SKILL) or TARGET_SKILL
+    verdict = scan_skill(Path(args.path), source=args.source,
+                          target_type=target_type)
     if args.json:
         print(json.dumps(verdict.to_dict(), ensure_ascii=False, indent=2))
     else:
@@ -1176,7 +1279,10 @@ def _cli_scan(args: argparse.Namespace) -> int:
 
 
 def _cli_audit_all(args: argparse.Namespace) -> int:
-    verdicts = scan_all_installed()
+    target_type = getattr(args, "target_type", TARGET_SKILL) or TARGET_SKILL
+    verdicts = (
+        scan_all_agents() if target_type == TARGET_AGENT else scan_all_installed()
+    )
     if args.json:
         out = {
             "generated_at": _dt.datetime.now(_dt.timezone.utc)
@@ -1192,7 +1298,8 @@ def _cli_audit_all(args: argparse.Namespace) -> int:
         }
         print(json.dumps(out, ensure_ascii=False, indent=2))
         return 0
-    print(f"Audit-all: scanned {len(verdicts)} skill(s).")
+    noun = "agent" if target_type == TARGET_AGENT else "skill"
+    print(f"Audit-all: scanned {len(verdicts)} {noun}(s).")
     for v in verdicts:
         if v.decision == "allow":
             continue
@@ -1208,14 +1315,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    s = sub.add_parser("scan", help="Scan one skill (path or SKILL.md).")
+    s = sub.add_parser("scan", help="Scan one skill or agent file.")
     s.add_argument("path")
     s.add_argument("--source", default=None,
                    help="Marketplace/owner identifier for trust evaluation.")
+    s.add_argument("--target-type", choices=[TARGET_SKILL, TARGET_AGENT],
+                   default=TARGET_SKILL, dest="target_type",
+                   help="What kind of asset is being scanned. 'skill' (default) "
+                        "expects a directory or SKILL.md; 'agent' expects a "
+                        "flat ~/.claude/agents/<name>.md file.")
     s.add_argument("--json", action="store_true")
     s.set_defaults(func=_cli_scan)
 
-    a = sub.add_parser("audit-all", help="Scan every skill in ~/.claude/skills/.")
+    a = sub.add_parser("audit-all",
+                        help="Scan every skill in ~/.claude/skills/ "
+                             "(or every agent if --target-type agent).")
+    a.add_argument("--target-type", choices=[TARGET_SKILL, TARGET_AGENT],
+                   default=TARGET_SKILL, dest="target_type")
     a.add_argument("--json", action="store_true")
     a.set_defaults(func=_cli_audit_all)
 

@@ -16,24 +16,38 @@
 // -------------------
 // Old shape (v15.1):  { "diagnose": "claude" }
 // New shape (v15.2):  { "diagnose": { "provider": "claude", "model": null } }
+// v15.2.39 shape:     { "diagnose": { "provider": "claude", "model": null, "agent": null } }
 //
-// `read_ai_router_inner` accepts both via an untagged enum: legacy string
-// values are auto-upgraded in memory to `AiRouterEntry { provider, model: None }`.
-// We do NOT rewrite the file on read (avoids surprise writes); the next save
-// from the UI naturally persists the new shape.
+// `read_ai_router_inner` accepts all three shapes via an untagged enum:
+// legacy string values are auto-upgraded in memory to
+// `AiRouterEntry { provider, model: None, agent: None }`. Configs written
+// before the `agent` field existed deserialize cleanly because the field
+// is `#[serde(default)]`. We do NOT rewrite the file on read (avoids
+// surprise writes); the next save from the UI naturally persists the new
+// shape, including any agent the user picked.
 
 use std::fs;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-/// Per-zone routing entry. `model` is optional: `None` means "use the
-/// provider's account default" (whatever the CLI picks).
+/// Per-zone routing entry.
+///
+/// - `provider` — claude / codex / gemini.
+/// - `model`   — optional; `None` means "use the provider's account
+///   default" (whatever the CLI picks).
+/// - `agent`   — optional subagent slug (filename stem under
+///   `~/.claude/agents/`). When set AND the active provider is Claude,
+///   `sessions::spawn_session_inner` prepends a `[USE AGENT: <slug>]`
+///   directive to the prompt so the Claude session opens with the right
+///   subagent context. `None` keeps the original behaviour.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AiRouterEntry {
     pub provider: String,
     #[serde(default)]
     pub model: Option<String>,
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 impl AiRouterEntry {
@@ -41,6 +55,7 @@ impl AiRouterEntry {
         AiRouterEntry {
             provider: provider.to_string(),
             model: None,
+            agent: None,
         }
     }
 }
@@ -61,6 +76,7 @@ impl From<AiRouterEntryWire> for AiRouterEntry {
             AiRouterEntryWire::Legacy(s) => AiRouterEntry {
                 provider: s,
                 model: None,
+                agent: None,
             },
             AiRouterEntryWire::Full(e) => e,
         }
@@ -205,9 +221,33 @@ fn validate_model(name: &str, value: &Option<String>) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_agent(name: &str, value: &Option<String>) -> Result<(), String> {
+    // Agent is an opaque filename stem under ~/.claude/agents/. We only
+    // sanity-check it (no control chars, no path separators, reasonable
+    // length). The frontend dropdown is the source of truth for which
+    // slugs exist; a power-user editing the JSON directly can pick any
+    // string that maps to a real .md file. Empty string → reject (use
+    // null instead to mean "no agent").
+    if let Some(a) = value {
+        if a.is_empty() {
+            return Err(format!("agent for '{}' is empty (use null instead)", name));
+        }
+        if a.len() > 64 {
+            return Err(format!("agent for '{}' too long (>64 chars)", name));
+        }
+        if a.chars().any(|c| {
+            c.is_control() || c == ' ' || c == '/' || c == '\\' || c == '.' || c == ':'
+        }) {
+            return Err(format!("agent for '{}' has invalid characters", name));
+        }
+    }
+    Ok(())
+}
+
 fn validate_entry(name: &str, entry: &AiRouterEntry) -> Result<(), String> {
     validate_provider(name, &entry.provider)?;
     validate_model(name, &entry.model)?;
+    validate_agent(name, &entry.agent)?;
     Ok(())
 }
 
@@ -253,6 +293,13 @@ pub fn save_ai_router_inner(cfg: AiRouterConfig) -> Result<AiRouterConfig, Strin
     validate_entry("skill_edit", &cfg.skill_edit)?;
     validate_entry("mcp_create", &cfg.mcp_create)?;
     validate_entry("repo_review", &cfg.repo_review)?;
+    validate_entry("personal_analyse", &cfg.personal_analyse)?;
+    validate_entry("memory_analyse", &cfg.memory_analyse)?;
+    validate_entry("notif_fix", &cfg.notif_fix)?;
+    validate_entry("self_improve", &cfg.self_improve)?;
+    validate_entry("system_analyse", &cfg.system_analyse)?;
+    validate_entry("usage_analyse", &cfg.usage_analyse)?;
+    validate_entry("skill_create", &cfg.skill_create)?;
 
     let path = router_file().ok_or_else(|| "no HOME".to_string())?;
     write_atomic(&path, &cfg)?;
@@ -277,8 +324,52 @@ mod tests {
         let cfg: AiRouterConfig = serde_json::from_str(raw).expect("legacy shape parses");
         assert_eq!(cfg.diagnose.provider, "claude");
         assert!(cfg.diagnose.model.is_none());
+        assert!(cfg.diagnose.agent.is_none());
         assert_eq!(cfg.news_generate.provider, "gemini");
         assert!(cfg.news_generate.model.is_none());
+        assert!(cfg.news_generate.agent.is_none());
+    }
+
+    #[test]
+    fn parses_pre_agent_object_shape() {
+        // Configs written by v15.2.38 (object shape but no `agent` field).
+        // Must deserialize cleanly with `agent` defaulting to None.
+        let raw = r#"{
+            "diagnose": { "provider": "claude", "model": "claude-opus-4-7" }
+        }"#;
+        let cfg: AiRouterConfig = serde_json::from_str(raw).expect("pre-agent shape parses");
+        assert_eq!(cfg.diagnose.provider, "claude");
+        assert_eq!(cfg.diagnose.model.as_deref(), Some("claude-opus-4-7"));
+        assert!(cfg.diagnose.agent.is_none());
+    }
+
+    #[test]
+    fn parses_full_shape_with_agent() {
+        let raw = r#"{
+            "diagnose": { "provider": "claude", "model": null, "agent": "debugger" },
+            "skill_edit": { "provider": "claude", "model": "claude-opus-4-7", "agent": "refactoring-specialist" }
+        }"#;
+        let cfg: AiRouterConfig = serde_json::from_str(raw).expect("with-agent shape parses");
+        assert_eq!(cfg.diagnose.agent.as_deref(), Some("debugger"));
+        assert_eq!(cfg.skill_edit.agent.as_deref(), Some("refactoring-specialist"));
+        // Other zones default to no agent.
+        assert!(cfg.summarize.agent.is_none());
+    }
+
+    #[test]
+    fn rejects_empty_agent_string() {
+        let mut cfg = AiRouterConfig::default();
+        cfg.diagnose.agent = Some(String::new());
+        let err = save_ai_router_inner(cfg).err().expect("should reject");
+        assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn rejects_agent_with_path_chars() {
+        let mut cfg = AiRouterConfig::default();
+        cfg.diagnose.agent = Some("../etc/passwd".into());
+        let err = save_ai_router_inner(cfg).err().expect("should reject");
+        assert!(err.contains("invalid characters"));
     }
 
     #[test]

@@ -448,7 +448,8 @@ pub struct AllowSkillResult {
 
 /// Convert a unix timestamp (UTC seconds) into a `YYYY-MM-DD` string.
 /// Howard Hinnant's civil-from-days algorithm — pure stdlib, no deps.
-fn format_ymd_local(ts: u64) -> String {
+/// Made `pub(crate)` so the agents module can reuse it for waiver YAML.
+pub(crate) fn format_ymd_local(ts: u64) -> String {
     let days = (ts / 86400) as i64;
     let z = days + 719468;
     let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
@@ -465,7 +466,10 @@ fn format_ymd_local(ts: u64) -> String {
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
-fn sha1_of_file(p: &Path) -> Result<String, String> {
+/// SHA1 hash of an on-disk file as a 40-char hex string. `pub(crate)` so
+/// the agents module reuses the same hashing engine without dragging in
+/// a new crate dep.
+pub(crate) fn sha1_of_file(p: &Path) -> Result<String, String> {
     let data = fs::read(p).map_err(|e| format!("read {}: {}", p.display(), e))?;
     let mut hasher = Sha1Engine::new();
     hasher.update(&data);
@@ -583,21 +587,22 @@ pub fn allow_skill_manually_inner(
 }
 
 // Minimal in-tree SHA1 to avoid a new crate dep just for this command.
-struct Sha1Engine {
+// `pub(crate)` so the agents module reuses the same engine.
+pub(crate) struct Sha1Engine {
     state: [u32; 5],
     buf: Vec<u8>,
     len: u64,
 }
 
 impl Sha1Engine {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             state: [0x67452301, 0xEFCDAB89, 0x98BADCFE, 0x10325476, 0xC3D2E1F0],
             buf: Vec::new(),
             len: 0,
         }
     }
-    fn update(&mut self, data: &[u8]) {
+    pub(crate) fn update(&mut self, data: &[u8]) {
         self.len += data.len() as u64;
         self.buf.extend_from_slice(data);
         let mut idx = 0;
@@ -607,7 +612,7 @@ impl Sha1Engine {
         }
         self.buf.drain(..idx);
     }
-    fn hex(mut self) -> String {
+    pub(crate) fn hex(mut self) -> String {
         let bit_len = self.len * 8;
         self.buf.push(0x80);
         while self.buf.len() % 64 != 56 {

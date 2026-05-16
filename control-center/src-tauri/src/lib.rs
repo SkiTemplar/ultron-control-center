@@ -10,6 +10,7 @@ mod ai_router;
 mod alerts_admin;
 mod auth;
 mod backup_status;
+mod button_prompts;
 mod claude_sessions;
 mod codex_fallback;
 mod cost_watchdog;
@@ -466,6 +467,20 @@ async fn update_agent_md(
 #[tauri::command]
 async fn delete_agent(name: String) -> Result<agents::AgentMutationResult, String> {
     agents::delete_agent_inner(name)
+}
+
+#[tauri::command]
+async fn get_agent_findings(name: String) -> Result<agents::AgentSecurityReport, String> {
+    agents::get_agent_findings_inner(name)
+}
+
+#[tauri::command]
+async fn allow_agent_manually(
+    name: String,
+    rules: Vec<String>,
+    reason: String,
+) -> Result<agents::AllowAgentResult, String> {
+    agents::allow_agent_manually_inner(name, rules, reason)
 }
 
 #[tauri::command]
@@ -1017,6 +1032,39 @@ async fn record_ui_alert(
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Button prompts catalog — see button_prompts.rs for the rationale. Every AI
+// button in the Control Center reads its prompt from this catalog so the user
+// can refine the prompts from the Settings → "Button prompts" sub-tab without
+// touching the source.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn list_button_prompts() -> Result<button_prompts::ButtonPromptsCatalog, String> {
+    button_prompts::list_button_prompts_inner()
+}
+
+#[tauri::command]
+async fn update_button_prompt(
+    key: String,
+    prompt: String,
+) -> Result<button_prompts::ButtonPrompt, String> {
+    button_prompts::update_button_prompt_inner(key, prompt)
+}
+
+#[tauri::command]
+async fn reset_button_prompt(key: String) -> Result<button_prompts::ButtonPrompt, String> {
+    button_prompts::reset_button_prompt_inner(key)
+}
+
+#[tauri::command]
+async fn get_button_prompt(
+    key: String,
+    vars: Option<std::collections::BTreeMap<String, String>>,
+) -> Result<String, String> {
+    button_prompts::get_button_prompt_inner(key, vars.unwrap_or_default())
+}
+
 #[tauri::command]
 async fn tail_log(
     source_id: String,
@@ -1377,6 +1425,8 @@ pub fn run() {
             create_agent,
             update_agent_md,
             delete_agent,
+            get_agent_findings,
+            allow_agent_manually,
             memory_status,
             spawn_session,
             run_inline,
@@ -1487,7 +1537,11 @@ pub fn run() {
             delete_hook,
             test_hook,
             recent_hook_fires,
-            request_hook_via_ai
+            request_hook_via_ai,
+            list_button_prompts,
+            update_button_prompt,
+            reset_button_prompt,
+            get_button_prompt
         ])
         .setup(|app| {
             // Persisted main toggle hotkey (Ctrl+Alt+U by default).

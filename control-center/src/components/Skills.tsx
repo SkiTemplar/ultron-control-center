@@ -10,6 +10,7 @@ import type {
   SkillUpdateResult,
 } from "../types";
 import { SkillRichView } from "./SkillRichView";
+import { SecurityPanel, securityHintFromInfo } from "./SecurityPanel";
 import { getHomeDir, joinPath } from "../lib/paths";
 
 // Default body when creating a new skill. Keeps the user oriented without
@@ -58,28 +59,10 @@ function stateBadge(s: SkillState): { color: string; bg: string; label: string }
 }
 
 // Per-skill security badge shown next to the state pill in each Row.
-// Returns null when there is nothing notable to surface.
-function securityHint(s: SkillInfo): { color: string; bg: string; label: string; title: string } | null {
-  const sec = s.security;
-  if (!sec) return null;
-  const d = sec.decision;
-  if (d === "block" || d === "quarantine") {
-    return {
-      color: "#f85149",
-      bg: "rgba(248, 81, 73, 0.10)",
-      label: d === "block" ? "blocked" : `${sec.findings_count ?? 0} findings`,
-      title: `Security ${d.toUpperCase()} — ${(sec.high_severity_rules ?? []).join(", ") || "review required"}`,
-    };
-  }
-  if (d === "warn") {
-    return {
-      color: "#e8a93a",
-      bg: "rgba(232, 169, 58, 0.10)",
-      label: `warn ${sec.findings_count ?? 0}`,
-      title: `Security WARN — ${(sec.high_severity_rules ?? []).join(", ") || "low-severity findings"}`,
-    };
-  }
-  return null;
+// Delegates to the shared helper so the Skills and Agents tabs share
+// identical badge colors and copy.
+function securityHint(s: SkillInfo) {
+  return securityHintFromInfo(s.security ?? null);
 }
 
 // ---------------------------------------------------------------------------
@@ -261,11 +244,13 @@ function Preview({
   const [view, setView] = useState<ViewKind>("rich");
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
-  // Security drawer state
+  // Security drawer state. The reason textarea + submit button now live
+  // inside the shared <SecurityPanel/> component, which owns its own
+  // reason state — we only keep what the parent needs to coordinate the
+  // RPC (report, loading/error, in-flight flag).
   const [secReport, setSecReport] = useState<SkillSecurityReport | null>(null);
   const [secLoading, setSecLoading] = useState(false);
   const [secError, setSecError] = useState<string | null>(null);
-  const [allowReason, setAllowReason] = useState("");
   const [allowBusy, setAllowBusy] = useState(false);
 
   useEffect(() => {
@@ -282,7 +267,6 @@ function Preview({
     setMode(hasFindings ? "security" : "view");
     setSecReport(null);
     setSecError(null);
-    setAllowReason("");
     invoke<string>("read_skill_md", { name: skill.name })
       .then((c) => {
         if (!cancelled) {
@@ -408,20 +392,14 @@ function Preview({
     }
   }
 
-  async function handleAllowAnyway() {
-    if (!secReport || allowBusy) return;
-    if (!allowReason.trim()) {
-      setSecError("Reason is required for the audit trail.");
-      return;
-    }
+  // Called from the shared SecurityPanel with already-deduped rules and a
+  // non-empty reason (the panel enforces both). Returns once the waiver
+  // RPC settles.
+  async function handleAllowAnyway(rules: string[], reason: string) {
+    if (allowBusy) return;
     setAllowBusy(true);
     setSecError(null);
     try {
-      const rules = Array.from(
-        new Set(
-          secReport.findings.filter((f) => !f.waived).map((f) => f.rule_id),
-        ),
-      );
       if (rules.length === 0) {
         setSecError("No active findings to waive.");
         setAllowBusy(false);
@@ -430,11 +408,10 @@ function Preview({
       const res = await invoke<AllowSkillResult>("allow_skill_manually", {
         name: skill.name,
         rules,
-        reason: allowReason.trim(),
+        reason,
       });
       flash(`Waiver written (sha1 ${res.sha1.slice(0, 10)}…). Re-run registry sync to refresh state.`);
       setMode("view");
-      setAllowReason("");
       onMutated();
     } catch (e) {
       setSecError(String(e));
@@ -545,7 +522,6 @@ function Preview({
                 onClick={() => {
                   setMode("view");
                   setSecError(null);
-                  setAllowReason("");
                 }}
                 disabled={allowBusy}
               />
@@ -632,165 +608,16 @@ function Preview({
             />
           </div>
         )}
-        {mode === "security" && (
-          <div
-            className="mt-3 rounded p-3"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid rgba(232, 169, 58, 0.32)",
-            }}
-          >
-            <div
-              className="flex items-baseline justify-between"
-            >
-              <span
-                className="text-[10px] font-medium uppercase tracking-[0.06em]"
-                style={{ color: "#e8a93a" }}
-              >
-                Security findings
-              </span>
-              {secReport && (
-                <span
-                  className="text-[10.5px]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  decision: <strong style={{ color: "var(--color-text)" }}>{secReport.decision}</strong>
-                  {" · "}
-                  {secReport.findings.length} finding(s)
-                  {secReport.sha1 && (
-                    <>
-                      {" · sha1 "}
-                      <code style={{ fontFamily: "var(--font-mono)" }}>
-                        {secReport.sha1.slice(0, 10)}…
-                      </code>
-                    </>
-                  )}
-                </span>
-              )}
-            </div>
-            <p
-              className="mt-1 text-[11.5px] leading-relaxed"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Strict mode keeps these skills out of the active list. Review each finding below —
-              if you trust this skill, write a justification and click "Allow anyway" to record
-              a per-SHA1 waiver in <code style={{ fontFamily: "var(--font-mono)" }}>~/.ultron/config/skill-trust.yaml</code>.
-              Editing the SKILL.md invalidates the waiver, forcing a fresh review.
-            </p>
-            {secLoading && (
-              <div
-                className="mt-3 text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                Running scanner…
-              </div>
-            )}
-            {secError && (
-              <div
-                className="mt-2 rounded px-2 py-1 text-[11px]"
-                style={{
-                  background: "rgba(248, 81, 73, 0.06)",
-                  border: "1px solid rgba(248, 81, 73, 0.22)",
-                  color: "var(--color-danger)",
-                }}
-              >
-                {secError}
-              </div>
-            )}
-            {secReport && secReport.findings.length > 0 && (
-              <div className="mt-3 space-y-1.5">
-                {secReport.findings.map((f, i) => (
-                  <div
-                    key={`${f.rule_id}-${i}`}
-                    className="rounded p-2 text-[11px]"
-                    style={{
-                      background: "var(--color-surface-1)",
-                      border: "1px solid var(--color-border)",
-                      opacity: f.waived ? 0.55 : 1,
-                    }}
-                  >
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
-                        style={{
-                          background:
-                            f.severity === "critical" || f.severity === "high"
-                              ? "rgba(248, 81, 73, 0.12)"
-                              : "rgba(232, 169, 58, 0.10)",
-                          color:
-                            f.severity === "critical" || f.severity === "high"
-                              ? "#f85149"
-                              : "#e8a93a",
-                        }}
-                      >
-                        {f.severity}
-                      </span>
-                      <code
-                        className="text-[10.5px]"
-                        style={{ fontFamily: "var(--font-mono)", color: "var(--color-text)" }}
-                      >
-                        {f.rule_id}
-                      </code>
-                      <span style={{ color: "var(--color-text-secondary)" }}>{f.pattern_name}</span>
-                      {f.waived && (
-                        <span
-                          className="ml-auto text-[10px] uppercase tracking-wide"
-                          style={{ color: "var(--color-text-tertiary)" }}
-                        >
-                          waived
-                        </span>
-                      )}
-                    </div>
-                    {f.excerpt && (
-                      <pre
-                        className="mt-1 overflow-x-auto whitespace-pre-wrap text-[10.5px]"
-                        style={{
-                          fontFamily: "var(--font-mono)",
-                          color: "var(--color-text-tertiary)",
-                        }}
-                      >
-                        {f.excerpt}
-                      </pre>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {secReport && secReport.findings.filter((f) => !f.waived).length > 0 && (
-              <div className="mt-3">
-                <label
-                  className="mb-1 block text-[10px] font-medium uppercase tracking-[0.06em]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  Reason (audit trail · required)
-                </label>
-                <textarea
-                  value={allowReason}
-                  onChange={(e) => setAllowReason(e.target.value)}
-                  placeholder="Por qué confío en esta skill (proveniencia, revisión, etc.)"
-                  className="w-full rounded p-2 text-[11.5px] leading-relaxed"
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    background: "var(--color-surface-1)",
-                    color: "var(--color-text)",
-                    border: "1px solid var(--color-border-strong)",
-                    outline: "none",
-                    minHeight: 60,
-                    resize: "vertical",
-                  }}
-                />
-                <div className="mt-2 flex justify-end">
-                  <HeaderBtn
-                    label={allowBusy ? "Writing waiver…" : "Allow anyway"}
-                    onClick={handleAllowAnyway}
-                    disabled={allowBusy || !allowReason.trim()}
-                    variant="danger"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <SecurityPanel
+          open={mode === "security"}
+          loading={secLoading}
+          error={secError}
+          report={secReport}
+          busy={allowBusy}
+          onAllow={(rules, reason) => void handleAllowAnyway(rules, reason)}
+          targetLabel="skill"
+        />
+
         {mode === "ai-edit" && (
           <div
             className="mt-3 rounded p-3"
@@ -1234,10 +1061,14 @@ export function Skills() {
                     const instr = (await invoke("instruction_path", {
                       kind: "skills",
                     })) as string;
+                    // v15.2: prompt comes from the central catalog
+                    // (key "skills.create_with_ai"). Editable via
+                    // Settings → Button prompts.
+                    const { getPrompt } = await import("../lib/button-prompts");
+                    const prompt = await getPrompt("skills.create_with_ai");
                     await invoke("spawn_session", {
                       provider: "claude",
-                      prompt:
-                        "Vamos a crear un nuevo skill para Claude Code. Lee el GUIDE.md de esta carpeta para conocer el schema YAML, allowed-tools, layers (active/vault) y post-creation. Después pregúntame slug, descripción y triggers, y genera el SKILL.md completo en ~/.claude/skills/<slug>/ o ~/.ultron/skill-vault/<slug>/ según indique.",
+                      prompt,
                       cwd: instr,
                       flags: { dangerouslySkipPermissions: false },
                     });

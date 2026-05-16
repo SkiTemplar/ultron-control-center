@@ -215,7 +215,7 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 | 6 | Hooks | Fusiona `templates/settings-hooks.json` en `settings.json` (no destructivo, con backup) |
 | 7 | Skills | Picker interactivo: 12 core (siempre ON) + slots opt-in |
 | 8 | brain_index | Inicializa el indice SQLite FTS5 |
-| 9 | Cockpit | `npm install` y opcionalmente `tauri build` |
+| 9 | Control Center | `npm install` y opcionalmente `tauri build` |
 | 10 | Doctor | Verificacion final con `doctor.py` (0 = clean, 1 = warn, 2 = block) |
 
 </details>
@@ -291,7 +291,7 @@ flowchart LR
 
 ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es texto plano debajo de tu home:
 
-- **`~/.claude/CLAUDE.md`** — tus instrucciones globales para cada sesion de Claude Code. Edita directamente o usa la pestaña `Personal` del cockpit.
+- **`~/.claude/CLAUDE.md`** — tus instrucciones globales para cada sesion de Claude Code. Edita directamente o usa la pestaña `Personal` del Control Center.
 - **`~/.claude/settings.json`** — hooks y permisos. La pestaña `Hooks` es un editor tipado sobre este archivo.
 - **`~/.claude/skills/<name>/SKILL.md`** — activar / desactivar / editar personas. Borra una carpeta para desinstalar la skill.
 - **`~/.ultron-vault/`** — tu vault L2. Markdown plano con wikilinks. Lo que escribas aqui se indexa en la proxima ejecucion de `brain_index.py update`.

@@ -17,12 +17,22 @@
 // Control Center with the same UX as Skills (list / preview / edit /
 // delete / AI-assist) so installing or curating a community agent feels
 // identical to a skill.
+//
+// Security pass (PI001-PI013): the same Python scanner that grades
+// SKILL.md files (`skill_sync_security.py`) is reused with the
+// `--target-type agent` flag, and the resulting findings are surfaced
+// in the Agents tab. Waivers go to the same `skill-trust.yaml` file but
+// carry `target_type: "agent"` so the scanner can disambiguate them
+// from skill waivers that share the same name (very unlikely, but the
+// schema is explicit anyway).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
+
+use crate::skills::{format_ymd_local, sha1_of_file};
 
 #[derive(Debug, Serialize, Clone)]
 pub struct AgentInfo {
@@ -33,6 +43,21 @@ pub struct AgentInfo {
     pub path: Option<String>,
     pub size_bytes: u64,
     pub last_modified: Option<u64>,
+    /// Best-effort security verdict from a single `audit-all --target-type
+    /// agent` sweep at list time. Skipped silently if the scanner is not
+    /// reachable so the Agents tab still loads on a broken cockpit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub security: Option<AgentSecurityHint>,
+}
+
+/// Compact per-agent verdict embedded in `list_agents` output so the UI
+/// can render the security badge + Quarantined filter without making one
+/// RPC per agent. Mirrors `skills::SecurityInfo` for the Skills tab.
+#[derive(Debug, Serialize, Clone)]
+pub struct AgentSecurityHint {
+    pub decision: String,
+    pub findings_count: u64,
+    pub high_severity_rules: Vec<String>,
 }
 
 fn agents_dir() -> Option<PathBuf> {
@@ -121,10 +146,102 @@ pub fn list_agents_inner() -> Result<Vec<AgentInfo>, String> {
             path: Some(path.to_string_lossy().to_string()),
             size_bytes,
             last_modified,
+            security: None,
         });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
+
+    // Single-shot scanner sweep. We swallow any error so a broken cockpit
+    // (uv missing, scanner not present, etc.) doesn't kill the list view —
+    // the UI just won't surface security badges in that case.
+    if let Some(map) = audit_all_agents_map() {
+        for a in out.iter_mut() {
+            if let Some(hint) = map.get(&a.name) {
+                a.security = Some(hint.clone());
+            }
+        }
+    }
     Ok(out)
+}
+
+/// Invoke `skill_sync_security.py audit-all --target-type agent --json`
+/// and return a name→hint map. Returns None on any failure so callers can
+/// fall back to a security-less list view gracefully.
+fn audit_all_agents_map() -> Option<std::collections::HashMap<String, AgentSecurityHint>> {
+    let home = dirs::home_dir()?;
+    let scanner = home.join(".ultron/scripts/cockpit/skill_sync_security.py");
+    if !scanner.is_file() {
+        return None;
+    }
+    let output = std::process::Command::new("uv")
+        .arg("run")
+        .arg("python")
+        .arg(&scanner)
+        .arg("audit-all")
+        .arg("--target-type")
+        .arg("agent")
+        .arg("--json")
+        .current_dir(home.join(".ultron"))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).ok()?;
+    let verdicts = parsed.get("verdicts")?.as_array()?;
+    let mut map: std::collections::HashMap<String, AgentSecurityHint> =
+        std::collections::HashMap::new();
+    for v in verdicts {
+        // `skill_path` is the .md file for agents — derive the name from
+        // the file stem so it matches AgentInfo.name.
+        let raw_path = v.get("skill_path").and_then(|p| p.as_str()).unwrap_or("");
+        let stem = Path::new(raw_path)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        if stem.is_empty() {
+            continue;
+        }
+        let decision = v
+            .get("decision")
+            .and_then(|d| d.as_str())
+            .unwrap_or("allow")
+            .to_string();
+        let findings_count = v
+            .get("findings")
+            .and_then(|f| f.as_array())
+            .map(|a| a.iter().filter(|x| !x.get("waived").and_then(|w| w.as_bool()).unwrap_or(false)).count())
+            .unwrap_or(0) as u64;
+        let high_severity_rules: Vec<String> = v
+            .get("findings")
+            .and_then(|f| f.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter(|x| {
+                        // Only surface unwaived high-impact findings in
+                        // the row badge — matches the Skills UX.
+                        let waived = x.get("waived").and_then(|w| w.as_bool()).unwrap_or(false);
+                        let sev = x.get("severity").and_then(|s| s.as_str()).unwrap_or("");
+                        !waived && (sev == "high" || sev == "critical")
+                    })
+                    .filter_map(|x| {
+                        x.get("rule_id").and_then(|r| r.as_str()).map(String::from)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        map.insert(
+            stem,
+            AgentSecurityHint {
+                decision,
+                findings_count,
+                high_severity_rules,
+            },
+        );
+    }
+    Some(map)
 }
 
 pub fn read_agent_md_inner(name: &str) -> Result<String, String> {
@@ -256,6 +373,234 @@ fn validate_slug(name: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn unix_ts() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Security — findings + manual allow ("Allow anyway")
+//
+// These are the agent-side parallels of skills::get_skill_findings_inner
+// and skills::allow_skill_manually_inner. The on-disk shape is different
+// (~/.claude/agents/<name>.md is a flat file, not a SKILL.md inside a
+// directory), but the protocol — invoke the Python scanner, parse the
+// JSON, write a SHA1-anchored waiver entry to skill-trust.yaml — is
+// identical. Waiver entries are stamped with `target_type: agent` so
+// the scanner can distinguish them from same-named skill waivers.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct AgentFinding {
+    pub rule_id: String,
+    pub severity: String,
+    pub pattern_name: String,
+    pub excerpt: String,
+    pub line_number: Option<u64>,
+    pub waived: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AgentSecurityReport {
+    pub name: String,
+    pub decision: String,
+    pub sha1: Option<String>,
+    pub findings: Vec<AgentFinding>,
+    pub stderr: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AllowAgentResult {
+    pub success: bool,
+    pub name: String,
+    pub sha1: String,
+    pub waiver_path: String,
+}
+
+/// Resolve the on-disk path for a given agent slug. The agent must live
+/// directly under ~/.claude/agents/<name>.md — we don't search anywhere
+/// else (unlike skills, which can also live in the vault layer).
+fn locate_agent_md(home: &Path, name: &str) -> Result<PathBuf, String> {
+    let path = home.join(format!(".claude/agents/{}.md", name));
+    if !path.is_file() {
+        return Err(format!("agent not found: {}", path.display()));
+    }
+    Ok(path)
+}
+
+/// Run the Python security scanner against the agent and return its
+/// findings as parsed JSON. Symmetric with `skills::get_skill_findings_inner`
+/// — the only difference is the `--target-type agent` flag passed to the
+/// scanner and the file-vs-directory argument layout.
+pub fn get_agent_findings_inner(name: String) -> Result<AgentSecurityReport, String> {
+    validate_slug(&name)?;
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let agent_md = locate_agent_md(&home, &name)?;
+    let scanner = home.join(".ultron/scripts/cockpit/skill_sync_security.py");
+    if !scanner.is_file() {
+        return Err(format!("scanner missing: {}", scanner.display()));
+    }
+    // uv run honours the cockpit lockfile (same as skills.rs).
+    let output = std::process::Command::new("uv")
+        .arg("run")
+        .arg("python")
+        .arg(&scanner)
+        .arg("scan")
+        .arg(&agent_md)
+        .arg("--target-type")
+        .arg("agent")
+        .arg("--json")
+        .current_dir(home.join(".ultron"))
+        .output()
+        .map_err(|e| format!("spawn uv: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).map_err(|e| {
+        format!(
+            "parse scanner json: {} — raw: {}",
+            e,
+            stdout.chars().take(200).collect::<String>()
+        )
+    })?;
+    let decision = parsed
+        .get("decision")
+        .and_then(|v| v.as_str())
+        .unwrap_or("allow")
+        .to_string();
+    // The scanner's JSON doesn't carry a sha1 field today (it only writes
+    // `skill_path`), so we hash the file locally — this matches what the
+    // waiver writer will record below, keeping the two values consistent.
+    let sha1 = sha1_of_file(&agent_md).ok();
+    let mut findings: Vec<AgentFinding> = Vec::new();
+    if let Some(arr) = parsed.get("findings").and_then(|v| v.as_array()) {
+        for f in arr {
+            findings.push(AgentFinding {
+                rule_id: f
+                    .get("rule_id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("?")
+                    .to_string(),
+                severity: f
+                    .get("severity")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("low")
+                    .to_string(),
+                pattern_name: f
+                    .get("pattern_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                excerpt: f
+                    .get("excerpt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                line_number: f.get("line_number").and_then(|v| v.as_u64()),
+                waived: f
+                    .get("waived")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false),
+            });
+        }
+    }
+    Ok(AgentSecurityReport {
+        name,
+        decision,
+        sha1,
+        findings,
+        stderr,
+    })
+}
+
+/// Write a per-agent waiver to ~/.ultron/config/skill-trust.yaml so the
+/// scanner downgrades the listed rules on the current agent SHA1.
+/// Editing the .md invalidates the waiver — that is by design.
+pub fn allow_agent_manually_inner(
+    name: String,
+    rules: Vec<String>,
+    reason: String,
+) -> Result<AllowAgentResult, String> {
+    validate_slug(&name)?;
+    if rules.is_empty() {
+        return Err("waived rules cannot be empty".to_string());
+    }
+    if reason.trim().is_empty() {
+        return Err("reason is required (audit trail)".to_string());
+    }
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let agent_md = locate_agent_md(&home, &name)?;
+    let sha1 = sha1_of_file(&agent_md)?;
+
+    let trust_path = home.join(".ultron/config/skill-trust.yaml");
+    if !trust_path.is_file() {
+        return Err(format!("trust config missing: {}", trust_path.display()));
+    }
+    let mut yaml = fs::read_to_string(&trust_path)
+        .map_err(|e| format!("read {}: {}", trust_path.display(), e))?;
+
+    // Refuse duplicate waivers for the same (name, sha1, target_type=agent)
+    // triple. We use a 3-line presence check (sha1 + name + target_type)
+    // because the YAML is hand-authored append-only; a single shared
+    // marker would false-match a skill waiver for the same `name`.
+    let sha1_marker = format!("skill_md_sha1: \"{}\"", sha1);
+    let name_marker = format!("skill_name: \"{}\"", name);
+    let target_marker = "target_type: \"agent\"";
+    if yaml.contains(&sha1_marker) && yaml.contains(&name_marker) && yaml.contains(target_marker)
+    {
+        // Heuristic: if all three markers are present anywhere AND a block
+        // with this exact sha1 carries a sibling `target_type: "agent"`,
+        // it's the same waiver. Scan blocks to confirm — cheaper than a
+        // full YAML parse and matches the contract used by the scanner.
+        for block in yaml.split("\n  - ") {
+            if block.contains(&sha1_marker)
+                && block.contains(&name_marker)
+                && block.contains(target_marker)
+            {
+                return Err(format!(
+                    "agent waiver already present for {} @ sha1 {}",
+                    name, sha1
+                ));
+            }
+        }
+    }
+    if !yaml.ends_with('\n') {
+        yaml.push('\n');
+    }
+
+    let today = format_ymd_local(unix_ts());
+    let rules_yaml: String = rules
+        .iter()
+        .map(|r| format!("\"{}\"", r.replace('"', "")))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let reason_one_line = reason.replace('\n', " ").replace('"', "'");
+    // target_type is the only field that distinguishes this block from a
+    // skill waiver — keep it next to skill_name so the schema is obvious
+    // at a glance when a human edits the YAML.
+    let entry = format!(
+        "\n  - skill_name: \"{name}\"\n    target_type: \"agent\"\n    skill_md_sha1: \"{sha1}\"\n    waived_rules: [{rules}]\n    reason: \"{reason}\"\n    approved_by: \"USER@local\"\n    approved_at: \"{today}\"\n",
+        name = name,
+        sha1 = sha1,
+        rules = rules_yaml,
+        reason = reason_one_line,
+        today = today,
+    );
+    yaml.push_str(&entry);
+    fs::write(&trust_path, yaml)
+        .map_err(|e| format!("write {}: {}", trust_path.display(), e))?;
+
+    Ok(AllowAgentResult {
+        success: true,
+        name,
+        sha1,
+        waiver_path: trust_path.to_string_lossy().to_string(),
+    })
 }
 
 #[allow(dead_code)]

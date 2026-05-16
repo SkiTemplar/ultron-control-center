@@ -94,6 +94,18 @@ pub struct SpawnFlags {
     /// even if the default ever changes back.
     #[serde(default)]
     pub paste_only: bool,
+    /// Optional subagent slug (filename stem under `~/.claude/agents/`).
+    /// When set, `spawn_session_inner` prepends a `[USE AGENT: <slug>]`
+    /// directive to the prompt so the Claude session opens with the right
+    /// subagent context. Callers normally don't set this manually — the
+    /// AI Router (Settings → AI Router) propagates it from the zone the
+    /// user picked.
+    ///
+    /// Backwards compat: `None` (or absent in JSON) is the historical
+    /// behaviour — no prefix is added to the prompt. Only Claude sessions
+    /// honour the directive today; codex/gemini ignore it silently.
+    #[serde(default)]
+    pub agent: Option<String>,
 }
 
 // Flag validation now lives in spawn-claude-session.ps1 — the wrapper
@@ -147,6 +159,26 @@ fn cap_prompt(p: &str) -> String {
         p.chars().take(PROMPT_CAP).collect()
     } else {
         p.to_string()
+    }
+}
+
+/// Build the agent directive that gets prepended to a prompt when the
+/// caller (typically the AI Router) wants a specific subagent to handle
+/// the session. We keep the format conservative: a single bracketed line
+/// + blank separator, so the body of the prompt stays readable and the
+/// directive parses cleanly in Claude's subagent invocation grammar.
+///
+/// Sanity rules (mirror `ai_router::validate_agent`):
+///   * empty / None  → no prefix.
+///   * non-empty     → `"[USE AGENT: <slug>]\n\n" + prompt`.
+///
+/// The slug itself is validated upstream — this helper trusts its input.
+fn prepend_agent_directive(prompt: &str, agent: Option<&str>) -> String {
+    match agent {
+        Some(a) if !a.trim().is_empty() => {
+            format!("[USE AGENT: {}]\n\n{}", a.trim(), prompt)
+        }
+        _ => prompt.to_string(),
     }
 }
 
@@ -257,6 +289,18 @@ pub async fn spawn_session_inner(
         .map(|s| s.to_string());
     let flags = flags.unwrap_or_default();
 
+    // v15.2.39 AI Router agent integration: if the caller (typically the
+    // AI Router via Settings → AI Router) picked a specific subagent for
+    // the zone, prepend a `[USE AGENT: <slug>]` directive to the prompt
+    // before it reaches the wrapper script. We do this BEFORE the prompt
+    // gets bundled into the base64 JSON payload so the wrapper / CLI sees
+    // the directive as part of the prompt text. No agent set → prompt
+    // passes through unchanged (backwards compat).
+    let prompt_ref = match prompt_ref {
+        Some(p) => Some(prepend_agent_directive(&p, flags.agent.as_deref())),
+        None => prompt_ref,
+    };
+
     // We used to chain cmd.exe /C wt.exe ... -- powershell.exe -Command "...".
     // That broke under PowerShell's argument parsing when extra flags were
     // present — it concatenated leftover args after -Command into a single
@@ -325,4 +369,33 @@ pub async fn spawn_session_inner(
         launched: true,
         provider: provider.to_string(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_directive_prepended_when_set() {
+        let out = prepend_agent_directive("hello world", Some("debugger"));
+        assert_eq!(out, "[USE AGENT: debugger]\n\nhello world");
+    }
+
+    #[test]
+    fn agent_directive_skipped_when_none() {
+        let out = prepend_agent_directive("hello world", None);
+        assert_eq!(out, "hello world");
+    }
+
+    #[test]
+    fn agent_directive_skipped_when_empty() {
+        let out = prepend_agent_directive("hello", Some("   "));
+        assert_eq!(out, "hello");
+    }
+
+    #[test]
+    fn agent_directive_trims_slug_whitespace() {
+        let out = prepend_agent_directive("body", Some("  refactoring-specialist  "));
+        assert_eq!(out, "[USE AGENT: refactoring-specialist]\n\nbody");
+    }
 }

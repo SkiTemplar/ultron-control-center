@@ -10,7 +10,7 @@
 <p><b>Your local AI command center for Claude Code.</b></p>
 
 <p>
-  Hierarchical memory · opt-in personas · hardened hooks · a desktop cockpit that turns
+  Hierarchical memory · opt-in personas · hardened hooks · a desktop Control Center that turns
   multi-day work with Claude (and optionally Codex and Gemini) into something you can actually manage.
 </p>
 
@@ -91,7 +91,7 @@
 
 ## What is ULTRON
 
-ULTRON is a **local command center** layered on top of the official [Claude Code](https://claude.com/claude-code) CLI. It lives entirely under your home folder (`~/.ultron/`), stores everything in plain text, and pairs the runtime with a Tauri desktop cockpit so a multi-day project never feels like ten orphaned chat sessions stitched together.
+ULTRON is a **local command center** layered on top of the official [Claude Code](https://claude.com/claude-code) CLI. It lives entirely under your home folder (`~/.ultron/`), stores everything in plain text, and pairs the runtime with a Tauri Control Center so a multi-day project never feels like ten orphaned chat sessions stitched together.
 
 > [!NOTE]
 > ULTRON does not replace Claude Code. It wraps it, gives it persistent memory, routes specialized personas, and exposes the moving parts in a UI you can audit and edit.
@@ -121,7 +121,7 @@ ULTRON addresses all of that locally, without renting a backend:
 - Every new session reads a pre-computed primer (`context.md`, capped at ~400 tokens).
 - Personas auto-route by user intent — no need to remember exact skill names.
 - The vault (`~/.ultron-vault/`) is indexed in SQLite FTS5 plus a local Qdrant instance (native Windows binary, no Docker) for semantic recall.
-- The cockpit surfaces hooks, plans, sessions, costs and installed MCPs in one window.
+- The Control Center surfaces hooks, plans, sessions, costs and installed MCPs in one window.
 
 ---
 
@@ -214,7 +214,7 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 | 6 | Hooks | Merges `templates/settings-hooks.json` into `settings.json` (non-destructive, with backup) |
 | 7 | Skills | Interactive picker: 12 core (always ON) + opt-in slots |
 | 8 | brain_index | Initializes the SQLite FTS5 index |
-| 9 | Cockpit | `npm install` and optionally `tauri build` |
+| 9 | Control Center | `npm install` and optionally `tauri build` |
 | 10 | Doctor | Final verification via `doctor.py` (0 = clean, 1 = warn, 2 = block) |
 
 </details>
@@ -290,7 +290,7 @@ flowchart LR
 
 ULTRON is built to be taken apart and rewired. Everything lives in plain text under your home folder:
 
-- **`~/.claude/CLAUDE.md`** — your global instructions for every Claude Code session. Edit directly or use the cockpit's `Personal` tab.
+- **`~/.claude/CLAUDE.md`** — your global instructions for every Claude Code session. Edit directly or use the Control Center's `Personal` tab.
 - **`~/.claude/settings.json`** — hooks and permissions. The `Hooks` tab is a typed editor over this file.
 - **`~/.claude/skills/<name>/SKILL.md`** — activate / deactivate / edit personas. Delete a folder to uninstall a skill.
 - **`~/.ultron-vault/`** — your L2 vault. Plain markdown with wikilinks. Anything you write here gets indexed on the next `brain_index.py update` run.

@@ -2,114 +2,28 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import type { SettingsSaveResult, SettingsSnapshot } from "../types";
+import type { AgentInfo, SettingsSaveResult, SettingsSnapshot } from "../types";
 import { AuthStatus } from "./AuthStatus";
 import { ModeSwitcher, useUltronMode } from "./ModeSwitcher";
 import { JsonVisualEditor } from "./JsonVisualEditor";
+import {
+  refreshButtonPrompts,
+  resetButtonPrompt,
+  updateButtonPrompt,
+  type ButtonPrompt,
+  type ButtonPromptsCatalog,
+} from "../lib/button-prompts";
 
 // v15.2 F7: MCPRow / McpServer type removed from Settings — MCP enable/disable
 // now lives in the MCPs top-level tab (see EnableDisableSection in MCPs.tsx).
 
 // ---------------------------------------------------------------------------
-// JSON editor — replaces the old read-only preview. Lets the user edit the
-// whole settings.json as text, validates on every keystroke, and (optionally)
-// asks Codex to rewrite it from a natural-language instruction. The diff
-// goes through the normal Save flow (timestamped backup, atomic write).
+// JSON editor — thin wrapper over JsonVisualEditor. The Raw JSON textarea +
+// Codex assist + schema validator were removed in v15.2 F9 UX: the visual
+// form is now the only mode (simpler UX, no toggle, no stale buffer).
+// Edits propagate up through the normal Save flow (timestamped backup,
+// atomic write).
 // ---------------------------------------------------------------------------
-
-function extractJsonFromText(s: string): string | null {
-  // Codex sometimes wraps replies in ```json fences. Strip them aggressively.
-  const trimmed = s.trim();
-  const fenced = trimmed.match(/```(?:json)?\s*\n([\s\S]*?)\n```/);
-  if (fenced) return fenced[1].trim();
-  // Otherwise look for the first '{' and the last '}' — must form a balanced
-  // object. We do a very cheap balance check.
-  const first = trimmed.indexOf("{");
-  const last = trimmed.lastIndexOf("}");
-  if (first === -1 || last === -1 || last <= first) return null;
-  return trimmed.slice(first, last + 1).trim();
-}
-
-// v15.2 F7: light-weight settings.json schema validator. We do not pretend to
-// implement Claude Code's full schema — that would be a moving target — but
-// we catch the structural mistakes that actually cause Claude to crash on
-// SessionStart: wrong shape for the well-known keys (`hooks`, `mcpServers`,
-// `env`, `model`). Anything outside that whitelist is left alone.
-function validateSettingsSchema(obj: Record<string, unknown>): string[] {
-  const errors: string[] = [];
-  if (obj === null || typeof obj !== "object" || Array.isArray(obj)) {
-    return ["Root must be a JSON object."];
-  }
-  if ("hooks" in obj) {
-    const h = obj.hooks as unknown;
-    if (h === null || typeof h !== "object" || Array.isArray(h)) {
-      errors.push("`hooks` must be an object keyed by event name.");
-    } else {
-      for (const [event, val] of Object.entries(h as Record<string, unknown>)) {
-        if (!Array.isArray(val)) {
-          errors.push(`hooks.${event} must be an array of matcher groups.`);
-        }
-      }
-    }
-  }
-  if ("mcpServers" in obj) {
-    const m = obj.mcpServers as unknown;
-    if (m === null || typeof m !== "object" || Array.isArray(m)) {
-      errors.push("`mcpServers` must be an object keyed by server name.");
-    } else {
-      for (const [name, val] of Object.entries(m as Record<string, unknown>)) {
-        if (val === null || typeof val !== "object" || Array.isArray(val)) {
-          errors.push(`mcpServers.${name} must be an object.`);
-          continue;
-        }
-        const cfg = val as Record<string, unknown>;
-        const hasCommand = typeof cfg.command === "string";
-        const hasUrl = typeof cfg.url === "string";
-        if (!hasCommand && !hasUrl) {
-          errors.push(`mcpServers.${name} needs either \`command\` or \`url\`.`);
-        }
-        if ("args" in cfg && cfg.args !== undefined && !Array.isArray(cfg.args)) {
-          errors.push(`mcpServers.${name}.args must be an array of strings.`);
-        }
-        if ("env" in cfg && cfg.env !== undefined) {
-          const e = cfg.env;
-          if (e === null || typeof e !== "object" || Array.isArray(e)) {
-            errors.push(`mcpServers.${name}.env must be an object.`);
-          }
-        }
-      }
-    }
-  }
-  if ("env" in obj) {
-    const e = obj.env as unknown;
-    if (e === null || typeof e !== "object" || Array.isArray(e)) {
-      errors.push("`env` must be an object of string-valued keys.");
-    }
-  }
-  if ("model" in obj && typeof obj.model !== "string") {
-    errors.push("`model` must be a string.");
-  }
-  return errors;
-}
-
-// v15.2 F7: collapsible navigator that scrolls the textarea to the line where
-// each top-level key appears. We index the live text rather than the parsed
-// object so the indices stay accurate when the user is mid-edit.
-function indexTopLevelKeys(text: string): Record<string, number> {
-  // Match keys at indentation depth 2 (one level inside the root object).
-  // settings.json is pretty-printed, so this is reliable enough for the
-  // schema nav to "just work".
-  const idx: Record<string, number> = {};
-  const lines = text.split("\n");
-  const re = /^\s{2}"([^"\\]+)"\s*:/;
-  for (let i = 0; i < lines.length; i++) {
-    const m = lines[i].match(re);
-    if (m && idx[m[1]] === undefined) {
-      idx[m[1]] = i;
-    }
-  }
-  return idx;
-}
 
 function JsonEditor({
   obj,
@@ -118,471 +32,15 @@ function JsonEditor({
   obj: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
 }) {
-  // We hold a draft string so the user can mid-type invalid JSON without
-  // losing the buffer. When it parses cleanly we propagate up.
-  const initial = useMemo(() => JSON.stringify(obj, null, 2), [obj]);
-  const [text, setText] = useState(initial);
-  const [parseError, setParseError] = useState<string | null>(null);
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiPrompt, setAiPrompt] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiInfo, setAiInfo] = useState<string | null>(null);
-  // v15.2 F7: schema validation + scroll navigator.
-  const [schemaErrors, setSchemaErrors] = useState<string[] | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // v15.2 F8 UX: View toggle (raw textarea vs. visual form). Persists per-user.
-  const [viewMode, setViewMode] = useState<"raw" | "visual">(() => {
-    if (typeof window === "undefined") return "raw";
-    const stored = window.localStorage.getItem("settings.editor.viewMode");
-    return stored === "visual" ? "visual" : "raw";
-  });
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem("settings.editor.viewMode", viewMode);
-    }
-  }, [viewMode]);
-
-  // External `obj` changes (e.g. after Save reload) overwrite the textarea
-  // — otherwise the buffer would go stale silently.
-  useEffect(() => {
-    setText(initial);
-    setParseError(null);
-  }, [initial]);
-
-  function commitText(next: string) {
-    setText(next);
-    try {
-      const parsed = JSON.parse(next);
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setParseError("Root must be an object.");
-        return;
-      }
-      setParseError(null);
-      onChange(parsed as Record<string, unknown>);
-    } catch (e) {
-      setParseError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function askCodex() {
-    if (!aiPrompt.trim()) return;
-    setAiBusy(true);
-    setAiError(null);
-    setAiInfo(null);
-    try {
-      // System-prompt style framing — Codex returns the FULL replacement.
-      const sys =
-        "Eres un asistente que devuelve EXCLUSIVAMENTE un objeto JSON válido (sin texto antes ni después, sin fences si es posible) que representa el contenido completo y actualizado de ~/.claude/settings.json. Mantén todos los campos no relacionados con la petición. No inventes mcpServers, hooks ni claves que no existan ya, salvo que la petición lo pida explícitamente.";
-      const user = `Configuración actual:\n\n${text}\n\nPetición del usuario:\n${aiPrompt}\n\nDevuelve el JSON completo y modificado.`;
-      const prompt = `${sys}\n\n---\n\n${user}`;
-      const r = (await invoke("run_inline", {
-        provider: "codex",
-        model: null,
-        prompt,
-      })) as { success: boolean; stdout: string; stderr: string; exit_code: number | null };
-      if (!r.success) {
-        setAiError(r.stderr || `Codex exit ${r.exit_code ?? "?"}`);
-        return;
-      }
-      const candidate = extractJsonFromText(r.stdout);
-      if (!candidate) {
-        setAiError("Codex no devolvió JSON parseable.");
-        return;
-      }
-      try {
-        const parsed = JSON.parse(candidate);
-        if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-          setAiError("Codex devolvió algo que no es un objeto JSON.");
-          return;
-        }
-        setText(JSON.stringify(parsed, null, 2));
-        onChange(parsed as Record<string, unknown>);
-        setParseError(null);
-        setAiInfo("Codex aplicó cambios — revisa el diff y pulsa Save para confirmar.");
-        setAiOpen(false);
-        setAiPrompt("");
-      } catch (e) {
-        setAiError(`No pude parsear la respuesta: ${e instanceof Error ? e.message : String(e)}`);
-      }
-    } catch (e) {
-      setAiError(String(e));
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  const lines = text.split("\n").length;
-  const keyIndex = useMemo(() => indexTopLevelKeys(text), [text]);
-  // The four sections users actually edit. We always show them so the user
-  // can see what's available even if the key is missing in their file (a
-  // click on an absent key is a no-op rather than a jump). Anything else is
-  // lumped under "Other keys" so the nav stays clean.
-  const KNOWN_SECTIONS: { key: string; label: string }[] = [
-    { key: "hooks", label: "hooks" },
-    { key: "mcpServers", label: "mcpServers" },
-    { key: "model", label: "model" },
-    { key: "env", label: "env" },
-  ];
-  const otherKeys = useMemo(() => {
-    const known = new Set(KNOWN_SECTIONS.map((s) => s.key));
-    return Object.keys(keyIndex)
-      .filter((k) => !known.has(k))
-      .sort();
-  }, [keyIndex]);
-
-  function scrollToLine(lineIndex: number) {
-    const ta = textareaRef.current;
-    if (!ta) return;
-    // Compute approx pixel offset by averaging line height. This works for
-    // the monospace textarea even though we don't have a real layout API.
-    const lh = 18; // approximate; the editor uses 11.5px font + leading
-    ta.focus();
-    ta.scrollTop = Math.max(0, lineIndex * lh - lh * 2);
-    // Move the caret to the start of that line so a follow-up edit lands
-    // at the section the user clicked on.
-    const beforeLines = text.split("\n").slice(0, lineIndex);
-    const offset = beforeLines.reduce((acc, l) => acc + l.length + 1, 0);
-    ta.setSelectionRange(offset, offset);
-  }
-
-  function validate() {
-    if (parseError) {
-      setSchemaErrors(["Fix the JSON parse error first."]);
-      return;
-    }
-    try {
-      const parsed = JSON.parse(text);
-      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        setSchemaErrors(["Root must be a JSON object."]);
-        return;
-      }
-      const errs = validateSettingsSchema(parsed as Record<string, unknown>);
-      setSchemaErrors(errs);
-    } catch (e) {
-      setSchemaErrors([e instanceof Error ? e.message : String(e)]);
-    }
-  }
-
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div
-          className="text-[11px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Editable copy of <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span> · {lines} líneas · cualquier cambio se hace efectivo al pulsar Save (backup automático)
-        </div>
-        <div className="flex items-center gap-2">
-          {/* v15.2 F8 UX: View toggle — raw JSON vs. visual form. */}
-          <div
-            className="flex rounded p-0.5"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            role="tablist"
-            aria-label="Editor view"
-          >
-            {([
-              { id: "raw" as const, label: "Raw JSON" },
-              { id: "visual" as const, label: "Visual form" },
-            ]).map((opt) => {
-              const selected = viewMode === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setViewMode(opt.id)}
-                  className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
-                  style={{
-                    background: selected ? "var(--color-surface-3)" : "transparent",
-                    color: selected ? "var(--color-text)" : "var(--color-text-tertiary)",
-                  }}
-                  title={
-                    opt.id === "raw"
-                      ? "Edit the JSON file as text"
-                      : "Edit the JSON as a hierarchical form"
-                  }
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
-          </div>
-          <button
-            type="button"
-            onClick={validate}
-            disabled={viewMode === "visual"}
-            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Lightweight structural validation of hooks/mcpServers/env/model"
-          >
-            Validate schema
-          </button>
-          <button
-            type="button"
-            onClick={() => setAiOpen(!aiOpen)}
-            disabled={viewMode === "visual"}
-            className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
-            style={{
-              background: aiOpen ? "var(--color-surface-3)" : "var(--color-surface-2)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Pide a Codex que modifique este JSON con instrucciones en lenguaje natural"
-          >
-            {aiOpen ? "Close AI assist" : "Ask Codex…"}
-          </button>
-        </div>
+      <div
+        className="text-[11px]"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        Editable copy of <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span> · cualquier cambio se hace efectivo al pulsar Save (backup automático)
       </div>
-
-      {viewMode === "visual" && (
-        <JsonVisualEditor
-          obj={obj}
-          onChange={(next) => {
-            // Keep the raw text buffer in sync so flipping to Raw shows the
-            // edited form.
-            setText(JSON.stringify(next, null, 2));
-            setParseError(null);
-            onChange(next);
-          }}
-        />
-      )}
-
-      {viewMode === "raw" && (
-        <>
-      {schemaErrors !== null && (
-        <div
-          className="rounded p-2 text-[11.5px]"
-          style={{
-            background: schemaErrors.length === 0
-              ? "rgba(63, 185, 80, 0.08)"
-              : "rgba(248, 81, 73, 0.06)",
-            border: `1px solid ${schemaErrors.length === 0 ? "rgba(63, 185, 80, 0.22)" : "rgba(248, 81, 73, 0.22)"}`,
-            color: schemaErrors.length === 0 ? "var(--color-success)" : "var(--color-danger)",
-          }}
-        >
-          {schemaErrors.length === 0 ? (
-            <span>Schema OK — hooks/mcpServers/env/model shapes look valid.</span>
-          ) : (
-            <ul className="list-disc space-y-0.5 pl-4">
-              {schemaErrors.map((e, i) => (
-                <li key={i}>{e}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {aiOpen && (
-        <div
-          className="rounded p-3"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border-strong)",
-          }}
-        >
-          <label
-            className="block text-[10px] font-medium uppercase tracking-[0.06em]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Instrucción para Codex
-          </label>
-          <textarea
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            placeholder="Ej: añade un hook PostToolUse que ejecute el script ensure-qdrant.ps1 después de cualquier Bash"
-            className="mt-1 w-full rounded p-2 text-[12px] leading-relaxed"
-            style={{
-              fontFamily: "var(--font-mono)",
-              background: "var(--color-surface-1)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-              outline: "none",
-              minHeight: 70,
-              resize: "vertical",
-            }}
-          />
-          <div className="mt-2 flex items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setAiOpen(false);
-                setAiPrompt("");
-                setAiError(null);
-              }}
-              disabled={aiBusy}
-              className="rounded px-2.5 py-1 text-[11px]"
-              style={{
-                background: "transparent",
-                color: "var(--color-text-tertiary)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={askCodex}
-              disabled={aiBusy || !aiPrompt.trim()}
-              className="rounded px-3 py-1 text-[11px] font-medium disabled:opacity-50"
-              style={{
-                background: "var(--color-accent)",
-                color: "var(--color-accent-text)",
-              }}
-            >
-              {aiBusy ? "Codex pensando…" : "Aplicar cambios"}
-            </button>
-          </div>
-          {aiError && (
-            <div
-              className="mt-2 rounded px-2 py-1 text-[11px]"
-              style={{
-                background: "rgba(248, 81, 73, 0.06)",
-                color: "var(--color-danger)",
-                border: "1px solid rgba(248, 81, 73, 0.22)",
-              }}
-            >
-              {aiError}
-            </div>
-          )}
-        </div>
-      )}
-
-      {aiInfo && (
-        <div
-          className="rounded px-2 py-1 text-[11px]"
-          style={{
-            background: "rgba(63, 185, 80, 0.08)",
-            color: "var(--color-success)",
-            border: "1px solid rgba(63, 185, 80, 0.22)",
-          }}
-        >
-          {aiInfo}
-        </div>
-      )}
-
-      {/* v15.2 F7: Schema navigator (left) + editable textarea (right). */}
-      <div className="flex gap-3">
-        <aside
-          className="w-[170px] shrink-0 rounded p-2"
-          style={{
-            background: "var(--color-surface-1)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          <div
-            className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Schemas
-          </div>
-          <ul className="space-y-px">
-            {KNOWN_SECTIONS.map((s) => {
-              const present = keyIndex[s.key] !== undefined;
-              return (
-                <li key={s.key}>
-                  <button
-                    type="button"
-                    onClick={() => present && scrollToLine(keyIndex[s.key])}
-                    disabled={!present}
-                    className="flex w-full items-center justify-between rounded px-2 py-1 text-[11.5px] transition-colors"
-                    style={{
-                      background: "transparent",
-                      color: present
-                        ? "var(--color-text-secondary)"
-                        : "var(--color-text-faint)",
-                      cursor: present ? "pointer" : "default",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                  >
-                    <span>{s.label}</span>
-                    {!present && (
-                      <span className="text-[9.5px]" style={{ color: "var(--color-text-faint)" }}>
-                        absent
-                      </span>
-                    )}
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-          {otherKeys.length > 0 && (
-            <>
-              <div
-                className="mt-3 mb-1 text-[10px] font-medium uppercase tracking-[0.06em]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                Other keys
-              </div>
-              <ul className="space-y-px">
-                {otherKeys.map((k) => (
-                  <li key={k}>
-                    <button
-                      type="button"
-                      onClick={() => scrollToLine(keyIndex[k])}
-                      className="block w-full truncate rounded px-2 py-1 text-left text-[11.5px]"
-                      style={{
-                        color: "var(--color-text-tertiary)",
-                        fontFamily: "var(--font-mono)",
-                      }}
-                      title={k}
-                    >
-                      {k}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-          <p
-            className="mt-3 text-[10px] leading-snug"
-            style={{ color: "var(--color-text-faint)" }}
-          >
-            Visual form coming in F7+. For now this navigator scrolls to the
-            section. Use "Validate schema" before Save.
-          </p>
-        </aside>
-        <textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(e) => {
-            commitText(e.target.value);
-            // Any edit invalidates a previous Validate run.
-            if (schemaErrors !== null) setSchemaErrors(null);
-          }}
-          spellCheck={false}
-          className="flex-1 rounded p-3 text-[11.5px] leading-relaxed"
-          style={{
-            fontFamily: "var(--font-mono)",
-            background: "var(--color-surface-1)",
-            color: "var(--color-text)",
-            border: `1px solid ${parseError ? "rgba(248, 81, 73, 0.4)" : "var(--color-border)"}`,
-            outline: "none",
-            minHeight: 380,
-            resize: "vertical",
-          }}
-        />
-      </div>
-      {parseError && (
-        <div
-          className="rounded px-2 py-1 text-[11px]"
-          style={{
-            background: "rgba(248, 81, 73, 0.06)",
-            color: "var(--color-danger)",
-            border: "1px solid rgba(248, 81, 73, 0.22)",
-          }}
-        >
-          {parseError}
-        </div>
-      )}
-        </>
-      )}
+      <JsonVisualEditor obj={obj} onChange={onChange} />
     </div>
   );
 }
@@ -996,7 +454,15 @@ function DiskBackupStatus() {
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
 // top-level tab now. Kept the union without it so stale state references
 // surface as compile errors.
-type Section = "general" | "auth" | "mode" | "ai-router" | "raw" | "backups" | "lifecycle";
+type Section =
+  | "general"
+  | "auth"
+  | "mode"
+  | "ai-router"
+  | "button-prompts"
+  | "raw"
+  | "backups"
+  | "lifecycle";
 
 // ---------------------------------------------------------------------------
 // AI Router section — pick which provider runs which zone of the UI.
@@ -1012,6 +478,12 @@ type AiRouterEntry = {
   // `null` (or absent) → use the provider's account default. Empty string is
   // treated like null on the frontend; the backend rejects "" on save.
   model: string | null;
+  // v15.2.39: optional subagent slug (filename stem under
+  // `~/.claude/agents/`). `null` = no subagent (historical behaviour).
+  // When set AND the chosen provider is Claude, `spawn_session` prepends
+  // `[USE AGENT: <slug>]` to the prompt. The backend treats empty string
+  // as invalid on save, so the UI maps "(none)" → null before persisting.
+  agent: string | null;
 };
 
 type AiRouterConfig = {
@@ -1130,14 +602,36 @@ function AiRouterSection() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // v15.2.39 — agent dropdown source. Populated once on mount; filtered
+  // to drop any quarantined entries (the agents.rs backend has no
+  // quarantine concept today, but if it ever grows one we already
+  // tolerate the field). Empty list is OK — the dropdown falls back to
+  // just "(none)" so the user can still pick provider+model.
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const r = (await invoke("read_ai_router")) as AiRouterConfig;
+      const [r, a] = await Promise.all([
+        invoke("read_ai_router") as Promise<AiRouterConfig>,
+        invoke("list_agents") as Promise<AgentInfo[]>,
+      ]);
       setConfig(r);
       setDraft({ ...r });
+      // Filter quarantined / disabled agents if the backend ever surfaces
+      // such a flag. `AgentInfo` carries no `state` today, so this is a
+      // forward-compat noop. Sort alphabetically for a predictable list.
+      const visible = (a ?? [])
+        .filter((ag) => {
+          // Heuristic: drop anything whose path lives under a
+          // `quarantined/` directory. Same convention skills.rs uses.
+          const p = (ag.path ?? "").toLowerCase().replace(/\\/g, "/");
+          return !p.includes("/quarantined/");
+        })
+        .slice()
+        .sort((x, y) => x.name.localeCompare(y.name));
+      setAgents(visible);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1172,7 +666,11 @@ function AiRouterSection() {
     return AI_ROUTER_ZONES.some((z) => {
       const a = config[z.key];
       const b = draft[z.key];
-      return a.provider !== b.provider || (a.model ?? null) !== (b.model ?? null);
+      return (
+        a.provider !== b.provider ||
+        (a.model ?? null) !== (b.model ?? null) ||
+        (a.agent ?? null) !== (b.agent ?? null)
+      );
     });
   }, [config, draft]);
 
@@ -1181,8 +679,15 @@ function AiRouterSection() {
     // Changing the provider invalidates the previously selected model
     // (claude-opus-4-7 doesn't make sense for the codex provider), so we
     // reset to null = "provider default". The user can pick a model
-    // afterwards from the new dropdown.
-    setDraft({ ...draft, [key]: { provider, model: null } });
+    // afterwards from the new dropdown. We keep `agent` as the user set
+    // it — agents are provider-agnostic on disk, and the backend only
+    // honours them for Claude sessions today (codex/gemini ignore the
+    // directive). If the user really wanted a Claude-only agent on a
+    // codex zone they can clear it manually.
+    setDraft({
+      ...draft,
+      [key]: { ...draft[key], provider, model: null },
+    });
   }
 
   function updateModel(key: keyof AiRouterConfig, model: string) {
@@ -1192,6 +697,16 @@ function AiRouterSection() {
     const next: AiRouterEntry = {
       ...draft[key],
       model: model === "" ? null : model,
+    };
+    setDraft({ ...draft, [key]: next });
+  }
+
+  function updateAgent(key: keyof AiRouterConfig, agent: string) {
+    if (!draft) return;
+    // Empty string = "(none)" → null. Backend rejects "" on save.
+    const next: AiRouterEntry = {
+      ...draft[key],
+      agent: agent === "" ? null : agent,
     };
     setDraft({ ...draft, [key]: next });
   }
@@ -1332,6 +847,32 @@ function AiRouterSection() {
                     {MODEL_OPTIONS[draft[z.key].provider].map((m) => (
                       <option key={m} value={m}>
                         {m}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={draft[z.key].agent ?? ""}
+                    onChange={(e) => updateAgent(z.key, e.target.value)}
+                    disabled={saving}
+                    className="rounded px-2 py-1 text-[12px]"
+                    style={{
+                      background: "var(--color-surface-1)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border-strong)",
+                      outline: "none",
+                      fontFamily: "var(--font-mono)",
+                      minWidth: 170,
+                    }}
+                    title={
+                      draft[z.key].provider === "claude"
+                        ? `Subagent para ${z.label} ((none) = ninguno). Solo se aplica a sesiones Claude.`
+                        : `Subagent para ${z.label} — ${draft[z.key].provider} ignora la directiva, solo Claude la interpreta.`
+                    }
+                  >
+                    <option value="">(none)</option>
+                    {agents.map((ag) => (
+                      <option key={ag.name} value={ag.name}>
+                        {ag.name}
                       </option>
                     ))}
                   </select>
@@ -1537,6 +1078,355 @@ function HotkeyEditor() {
           {success}
         </div>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Button prompts section — every Control Center button that spawns a Claude
+// or Codex session now reads its prompt from a catalog persisted at
+// `~/.ultron/cockpit/button-prompts.json`. This panel lists every catalog
+// entry with an editable textarea, a Save button (atomic write), a
+// "Refine with Claude" button (opens a session asking Claude to improve the
+// prompt) and a "Reset" button (drops the override). The consumer components
+// import `getPrompt(key, vars)` from `src/lib/button-prompts.ts` so the
+// edits take effect on the next click — no app reload required.
+// ---------------------------------------------------------------------------
+
+function ButtonPromptsSection() {
+  const [catalog, setCatalog] = useState<ButtonPromptsCatalog | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [filter, setFilter] = useState<string>("");
+  const [loading, setLoading] = useState<boolean>(true);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const c = (await invoke("list_button_prompts")) as ButtonPromptsCatalog;
+      setCatalog(c);
+      const next: Record<string, string> = {};
+      for (const b of c.buttons) next[b.key] = b.prompt;
+      setDrafts(next);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void load();
+  }, []);
+
+  function flashSuccess(msg: string) {
+    setSuccess(msg);
+    window.setTimeout(() => setSuccess(null), 2500);
+  }
+
+  async function onSave(key: string) {
+    const draft = drafts[key] ?? "";
+    setBusy(key);
+    setError(null);
+    try {
+      await updateButtonPrompt(key, draft);
+      const next = await refreshButtonPrompts();
+      setCatalog(next);
+      const persisted = next.buttons.find((b) => b.key === key)?.prompt ?? draft;
+      setDrafts((prev) => ({ ...prev, [key]: persisted }));
+      flashSuccess(`Saved ${key}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onReset(key: string) {
+    setBusy(key);
+    setError(null);
+    try {
+      const restored = await resetButtonPrompt(key);
+      const next = await refreshButtonPrompts();
+      setCatalog(next);
+      setDrafts((prev) => ({ ...prev, [key]: restored.prompt }));
+      flashSuccess(`Reset ${key}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onRefineWithAI(entry: ButtonPrompt) {
+    setBusy(entry.key);
+    setError(null);
+    try {
+      const current = drafts[entry.key] ?? entry.prompt;
+      const refinePrompt = [
+        `Quiero mejorar el prompt asociado al botón "${entry.label}" del ULTRON Control Center.`,
+        `Ubicación: ${entry.location}`,
+        `Propósito: ${entry.description || "(sin descripción)"}`,
+        entry.vars.length > 0
+          ? `Variables disponibles (se sustituyen con valores en runtime): ${entry.vars.map((v) => `{${v}}`).join(", ")}.`
+          : "Este prompt no usa variables.",
+        "",
+        "Prompt actual:",
+        "```",
+        current,
+        "```",
+        "",
+        "Hazme 1-2 preguntas concretas si necesitas contexto y luego propón una versión mejorada. Mantén las variables {var} intactas. Devuelve sólo el prompt nuevo entre triples backticks para que lo pueda pegar en el Control Center.",
+      ].join("\n");
+      const { getHomeDir, joinPath } = await import("../lib/paths");
+      const cwd = joinPath(await getHomeDir(), ".ultron");
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: refinePrompt,
+        cwd,
+        flags: { dangerouslySkipPermissions: false },
+      });
+      flashSuccess(`Claude session opened to refine "${entry.label}"`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const filtered = useMemo(() => {
+    if (!catalog) return [] as ButtonPrompt[];
+    const q = filter.trim().toLowerCase();
+    if (!q) return catalog.buttons;
+    return catalog.buttons.filter(
+      (b) =>
+        b.key.toLowerCase().includes(q) ||
+        b.label.toLowerCase().includes(q) ||
+        b.location.toLowerCase().includes(q),
+    );
+  }, [catalog, filter]);
+
+  if (loading) {
+    return (
+      <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+        Loading button prompts…
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <p className="text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
+        Each entry here is the prompt that fires when you press an AI-powered
+        button somewhere in the Control Center. Edit it, click Save, and the
+        next click of that button uses your version. "Refine with Claude"
+        opens a Claude session that helps you rewrite the prompt; "Reset"
+        drops the override and goes back to the canonical default.
+      </p>
+      <p
+        className="mt-1 text-[10.5px]"
+        style={{
+          color: "var(--color-text-faint)",
+          fontFamily: "var(--font-mono)",
+        }}
+      >
+        ~/.ultron/cockpit/button-prompts.json
+      </p>
+
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          type="text"
+          placeholder="Filter by key, label or location…"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          className="flex-1 rounded px-2 py-1.5 text-[12px]"
+          style={{
+            background: "var(--color-surface-1)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+            outline: "none",
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="rounded px-2.5 py-1.5 text-[11.5px]"
+          style={{
+            background: "var(--color-surface-2)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          Reload
+        </button>
+      </div>
+
+      {error && (
+        <div
+          className="mt-3 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {success && (
+        <div
+          className="mt-3 rounded p-2 text-[12px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.06)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {success}
+        </div>
+      )}
+
+      <div className="mt-4 flex flex-col gap-3">
+        {filtered.map((b) => {
+          const draft = drafts[b.key] ?? "";
+          const dirty = draft !== b.prompt;
+          const isBusy = busy === b.key;
+          return (
+            <div
+              key={b.key}
+              className="rounded p-3"
+              style={{
+                background: "var(--color-surface-2)",
+                border: `1px solid ${b.overridden ? "var(--color-accent)" : "var(--color-border)"}`,
+              }}
+            >
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="text-[13px] font-semibold"
+                      style={{ color: "var(--color-text)" }}
+                    >
+                      {b.label}
+                    </span>
+                    {b.overridden && (
+                      <span
+                        className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                        style={{
+                          background: "rgba(88, 166, 255, 0.12)",
+                          color: "var(--color-accent)",
+                        }}
+                      >
+                        custom
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    className="mt-0.5 text-[11px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {b.location} ·{" "}
+                    <span style={{ fontFamily: "var(--font-mono)" }}>{b.key}</span>
+                  </div>
+                  {b.description && (
+                    <div
+                      className="mt-1 text-[11.5px]"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      {b.description}
+                    </div>
+                  )}
+                  {b.vars.length > 0 && (
+                    <div
+                      className="mt-1 text-[10.5px]"
+                      style={{
+                        color: "var(--color-text-faint)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      vars: {b.vars.map((v) => `{${v}}`).join(", ")}
+                    </div>
+                  )}
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void onRefineWithAI(b)}
+                    disabled={isBusy}
+                    className="rounded px-2.5 py-1 text-[11px] disabled:opacity-40"
+                    style={{
+                      background: "var(--color-surface-3)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border-strong)",
+                    }}
+                    title="Open a Claude session that helps you rewrite this prompt"
+                  >
+                    Refine with Claude
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onReset(b.key)}
+                    disabled={isBusy || !b.overridden}
+                    className="rounded px-2.5 py-1 text-[11px] disabled:opacity-30"
+                    style={{
+                      background: "transparent",
+                      color: "var(--color-text-tertiary)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                    title="Drop the override and go back to the default"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onSave(b.key)}
+                    disabled={isBusy || !dirty}
+                    className="rounded px-2.5 py-1 text-[11px] font-medium disabled:opacity-40"
+                    style={{
+                      background: "var(--color-accent)",
+                      color: "var(--color-accent-text)",
+                    }}
+                  >
+                    {isBusy ? "Saving…" : "Save"}
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={draft}
+                onChange={(e) =>
+                  setDrafts((prev) => ({ ...prev, [b.key]: e.target.value }))
+                }
+                rows={Math.min(14, Math.max(4, draft.split("\n").length))}
+                className="mt-3 w-full rounded p-2.5 text-[12px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: `1px solid ${dirty ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+                  outline: "none",
+                  fontFamily: "var(--font-mono)",
+                  resize: "vertical",
+                }}
+                spellCheck={false}
+              />
+            </div>
+          );
+        })}
+        {filtered.length === 0 && (
+          <div
+            className="rounded p-6 text-center text-[12px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            No buttons match the filter.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -2409,6 +2299,7 @@ export function Settings() {
           { id: "auth" as Section, label: "Auth" },
           { id: "mode" as Section, label: "Mode" },
           { id: "ai-router" as Section, label: "AI Router" },
+          { id: "button-prompts" as Section, label: "Button prompts" },
           // v15.2 F7: "MCPs" sub-tab removed — moved to top-level MCPs tab.
           { id: "raw" as Section, label: "Editor" },
           { id: "backups" as Section, label: "Backups" },
@@ -2463,6 +2354,7 @@ export function Settings() {
         {section === "auth" && <AuthStatus />}
         {section === "mode" && <ModeSection />}
         {section === "ai-router" && <AiRouterSection />}
+        {section === "button-prompts" && <ButtonPromptsSection />}
         {/* v15.2 F7: MCPs enable/disable moved to the top-level MCPs tab.
             The MCPRow / toggleMcp / mcps memo below remain in scope as
             inert helpers — kept for retrocompat in case external code

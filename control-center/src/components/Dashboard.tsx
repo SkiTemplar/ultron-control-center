@@ -920,24 +920,45 @@ export function Dashboard({
               onClick={async () => {
                 if (!pcReport?.report_json) return;
                 try {
-                  const prompt = [
-                    "Analiza este reporte de diagnostico PC y dime exactamente que esta mal, por orden de gravedad. Para cada problema, propon un fix concreto (comando o accion). Si todo esta bien, dilo en una linea.",
-                    "",
-                    "Reporte (JSON):",
-                    "```json",
-                    pcReport.report_json,
-                    "```",
-                  ].join("\n");
+                  // v15.2: prompt now lives in the central catalog
+                  // (~/.ultron/cockpit/button-prompts.json, key
+                  // "dashboard.pc_diagnose_analyse") so it can be tuned from
+                  // Settings → Button prompts without recompiling.
+                  const { getPrompt } = await import("../lib/button-prompts");
+                  const prompt = await getPrompt("dashboard.pc_diagnose_analyse", {
+                    report_json: pcReport.report_json,
+                  });
                   const { getHomeDir, joinPath } = await import("../lib/paths");
                   const cwd = joinPath(await getHomeDir(), ".ultron");
+                  // v15.2.39 AI Router: route through the `diagnose` zone so
+                  // the user's Settings → AI Router pick (provider + model +
+                  // agent) wins. Default provider stays claude (historical
+                  // hardcoded value) on any router error so the button keeps
+                  // working even if `ai-router.json` is missing/broken.
+                  type Zone = {
+                    provider: string;
+                    model: string | null;
+                    agent: string | null;
+                  };
+                  let zone: Zone = { provider: "claude", model: null, agent: null };
+                  try {
+                    const cfg = (await invoke("read_ai_router")) as Record<string, Zone>;
+                    if (cfg && cfg.diagnose) zone = cfg.diagnose;
+                  } catch {
+                    // keep default
+                  }
                   await invoke("spawn_session", {
-                    provider: "claude",
+                    provider: zone.provider,
                     prompt,
                     cwd,
-                    flags: { dangerouslySkipPermissions: false },
+                    flags: {
+                      dangerouslySkipPermissions: false,
+                      model: zone.model ?? undefined,
+                      agent: zone.agent ?? undefined,
+                    },
                   });
                 } catch (e) {
-                  console.error("PC diagnostic Claude session failed", e);
+                  console.error("PC diagnostic AI session failed", e);
                 }
               }}
               disabled={!pcReport}
@@ -947,9 +968,9 @@ export function Dashboard({
                 color: "var(--color-text)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Open a Claude session preloaded with this report — Claude analyses it and proposes concrete fixes"
+              title="Open an AI session preloaded with this report. Provider / model / agent come from Settings → AI Router (zone: diagnose)."
             >
-              Analyse with Claude
+              Analyse with AI
             </button>
             <button
               type="button"

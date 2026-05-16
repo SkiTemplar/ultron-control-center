@@ -1,26 +1,27 @@
-// JsonVisualEditor — v15.2 F8 UX
+// JsonVisualEditor — v15.2 F9 UX
 //
-// Hierarchical form editor for ~/.claude/settings.json. The user toggles
-// between this and the raw textarea via the View segmented control in
-// Settings.tsx. Editing here calls onChange with the rebuilt object; the
+// Hierarchical form editor for ~/.claude/settings.json. The Raw JSON
+// textarea toggle was removed in v15.2 F9 — this is now the only editor
+// surface. Editing here calls onChange with the rebuilt object; the
 // parent reuses the same Save flow (settings_save backend, atomic write).
 //
 // Design notes
 // ------------
 // - Pure structural: no schema validation, no Claude-Code-specific shape
-//   checks (those still run in the raw editor via "Validate schema").
+//   checks. Users who need to inspect/repair an invalid settings.json
+//   should edit the file on disk directly (path shown in the parent).
 // - Two top-level keys get bespoke renderers:
 //     · hooks       → event name → array of matcher groups, each with a
 //                     matcher string + an array of {type, command}.
 //     · mcpServers  → server name → card with type/command/args/url fields.
 //   Everything else falls through to a generic recursive renderer.
-// - Limitations explicitly NOT supported (kept for the raw editor):
+// - Limitations explicitly NOT supported (edit settings.json on disk for
+//   these — there is no Raw JSON fallback anymore):
 //     · Adding/renaming top-level keys (you can only edit the values of
 //       keys that already exist in the file).
 //     · Arrays of arbitrary nested objects (we render them collapsed as
 //       JSON snippets the user can edit in a textarea).
-//     · null values (treated as empty strings; user can switch to Raw
-//       to set null explicitly).
+//     · null values (treated as empty strings).
 //
 // Performance: we deep-clone the whole object on every keystroke. The
 // settings.json file is tiny (~10 KB), so this is fine.
@@ -665,7 +666,7 @@ export function JsonVisualEditor({
           color: "var(--color-text-tertiary)",
         }}
       >
-        settings.json is empty. Switch to Raw JSON view to add the first key.
+        settings.json is empty. Edit ~/.claude/settings.json directly to add the first top-level key, then reload.
       </div>
     );
   }
@@ -680,9 +681,11 @@ export function JsonVisualEditor({
           color: "var(--color-text-tertiary)",
         }}
       >
-        Visual form for top-level keys. To add or rename keys, switch to{" "}
-        <span style={{ fontFamily: "var(--font-mono)" }}>Raw JSON</span>.
-        Arrays of complex objects fall back to a JSON snippet textarea.
+        Visual form for top-level keys. Adding or renaming top-level keys is
+        not supported here — edit{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span>
+        {" "}directly and reload. Arrays of complex objects fall back to a JSON
+        snippet textarea.
       </div>
 
       {keys.map((k) => {

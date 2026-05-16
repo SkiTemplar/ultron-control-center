@@ -270,6 +270,28 @@ export type SpawnFlags = {
   effort?: "low" | "medium" | "high" | "xhigh" | "max" | null;
   name?: string | null;
   resumeId?: string | null;
+  /** Optional subagent slug (filename stem under `~/.claude/agents/`).
+   *  When set, the Rust backend prepends `[USE AGENT: <slug>]` to the
+   *  prompt before the Claude session starts. Driven by the AI Router
+   *  (Settings → AI Router) — call sites normally don't set it manually,
+   *  they read `AiRouterEntry.agent` for the zone and pass it through. */
+  agent?: string | null;
+  /** When true, the wrapper script copies the prompt to the clipboard
+   *  and opens the CLI without auto-submitting. Mirrors the Rust
+   *  `paste_only` flag. */
+  pasteOnly?: boolean;
+  /** When true, the wrapper script will NOT overwrite the clipboard.
+   *  Used by callers that primed the clipboard themselves (news pipeline). */
+  respectClipboard?: boolean;
+};
+
+/** A single AI Router zone entry. Mirrors the Rust `AiRouterEntry`.
+ *  `model` and `agent` are both optional — `null` means "use the
+ *  provider default" / "no subagent" respectively. */
+export type AiRouterEntry = {
+  provider: "claude" | "codex" | "gemini" | string;
+  model: string | null;
+  agent: string | null;
 };
 
 export type ClaudeSession = {
@@ -383,6 +405,11 @@ export type AgentInfo = {
   path: string | null;
   size_bytes: number;
   last_modified: number | null;
+  /** Optional security verdict — populated when an agent registry / scan
+   *  pre-computed this. The Agents tab also fetches a fresh report on
+   *  demand via `get_agent_findings`, so this field is best-effort and
+   *  may be absent even when findings exist. */
+  security?: SecurityInfo | null;
 };
 
 export type AgentMutationResult = {
@@ -390,6 +417,31 @@ export type AgentMutationResult = {
   name: string;
   path: string;
   backup_path: string | null;
+};
+
+/** Symmetric with SkillFinding — agents go through the same scanner. */
+export type AgentFinding = {
+  rule_id: string;
+  severity: string;
+  pattern_name: string;
+  excerpt: string;
+  line_number: number | null;
+  waived: boolean;
+};
+
+export type AgentSecurityReport = {
+  name: string;
+  decision: string;
+  sha1: string | null;
+  findings: AgentFinding[];
+  stderr: string;
+};
+
+export type AllowAgentResult = {
+  success: boolean;
+  name: string;
+  sha1: string;
+  waiver_path: string;
 };
 
 export type MaintenanceCommand = {
