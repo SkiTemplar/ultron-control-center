@@ -130,8 +130,22 @@ function Test-Preflight {
     Write-Step "preflight"
 
     Write-Check "host OS"
-    if (-not $IsWindows -and $PSVersionTable.PSVersion.Major -ge 6) {
-        # PS Core on Linux/Mac.
+    # $IsWindows is only defined in PowerShell 6+. In Windows PowerShell 5.1
+    # the automatic variable does not exist, and Set-StrictMode -Version
+    # Latest turns plain access into a parser-level error. Use a strict-mode
+    # safe probe instead: Get-Variable returns $null when the variable is
+    # missing, and `[System.Environment]::OSVersion.Platform` is universally
+    # available.
+    $isWindowsHost = $true
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        $isWinVar = Get-Variable -Name IsWindows -ErrorAction SilentlyContinue
+        if ($isWinVar) {
+            $isWindowsHost = [bool]$isWinVar.Value
+        } else {
+            $isWindowsHost = ([System.Environment]::OSVersion.Platform -eq 'Win32NT')
+        }
+    }
+    if (-not $isWindowsHost) {
         Write-FailRow "non-Windows host detected"
         Write-Info  "use scripts/install.sh on Linux / macOS instead."
         Stop-WithFix -Stage "preflight" `

@@ -694,7 +694,7 @@ log_level: INFO
 # Step 5: directory layout
 # ----------------------------------------------------------------------
 function New-DirectoryLayout {
-    Write-Step "6. directory layout"
+    Write-Step "5. directory layout"
     $dirs = @(
         $InstallRoot,
         (Join-Path $InstallRoot "cockpit"),
@@ -737,7 +737,7 @@ function New-DirectoryLayout {
 # Step 6b: wake-up stubs (global CLAUDE.md + SYSTEM-MAP.md + MEMORY.md)
 # ----------------------------------------------------------------------
 function New-WakeUpStubs {
-    Write-Step "6b. wake-up stubs (CLAUDE.md global + SYSTEM-MAP.md + MEMORY.md)"
+    Write-Step "5b. wake-up stubs (CLAUDE.md global + SYSTEM-MAP.md + MEMORY.md)"
     $pairs = @(
         @{ src = "templates\CLAUDE.md.example";    dst = (Join-Path $env:USERPROFILE ".claude\CLAUDE.md") },
         @{ src = "templates\SYSTEM-MAP.md.example"; dst = (Join-Path $InstallRoot "SYSTEM-MAP.md") },
@@ -757,7 +757,7 @@ function New-WakeUpStubs {
 # Step 6c: cockpit + personal + vault seeds
 # ----------------------------------------------------------------------
 function New-CockpitSeeds {
-    Write-Step "6c. cockpit / personal / vault seeds"
+    Write-Step "5c. cockpit / personal / vault seeds"
     $seeds = @(
         @{ src = "templates\projects.empty.json"; dst = "cockpit\projects.json" },
         @{ src = "templates\apps.default.json";   dst = "cockpit\apps.json"     },
@@ -940,8 +940,15 @@ function Install-CommunitySkills {
     $tmp = Join-Path $env:TEMP "ultron-skills-clone"
     if (Test-Path $tmp) { Remove-Item -Recurse -Force $tmp }
     try {
-        & git clone --depth 1 https://github.com/SkiTemplar/ultron-skills.git $tmp 2>&1 | ForEach-Object { Write-V $_ }
-        if ($LASTEXITCODE -ne 0) { Write-Warn2 "clone failed"; return }
+        # --quiet suppresses git's progress prints to stderr (which PS strict
+        # mode otherwise turns into terminating errors via the 2>&1 pipe).
+        # We redirect stderr to a separate buffer so a clone failure surfaces
+        # the real reason in the warn message instead of just the banner.
+        $cloneErr = & git clone --quiet --depth 1 https://github.com/SkiTemplar/ultron-skills.git $tmp 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn2 ("clone failed (exit " + $LASTEXITCODE + "): " + ($cloneErr -join '; '))
+            return
+        }
         # Copy each skill that has SKILL.md, skip existing
         Get-ChildItem -Directory $tmp | ForEach-Object {
             $skill = $_.Name
@@ -1011,7 +1018,7 @@ function Initialize-BrainIndex {
 # with hooks pointing at a missing interpreter and every Claude session
 # would fail silently.
 function Initialize-PythonVenv {
-    Write-Step "8b. python venv (uv sync — required for hooks)"
+    Write-Step "6. python venv (uv sync — required for hooks)"
     if (-not (Get-Command "uv" -ErrorAction SilentlyContinue)) {
         Write-Warn2 "uv not on PATH; cannot create venv. Hooks will fail."
         return
@@ -1023,11 +1030,19 @@ function Initialize-PythonVenv {
     }
     try {
         Push-Location $Script:RepoRoot
-        & uv sync 2>&1 | ForEach-Object { Write-V $_ }
+        # uv writes progress lines to stderr ("Resolved N packages..."), and
+        # PS strict mode turns each into an ErrorRecord when piped through
+        # 2>&1 + ForEach-Object — that's how this step ended up reporting
+        # "uv sync failed: Resolved 98 packages" on a successful run.
+        # Capture stderr into a buffer instead and judge by the exit code.
+        $uvOut = & uv sync 2>&1
         if ($LASTEXITCODE -eq 0) {
             Write-OK "venv ready at .venv"
+            if ($Script:VerboseOn -and $uvOut) {
+                $uvOut | ForEach-Object { Write-V $_ }
+            }
         } else {
-            Write-Warn2 "uv sync exited $LASTEXITCODE — hooks may not fire"
+            Write-Warn2 ("uv sync exited " + $LASTEXITCODE + ": " + ($uvOut -join '; '))
         }
     } catch {
         Write-Warn2 ("uv sync failed: " + $_.Exception.Message)
