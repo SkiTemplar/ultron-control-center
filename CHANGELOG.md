@@ -16,6 +16,194 @@ Note: the project is **Windows-only by design** — no macOS / Linux ports
 planned. The hooks, installer and dual-mode wiring all assume PowerShell
 + winget + Windows-specific APIs.
 
+## [15.2.28] - 2026-05-16
+
+### Added
+- Skills: strict security mode (Option A). `skill_vault.py registry` now scans
+  every active skill with `skill_sync_security` and writes a `security` block
+  per registry entry (decision, findings_count, high_severity_rules, sha1,
+  scanned_at). Skills with decision `quarantine` or `block` are demoted to
+  state `quarantined` instead of `active`.
+- Skills tab: new "Quarantined" filter pill (active by default), per-row
+  security badge with the findings count, and a Security panel in the
+  preview listing each finding (rule_id, severity, excerpt) plus an
+  "Allow anyway" form (reason required) that writes a per-SHA1 waiver to
+  `~/.ultron/config/skill-trust.yaml`.
+- Rust commands: `get_skill_findings`, `allow_skill_manually`.
+  In-tree SHA1 + civil-from-days date formatter (no new deps).
+- `uninstall.ps1` at repo root: removes `~/.ultron/`, autostart registry,
+  ULTRON* scheduled tasks, Start Menu / Desktop shortcuts, and prunes
+  `~/.claude/settings.json` hooks that point at `~/.ultron/` (backup
+  first). Skips `~/.claude/skills/` and third-party CLIs. Flags:
+  `-DryRun`, `-KeepBackups`, `-NonInteractive`.
+- README ES+EN: short uninstall block under the install one.
+
+### Fixed
+- ACL: `dialog:allow-confirm`, `dialog:allow-ask`, `dialog:allow-message`
+  added to the default capability so `window.confirm()` (Clear all,
+  Delete project, soft-delete etc.) no longer logs
+  `Command plugin:dialog|confirm not allowed by ACL`.
+
+## [15.2.27] - 2026-05-16
+
+### Added
+- Notifications: "Clear all (N)" button in the toolbar (red), wipes every
+  visible group with a confirm prompt.
+
+## [15.2.26] - 2026-05-16
+
+### Fixed
+- News: removed the unused Theme `<input>` (and the residual `setGenTheme`
+  call that broke tsc in 15.2.26.1).
+- Notifications "Fix with Claude/Codex" sessions now open in `~/.ultron/`
+  instead of the user home — Claude lands closer to the cockpit it needs
+  to inspect.
+
+## [15.2.25] - 2026-05-16
+
+### Fixed
+- Newsletter clipboard prompt now includes an explicit `[SAVE INSTRUCTION]`
+  block with the absolute target path so Gemini saves to
+  `~/.ultron/cockpit/news/newsletter-YYYY-MM-DD.html` (not cwd).
+
+## [15.2.24] - 2026-05-16
+
+### Fixed
+- Skill security scanner (Codex pass): markdown code-block masking
+  (`_FENCED_CODE_BLOCK`, `_INLINE_CODE_SPAN`) so PI001/PI002 do not
+  fire on code-block examples. PI005 skips routing-metadata keys
+  (`tags`, `triggers`, `aliases`, `routing_hint`).
+
+### Added
+- `skill-trust.yaml` schema: `trusted_source_waivers` (bulk waiver for
+  warn-class rules across trusted sources) — covers PI009 / PI012 noise.
+
+## [15.2.23] - 2026-05-16
+
+### Changed
+- Hook path resolution: `hook_input_validator.py` no longer emits
+  "stdin is not valid JSON" info events — only real validation failures.
+- Test assertions catch-up after the schema additions.
+
+## [15.2.22] - 2026-05-16
+
+### Changed
+- README tech stack rows: "Control Center" (was "Cockpit shell") to
+  match the tab name. Unreleased changelog cleaned of items already
+  shipped in earlier 15.2.x releases.
+
+## [15.2.21] - 2026-05-16
+
+### Fixed
+- README tab list: 16 tabs (was incorrectly listed as 15).
+
+## [15.2.20] - 2026-05-16
+
+### Fixed
+- Newsletter clipboard mojibake (CP1252 vs UTF-8): write text to a
+  UTF-8-sig temp file and pipe via `Get-Content -Raw -Encoding UTF8 |
+  Set-Clipboard`. Gemini preview models added to the picker.
+
+## [15.2.19] - 2026-05-16
+
+### Added
+- AI Router: all 7 zones wired (`diagnose`, `summarize`,
+  `brainstorm_plans`, `news_generate`, `skill_edit`, `mcp_create`,
+  `repo_review`). Every spawned session now reads
+  `read_ai_router()` for provider + model.
+
+## [15.2.18] - 2026-05-16
+
+### Fixed
+- No-emoji policy enforced across UI (Fix-Codex buttons match Fix-Claude).
+- Memory graph: polar init using `sqrt(area)` distribution + gentler
+  gravity to prevent corner clustering.
+- Hook noise: low-signal info events suppressed.
+
+## [15.2.17] - 2026-05-16
+
+### Added
+- Notifications: bulk "Fix all with Claude / Codex (N)" buttons.
+
+### Fixed
+- Security scanner `local_skill_root` path was wrong
+  (`~/.ultron/skills` → `~/.claude/skills`). Added `expanduser/expandvars`
+  in `_is_trusted_source`. `_downgrade()` for locally-owned skills:
+  block → quarantine (terminal still for third-party).
+
+### Removed
+- Cockpit dead-file cleanup (33 legacy files identified in audit F26).
+
+## [15.2.16] - 2026-05-16
+
+### Removed
+- 33 dead / legacy files purged (audit F26 verdict).
+
+## [15.2.15] - 2026-05-16
+
+### Added
+- Notifications: per-card "Fix with Claude / Fix with Codex" launcher.
+- AI Router per-zone model selector (Settings → AI Router).
+- README bilingual polish.
+
+## [15.2.14] - 2026-05-16
+
+### Removed
+- Deep purge: zero personal-persona references left in tracked files
+  (kirkardo / tio-gilito / tolkien / novalbos / news-publisher /
+  einstein / alfred / don-claudio / terry-davis / jordan-belfort /
+  mike-tyson / warren / pana / repo-evaluator / investment-advisor /
+  personal-assistant / ue5-dev / MEGA-PLAN / trading / manolo-lama /
+  profesor-fisica).
+
+## [15.2.13] - 2026-05-16
+
+### Fixed
+- Memory graph world doubled to 5000 + gentler gravity to spread nodes.
+
+## [15.2.12] - 2026-05-16
+
+### Removed
+- `web/`, `docs/download.html`. All `C:\Users\USER` references
+  scrubbed from tracked files.
+
+## [15.2.11] - 2026-05-16
+
+### Added
+- Projects: per-project `default_provider` (claude / codex / gemini).
+- Memory graph world expansion (first pass, refined in 15.2.13).
+
+## [15.2.10] - 2026-05-16
+
+### Fixed
+- Skills personas restored from git history after an accidental delete
+  in the `ultron-skills` clone (`.gitignore` added so they cannot be
+  re-tracked).
+- News clipboard `respect_clipboard` plumbed end-to-end
+  (`SpawnFlags::respect_clipboard` + parse branch in
+  `spawn-claude-session.ps1`).
+- `catch_up` no longer arrives as the string `"True"` (PowerShell
+  case-insensitive variable collision fixed).
+- CHANGELOG backfill.
+
+## [15.2.9] - 2026-05-16
+
+### Added
+- Zero-friction installer: `install.ps1` auto-installs Git, Node 22 LTS,
+  Claude Code, uv, Rust, Docker Desktop via winget.
+- Plans tab: archived drawer now lists `plans/_archive/resolved-*.json`
+  entries synthesised with `status="archived"`.
+
+## [15.2.8] - 2026-05-16
+
+### Added
+- Installer step: opt-in picker for community skills (`SkiTemplar/ultron-skills`).
+
+## [15.2.7] - 2026-05-16
+
+### Added
+- Bilingual README (ES + EN) without screenshots; `memory_sync` stale fallback.
+
 ## [15.2.6] - 2026-05-16
 
 ### Fixed
