@@ -1,5 +1,14 @@
 # Changelog
 
+<!-- v15.3.4 -->
+## v15.3.4 — 2026-05-16
+
+- feat(v15.3.4): Projects IDE-aware launch + System apps panel + AI Router auto-mode + Tauri auto-updater + docs sweep
+- chore: refresh changelog (auto)
+
+_Auto-generated from d93733bc by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.3.3 -->
 ## v15.3.3 — 2026-05-16
 
