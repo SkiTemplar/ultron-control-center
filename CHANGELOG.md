@@ -7,12 +7,103 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- Plans `archived` drawer shows zero items even after auto-archive flips
+  status correctly (frontend filter issue).
 - Auto-updater wiring (`tauri-plugin-updater` is in Cargo.toml but not yet
   invoked from `lib.rs` — tracked as `si-p1-b-auto-updater`).
 - Light theme toggle (current build is OLED-black hardcoded).
 - macOS / Linux ports (Windows-only at v15.2).
 - Cross-session BUS, supervisor daemon, DAG scheduler, overnight loop and
   mobile companion are deferred to v15.3.
+
+## [15.2.6] - 2026-05-16
+
+### Fixed
+- Settings hotkey capture no longer closes the window when user presses
+  the global toggle combo (Ctrl+Alt+U). New `pause_global_hotkeys` /
+  `resume_global_hotkeys` commands tear down OS-level listeners during edit.
+- Newsletter Gemini flow: seed message no longer overwrites the real prompt
+  the Python script seeded onto the clipboard. New
+  `SpawnFlags::respect_clipboard` makes the spawn wrapper preserve clipboard.
+- Dashboard full diagnostic: Docker missing reports gray "not installed"
+  instead of orange warning (optional dependency, only used for Qdrant).
+
+### Added
+- In-app shortcuts editor in Settings → General (every Alt+N / Ctrl+K
+  binding editable, persisted to `~/.ultron/.tmp/in-app-shortcuts.json`).
+- Custom project hotkeys: bind arbitrary `Ctrl+Alt+<key>` combos to open
+  any project from anywhere. Backed by `project_hotkeys::register_custom_hotkeys`.
+- Settings Editor visual form mode (toggle "Raw JSON / Visual form") with
+  dedicated editors for `hooks` and `mcpServers`.
+- Settings Backups file picker via `@tauri-apps/plugin-dialog`.
+- System tab "Overview" sub-tab consolidates RAM/CPU/disk/GPU/network +
+  top processes.
+
+### Changed
+- Projects launcher: built-in items render as 28x28 icon-only buttons
+  (Lucide-style folder + Claude-orange "C" + Codex-green "X");
+  custom items render as name-only pill cards.
+- Memory tab: single unified layout. List/Highlights/Graph toggle removed.
+  Force graph now zoom-and-pannable (wheel 0.25-4x, drag pan, Reset view).
+  Sidebar with Quick stats + compact Highlights + recent notes.
+- System tab sub-tabs reduced: Overview · Schedules · Hooks (was 4).
+
+## [15.2.5] - 2026-05-16
+
+### Added
+- 11 core skill stubs in `skills/<name>/SKILL.md` so a fresh install
+  no longer skips the manifest's `claude://` skills silently.
+- Wake-up templates: `CLAUDE.md.example`, `SYSTEM-MAP.md.example`,
+  `MEMORY.md.example`.
+- Cockpit + personal seeds (projects/apps/profile/known/vault README).
+- `install.ps1` seeds wake-up files + cockpit seeds on fresh install.
+
+### Changed
+- 11 core skills in manifest flipped from `claude://` to `repo://`.
+
+## [15.2.4] - 2026-05-16
+
+### Fixed
+- Settings "flicker raro": `reg.exe` spawns in `purge_legacy_autostart_inner`
+  now use `CREATE_NO_WINDOW`. No more console flashes on Settings mount.
+
+### Removed
+- `scripts/_legacy/shared-duet.ps1` (only deprecated file still tracked).
+- `.gitignore` blocks `*.bak`, `*.tmp`, `*~`, `*.lock.tmp` defensively.
+
+## [15.2.3] - 2026-05-16
+
+### Added
+- Personal tab double-column layout: left = read-only known.json view,
+  right = Train style + sample preview.
+- Backend: `read_personal_sample`, `train_personal_style`,
+  `generate_style_sample` Tauri commands.
+
+## [15.2.2] - 2026-05-16
+
+### Added
+- Phase 2 — Notifications & Windows toasts via `toast_emit.rs`.
+- Phase 3 — Plans rework: per-column buttons, auto-archive, archived drawer.
+- Phase 6 — Dashboard `full_diagnostic.rs` with 10 parallel probes +
+  Auto-fix modal + auto-changelog hook.
+- Phase 7 — Settings refactor (Hooks → System sub-tab, MCP toggles → MCPs).
+- Phase 8 — Schedules catch-up window (StartWhenAvailable).
+
+### Changed
+- Phase 4 — Memory graph stable physics.
+- Phase 9 — Polish: GFM pipe-tables, Projects sort, removed Memory-notes
+  recent widget, tooltips on Hook Signals + token-usage events.
+
+## [15.2.1] - 2026-05-16
+
+### Changed
+- Trim repo to publishable essentials (559 → ~470 tracked files).
+- `install.ps1`: `Initialize-PythonVenv` runs `uv sync` BEFORE hooks merge.
+- `skills/ultron/SKILL.md` shipped as template stub.
+
+### Fixed
+- Newsletter Gemini: `generate_news_inner` delegates to session flow
+  (clipboard + wt.exe), no more OAuth-stuck-on-headless hangs.
 
 ## [15.2.0] - 2026-05-16 (release candidate)
 

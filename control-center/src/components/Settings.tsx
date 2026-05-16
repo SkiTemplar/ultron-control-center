@@ -1427,6 +1427,505 @@ function HotkeyEditor() {
   );
 }
 
+// ---------------------------------------------------------------------------
+// InAppShortcutsEditor — replaces the old read-only grid. Each row is a
+// fixed label + an editable input with the same "Capturar tecla" affordance
+// as HotkeyEditor. Persisted via the in_app_shortcuts Tauri commands. We
+// dispatch an in-window event after every save so App.tsx can refresh its
+// binding cache without polling.
+// ---------------------------------------------------------------------------
+
+/** Display rows for the editor — order = display order. Keys MUST match
+ *  the action ids in `in_app_shortcuts::default_bindings` (Rust) AND the
+ *  switch in App.tsx, otherwise the binding silently won't fire. */
+const IN_APP_ROWS: { key: string; label: string }[] = [
+  { key: "command.palette", label: "Command palette" },
+  { key: "open.settings", label: "Settings (via Ctrl+,)" },
+  { key: "refresh.all", label: "Refresh dashboard data" },
+  { key: "tab.dashboard", label: "Dashboard" },
+  { key: "tab.usage", label: "Usage" },
+  { key: "tab.notifications", label: "Notifications" },
+  { key: "tab.sessions", label: "Sessions" },
+  { key: "tab.projects", label: "Projects" },
+  { key: "tab.plans", label: "Plans" },
+  { key: "tab.memory", label: "Memory" },
+  { key: "tab.skills", label: "Skills" },
+  { key: "tab.logs", label: "Logs" },
+  { key: "tab.settings", label: "Settings (tab)" },
+];
+
+function comboFromEvent(e: React.KeyboardEvent<HTMLInputElement>): string | null {
+  if (["Control", "Alt", "Shift", "Meta", "OS"].includes(e.key)) return null;
+  const parts: string[] = [];
+  if (e.ctrlKey) parts.push("Ctrl");
+  if (e.altKey) parts.push("Alt");
+  if (e.shiftKey) parts.push("Shift");
+  if (e.metaKey) parts.push("Meta");
+  let k = e.key;
+  if (k.length === 1) k = k.toUpperCase();
+  parts.push(k);
+  return parts.join("+");
+}
+
+function InAppShortcutsEditor() {
+  const [bindings, setBindings] = useState<Record<string, string>>({});
+  const [dirty, setDirty] = useState<Record<string, string>>({});
+  const [capturing, setCapturing] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const m = (await invoke("get_in_app_shortcuts")) as Record<string, string>;
+        setBindings(m || {});
+        setDirty(m || {});
+      } catch (e) {
+        setError(String(e));
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (capturing) inputRefs.current[capturing]?.focus();
+  }, [capturing]);
+
+  const isDirty = useMemo(() => {
+    const keys = new Set([...Object.keys(bindings), ...Object.keys(dirty)]);
+    for (const k of keys) {
+      if ((bindings[k] ?? "") !== (dirty[k] ?? "")) return true;
+    }
+    return false;
+  }, [bindings, dirty]);
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      // Send only non-empty values; backend persists what we send and
+      // falls back to defaults for everything missing.
+      const filtered: Record<string, string> = {};
+      for (const [k, v] of Object.entries(dirty)) {
+        const t = (v || "").trim();
+        if (t) filtered[k] = t;
+      }
+      await invoke("set_in_app_shortcuts", { map: filtered });
+      setBindings(filtered);
+      // App.tsx listens for this and refetches its binding cache.
+      window.dispatchEvent(new Event("in-app-shortcuts-updated"));
+      setSuccess("Saved");
+      window.setTimeout(() => setSuccess(null), 2000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onCapture(actionKey: string, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (capturing !== actionKey) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const combo = comboFromEvent(e);
+    if (!combo) return;
+    setDirty((prev) => ({ ...prev, [actionKey]: combo }));
+    setCapturing(null);
+  }
+
+  return (
+    <div
+      className="rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-baseline justify-between">
+        <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+          In-app shortcuts
+        </div>
+        <span
+          className="text-[10.5px]"
+          style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+        >
+          ~/.ultron/.tmp/in-app-shortcuts.json
+        </span>
+      </div>
+      <p
+        className="mt-1 text-[11.5px] leading-relaxed"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        Atajos dentro del Control Center. Edita el combo o pulsa "Capturar"
+        y aprieta la combinación. Tab-jumps no roban teclas si estás en un input.
+      </p>
+
+      <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
+        {IN_APP_ROWS.map(({ key, label }) => {
+          const current = dirty[key] ?? "";
+          const isCap = capturing === key;
+          return (
+            <div key={key} className="flex items-center gap-2">
+              <span
+                className="w-40 shrink-0 text-[11.5px]"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
+                {label}
+              </span>
+              <input
+                ref={(el) => {
+                  inputRefs.current[key] = el;
+                }}
+                type="text"
+                value={current}
+                onChange={(e) =>
+                  setDirty((prev) => ({ ...prev, [key]: e.target.value }))
+                }
+                onKeyDown={(e) => onCapture(key, e)}
+                placeholder="Alt+1"
+                className="flex-1 rounded px-2 py-1 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: `1px solid ${isCap ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+                  outline: "none",
+                  fontFamily: "var(--font-mono)",
+                  minWidth: 0,
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setCapturing(isCap ? null : key)}
+                className="rounded px-2 py-1 text-[10.5px]"
+                style={{
+                  background: isCap ? "var(--color-surface-3)" : "transparent",
+                  color: isCap ? "var(--color-text)" : "var(--color-text-tertiary)",
+                  border: `1px solid ${isCap ? "var(--color-border-strong)" : "var(--color-border)"}`,
+                }}
+                title="Pulsa para capturar la siguiente combinación"
+              >
+                {isCap ? "…" : "Capturar"}
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="mt-3 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy || !isDirty}
+          className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+        >
+          {busy ? "Guardando…" : "Guardar atajos"}
+        </button>
+        {success && (
+          <span className="text-[11px]" style={{ color: "var(--color-success)" }}>
+            {success}
+          </span>
+        )}
+      </div>
+
+      {error && (
+        <div
+          className="mt-3 rounded px-2 py-1 text-[11.5px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// ProjectHotkeysEditor — 10 slots, each with a combo + project dropdown.
+// Slot N may be empty. Saving registers the global hotkey via Tauri
+// (Rust side: project_hotkeys::set_project_at_slot). Pressing the hotkey
+// emits "project-hotkey-custom" which App.tsx wires to open_project.
+// ---------------------------------------------------------------------------
+
+interface ProjectHotkeySlotRow {
+  slot: number;
+  combo: string;
+  project_id: string;
+}
+
+interface MiniProject {
+  id: string;
+  name: string | null;
+}
+
+function ProjectHotkeysEditor() {
+  const SLOTS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+  const [projects, setProjects] = useState<MiniProject[]>([]);
+  const [slots, setSlots] = useState<Record<number, { combo: string; projectId: string }>>({});
+  const [capturing, setCapturing] = useState<number | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const inputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+
+  async function loadAll() {
+    try {
+      const ps = (await invoke("list_projects")) as Array<{
+        id: string;
+        name: string | null;
+      }>;
+      setProjects(ps.map((p) => ({ id: p.id, name: p.name })));
+    } catch (e) {
+      setError(String(e));
+    }
+    try {
+      const rows = (await invoke("get_project_hotkeys")) as ProjectHotkeySlotRow[];
+      const next: Record<number, { combo: string; projectId: string }> = {};
+      for (const r of rows) {
+        next[r.slot] = { combo: r.combo, projectId: r.project_id };
+      }
+      setSlots(next);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  useEffect(() => {
+    void loadAll();
+  }, []);
+
+  useEffect(() => {
+    if (capturing != null) inputRefs.current[capturing]?.focus();
+  }, [capturing]);
+
+  function onCapture(slot: number, e: React.KeyboardEvent<HTMLInputElement>) {
+    if (capturing !== slot) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const combo = comboFromEvent(e);
+    if (!combo) return;
+    setSlots((prev) => ({
+      ...prev,
+      [slot]: { combo, projectId: prev[slot]?.projectId ?? "" },
+    }));
+    setCapturing(null);
+  }
+
+  async function saveSlot(slot: number) {
+    const entry = slots[slot];
+    if (!entry || !entry.combo.trim() || !entry.projectId) {
+      setError(`Slot ${slot}: pick a combo AND a project before saving`);
+      return;
+    }
+    setBusy(slot);
+    setError(null);
+    setSuccess(null);
+    try {
+      await invoke("set_project_at_slot", {
+        slot,
+        projectId: entry.projectId,
+        combo: entry.combo.trim(),
+      });
+      setSuccess(`Slot ${slot} saved (${entry.combo.trim()})`);
+      window.setTimeout(() => setSuccess(null), 2500);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function clearSlot(slot: number) {
+    setBusy(slot);
+    setError(null);
+    try {
+      await invoke("clear_project_at_slot", { slot });
+      setSlots((prev) => {
+        const next = { ...prev };
+        delete next[slot];
+        return next;
+      });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div
+      className="rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-baseline justify-between">
+        <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+          Project hotkeys
+        </div>
+        <span
+          className="text-[10.5px]"
+          style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+        >
+          ~/.ultron/cockpit/project-hotkeys.json
+        </span>
+      </div>
+      <p
+        className="mt-1 text-[11.5px] leading-relaxed"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        Asigna un hotkey global (al estilo Ctrl+Alt+P) para abrir un proyecto
+        concreto desde cualquier app de Windows. Distinto del set legacy
+        Ctrl+Alt+1..9 (que sigue los pinned). Necesita ≥1 modificador.
+      </p>
+
+      <div className="mt-3 space-y-2">
+        {SLOTS.map((slot) => {
+          const entry = slots[slot] ?? { combo: "", projectId: "" };
+          const isCap = capturing === slot;
+          const isBusy = busy === slot;
+          return (
+            <div
+              key={slot}
+              className="flex flex-wrap items-center gap-2"
+              style={{ minHeight: 32 }}
+            >
+              <span
+                className="w-12 shrink-0 text-[11px]"
+                style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+              >
+                #{slot}
+              </span>
+              <input
+                ref={(el) => {
+                  inputRefs.current[slot] = el;
+                }}
+                type="text"
+                value={entry.combo}
+                onChange={(e) =>
+                  setSlots((prev) => ({
+                    ...prev,
+                    [slot]: { combo: e.target.value, projectId: prev[slot]?.projectId ?? "" },
+                  }))
+                }
+                onKeyDown={(e) => onCapture(slot, e)}
+                placeholder="Ctrl+Alt+P"
+                className="rounded px-2 py-1 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: `1px solid ${isCap ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+                  outline: "none",
+                  fontFamily: "var(--font-mono)",
+                  width: 160,
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setCapturing(isCap ? null : slot)}
+                className="rounded px-2 py-1 text-[10.5px]"
+                style={{
+                  background: isCap ? "var(--color-surface-3)" : "transparent",
+                  color: isCap ? "var(--color-text)" : "var(--color-text-tertiary)",
+                  border: `1px solid ${isCap ? "var(--color-border-strong)" : "var(--color-border)"}`,
+                }}
+              >
+                {isCap ? "…" : "Capturar"}
+              </button>
+              <select
+                value={entry.projectId}
+                onChange={(e) =>
+                  setSlots((prev) => ({
+                    ...prev,
+                    [slot]: { combo: prev[slot]?.combo ?? "", projectId: e.target.value },
+                  }))
+                }
+                className="rounded px-2 py-1 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                  outline: "none",
+                  minWidth: 180,
+                  flex: "1 1 200px",
+                }}
+              >
+                <option value="">— project —</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name || p.id}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void saveSlot(slot)}
+                disabled={isBusy || !entry.combo.trim() || !entry.projectId}
+                className="rounded px-2 py-1 text-[10.5px] font-medium disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                {isBusy ? "…" : "Guardar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => void clearSlot(slot)}
+                disabled={isBusy || (!entry.combo && !entry.projectId)}
+                className="rounded px-2 py-1 text-[10.5px] disabled:opacity-40"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border)",
+                }}
+                title="Borra el slot y desregistra el hotkey"
+              >
+                Borrar
+              </button>
+            </div>
+          );
+        })}
+      </div>
+
+      {success && (
+        <div
+          className="mt-3 rounded px-2 py-1 text-[11.5px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.08)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {success}
+        </div>
+      )}
+      {error && (
+        <div
+          className="mt-3 rounded px-2 py-1 text-[11.5px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GeneralSection() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
