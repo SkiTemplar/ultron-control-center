@@ -1,5 +1,14 @@
 # Changelog
 
+<!-- v15.2.39 -->
+## v15.2.39 — 2026-05-16
+
+- feat(v15.2.39): 7 nuevas zonas en AI Router para call-sites antes hardcoded
+- chore: refresh changelog (auto)
+
+_Auto-generated from be82d373 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.2.38 -->
 ## v15.2.38 — 2026-05-16
 
