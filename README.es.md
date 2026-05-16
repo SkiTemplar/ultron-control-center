@@ -20,8 +20,19 @@
   <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.2-44cc11.svg" /></a>
   <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Construido sobre Claude Code" src="https://img.shields.io/badge/construido%20sobre-Claude%20Code-blueviolet.svg" /></a>
-  <img alt="Estado" src="https://img.shields.io/badge/estado-activo-success.svg" />
+  <img alt="Estado" src="https://img.shields.io/badge/estado-beta%20publica-orange.svg" />
   <img alt="Hecho con" src="https://img.shields.io/badge/Tauri%202-React%2019-orange.svg" />
+</p>
+
+<p>
+  <b>Docs:</b>
+  <a href="INSTALL.md">Instalacion</a> &middot;
+  <a href="CHANGELOG.md">Changelog</a> &middot;
+  <a href="CONTRIBUTING.md">Contribuir</a> &middot;
+  <a href="SECURITY.md">Seguridad</a> &middot;
+  <a href="AUTHORS.md">Autores</a> &middot;
+  <a href="NOTICE">Notice</a> &middot;
+  <a href="LICENSE">Licencia</a>
 </p>
 
 <p>
@@ -34,6 +45,9 @@
 <sub>Texto plano, opt-in, cero SaaS, cero telemetria. La fontaneria es el producto.</sub>
 
 </div>
+
+> [!WARNING]
+> **Beta publica.** ULTRON se publica como preview funcional. Hay bordes sin pulir, cambios incompatibles entre minor releases y una cola continua de arreglos. Los reports y PRs son MUY bienvenidos &mdash; abre un issue en este repo. Cada release nueva entra en el [Changelog](CHANGELOG.md) a medida que aparecen bugs.
 
 ---
 

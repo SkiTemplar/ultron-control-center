@@ -19,8 +19,19 @@
   <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.2-44cc11.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2011-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Built on Claude Code" src="https://img.shields.io/badge/built%20on-Claude%20Code-blueviolet.svg" /></a>
-  <img alt="Status" src="https://img.shields.io/badge/status-active-success.svg" />
+  <img alt="Stage" src="https://img.shields.io/badge/stage-public%20beta-orange.svg" />
   <img alt="Made with" src="https://img.shields.io/badge/Tauri%202-React%2019-orange.svg" />
+</p>
+
+<p>
+  <b>Docs:</b>
+  <a href="INSTALL.md">Install</a> ·
+  <a href="CHANGELOG.md">Changelog</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="SECURITY.md">Security</a> ·
+  <a href="AUTHORS.md">Authors</a> ·
+  <a href="NOTICE">Notice</a> ·
+  <a href="LICENSE">License</a>
 </p>
 
 <p>
@@ -33,6 +44,9 @@
 <sub>Plain-text, opt-in, zero SaaS, zero telemetry. The plumbing is the product.</sub>
 
 </div>
+
+> [!WARNING]
+> **Public beta.** ULTRON is open-sourced as a working preview. Expect rough edges, breaking changes between minor versions and a steady stream of fixes. Bug reports and PRs are very welcome — open an issue in this repo. New releases land in the [Changelog](CHANGELOG.md) as bugs surface.
 
 ---
 

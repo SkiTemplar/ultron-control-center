@@ -47,10 +47,6 @@ fn alerts_path() -> Result<PathBuf, String> {
     Ok(ultron_root()?.join("alerts.jsonl"))
 }
 
-fn backups_dir() -> Result<PathBuf, String> {
-    Ok(ultron_root()?.join("backups").join("alerts"))
-}
-
 // ---------------------------------------------------------------------------
 // Fingerprint — MUST match the frontend exactly
 // ---------------------------------------------------------------------------
@@ -105,6 +101,8 @@ struct AlertShape {
     severity: Option<String>,
     #[serde(default)]
     ack: Option<bool>,
+    #[serde(default)]
+    id: Option<String>,
 }
 
 impl AlertShape {
@@ -121,97 +119,29 @@ impl AlertShape {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Backup rotation
-// ---------------------------------------------------------------------------
-
-fn timestamp_now() -> String {
-    // Compact, filename-safe, sortable: 20260516T193045Z-ish (UTC).
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    // We don't pull chrono just for this — build YYYYMMDDTHHMMSS from secs.
-    // For our purposes (sortable backup filenames) the exact wall clock is
-    // less important than monotonicity within a session.
-    let secs = now as i64;
-    // Days since epoch -> Y/M/D via a simple civil-from-days algorithm
-    // (Howard Hinnant). Cheaper than a chrono dep for a single filename.
-    let days = secs.div_euclid(86_400);
-    let sod = secs.rem_euclid(86_400);
-    let (y, m, d) = civil_from_days(days);
-    let hh = sod / 3600;
-    let mm = (sod % 3600) / 60;
-    let ss = sod % 60;
-    format!("{:04}{:02}{:02}T{:02}{:02}{:02}Z", y, m, d, hh, mm, ss)
-}
-
-/// Hinnant's civil_from_days. Returns (year, month, day) for a given
-/// integer number of days since 1970-01-01.
-fn civil_from_days(z: i64) -> (i32, u32, u32) {
-    let z = z + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
-    let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as u32;
-    let y = (y + if m <= 2 { 1 } else { 0 }) as i32;
-    (y, m, d)
-}
-
-fn write_backup(original: &PathBuf) -> Result<PathBuf, String> {
-    let dir = backups_dir()?;
-    fs::create_dir_all(&dir).map_err(|e| format!("mkdir backups: {}", e))?;
-    let stamp = timestamp_now();
-    let dest = dir.join(format!("alerts-{}.jsonl", stamp));
-    fs::copy(original, &dest).map_err(|e| format!("backup copy: {}", e))?;
-    prune_backups(&dir, 10).ok();
-    Ok(dest)
-}
-
-fn prune_backups(dir: &PathBuf, keep: usize) -> Result<(), String> {
-    let mut entries: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
-    for entry in fs::read_dir(dir).map_err(|e| format!("read backups: {}", e))? {
-        let entry = entry.map_err(|e| format!("entry: {}", e))?;
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-        let name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-        if !name.starts_with("alerts-") || !name.ends_with(".jsonl") {
-            continue;
-        }
-        let mtime = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-        entries.push((path, mtime));
-    }
-    // Newest first.
-    entries.sort_by(|a, b| b.1.cmp(&a.1));
-    for (path, _) in entries.into_iter().skip(keep) {
-        let _ = fs::remove_file(path);
-    }
-    Ok(())
-}
+// v15.2.30: backup rotation helpers (write_backup / prune_backups /
+// timestamp_now / civil_from_days) were removed when we stopped snapshotting
+// alerts.jsonl on every delete. If you ever need them again, retrieve from
+// git history (commit pre-v15.2.30).
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /// Remove every line whose computed fingerprint matches one of
-/// `fingerprints`. Returns the number of physical lines removed (not the
-/// number of unique fingerprints — repeats in the file all count). A
-/// non-existent file is treated as "nothing to delete" and returns `Ok(0)`.
+/// `fingerprints`. Returns the number of physical lines removed.
 ///
-/// Atomic: writes to `<path>.tmp` and renames into place. A timestamped
-/// backup is always created BEFORE the rewrite, even if zero matches —
-/// rationale: the user explicitly asked for a destructive op, so a safety
-/// snapshot is cheap insurance and surfaces "you clicked Delete on
-/// nothing" via the backup count without surprising side effects.
+/// Side effects on every call (even on a no-fingerprint sweep):
+///   * Orphan ack-tombstones are evicted unconditionally.
+///   * Tombstones (id-only ack rows) whose id matches a deleted alert
+///     are also removed — no history is kept of what was acked.
+///
+/// v15.2.30: no more silent backup snapshots. The user explicitly asked
+/// for "borrar = borrar, sin historial"; keeping disk copies of every
+/// delete behind their back violated that. If you need a snapshot,
+/// `Get-Content alerts.jsonl > backup.jsonl` is one shell line away.
+///
+/// Atomic: writes to `<path>.tmp` and renames into place.
 pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize, String> {
     let path = alerts_path()?;
     if !path.exists() {
@@ -224,15 +154,36 @@ pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize,
     let original =
         fs::read_to_string(&path).map_err(|e| format!("read alerts.jsonl: {}", e))?;
 
-    // Always snapshot before we touch the file.
-    let _backup = write_backup(&path)?;
+    // Pass 1: figure out which alert ids get deleted (so their ack tombstones
+    // can be evicted in pass 2). We need this because tombstones are
+    // anonymous (id + ack:true only) and would otherwise outlive the alert
+    // they referred to — leaving a "ghost ack" in the file.
+    let mut deleted_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for raw_line in original.lines() {
+        let trimmed = raw_line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(parsed) = serde_json::from_str::<AlertShape>(trimmed) {
+            if parsed.is_orphan_tombstone() {
+                continue;
+            }
+            let src = parsed.source.clone().unwrap_or_default();
+            let msg = parsed.message.clone().unwrap_or_default();
+            let fp = fingerprint(&src, &msg);
+            if targets.contains(&fp) {
+                if let Some(id) = parsed.id.clone() {
+                    deleted_ids.insert(id);
+                }
+            }
+        }
+    }
 
     let mut kept: Vec<&str> = Vec::new();
     let mut removed: usize = 0;
     for raw_line in original.lines() {
         let trimmed = raw_line.trim();
         if trimmed.is_empty() {
-            // Drop blank lines silently — they'd round-trip as noise.
             continue;
         }
         match serde_json::from_str::<AlertShape>(trimmed) {
@@ -240,6 +191,19 @@ pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize,
                 // Always evict orphan ack-tombstones — they are never UI
                 // items and accumulating them is pure noise.
                 if parsed.is_orphan_tombstone() {
+                    removed += 1;
+                    continue;
+                }
+                // Evict any ack row (id-only) whose id belongs to an
+                // alert we're about to delete: keeping "ack" history of a
+                // gone alert is exactly the history the user said to drop.
+                if parsed.ack.unwrap_or(false)
+                    && parsed
+                        .id
+                        .as_ref()
+                        .map(|i| deleted_ids.contains(i))
+                        .unwrap_or(false)
+                {
                     removed += 1;
                     continue;
                 }
