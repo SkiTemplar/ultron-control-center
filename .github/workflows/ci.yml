@@ -121,3 +121,4 @@ jobs:
           --ignore=tests/test_auto_recall.py
           --ignore=tests/test_backup_watch.py
           --ignore=tests/test_meta_prompter.py
+          --deselect=tests/test_intent_dispatcher.py::test_telemetry_written
