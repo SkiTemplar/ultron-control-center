@@ -115,6 +115,10 @@ export function Personal() {
   }
 
   async function generateAnalysis() {
+    const confirmed = window.confirm(
+      "Esto abrirá una sesión externa de Claude Code (terminal aparte) con permisos completos para leer ~/.claude/projects, MEMORY.md y git history. La sesión escribirá un análisis en ~/.ultron/personal/known.json.\n\n¿Continuar?"
+    );
+    if (!confirmed) return;
     setAnalyzing(true);
     setAnalysisMsg(null);
     setKnownError(null);

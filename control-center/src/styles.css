@@ -128,6 +128,23 @@ html, body, #root {
  * `[class*="w-[44%]"]` override below.
  */
 
+/* v15.1.6: defensive overflow on page headers so button groups don't clip
+   off the right edge at small window widths (1100x720 default, 1280x820
+   reported by webapp testing). Page-level main containers get overflow-x
+   handling, and header rows wrap if too crowded. */
+main.flex-1 > div.px-10.py-8,
+main.flex-1 > div.px-8.py-6,
+.cc-page {
+  overflow-x: auto;
+  min-width: 0;
+}
+main.flex-1 > div.px-10.py-8 > header,
+main.flex-1 > div.px-8.py-6 > header,
+.cc-page > header {
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
+}
+
 @media (min-width: 1280px) {
   aside.w-56 {
     width: 16rem; /* 256px */

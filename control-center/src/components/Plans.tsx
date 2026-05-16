@@ -747,8 +747,11 @@ export function Plans() {
     if (!report) return { total: 0, byStatus: {} as Record<string, number>, byPriority: {} as Record<string, number> };
     const byStatus: Record<string, number> = {};
     const byPriority: Record<string, number> = {};
+    const validStatuses = new Set(COLUMNS.map((c) => c.key));
     for (const it of report.items) {
-      byStatus[it.status] = (byStatus[it.status] ?? 0) + 1;
+      // Match the kanban column-bucket logic so the stat cards agree with the columns
+      const bucket = validStatuses.has(it.status) ? it.status : "open";
+      byStatus[bucket] = (byStatus[bucket] ?? 0) + 1;
       byPriority[it.priority] = (byPriority[it.priority] ?? 0) + 1;
     }
     return { total: report.items.length, byStatus, byPriority };

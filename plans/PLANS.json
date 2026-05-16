@@ -113,7 +113,7 @@
     {
       "created_at": "2026-05-09T22:00:00+02:00",
       "deferred_reason": null,
-      "description": "Pipeline encadenado: research X â†’ implement Y depends-on [research X] â†’ review Z. YAML format + ejecutor + TUI panel.",
+      "description": "Pipeline encadenado: research X → implement Y depends-on [research X] → review Z. YAML format + ejecutor + TUI panel.",
       "effort_hours": [
         24,
         32
@@ -190,7 +190,7 @@
     {
       "created_at": "2026-05-09T22:00:00+02:00",
       "deferred_reason": null,
-      "description": "PWA Next.js + FastAPI backend + Tailscale tunnel. Voice-to-text â†’ push prompt al queue, watch live streaming, push notifications cuando termina overnight. Sinergia con v15.1-15.4 cross-session bus.",
+      "description": "PWA Next.js + FastAPI backend + Tailscale tunnel. Voice-to-text → push prompt al queue, watch live streaming, push notifications cuando termina overnight. Sinergia con v15.1-15.4 cross-session bus.",
       "effort_hours": [
         40,
         56
@@ -250,7 +250,7 @@
         "architecture",
         "refactor"
       ],
-      "title": "SSOT contractual + paths resolver (3 manifests â†’ 1)",
+      "title": "SSOT contractual + paths resolver (3 manifests → 1)",
       "resolved_date": "2026-05-16"
     },
     {
@@ -340,7 +340,7 @@
     {
       "created_at": "2026-05-03T00:00:00+02:00",
       "deferred_reason": null,
-      "description": "Conectar prompt-feedback-capture.py + route_quality_aggregator + auto_updater para cerrar el loop seÃ±al â†’ mejora propuesta â†’ human gate â†’ apply.",
+      "description": "Conectar prompt-feedback-capture.py + route_quality_aggregator + auto_updater para cerrar el loop seÃ±al → mejora propuesta → human gate → apply.",
       "effort_hours": [
         2,
         4
