@@ -1,8 +1,13 @@
 # auto-fixes/restart-qdrant.ps1
-# Restarts the local Qdrant container if it's unhealthy. We prefer the
-# Docker container path (most common setup) and fall back to invoking
-# scripts/hooks/ensure-qdrant.ps1 which knows about the native binary
-# fallback used on some installs.
+# Restarts the local Qdrant native binary if it's unhealthy.
+#
+# Strategy:
+#   1. Kill any stale qdrant.exe in the user session.
+#   2. Hand off to scripts/hooks/ensure-qdrant.ps1, which knows the
+#      native-binary boot path and waits for /healthz.
+#
+# Returns a JSON {fix, actions[], success, error} report so the
+# Dashboard "Apply selected fixes" panel can render the outcome.
 
 $ErrorActionPreference = "Stop"
 $report = [ordered]@{
@@ -13,30 +18,22 @@ $report = [ordered]@{
 }
 
 try {
-    $docker = Get-Command docker -ErrorAction SilentlyContinue
-    if ($docker) {
-        # Find any running or stopped qdrant container.
-        $cid = (& docker ps -a --filter "ancestor=qdrant/qdrant" --format "{{.ID}}" 2>$null) `
-            | Where-Object { $_ } `
-            | Select-Object -First 1
-        if ($cid) {
-            $report.actions += "docker restart $cid"
-            & docker restart $cid | Out-Null
-            $report.success = $LASTEXITCODE -eq 0
-        }
+    # 1) Kill stale qdrant.exe processes (they sometimes hang after a bad shutdown).
+    $stale = Get-Process -Name 'qdrant' -ErrorAction SilentlyContinue
+    if ($stale) {
+        $report.actions += "stop-process qdrant ($($stale.Count) process(es))"
+        $stale | Stop-Process -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 1
     }
-    if (-not $report.success) {
-        # Fallback: hand off to the ensure-qdrant hook, which already
-        # handles the "container missing -> recreate / native start"
-        # branches.
-        $ensure = Join-Path $HOME ".ultron\scripts\hooks\ensure-qdrant.ps1"
-        if (Test-Path -LiteralPath $ensure) {
-            $report.actions += "ensure-qdrant.ps1"
-            & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ensure | Out-Null
-            $report.success = $LASTEXITCODE -eq 0
-        } else {
-            $report.error = "no docker qdrant container and ensure-qdrant.ps1 missing"
-        }
+
+    # 2) Hand off to ensure-qdrant.ps1 — the canonical boot path.
+    $ensure = Join-Path $HOME ".ultron\scripts\hooks\ensure-qdrant.ps1"
+    if (Test-Path -LiteralPath $ensure) {
+        $report.actions += "ensure-qdrant.ps1"
+        & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $ensure | Out-Null
+        $report.success = $LASTEXITCODE -eq 0
+    } else {
+        $report.error = "ensure-qdrant.ps1 missing at $ensure"
     }
 } catch {
     $report.error = $_.Exception.Message

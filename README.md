@@ -104,7 +104,7 @@ ULTRON addresses all of that locally, without renting a backend:
 
 - Every new session reads a pre-computed primer (`context.md`, capped at ~400 tokens).
 - Personas auto-route by user intent — no need to remember exact skill names.
-- The vault (`~/.ultron-vault/`) is indexed in SQLite FTS5 and optionally Qdrant for semantic recall.
+- The vault (`~/.ultron-vault/`) is indexed in SQLite FTS5 plus a local Qdrant instance (native Windows binary, no Docker) for semantic recall.
 - The cockpit surfaces hooks, plans, sessions, costs and installed MCPs in one window.
 
 ---
@@ -148,7 +148,7 @@ The **four memory layers**:
 | **L2** vault | `~/.ultron-vault/*.md` | Curated markdown notes with wikilinks — the source of truth |
 | **L3** remote | optional git remote | Off-machine mirror of L2, drained by the `Stop` hook |
 
-On top of L1 lives an optional **Qdrant** instance (local vector store) for semantic recall over the same corpus. A decay system bubbles stale notes back to the surface every time you start a session.
+On top of L1 lives a local **Qdrant** instance (the native Windows binary — no Docker, no daemon) for semantic recall over the same corpus. A decay system bubbles stale notes back to the surface every time you start a session.
 
 ---
 
@@ -171,7 +171,8 @@ cd $env:USERPROFILE\.ultron
 .\install.ps1                  # interactive (recommended)
 .\install.ps1 -NonInteractive  # CI / unattended (accept defaults)
 .\install.ps1 -Verbose         # debug what each step is doing
-.\install.ps1 -NoApp -NoDocker # bare bones: skip Tauri build and Qdrant
+.\install.ps1 -NoApp           # skip the Tauri Control Center build
+.\install.ps1 -NoDocker        # skip Qdrant (semantic recall stays off)
 ```
 
 The installer is **idempotent** — rerun it any time; it detects what is already done and only applies pending changes. If something fails, see [`INSTALL.md`](INSTALL.md) for manual troubleshooting.
@@ -185,21 +186,20 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 ```
 
 <details>
-<summary><b>What the installer does (11 steps)</b></summary>
+<summary><b>What the installer does (10 steps)</b></summary>
 
 | # | Step | What it does |
 |---|---|---|
 | 1 | Preflight | OS / PowerShell / RAM / disk / internet checks |
 | 2 | Claude Code | Verifies the CLI is installed and authenticated |
 | 3 | uv | Installs uv if missing |
-| 4 | Docker | Detects Docker Desktop (optional) |
-| 5 | Qdrant | Runs the `qdrant/qdrant` container on port 6333 |
-| 6 | Layout | Creates `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
-| 7 | Hooks | Merges `templates/settings-hooks.json` into `settings.json` (non-destructive, with backup) |
-| 8 | Skills | Interactive picker: 12 core (always ON) + opt-in slots |
-| 9 | brain_index | Initializes the SQLite FTS5 index |
-| 10 | Cockpit | `npm install` and optionally `tauri build` |
-| 11 | Doctor | Final verification via `doctor.py` (0 = clean, 1 = warn, 2 = block) |
+| 4 | Qdrant | Downloads the native Windows binary (v1.18.0) into `~/.ultron/qdrant-native/`, seeds `config/production.yaml`. No Docker, no daemon. Boots from `ensure-qdrant.ps1` on SessionStart |
+| 5 | Layout | Creates `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
+| 6 | Hooks | Merges `templates/settings-hooks.json` into `settings.json` (non-destructive, with backup) |
+| 7 | Skills | Interactive picker: 12 core (always ON) + opt-in slots |
+| 8 | brain_index | Initializes the SQLite FTS5 index |
+| 9 | Cockpit | `npm install` and optionally `tauri build` |
+| 10 | Doctor | Final verification via `doctor.py` (0 = clean, 1 = warn, 2 = block) |
 
 </details>
 
@@ -209,7 +209,7 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 
 | Area | Highlights |
 |---|---|
-| **Memory** | L0-L3 hierarchy, SQLite FTS5 index, optional Qdrant semantic recall, decay surfacing |
+| **Memory** | L0-L3 hierarchy, SQLite FTS5 index, native Qdrant for semantic recall (no Docker), decay surfacing |
 | **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — all auditable |
 | **Control Center** | 16 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks |
@@ -243,7 +243,7 @@ flowchart LR
     end
     Vault[(Vault L2<br/>markdown)]
     FTS[(SQLite FTS5)]
-    Q[(Qdrant - optional)]
+    Q[(Qdrant native)]
 
     User --> CC
     CC --> Hooks
@@ -293,7 +293,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 | Control Center (frontend) | Tauri 2 + React 19 + TypeScript (strict) |
 | Control Center (backend) | Rust (stable) |
 | Cockpit Python tools | Python 3.13 + uv |
-| Memory store | SQLite FTS5 + optional Qdrant |
+| Memory store | SQLite FTS5 + Qdrant (native Windows binary, no Docker) |
 | OS scripting | PowerShell 5.1+ |
 | LLM runtimes | Claude Code CLI (primary), Codex CLI (peer review, optional), Gemini CLI (long context, optional) |
 

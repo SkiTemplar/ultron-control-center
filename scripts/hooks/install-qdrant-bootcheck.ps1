@@ -105,7 +105,7 @@ switch ($Action) {
             -Trigger $taskTrigger `
             -Settings $taskSettings `
             -Principal $taskPrincipal `
-            -Description 'ULTRON v15.0.2 - check Qdrant/Docker health on logon and show retry panel if down. No admin required.' | Out-Null
+            -Description 'ULTRON - check the native Qdrant binary on logon and show a retry panel if it is down. No Docker, no admin required.' | Out-Null
 
         Write-Host "Task '$taskName' registered."
         Write-Host "Trigger:  at logon of $env:USERNAME"

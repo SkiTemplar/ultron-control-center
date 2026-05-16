@@ -522,14 +522,9 @@ const AUTO_FIX_CATALOG: { name: string; title: string; blurb: string; danger?: b
     danger: true,
   },
   {
-    name: "restart-docker",
-    title: "Restart Docker daemon",
-    blurb: "Restart com.docker.service or relaunch Docker Desktop",
-  },
-  {
     name: "restart-qdrant",
-    title: "Restart Qdrant container",
-    blurb: "docker restart on qdrant/qdrant or run ensure-qdrant.ps1",
+    title: "Restart Qdrant",
+    blurb: "Kill stale qdrant.exe, re-run ensure-qdrant.ps1 to relaunch the native binary",
   },
 ];
 
@@ -798,7 +793,7 @@ export function Dashboard({
               style={{ color: "var(--color-text-secondary)" }}
             >
               Parallel health check across Qdrant, Brain, Vault, Hooks, MCPs,
-              Skills, Cost, Disk, Backups, Docker. Each subsystem reports a
+              Skills, Cost, Disk, Backups. Each subsystem reports a
               colour and a key metric.
             </p>
           </div>

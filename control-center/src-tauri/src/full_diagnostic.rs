@@ -83,7 +83,6 @@ pub const AUTO_FIX_ALLOWLIST: &[&str] = &[
     "clear-minidumps",
     "clear-temp-30d",
     "empty-recycle-bin",
-    "restart-docker",
     "restart-qdrant",
 ];
 
@@ -617,56 +616,12 @@ fn probe_backup() -> DiagItem {
     }
 }
 
-fn probe_docker() -> DiagItem {
-    let t0 = now_epoch_ms();
-    let out = std::process::Command::new("docker")
-        .args(["ps", "--format", "{{.Names}}"])
-        .output();
-    let elapsed = now_epoch_ms() - t0;
-    match out {
-        // Docker not installed → neutral gray (optional dependency).
-        // ULTRON only uses Docker to run the local Qdrant container; if the
-        // user does not need semantic recall, this is fine.
-        Err(_) => DiagItem {
-            key: "docker".into(),
-            label: "Docker".into(),
-            color: "gray".into(),
-            metric: "not installed".into(),
-            detail: Some(
-                "Optional. Docker is only needed for the local Qdrant container."
-                    .into(),
-            ),
-            fix: None,
-            elapsed_ms: elapsed,
-        },
-        Ok(o) => {
-            if !o.status.success() {
-                return DiagItem {
-                    key: "docker".into(),
-                    label: "Docker".into(),
-                    color: "red".into(),
-                    metric: "daemon down".into(),
-                    detail: Some(
-                        String::from_utf8_lossy(&o.stderr).trim().to_string(),
-                    ),
-                    fix: Some("restart-docker".into()),
-                    elapsed_ms: elapsed,
-                };
-            }
-            let txt = String::from_utf8_lossy(&o.stdout);
-            let lines = txt.lines().filter(|l| !l.trim().is_empty()).count();
-            DiagItem {
-                key: "docker".into(),
-                label: "Docker".into(),
-                color: "green".into(),
-                metric: format!("{} containers", lines),
-                detail: None,
-                fix: None,
-                elapsed_ms: elapsed,
-            }
-        }
-    }
-}
+// v15.2.32: probe_docker removed. ULTRON has not depended on Docker since
+// v15.0.2 — Qdrant runs as a native Windows binary, and probe_qdrant
+// already reports its health. Keeping a Docker probe was misleading the
+// Doctor ("Docker not installed") for users who legitimately don't have
+// it. If a future build re-adds container runtimes, restore this from git
+// history.
 
 // ---------------------------------------------------------------------------
 // Parallel fan-out
@@ -690,7 +645,6 @@ pub fn run_full_diagnostic_inner() -> Result<FullDiagnostic, String> {
         probe_cost,
         probe_disk,
         probe_backup,
-        probe_docker,
     ];
 
     let mut handles = Vec::with_capacity(probes.len());

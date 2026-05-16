@@ -105,7 +105,7 @@ ULTRON resuelve todo eso en local, sin alquilar un backend:
 
 - Cada sesion nueva arranca leyendo un primer pre-computado (`context.md`, tope ~400 tokens).
 - Las personas auto-enrutan por intencion — no necesitas recordar los nombres exactos de las skills.
-- El vault (`~/.ultron-vault/`) se indexa en SQLite FTS5 y, opcionalmente, en Qdrant para recall semantico.
+- El vault (`~/.ultron-vault/`) se indexa en SQLite FTS5 y en una instancia local de Qdrant (binario nativo de Windows, sin Docker) para recall semantico.
 - El panel concentra hooks, planes, sesiones, costes y MCPs instalados en una sola ventana.
 
 ---
@@ -149,7 +149,7 @@ Las **cuatro capas de memoria**:
 | **L2** vault | `~/.ultron-vault/*.md` | Notas markdown curadas con wikilinks — fuente de verdad |
 | **L3** remote | git remote opcional | Mirror externo de L2, drenado por el hook `Stop` |
 
-Encima de L1 vive opcionalmente **Qdrant** (vector store local) para recall semantico sobre el mismo corpus. Un sistema de decay devuelve notas estancadas a la superficie cada vez que arrancas sesion.
+Encima de L1 vive una instancia local de **Qdrant** (el binario nativo de Windows — sin Docker, sin daemon) para recall semantico sobre el mismo corpus. Un sistema de decay devuelve notas estancadas a la superficie cada vez que arrancas sesion.
 
 ---
 
@@ -172,7 +172,8 @@ cd $env:USERPROFILE\.ultron
 .\install.ps1                  # interactivo (recomendado)
 .\install.ps1 -NonInteractive  # CI / desatendido (acepta defaults)
 .\install.ps1 -Verbose         # debug paso a paso
-.\install.ps1 -NoApp -NoDocker # minimo: sin Tauri build ni Qdrant
+.\install.ps1 -NoApp           # sin la build de Tauri (mas rapido, headless)
+.\install.ps1 -NoDocker        # saltar Qdrant (recall semantico apagado)
 ```
 
 El installer es **idempotente** — puedes ejecutarlo varias veces sin miedo; detecta lo que ya esta hecho y solo aplica los cambios pendientes. Si algo falla, mira [`INSTALL.md`](INSTALL.md) para troubleshooting manual.
@@ -186,21 +187,20 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 ```
 
 <details>
-<summary><b>Que hace el installer (11 pasos)</b></summary>
+<summary><b>Que hace el installer (10 pasos)</b></summary>
 
 | # | Paso | Que hace |
 |---|---|---|
 | 1 | Preflight | Chequeos de OS / PowerShell / RAM / disco / internet |
 | 2 | Claude Code | Verifica que el CLI esta instalado y autenticado |
 | 3 | uv | Instala uv si falta |
-| 4 | Docker | Detecta Docker Desktop (opcional) |
-| 5 | Qdrant | Lanza el contenedor `qdrant/qdrant` en el puerto 6333 |
-| 6 | Layout | Crea `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
-| 7 | Hooks | Fusiona `templates/settings-hooks.json` en `settings.json` (no destructivo, con backup) |
-| 8 | Skills | Picker interactivo: 12 core (siempre ON) + slots opt-in |
-| 9 | brain_index | Inicializa el indice SQLite FTS5 |
-| 10 | Cockpit | `npm install` y opcionalmente `tauri build` |
-| 11 | Doctor | Verificacion final con `doctor.py` (0 = clean, 1 = warn, 2 = block) |
+| 4 | Qdrant | Descarga el binario nativo de Windows (v1.18.0) en `~/.ultron/qdrant-native/` y siembra `config/production.yaml`. Sin Docker, sin daemon. Lo arranca `ensure-qdrant.ps1` en cada SessionStart |
+| 5 | Layout | Crea `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
+| 6 | Hooks | Fusiona `templates/settings-hooks.json` en `settings.json` (no destructivo, con backup) |
+| 7 | Skills | Picker interactivo: 12 core (siempre ON) + slots opt-in |
+| 8 | brain_index | Inicializa el indice SQLite FTS5 |
+| 9 | Cockpit | `npm install` y opcionalmente `tauri build` |
+| 10 | Doctor | Verificacion final con `doctor.py` (0 = clean, 1 = warn, 2 = block) |
 
 </details>
 
@@ -210,7 +210,7 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 
 | Area | Highlights |
 |---|---|
-| **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, recall semantico opcional con Qdrant, decay surfacing |
+| **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, Qdrant nativo para recall semantico (sin Docker), decay surfacing |
 | **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
 | **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks |
@@ -244,7 +244,7 @@ flowchart LR
     end
     Vault[(Vault L2<br/>markdown)]
     FTS[(SQLite FTS5)]
-    Q[(Qdrant - opcional)]
+    Q[(Qdrant nativo)]
 
     User --> CC
     CC --> Hooks
@@ -294,7 +294,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 | Control Center (frontend) | Tauri 2 + React 19 + TypeScript (strict) |
 | Control Center (backend) | Rust (estable) |
 | Herramientas Python (cockpit/) | Python 3.13 + uv |
-| Memoria | SQLite FTS5 + Qdrant opcional |
+| Memoria | SQLite FTS5 + Qdrant (binario nativo de Windows, sin Docker) |
 | Scripting OS | PowerShell 5.1+ |
 | Runtimes LLM | Claude Code CLI (principal), Codex CLI (peer review, opcional), Gemini CLI (long-context, opcional) |
 

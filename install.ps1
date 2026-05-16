@@ -10,9 +10,8 @@
     1.  Preflight     - OS, PowerShell, RAM, disk, internet
     2.  Claude Code   - hard requirement; refuse to continue if missing
     3.  uv            - auto-install if missing
-    4.  Docker        - optional but recommended for Qdrant
-    5.  Qdrant        - pull + run container if Docker is available
-    6.  Dir layout    - ~/.ultron, ~/.ultron-vault, ~/.claude/skills
+    4.  Qdrant        - native Windows binary, no Docker, into ~/.ultron/qdrant-native/
+    5.  Dir layout    - ~/.ultron, ~/.ultron-vault, ~/.claude/skills
     7.  Hooks         - merge templates/settings-hooks.json into settings.json
     8.  Skills picker - install core skills, prompt one-by-one for personal
     9.  brain_index   - initialize SQLite FTS5 index
@@ -34,8 +33,10 @@
   Rust toolchain or for headless installs.
 
 .PARAMETER NoDocker
-  Skip Docker / Qdrant steps (5). The app still works, semantic recall
-  just stays disabled.
+  Skip the Qdrant native binary step. Semantic recall over the vault is
+  then disabled. The flag name is historical — ULTRON has not used
+  Docker since v15.0.2; Qdrant runs as a native Windows binary fetched
+  from the official GitHub releases.
 
 .PARAMETER InstallRoot
   Override the install root. Defaults to "$env:USERPROFILE\.ultron".
@@ -91,8 +92,8 @@ function Write-Banner {
     Write-Host "======================================================="
     Write-Host ""
     Write-Host " Auto-install enabled: missing dependencies (git, Node,"
-    Write-Host " Claude Code, Rust, uv, Docker) will be installed via"
-    Write-Host " winget unless you decline at the prompt."
+    Write-Host " Claude Code, Rust, uv) will be installed via winget"
+    Write-Host " unless you decline at the prompt."
     Write-Host " No admin / UAC elevation needed for winget user-scope."
     Write-Host ""
     if ($NonInteractive) { Write-Host "(non-interactive: auto-accepting all installs)" }
@@ -601,7 +602,96 @@ function Initialize-Qdrant {
 }
 
 # ----------------------------------------------------------------------
-# Step 6: directory layout
+# Step 4 (new): Qdrant native Windows binary (no Docker)
+#
+# Qdrant is a core ULTRON capability — without it, semantic recall over
+# the vault is disabled. We ship the *native* Windows binary fetched from
+# the official GitHub releases; no Docker daemon, no container runtime.
+#
+# Install path: ~/.ultron/qdrant-native/qdrant.exe
+# Config:       ~/.ultron/qdrant-native/config/production.yaml (minimal default)
+# Boot:         ensure-qdrant.ps1 launches it on SessionStart and from
+#               the ULTRON-QdrantBoot scheduled task.
+# ----------------------------------------------------------------------
+function Install-QdrantNative {
+    Write-Step "4. Qdrant native (no Docker)"
+    if ($NoDocker) {
+        Write-Skip "Skipped via -NoDocker (kept for backwards compat — Qdrant is native, not Docker)"
+        return
+    }
+
+    $nativeDir = Join-Path $env:USERPROFILE ".ultron\qdrant-native"
+    $exe = Join-Path $nativeDir "qdrant.exe"
+    $cfgDir = Join-Path $nativeDir "config"
+    $cfg = Join-Path $cfgDir "production.yaml"
+
+    if (Test-Path -LiteralPath $exe) {
+        try {
+            $size = (Get-Item -LiteralPath $exe).Length
+            Write-OK ("qdrant.exe already present (" + [Math]::Round($size/1MB) + " MB)")
+        } catch {
+            Write-OK "qdrant.exe already present"
+        }
+    } else {
+        Write-V "Downloading Qdrant v1.18.0 Windows binary..."
+        if (-not (Test-Path -LiteralPath $nativeDir)) {
+            New-Item -ItemType Directory -Path $nativeDir -Force | Out-Null
+        }
+        $zipUrl = "https://github.com/qdrant/qdrant/releases/download/v1.18.0/qdrant-x86_64-pc-windows-msvc.zip"
+        $zipPath = Join-Path $env:TEMP "qdrant-windows.zip"
+        try {
+            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120
+            Write-V "Extracting to $nativeDir"
+            Expand-Archive -LiteralPath $zipPath -DestinationPath $nativeDir -Force
+            Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
+            if (Test-Path -LiteralPath $exe) {
+                Write-OK "qdrant.exe installed at $nativeDir"
+            } else {
+                Write-Warn2 "Extraction completed but qdrant.exe not found at expected path. Manual fix needed."
+                return
+            }
+        } catch {
+            Write-Warn2 ("Qdrant download failed: " + $_.Exception.Message)
+            Write-Info "Manually: download $zipUrl, extract to $nativeDir, re-run."
+            return
+        }
+    }
+
+    # Minimal config file so ensure-qdrant.ps1 can launch with `--config-path config\production.yaml`.
+    if (-not (Test-Path -LiteralPath $cfgDir)) {
+        New-Item -ItemType Directory -Path $cfgDir -Force | Out-Null
+    }
+    if (-not (Test-Path -LiteralPath $cfg)) {
+        @"
+storage:
+  storage_path: ./storage
+  snapshots_path: ./snapshots
+
+service:
+  host: 127.0.0.1
+  http_port: 6333
+  grpc_port: 6334
+
+log_level: INFO
+"@ | Set-Content -LiteralPath $cfg -Encoding UTF8
+        Write-OK "production.yaml seeded"
+    }
+
+    # Probe — is something already serving on 6333?
+    try {
+        $resp = Invoke-WebRequest -Uri "http://localhost:6333/healthz" -UseBasicParsing -TimeoutSec 3 -ErrorAction Stop
+        if ($resp.StatusCode -eq 200) {
+            Write-OK "Qdrant /healthz 200 (already running)"
+            return
+        }
+    } catch {
+        # not running — ensure-qdrant.ps1 will start it on next SessionStart.
+    }
+    Write-Info "Qdrant binary in place. ensure-qdrant.ps1 will boot it on the next Claude session (or run it manually now)."
+}
+
+# ----------------------------------------------------------------------
+# Step 5: directory layout
 # ----------------------------------------------------------------------
 function New-DirectoryLayout {
     Write-Step "6. directory layout"
@@ -1066,8 +1156,10 @@ try {
     Test-ClaudeCode
     Test-OrInstall-Uv
     Test-OrInstall-Rust   | Out-Null
-    $dockerOk = Test-Docker
-    Initialize-Qdrant -DockerOK:$dockerOk
+    # Qdrant — native Windows binary, no Docker needed. Semantic recall is
+    # a core ULTRON capability; the installer fetches the official release
+    # zip if `~/.ultron/qdrant-native/qdrant.exe` is missing.
+    Install-QdrantNative
     New-DirectoryLayout
     New-WakeUpStubs
     New-CockpitSeeds

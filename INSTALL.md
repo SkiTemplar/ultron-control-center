@@ -8,18 +8,21 @@ bootstrap installer breaks.
 ## Quick path (the happy one)
 
 `install.ps1` is **zero-friction**: it auto-installs every missing
-dependency via `winget` (Git, Node 22 LTS, Claude Code, Rust, uv,
-Docker Desktop), asking once per dependency. Decline and you fall back
-to the manual steps below.
+dependency via `winget` (Git, Node 22 LTS, Claude Code, Rust, uv),
+asking once per dependency. It also downloads the **native Qdrant
+Windows binary** straight from the official GitHub release — no
+Docker, no daemon, no container. Decline and you fall back to the
+manual steps below.
 
 ```powershell
 # from a fresh PowerShell window (NO admin needed for winget user-scope):
 git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
-.\install.ps1               # interactive, prompts per dependency
+.\install.ps1                   # interactive, prompts per dependency
 .\install.ps1 -NonInteractive   # CI / unattended, auto-Y to every install
-.\install.ps1 -Verbose      # debug what each step is doing
-.\install.ps1 -NoApp -NoDocker  # bare-bones, no Tauri build, no Qdrant, skips Rust + Docker auto-install
+.\install.ps1 -Verbose          # debug what each step is doing
+.\install.ps1 -NoApp            # no Tauri build (faster, headless)
+.\install.ps1 -NoDocker         # skip Qdrant — semantic recall stays off
 ```
 
 `install.ps1` is **idempotent**: run it again any time, it skips steps
@@ -35,7 +38,7 @@ and never reinstalled.
 | Claude Code CLI   | `npm install -g @anthropic-ai/claude-code`     | `claude --version` works|
 | uv (Python)       | `irm https://astral.sh/uv/install.ps1 \| iex`  | `uv --version` works    |
 | Rust + cargo      | `winget install Rustlang.Rustup` + `rustup default stable` | `-NoApp` flag or `rustc` on PATH |
-| Docker Desktop    | `winget install Docker.DockerDesktop`          | `-NoDocker` flag or `docker` on PATH |
+| Qdrant (native)   | downloads `qdrant-x86_64-pc-windows-msvc.zip` v1.18.0 from GitHub releases, extracts to `~/.ultron/qdrant-native/` | `-NoDocker` flag (historical name) or `qdrant.exe` already at path |
 
 **Caveats:**
 
@@ -46,10 +49,10 @@ and never reinstalled.
   unless you've globally locked down installs.
 - After winget finishes, the installer refreshes the session `PATH`
   from registry so the rest of the run can find the new binaries.
-- **Docker Desktop does NOT auto-start.** After winget installs it you
-  must launch "Docker Desktop" from the Start menu once, accept the
-  terms, and wait for the whale icon to stabilise. Re-run `install.ps1`
-  afterwards and step 5 will provision Qdrant.
+- **No Docker.** ULTRON stopped depending on Docker in v15.0.2. The
+  Qdrant binary runs as a child process of `ensure-qdrant.ps1`, which
+  the SessionStart hook + a Windows scheduled task keep alive. No
+  daemon, no Docker Desktop window in the tray.
 - **Rust** install may print a notice that a reboot is required to
   finish wiring up the MSVC linker. The installer surfaces this — it
   doesn't force a reboot.
@@ -123,36 +126,50 @@ Rust is needed for `tauri build` (step 10). On a fresh install Windows
 may print a notice that the MSVC linker needs a **reboot** to fully
 register — the installer surfaces this but does not force the reboot.
 
-### 4. Docker Desktop (optional, auto-installed unless -NoDocker)
+### 4. Qdrant (native Windows binary, no Docker)
 
 ```powershell
-docker --version
-docker info     # daemon must answer
-# if missing:
-winget install Docker.DockerDesktop --silent --accept-source-agreements --accept-package-agreements
+# Download the official release zip
+$zip = "$env:TEMP\qdrant-windows.zip"
+Invoke-WebRequest `
+  "https://github.com/qdrant/qdrant/releases/download/v1.18.0/qdrant-x86_64-pc-windows-msvc.zip" `
+  -OutFile $zip
+
+# Extract into ~/.ultron/qdrant-native/
+$target = Join-Path $env:USERPROFILE ".ultron\qdrant-native"
+Expand-Archive -LiteralPath $zip -DestinationPath $target -Force
+Remove-Item $zip
 ```
 
-After winget completes, Docker Desktop does **not** auto-start. Launch
-"Docker Desktop" from the Start menu, accept terms, wait for the whale
-icon, then re-run `install.ps1` to provision Qdrant.
+Minimal config file (`~/.ultron/qdrant-native/config/production.yaml`):
 
-ULTRON runs without Docker — only semantic recall over the vault is
-disabled.
+```yaml
+storage:
+  storage_path: ./storage
+  snapshots_path: ./snapshots
 
-### 5. Qdrant container
+service:
+  host: 127.0.0.1
+  http_port: 6333
+  grpc_port: 6334
+
+log_level: INFO
+```
+
+Boot is handled by `~/.ultron/scripts/hooks/ensure-qdrant.ps1` — it
+launches `qdrant.exe` hidden on SessionStart and on user logon via the
+`ULTRON-QdrantBoot` scheduled task. Verify it's serving:
 
 ```powershell
-docker pull qdrant/qdrant:latest
-docker run -d --name qdrant -p 6333:6333 `
-  -v "${env:USERPROFILE}\.ultron\qdrant-data:/qdrant/storage" `
-  qdrant/qdrant
-# verify
-curl http://localhost:6333/healthz
+Invoke-WebRequest http://localhost:6333/healthz
+# should return 200 OK
 ```
 
-To rerun on a stopped container: `docker start qdrant`.
+Skip this step with `install.ps1 -NoDocker` (the flag name is
+historical; ULTRON has not used Docker since v15.0.2). Semantic recall
+over the vault is then disabled; everything else works.
 
-### 6. Directory layout
+### 5. Directory layout
 
 ```powershell
 $dirs = @(
@@ -284,21 +301,24 @@ AtLogon only, not free-form cron).
 | `winget` install hangs or exits non-zero             | Check your network / proxy; retry; or install that dep by hand |
 | Auto-installed binary not on PATH after winget       | Open a fresh PowerShell shell so the user PATH reloads       |
 | `uv: not recognized` after auto-install              | Open a new shell so PATH reloads, or add `~/.local/bin`      |
-| `docker info` hangs                                  | Docker Desktop is not running. Launch it and re-run step 5.  |
+| `qdrant.exe` won't start                             | Check `~/.ultron/.tmp/qdrant-native.err`. Kill stale processes: `Get-Process qdrant \| Stop-Process -Force`, then re-run `~/.ultron/scripts/hooks/ensure-qdrant.ps1`. |
 | `rustc` not on PATH right after Rust auto-install    | Open a fresh shell; if still missing, reboot once            |
 | `npm install` errors on `better-sqlite3` / `keytar`  | Install Node 22+, then `Remove-Item node_modules -Recurse; npm i` |
 | `tauri build` complains about Webview2               | Install Edge Webview2 runtime: <https://aka.ms/Edge/Webview2> |
-| `settings.json` got mangled                          | Restore from `settings.json.bak-<timestamp>` written by step 7 |
-| Claude doesn't auto-launch hooks                     | Hooks didn't merge. Re-run step 7 manually.                  |
-| `qdrant` container exists but stopped                | `docker start qdrant` (the installer is non-destructive)     |
+| `settings.json` got mangled                          | Restore from `settings.json.bak-<timestamp>` written by step 6 |
+| Claude doesn't auto-launch hooks                     | Hooks didn't merge. Re-run step 6 manually.                  |
+| `/healthz` not responding on `6333`                  | `ensure-qdrant.ps1` couldn't launch the binary. Verify `~/.ultron/qdrant-native/qdrant.exe` exists; if not, rerun `install.ps1 -Force`. |
 
 ## Uninstall
 
 The bootstrap installer does **not** remove anything. To roll back:
 
 ```powershell
-# stop + drop qdrant
-docker stop qdrant; docker rm qdrant
+# stop the native Qdrant process (if running)
+Get-Process qdrant -ErrorAction SilentlyContinue | Stop-Process -Force
+
+# unregister the scheduled task that re-boots it on logon
+& $env:USERPROFILE\.ultron\scripts\hooks\install-qdrant-bootcheck.ps1 uninstall
 
 # restore Claude settings backup
 Copy-Item $env:USERPROFILE\.claude\settings.json.bak-* `

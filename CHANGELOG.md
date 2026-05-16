@@ -16,6 +16,34 @@ Note: the project is **Windows-only by design** — no macOS / Linux ports
 planned. The hooks, installer and dual-mode wiring all assume PowerShell
 + winget + Windows-specific APIs.
 
+## [15.2.32] - 2026-05-16
+
+### Fixed — Docker scrub final pass
+- `install.ps1`: replaced the Docker Desktop step with a Qdrant native
+  step. Downloads `qdrant-x86_64-pc-windows-msvc.zip` v1.18.0 from the
+  official release, extracts to `~/.ultron/qdrant-native/`, seeds
+  `config/production.yaml`, and confirms `/healthz`. The
+  `Test-Docker` / `Initialize-Qdrant` Docker functions are no longer
+  called from the main flow (kept defined for git history).
+- Banner now reads "Git, Node, Claude Code, Rust, uv" (no Docker).
+- Step count down to 10 (was 11). Step 4 = Qdrant native, step 5 =
+  directory layout, and so on.
+- README EN+ES, INSTALL.md: every reference to Docker as a dependency
+  or to `docker run qdrant/qdrant` rewritten to describe the native
+  binary path. Auto-install matrix and troubleshooting tables updated.
+  Uninstall snippet now uses `Stop-Process qdrant` instead of
+  `docker stop qdrant`.
+- Doctor: `probe_docker` removed from the full-diagnostic fan-out and
+  the auto-fix allowlist; `probe_qdrant` already covered what mattered
+  (the service health). Description text and Dashboard auto-fix copy
+  updated to match.
+- `restart-qdrant.ps1` auto-fix rewritten: no longer tries
+  `docker restart` first; it just kills stale `qdrant.exe` and hands
+  off to `ensure-qdrant.ps1`.
+- Removed orphan `scripts/cockpit/auto-fixes/restart-docker.ps1`.
+- `install-qdrant-bootcheck.ps1` task description rephrased to
+  "native Qdrant binary, no Docker".
+
 ## [15.2.31] - 2026-05-16
 
 ### Added — hook bundle inspired by donchitos/Claude-Code-Game-Studios
