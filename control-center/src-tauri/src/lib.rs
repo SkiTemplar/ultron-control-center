@@ -7,6 +7,7 @@
 
 mod activity_timeline;
 mod ai_router;
+mod alerts_admin;
 mod auth;
 mod backup_status;
 mod claude_sessions;
@@ -283,6 +284,16 @@ async fn read_alerts(limit: Option<usize>) -> Result<Vec<serde_json::Value>, Str
     let path = ultron_root()?.join("alerts.jsonl");
     let lim = limit.unwrap_or(100).max(1).min(2000);
     read_jsonl_tail::<serde_json::Value>(path, lim)
+}
+
+#[tauri::command]
+async fn delete_alert_entries(fingerprints: Vec<String>) -> Result<usize, String> {
+    alerts_admin::delete_alerts_by_fingerprints(fingerprints)
+}
+
+#[tauri::command]
+async fn purge_legacy_autostart() -> Result<settings::AutostartPurgeResult, String> {
+    settings::purge_legacy_autostart_inner()
 }
 
 #[tauri::command]
@@ -1108,6 +1119,8 @@ pub fn run() {
             ultron_status,
             qdrant_health,
             read_alerts,
+            delete_alert_entries,
+            purge_legacy_autostart,
             read_changelog,
             list_mcps,
             run_mcp_health_check,

@@ -76,6 +76,19 @@ pub struct SpawnFlags {
     /// over `continue_last`.
     #[serde(default)]
     pub resume_id: Option<String>,
+    /// When true, the wrapper script MUST copy the prompt to the clipboard
+    /// and open the provider CLI WITHOUT auto-submitting it (no argv `-p`,
+    /// no positional prompt). The user pastes with Ctrl+V and decides
+    /// whether to send.
+    ///
+    /// As of v15.1.4+ the wrapper script already takes the clipboard route
+    /// by default for ANY non-empty prompt (inline -p / positional broke
+    /// too often with newlines and special chars). This flag makes that
+    /// contract explicit so callers like the Dashboard "Diagnose with
+    /// Claude" button can guarantee the prompt won't be auto-submitted
+    /// even if the default ever changes back.
+    #[serde(default)]
+    pub paste_only: bool,
 }
 
 // Flag validation now lives in spawn-claude-session.ps1 — the wrapper
@@ -267,6 +280,7 @@ pub async fn spawn_session_inner(
         "dangerous": flags.dangerously_skip_permissions,
         "continueLast": flags.continue_last,
         "forkSession": flags.fork_session,
+        "pasteOnly": flags.paste_only,
     })
     .to_string();
     let payload = base64_encode(&payload_json);

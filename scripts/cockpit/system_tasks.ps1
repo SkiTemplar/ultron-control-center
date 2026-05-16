@@ -196,6 +196,9 @@ switch ($Action) {
                 'Daily'   {
                     $parts = $NewTriggerAt.Split(':')
                     $at = $today.AddHours([int]$parts[0]).AddMinutes([int]$parts[1])
+                    # For AtLogon trigger we keep DaysOfWeek param defaulted; for Daily we
+                    # want -At to fire daily at HH:MM. New-ScheduledTaskTrigger returns
+                    # a fresh trigger object owned by the current user.
                     New-ScheduledTaskTrigger -Daily -At $at
                 }
                 'Weekly'  {
@@ -207,7 +210,20 @@ switch ($Action) {
             }
 
             # Re-point trigger only; existing actions / principal / settings stay.
-            Set-ScheduledTask -TaskName $Name -Trigger $newTrigger | Out-Null
+            #
+            # IMPORTANT: Set-ScheduledTask on a task registered with `-LogonType Interactive`
+            # throws "Acceso denegado" (E_ACCESSDENIED 0x80070005) if we don't re-specify
+            # the principal user. Windows Task Scheduler treats the implicit re-registration
+            # as a security boundary crossing unless the caller proves ownership by passing
+            # the same UserId the task was registered with. We pull it from the existing
+            # task and pass it back so an unelevated Set-ScheduledTask call succeeds against
+            # the user's own Interactive-logon tasks (the only kind ULTRON-* installs).
+            $existingUser = $task.Principal.UserId
+            if ($existingUser) {
+                Set-ScheduledTask -TaskName $Name -Trigger $newTrigger -User $existingUser | Out-Null
+            } else {
+                Set-ScheduledTask -TaskName $Name -Trigger $newTrigger | Out-Null
+            }
 
             @{
                 ok            = $true

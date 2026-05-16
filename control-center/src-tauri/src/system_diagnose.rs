@@ -109,12 +109,21 @@ pub async fn diagnose_with_ai_inner(
     );
 
     let provider = provider.as_deref().unwrap_or("claude").to_string();
+    // paste_only = true → wrapper copies prompt to clipboard and opens the
+    // CLI WITHOUT auto-submitting. User pastes with Ctrl+V and decides
+    // whether to edit before sending. This avoids the (perceived) auto-send
+    // surprise — the diagnose prompt is large and the user often wants to
+    // tweak it before firing it at Claude.
+    let flags = crate::sessions::SpawnFlags {
+        paste_only: true,
+        ..Default::default()
+    };
     let spawn = crate::sessions::spawn_session_inner(
         app,
         provider.clone(),
         Some(prompt),
         None,
-        None,
+        Some(flags),
     )
     .await;
 
@@ -122,7 +131,7 @@ pub async fn diagnose_with_ai_inner(
         Ok(_) => Ok(AiDiagnoseResult {
             success: true,
             analysis: format!(
-                "Sesion {} abierta en wt.exe con el reporte como primer prompt. Continua el diagnostico alli — Claude/Codex tienen el JSON entero y pueden iterar sobre las recomendaciones contigo.",
+                "Sesion {} abierta en wt.exe. El prompt del diagnostico esta en tu portapapeles — pega con Ctrl+V, revisalo si quieres, y pulsa Enter para enviarlo.",
                 provider
             ),
             stderr: String::new(),

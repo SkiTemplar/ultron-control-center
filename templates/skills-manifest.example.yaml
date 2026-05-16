@@ -1,0 +1,149 @@
+# ULTRON Skills Manifest (example)
+#
+# Drives the interactive skills picker in install.ps1.
+#
+# Schema:
+#   - name:        SKILL.md folder name under ~/.claude/skills/<name>/
+#   - source:      Where the SKILL.md is copied FROM during install.
+#                  Either "repo://skills/<name>" (file shipped in this repo)
+#                  or "claude://skills/<name>" (assume it lives in the
+#                  user's existing ~/.claude/skills already; skip copy).
+#   - core:        true  -> installed automatically (no prompt)
+#                  false -> only installed if also flagged personal:true
+#                           and user opts in at the prompt.
+#   - personal:    true  -> prompted with default N (opt-in).
+#                  false -> not prompted; behavior governed by `core`.
+#   - description: One-liner shown next to the y/N prompt.
+#
+# Anything on disk but NOT in this manifest is left alone by the installer
+# (users can hand-curate ~/.claude/skills freely).
+
+skills:
+
+  # ---- Core engineering & research (default ON) ----
+  - name: ultron
+    source: repo://skills/ultron
+    core: true
+    personal: false
+    description: "Master orchestrator. Loads on every Ultron session."
+
+  - name: senior-engineer
+    source: claude://skills/senior-engineer
+    core: true
+    personal: false
+    description: "Full-stack engineering across UE5/Unity/TS/Python/C++."
+
+  - name: code-reviewer
+    source: claude://skills/code-reviewer
+    core: true
+    personal: false
+    description: "Code review with security focus."
+
+  - name: debugger
+    source: claude://skills/debugger
+    core: true
+    personal: false
+    description: "Root-cause analysis of failing tests and stack traces."
+
+  - name: refactoring-specialist
+    source: claude://skills/refactoring-specialist
+    core: true
+    personal: false
+    description: "Clean up code without changing behavior."
+
+  - name: ui-designer
+    source: claude://skills/ui-designer
+    core: true
+    personal: false
+    description: "Honest UI/UX critique and design."
+
+  - name: business-strategist
+    source: claude://skills/business-strategist
+    core: true
+    personal: false
+    description: "B2B SaaS strategy: niche, GTM, pricing, pitch."
+
+  - name: skill-creator
+    source: claude://skills/skill-creator
+    core: true
+    personal: false
+    description: "Create, edit, sync skills across Claude Code and Cowork."
+
+  - name: superpowers
+    source: claude://skills/superpowers
+    core: true
+    personal: false
+    description: "Mandatory 7-phase discipline + skill discovery."
+
+  - name: webapp-testing
+    source: claude://skills/webapp-testing
+    core: true
+    personal: false
+    description: "Playwright-driven testing of local web apps."
+
+  - name: windows-admin
+    source: claude://skills/windows-admin
+    core: true
+    personal: false
+    description: "Windows admin helper for files, processes, registry."
+
+  - name: second-opinion
+    source: claude://skills/second-opinion
+    core: true
+    personal: false
+    description: "External LLM code reviews via Codex or Gemini."
+
+  # ---- Personal / opt-in (default OFF; prompted one by one) ----
+  - name: news-publisher
+    source: claude://skills/news-publisher
+    core: false
+    personal: true
+    description: "Daily HTML newsletter via Gemini. Costs tokens."
+
+  - name: tio-gilito
+    source: claude://skills/tio-gilito
+    core: false
+    personal: true
+    description: "Personal finance assistant with Scrooge-McDuck personality. Reads YOUR finances DB."
+
+  - name: tolkien
+    source: claude://skills/tolkien
+    core: false
+    personal: true
+    description: "Creative writing skill for USER's novel. Skip unless you want a writer persona."
+
+  - name: novalbos
+    source: claude://skills/novalbos
+    core: false
+    personal: true
+    description: "Personal technical tutor (C++, graphics, ML, low-level)."
+
+  - name: personal-assistant
+    source: claude://skills/personal-assistant
+    core: false
+    personal: true
+    description: "Gmail + Calendar + Notion + Drive orchestrator. Requires those MCPs."
+
+  - name: investment-advisor
+    source: claude://skills/investment-advisor
+    core: false
+    personal: true
+    description: "Long-term investing: stocks, ETFs, fundamentals."
+
+  - name: gamedev-engineer
+    source: claude://skills/gamedev-engineer
+    core: false
+    personal: true
+    description: "Unreal Engine + Unity specialist. Heavy."
+
+  - name: ue5-dev
+    source: claude://skills/ue5-dev
+    core: false
+    personal: true
+    description: "Comprehensive Unreal Engine assistant."
+
+  - name: tolkien
+    source: claude://skills/tolkien
+    core: false
+    personal: true
+    description: "Book-writing persona."

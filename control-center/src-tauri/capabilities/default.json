@@ -13,9 +13,23 @@
     "core:app:allow-app-show",
     "core:app:allow-app-hide",
     "opener:default",
-    "opener:allow-open-path",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [
+        { "path": "$HOME/.ultron-vault/**" },
+        { "path": "$HOME/.ultron/**" },
+        { "path": "$HOME/.claude/**" }
+      ]
+    },
     "opener:allow-open-url",
-    "opener:allow-reveal-item-in-dir",
+    {
+      "identifier": "opener:allow-reveal-item-in-dir",
+      "allow": [
+        { "path": "$HOME/.ultron-vault/**" },
+        { "path": "$HOME/.ultron/**" },
+        { "path": "$HOME/.claude/**" }
+      ]
+    },
     "notification:default",
     "notification:allow-notify",
     "dialog:default",

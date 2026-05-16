@@ -1,112 +1,118 @@
 # ULTRON ~/.ultron/ — operational state + tooling
-# Initialized 2026-05-10 as part of v14.9 STRUCTURE prep
+# Public release v15.2 — personal data must NEVER enter public history
+# Initialized 2026-05-10 (v14.9 STRUCTURE), hardened 2026-05-16 (v15.2 pre-publish)
 
-# Python venv (regenerable via `uv sync`)
+# === Python / build ===
 .venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.uv-cache-rescue/
 
-# Ephemeral session state
+# === Ephemeral session state ===
 .tmp/
+.tmp.driveupload/
 sessions/
 multimodel/
 quarantine/
 skill_cache/
 
-# Brain index (rebuildable)
+# === Brain index (rebuildable) ===
 brain_index/*.db
 brain_index/*.db-journal
 brain_index/*.db-wal
 brain_index/*.db-shm
 
-# Backups (must NOT enter git history; could leak secrets/snapshots)
+# === Backups (may leak secrets/snapshots) ===
 backups/
 
-# Logs
+# === Logs ===
 logs/
 *.log
 
-# Bytecode
-__pycache__/
-*.pyc
-*.pyo
-
-# Qdrant residual (real data is in D:\Qdrant\data via bind mount)
-qdrant_storage/
-
-# OS / editor noise
+# === OS / editor noise ===
 *.swp
 *.bak
 .DS_Store
 Thumbs.db
 
-# Lockfiles for things that shouldn't be tracked
+# === Lockfiles ===
 *.lock
 !uv.lock
 
-# Audit logs that may include paths/IDs from runs
-audits/*.log
+# === Audit / telemetry / metrics (user-specific) ===
+audits/
+telemetry/
+metrics/
+integrity/settings.snapshots.jsonl
 
-# Telemetry runtime data
-telemetry/*.jsonl
-telemetry/*.db
-
-# Bus runtime data (v15.1) — sessions, mailboxes, dedup ring; never tracked
+# === Bus runtime data ===
 bus/
 
-# Skill vault (v15.0b) — skill dirs live on disk, not in git; only INDEX + keep-list tracked
+# === Skill vault (only INDEX + keep-list tracked) ===
 skill-vault/*
 !skill-vault/INDEX.json
 !skill-vault/keep-list.txt
-
-# Skills unified registry (v15.0b WS6) — generado por `skill_vault.py registry`, regenerable
 skills/registry.json
 
-# v15.0.2: qdrant native binary + logs (downloadable, not vendored in git)
+# === Qdrant ===
 qdrant-native/qdrant.exe
+qdrant-native/.qdrant-initialized
 qdrant-native/config/config
 qdrant-native/config/development
+qdrant-native/config/production.yaml
 qdrant_storage/
 
-# v15.0.3: rotated alerts archive (rebuildable, 1.3MB+)
-alerts.jsonl.archive
-
-# v15.2 PUBLIC RELEASE — personal data must NEVER enter public history
-# User-specific content
+# === Personal data (NEVER commit) ===
 personal/
-cockpit/news/*.html
-cockpit/news/*.md
-cockpit/news/cache/
+personal/**
+MEMORY.md
+SYSTEM-MAP.md
+alerts.jsonl
+alerts.jsonl.archive
+alerts.jsonl.lock
+inbox.jsonl
+background_tasks.json
+agent_manifest.json
+manifest.cache.json
 
-# Runtime state that contains user paths or IDs (regenerated per-install)
+# === Cockpit runtime (user-specific) ===
 cockpit/projects.json
+cockpit/projects-exclusions.json
 cockpit/bridge-index.json
 cockpit/features.json
+cockpit/features.example.json
 cockpit/apps.json
 cockpit/mcp-audit.jsonl
 cockpit/auto_updater.jsonl
-manifest.cache.json
-agent_manifest.json
-background_tasks.json
-alerts.jsonl
+cockpit/pending_actions.json
+cockpit/news/
+cockpit/audits/
 plans/PLANS.json
+plans/_archive/
 
-# Historical telemetry (may leak personal context)
+# === Historical context (may leak personal info) ===
 archive/
-telemetry/
 
-# Tauri build output
+# === Tauri build output ===
 control-center/dist/
 control-center/src-tauri/target/
 control-center/node_modules/
+node_modules/
+dist/
+target/
 
-# Playwright / temp upload scratch
+# === Playwright cache ===
 .playwright-mcp/
-.tmp.driveupload/
 
-# Cover images (not part of release artifacts)
+# === Legacy ===
+_legacy/
+
+# === Cover images (not part of release artifacts) ===
 cover*.png
 v*-cover*.png
 v*-s*.png
 v*-demo*.png
 v*-waiting*.png
 v*-layerstack.png
-

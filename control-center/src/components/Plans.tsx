@@ -887,7 +887,7 @@ export function Plans() {
       </header>
 
       {/* Stats strip */}
-      <div className="mb-3 grid grid-cols-6 gap-2 md:grid-cols-8">
+      <div className="mb-3 grid grid-cols-5 gap-2 md:grid-cols-9">
         <StatBox label="Total" value={stats.total} />
         {COLUMNS.map((c) => (
           <StatBox key={c.key} label={c.label} value={stats.byStatus[c.key] ?? 0} />
@@ -967,7 +967,7 @@ export function Plans() {
         </div>
       )}
 
-      <div className="grid flex-1 grid-cols-4 gap-3 overflow-hidden">
+      <div className="grid flex-1 grid-cols-5 gap-3 overflow-hidden">
         {COLUMNS.map((c) => (
           <div
             key={c.key}

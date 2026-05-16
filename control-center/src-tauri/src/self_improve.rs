@@ -1,11 +1,19 @@
 // ULTRON Control Center — Self-improvement signals.
 //
 // Reads three local telemetry sources:
-//   - ~/.ultron/.tmp/routing-telemetry.jsonl   (intent → skill matches)
-//   - ~/.ultron/skills/registry.json            (skill usage counts)
-//   - ~/.ultron/alerts.jsonl                    (recent errors)
+//   - ~/.ultron/telemetry/dispatcher-events.jsonl  (intent → skill matches)
+//   - ~/.ultron/skills/registry.json                (skill usage counts)
+//   - ~/.ultron/alerts.jsonl                        (recent errors)
 //
 // All inputs are best-effort; missing files don't fail the report.
+//
+// v15.1.6 (FIX bug-stats-intent-zero): switched routing source from the
+// legacy `~/.ultron/.tmp/routing-telemetry.jsonl` (never written under the
+// current hook layout) to `~/.ultron/telemetry/dispatcher-events.jsonl`,
+// which is what `scripts/hooks/intent-dispatcher.py` actually appends to on
+// every UserPromptSubmit. Schema mapping:
+//   - "intent"   ← event.route   (the skill the rule resolved to)
+//   - "matched"  ← event.source != "none"  (rule or ztmsi hit vs. no-route)
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -133,20 +141,25 @@ fn parse_iso_to_secs(iso: &str) -> Option<u64> {
 // Routing telemetry
 // ---------------------------------------------------------------------------
 
+/// Schema of one line in `~/.ultron/telemetry/dispatcher-events.jsonl` as
+/// emitted by `scripts/hooks/intent-dispatcher.py::_write_telemetry`.
+///
+/// Example matched event:
+///   {"ts":"...","prompt_hash":"...","route":"ultron","conf":0.85,
+///    "latency_ms":31,"source":"rules"}
+/// Example unmatched event:
+///   {"ts":"...","prompt_hash":"...","route":null,"conf":0.0,
+///    "latency_ms":33,"source":"none"}
 #[derive(Debug, Deserialize)]
-struct RouteRow {
+struct DispatcherEvent {
     #[serde(default)]
-    intent: Option<String>,
+    route: Option<String>,
     #[serde(default)]
-    matched: Option<bool>,
-    #[serde(default)]
-    routed_to: Option<String>,
-    #[serde(default)]
-    skill: Option<String>,
+    source: Option<String>,
 }
 
 fn read_routing(root: &PathBuf) -> (u64, u64, Vec<IntentCount>) {
-    let path = root.join(".tmp/routing-telemetry.jsonl");
+    let path = root.join("telemetry/dispatcher-events.jsonl");
     let Ok(raw) = fs::read_to_string(&path) else {
         return (0, 0, Vec::new());
     };
@@ -157,16 +170,22 @@ fn read_routing(root: &PathBuf) -> (u64, u64, Vec<IntentCount>) {
         if line.trim().is_empty() {
             continue;
         }
-        let row: RouteRow = match serde_json::from_str(line) {
+        let row: DispatcherEvent = match serde_json::from_str(line) {
             Ok(r) => r,
             Err(_) => continue,
         };
         total += 1;
-        if row.matched.unwrap_or(false) {
+        // A match is anything where the dispatcher resolved a route — i.e.
+        // `source` is "rules" (intent-rules.yaml hit) or "ztmsi" (FTS5 +
+        // manifest hit). "none" means the fall-through (no rule, no chunks).
+        let is_match = matches!(row.source.as_deref(), Some("rules") | Some("ztmsi"));
+        if is_match {
             matched += 1;
         }
-        if let Some(intent) = row.intent {
-            *by_intent.entry(intent).or_insert(0) += 1;
+        if let Some(route) = row.route {
+            if !route.is_empty() {
+                *by_intent.entry(route).or_insert(0) += 1;
+            }
         }
     }
     let mut top: Vec<IntentCount> = by_intent

@@ -188,7 +188,9 @@ export default function App() {
             globalStatus={globalStatus}
           />
         )}
-        {tab === "notifications" && <Notifications alerts={alerts} />}
+        {tab === "notifications" && (
+          <Notifications alerts={alerts} onDeleted={refreshAll} />
+        )}
         {tab === "changelog" && <Changelog entries={changelog} />}
         {tab === "mcps" && <MCPs />}
         {tab === "skills" && <Skills />}

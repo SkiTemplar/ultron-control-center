@@ -68,6 +68,14 @@ $displayName  = [string]$cfg.name
 $resumeId     = [string]$cfg.resumeId
 $continueLast = [bool]$cfg.continueLast
 $forkSession  = [bool]$cfg.forkSession
+# pasteOnly: explicit contract from the caller that the prompt MUST land
+# on the clipboard and NEVER be auto-submitted (no argv -p / positional).
+# Backwards-compatible: missing field → $false. As of v15.1.4+ clipboard is
+# already the default for any non-empty prompt, so $pasteOnly is effectively
+# a no-op today; it exists so callers (Dashboard "Diagnose with Claude")
+# can declare the contract and so any future regression that re-introduces
+# inline-prompt paths must explicitly skip the pasteOnly branch.
+$pasteOnly    = [bool]$cfg.pasteOnly
 
 # v15.1.4+: ULTRON spawns terminals for internal flows (news, skill edit, MCP
 # create, diagnose, codex-fallback) where the user already authorized the
@@ -202,7 +210,13 @@ if ($promptText -and $promptText.Trim().Length -gt 0 -and -not $resumeActive) {
 # wt.exe tab tells the user to paste. PowerShell evaluates the echo before
 # starting Claude, so it shows up at the top of the terminal.
 if ($clipboardSeeded) {
-    $msg = "El prompt está en tu portapapeles (Ctrl+V para pegar)."
+    if ($pasteOnly) {
+        # Stronger wording when the caller explicitly asked for paste-only:
+        # the user is choosing whether to send, not just how to send.
+        $msg = "Prompt copiado al portapapeles. Pega con Ctrl+V, revisa/edita si quieres, y pulsa Enter para enviar."
+    } else {
+        $msg = "El prompt está en tu portapapeles (Ctrl+V para pegar)."
+    }
     $inner = "Write-Host '" + ($msg -replace "'", "''") + "' -ForegroundColor Cyan; " + $inner
 }
 

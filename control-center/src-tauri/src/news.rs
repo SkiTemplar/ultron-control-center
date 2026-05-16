@@ -204,12 +204,20 @@ pub async fn generate_news_session_inner(
         "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Guarda el HTML final en ~/.ultron/cockpit/news/newsletter-{}.html y usa el modelo gemini-3.1-pro.",
         today
     );
+    // F1.8: pin Gemini to 3.1-pro explicitly. Without this the wt.exe tab
+    // launches `gemini --yolo` (no -m) and falls back to whatever the user's
+    // gemini CLI default model is (typically "auto"), which produces lower
+    // quality newsletters than what the prompt header asks for.
+    let gemini_flags = crate::sessions::SpawnFlags {
+        model: Some("gemini-3.1-pro".to_string()),
+        ..Default::default()
+    };
     let _spawn = crate::sessions::spawn_session_inner(
         app,
         "gemini".into(),
         Some(seed),
         None,
-        None,
+        Some(gemini_flags),
     )
     .await?;
 

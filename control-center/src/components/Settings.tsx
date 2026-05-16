@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import type { SettingsSaveResult, SettingsSnapshot } from "../types";
@@ -833,6 +833,10 @@ function HotkeyEditor() {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [capturing, setCapturing] = useState(false);
+  // F1.6: clicking the "Capturar tecla" button steals focus from the
+  // <input>, so onKeyDown never fires. Refocus the input as soon as
+  // capturing flips to true.
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     invoke<string>("get_global_hotkey")
@@ -842,6 +846,12 @@ function HotkeyEditor() {
       })
       .catch((e) => setError(String(e)));
   }, []);
+
+  useEffect(() => {
+    if (capturing) {
+      inputRef.current?.focus();
+    }
+  }, [capturing]);
 
   async function apply() {
     if (!draft.trim() || draft === spec) return;
@@ -910,6 +920,7 @@ function HotkeyEditor() {
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <input
+          ref={inputRef}
           type="text"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
@@ -988,10 +999,30 @@ function GeneralSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Wipe legacy autostart artifacts (Startup-folder .lnk, dangling
+  // StartupApproved record) before/after every interaction so the plugin's
+  // registry value is the single source of truth. Best-effort: a failure
+  // here must not block the user from reading the toggle state.
+  async function purgeLegacy(): Promise<string[]> {
+    try {
+      const res = await invoke<{ removed: string[]; warnings: string[] }>(
+        "purge_legacy_autostart",
+      );
+      return res.removed ?? [];
+    } catch {
+      return [];
+    }
+  }
+
   useEffect(() => {
-    isAutostartEnabled()
-      .then(setEnabled)
-      .catch((e) => setError(String(e)));
+    (async () => {
+      await purgeLegacy();
+      try {
+        setEnabled(await isAutostartEnabled());
+      } catch (e) {
+        setError(String(e));
+      }
+    })();
   }, []);
 
   async function toggle() {
@@ -1006,6 +1037,9 @@ function GeneralSection() {
         await enableAutostart();
         setEnabled(true);
       }
+      // After every toggle clean any rogue artifact so the registry stays
+      // the only source of truth on subsequent isAutostartEnabled() reads.
+      await purgeLegacy();
     } catch (e) {
       setError(String(e));
     } finally {

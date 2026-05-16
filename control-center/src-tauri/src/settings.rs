@@ -220,3 +220,144 @@ pub fn settings_save_inner(payload: SettingsSavePayload) -> Result<SettingsSaveR
         new_size_bytes,
     })
 }
+
+// ---------------------------------------------------------------------------
+// Autostart legacy artifact purge
+// ---------------------------------------------------------------------------
+//
+// Background. The "Start with Windows" toggle in the General section uses
+// `tauri-plugin-autostart` as the single source of truth. On Windows the
+// plugin reads/writes a value under
+//   HKCU\Software\Microsoft\Windows\CurrentVersion\Run
+// whose name is the app's productName ("ULTRON Control Center"). Its
+// `isEnabled()` only inspects that registry value.
+//
+// Earlier builds of ULTRON (and at least one manual debug session during
+// 2026-05-14) seeded a *different* autostart mechanism: a shortcut file
+// inside the user's Startup folder named
+//   %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\ULTRON Control Center.lnk
+// pointing at the built `control-center.exe` with `--from-autostart`.
+// Windows honours Startup folder entries independently of the Run key, so
+// the app launched on every logon while the Settings toggle (which only
+// looks at the registry) reported "off". Toggling the switch on/off in
+// the UI did nothing to that .lnk, and the legacy shortcut survived.
+//
+// To make the toggle behave like a single source of truth we delete the
+// rogue .lnk on every relevant Settings interaction. We also clear the
+// dangling StartupApproved record for the same display name if the Run
+// value itself is gone — keeping it would not re-enable autostart (Windows
+// ignores approvals for absent entries) but it confuses Task Manager's
+// Startup tab.
+
+#[derive(Debug, Serialize, Clone)]
+pub struct AutostartPurgeResult {
+    /// Full path of every legacy artifact that existed and was removed.
+    pub removed: Vec<String>,
+    /// Non-fatal warnings (file existed but could not be deleted, etc).
+    pub warnings: Vec<String>,
+}
+
+/// Remove legacy autostart artifacts that compete with the
+/// `tauri-plugin-autostart` registry entry. Idempotent and safe to call
+/// on every Settings mount and after every autostart toggle.
+pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
+    let mut removed: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    // --- 1. Startup folder .lnk -------------------------------------------
+    // Resolve %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup. We
+    // intentionally use the env var rather than SHGetKnownFolderPath so we
+    // do not pull in winapi just for one path.
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        let startup = PathBuf::from(appdata)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs")
+            .join("Startup");
+        // Match the legacy display name(s) we know about. Keep this list
+        // narrow — we must never delete a shortcut the user installed for
+        // an unrelated program.
+        let candidates = ["ULTRON Control Center.lnk", "ULTRON.lnk"];
+        for name in candidates {
+            let p = startup.join(name);
+            if p.exists() {
+                match fs::remove_file(&p) {
+                    Ok(_) => removed.push(p.to_string_lossy().into_owned()),
+                    Err(e) => warnings.push(format!("delete {}: {}", p.display(), e)),
+                }
+            }
+        }
+    } else {
+        warnings.push("APPDATA env var missing; skipped Startup folder scan".to_string());
+    }
+
+    // --- 2. Dangling StartupApproved\Run record ---------------------------
+    // Only meaningful on Windows. We shell out to `reg.exe` rather than
+    // pulling in `winreg` for a single one-shot delete — the binary ships
+    // with every Windows install and the call is well-scoped.
+    #[cfg(target_os = "windows")]
+    {
+        let approved_path = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+        let app_name = "ULTRON Control Center";
+
+        // Check whether the Run value is absent (we should only clean
+        // approvals that no longer correspond to a live Run entry — the
+        // plugin's own value lives at the same name, so deleting it when
+        // present would break the user's current preference).
+        let run_present = std::process::Command::new("reg.exe")
+            .args([
+                "query",
+                r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run",
+                "/v",
+                app_name,
+            ])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
+        if !run_present {
+            let approved_present = std::process::Command::new("reg.exe")
+                .args(["query", approved_path, "/v", app_name])
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false);
+            if approved_present {
+                let out = std::process::Command::new("reg.exe")
+                    .args(["delete", approved_path, "/v", app_name, "/f"])
+                    .output();
+                match out {
+                    Ok(o) if o.status.success() => {
+                        removed.push(format!("{}\\{}", approved_path, app_name));
+                    }
+                    Ok(o) => warnings.push(format!(
+                        "reg delete StartupApproved: exit {} stderr={}",
+                        o.status.code().unwrap_or(-1),
+                        String::from_utf8_lossy(&o.stderr)
+                    )),
+                    Err(e) => warnings.push(format!("reg.exe spawn: {}", e)),
+                }
+            }
+        }
+    }
+
+    Ok(AutostartPurgeResult { removed, warnings })
+}
+
+// LIB_RS_WIRING:
+//   Register the new command in `src-tauri/src/lib.rs` so the frontend
+//   can call it via `invoke("purge_legacy_autostart")`.
+//
+//   1. Add a Tauri command wrapper next to `settings_save` (around line 387):
+//
+//        #[tauri::command]
+//        async fn purge_legacy_autostart() -> Result<settings::AutostartPurgeResult, String> {
+//            settings::purge_legacy_autostart_inner()
+//        }
+//
+//   2. Add `purge_legacy_autostart` to the `tauri::generate_handler![...]`
+//      list (same list that already contains `settings_read` /
+//      `settings_save`).
+//
+//   No other wiring is needed: the frontend Settings.tsx already calls
+//   `invoke("purge_legacy_autostart")` on mount and after every toggle.

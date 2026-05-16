@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { AlertEntry } from "../types";
 
-type Props = { alerts: AlertEntry[] };
+type Props = {
+  alerts: AlertEntry[];
+  /** Parent should re-`invoke("read_alerts", ...)` and update its state.
+   *  Called after a successful destructive op (delete from alerts.jsonl).
+   *  If omitted, the component falls back to `window.location.reload()`
+   *  so the UI never lies about the disk state. */
+  onDeleted?: () => void | Promise<void>;
+};
 
 // ---------------------------------------------------------------------------
 // Severity styling
@@ -310,16 +318,18 @@ function Pill({
 // Main
 // ---------------------------------------------------------------------------
 
-export function Notifications({ alerts }: Props) {
+export function Notifications({ alerts, onDeleted }: Props) {
   const [mutes, setMutes] = useState<Set<string>>(() => loadMutes());
   const [sevFilters, setSevFilters] = useState<Set<SevKey>>(() => loadSevFilters());
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => loadDateFilter());
   const [showMuteList, setShowMuteList] = useState(false);
-  // Client-side "I've already seen this" set. Dismissed alerts disappear
-  // from view until a new alert with a different fingerprint shows up. This
-  // is non-destructive — alerts.jsonl on disk is untouched, so we can also
-  // offer an "Undo dismiss" affordance.
+  // Client-side "I've already seen this" set. Used as an immediate visual
+  // mask while the disk delete is in flight (and as a soft hide for
+  // alerts the backend couldn't physically remove — e.g. malformed lines
+  // whose fingerprint we can't reproduce). The authoritative source is
+  // always `~/.ultron/alerts.jsonl`.
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => saveMutes(mutes), [mutes]);
   useEffect(() => saveSevFilters(sevFilters), [sevFilters]);
@@ -445,18 +455,43 @@ export function Notifications({ alerts }: Props) {
             return (
               <button
                 type="button"
-                onClick={() => {
-                  if (infoVisible.length === 0) return;
-                  const next = new Set(dismissed);
-                  for (const g of infoVisible) next.add(groupKey(g));
-                  setDismissed(next);
+                onClick={async () => {
+                  if (infoVisible.length === 0 || deleting) return;
+                  const fps = infoVisible.map((g) => groupKey(g));
+                  // Optimistic hide so the row disappears before the
+                  // backend round-trip finishes. The dismissed set is
+                  // ignored for fingerprints that no longer exist on
+                  // disk after the reload — they just stop showing up.
+                  const masked = new Set(dismissed);
+                  for (const fp of fps) masked.add(fp);
+                  setDismissed(masked);
+                  setDeleting(true);
+                  try {
+                    await invoke("delete_alert_entries", { fingerprints: fps });
+                    if (onDeleted) {
+                      await onDeleted();
+                    } else {
+                      // Fallback: parent didn't wire the callback, so we
+                      // brute-force a fresh read of alerts.jsonl by
+                      // reloading the webview. Ugly but correct.
+                      window.location.reload();
+                    }
+                  } catch (e) {
+                    // Roll back the optimistic mask on failure so the
+                    // user can retry — the disk file is unchanged.
+                    const rollback = new Set(dismissed);
+                    setDismissed(rollback);
+                    console.error("delete_alert_entries failed:", e);
+                  } finally {
+                    setDeleting(false);
+                  }
                 }}
-                disabled={infoVisible.length === 0}
-                title="Marca como vistas las notificaciones info actualmente visibles"
+                disabled={infoVisible.length === 0 || deleting}
+                title="Elimina permanentemente las notificaciones info visibles de ~/.ultron/alerts.jsonl"
                 className="text-[11px] transition-colors disabled:opacity-30"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                Clear info ({infoVisible.length})
+                {deleting ? "Deleting…" : `Delete info (${infoVisible.length})`}
               </button>
             );
           })()}
