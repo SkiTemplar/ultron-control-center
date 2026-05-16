@@ -268,9 +268,9 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 | Layer | Tech |
 |---|---|
-| Cockpit shell | Tauri 2 + React 19 + TypeScript (strict) |
-| Desktop backend | Rust (stable) |
-| Cockpit scripts | Python 3.13 + uv |
+| Control Center (frontend) | Tauri 2 + React 19 + TypeScript (strict) |
+| Control Center (backend) | Rust (stable) |
+| Cockpit Python tools | Python 3.13 + uv |
 | Memory store | SQLite FTS5 + optional Qdrant |
 | OS scripting | PowerShell 5.1+ |
 | LLM runtimes | Claude Code CLI (primary), Codex CLI (peer review, optional), Gemini CLI (long context, optional) |

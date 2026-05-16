@@ -7,15 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Plans `archived` drawer shows zero items even after auto-archive flips
-  status correctly (frontend filter issue). Resolved plans are still kept
-  on disk (status flipped to `archived`) so nothing is lost — only the
-  drawer visualization is broken.
 - Auto-updater wiring (`tauri-plugin-updater` is in Cargo.toml but not yet
   invoked from `lib.rs` — tracked as `si-p1-b-auto-updater`).
-- macOS / Linux ports (Windows-only at v15.2).
 - Cross-session BUS, supervisor daemon, DAG scheduler, overnight loop and
   mobile companion are deferred to v15.3.
+
+Note: the project is **Windows-only by design** — no macOS / Linux ports
+planned. The hooks, installer and dual-mode wiring all assume PowerShell
++ winget + Windows-specific APIs.
 
 ## [15.2.6] - 2026-05-16
 

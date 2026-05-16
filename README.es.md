@@ -269,9 +269,9 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 | Capa | Tecnologia |
 |---|---|
-| Shell del cockpit | Tauri 2 + React 19 + TypeScript (strict) |
-| Backend desktop | Rust (estable) |
-| Scripts del cockpit | Python 3.13 + uv |
+| Control Center (frontend) | Tauri 2 + React 19 + TypeScript (strict) |
+| Control Center (backend) | Rust (estable) |
+| Herramientas Python (cockpit/) | Python 3.13 + uv |
 | Memoria | SQLite FTS5 + Qdrant opcional |
 | Scripting OS | PowerShell 5.1+ |
 | Runtimes LLM | Claude Code CLI (principal), Codex CLI (peer review, opcional), Gemini CLI (long-context, opcional) |
