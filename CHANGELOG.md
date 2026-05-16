@@ -1,5 +1,14 @@
 # Changelog
 
+<!-- v15.3.2 -->
+## v15.3.2 — 2026-05-16
+
+- fix(v15.3.2): Backup-stale fix-it action + remove remaining 'cockpit' user-facing strings
+- chore: refresh changelog (auto)
+
+_Auto-generated from bf8db122 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.3.1 -->
 ## v15.3.1 — 2026-05-16
 
