@@ -812,6 +812,46 @@ export function Notifications({ alerts, onDeleted }: Props) {
               </button>
             );
           })()}
+          {/* Clear all — wipes EVERY visible group (info + warn + critical).
+              Same backend (delete_alert_entries) + same optimistic hide as
+              Delete info, just no severity filter. Confirms first since
+              critical alerts shouldn't disappear by accident. */}
+          {visibleGroups.length > 0 && (
+            <button
+              type="button"
+              onClick={async () => {
+                if (deleting || visibleGroups.length === 0) return;
+                const ok = window.confirm(
+                  `Eliminar permanentemente ${visibleGroups.length} notificacion${visibleGroups.length === 1 ? "" : "es"} (incluyendo critical y warn)?`
+                );
+                if (!ok) return;
+                const fps = visibleGroups.map((g) => groupKey(g));
+                const masked = new Set(dismissed);
+                for (const fp of fps) masked.add(fp);
+                setDismissed(masked);
+                setDeleting(true);
+                try {
+                  await invoke("delete_alert_entries", { fingerprints: fps });
+                  if (onDeleted) {
+                    await onDeleted();
+                  } else {
+                    window.location.reload();
+                  }
+                } catch (e) {
+                  setDismissed(new Set(dismissed));
+                  console.error("delete_alert_entries (all) failed:", e);
+                } finally {
+                  setDeleting(false);
+                }
+              }}
+              disabled={deleting}
+              title="Borra TODAS las notificaciones visibles (info + warn + critical) del archivo alerts.jsonl. Pide confirmación primero."
+              className="text-[11px] transition-colors disabled:opacity-30"
+              style={{ color: "var(--color-danger)" }}
+            >
+              {deleting ? "Deleting…" : `Clear all (${visibleGroups.length})`}
+            </button>
+          )}
           {dismissed.size > 0 && (
             <button
               type="button"
