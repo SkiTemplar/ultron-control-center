@@ -85,6 +85,13 @@ function isKnownEmpty(k: PersonalKnown | null): boolean {
   );
 }
 
+type PersonalSample = {
+  path: string;
+  content: string;
+  last_modified: string | null;
+  exists: boolean;
+};
+
 export function Personal() {
   const [profile, setProfile] = useState<PersonalProfile | null>(null);
   const [draft, setDraft] = useState<string>("");
@@ -98,6 +105,16 @@ export function Personal() {
   const [knownError, setKnownError] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisMsg, setAnalysisMsg] = useState<string | null>(null);
+
+  // F5: style training + sample generation
+  const [trainText, setTrainText] = useState<string>("");
+  const [training, setTraining] = useState(false);
+  const [trainMsg, setTrainMsg] = useState<string | null>(null);
+  const [sample, setSample] = useState<PersonalSample | null>(null);
+  const [sampleLoading, setSampleLoading] = useState(true);
+  const [generatingSample, setGeneratingSample] = useState(false);
+  const [sampleMsg, setSampleMsg] = useState<string | null>(null);
+  const [showProfileEditor, setShowProfileEditor] = useState(false);
 
   async function loadProfile() {
     setLoading(true);
@@ -163,9 +180,51 @@ export function Personal() {
     }
   }
 
+  async function loadSample() {
+    setSampleLoading(true);
+    try {
+      const r = (await invoke("read_personal_sample")) as PersonalSample;
+      setSample(r);
+    } catch {
+      setSample(null);
+    } finally {
+      setSampleLoading(false);
+    }
+  }
+
+  async function trainStyle() {
+    if (!trainText.trim()) return;
+    setTraining(true);
+    setTrainMsg(null);
+    try {
+      const msg = (await invoke("train_personal_style", {
+        sampleText: trainText,
+      })) as string;
+      setTrainMsg(`${msg} — al terminar, pulsa Refresh para recargar known.json`);
+    } catch (e) {
+      setTrainMsg(`Error: ${e}`);
+    } finally {
+      setTraining(false);
+    }
+  }
+
+  async function regenerateSample() {
+    setGeneratingSample(true);
+    setSampleMsg(null);
+    try {
+      const msg = (await invoke("generate_style_sample")) as string;
+      setSampleMsg(`${msg} — pulsa Refresh al terminar para ver el sample.`);
+    } catch (e) {
+      setSampleMsg(`Error: ${e}`);
+    } finally {
+      setGeneratingSample(false);
+    }
+  }
+
   useEffect(() => {
     loadProfile();
     loadKnown();
+    loadSample();
   }, []);
 
   const dirty = profile != null && draft !== profile.content;
@@ -545,61 +604,199 @@ export function Personal() {
           </div>
         </section>
 
-        {/* Right: editable profile */}
-        <section className="flex w-1/2 flex-col gap-2 overflow-hidden">
-          <div className="flex items-baseline justify-between gap-2">
-            <h2 className="text-[14px] font-semibold leading-tight">
-              Profile (editable)
-            </h2>
-            <span
-              className="text-[10.5px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              Estilo, rutinas, preferencias, patrones de prompts
-            </span>
+        {/* Right: training top + sample bottom + collapsible profile editor */}
+        <section className="flex w-1/2 flex-col gap-3 overflow-hidden">
+          {/* Top half — Style training */}
+          <div
+            className="flex flex-1 flex-col gap-2 overflow-hidden rounded p-4"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-[14px] font-semibold leading-tight">
+                Entrenar estilo
+              </h2>
+              <span
+                className="text-[10.5px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                Pega un texto tuyo, Codex actualiza known.json
+              </span>
+            </div>
+            <textarea
+              value={trainText}
+              onChange={(e) => setTrainText(e.target.value)}
+              placeholder="Pega aquí un párrafo o varios de tu escritura real — un mensaje largo, un email, una nota técnica. Codex lo cruza con known.json y refina el fingerprint."
+              spellCheck={false}
+              className="flex-1 rounded p-3 text-[12px] leading-relaxed"
+              style={{
+                fontFamily: "var(--font-mono)",
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border)",
+                outline: "none",
+                resize: "none",
+                minHeight: 110,
+              }}
+            />
+            {trainMsg && (
+              <div
+                className="rounded p-2 text-[11px]"
+                style={{
+                  background: "rgba(56, 139, 253, 0.08)",
+                  border: "1px solid rgba(56, 139, 253, 0.22)",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                {trainMsg}
+              </div>
+            )}
+            <div className="flex items-center justify-between gap-2">
+              <span
+                className="text-[10.5px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                {trainText.length.toLocaleString()} chars
+              </span>
+              <button
+                type="button"
+                onClick={trainStyle}
+                disabled={training || !trainText.trim()}
+                className="rounded px-3 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                {training ? "Abriendo sesión..." : "Train style with Codex"}
+              </button>
+            </div>
           </div>
 
-          {profile?.seeded && (
+          {/* Bottom half — Sample */}
+          <div
+            className="flex flex-1 flex-col gap-2 overflow-hidden rounded p-4"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <h2 className="text-[14px] font-semibold leading-tight">
+                Ejemplo en tu estilo
+              </h2>
+              <span
+                className="text-[10.5px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                {sample?.last_modified
+                  ? `generado ${formatRel(sample.last_modified)}`
+                  : "sin ejemplo aún"}
+              </span>
+            </div>
             <div
-              className="rounded p-2 text-[11.5px] leading-relaxed"
+              className="flex-1 overflow-y-auto rounded p-3 text-[12px] leading-relaxed"
               style={{
-                background: "rgba(210, 153, 34, 0.08)",
-                border: "1px solid rgba(210, 153, 34, 0.30)",
-                color: "var(--color-warn)",
+                background: "var(--color-surface-2)",
+                color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border)",
+                whiteSpace: "pre-wrap",
+                fontFamily: "var(--font-sans)",
               }}
             >
-              Esta es una plantilla. Edita y pulsa <strong>Save</strong> para
-              guardar tu perfil real.
+              {sampleLoading
+                ? "Cargando..."
+                : !sample?.exists
+                  ? "Aún no se ha generado un ejemplo. Pulsa 'Generar nuevo ejemplo' para que Claude escriba un texto en tu estilo."
+                  : sample.content}
             </div>
-          )}
-
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            spellCheck={false}
-            placeholder={loading ? "Loading..." : ""}
-            className="flex-1 rounded p-4 text-[12.5px] leading-relaxed"
-            style={{
-              fontFamily: "var(--font-mono)",
-              background: "var(--color-surface-1)",
-              color: "var(--color-text)",
-              border: `1px solid ${dirty ? "var(--color-warn)" : "var(--color-border-strong)"}`,
-              outline: "none",
-              resize: "none",
-            }}
-          />
-          <div
-            className="flex items-baseline justify-between text-[10.5px]"
-            style={{ color: "var(--color-text-faint)" }}
-          >
-            <span>
-              {draft.length.toLocaleString()} chars · {draft.split("\n").length} líneas
-            </span>
-            <span>
-              Backups (últimos 30) en
-              <span style={{ fontFamily: "var(--font-mono)" }}> ~/.ultron/personal/profile.backups/</span>
-            </span>
+            {sampleMsg && (
+              <div
+                className="rounded p-2 text-[11px]"
+                style={{
+                  background: "rgba(56, 139, 253, 0.08)",
+                  border: "1px solid rgba(56, 139, 253, 0.22)",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                {sampleMsg}
+              </div>
+            )}
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={regenerateSample}
+                disabled={generatingSample}
+                className="rounded px-3 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-40"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                {generatingSample ? "Abriendo sesión..." : "Generar nuevo ejemplo"}
+              </button>
+            </div>
           </div>
+
+          {/* Collapsible profile.md editor (preserved for power users) */}
+          <details
+            open={showProfileEditor}
+            onToggle={(e) => setShowProfileEditor((e.target as HTMLDetailsElement).open)}
+            className="rounded"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <summary
+              className="cursor-pointer px-4 py-2 text-[12px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Editar profile.md raw {dirty && <span style={{ color: "var(--color-warn)" }}>(cambios sin guardar)</span>}
+            </summary>
+            <div className="border-t p-3" style={{ borderColor: "var(--color-border)" }}>
+              {profile?.seeded && (
+                <div
+                  className="mb-2 rounded p-2 text-[11px] leading-relaxed"
+                  style={{
+                    background: "rgba(210, 153, 34, 0.08)",
+                    border: "1px solid rgba(210, 153, 34, 0.30)",
+                    color: "var(--color-warn)",
+                  }}
+                >
+                  Esta es una plantilla. Edita y pulsa <strong>Save</strong> arriba.
+                </div>
+              )}
+              <textarea
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                spellCheck={false}
+                placeholder={loading ? "Loading..." : ""}
+                className="w-full rounded p-3 text-[12px] leading-relaxed"
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: `1px solid ${dirty ? "var(--color-warn)" : "var(--color-border)"}`,
+                  outline: "none",
+                  resize: "vertical",
+                  minHeight: 200,
+                }}
+              />
+              <div
+                className="mt-2 flex items-baseline justify-between text-[10.5px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                <span>
+                  {draft.length.toLocaleString()} chars · {draft.split("\n").length} líneas
+                </span>
+                <span>~/.ultron/personal/profile.md</span>
+              </div>
+            </div>
+          </details>
         </section>
       </div>
     </div>
