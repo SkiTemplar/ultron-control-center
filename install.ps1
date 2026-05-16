@@ -1061,10 +1061,13 @@ function Build-ControlCenter {
         return
     }
     try {
-        # Delegate to the inner installer for npm install (uv sync already
-        # ran in Initialize-PythonVenv). Variable renamed to avoid shadowing
-        # the PowerShell automatic $args under Set-StrictMode.
-        $innerArgs = @("-NonInteractive")
+        # Delegate to the inner installer for npm install. Pass -SkipUvSync
+        # because Initialize-PythonVenv already provisioned the venv in
+        # step 6 — running uv sync twice tends to hit Windows file locks
+        # on the freshly populated site-packages (Acceso denegado on
+        # cffi / cryptography). Variable renamed to avoid shadowing the
+        # PowerShell automatic $args under Set-StrictMode.
+        $innerArgs = @("-NonInteractive", "-SkipUvSync")
         if ($Script:VerboseOn) { $innerArgs += "-Verbose" }
         & $inner @innerArgs
         if ($LASTEXITCODE -eq 0) {

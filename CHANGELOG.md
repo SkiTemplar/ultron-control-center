@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.2.33 -->
+## v15.2.33 — 2026-05-16
+
+- fix(v15.2.33): installer robustness â€” PS 5.1 \$IsWindows, native-binary stderr noise, step numbering
+
+_Auto-generated from cb0c31be by scripts/hooks/auto-changelog.py_
+
+
 All notable changes to ULTRON Control Center will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),

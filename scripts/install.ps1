@@ -54,6 +54,12 @@
 [CmdletBinding()]
 param(
     [switch]$NonInteractive,
+    # The outer installer (install.ps1 at repo root) already runs uv sync in
+    # its step 6 (Initialize-PythonVenv). When it delegates the npm install
+    # part to this inner script it passes -SkipUvSync so we don't double-run
+    # the sync — that second pass often hits Windows file locks on the
+    # freshly populated .venv (Acceso denegado on cffi / cryptography).
+    [switch]$SkipUvSync,
     [string]$InstallRoot = (Join-Path $env:USERPROFILE ".ultron")
 )
 
@@ -320,15 +326,41 @@ function Invoke-UvSync {
     }
     Write-Ok "uv available"
 
+    # The outer installer (install.ps1 at repo root) already runs uv sync in
+    # step 6. If that succeeded, the .venv is up to date and this second
+    # pass is redundant — sometimes harmful: on Windows the freshly
+    # populated site-packages can still hold open file handles (Defender
+    # scan, qdrant.exe child, lingering python.exe from the outer pass),
+    # which makes uv's reinstall-style overwrite hit "Acceso denegado" on
+    # cffi / cryptography / etc. We detect that case and skip cleanly.
+    $venvPy = Join-Path $Script:RepoRoot ".venv\Scripts\python.exe"
+    $venvAlreadyHealthy = Test-Path -LiteralPath $venvPy
+
     try {
         Push-Location $Script:RepoRoot
-        & uv sync
-        if ($LASTEXITCODE -ne 0) {
-            Stop-WithFix -Stage "uv-sync" `
-                         -Command "uv sync" `
-                         -Fix     "Inspect the uv output above. Common cause: Python version mismatch - pyproject.toml requires Python >=3.12."
+        $uvOut = & uv sync 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Ok "python venv synced"
+            return
         }
-        Write-Ok "python venv synced"
+
+        # Non-zero exit. If the venv is already healthy, treat as a
+        # warning and proceed — the outer installer's sync did the real work.
+        $joined = ($uvOut -join "`n")
+        $isAccessDenied = ($joined -match "Acceso denegado") -or ($joined -match "Access is denied") -or ($joined -match "os error 5")
+        if ($venvAlreadyHealthy -and $isAccessDenied) {
+            Write-WarnRow "uv sync hit a Windows file lock on the already-populated .venv — skipping the inner pass."
+            Write-Info  "The outer installer's earlier uv sync already provisioned the venv. If hooks misbehave, close Claude Code + qdrant.exe, then run 'uv sync' manually."
+            return
+        }
+
+        # Real failure — surface the actual reason.
+        if ($joined) {
+            Write-Info ("uv output: " + $joined)
+        }
+        Stop-WithFix -Stage "uv-sync" `
+                     -Command "uv sync" `
+                     -Fix     "Inspect the uv output above. Common cause: Python version mismatch - pyproject.toml requires Python >=3.12."
     } finally {
         Pop-Location
     }
@@ -489,7 +521,12 @@ try {
     Test-Dependencies
     New-DirTree
     Initialize-ClaudeSkills
-    Invoke-UvSync
+    if ($SkipUvSync) {
+        Write-Step "uv sync (skipped — outer installer already ran it)"
+        Write-Ok "venv assumed in place"
+    } else {
+        Invoke-UvSync
+    }
     Invoke-NpmInstall
     $features = Set-FeatureFlags
     Write-Summary -Features $features
