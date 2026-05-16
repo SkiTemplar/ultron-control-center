@@ -72,7 +72,7 @@ ULTRON es un **centro de mando local** que se monta encima del CLI oficial de [C
 | **Memoria jerarquica** | Cuatro capas (L0 contexto caliente hasta L3 mirror remoto) para que Claude retome donde lo dejaste tras cada reinicio. |
 | **Personas y skills** | Un dispatcher activa al especialista correcto segun la intencion: `debugger`, `code-reviewer`, `ui-designer`, etc. |
 | **Hooks endurecidos** | Anti-prompt-injection, recall automatico de notas, log de sesion y sync con el vault — todo enchufado a `settings.json`. |
-| **Panel desktop** | Tauri 2 + React 19 con 15 pestañas para memoria, skills, hooks, planes, sesiones, costes y MCPs. |
+| **Panel desktop** | Tauri 2 + React 19 con 16 pestañas para memoria, skills, hooks, planes, sesiones, costes y MCPs. |
 
 **Filosofia.** Archivos de texto plano. Todo opt-in. Cero SaaS. Cero telemetria externa. No hay backend en la nube. Arranca piezas, forkealas o edita el JSON a mano — el sistema esta pensado para desmontarse.
 
@@ -191,7 +191,7 @@ El installer es **idempotente** — puedes ejecutarlo varias veces sin miedo; de
 | **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, recall semantico opcional con Qdrant, decay surfacing |
 | **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
-| **Cockpit** | 15 pestañas: Dashboard, Memory, Skills, Plans, Sessions, Costs, MCPs, Personal, Hooks, System, Settings, Newsletter, Backups, Schedules, Diagnostics |
+| **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks |
 | **Dual-mode** | Peer review opcional con Codex CLI + delegacion long-context con Gemini CLI, ambos via suscripcion |
 | **Seguridad** | Scanner anti-prompt-injection, carpeta de cuarentena, allow-list IPC en Tauri |
 | **Privacidad** | Sin telemetria, sin llamadas externas sin accion del usuario, el vault es tuyo |
@@ -282,7 +282,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 | Release | Estado | Highlights |
 |---|---|---|
-| **v15.2** | Actual | Cockpit con 15 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core, dual-mode v2 via CLIs de suscripcion |
+| **v15.2** | Actual | Control Center con 16 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core, dual-mode v2 via CLIs de suscripcion |
 | **v15.3** | Siguiente | Capa anti-alucinacion, bus de eventos cross-session, supervisor daemon |
 | **v16** | Futuro | Pipeline DAG, overnight loop, mobile companion PWA, expansion multi-plataforma |
 

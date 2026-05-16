@@ -71,7 +71,7 @@ ULTRON is a **local command center** layered on top of the official [Claude Code
 | **Hierarchical memory** | Four layers (L0 hot context to L3 remote mirror) so Claude resumes on the same page after every reboot. |
 | **Personas & skills** | A dispatcher activates the right specialist by intent — `debugger`, `code-reviewer`, `ui-designer`, etc. |
 | **Hardened hooks** | Anti-prompt-injection, note auto-recall, session logging and vault sync, wired into `settings.json`. |
-| **Desktop cockpit** | Tauri 2 + React 19 with 15 tabs for memory, skills, hooks, plans, sessions, costs and MCPs. |
+| **Desktop Control Center** | Tauri 2 + React 19 with 16 tabs for memory, skills, hooks, plans, sessions, costs and MCPs. |
 
 **Philosophy.** Plain text files. Everything opt-in. Zero SaaS. Zero external telemetry. No cloud backend. Rip pieces out, fork them, or hand-edit the JSON — the system is designed to be taken apart.
 
@@ -190,7 +190,7 @@ The installer is **idempotent** — rerun it any time; it detects what is alread
 | **Memory** | L0-L3 hierarchy, SQLite FTS5 index, optional Qdrant semantic recall, decay surfacing |
 | **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — all auditable |
-| **Cockpit** | 15 tabs: Dashboard, Memory, Skills, Plans, Sessions, Costs, MCPs, Personal, Hooks, System, Settings, Newsletter, Backups, Schedules, Diagnostics |
+| **Control Center** | 16 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks |
 | **Dual-mode** | Optional Codex CLI peer review + Gemini CLI long-context delegation, both subscription-only |
 | **Security** | Anti-prompt-injection scanner, quarantine folder, Tauri IPC allow-list |
 | **Privacy** | No telemetry, no external calls without user action, vault is yours |
@@ -281,7 +281,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 | Release | Status | Highlights |
 |---|---|---|
-| **v15.2** | Current | Cockpit with 15 tabs, L0-L3 memory, hardened hooks, 12 core skills, dual-mode v2 via subscription CLIs |
+| **v15.2** | Current | Control Center with 16 tabs, L0-L3 memory, hardened hooks, 12 core skills, dual-mode v2 via subscription CLIs |
 | **v15.3** | Next | Anti-hallucination layer, cross-session event bus, supervisor daemon |
 | **v16** | Future | Pipeline DAG, overnight loop, mobile companion PWA, multi-platform expansion |
 
