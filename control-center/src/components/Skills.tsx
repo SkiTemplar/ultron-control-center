@@ -328,46 +328,25 @@ function Preview({
     setAiBusy(true);
     setError(null);
     try {
-      // Spawn a Claude session in ~/.claude/skills/<name>/ with a prompt
-      // that loads SKILL.md and applies the user's instruction. We use the
-      // skill folder so Claude's auto-discovery picks up SKILL.md and any
-      // sibling files (mode-*.md, references/, etc.) without us reading
-      // them ourselves. The session lives in wt.exe so the user can iterate
-      // turn-by-turn (Claude proposes a diff, user accepts / refines).
-      const promptText = [
-        `Quiero editar este skill (~/.claude/skills/${skill.name}/SKILL.md).`,
-        "",
-        "Instrucción:",
-        aiInstruction.trim(),
-        "",
-        "Lee primero el SKILL.md actual y los archivos hermanos si son relevantes. Propon el cambio como diff antes de escribir. Mantén el frontmatter YAML válido.",
-      ].join("\n");
+      // v15.2.40: prompt + provider/model/agent come from the central
+      // catalog (key "skills.edit_with_ai", zone "skill_edit"). The
+      // catalog template already references {skill_name} + {ai_instruction}
+      // so we just supply the vars. Auto-mode picks the best subagent
+      // (e.g. refactoring-specialist) via embed_agents.py query.
       const skillDir =
         skill.path ?? joinPath(await getHomeDir(), ".claude", "skills", skill.name);
-      // v15.2 AI Router: the "skill_edit" zone decides provider + model.
-      // Default zone provider is claude (best at preserving SKILL.md
-      // structure / YAML frontmatter). On any router error we fall back
-      // to the previous hardcoded "claude" so the button keeps working.
-      type Zone = { provider: string; model: string | null };
-      let zone: Zone = { provider: "claude", model: null };
-      try {
-        const cfg = (await invoke("read_ai_router")) as Record<string, Zone>;
-        if (cfg && cfg.skill_edit) zone = cfg.skill_edit;
-      } catch {
-        // keep default
-      }
-      await invoke("spawn_session", {
-        provider: zone.provider,
-        prompt: promptText,
-        cwd: skillDir,
-        flags: {
-          dangerouslySkipPermissions: false,
-          model: zone.model ?? undefined,
+      const { resolveAndSpawn } = await import("../lib/button-prompts");
+      await resolveAndSpawn({
+        key: "skills.edit_with_ai",
+        vars: {
+          skill_name: skill.name,
+          ai_instruction: aiInstruction.trim(),
         },
+        cwd: skillDir,
       });
       setMode("view");
       setAiInstruction("");
-      flash("Claude session abierta en wt.exe para editar este skill.");
+      flash("AI session abierta en wt.exe para editar este skill.");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1061,16 +1040,16 @@ export function Skills() {
                     const instr = (await invoke("instruction_path", {
                       kind: "skills",
                     })) as string;
-                    // v15.2: prompt comes from the central catalog
-                    // (key "skills.create_with_ai"). Editable via
-                    // Settings → Button prompts.
-                    const { getPrompt } = await import("../lib/button-prompts");
-                    const prompt = await getPrompt("skills.create_with_ai");
-                    await invoke("spawn_session", {
-                      provider: "claude",
-                      prompt,
+                    // v15.2.40: prompt + provider/model/agent come from
+                    // the central catalog (key "skills.create_with_ai")
+                    // and the `skill_create` AI Router zone. Auto-mode
+                    // picks the best subagent via embed_agents.py query.
+                    const { resolveAndSpawn } = await import(
+                      "../lib/button-prompts"
+                    );
+                    await resolveAndSpawn({
+                      key: "skills.create_with_ai",
                       cwd: instr,
-                      flags: { dangerouslySkipPermissions: false },
                     });
                   } catch (e) {
                     console.error("create skill with AI failed", e);
@@ -1081,7 +1060,7 @@ export function Skills() {
                   background: "var(--color-accent)",
                   color: "var(--color-accent-text)",
                 }}
-                title="Sesión Claude con cwd=instructions/skills/ y GUIDE.md auto-cargado"
+                title="Provider / model / agent vienen de Settings → AI Router (zona: skill_create). cwd=instructions/skills/ con GUIDE.md auto-cargado."
               >
                 AI
               </button>

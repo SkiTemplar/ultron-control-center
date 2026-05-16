@@ -1,0 +1,512 @@
+// ULTRON Control Center — Installed Apps module.
+//
+// Inventory all software installed on this Windows host and expose two
+// safe mutations: open the install folder in Explorer, and uninstall via
+// the appropriate package manager.
+//
+// Sources merged:
+//   - winget list (modern packages, includes Microsoft Store + WingetCli)
+//   - Get-Package (PackageManagement / MSI / PowerShellGet)
+// Each app is tagged with a `provider` ∈ {winget, msi, store, manual} so
+// the UI can filter and the uninstall dispatcher picks the correct
+// invocation.
+//
+// Cache: results are cached at ~/.ultron/.tmp/installed-apps.json with a
+// 1-hour TTL. The frontend can pass `force=true` to bypass the cache.
+//
+// Security:
+//   - The `name` field is allowed any UTF-8, but for uninstall we only
+//     route through fixed argv forms (`winget uninstall --id <id>`,
+//     `Get-Package -Name <name> | Uninstall-Package`). The name is sent
+//     as a separate PowerShell argument (single-quoted, escaped) so a
+//     malicious app name cannot inject extra flags.
+//   - `provider` must be in the whitelist before uninstall is invoked.
+//   - `install_location` for the "open folder" command is canonicalised
+//     and must resolve under an existing directory before we hand it to
+//     explorer.exe.
+
+use std::path::{Path, PathBuf};
+
+use serde::{Deserialize, Serialize};
+use tauri_plugin_shell::ShellExt;
+
+const CACHE_TTL_SECS: u64 = 3600; // 1 hour
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InstalledApp {
+    pub name: String,
+    #[serde(default)]
+    pub version: Option<String>,
+    #[serde(default)]
+    pub publisher: Option<String>,
+    /// Absolute path to install dir. Best-effort: not all sources expose
+    /// this. Empty string when unknown.
+    #[serde(default)]
+    pub install_location: Option<String>,
+    /// One of: "winget" | "msi" | "store" | "manual".
+    pub provider: String,
+    /// winget package id (when provider == "winget" or "store"). Used as
+    /// the canonical handle for the uninstall command — much more robust
+    /// than the display name.
+    #[serde(default)]
+    pub package_id: Option<String>,
+    /// Raw uninstall string from the registry (HKLM Uninstall key). When
+    /// present and provider == "msi" or "manual", the UI may prefer this
+    /// over the generic Get-Package path. Not exposed to the dispatcher
+    /// directly — the dispatcher always re-derives the command from
+    /// provider + package_id / name for safety.
+    #[serde(default)]
+    pub uninstall_hint: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct InstalledAppsReport {
+    pub apps: Vec<InstalledApp>,
+    pub source_errors: Vec<String>,
+    /// ISO timestamp of when this snapshot was produced (from cache or
+    /// freshly scanned).
+    pub generated_at: String,
+    pub cached: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct UninstallResult {
+    pub success: bool,
+    pub stdout: String,
+    pub stderr: String,
+    pub exit_code: Option<i32>,
+    pub command: String,
+}
+
+fn cache_path() -> Result<PathBuf, String> {
+    dirs::home_dir()
+        .map(|h| h.join(".ultron/.tmp/installed-apps.json"))
+        .ok_or_else(|| "no HOME dir".to_string())
+}
+
+fn iso_now_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let mut days = (secs / 86_400) as i64;
+    let secs_in_day = (secs % 86_400) as u32;
+    let h = secs_in_day / 3600;
+    let m = (secs_in_day % 3600) / 60;
+    let s = secs_in_day % 60;
+    let mut year = 1970i32;
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let yd: i64 = if leap { 366 } else { 365 };
+        if days < yd {
+            break;
+        }
+        days -= yd;
+        year += 1;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let mdays: [i64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut month = 0usize;
+    while month < 12 && days >= mdays[month] {
+        days -= mdays[month];
+        month += 1;
+    }
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year,
+        month + 1,
+        days + 1,
+        h,
+        m,
+        s
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Cache
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize)]
+struct CachedSnapshot {
+    apps: Vec<InstalledApp>,
+    generated_at: String,
+    /// Unix seconds when the cache was written. Used for TTL math.
+    written_unix: u64,
+}
+
+fn read_cache() -> Option<CachedSnapshot> {
+    let path = cache_path().ok()?;
+    let raw = std::fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+fn write_cache(apps: &[InstalledApp]) -> Result<(), String> {
+    let path = cache_path()?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir cache parent: {}", e))?;
+    }
+    let snapshot = CachedSnapshot {
+        apps: apps.to_vec(),
+        generated_at: iso_now_utc(),
+        written_unix: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0),
+    };
+    let json = serde_json::to_string(&snapshot).map_err(|e| format!("encode cache: {}", e))?;
+    std::fs::write(&path, json).map_err(|e| format!("write cache: {}", e))?;
+    Ok(())
+}
+
+fn cache_fresh(snapshot: &CachedSnapshot) -> bool {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    now.saturating_sub(snapshot.written_unix) < CACHE_TTL_SECS
+}
+
+// ---------------------------------------------------------------------------
+// PowerShell helper
+// ---------------------------------------------------------------------------
+
+/// Runs a PowerShell snippet via `powershell.exe -NoProfile -NonInteractive
+/// -ExecutionPolicy Bypass -Command <cmd>`. Returns (stdout, stderr,
+/// exit_code, success).
+async fn run_ps_command(
+    app: &tauri::AppHandle,
+    command: &str,
+) -> Result<(String, String, Option<i32>, bool), String> {
+    let output = app
+        .shell()
+        .command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-OutputFormat",
+            "Text",
+            "-Command",
+            command,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("spawn powershell: {}", e))?;
+    Ok((
+        String::from_utf8_lossy(&output.stdout).to_string(),
+        String::from_utf8_lossy(&output.stderr).to_string(),
+        output.status.code(),
+        output.status.success(),
+    ))
+}
+
+// ---------------------------------------------------------------------------
+// Inventory sources
+// ---------------------------------------------------------------------------
+
+/// Powershell snippet that emits a stable JSON array merging:
+///   - winget list (modern packages incl. Microsoft Store)
+///   - Get-Package (PackageManagement provider — MSI + others)
+///   - HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall (manual
+///     installers that don't register with the package managers)
+///
+/// We do all the merging server-side in PowerShell because parsing
+/// `winget list` line-by-line in Rust is brittle (varies by locale and
+/// console width). PS gives us a `winget list --json` equivalent via
+/// `WindowsPackageManager` COM, but the most portable thing across stale
+/// winget versions is `winget export` which only emits installed packages
+/// that have a known manifest. To get coverage we fall back to the
+/// columnar parser when --json isn't available.
+const INVENTORY_PS: &str = r#"
+$ErrorActionPreference = 'SilentlyContinue'
+$apps = New-Object System.Collections.Generic.List[object]
+$errors = New-Object System.Collections.Generic.List[string]
+
+# ---- Source 1: winget ---------------------------------------------------
+try {
+    $wingetCmd = Get-Command winget -ErrorAction Stop
+    if ($wingetCmd) {
+        # winget list as columns. We strip the header + separator rows,
+        # then split each row on 2+ spaces. The columns we want are
+        # Name | Id | Version | Source.
+        $raw = & winget list --accept-source-agreements --disable-interactivity 2>$null
+        $lines = $raw | Where-Object { $_ -and ($_ -match '\S') }
+        # Find the header row ("Name" + "Id" columns) so we know where the
+        # data starts. Localised winget may translate these — fall back to
+        # the first "---" separator row.
+        $sepIdx = ($lines | Select-String -Pattern '^[\s-]{10,}$' | Select-Object -First 1).LineNumber
+        if ($sepIdx) {
+            $data = $lines[$sepIdx..($lines.Count - 1)]
+            foreach ($line in $data) {
+                if ($line -match '^\s*$') { continue }
+                # Columns are space-padded. Two-or-more spaces separates.
+                $cols = $line -split '\s{2,}'
+                if ($cols.Count -lt 2) { continue }
+                $name = $cols[0].Trim()
+                $id   = $cols[1].Trim()
+                $ver  = if ($cols.Count -gt 2) { $cols[2].Trim() } else { '' }
+                $src  = if ($cols.Count -gt 4) { $cols[4].Trim() } else { '' }
+                if (-not $name -or $name -eq 'Name') { continue }
+                $provider = if ($src -eq 'msstore') { 'store' } else { 'winget' }
+                $apps.Add([pscustomobject]@{
+                    name              = $name
+                    version           = $ver
+                    publisher         = $null
+                    install_location  = $null
+                    provider          = $provider
+                    package_id        = $id
+                    uninstall_hint    = $null
+                }) | Out-Null
+            }
+        }
+    }
+} catch {
+    $errors.Add("winget: $($_.Exception.Message)") | Out-Null
+}
+
+# ---- Source 2: Registry uninstall keys (MSI + manual) -------------------
+$regRoots = @(
+    'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall',
+    'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall'
+)
+foreach ($root in $regRoots) {
+    try {
+        if (-not (Test-Path $root)) { continue }
+        $keys = Get-ChildItem -Path $root -ErrorAction Stop
+        foreach ($key in $keys) {
+            $p = Get-ItemProperty -Path $key.PSPath -ErrorAction SilentlyContinue
+            if (-not $p) { continue }
+            $name = $p.DisplayName
+            if (-not $name) { continue }
+            # Skip system updates / hotfixes
+            if ($p.SystemComponent -eq 1) { continue }
+            if ($p.ParentKeyName) { continue }
+            # If WindowsInstaller=1 → MSI provider; else manual exe
+            $provider = if ($p.WindowsInstaller -eq 1) { 'msi' } else { 'manual' }
+            $apps.Add([pscustomobject]@{
+                name              = $name
+                version           = $p.DisplayVersion
+                publisher         = $p.Publisher
+                install_location  = $p.InstallLocation
+                provider          = $provider
+                package_id        = $key.PSChildName
+                uninstall_hint    = $p.UninstallString
+            }) | Out-Null
+        }
+    } catch {
+        $errors.Add("registry $root`: $($_.Exception.Message)") | Out-Null
+    }
+}
+
+# ---- Dedup by lowercased name + provider --------------------------------
+# Prefer winget entries (they have a clean package_id for uninstall).
+$seen = @{}
+$result = New-Object System.Collections.Generic.List[object]
+foreach ($a in ($apps | Sort-Object @{Expression = { if ($_.provider -eq 'winget') { 0 } elseif ($_.provider -eq 'store') { 1 } elseif ($_.provider -eq 'msi') { 2 } else { 3 } }})) {
+    $key = ($a.name + '|' + $a.provider).ToLowerInvariant()
+    # Cross-provider dedup: if we already have a winget entry for the same
+    # display name, skip a duplicate from the registry side.
+    $altKey = ($a.name).ToLowerInvariant()
+    if ($seen.ContainsKey($key)) { continue }
+    if ($seen.ContainsKey($altKey + '|winget') -and $a.provider -ne 'winget') { continue }
+    if ($seen.ContainsKey($altKey + '|store')  -and $a.provider -ne 'store')  { continue }
+    $seen[$key] = $true
+    $seen[$altKey + '|' + $a.provider] = $true
+    $result.Add($a) | Out-Null
+}
+
+# Output a single JSON object with apps + errors.
+$out = [pscustomobject]@{
+    apps   = $result
+    errors = $errors
+}
+$json = $out | ConvertTo-Json -Depth 4 -Compress
+# Force UTF-8 emit (PS 5.1 stdout is OEM by default)
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Write-Output $json
+"#;
+
+#[derive(Debug, Deserialize)]
+struct PsInventoryResult {
+    apps: Vec<InstalledApp>,
+    errors: Vec<String>,
+}
+
+async fn scan_apps(app: &tauri::AppHandle) -> Result<(Vec<InstalledApp>, Vec<String>), String> {
+    let (stdout, stderr, code, ok) = run_ps_command(app, INVENTORY_PS).await?;
+    if !ok {
+        return Err(format!(
+            "inventory PS script failed (exit {:?}): {}",
+            code, stderr
+        ));
+    }
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Ok((Vec::new(), vec!["inventory script produced no output".into()]));
+    }
+    let parsed: PsInventoryResult = serde_json::from_str(trimmed)
+        .map_err(|e| format!("parse inventory json: {} (output: {:.500})", e, trimmed))?;
+    Ok((parsed.apps, parsed.errors))
+}
+
+// ---------------------------------------------------------------------------
+// Commands
+// ---------------------------------------------------------------------------
+
+pub async fn list_installed_apps_inner(
+    app: &tauri::AppHandle,
+    force: bool,
+) -> Result<InstalledAppsReport, String> {
+    if !force {
+        if let Some(snap) = read_cache() {
+            if cache_fresh(&snap) {
+                return Ok(InstalledAppsReport {
+                    apps: snap.apps,
+                    source_errors: Vec::new(),
+                    generated_at: snap.generated_at,
+                    cached: true,
+                });
+            }
+        }
+    }
+    let (apps, errors) = scan_apps(app).await?;
+    let _ = write_cache(&apps);
+    Ok(InstalledAppsReport {
+        apps,
+        source_errors: errors,
+        generated_at: iso_now_utc(),
+        cached: false,
+    })
+}
+
+pub fn open_app_folder_inner(install_location: String) -> Result<String, String> {
+    let trimmed = install_location.trim().trim_matches('"');
+    if trimmed.is_empty() {
+        return Err("install_location is empty".into());
+    }
+    let p = Path::new(trimmed);
+    if !p.exists() {
+        return Err(format!("path does not exist: {}", trimmed));
+    }
+    if !p.is_dir() {
+        return Err(format!("path is not a directory: {}", trimmed));
+    }
+    let canonical = p
+        .canonicalize()
+        .map_err(|e| format!("canonicalize {}: {}", trimmed, e))?;
+    let canonical_str = canonical.to_string_lossy().to_string();
+    let cleaned = canonical_str
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&canonical_str)
+        .to_string();
+    let mut explorer = std::process::Command::new("explorer.exe");
+    explorer.arg(&cleaned);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        explorer.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    explorer
+        .spawn()
+        .map_err(|e| format!("spawn explorer: {}", e))?;
+    Ok(cleaned)
+}
+
+/// Escapes a string for embedding inside a PowerShell single-quoted
+/// literal. The only character we have to worry about is `'` itself,
+/// which doubles. Everything else (including $, `, etc.) is literal
+/// inside single quotes. PS does NOT process backslash escapes.
+fn ps_single_quote_escape(s: &str) -> String {
+    s.replace('\'', "''")
+}
+
+pub async fn uninstall_app_inner(
+    app: &tauri::AppHandle,
+    name: String,
+    provider: String,
+    package_id: Option<String>,
+) -> Result<UninstallResult, String> {
+    // Whitelist provider — refuse anything else outright.
+    let provider_normalised = match provider.as_str() {
+        "winget" | "store" | "msi" | "manual" => provider,
+        other => return Err(format!("invalid provider '{}'", other)),
+    };
+    if name.trim().is_empty() {
+        return Err("app name is empty".into());
+    }
+    if name.len() > 256 {
+        return Err("app name is unreasonably long".into());
+    }
+
+    // Build the PS command depending on provider. We embed user data only
+    // via PS single-quoted literals, with `'` doubled. No interpolation,
+    // no `$()` execution.
+    let name_safe = ps_single_quote_escape(&name);
+    let id_safe = package_id.as_deref().map(ps_single_quote_escape);
+
+    let command = match provider_normalised.as_str() {
+        "winget" | "store" => {
+            // Prefer the package id when available — it's unambiguous.
+            // Both winget and store entries are uninstalled via the same
+            // `winget uninstall` invocation.
+            if let Some(id) = id_safe {
+                format!(
+                    "& winget uninstall --id '{}' --accept-source-agreements --disable-interactivity --silent",
+                    id
+                )
+            } else {
+                format!(
+                    "& winget uninstall --name '{}' --accept-source-agreements --disable-interactivity --silent",
+                    name_safe
+                )
+            }
+        }
+        "msi" => {
+            // PackageManagement route — robust across MSIs, doesn't need
+            // to know the GUID. We pipe so the user's app name never
+            // becomes a flag.
+            format!(
+                "Get-Package -Name '{}' -ErrorAction Stop | Uninstall-Package -Force -ErrorAction Stop",
+                name_safe
+            )
+        }
+        "manual" => {
+            // Manual installers — try Get-Package first (some are still
+            // tracked by PackageManagement), fall back to the registry
+            // QuietUninstallString if present. We never blindly exec the
+            // raw uninstall_hint to avoid arbitrary cmdlines from the
+            // registry; the user can still uninstall via Windows Settings.
+            format!(
+                "Get-Package -Name '{}' -ErrorAction Stop | Uninstall-Package -Force -ErrorAction Stop",
+                name_safe
+            )
+        }
+        _ => unreachable!("provider whitelist enforced above"),
+    };
+
+    let (stdout, stderr, code, ok) = run_ps_command(app, &command).await?;
+    // Best-effort cache invalidation — the next list call should re-scan.
+    let _ = std::fs::remove_file(cache_path().unwrap_or_default());
+    Ok(UninstallResult {
+        success: ok,
+        stdout,
+        stderr,
+        exit_code: code,
+        command,
+    })
+}

@@ -142,6 +142,87 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             &[],
             "Busca agentes Claude Code útiles publicados en GitHub (anthropics/claude-code-templates, voltagent/awesome-claude-code-subagents, addyosmani/agent-skills, anthropic-cookbook). Lista 8-12 agentes con:\n- nombre (slug kebab-case)\n- una línea de descripción\n- URL del archivo .md raw en GitHub\n- por qué es útil\n\nDespués pregúntame cuáles quiero instalar y los descargas a ~/.claude/agents/<name>.md. Mantén el formato YAML frontmatter intacto.",
         ),
+        // ─── v15.2.40 batch — wiring AI Router across every remaining button.
+        default_button(
+            "memory.new_note_ai",
+            "Memory · New note with AI",
+            "Memory / list header",
+            "Spawns a Claude session in ~/.ultron/instructions/memory so the \
+             user can draft a new vault note guided by GUIDE.md.",
+            "memory_analyse",
+            &[],
+            "Vamos a escribir una nueva nota para el vault Obsidian (~/.ultron-vault). Lee el GUIDE.md de esta carpeta para conocer la estructura PARA (10_KNOWLEDGE, 20_PROJECTS...), frontmatter requerido y convenciones. Pregúntame el tema, propon ubicación y título, escribe la nota y luego corre brain_index.py update + embed_vault.py index.",
+        ),
+        default_button(
+            "notif.fix_one",
+            "Notifications · Fix one alert",
+            "Notifications / per-row button",
+            "Opens a session preloaded with a single alert's metadata so the \
+             user can investigate the root cause and propose a fix.",
+            "notif_fix",
+            &["alert_block"],
+            "I just got a CRITICAL ULTRON notification:\n\n{alert_block}\n\nPlease investigate the root cause and propose a fix. The relevant files are likely under ~/.ultron/scripts/ or ~/.ultron/control-center/. If this is a security scan blocking a skill, check the skill's SKILL.md frontmatter and the security ruleset at ~/.ultron/scripts/cockpit/skill_sync_security.py.",
+        ),
+        default_button(
+            "notif.fix_all",
+            "Notifications · Fix all alerts",
+            "Notifications / header bulk button",
+            "Opens a single session preloaded with every actionable alert \
+             (critical + warn) for a coordinated fix.",
+            "notif_fix",
+            &["bulk_block"],
+            "I'm getting multiple ULTRON notifications. Please investigate ALL of them and propose fixes. Group related ones if applicable, prioritize critical over warn.\n\n{bulk_block}\n\nPlease:\n1. Identify the root cause(s) — are these symptoms of one underlying issue?\n2. Propose a coordinated fix sequence.\n3. Start by reading scripts/cockpit/skill_sync_security.py if security warns are involved, and ~/.ultron/alerts.jsonl for the full context.",
+        ),
+        default_button(
+            "plans.brainstorm",
+            "Plans · AI brainstorm",
+            "Plans / header AI Brainstorm button",
+            "Seeds an interactive Claude/Codex session with a brainstorming \
+             prompt that converges on a plans JSON ready for `ultron plans add`.",
+            "brainstorm_plans",
+            &[],
+            "Vamos a hacer brainstorming de un nuevo plan para ULTRON.\n\nPregúntame qué quiero conseguir, refina alcance iterando conmigo, propón sub-tareas concretas, y al final genera el JSON de `ultron plans add` listo para ejecutar (o varios bloques si salen varios planes). Esquema:\n\n{\n  \"title\": \"imperativo, <80 chars\",\n  \"priority\": \"p0..p4\",\n  \"kind\": \"task|sprint|patch|bug|research|audit\",\n  \"status\": \"open\",\n  \"description\": \"1-2 párrafos\",\n  \"tags\": [\"...\"]\n}\n\nLee ~/.ultron/instructions/plans/GUIDE.md antes de empezar para no inventar campos.",
+        ),
+        default_button(
+            "plans.resolve_one",
+            "Plans · Open resolution session",
+            "Plans / row → resolve",
+            "Preloads a Claude session with one plan's metadata so the user \
+             can refine the spec or push it to in_progress / resolved.",
+            "brainstorm_plans",
+            &["plan_id", "plan_title", "plan_status", "plan_priority", "plan_description"],
+            "Plan ID: {plan_id}\nTitle: {plan_title}\nStatus: {plan_status}\nPriority: {plan_priority}\n\nDescription:\n{plan_description}\n\nQuiero trabajar en este plan. Lee primero el spec si existe en plans/specs/, después propon el plan de ejecución dividido en tareas pequeñas y empieza por la primera.",
+        ),
+        default_button(
+            "selfimprove.repo_evaluator",
+            "SelfImprove · Run repo-evaluator",
+            "SelfImprove / RepoEvaluatorCard",
+            "Spawns a Claude session that activates the repo-evaluator skill \
+             for a strict professor-style review of the ULTRON repo.",
+            "self_improve",
+            &[],
+            "repo-evaluator, evalua este repo (~/.ultron) al estilo de un profesor estricto: arquitectura, tests, docs, riesgos, dependencias, y dame nota final con justificacion. Empieza por la fase 0 de inventario.",
+        ),
+        default_button(
+            "system.schedule_task_ai",
+            "System · New scheduled task with AI",
+            "System / scheduled-tasks header",
+            "Opens a Claude session in instructions/tasks so the user can \
+             register a new Windows scheduled task following the ULTRON convention.",
+            "system_analyse",
+            &[],
+            "Vamos a registrar una nueva scheduled task de Windows. Lee el GUIDE.md de esta carpeta para conocer la convención (prefix ULTRON-, wrapper PowerShell, exit-swallow, log en cockpit/scheduler-logs/). Después pregúntame qué quiero programar y prepara el New-ScheduledTaskAction completo, lo registramos y validamos con Get-ScheduledTaskInfo.",
+        ),
+        default_button(
+            "usage.refresh_with_claude",
+            "Usage · Refresh via /usage",
+            "Usage / header refresh-with-AI",
+            "Spawns a Claude session that runs the `/usage` slash command \
+             so the local cache is refreshed against the Anthropic API.",
+            "usage_analyse",
+            &[],
+            "/usage",
+        ),
     ]
 }
 

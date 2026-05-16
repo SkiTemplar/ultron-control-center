@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import type { AgentInfo, SettingsSaveResult, SettingsSnapshot } from "../types";
 import { AuthStatus } from "./AuthStatus";
 import { ModeSwitcher, useUltronMode } from "./ModeSwitcher";
@@ -484,6 +486,12 @@ type AiRouterEntry = {
   // `[USE AGENT: <slug>]` to the prompt. The backend treats empty string
   // as invalid on save, so the UI maps "(none)" → null before persisting.
   agent: string | null;
+  // v15.2.40: when true, the frontend ignores the explicit
+  // provider/model/agent at dispatch time and asks the agents Qdrant
+  // index (`embed_agents.py query`) to pick the best subagent for the
+  // prompt. Falls back to the manual config if the index is unavailable
+  // or no agent scores above the confidence threshold.
+  auto_mode?: boolean;
 };
 
 type AiRouterConfig = {
@@ -669,7 +677,8 @@ function AiRouterSection() {
       return (
         a.provider !== b.provider ||
         (a.model ?? null) !== (b.model ?? null) ||
-        (a.agent ?? null) !== (b.agent ?? null)
+        (a.agent ?? null) !== (b.agent ?? null) ||
+        (a.auto_mode ?? false) !== (b.auto_mode ?? false)
       );
     });
   }, [config, draft]);
@@ -709,6 +718,18 @@ function AiRouterSection() {
       agent: agent === "" ? null : agent,
     };
     setDraft({ ...draft, [key]: next });
+  }
+
+  function updateAutoMode(key: keyof AiRouterConfig, auto: boolean) {
+    if (!draft) return;
+    // Auto-mode is orthogonal to the manual picks — we keep them so the user
+    // can toggle back without losing their config. The backend resolver in
+    // `resolve_zone_for_prompt` is the single place that interprets the
+    // flag and decides between "use manual" vs. "query the agents index".
+    setDraft({
+      ...draft,
+      [key]: { ...draft[key], auto_mode: auto },
+    });
   }
 
   return (
@@ -782,103 +803,151 @@ function AiRouterSection() {
               border: "1px solid var(--color-border)",
             }}
           >
-            {AI_ROUTER_ZONES.map((z, i) => (
-              <div
-                key={z.key}
-                className="flex items-start gap-4 px-3 py-3"
-                style={{
-                  borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
-                }}
-              >
-                <div className="min-w-0 flex-1">
-                  <div
-                    className="text-[12.5px] font-medium"
-                    style={{ color: "var(--color-text)" }}
-                  >
-                    {z.label}
+            {AI_ROUTER_ZONES.map((z, i) => {
+              const autoMode = draft[z.key].auto_mode ?? false;
+              return (
+                <div
+                  key={z.key}
+                  className="flex items-start gap-4 px-3 py-3"
+                  style={{
+                    borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
+                  }}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="text-[12.5px] font-medium"
+                      style={{ color: "var(--color-text)" }}
+                    >
+                      {z.label}
+                    </div>
+                    <p
+                      className="mt-0.5 text-[11px] leading-relaxed"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {z.help}
+                    </p>
                   </div>
-                  <p
-                    className="mt-0.5 text-[11px] leading-relaxed"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    {z.help}
-                  </p>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <label
+                      className="flex shrink-0 cursor-pointer items-center gap-1.5 rounded px-2 py-1 text-[11.5px]"
+                      style={{
+                        background: autoMode
+                          ? "rgba(88, 166, 255, 0.10)"
+                          : "var(--color-surface-1)",
+                        color: autoMode
+                          ? "rgb(88, 166, 255)"
+                          : "var(--color-text-tertiary)",
+                        border: `1px solid ${autoMode ? "rgba(88, 166, 255, 0.45)" : "var(--color-border-strong)"}`,
+                        fontFamily: "var(--font-mono)",
+                      }}
+                      title={
+                        "Auto-mode: ignora los selectores de la derecha y deja " +
+                        "que ULTRON elija el subagent automáticamente según el " +
+                        "contenido del prompt. Usa embed_agents.py query " +
+                        "(Qdrant) y exige score ≥ 0.50; si falla o el match " +
+                        "es flojo, vuelve al provider/model/agent manual sin " +
+                        "error visible. Provider efectivo = claude cuando " +
+                        "auto-mode acierta (necesario para la directiva " +
+                        "[USE AGENT: <slug>])."
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={autoMode}
+                        onChange={(e) => updateAutoMode(z.key, e.target.checked)}
+                        disabled={saving}
+                        style={{ accentColor: "rgb(88, 166, 255)" }}
+                      />
+                      auto
+                    </label>
+                    <select
+                      value={draft[z.key].provider}
+                      onChange={(e) =>
+                        updateProvider(z.key, e.target.value as AiProvider)
+                      }
+                      disabled={saving || autoMode}
+                      className="rounded px-2 py-1 text-[12px]"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        outline: "none",
+                        fontFamily: "var(--font-mono)",
+                        minWidth: 110,
+                        opacity: autoMode ? 0.45 : 1,
+                      }}
+                      title={
+                        autoMode
+                          ? "Auto-mode activo — esta selección se ignora y se vuelve a usar solo como fallback."
+                          : `Provider para ${z.label}`
+                      }
+                    >
+                      {AI_PROVIDERS.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={draft[z.key].model ?? ""}
+                      onChange={(e) => updateModel(z.key, e.target.value)}
+                      disabled={saving || autoMode}
+                      className="rounded px-2 py-1 text-[12px]"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        outline: "none",
+                        fontFamily: "var(--font-mono)",
+                        minWidth: 170,
+                        opacity: autoMode ? 0.45 : 1,
+                      }}
+                      title={
+                        autoMode
+                          ? "Auto-mode usa el modelo preferido del agent elegido (frontmatter `model`)."
+                          : `Modelo para ${z.label} (vacío = default del provider)`
+                      }
+                    >
+                      <option value="">default</option>
+                      {MODEL_OPTIONS[draft[z.key].provider].map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      value={draft[z.key].agent ?? ""}
+                      onChange={(e) => updateAgent(z.key, e.target.value)}
+                      disabled={saving || autoMode}
+                      className="rounded px-2 py-1 text-[12px]"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        outline: "none",
+                        fontFamily: "var(--font-mono)",
+                        minWidth: 170,
+                        opacity: autoMode ? 0.45 : 1,
+                      }}
+                      title={
+                        autoMode
+                          ? "Auto-mode elige el agent vía embed_agents.py query."
+                          : draft[z.key].provider === "claude"
+                          ? `Subagent para ${z.label} ((none) = ninguno). Solo se aplica a sesiones Claude.`
+                          : `Subagent para ${z.label} — ${draft[z.key].provider} ignora la directiva, solo Claude la interpreta.`
+                      }
+                    >
+                      <option value="">(none)</option>
+                      {agents.map((ag) => (
+                        <option key={ag.name} value={ag.name}>
+                          {ag.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <select
-                    value={draft[z.key].provider}
-                    onChange={(e) =>
-                      updateProvider(z.key, e.target.value as AiProvider)
-                    }
-                    disabled={saving}
-                    className="rounded px-2 py-1 text-[12px]"
-                    style={{
-                      background: "var(--color-surface-1)",
-                      color: "var(--color-text)",
-                      border: "1px solid var(--color-border-strong)",
-                      outline: "none",
-                      fontFamily: "var(--font-mono)",
-                      minWidth: 110,
-                    }}
-                    title={`Provider para ${z.label}`}
-                  >
-                    {AI_PROVIDERS.map((p) => (
-                      <option key={p} value={p}>
-                        {p}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={draft[z.key].model ?? ""}
-                    onChange={(e) => updateModel(z.key, e.target.value)}
-                    disabled={saving}
-                    className="rounded px-2 py-1 text-[12px]"
-                    style={{
-                      background: "var(--color-surface-1)",
-                      color: "var(--color-text)",
-                      border: "1px solid var(--color-border-strong)",
-                      outline: "none",
-                      fontFamily: "var(--font-mono)",
-                      minWidth: 170,
-                    }}
-                    title={`Modelo para ${z.label} (vacío = default del provider)`}
-                  >
-                    <option value="">default</option>
-                    {MODEL_OPTIONS[draft[z.key].provider].map((m) => (
-                      <option key={m} value={m}>
-                        {m}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    value={draft[z.key].agent ?? ""}
-                    onChange={(e) => updateAgent(z.key, e.target.value)}
-                    disabled={saving}
-                    className="rounded px-2 py-1 text-[12px]"
-                    style={{
-                      background: "var(--color-surface-1)",
-                      color: "var(--color-text)",
-                      border: "1px solid var(--color-border-strong)",
-                      outline: "none",
-                      fontFamily: "var(--font-mono)",
-                      minWidth: 170,
-                    }}
-                    title={
-                      draft[z.key].provider === "claude"
-                        ? `Subagent para ${z.label} ((none) = ninguno). Solo se aplica a sesiones Claude.`
-                        : `Subagent para ${z.label} — ${draft[z.key].provider} ignora la directiva, solo Claude la interpreta.`
-                    }
-                  >
-                    <option value="">(none)</option>
-                    {agents.map((ag) => (
-                      <option key={ag.name} value={ag.name}>
-                        {ag.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="flex items-center justify-end gap-2">
@@ -2445,6 +2514,14 @@ function LifecyclePanel() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  // v15.3 auto-updater state. `pendingUpdate` holds the manifest after a
+  // successful `check()` so the modal can show version + notes and the
+  // user can confirm before bytes are downloaded.
+  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<{
+    downloaded: number;
+    total: number | null;
+  } | null>(null);
 
   async function run(kind: "uninstall" | "update") {
     setBusy(kind);
@@ -2462,6 +2539,76 @@ function LifecyclePanel() {
     } finally {
       setBusy(null);
     }
+  }
+
+  // v15.3 auto-updater. Calls the Tauri updater plugin which:
+  //   1. Hits plugins.updater.endpoints[0] from tauri.conf.json.
+  //   2. Verifies the signature against plugins.updater.pubkey.
+  //   3. Compares remote version vs Cargo.toml version.
+  // If newer, we stash the Update handle and show a confirm modal. The
+  // modal's "Install" button calls downloadAndInstall + relaunch.
+  async function checkForUpdates() {
+    setBusy("check");
+    setError(null);
+    setStatus(null);
+    setPendingUpdate(null);
+    try {
+      const update = await checkForUpdate();
+      if (update) {
+        setPendingUpdate(update);
+      } else {
+        setStatus("You're already on the latest version.");
+      }
+    } catch (e) {
+      setError(`Check failed: ${String(e)}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function installPendingUpdate() {
+    if (!pendingUpdate) return;
+    setBusy("install");
+    setError(null);
+    setStatus(null);
+    setDownloadProgress({ downloaded: 0, total: null });
+    try {
+      let downloaded = 0;
+      let total: number | null = null;
+      await pendingUpdate.downloadAndInstall((event) => {
+        // Plugin emits Started -> Progress* -> Finished. We track bytes for
+        // a tiny progress readout; the installer itself runs after Finished.
+        switch (event.event) {
+          case "Started":
+            total = event.data.contentLength ?? null;
+            setDownloadProgress({ downloaded: 0, total });
+            break;
+          case "Progress":
+            downloaded += event.data.chunkLength;
+            setDownloadProgress({ downloaded, total });
+            break;
+          case "Finished":
+            setDownloadProgress({ downloaded, total });
+            break;
+        }
+      });
+      setStatus("Update installed. Restarting the app…");
+      setPendingUpdate(null);
+      // Tiny delay so the user sees the status before the window vanishes.
+      setTimeout(() => {
+        void relaunch();
+      }, 800);
+    } catch (e) {
+      setError(`Install failed: ${String(e)}`);
+    } finally {
+      setBusy(null);
+      setDownloadProgress(null);
+    }
+  }
+
+  function cancelPendingUpdate() {
+    setPendingUpdate(null);
+    setDownloadProgress(null);
   }
 
   return (
@@ -2503,6 +2650,10 @@ function LifecyclePanel() {
         </div>
       )}
 
+      {/* v15.3 auto-updater: signed-binary path. Talks to GitHub Releases
+          via tauri-plugin-updater. No Rust/Node toolchain required on the
+          user's machine — the binary is downloaded and installed in-place,
+          then the app relaunches. */}
       <div
         className="rounded p-4"
         style={{
@@ -2512,7 +2663,42 @@ function LifecyclePanel() {
       >
         <div className="flex items-baseline justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-[13px] font-semibold">Update</div>
+            <div className="text-[13px] font-semibold">Check for updates</div>
+            <p
+              className="mt-1 text-[11.5px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              Pull the latest signed release from GitHub. No local Rust or
+              Node setup needed — the installer runs in the background and
+              the app restarts itself when done. Use this in preference to
+              the Rebuild path below if you just want the newest version.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void checkForUpdates()}
+            disabled={busy !== null}
+            className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {busy === "check" ? "Checking…" : "Check for updates"}
+          </button>
+        </div>
+      </div>
+
+      <div
+        className="rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border-strong)",
+        }}
+      >
+        <div className="flex items-baseline justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold">Rebuild from source</div>
             <p
               className="mt-1 text-[11.5px]"
               style={{ color: "var(--color-text-secondary)" }}
@@ -2523,6 +2709,7 @@ function LifecyclePanel() {
               control-center/</code>. The current window keeps running;
               relaunch after the new binary appears in
               <code style={{ fontFamily: "var(--font-mono)" }}> src-tauri/target/release/bundle/</code>.
+              Useful when working on a branch that hasn't been released yet.
             </p>
           </div>
           <button
@@ -2531,8 +2718,9 @@ function LifecyclePanel() {
             disabled={busy !== null}
             className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
             style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-primary)",
+              border: "1px solid var(--color-border-strong)",
             }}
           >
             {busy === "update" ? "Opening…" : "Rebuild"}
@@ -2584,6 +2772,89 @@ function LifecyclePanel() {
           </button>
         </div>
       </div>
+
+      {/* v15.3 auto-updater confirm modal. Rendered inline rather than via
+          a Tauri dialog so we can show the changelog snippet from the
+          signed manifest's `notes` field plus a progress readout during
+          downloadAndInstall. */}
+      {pendingUpdate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: "rgba(0, 0, 0, 0.55)" }}
+          onClick={() => {
+            if (busy !== "install") cancelPendingUpdate();
+          }}
+        >
+          <div
+            className="w-[520px] max-w-[92vw] rounded p-5 shadow-xl"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="text-[14px] font-semibold">
+              Update available: v{pendingUpdate.version}
+            </div>
+            <div
+              className="mt-1 text-[11.5px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              Currently installed: v{pendingUpdate.currentVersion}
+              {pendingUpdate.date ? ` · published ${pendingUpdate.date}` : ""}
+            </div>
+            {pendingUpdate.body && (
+              <div
+                className="mt-3 max-h-[260px] overflow-auto rounded p-3 text-[11.5px] whitespace-pre-wrap"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border-strong)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {pendingUpdate.body}
+              </div>
+            )}
+            {downloadProgress && (
+              <div
+                className="mt-3 text-[11px]"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
+                {downloadProgress.total
+                  ? `Downloaded ${(downloadProgress.downloaded / 1_048_576).toFixed(1)} / ${(downloadProgress.total / 1_048_576).toFixed(1)} MB`
+                  : `Downloaded ${(downloadProgress.downloaded / 1_048_576).toFixed(1)} MB`}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={cancelPendingUpdate}
+                disabled={busy === "install"}
+                className="rounded px-3 py-1.5 text-[12px] disabled:opacity-50"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-primary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void installPendingUpdate()}
+                disabled={busy === "install"}
+                className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                {busy === "install" ? "Installing…" : "Install and restart"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

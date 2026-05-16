@@ -41,6 +41,12 @@ use serde::{Deserialize, Serialize};
 ///   `sessions::spawn_session_inner` prepends a `[USE AGENT: <slug>]`
 ///   directive to the prompt so the Claude session opens with the right
 ///   subagent context. `None` keeps the original behaviour.
+/// - `auto_mode` — v15.2.40: when true, the frontend ignores the explicit
+///   provider/model/agent on dispatch and asks the agents Qdrant index
+///   (`embed_agents.py query`) to pick the best subagent for the prompt
+///   at call time. Falls back to the manual config if the index is
+///   unavailable or no agent scores above the threshold. `false` keeps
+///   the original deterministic behaviour.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AiRouterEntry {
     pub provider: String,
@@ -48,6 +54,8 @@ pub struct AiRouterEntry {
     pub model: Option<String>,
     #[serde(default)]
     pub agent: Option<String>,
+    #[serde(default)]
+    pub auto_mode: bool,
 }
 
 impl AiRouterEntry {
@@ -56,6 +64,7 @@ impl AiRouterEntry {
             provider: provider.to_string(),
             model: None,
             agent: None,
+            auto_mode: false,
         }
     }
 }
@@ -77,6 +86,7 @@ impl From<AiRouterEntryWire> for AiRouterEntry {
                 provider: s,
                 model: None,
                 agent: None,
+                auto_mode: false,
             },
             AiRouterEntryWire::Full(e) => e,
         }
@@ -285,6 +295,162 @@ pub fn read_ai_router_inner() -> Result<AiRouterConfig, String> {
     Ok(cfg)
 }
 
+// ---------------------------------------------------------------------------
+// v15.2.40 — auto-mode resolver
+//
+// When a zone has `auto_mode: true`, the manual provider/model/agent picks
+// are *ignored*: instead we ask the agents Qdrant index (via
+// `embed_agents.py query "<prompt>"`) which subagent best matches the
+// prompt and route accordingly. Defaults to Claude as the provider because
+// only Claude understands the `[USE AGENT: <slug>]` directive today.
+//
+// Hard safety net: if the Python helper is missing / Qdrant is down /
+// no agent scores above the confidence threshold, we silently fall back
+// to the manual config so the button keeps working.
+// ---------------------------------------------------------------------------
+//
+// Confidence threshold under which we don't trust the match. Tuned by
+// hand: paraphrase-mpnet typically returns >0.6 for solid matches,
+// 0.4-0.55 for borderline ones, <0.4 for "agent doesn't really fit".
+const AUTO_MODE_MIN_SCORE: f64 = 0.5;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ResolvedRoute {
+    /// Final entry the caller should hand to `spawn_session`.
+    pub entry: AiRouterEntry,
+    /// `true` when the entry was rewritten by auto-mode.
+    pub auto_resolved: bool,
+    /// Slug picked by the embedding query (if any) — informational.
+    pub matched_agent: Option<String>,
+    /// Similarity score (0..1) — informational.
+    pub matched_score: Option<f64>,
+    /// Why auto-mode fell back to manual, if applicable. `None` when
+    /// auto-mode wasn't requested or succeeded cleanly.
+    pub fallback_reason: Option<String>,
+}
+
+/// Shell out to `embed_agents.py query <text> --top 3` and pick the top
+/// match. Returns `None` for any error so the caller can fall back to
+/// the manual config without surfacing the failure as a hard error.
+fn query_best_agent(prompt: &str) -> Option<(String, f64, Option<String>)> {
+    let home = dirs::home_dir()?;
+    let script = home.join(".ultron/scripts/cockpit/embed_agents.py");
+    if !script.is_file() {
+        return None;
+    }
+    // Truncate the prompt to a sane length — paraphrase-mpnet's window is
+    // 512 tokens (~2000 chars). Longer prompts get clamped silently to
+    // keep the CLI invocation snappy.
+    let trimmed = if prompt.len() > 2000 {
+        &prompt[..2000]
+    } else {
+        prompt
+    };
+    let output = std::process::Command::new("uv")
+        .arg("run")
+        .arg("python")
+        .arg(&script)
+        .arg("query")
+        .arg(trimmed)
+        .arg("--top")
+        .arg("3")
+        .current_dir(home.join(".ultron"))
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).ok()?;
+    let arr = parsed.as_array()?;
+    let first = arr.first()?;
+    let score = first.get("score").and_then(|s| s.as_f64())?;
+    let name = first.get("name").and_then(|n| n.as_str())?.to_string();
+    let model = first
+        .get("model")
+        .and_then(|m| m.as_str())
+        .filter(|m| !m.is_empty())
+        .map(|m| m.to_string());
+    Some((name, score, model))
+}
+
+/// Map an agent's `model` frontmatter field (claude-opus-4-7 / sonnet /
+/// haiku / opus / inherit / etc.) to a model string the spawn_session
+/// pipeline understands. `inherit` and empty values become `None` so the
+/// CLI picks its account default. Anything else is passed through.
+fn normalise_agent_model(raw: Option<String>) -> Option<String> {
+    let m = raw?;
+    let lower = m.trim().to_lowercase();
+    if lower.is_empty() || lower == "inherit" || lower == "default" {
+        return None;
+    }
+    // Shortcuts the agent frontmatter often uses ("sonnet", "opus", ...).
+    // Map them to the canonical model IDs we hand to the CLI.
+    match lower.as_str() {
+        "opus" => Some("claude-opus-4-7".into()),
+        "sonnet" => Some("claude-sonnet-4-6".into()),
+        "haiku" => Some("claude-haiku-4-5".into()),
+        _ => Some(m),
+    }
+}
+
+/// Resolve a zone for a given prompt. Honours `auto_mode`: when true and
+/// the agents index returns a match above threshold, we rewrite the
+/// entry as `provider=claude` with the picked agent (+ the agent's
+/// preferred model if any). Otherwise — and on any failure — we return
+/// the manual entry unchanged.
+pub fn resolve_zone_inner(zone_key: String, prompt: String) -> Result<ResolvedRoute, String> {
+    let cfg = read_ai_router_inner()?;
+    let entry = cfg
+        .zone(&zone_key)
+        .ok_or_else(|| format!("unknown zone key: {}", zone_key))?
+        .clone();
+    if !entry.auto_mode {
+        return Ok(ResolvedRoute {
+            entry,
+            auto_resolved: false,
+            matched_agent: None,
+            matched_score: None,
+            fallback_reason: None,
+        });
+    }
+    let Some((name, score, agent_model)) = query_best_agent(&prompt) else {
+        return Ok(ResolvedRoute {
+            entry,
+            auto_resolved: false,
+            matched_agent: None,
+            matched_score: None,
+            fallback_reason: Some("agents index unavailable".into()),
+        });
+    };
+    if score < AUTO_MODE_MIN_SCORE {
+        return Ok(ResolvedRoute {
+            entry,
+            auto_resolved: false,
+            matched_agent: Some(name.clone()),
+            matched_score: Some(score),
+            fallback_reason: Some(format!(
+                "best match '{}' scored {:.2} < threshold {:.2}",
+                name, score, AUTO_MODE_MIN_SCORE
+            )),
+        });
+    }
+    let model = normalise_agent_model(agent_model);
+    let resolved = AiRouterEntry {
+        provider: "claude".into(),
+        model,
+        agent: Some(name.clone()),
+        auto_mode: true,
+    };
+    Ok(ResolvedRoute {
+        entry: resolved,
+        auto_resolved: true,
+        matched_agent: Some(name),
+        matched_score: Some(score),
+        fallback_reason: None,
+    })
+}
+
 pub fn save_ai_router_inner(cfg: AiRouterConfig) -> Result<AiRouterConfig, String> {
     validate_entry("diagnose", &cfg.diagnose)?;
     validate_entry("summarize", &cfg.summarize)?;
@@ -419,6 +585,30 @@ mod tests {
         cfg.diagnose.model = Some(String::new());
         let err = save_ai_router_inner(cfg).err().expect("should reject");
         assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn parses_auto_mode_field() {
+        // Configs from the auto-mode rollout carry the bool flag.
+        let raw = r#"{
+            "diagnose": { "provider": "claude", "model": null, "agent": null, "auto_mode": true }
+        }"#;
+        let cfg: AiRouterConfig = serde_json::from_str(raw).expect("auto_mode shape parses");
+        assert!(cfg.diagnose.auto_mode);
+        // Other zones default to false.
+        assert!(!cfg.summarize.auto_mode);
+    }
+
+    #[test]
+    fn pre_auto_mode_configs_default_false() {
+        // Older v15.2.39 config without `auto_mode` must deserialize cleanly
+        // with auto_mode defaulting to false everywhere.
+        let raw = r#"{
+            "diagnose": { "provider": "claude", "model": null, "agent": "debugger" }
+        }"#;
+        let cfg: AiRouterConfig = serde_json::from_str(raw).expect("pre-auto_mode shape parses");
+        assert!(!cfg.diagnose.auto_mode);
+        assert_eq!(cfg.diagnose.agent.as_deref(), Some("debugger"));
     }
 
     #[test]

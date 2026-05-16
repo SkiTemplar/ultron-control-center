@@ -63,6 +63,12 @@
   <sub><i>Pesta&ntilde;a Skills &mdash; scanner de seguridad estricto, skills quarantined arriba del todo, findings + waiver inline.</i></sub>
 </p>
 
+<p align="center">
+  <img alt="Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + catalogo community con el mismo scan de seguridad que Skills" src="assets/screenshots/agents.png" width="820" />
+  <br />
+  <sub><i>Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + 15 community pre-instalados, 60 mas disponibles en el catalogo, mismo ruleset PI que Skills.</i></sub>
+</p>
+
 > Los screenshots se llenar&aacute;n a medida que avance la beta p&uacute;blica &mdash; el layout que ves coincide con la versi&oacute;n actual.
 
 ---
@@ -101,8 +107,9 @@ ULTRON es un **centro de mando local** que se monta encima del CLI oficial de [C
 |---|---|
 | **Memoria jerarquica** | Cuatro capas (L0 contexto caliente hasta L3 mirror remoto) para que Claude retome donde lo dejaste tras cada reinicio. |
 | **Personas y skills** | Un dispatcher activa al especialista correcto segun la intencion: `debugger`, `code-reviewer`, `ui-designer`, etc. |
+| **Agents** | 9 agentes ULTRON + 15 community = 24 subagentes autonomos pre-instalados, mas un catalogo de 60 adicionales, todos pasados por el mismo ruleset PI que las skills. |
 | **Hooks endurecidos** | Anti-prompt-injection, recall automatico de notas, log de sesion y sync con el vault — todo enchufado a `settings.json`. |
-| **Panel desktop** | Tauri 2 + React 19 con 16 pestañas para memoria, skills, hooks, planes, sesiones, costes y MCPs. |
+| **Panel desktop** | Tauri 2 + React 19 con 17 pestañas para memoria, skills, agents, hooks, planes, sesiones, costes y MCPs. |
 
 **Filosofia.** Archivos de texto plano. Todo opt-in. Cero SaaS. Cero telemetria externa. No hay backend en la nube. Arranca piezas, forkealas o edita el JSON a mano — el sistema esta pensado para desmontarse.
 
@@ -228,8 +235,9 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 |---|---|
 | **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, Qdrant nativo para recall semantico (sin Docker), decay surfacing |
 | **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
+| **Agents** | 24 pre-instalados (9 ULTRON + 15 community), catalogo con 60 mas en `cockpit/agent-catalog.json`, pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
-| **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks |
+| **Control Center** | 17 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks |
 | **Dual-mode** | Peer review opcional con Codex CLI + delegacion long-context con Gemini CLI, ambos via suscripcion |
 | **Seguridad** | Scanner anti-prompt-injection, carpeta de cuarentena, allow-list IPC en Tauri |
 | **Privacidad** | Sin telemetria, sin llamadas externas sin accion del usuario, el vault es tuyo |
@@ -240,6 +248,15 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 `ultron` &middot; `senior-engineer` &middot; `code-reviewer` &middot; `debugger` &middot; `refactoring-specialist` &middot; `ui-designer` &middot; `business-strategist` &middot; `skill-creator` &middot; `superpowers` &middot; `webapp-testing` &middot; `windows-admin` &middot; `second-opinion`
 
 Los slots opt-in se entregan como **plantillas vacias**: forkea ULTRON y rellena las tuyas (asistente financiero, voz creativa, ingeniero de game engine, agente personal de mail/calendar, etc.). El picker de `install.ps1` pregunta una por una.
+
+</details>
+
+<details>
+<summary><b>Agents (24 pre-instalados, catalogo de 60+)</b></summary>
+
+Los agents viven en `~/.claude/agents/*.md` y siguen el mismo contrato de YAML frontmatter que las skills. ULTRON trae 9 agentes propios — `ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`, `ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`, `ultron-test` — mas 15 community seleccionados del catalogo publico: `architect-reviewer`, `code-reviewer`, `context-manager`, `debugger`, `legacy-modernizer`, `mcp-developer`, `multi-agent-coordinator`, `powershell-7-expert`, `python-pro`, `react-specialist`, `refactoring-specialist`, `rust-engineer`, `security-auditor`, `test-automator`, `typescript-pro`.
+
+Hay 60 agentes adicionales descritos en `cockpit/agent-catalog.json` que se instalan a demanda desde la pestaña Agents. Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semantico.
 
 </details>
 
@@ -255,6 +272,7 @@ flowchart LR
     subgraph ULTRON
         Memory[(Memoria<br/>L0 L1 L2 L3)]
         Skills[Skills<br/>personas]
+        Agents[Agents<br/>subagentes]
         Cockpit[Cockpit<br/>Python tools]
         GUI[Control Center<br/>Tauri 2 + React 19]
     end
@@ -270,6 +288,7 @@ flowchart LR
     Memory --> FTS
     Memory --> Q
     Cockpit --> Skills
+    Cockpit --> Agents
     GUI --> Cockpit
 ```
 
@@ -294,6 +313,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 - **`~/.claude/CLAUDE.md`** — tus instrucciones globales para cada sesion de Claude Code. Edita directamente o usa la pestaña `Personal` del Control Center.
 - **`~/.claude/settings.json`** — hooks y permisos. La pestaña `Hooks` es un editor tipado sobre este archivo.
 - **`~/.claude/skills/<name>/SKILL.md`** — activar / desactivar / editar personas. Borra una carpeta para desinstalar la skill.
+- **`~/.claude/agents/<name>.md`** — misma idea para subagentes autonomos. La pestaña Agents muestra estado de instalacion, findings de seguridad y el catalogo de community agents desde `cockpit/agent-catalog.json`.
 - **`~/.ultron-vault/`** — tu vault L2. Markdown plano con wikilinks. Lo que escribas aqui se indexa en la proxima ejecucion de `brain_index.py update`.
 - **`~/.ultron/plans/PLANS.json`** — tus planes en curso. La pestaña `Plans` es un frontend sobre este archivo.
 - **`~/.ultron/personal/profile.md`** — tu perfil personal (intereses, contexto, preferencias).
@@ -311,6 +331,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 | Control Center (backend) | Rust (estable) |
 | Herramientas Python (cockpit/) | Python 3.13 + uv |
 | Memoria | SQLite FTS5 + Qdrant (binario nativo de Windows, sin Docker) |
+| Agents | Markdown con YAML frontmatter en `~/.claude/agents/`, catalogo en `cockpit/agent-catalog.json`, embeddings via `embed_agents.py` |
 | Scripting OS | PowerShell 5.1+ |
 | Runtimes LLM | Claude Code CLI (principal), Codex CLI (peer review, opcional), Gemini CLI (long-context, opcional) |
 

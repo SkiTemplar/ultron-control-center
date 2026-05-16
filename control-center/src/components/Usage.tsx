@@ -509,13 +509,20 @@ export function Usage() {
   // with `/usage` so the user lands directly on the live usage dashboard.
   // The local stats-cache.json gets refreshed by Claude itself as a side
   // effect, so we reload our view too once the user comes back.
+  //
+  // v15.2.40: prompt + provider/model/agent come from the central catalog
+  // (key "usage.refresh_with_claude") + `usage_analyse` zone. Note that
+  // `/usage` is a Claude-specific slash command, so picking codex/gemini
+  // via the AI Router will likely produce a no-op session — the Settings
+  // tooltip warns about this. Auto-mode is safe: the router prefers
+  // Claude when the prompt is a Claude slash command.
   async function openClaudeUsage() {
     setUsageBusy(true);
     setError(null);
     try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt: "/usage",
+      const { resolveAndSpawn } = await import("../lib/button-prompts");
+      await resolveAndSpawn({
+        key: "usage.refresh_with_claude",
         cwd: null,
       });
       // Give Claude a beat to refresh the cache before we reload.

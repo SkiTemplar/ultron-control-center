@@ -233,6 +233,38 @@ Copy-Item -Recurse $env:USERPROFILE\.ultron\skills\<name> `
 Skip skills you don't want — Claude Code only loads what's in
 `~/.claude/skills/`.
 
+### 8b. Agents
+
+`install.ps1` mirrors the skills flow for autonomous subagents under
+`~/.claude/agents/`. It always copies the 9 ULTRON first-party agents
+(`ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`,
+`ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`,
+`ultron-test`). It then offers to install the 15 community agents
+already downloaded under `~/.ultron/agents/community/` (`architect-reviewer`,
+`code-reviewer`, `context-manager`, `debugger`, `legacy-modernizer`,
+`mcp-developer`, `multi-agent-coordinator`, `powershell-7-expert`,
+`python-pro`, `react-specialist`, `refactoring-specialist`,
+`rust-engineer`, `security-auditor`, `test-automator`,
+`typescript-pro`). Decline and you can install them one by one later
+from the Agents tab in the Control Center.
+
+To install an agent by hand:
+
+```powershell
+Copy-Item $env:USERPROFILE\.ultron\agents\community\<name>.md `
+          $env:USERPROFILE\.claude\agents\<name>.md
+```
+
+Then, optionally, index the agent descriptions into Qdrant so the
+AI Router and the Agents tab can do semantic search across them:
+
+```powershell
+uv run python $env:USERPROFILE\.ultron\scripts\cockpit\embed_agents.py index
+```
+
+This step is optional. If you skip it, agents still load — only the
+semantic search across agent descriptions stays off.
+
 ### 9. brain_index
 
 ```powershell

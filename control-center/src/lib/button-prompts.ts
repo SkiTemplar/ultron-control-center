@@ -127,3 +127,118 @@ export async function resetButtonPrompt(key: string): Promise<ButtonPrompt> {
 export function cachedCatalog(): ButtonPromptsCatalog | null {
   return cache;
 }
+
+// ---------------------------------------------------------------------------
+// v15.2.40 — AI Router integration helper
+//
+// Every Control Center button that opens an AI session funnels through the
+// `resolveAndSpawn` helper below. It:
+//   1. resolves the prompt from the central catalog (with {var} substitution)
+//   2. calls `resolve_zone_for_prompt` on the backend — which honours the
+//      zone's `auto_mode` flag and falls back to the manual provider/model/
+//      agent picks if auto-mode is off or the agents index fails
+//   3. invokes `spawn_session` with the resolved provider/model/agent
+//
+// Components don't need to know about the AI Router internals; they just
+// call `resolveAndSpawn({ key, vars, cwd, extraFlags })`. The helper never
+// throws on resolver/router errors — it surfaces the failure and uses the
+// historical hardcoded provider (claude) so the button keeps working even
+// when `ai-router.json` is missing or `embed_agents.py` is broken.
+// ---------------------------------------------------------------------------
+
+export type ResolvedRoute = {
+  entry: {
+    provider: string;
+    model: string | null;
+    agent: string | null;
+    auto_mode: boolean;
+  };
+  auto_resolved: boolean;
+  matched_agent: string | null;
+  matched_score: number | null;
+  fallback_reason: string | null;
+};
+
+export type ResolveAndSpawnOptions = {
+  /** Button-prompts catalog key, e.g. `notif.fix_one`. */
+  key: string;
+  /** `{var}` substitutions for the prompt template. */
+  vars?: Record<string, string>;
+  /** Working directory for the spawned session. `null` = ULTRON cwd. */
+  cwd?: string | null;
+  /** Extra flags merged into `spawn_session` flags (model/agent are filled by us). */
+  extraFlags?: Record<string, unknown>;
+  /**
+   * When the prompt is the same regardless of `vars` (no template), the
+   * router uses the resolved prompt as input to the agents index. Set
+   * this to `false` to deliberately route on a different prompt (e.g.
+   * use a routing hint instead of the full prompt). Default `true`.
+   */
+  routeOnPrompt?: boolean;
+};
+
+export type ResolveAndSpawnResult = {
+  prompt: string;
+  resolved: ResolvedRoute;
+};
+
+/** Default route returned when the backend resolver fails. */
+function fallbackRoute(): ResolvedRoute {
+  return {
+    entry: { provider: "claude", model: null, agent: null, auto_mode: false },
+    auto_resolved: false,
+    matched_agent: null,
+    matched_score: null,
+    fallback_reason: "resolver call failed",
+  };
+}
+
+/**
+ * Resolve `{key}` against the prompt catalog AND the AI Router zone the
+ * catalog entry points at, then invoke `spawn_session`. Returns the
+ * prompt + resolved route so the caller can display useful toast info
+ * ("opened with agent X via auto-mode", etc.) — but errors raised by
+ * `spawn_session` itself are propagated so the caller can show a real
+ * error message.
+ */
+export async function resolveAndSpawn(
+  opts: ResolveAndSpawnOptions,
+): Promise<ResolveAndSpawnResult> {
+  const { key, vars = {}, cwd = null, extraFlags = {}, routeOnPrompt = true } = opts;
+  const catalog = await loadCatalog();
+  const entry = catalog.buttons.find((b) => b.key === key);
+  if (!entry) {
+    throw new Error(`unknown button prompt key: ${key}`);
+  }
+  // Materialise prompt with {var} substitutions.
+  let prompt = entry.prompt;
+  for (const [k, v] of Object.entries(vars)) {
+    prompt = prompt.split(`{${k}}`).join(v);
+  }
+  // Resolve the zone. Empty zone (entry.zone === "") means the button
+  // intentionally bypasses the AI Router — keep historical claude default.
+  let resolved: ResolvedRoute = fallbackRoute();
+  if (entry.zone) {
+    try {
+      resolved = (await invoke("resolve_zone_for_prompt", {
+        zoneKey: entry.zone,
+        prompt: routeOnPrompt ? prompt : entry.label,
+      })) as ResolvedRoute;
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn(`[button-prompts] resolve_zone_for_prompt failed for ${key}:`, err);
+    }
+  }
+  await invoke("spawn_session", {
+    provider: resolved.entry.provider,
+    prompt,
+    cwd,
+    flags: {
+      dangerouslySkipPermissions: false,
+      ...extraFlags,
+      model: resolved.entry.model ?? undefined,
+      agent: resolved.entry.agent ?? undefined,
+    },
+  });
+  return { prompt, resolved };
+}

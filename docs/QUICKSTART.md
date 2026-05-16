@@ -43,7 +43,32 @@ orange **Quarantined** filter.
 
 ---
 
-## 3. Plans — "where was I yesterday?"
+## 3. Agents — "what subagents can I delegate to?"
+
+The Agents tab mirrors the Skills flow but for autonomous subagents
+under `~/.claude/agents/`. Fresh installs ship 24 agents (9 ULTRON
+first-party + 15 community); the catalog at the bottom of the tab
+exposes 60 more from `cockpit/agent-catalog.json`.
+
+- The same security scanner used on Skills runs on every agent
+  manifest. Failing agents land under the orange **Quarantined**
+  filter. Open one and the **Security panel** lists the PI rule, the
+  excerpt and the line number, with the agent body dimmed behind.
+- If you trust the source, type a one-line reason and click
+  **Allow anyway**. A per-SHA1 waiver is appended to
+  `~/.ultron/config/skill-trust.yaml` (same file as skill waivers).
+  Editing the agent file invalidates the waiver — by design.
+- New community agents you install from the catalog do not become
+  searchable from the AI Router until they are embedded. The tab
+  has a **Re-index agents** button that calls `embed_agents.py index`
+  for you.
+
+**Stuck?** Agent missing from the list? Dashboard → Maintenance →
+**Skill registry rebuild** also rescans `~/.claude/agents/`.
+
+---
+
+## 4. Plans — "where was I yesterday?"
 
 Plans are markdown documents under `~/.ultron/cockpit/PLANS.json`. The
 tab is a kanban view: backlog → in-progress → blocked → resolved →
@@ -58,7 +83,7 @@ toolbar to see what's already done.
 
 ---
 
-## 4. Memory — "what do I know?"
+## 5. Memory — "what do I know?"
 
 Two things to try:
 
@@ -74,7 +99,7 @@ does — run **Maintenance → Vault sync** if your notes feel stale.
 
 ---
 
-## 5. Settings → App lifecycle — "how do I update / undo?"
+## 6. Settings → App lifecycle — "how do I update / undo?"
 
 The bottom-right of Settings has an **App lifecycle** tab:
 

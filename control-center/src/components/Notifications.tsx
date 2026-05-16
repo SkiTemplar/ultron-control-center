@@ -217,15 +217,11 @@ function saveDateFilter(d: DateFilter) {
 // Row
 // ---------------------------------------------------------------------------
 
-// Build the seed prompt the user pastes into the spawned Claude/Codex session.
-// Kept in module scope (not inside Row) so tests can target it later without
-// rendering React. The wording is deliberately verbose: the LLM benefits from
-// the full source/severity/count tuple plus pointer hints to the most likely
-// repos involved (scripts/ for python tooling, control-center/ for the UI).
-function buildFixPrompt(g: Grouped): string {
+// Build the variable block the prompt template (key `notif.fix_one`) splices
+// in as `{alert_block}`. The full prompt now lives in the central catalog so
+// Settings → Button prompts can tune the wording without recompiling.
+function buildFixAlertBlock(g: Grouped): string {
   return [
-    "I just got a CRITICAL ULTRON notification:",
-    "",
     `Source: ${g.source}`,
     `Severity: ${g.severity}`,
     `Count: ${g.count} occurrence(s)`,
@@ -234,17 +230,12 @@ function buildFixPrompt(g: Grouped): string {
     "",
     "Message:",
     g.message,
-    "",
-    "Please investigate the root cause and propose a fix. The relevant files",
-    "are likely under ~/.ultron/scripts/ or ~/.ultron/control-center/. If this",
-    "is a security scan blocking a skill, check the skill's SKILL.md frontmatter",
-    "and the security ruleset at ~/.ultron/scripts/cockpit/skill_sync_security.py.",
   ].join("\n");
 }
 
 type FixProvider = "claude" | "codex";
 
-// Bulk version of buildFixPrompt: consolidates every actionable group
+// Bulk version of buildFixAlertBlock: consolidates every actionable group
 // (critical+warn) into a single mega-prompt. Pure function so it can be
 // unit-tested without React. Truncation policy: if the rendered prompt
 // exceeds MAX_PROMPT_CHARS, we keep the head (header + most-recent items)
@@ -252,7 +243,7 @@ type FixProvider = "claude" | "codex";
 // the LLM knows the list was cropped (instead of silently lying).
 const MAX_PROMPT_CHARS = 30_000;
 
-export function buildBulkFixPrompt(groups: Grouped[]): string {
+export function buildBulkAlertsBlock(groups: Grouped[]): string {
   // Split by severity bucket. Critical/blocking first, warn second.
   // Info is intentionally excluded — those are not worth a spawn.
   const critical: Grouped[] = [];
@@ -285,12 +276,7 @@ export function buildBulkFixPrompt(groups: Grouped[]): string {
     omittedCrit: number,
     omittedWarn: number,
   ): string => {
-    const parts: string[] = [
-      "I'm getting multiple ULTRON notifications. Please investigate ALL of them",
-      "and propose fixes. Group related ones if applicable, prioritize critical",
-      "over warn.",
-      "",
-    ];
+    const parts: string[] = [];
     if (critSlice.length > 0) {
       parts.push(`=== CRITICAL (${critSlice.length}${omittedCrit ? ` of ${critSlice.length + omittedCrit}` : ""}) ===`);
       critSlice.forEach((g, i) => parts.push(fmt(g, i)));
@@ -305,15 +291,7 @@ export function buildBulkFixPrompt(groups: Grouped[]): string {
       if (omittedWarn > 0) {
         parts.push(`[... ${omittedWarn} more older warn alerts omitted ...]`);
       }
-      parts.push("");
     }
-    parts.push(
-      "Please:",
-      "1. Identify the root cause(s) — are these symptoms of one underlying issue?",
-      "2. Propose a coordinated fix sequence.",
-      "3. Start by reading scripts/cockpit/skill_sync_security.py if security warns",
-      "   are involved, and ~/.ultron/alerts.jsonl for the full context.",
-    );
     return parts.join("\n");
   };
 
@@ -360,11 +338,41 @@ function Row({ g }: { g: Grouped }) {
     setFixError(null);
     setFixToast(null);
     try {
-      const prompt = buildFixPrompt(g);
+      // v15.2.40: prompt body comes from the central catalog (key
+      // `notif.fix_one`, zone `notif_fix`). The per-row Claude / Codex
+      // toggle is a deliberate user override — they explicitly picked
+      // which CLI to spawn, so we ignore the router's provider but still
+      // honour model/agent (relevant when auto-mode picks a subagent
+      // for Claude, or when the user set a non-default model).
+      const { getPrompt } = await import("../lib/button-prompts");
+      const alertBlock = buildFixAlertBlock(g);
+      const prompt = await getPrompt("notif.fix_one", { alert_block: alertBlock });
       // cwd = ~/.ultron so the spawned shell starts where the relevant
       // scripts, hooks, alerts.jsonl and logs live — diagnosing a system
       // alert from C:\Users\<user>\ has zero context.
       const cwd = await getUltronRoot().catch(() => null);
+      // Pull model/agent from the router zone without forcing the
+      // provider. resolve_zone_for_prompt also honours auto-mode.
+      type Resolved = {
+        entry: { provider: string; model: string | null; agent: string | null };
+      };
+      let model: string | undefined;
+      let agent: string | undefined;
+      try {
+        const r = (await invoke("resolve_zone_for_prompt", {
+          zoneKey: "notif_fix",
+          prompt,
+        })) as Resolved;
+        // Only borrow model/agent when the resolved provider matches the
+        // CLI the user picked. Cross-provider model strings (e.g. a
+        // claude model on codex) would just confuse the CLI.
+        if (r.entry.provider === provider) {
+          model = r.entry.model ?? undefined;
+          agent = r.entry.agent ?? undefined;
+        }
+      } catch {
+        // router unavailable — fall back to provider defaults.
+      }
       await invoke("spawn_session", {
         provider,
         prompt,
@@ -372,7 +380,7 @@ function Row({ g }: { g: Grouped }) {
         // paste_only = true → wrapper copies the prompt to the clipboard and
         // opens the terminal. The user pastes with Ctrl+V and hits Enter.
         // Mirrors the F1.9 Diagnose flow so behaviour is consistent.
-        flags: { dangerouslySkipPermissions: false, pasteOnly: true },
+        flags: { dangerouslySkipPermissions: false, pasteOnly: true, model, agent },
       });
       const label = provider === "claude" ? "Claude" : "Codex";
       setFixToast(`${label} session opened — paste prompt with Ctrl+V`);
@@ -674,11 +682,37 @@ export function Notifications({ alerts, onDeleted }: Props) {
     setBulkFixError(null);
     setBulkFixToast(null);
     try {
-      const prompt = buildBulkFixPrompt(actionableGroups);
+      // v15.2.40: prompt template lives in the central catalog
+      // (key `notif.fix_all`, zone `notif_fix`). `buildBulkAlertsBlock`
+      // is now just the variable body — header / footer come from the
+      // editable template.
+      const { getPrompt } = await import("../lib/button-prompts");
+      const bulkBlock = buildBulkAlertsBlock(actionableGroups);
+      const prompt = await getPrompt("notif.fix_all", { bulk_block: bulkBlock });
       // cwd = ~/.ultron so the spawned shell starts where the relevant
       // scripts, hooks, alerts.jsonl and logs live — diagnosing a system
       // alert from C:\Users\<user>\ has zero context.
       const cwd = await getUltronRoot().catch(() => null);
+      // Pull model/agent from the router zone (auto-mode honoured) but
+      // keep the provider the user clicked: the bulk Fix buttons are an
+      // explicit override of the router's provider.
+      type Resolved = {
+        entry: { provider: string; model: string | null; agent: string | null };
+      };
+      let model: string | undefined;
+      let agent: string | undefined;
+      try {
+        const r = (await invoke("resolve_zone_for_prompt", {
+          zoneKey: "notif_fix",
+          prompt,
+        })) as Resolved;
+        if (r.entry.provider === provider) {
+          model = r.entry.model ?? undefined;
+          agent = r.entry.agent ?? undefined;
+        }
+      } catch {
+        // router unavailable — fall back to provider defaults.
+      }
       await invoke("spawn_session", {
         provider,
         prompt,
@@ -687,7 +721,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
         // the clipboard so the user controls when the session actually
         // starts answering (avoids accidental autoruns of multi-issue
         // fixes).
-        flags: { dangerouslySkipPermissions: false, pasteOnly: true },
+        flags: { dangerouslySkipPermissions: false, pasteOnly: true, model, agent },
       });
       const label = provider === "claude" ? "Claude" : "Codex";
       setBulkFixToast(

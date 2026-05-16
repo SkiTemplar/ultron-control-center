@@ -653,3 +653,34 @@ export type ReviewResult = {
   stdout: string;
   stderr: string;
 };
+
+// ---------------------------------------------------------------------------
+// Installed apps (System → Apps sub-tab)
+// ---------------------------------------------------------------------------
+
+export type InstalledAppProvider = "winget" | "store" | "msi" | "manual";
+
+export type InstalledApp = {
+  name: string;
+  version: string | null;
+  publisher: string | null;
+  install_location: string | null;
+  provider: InstalledAppProvider | string;
+  package_id: string | null;
+  uninstall_hint: string | null;
+};
+
+export type InstalledAppsReport = {
+  apps: InstalledApp[];
+  source_errors: string[];
+  generated_at: string;
+  cached: boolean;
+};
+
+export type UninstallAppResult = {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  command: string;
+};

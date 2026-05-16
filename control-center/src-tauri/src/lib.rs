@@ -20,6 +20,7 @@ mod hooks_admin;
 mod hotkeys;
 mod in_app_shortcuts;
 mod inbox;
+mod installed_apps;
 mod instructions;
 mod logs;
 mod gaming;
@@ -484,7 +485,10 @@ async fn allow_agent_manually(
 }
 
 #[tauri::command]
-async fn open_project_in_ide(path: String) -> Result<String, String> {
+async fn open_project_in_ide(
+    path: String,
+    preferred_ide: Option<String>,
+) -> Result<String, String> {
     use std::path::PathBuf;
     let p = PathBuf::from(&path);
     if !p.is_dir() && !p.is_file() {
@@ -498,8 +502,38 @@ async fn open_project_in_ide(path: String) -> Result<String, String> {
         .unwrap_or(&canonical_str)
         .to_string();
 
-    // VS Code first — most common.
-    for cli in &["code", "cursor", "code-insiders"] {
+    // Map the per-project IDE slug ("vscode" / "cursor" / "code-insiders")
+    // to the CLI binary name that ships with that editor. `vscode` is the
+    // canonical slug we expose to the UI; the CLI itself is called `code`.
+    let slug_to_cli = |s: &str| match s.to_ascii_lowercase().as_str() {
+        "vscode" | "vs code" | "code" => Some("code"),
+        "cursor" => Some("cursor"),
+        "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => {
+            Some("code-insiders")
+        }
+        _ => None,
+    };
+
+    // Build the ordered try list. When the caller supplies a preference we
+    // put it first; the remaining CLIs fall in behind it as fallbacks so
+    // a project tagged "cursor" still opens *something* when Cursor is
+    // missing on this machine (instead of dropping to explorer.exe).
+    let mut candidates: Vec<&str> = Vec::new();
+    let pref_cli = preferred_ide
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(slug_to_cli);
+    if let Some(p) = pref_cli {
+        candidates.push(p);
+    }
+    for c in ["code", "cursor", "code-insiders"] {
+        if !candidates.contains(&c) {
+            candidates.push(c);
+        }
+    }
+
+    for cli in &candidates {
         if std::process::Command::new("where").arg(cli).output()
             .map(|o| o.status.success()).unwrap_or(false)
         {
@@ -641,6 +675,33 @@ async fn delete_scheduled_task(
     name: String,
 ) -> Result<system::DeleteTaskResult, String> {
     system::delete_task_inner(&app, name).await
+}
+
+// ---------------------------------------------------------------------------
+// Installed apps commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+async fn list_installed_apps(
+    app: tauri::AppHandle,
+    force: Option<bool>,
+) -> Result<installed_apps::InstalledAppsReport, String> {
+    installed_apps::list_installed_apps_inner(&app, force.unwrap_or(false)).await
+}
+
+#[tauri::command]
+async fn open_app_folder(install_location: String) -> Result<String, String> {
+    installed_apps::open_app_folder_inner(install_location)
+}
+
+#[tauri::command]
+async fn uninstall_app(
+    app: tauri::AppHandle,
+    name: String,
+    provider: String,
+    package_id: Option<String>,
+) -> Result<installed_apps::UninstallResult, String> {
+    installed_apps::uninstall_app_inner(&app, name, provider, package_id).await
 }
 
 #[tauri::command]
@@ -857,6 +918,18 @@ async fn save_ai_router(
     config: ai_router::AiRouterConfig,
 ) -> Result<ai_router::AiRouterConfig, String> {
     ai_router::save_ai_router_inner(config)
+}
+
+/// v15.2.40 — resolve a zone for a specific prompt. Honours `auto_mode`
+/// by shelling out to `embed_agents.py query` and picking the best
+/// subagent. Falls back to the manual config on any failure so the
+/// caller never has to handle errors specially.
+#[tauri::command]
+async fn resolve_zone_for_prompt(
+    zone_key: String,
+    prompt: String,
+) -> Result<ai_router::ResolvedRoute, String> {
+    ai_router::resolve_zone_inner(zone_key, prompt)
 }
 
 #[tauri::command]
@@ -1373,6 +1446,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_dialog::init())
+        // v15.3 auto-updater: the plugin reads `plugins.updater.endpoints`
+        // and `plugins.updater.pubkey` from tauri.conf.json and exposes the
+        // JS-side `check()` / `downloadAndInstall()` API used by Settings
+        // -> App lifecycle -> "Check for updates". The companion process
+        // plugin exposes `relaunch()` for the post-install restart prompt.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_autostart::init(
             MacosLauncher::LaunchAgent,
             Some(vec!["--from-autostart"]),
@@ -1451,6 +1531,9 @@ pub fn run() {
             rich_system_info,
             edit_scheduled_task,
             delete_scheduled_task,
+            list_installed_apps,
+            open_app_folder,
+            uninstall_app,
             list_killable_processes,
             kill_processes,
             windows_tweaks_status,
@@ -1460,6 +1543,7 @@ pub fn run() {
             set_ultron_mode,
             read_ai_router,
             save_ai_router,
+            resolve_zone_for_prompt,
             list_news,
             generate_news,
             generate_news_session,

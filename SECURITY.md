@@ -45,7 +45,7 @@ The following are considered security issues for this project.
 
 | Category | Detail |
 |---|---|
-| **Prompt injection** | Skill manifest, persona description or hook payload that bypasses the PI001-PI013 ruleset enforced by `skill_sync_security.py`. |
+| **Prompt injection** | Skill manifest (`~/.claude/skills/*/SKILL.md`), agent manifest (`~/.claude/agents/*.md`), persona description or hook payload that bypasses the PI001-PI013 ruleset. The scanner covers both skills and agents through the same decision ladder and the same Allow-anyway waiver flow (per-SHA1 entries in `~/.ultron/config/skill-trust.yaml`); editing a manifest invalidates its waiver by design. |
 | **Hook injection** | Untrusted file under `~/.claude/` or `~/.ultron/` that escalates into arbitrary command execution outside the documented hook contract. |
 | **Secrets leakage** | `~/.claude/settings.json`, `~/.ultron/.env` or per-skill config files leaking into log output, telemetry, alerts or the news generator. |
 | **Command injection** | Any cockpit Python script that shells out to PowerShell, `git`, `claude`, `codex` or `gemini`. |
@@ -61,7 +61,7 @@ These are user-owned risks, not project vulnerabilities.
 
 | Item | Owner |
 |---|---|
-| User installs a malicious skill from a third party | User (ULTRON warns on unsigned skills via the PI ruleset; final trust call is the user's) |
+| User installs a malicious skill or agent from a third party | User (ULTRON warns on unsigned skills and agents via the PI ruleset; final trust call is the user's) |
 | User shares their own `~/.ultron-vault/` contents publicly | User (vaults are personal data by design) |
 | User commits secrets to a fork | User (the repo gitignores the obvious paths; verifying your own history is your responsibility) |
 | User runs with `--dangerously-skip-permissions` | User (the flag is exactly what it says it is) |
@@ -73,7 +73,7 @@ These are user-owned risks, not project vulnerabilities.
 
 | Component | Where to look |
 |---|---|
-| **Prompt-injection ruleset** | `scripts/cockpit/skill_sync_security.py` enforces rules PI001 through PI013 on every persona during sync. A skill flagged `security_status: warned` only routes with explicit user confirmation; a skill that fails outright is quarantined under `~/.ultron/quarantine/`. |
+| **Prompt-injection ruleset** | `scripts/cockpit/skill_sync_security.py` enforces rules PI001 through PI013 on every skill (`~/.claude/skills/*/SKILL.md`) and every agent (`~/.claude/agents/*.md`) during sync. A manifest flagged `security_status: warned` only routes with explicit user confirmation; a manifest that fails outright is quarantined under `~/.ultron/quarantine/`. Waivers (Allow-anyway) are SHA1-pinned in `~/.ultron/config/skill-trust.yaml` and invalidate when the file changes. |
 | **Constitution** | `~/.ultron/config/constitution.json` declares per-persona safety gates that the dispatcher checks before invocation. |
 | **Hook allow-list** | The install script merges a known set of hooks into `settings.json`. Any additional handlers a user adds are their responsibility. |
 

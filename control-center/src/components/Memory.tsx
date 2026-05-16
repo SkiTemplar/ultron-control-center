@@ -785,12 +785,14 @@ export function Memory() {
                   const instr = (await invoke("instruction_path", {
                     kind: "memory",
                   })) as string;
-                  await invoke("spawn_session", {
-                    provider: "claude",
-                    prompt:
-                      "Vamos a escribir una nueva nota para el vault Obsidian (~/.ultron-vault). Lee el GUIDE.md de esta carpeta para conocer la estructura PARA (10_KNOWLEDGE, 20_PROJECTS...), frontmatter requerido y convenciones. Pregúntame el tema, propon ubicación y título, escribe la nota y luego corre brain_index.py update + embed_vault.py index.",
+                  // v15.2.40: prompt + provider/model/agent come from the
+                  // central catalog (key "memory.new_note_ai") + the
+                  // `memory_analyse` AI Router zone. Auto-mode picks the
+                  // best subagent via embed_agents.py query.
+                  const { resolveAndSpawn } = await import("../lib/button-prompts");
+                  await resolveAndSpawn({
+                    key: "memory.new_note_ai",
                     cwd: instr,
-                    flags: { dangerouslySkipPermissions: false },
                   });
                 } catch (e) {
                   console.error("create memory with AI failed", e);
@@ -802,7 +804,7 @@ export function Memory() {
                 color: "var(--color-text)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Sesión Claude con cwd=instructions/memory/ y GUIDE.md auto-cargado"
+              title="Provider / model / agent vienen de Settings → AI Router (zona: memory_analyse). cwd=instructions/memory/ con GUIDE.md auto-cargado."
             >
               New note with AI
             </button>

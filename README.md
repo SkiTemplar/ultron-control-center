@@ -62,6 +62,12 @@
   <sub><i>Skills tab — strict security scan, quarantined skills surfaced first, findings + waiver flow inline.</i></sub>
 </p>
 
+<p align="center">
+  <img alt="Agents tab — 9 ULTRON agents + community catalog with the same security scan as Skills" src="assets/screenshots/agents.png" width="820" />
+  <br />
+  <sub><i>Agents tab — 9 ULTRON agents + 15 community pre-installed, 60 more browsable from the catalog, same PI ruleset as Skills.</i></sub>
+</p>
+
 > Screenshots will fill in as the public beta gets capture cycles — the layout you see in the GIFs is the current one.
 
 ---
@@ -100,8 +106,9 @@ ULTRON is a **local command center** layered on top of the official [Claude Code
 |---|---|
 | **Hierarchical memory** | Four layers (L0 hot context to L3 remote mirror) so Claude resumes on the same page after every reboot. |
 | **Personas & skills** | A dispatcher activates the right specialist by intent — `debugger`, `code-reviewer`, `ui-designer`, etc. |
+| **Agents** | 9 ULTRON agents + 15 community = 24 pre-installed autonomous subagents, plus a catalog of 60 more, all scanned by the same PI ruleset as skills. |
 | **Hardened hooks** | Anti-prompt-injection, note auto-recall, session logging and vault sync, wired into `settings.json`. |
-| **Desktop Control Center** | Tauri 2 + React 19 with 16 tabs for memory, skills, hooks, plans, sessions, costs and MCPs. |
+| **Desktop Control Center** | Tauri 2 + React 19 with 17 tabs for memory, skills, agents, hooks, plans, sessions, costs and MCPs. |
 
 **Philosophy.** Plain text files. Everything opt-in. Zero SaaS. Zero external telemetry. No cloud backend. Rip pieces out, fork them, or hand-edit the JSON — the system is designed to be taken apart.
 
@@ -227,8 +234,9 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 |---|---|
 | **Memory** | L0-L3 hierarchy, SQLite FTS5 index, native Qdrant for semantic recall (no Docker), decay surfacing |
 | **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
+| **Agents** | 24 pre-installed (9 ULTRON + 15 community), catalog with 60 more in `cockpit/agent-catalog.json`, dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — all auditable |
-| **Control Center** | 16 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks |
+| **Control Center** | 17 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks |
 | **Dual-mode** | Optional Codex CLI peer review + Gemini CLI long-context delegation, both subscription-only |
 | **Security** | Anti-prompt-injection scanner, quarantine folder, Tauri IPC allow-list |
 | **Privacy** | No telemetry, no external calls without user action, vault is yours |
@@ -239,6 +247,15 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 `ultron` &middot; `senior-engineer` &middot; `code-reviewer` &middot; `debugger` &middot; `refactoring-specialist` &middot; `ui-designer` &middot; `business-strategist` &middot; `skill-creator` &middot; `superpowers` &middot; `webapp-testing` &middot; `windows-admin` &middot; `second-opinion`
 
 Opt-in slots ship as **empty templates**: fork ULTRON and fill them with your own personas (finance assistant, creative-writing voice, game-engine engineer, personal mail/calendar agent, etc.). The picker in `install.ps1` asks one at a time.
+
+</details>
+
+<details>
+<summary><b>Agents (24 pre-installed, catalog of 60+ more)</b></summary>
+
+Agents live in `~/.claude/agents/*.md` and follow the same YAML-frontmatter contract as skills. ULTRON ships 9 first-party agents — `ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`, `ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`, `ultron-test` — plus 15 community agents picked from the public catalog: `architect-reviewer`, `code-reviewer`, `context-manager`, `debugger`, `legacy-modernizer`, `mcp-developer`, `multi-agent-coordinator`, `powershell-7-expert`, `python-pro`, `react-specialist`, `refactoring-specialist`, `rust-engineer`, `security-auditor`, `test-automator`, `typescript-pro`.
+
+A further 60 agents are described in `cockpit/agent-catalog.json` and can be installed on demand from the Agents tab. Every agent passes the same PI001-PI013 scanner that gates skills; failed agents land in quarantine with the same Allow-anyway waiver flow. The AI Router exposes an Agent slot so a task can target an agent instead of a raw model. Agent descriptions are embedded into Qdrant by `scripts/cockpit/embed_agents.py` for semantic recall.
 
 </details>
 
@@ -254,6 +271,7 @@ flowchart LR
     subgraph ULTRON
         Memory[(Memory<br/>L0 L1 L2 L3)]
         Skills[Skills<br/>personas]
+        Agents[Agents<br/>subagents]
         Cockpit[Cockpit<br/>Python tools]
         GUI[Control Center<br/>Tauri 2 + React 19]
     end
@@ -269,6 +287,7 @@ flowchart LR
     Memory --> FTS
     Memory --> Q
     Cockpit --> Skills
+    Cockpit --> Agents
     GUI --> Cockpit
 ```
 
@@ -293,6 +312,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 - **`~/.claude/CLAUDE.md`** — your global instructions for every Claude Code session. Edit directly or use the Control Center's `Personal` tab.
 - **`~/.claude/settings.json`** — hooks and permissions. The `Hooks` tab is a typed editor over this file.
 - **`~/.claude/skills/<name>/SKILL.md`** — activate / deactivate / edit personas. Delete a folder to uninstall a skill.
+- **`~/.claude/agents/<name>.md`** — same idea for autonomous subagents. The Agents tab shows install state, security findings and the catalog of community agents from `cockpit/agent-catalog.json`.
 - **`~/.ultron-vault/`** — your L2 vault. Plain markdown with wikilinks. Anything you write here gets indexed on the next `brain_index.py update` run.
 - **`~/.ultron/plans/PLANS.json`** — in-flight plans. The `Plans` tab is a frontend over this file.
 - **`~/.ultron/personal/profile.md`** — your personal profile (interests, context, preferences).
@@ -310,6 +330,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 | Control Center (backend) | Rust (stable) |
 | Cockpit Python tools | Python 3.13 + uv |
 | Memory store | SQLite FTS5 + Qdrant (native Windows binary, no Docker) |
+| Agents | YAML-frontmatter markdown under `~/.claude/agents/`, catalog in `cockpit/agent-catalog.json`, embeddings via `embed_agents.py` |
 | OS scripting | PowerShell 5.1+ |
 | LLM runtimes | Claude Code CLI (primary), Codex CLI (peer review, optional), Gemini CLI (long context, optional) |
 

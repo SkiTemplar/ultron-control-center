@@ -97,6 +97,12 @@ struct RegEntry {
 /// load-time normaliser stay in lock-step.
 const VALID_PROVIDERS: &[&str] = &["claude", "codex", "gemini"];
 
+/// Allowed values for the per-project preferred IDE. Used by the editor
+/// modal dropdown and consumed by `open_project_in_ide` to skip auto-detect.
+/// Legacy values (e.g. "external", "app", "game", anything else) collapse
+/// to `None` at load time so the row falls back to the auto-detect path.
+const VALID_IDES: &[&str] = &["vscode", "cursor", "code-insiders"];
+
 fn normalise_provider(raw: Option<&str>) -> String {
     match raw.map(str::trim).filter(|s| !s.is_empty()) {
         Some(s) => {
@@ -109,6 +115,31 @@ fn normalise_provider(raw: Option<&str>) -> String {
         }
         None => "claude".to_string(),
     }
+}
+
+/// Coerce a raw `ide` field from projects.json to one of the supported
+/// editor slugs or `None`. We accept a few aliases ("code" → vscode,
+/// "vs code" → vscode) so manually-edited registry files keep working.
+fn normalise_ide(raw: Option<&str>) -> Option<String> {
+    let s = raw.map(str::trim).filter(|s| !s.is_empty())?;
+    let lower = s.to_ascii_lowercase();
+    let canonical = match lower.as_str() {
+        "vscode" | "vs code" | "code" => Some("vscode"),
+        "cursor" => Some("cursor"),
+        "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => {
+            Some("code-insiders")
+        }
+        _ => None,
+    };
+    canonical.map(|s| s.to_string()).or_else(|| {
+        // Pass through anything else that already happens to be in the
+        // allowlist (defensive — covers future additions to VALID_IDES).
+        if VALID_IDES.contains(&lower.as_str()) {
+            Some(lower)
+        } else {
+            None
+        }
+    })
 }
 
 fn registry_path() -> Option<PathBuf> {
@@ -466,7 +497,16 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
         entry["path"] = serde_json::Value::String(path.to_string());
     }
     if let Some(ide) = p.ide.as_deref() {
-        entry["ide"] = serde_json::Value::String(ide.trim().to_string());
+        // Empty string → clear the field. Anything non-empty gets
+        // normalised; an unrecognised value collapses to "" so the
+        // loader treats it as None on the next read.
+        let trimmed = ide.trim();
+        if trimmed.is_empty() {
+            entry["ide"] = serde_json::Value::String(String::new());
+        } else {
+            let normalised = normalise_ide(Some(trimmed)).unwrap_or_default();
+            entry["ide"] = serde_json::Value::String(normalised);
+        }
     }
     if let Some(lang) = p.language.as_deref() {
         entry["language"] = serde_json::Value::String(lang.trim().to_string());
@@ -646,11 +686,15 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
         // `default_provider`. Normalise to "claude" so the frontend always
         // gets a usable value and never has to defend itself against `None`.
         let default_provider = Some(normalise_provider(p.default_provider.as_deref()));
+        // Normalise the editor slug so the frontend dropdown shows a
+        // canonical value (or "none" when the registry holds a legacy /
+        // unsupported string like "external" or "").
+        let ide = normalise_ide(p.ide.as_deref());
         out.push(ProjectInfo {
             id: p.id,
             name: p.name,
             path: p.path,
-            ide: p.ide,
+            ide,
             language: p.language,
             type_: p.type_,
             status: p.status,
@@ -919,6 +963,15 @@ pub async fn launch_item_inner(
 /// Best-effort batch launch. Iterates items in order, logging per-item
 /// errors instead of aborting; returns the count of items that launched
 /// successfully. The UI surfaces this so the user knows "3 of 4 started".
+///
+/// v15.2.x semantics:
+///   - `folder` items are SKIPPED. Opening Explorer alongside the IDE was
+///     redundant and the user wanted a clean "providers + IDE" launch.
+///     The folder chip still works when clicked individually.
+///   - When the project has a preferred `ide` set, we additionally invoke
+///     the IDE opener with that explicit preference. Projects with no
+///     `ide` set get nothing extra (the IDE button is still available on
+///     each row).
 pub async fn launch_all_items_inner(
     app: tauri::AppHandle,
     project_id: String,
@@ -932,6 +985,12 @@ pub async fn launch_all_items_inner(
     let items = load_items_for(&project_id)?;
     let mut launched = 0usize;
     for (i, item) in items.iter().enumerate() {
+        // Skip folder chips — the user wanted "Launch all" to fire only
+        // providers + IDE, never Explorer. Folder remains launchable via
+        // its own chip click.
+        if item.kind == "folder" {
+            continue;
+        }
         match dispatch_item(&app, item).await {
             Ok(_) => launched += 1,
             Err(e) => {
@@ -939,7 +998,104 @@ pub async fn launch_all_items_inner(
             }
         }
     }
+
+    // Additionally, if the project has a preferred IDE set, fire it. We
+    // do this best-effort: failures (no IDE on PATH, missing project path)
+    // are logged but don't subtract from `launched`. The chip-based count
+    // already reflects providers; the IDE is the "+ implicit" launch.
+    if let Some((path, preferred_ide)) = project_path_and_ide(&project_id) {
+        if let Err(e) = open_in_ide(&path, Some(preferred_ide.as_str())).await {
+            eprintln!(
+                "[projects] launch_all_items[{}] ide launch failed: {}",
+                project_id, e
+            );
+        }
+    }
     Ok(launched)
+}
+
+/// Look up `(path, ide)` for a project, returning `Some(...)` only when
+/// both are non-empty and the path exists on disk. Used by
+/// `launch_all_items_inner` to decide whether to fire the IDE opener.
+fn project_path_and_ide(project_id: &str) -> Option<(String, String)> {
+    let registry = registry_path()?;
+    let raw = std::fs::read_to_string(&registry).ok()?;
+    let root: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let arr = root.get("projects")?.as_array()?;
+    let entry = arr
+        .iter()
+        .find(|p| p.get("id").and_then(|x| x.as_str()) == Some(project_id))?;
+    let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("");
+    let ide = entry.get("ide").and_then(|v| v.as_str()).unwrap_or("");
+    let path_t = path.trim();
+    let ide_t = ide.trim();
+    if path_t.is_empty() || ide_t.is_empty() {
+        return None;
+    }
+    let normalised = normalise_ide(Some(ide_t))?;
+    if !std::path::Path::new(path_t).exists() {
+        return None;
+    }
+    Some((path_t.to_string(), normalised))
+}
+
+/// Spawn the given path in the preferred IDE (or auto-detect when None).
+/// Mirrors the logic in `lib.rs::open_project_in_ide` but lives here so
+/// `launch_all_items_inner` doesn't need an AppHandle round-trip. The
+/// frontend command still goes through lib.rs.
+pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), String> {
+    let p = std::path::PathBuf::from(path);
+    if !p.is_dir() && !p.is_file() {
+        return Err(format!("path not found: {}", path));
+    }
+    let canonical = p.canonicalize().map_err(|e| format!("canonicalize: {}", e))?;
+    let canonical_str = canonical.to_string_lossy().to_string();
+    let cleaned = canonical_str
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&canonical_str)
+        .to_string();
+
+    // Map our slug to the CLI binary name on PATH. "vscode" maps to
+    // `code`; cursor and code-insiders ship the CLI under their own name.
+    let slug_to_cli = |s: &str| match s {
+        "vscode" => Some("code"),
+        "cursor" => Some("cursor"),
+        "code-insiders" => Some("code-insiders"),
+        _ => None,
+    };
+
+    // Build the ordered list of CLIs to try. With a preference set, that
+    // CLI is tried first and the others act as fallbacks.
+    let mut candidates: Vec<&str> = Vec::new();
+    if let Some(pref) = preferred.and_then(slug_to_cli) {
+        candidates.push(pref);
+    }
+    for c in ["code", "cursor", "code-insiders"] {
+        if !candidates.contains(&c) {
+            candidates.push(c);
+        }
+    }
+
+    for cli in &candidates {
+        let found = std::process::Command::new("where")
+            .arg(cli)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !found {
+            continue;
+        }
+        let mut cmd = std::process::Command::new("cmd");
+        cmd.args(["/C", cli, &cleaned]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        cmd.spawn().map_err(|e| format!("spawn {}: {}", cli, e))?;
+        return Ok(());
+    }
+    Err("no IDE on PATH".to_string())
 }
 
 /// Per-kind dispatch. Pulled out so launch_item / launch_all share one

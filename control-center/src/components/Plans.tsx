@@ -751,52 +751,18 @@ export function Plans() {
     setAiBusy(true);
     setError(null);
     try {
-      const seed = [
-        "Vamos a hacer brainstorming de un nuevo plan para ULTRON.",
-        "",
-        "Pregúntame qué quiero conseguir, refina alcance iterando conmigo,",
-        "propón sub-tareas concretas, y al final genera el JSON de",
-        "`ultron plans add` listo para ejecutar (o varios bloques si salen",
-        "varios planes). Esquema:",
-        "",
-        "{",
-        '  "title": "imperativo, <80 chars",',
-        '  "priority": "p0..p4",',
-        '  "kind": "task|sprint|patch|bug|research|audit",',
-        '  "status": "open",',
-        '  "description": "1-2 párrafos",',
-        '  "tags": ["..."]',
-        "}",
-        "",
-        "Lee ~/.ultron/instructions/plans/GUIDE.md antes de empezar para no",
-        "inventar campos.",
-      ].join("\n");
-      // v15.2 AI Router: read the "brainstorm_plans" zone so the user's
-      // Settings → AI Router choice (provider + model) wins. Default zone
-      // provider is codex but historically this button defaulted to
-      // claude — both are valid; whichever the router says wins. On any
-      // router error we fall back to claude (the previous hardcoded
-      // value) so the button never silently breaks.
-      type Zone = { provider: string; model: string | null };
-      let zone: Zone = { provider: "claude", model: null };
-      try {
-        const cfg = (await invoke("read_ai_router")) as Record<string, Zone>;
-        if (cfg && cfg.brainstorm_plans) zone = cfg.brainstorm_plans;
-      } catch {
-        // keep default
-      }
-      await invoke("spawn_session", {
-        provider: zone.provider,
-        prompt: seed,
+      // v15.2.40: prompt + provider/model/agent come from the central
+      // catalog (key "plans.brainstorm") and the brainstorm_plans AI
+      // Router zone. Auto-mode picks the best subagent via
+      // embed_agents.py query when enabled.
+      const { resolveAndSpawn } = await import("../lib/button-prompts");
+      const { resolved } = await resolveAndSpawn({
+        key: "plans.brainstorm",
         cwd: null,
-        flags: {
-          dangerouslySkipPermissions: false,
-          pasteOnly: true,
-          model: zone.model ?? undefined,
-        },
+        extraFlags: { pasteOnly: true },
       });
       setInfo(
-        `${zone.provider} brainstorm abierto en wt.exe. El prompt está en el portapapeles — pega con Ctrl+V y dale Enter.`,
+        `${resolved.entry.provider} brainstorm abierto en wt.exe. El prompt está en el portapapeles — pega con Ctrl+V y dale Enter.`,
       );
       window.setTimeout(() => setInfo(null), 5000);
     } catch (e) {
@@ -822,20 +788,22 @@ export function Plans() {
   }
 
   async function openResolutionSession(plan: PlanItem) {
-    const prompt = [
-      `Plan ID: ${plan.id}`,
-      `Title: ${plan.title}`,
-      `Status: ${plan.status}`,
-      `Priority: ${plan.priority}`,
-      plan.description ? `\nDescription:\n${plan.description}` : "",
-      "\nQuiero trabajar en este plan. Lee primero el spec si existe en plans/specs/, después propon el plan de ejecución dividido en tareas pequeñas y empieza por la primera.",
-    ].join("\n");
     try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt,
+      // v15.2.40: prompt body comes from the central catalog
+      // (key "plans.resolve_one", zone "brainstorm_plans"). Vars include
+      // every plan field the template might want to interpolate. Auto-
+      // mode picks the right subagent via embed_agents.py query.
+      const { resolveAndSpawn } = await import("../lib/button-prompts");
+      await resolveAndSpawn({
+        key: "plans.resolve_one",
+        vars: {
+          plan_id: plan.id,
+          plan_title: plan.title,
+          plan_status: plan.status,
+          plan_priority: plan.priority,
+          plan_description: plan.description ?? "",
+        },
         cwd: null, // ULTRON cwd (current)
-        flags: { dangerouslySkipPermissions: false },
       });
     } catch (e) {
       setError(String(e));

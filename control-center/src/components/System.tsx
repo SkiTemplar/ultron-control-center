@@ -1,22 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   DeleteTaskResult,
   EditTaskResult,
+  InstalledApp,
+  InstalledAppsReport,
   RichSystemInfo,
   RunTaskResult,
   ScheduledTaskInfo,
   ScheduledTriggerType,
   TaskDetail,
+  UninstallAppResult,
 } from "../types";
 import { Hooks } from "./Hooks";
 import { useFeatures } from "../lib/features";
 
-// v15.2 F8 UX: System now hosts three inner sub-tabs (Processes/Tweaks removed):
+// v15.2 F8 UX: System now hosts four inner sub-tabs (Processes/Tweaks removed):
 //   - Overview  : RAM / CPU / disk health + read-only top procs (informational)
+//   - Apps      : inventory of installed apps with open-folder + uninstall
 //   - Schedules : scheduled task list (formerly the whole pane)
 //   - Hooks     : embedded Hooks admin (moved from sidebar)
-type SystemSubTab = "overview" | "schedules" | "hooks";
+type SystemSubTab = "overview" | "apps" | "schedules" | "hooks";
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -1073,6 +1077,507 @@ function KV({ label, v, mono = false }: { label: string; v: React.ReactNode; mon
 }
 
 // ---------------------------------------------------------------------------
+// Apps panel — sub-tab "Apps" under System
+// ---------------------------------------------------------------------------
+
+type AppProviderFilter = "all" | "winget" | "store" | "msi" | "manual";
+
+function providerBadgeColor(provider: string): { bg: string; fg: string } {
+  switch (provider) {
+    case "winget":
+      return {
+        bg: "rgba(56, 139, 253, 0.12)",
+        fg: "var(--color-accent, #58a6ff)",
+      };
+    case "store":
+      return {
+        bg: "rgba(163, 113, 247, 0.12)",
+        fg: "#a371f7",
+      };
+    case "msi":
+      return {
+        bg: "rgba(63, 185, 80, 0.12)",
+        fg: "var(--color-success)",
+      };
+    case "manual":
+    default:
+      return {
+        bg: "rgba(187, 187, 187, 0.10)",
+        fg: "var(--color-text-secondary)",
+      };
+  }
+}
+
+function providerLabel(provider: string): string {
+  switch (provider) {
+    case "winget":
+      return "winget";
+    case "store":
+      return "Store";
+    case "msi":
+      return "MSI";
+    case "manual":
+      return "Manual";
+    default:
+      return provider || "?";
+  }
+}
+
+/** Single-row uninstall modal. The user must type the exact app name to
+ *  confirm — same gesture the OS uses for irreversible mutations. We
+ *  surface the resolved command in a collapsible block so the user can
+ *  see what we're about to run before they pull the trigger. */
+function UninstallModal({
+  appInfo,
+  onClose,
+  onDone,
+}: {
+  appInfo: InstalledApp;
+  onClose: () => void;
+  onDone: (result: UninstallAppResult) => void;
+}) {
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const armed = typed.trim() === appInfo.name.trim() && !busy;
+
+  async function go() {
+    if (!armed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = (await invoke("uninstall_app", {
+        name: appInfo.name,
+        provider: appInfo.provider,
+        packageId: appInfo.package_id,
+      })) as UninstallAppResult;
+      onDone(r);
+      onClose();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.45)" }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded p-4"
+        style={{
+          background: "var(--color-surface-1)",
+          border: "1px solid var(--color-border)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-2 text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
+          Uninstall {appInfo.name}?
+        </div>
+        <div
+          className="mb-3 text-[11.5px] leading-snug"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          This will invoke the {providerLabel(appInfo.provider)} uninstaller. The
+          action is irreversible and may require admin elevation depending on
+          the package. Type the app name below to confirm.
+        </div>
+        <input
+          type="text"
+          value={typed}
+          onChange={(e) => setTyped(e.target.value)}
+          placeholder={appInfo.name}
+          className="w-full rounded px-2 py-1.5 text-[12.5px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text)",
+            fontFamily: "var(--font-mono)",
+          }}
+        />
+        {error && (
+          <div
+            className="mt-2 rounded p-2 text-[11.5px]"
+            style={{
+              background: "rgba(248, 81, 73, 0.06)",
+              border: "1px solid rgba(248, 81, 73, 0.22)",
+              color: "var(--color-danger)",
+            }}
+          >
+            {error}
+          </div>
+        )}
+        <div className="mt-3 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={go}
+            disabled={!armed}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+            style={{
+              background: "rgba(248, 81, 73, 0.85)",
+              color: "white",
+            }}
+          >
+            {busy ? "Uninstalling…" : "Uninstall"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AppsPanel() {
+  const [report, setReport] = useState<InstalledAppsReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [providerFilter, setProviderFilter] = useState<AppProviderFilter>("all");
+  const [pendingUninstall, setPendingUninstall] = useState<InstalledApp | null>(null);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+
+  async function load(force: boolean) {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = (await invoke("list_installed_apps", { force })) as InstalledAppsReport;
+      setReport(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load(false);
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!report) return [];
+    const q = query.trim().toLowerCase();
+    return report.apps.filter((a) => {
+      if (providerFilter !== "all" && a.provider !== providerFilter) return false;
+      if (!q) return true;
+      const hay = `${a.name} ${a.publisher || ""} ${a.package_id || ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [report, query, providerFilter]);
+
+  const counts = useMemo(() => {
+    const map: Record<string, number> = { winget: 0, store: 0, msi: 0, manual: 0 };
+    for (const a of report?.apps || []) {
+      map[a.provider] = (map[a.provider] || 0) + 1;
+    }
+    return map;
+  }, [report]);
+
+  const wingetMissing = (report?.source_errors || []).some((m) => /winget/i.test(m));
+
+  async function handleOpenFolder(app: InstalledApp) {
+    if (!app.install_location) return;
+    setActionMsg(null);
+    try {
+      await invoke("open_app_folder", { installLocation: app.install_location });
+      setActionMsg(`Opened ${app.install_location}`);
+    } catch (e) {
+      setActionMsg(`Failed to open folder: ${e}`);
+    }
+  }
+
+  return (
+    <section className="mb-6">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <input
+          type="text"
+          placeholder="Search by name, publisher, id…"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          className="min-w-[240px] flex-1 rounded px-2.5 py-1.5 text-[12.5px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text)",
+          }}
+        />
+        <div
+          className="flex items-center gap-0.5 rounded p-0.5"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          {(["all", "winget", "store", "msi", "manual"] as AppProviderFilter[]).map((p) => {
+            const selected = providerFilter === p;
+            const count = p === "all" ? report?.apps.length || 0 : counts[p] || 0;
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setProviderFilter(p)}
+                className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors"
+                style={{
+                  background: selected ? "var(--color-surface-3)" : "transparent",
+                  color: selected ? "var(--color-text)" : "var(--color-text-tertiary)",
+                }}
+                title={`Filter by ${p}`}
+              >
+                {p === "all" ? "All" : providerLabel(p)}
+                <span
+                  className="ml-1.5 text-[10.5px] tabular-nums"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  {count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <button
+          type="button"
+          onClick={() => load(true)}
+          disabled={loading}
+          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+          title="Bypass the 1h cache and re-scan"
+        >
+          {loading ? "Scanning…" : "Refresh"}
+        </button>
+      </div>
+
+      {report?.cached && (
+        <div
+          className="mb-2 text-[10.5px]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Cached snapshot from {report.generated_at} — hit Refresh to re-scan.
+        </div>
+      )}
+
+      {wingetMissing && (
+        <div
+          className="mb-2 rounded p-2 text-[11.5px]"
+          style={{
+            background: "rgba(210, 153, 34, 0.06)",
+            border: "1px solid rgba(210, 153, 34, 0.22)",
+            color: "var(--color-warn)",
+          }}
+        >
+          winget not available on PATH — modern packages may be missing from
+          the list. Registry-tracked apps (MSI / manual) are still shown.
+        </div>
+      )}
+
+      {error && (
+        <div
+          className="mb-2 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {actionMsg && (
+        <div
+          className="mb-2 rounded p-2 text-[11.5px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-secondary)",
+          }}
+        >
+          {actionMsg}
+        </div>
+      )}
+
+      {!loading && filtered.length === 0 && (
+        <div
+          className="rounded p-6 text-center text-[12.5px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-tertiary)",
+          }}
+        >
+          {report?.apps.length
+            ? "No apps match the current filter."
+            : "No installed apps detected."}
+        </div>
+      )}
+
+      {filtered.length > 0 && (
+        <div
+          className="overflow-hidden rounded"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div
+            className="grid items-center gap-3 px-3 py-2 text-[10px] uppercase tracking-[0.06em]"
+            style={{
+              gridTemplateColumns: "minmax(0, 2.6fr) 70px 80px minmax(0, 1.4fr) 150px",
+              borderBottom: "1px solid var(--color-border)",
+              background: "var(--color-surface-1)",
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            <span>Name</span>
+            <span>Provider</span>
+            <span>Version</span>
+            <span>Install location</span>
+            <span className="text-right">Actions</span>
+          </div>
+          <div>
+            {filtered.map((appInfo, i) => {
+              const colors = providerBadgeColor(appInfo.provider);
+              const hasFolder = !!appInfo.install_location;
+              return (
+                <div
+                  key={`${appInfo.provider}|${appInfo.name}|${appInfo.package_id || i}`}
+                  className="grid items-center gap-3 px-3 py-2 text-[12px]"
+                  style={{
+                    gridTemplateColumns:
+                      "minmax(0, 2.6fr) 70px 80px minmax(0, 1.4fr) 150px",
+                    borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
+                  }}
+                >
+                  <div className="min-w-0">
+                    <div
+                      className="truncate font-medium"
+                      style={{ color: "var(--color-text)" }}
+                      title={appInfo.name}
+                    >
+                      {appInfo.name}
+                    </div>
+                    {(appInfo.publisher || appInfo.package_id) && (
+                      <div
+                        className="truncate text-[10.5px]"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                        title={`${appInfo.publisher || ""}${
+                          appInfo.publisher && appInfo.package_id ? " · " : ""
+                        }${appInfo.package_id || ""}`}
+                      >
+                        {appInfo.publisher}
+                        {appInfo.publisher && appInfo.package_id ? " · " : ""}
+                        {appInfo.package_id && (
+                          <span style={{ fontFamily: "var(--font-mono)" }}>
+                            {appInfo.package_id}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <span
+                    className="inline-flex w-fit items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                    style={{ background: colors.bg, color: colors.fg }}
+                  >
+                    {providerLabel(appInfo.provider)}
+                  </span>
+                  <span
+                    className="truncate tabular-nums text-[11px]"
+                    style={{ color: "var(--color-text-secondary)" }}
+                    title={appInfo.version || ""}
+                  >
+                    {appInfo.version || "—"}
+                  </span>
+                  <span
+                    className="truncate text-[11px]"
+                    style={{
+                      color: hasFolder
+                        ? "var(--color-text-secondary)"
+                        : "var(--color-text-faint)",
+                      fontFamily: hasFolder ? "var(--font-mono)" : undefined,
+                    }}
+                    title={appInfo.install_location || "unknown"}
+                  >
+                    {appInfo.install_location || "—"}
+                  </span>
+                  <div className="flex items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenFolder(appInfo)}
+                      disabled={!hasFolder}
+                      className="rounded px-2 py-1 text-[10.5px] font-medium transition-colors disabled:opacity-30"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                      }}
+                      title={
+                        hasFolder
+                          ? "Open install folder in Explorer"
+                          : "No install location reported"
+                      }
+                    >
+                      Folder
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingUninstall(appInfo)}
+                      className="rounded px-2 py-1 text-[10.5px] font-medium transition-colors"
+                      style={{
+                        background: "rgba(248, 81, 73, 0.08)",
+                        color: "var(--color-danger)",
+                        border: "1px solid rgba(248, 81, 73, 0.32)",
+                      }}
+                      title={`Uninstall via ${providerLabel(appInfo.provider)}`}
+                    >
+                      Uninstall
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {pendingUninstall && (
+        <UninstallModal
+          appInfo={pendingUninstall}
+          onClose={() => setPendingUninstall(null)}
+          onDone={(r) => {
+            setActionMsg(
+              r.success
+                ? `Uninstalled ${pendingUninstall.name}.`
+                : `Uninstall failed (exit ${r.exit_code ?? "?"}): ${
+                    r.stderr || r.stdout || "unknown error"
+                  }`,
+            );
+            // Refresh in the background so the row disappears on success.
+            load(true);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -1192,6 +1697,9 @@ export function System() {
         </div>
       )}
 
+      {/* Sub-tab: Apps — inventory of installed apps with open-folder + uninstall. */}
+      {subTab === "apps" && <AppsPanel />}
+
       {/* Sub-tab: Overview — RAM/CPU/disk + read-only top processes. */}
       {subTab === "overview" && (
         <section className="mb-6">
@@ -1223,12 +1731,14 @@ export function System() {
                 const instr = (await invoke("instruction_path", {
                   kind: "tasks",
                 })) as string;
-                await invoke("spawn_session", {
-                  provider: "claude",
-                  prompt:
-                    "Vamos a registrar una nueva scheduled task de Windows. Lee el GUIDE.md de esta carpeta para conocer la convención (prefix ULTRON-, wrapper PowerShell, exit-swallow, log en cockpit/scheduler-logs/). Después pregúntame qué quiero programar y prepara el New-ScheduledTaskAction completo, lo registramos y validamos con Get-ScheduledTaskInfo.",
+                // v15.2.40: prompt + provider/model/agent come from the
+                // central catalog (key "system.schedule_task_ai") and
+                // the `system_analyse` AI Router zone. Auto-mode picks
+                // the best subagent via embed_agents.py query.
+                const { resolveAndSpawn } = await import("../lib/button-prompts");
+                await resolveAndSpawn({
+                  key: "system.schedule_task_ai",
                   cwd: instr,
-                  flags: { dangerouslySkipPermissions: false },
                 });
               } catch (e) {
                 console.error("create task with AI failed", e);
@@ -1239,7 +1749,7 @@ export function System() {
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-            title="Abre sesión Claude en instructions/tasks/ con el GUIDE.md auto-cargado"
+            title="Provider / model / agent vienen de Settings → AI Router (zona: system_analyse). cwd=instructions/tasks/ con GUIDE.md auto-cargado."
           >
             Create with AI
           </button>
@@ -1296,6 +1806,7 @@ function SystemHeader({
 }) {
   const TABS: { id: SystemSubTab; label: string; hidden?: boolean }[] = [
     { id: "overview", label: "Overview" },
+    { id: "apps", label: "Apps" },
     { id: "schedules", label: "Schedules" },
     { id: "hooks", label: "Hooks", hidden: !hooksEnabled },
   ];
@@ -1332,7 +1843,7 @@ function SystemHeader({
           ))}
         </div>
       </div>
-      {subTab !== "hooks" && (
+      {subTab !== "hooks" && subTab !== "apps" && (
         <button
           type="button"
           onClick={onRefresh}

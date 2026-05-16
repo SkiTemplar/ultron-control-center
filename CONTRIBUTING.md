@@ -122,6 +122,25 @@ If you are unsure whether your idea is in scope, **open a discussion or a draft 
 
 ---
 
+## Adding skills and agents
+
+Skills and agents share the same contract and the same scanner. The rules are identical for both:
+
+- **YAML frontmatter is mandatory.** `name`, `description` and `model` at minimum. The `model` field must use a full Claude model ID (e.g. `claude-sonnet-4-6`, `claude-opus-4-7`), not a short alias.
+- **No embedded text that can be misread as a prompt injection.** The PI001-PI013 scanner enforced by `scripts/cockpit/skill_sync_security.py` runs on both `~/.claude/skills/*/SKILL.md` and `~/.claude/agents/*.md`. If the same manifest were valid as a skill it must remain valid as an agent.
+- **Skills** live in `~/.claude/skills/<name>/SKILL.md` (one folder per skill, supporting files allowed).
+- **Agents** live in `~/.claude/agents/<name>.md` (one file per agent).
+- **Proposing a new community source for agents** means adding an entry to `cockpit/agent-catalog.json` following the existing schema (`slug`, `source`, `description`, `model`, `tags`, etc.). Do not bypass the catalog by hard-coding paths.
+- After adding or editing agents, re-index them for the AI Router and semantic recall:
+
+  ```powershell
+  uv run python $env:USERPROFILE\.ultron\scripts\cockpit\embed_agents.py index
+  ```
+
+  The same script ships an `--all` flag for a full rebuild after large refactors.
+
+---
+
 <div align="center">
 <sub>Thanks for keeping ULTRON small, fast and honest.</sub>
 </div>

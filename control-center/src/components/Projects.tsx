@@ -356,12 +356,14 @@ function Row({
                 type="button"
                 onClick={async () => {
                   try {
-                    // Try VS Code first (the most common IDE on this stack).
-                    // openPath with a folder uses the shell default, which is
-                    // explorer; we want the IDE. Use a small Tauri command
-                    // wrapper that runs `code <path>` if `code` is on PATH,
-                    // falling back to explorer.
-                    await invoke("open_project_in_ide", { path: p.path });
+                    // When the project has a preferred IDE set (Edit modal
+                    // dropdown) we pass it through so the backend tries
+                    // that CLI first; otherwise it auto-detects in the
+                    // usual order (code → cursor → code-insiders → explorer).
+                    await invoke("open_project_in_ide", {
+                      path: p.path,
+                      preferredIde: p.ide ?? null,
+                    });
                   } catch (e) {
                     console.error("open in IDE failed", e);
                   }
@@ -372,7 +374,11 @@ function Row({
                   color: "var(--color-text-secondary)",
                   border: "1px solid var(--color-border-strong)",
                 }}
-                title={`Open ${p.path} in your default IDE (VS Code if installed, else file explorer)`}
+                title={
+                  p.ide
+                    ? `Open ${p.path} in ${p.ide} (preferred for this project)`
+                    : `Open ${p.path} in your default IDE (VS Code if installed, else file explorer)`
+                }
               >
                 IDE
               </button>
@@ -390,21 +396,42 @@ function Row({
             >
               ×
             </button>
-            {items.length > 1 && (
-              <button
-                type="button"
-                onClick={onLaunchAll}
-                disabled={launchingAll}
-                className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-                title={`Launch all ${items.length} items sequentially`}
-              >
-                {launchingAll ? "Launching…" : `Launch all (${items.length})`}
-              </button>
-            )}
+            {(() => {
+              // Folder chips are excluded from "Launch all" — the user
+              // wanted Explorer NOT to open alongside the IDE. We only
+              // count provider/exe chips towards the badge so the number
+              // matches what actually fires. We hide the button entirely
+              // when there is nothing meaningful to batch (≤1 launchable
+              // AND no preferred IDE — clicking the single chip is just
+              // as fast).
+              const launchable = items.filter((it) => it.kind !== "folder").length;
+              const hasIde = !!p.ide && !!p.path;
+              if (launchable < 2 && !hasIde) return null;
+              if (launchable < 1) return null;
+              const ideHint = p.ide ? ` + ${p.ide}` : "";
+              return (
+                <button
+                  type="button"
+                  onClick={onLaunchAll}
+                  disabled={launchingAll}
+                  className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+                  style={{
+                    background: "var(--color-accent)",
+                    color: "var(--color-accent-text)",
+                  }}
+                  title={
+                    `Fires ${launchable} item${launchable === 1 ? "" : "s"} (providers/exe only — folder chips skipped)` +
+                    (p.ide
+                      ? ` and opens the project in ${p.ide}.`
+                      : ". Set a preferred IDE in Edit to also open it here.")
+                  }
+                >
+                  {launchingAll
+                    ? "Launching…"
+                    : `Launch all (${launchable}${ideHint})`}
+                </button>
+              );
+            })()}
             {/* Legacy "Open" button — only when there are no launcher items
                 AND the project still has a `path`. Once the user adds items
                 the new model takes over completely. */}
@@ -683,6 +710,10 @@ export function Projects() {
   const [wName, setWName] = useState("");
   const [wPath, setWPath] = useState("");
   const [wTags, setWTags] = useState("");
+  /** Preferred IDE for this project. Empty string = "no preference" (the
+   *  backend stores "" and the loader normalises that back to None).
+   *  Allowed values match the backend `VALID_IDES` allowlist. */
+  const [wIde, setWIde] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
@@ -765,7 +796,11 @@ export function Projects() {
     try {
       const launched = (await invoke("launch_all_items", { projectId })) as number;
       const project = projects.find((p) => p.id === projectId);
-      const total = project?.items?.length ?? 0;
+      // Folder items are skipped by the backend (see
+      // launch_all_items_inner). Mirror that filter here so the
+      // "X/Y launched" warning compares apples to apples — otherwise the
+      // user sees a spurious "1/2 launched" for a Folder+Claude project.
+      const total = (project?.items ?? []).filter((it) => it.kind !== "folder").length;
       if (launched < total) {
         setLastAction({
           success: false,
@@ -794,6 +829,7 @@ export function Projects() {
     setWName("");
     setWPath("");
     setWTags("");
+    setWIde("");
     setEditingId(null);
     setCreateError(null);
   }
@@ -803,6 +839,7 @@ export function Projects() {
     setWName(p.name ?? "");
     setWPath(p.path ?? "");
     setWTags(p.tags.join(", "));
+    setWIde(p.ide ?? "");
     setCreateError(null);
     setWizardOpen(true);
   }
@@ -815,12 +852,18 @@ export function Projects() {
         .split(",")
         .map((t) => t.trim())
         .filter(Boolean);
+      // Treat the empty string from the dropdown's "(none)" option as a
+      // genuine clear intent — pass "" so the backend overwrites the field
+      // (the loader will normalise it back to None on read). Passing `null`
+      // would mean "leave alone" because of the Option<String> patch
+      // semantics on update_project_inner.
+      const idePayload = wIde === "" ? "" : wIde;
       if (editingId) {
         await invoke("update_project", {
           id: editingId,
           name: wName || null,
           path: wPath || null,
-          ide: null,
+          ide: idePayload,
           language: null,
           tags: tagList,
         });
@@ -832,7 +875,7 @@ export function Projects() {
           name: wName,
           // Empty path is allowed — the project becomes a pure launch group.
           path: wPath,
-          ide: null,
+          ide: idePayload || null,
           language: null,
           tags: tagList.length > 0 ? tagList : null,
         })) as CreateProjectResult;
@@ -1232,7 +1275,29 @@ export function Projects() {
                 </button>
               </div>
             </div>
-            <div className="col-span-2">
+            <div>
+              <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
+                IDE (preferred editor for "Launch all" + IDE button)
+              </label>
+              <select
+                value={wIde}
+                onChange={(e) => setWIde(e.target.value)}
+                className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                  outline: "none",
+                }}
+                title="The IDE that opens when you press Launch all or the IDE button. Leave empty to auto-detect (VS Code → Cursor → Insiders → Explorer)."
+              >
+                <option value="">(none — auto-detect)</option>
+                <option value="vscode">VS Code</option>
+                <option value="cursor">Cursor</option>
+                <option value="code-insiders">VS Code Insiders</option>
+              </select>
+            </div>
+            <div>
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
                 Tags (comma-separated)
               </label>

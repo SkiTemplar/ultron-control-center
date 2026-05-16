@@ -483,16 +483,15 @@ function RepoEvaluatorCard() {
     setError(null);
     setInfo(null);
     try {
-      // Spawns a fresh Claude session that activates the repo-evaluator
-      // skill. Claude opens in a wt.exe tab; the user continues the
-      // conversation there. We don't capture the full evaluation inline
-      // because the evaluator expects multi-turn dialogue.
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt:
-          "repo-evaluator, evalua este repo (~/.ultron) al estilo de un profesor estricto: arquitectura, tests, docs, riesgos, dependencias, y dame nota final con justificacion. Empieza por la fase 0 de inventario.",
+      // v15.2.40: prompt + provider/model/agent come from the central
+      // catalog (key "selfimprove.repo_evaluator", zone "self_improve").
+      // Auto-mode lets the agents Qdrant index pick a different subagent
+      // if the prompt better matches (e.g., code-reviewer) — falls back
+      // to repo-evaluator manual config otherwise.
+      const { resolveAndSpawn } = await import("../lib/button-prompts");
+      await resolveAndSpawn({
+        key: "selfimprove.repo_evaluator",
         cwd: null,
-        flags: { dangerouslySkipPermissions: false },
       });
       setInfo("repo-evaluator session abierta en wt.exe. Continua la evaluacion alli.");
       window.setTimeout(() => setInfo(null), 4000);
