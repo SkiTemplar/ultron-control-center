@@ -107,8 +107,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Auto-updater wiring (`tauri-plugin-updater` is in Cargo.toml but not yet
   invoked from `lib.rs` — tracked as `si-p1-b-auto-updater`).
-- Cross-session BUS, supervisor daemon, DAG scheduler, overnight loop and
-  mobile companion are deferred to v15.3.
+
+Out of scope (dropped from the roadmap to keep the surface honest):
+mobile companion app, remote BUS/sync server, supervisor daemon, DAG
+scheduler. ULTRON stays a single-machine native tool. If something on
+that list lands later it will be its own opt-in module, not a roadmap
+promise.
 
 Note: the project is **Windows-only by design** — no macOS / Linux ports
 planned. The hooks, installer and dual-mode wiring all assume PowerShell

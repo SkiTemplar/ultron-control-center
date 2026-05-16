@@ -877,28 +877,11 @@ export function Agents() {
     [agents, selected],
   );
 
-  async function discoverOnline() {
-    try {
-      const home = await getHomeDir();
-      const prompt = [
-        "Busca agentes Claude Code útiles publicados en GitHub (anthropics/claude-code-templates, voltagent/awesome-claude-code-subagents, addyosmani/agent-skills, anthropic-cookbook). Lista 8-12 agentes con:",
-        "- nombre (slug kebab-case)",
-        "- una línea de descripción",
-        "- URL del archivo .md raw en GitHub",
-        "- por qué es útil",
-        "",
-        "Después pregúntame cuáles quiero instalar y los descargas a ~/.claude/agents/<name>.md. Mantén el formato YAML frontmatter intacto.",
-      ].join("\n");
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt,
-        cwd: joinPath(home, ".claude", "agents"),
-        flags: { dangerouslySkipPermissions: false },
-      });
-    } catch (e) {
-      console.error("discover online failed", e);
-    }
-  }
+  // v15.3.3: Discover button removed per user request. People who want
+  // new agents can open a Claude session in ~/.claude/agents/ themselves
+  // or browse cockpit/agent-catalog.json directly. Keeping the button
+  // was clutter, and the prompt was unique enough that surfacing it as
+  // a built-in implied ULTRON endorsed those specific repos.
 
   return (
     <div className="flex h-full">
@@ -917,19 +900,6 @@ export function Agents() {
               </p>
             </div>
             <div className="flex shrink-0 gap-1.5">
-              <button
-                type="button"
-                onClick={() => void discoverOnline()}
-                className="rounded px-2.5 py-1 text-[11.5px] font-medium"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-                title="Open a Claude session that searches GitHub for community agents and offers to install them"
-              >
-                Discover
-              </button>
               <button
                 type="button"
                 onClick={() => setShowNew(true)}
@@ -995,7 +965,7 @@ export function Agents() {
               border: "1px solid var(--color-border-strong)",
               color: "var(--color-text-tertiary)",
             }}>
-              No agents installed yet. Use <b>Discover</b> to find community agents on GitHub
+              No agents installed yet. Browse <code>cockpit/agent-catalog.json</code> for curated picks
               or <b>+ New</b> to write one from scratch.
             </div>
           )}

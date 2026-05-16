@@ -798,7 +798,7 @@ export function Dashboard({
               style={{ color: "var(--color-text-secondary)" }}
             >
               Parallel health check across Qdrant, Brain, Vault, Hooks, MCPs,
-              Skills, Cost, Disk, Backups. Each subsystem reports a
+              Skills, Disk, Backups. Each subsystem reports a
               colour and a key metric.
             </p>
           </div>

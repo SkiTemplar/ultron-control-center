@@ -82,28 +82,25 @@ type Particle = {
   fixed: boolean; // user-pinned via drag
 };
 
-// v15.2.37 pass: nodes were piling on the MAX_RADIUS ring instead of
-// filling the disk interior. Cause: REPULSION (900) was so much stronger
-// than the central GRAVITY (0.003) that every node escaped outward, hit
-// the soft confinement wall, and parked there — producing a hollow
-// circumference. New equilibrium:
-//   * GRAVITY 0.003 → 0.014 (4-5x stronger central pull).
-//   * REPULSION 900 → 500 (less outward kick).
-//   * MAX_RADIUS 0.42 → 0.48 (cap moved further out so the wall is rarely hit).
-//   * RADIAL_RETURN_K 0.045 → 0.09 (when nodes DO hit the wall they bounce
-//     in harder, instead of sticking to it).
-//   * Initial polar radius 0.30 → 0.55 of MAX_RADIUS (seed across the
-//     full disk so the simulation doesn't have to expand the cluster
-//     from a tight center).
+// v15.3.3 pass: nodes were still hugging the rim. Two changes:
+//   1. The radial confinement was kicking in too LATE (MAX_RADIUS 0.48),
+//      letting nodes drift well outside the visible interior before the
+//      return force engaged. Pulled the cap inward to 0.40.
+//   2. Repulsion was still strong enough that, on a sparse cluster
+//      (vault with weak link density), the net effect was outward. Down
+//      to 320 and bumped gravity again to 0.022. Spring rest pulled in
+//      to 130 so connected nodes form tighter sub-clusters in the disk.
+//   3. Polar init now uses cbrt() instead of sqrt() — biases the seed
+//      toward the interior (cube-root concentrates mass near r=0).
 const VIEW = 3500;
 const CENTER = VIEW / 2;
-const MAX_RADIUS = VIEW * 0.48; // soft disk radius — outside → return force
-const RADIAL_RETURN_K = 0.09; // bigger return-force coefficient: no more sticky rim
+const MAX_RADIUS = VIEW * 0.40;
+const RADIAL_RETURN_K = 0.12;
 const NODE_RADIUS_BASE = 16;
-const REPULSION = 500; // gentler outward kick
-const SPRING_K = 0.04;
-const SPRING_REST = 170;
-const GRAVITY = 0.014; // pulls hard enough to keep interior populated
+const REPULSION = 320;
+const SPRING_K = 0.045;
+const SPRING_REST = 130;
+const GRAVITY = 0.022;
 const DAMPING = 0.6;
 const COLLIDE_RADIUS = 26;
 const COLLIDE_STRENGTH = 0.5;
@@ -236,11 +233,13 @@ function initParticles(nodes: GraphNode[]): Particle[] {
     // sampled uniformly in the disk centered at CENTER, so nodes scatter
     // organically across the world.
     const angle = ((seed & 0xffff) / 0xffff) * Math.PI * 2;
-    // sqrt() makes the radius distribution uniform in area (not in radius).
-    const radNorm = Math.sqrt(((seed >>> 16) & 0xffff) / 0xffff);
-    // Seed across the full soft-confinement disk (radNorm is sqrt-uniform
-    // so density stays uniform per unit area, not per unit radius).
-    const dist = radNorm * (MAX_RADIUS * 0.85);
+    // v15.3.3: cbrt bias pulls more seeds toward the interior than the
+    // sqrt-uniform area distribution. The result is fewer nodes parked at
+    // r ≈ MAX_RADIUS at t=0, which means the simulation no longer has to
+    // pull them back from the rim — they just settle into the interior
+    // they were already near.
+    const distBias = Math.cbrt(((seed >>> 16) & 0xffff) / 0xffff);
+    const dist = distBias * (MAX_RADIUS * 0.72);
     const rx = CENTER + Math.cos(angle) * dist;
     const ry = CENTER + Math.sin(angle) * dist;
     return { id: n.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };

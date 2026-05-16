@@ -655,6 +655,11 @@ pub fn run_full_diagnostic_inner() -> Result<FullDiagnostic, String> {
     // produce a DiagItem unconditionally, so we never need to propagate
     // Result<_> out of the threads.
     type Probe = fn() -> DiagItem;
+    // v15.3.3: probe_cost removed from the fan-out. The user does not need
+    // a cost projection in their daily Doctor view ("no funciona por
+    // coste" — they pay per subscription, not per token). The probe and
+    // the cost_watchdog module stay defined in case a future build re-
+    // exposes them as an opt-in (Settings feature flag).
     let probes: Vec<Probe> = vec![
         probe_qdrant,
         probe_brain,
@@ -662,7 +667,6 @@ pub fn run_full_diagnostic_inner() -> Result<FullDiagnostic, String> {
         probe_hooks,
         probe_mcps,
         probe_skills,
-        probe_cost,
         probe_disk,
         probe_backup,
     ];
