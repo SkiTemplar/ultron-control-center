@@ -670,6 +670,15 @@ def main() -> None:
             # Telemetry: extract skill from result line
             skill_match = re.search(r"skill=([^\s|]+)", result)
             route_str = skill_match.group(1) if skill_match else None
+            # v15.4.13 — the display line uses "—" (em-dash) as a visual
+            # placeholder when skill_id is None (ztmsi pure context, no
+            # manifest match). That em-dash leaked into the telemetry
+            # `route` field and self_improve.rs::read_routing then
+            # surfaced it as "top intent: —" — confusing and useless.
+            # Normalise it back to None so the field stays semantically
+            # accurate.
+            if route_str in ("—", "-", "--"):
+                route_str = None
             source_match = re.search(r"via=(\w+)", result)
             source_str = source_match.group(1) if source_match else "unknown"
             conf_match = re.search(r"ULTRON·(\d+)%", result)

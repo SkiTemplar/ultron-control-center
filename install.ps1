@@ -1181,6 +1181,80 @@ function Install-Agents {
 }
 
 # ----------------------------------------------------------------------
+# Step 8a''': skill sets from skills-catalog/ (v15.4.13)
+# ----------------------------------------------------------------------
+# The repo ships ~332 skills organised by category under
+# `skills-catalog/<category>/<name>/`. The user picks which categories
+# they want at install time; everything inside those categories lands
+# at `~/.claude/skills/<name>/`. Untouched categories never reach the
+# local filesystem — by design. To grab one later, re-run the installer
+# with the category selected, or copy the directory manually.
+function Install-SkillSets {
+    Write-Step "8a'''. skill sets (skills-catalog -> ~/.claude/skills)"
+    $catalog = Join-Path $Script:RepoRoot "skills-catalog"
+    $manifestPath = Join-Path $catalog "manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        Write-V "skills-catalog/manifest.json missing - skip"
+        return
+    }
+
+    try {
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        Write-Warn2 "skills-catalog manifest unreadable: $($_.Exception.Message)"
+        return
+    }
+
+    $dest = Join-Path $env:USERPROFILE ".claude\skills"
+    if (-not (Test-Path -LiteralPath $dest)) {
+        New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    }
+
+    if ($NonInteractive) {
+        Write-Info "non-interactive: skipping skill-set picker (use install.ps1 -Force interactively to pick)"
+        return
+    }
+
+    $byCategory = $manifest.by_category
+    if (-not $byCategory) {
+        Write-V "manifest has no by_category map - skip"
+        return
+    }
+
+    Write-Info "skill catalog: $($manifest.total_skills) skills across $($manifest.categories.Count) categories"
+    Write-Info "(pick the sets you want. Skipped categories never touch ~/.claude/skills.)"
+
+    $totalCopied = 0
+    foreach ($cat in ($manifest.categories | Sort-Object)) {
+        $count = $byCategory.$cat
+        if (-not $count) { continue }
+        $defaultPick = ($cat -eq "meta" -or $cat -eq "memory")
+        $pick = Confirm-YesNo `
+            -Question ("install '" + $cat + "' skill set (" + $count + " skills)") `
+            -Default $defaultPick
+        if (-not $pick) { continue }
+
+        $catDir = Join-Path $catalog $cat
+        if (-not (Test-Path -LiteralPath $catDir)) {
+            Write-V "  $cat - source dir missing in repo, skip"
+            continue
+        }
+        foreach ($skillDir in Get-ChildItem -LiteralPath $catDir -Directory -ErrorAction SilentlyContinue) {
+            $target = Join-Path $dest $skillDir.Name
+            if (Test-Path -LiteralPath $target) { continue }
+            try {
+                Copy-Item -LiteralPath $skillDir.FullName -Destination $target -Recurse -Force
+                $totalCopied++
+            } catch {
+                Write-Warn2 ("could not copy " + $skillDir.Name + ": " + $_.Exception.Message)
+            }
+        }
+        Write-V "  $cat - done"
+    }
+    Write-OK "skill sets: $totalCopied skills installed"
+}
+
+# ----------------------------------------------------------------------
 # Step 8b: community skills from SkiTemplar/ultron-skills (optional)
 # ----------------------------------------------------------------------
 function Install-CommunitySkills {
@@ -1742,6 +1816,7 @@ try {
     Update-ClaudeSettings
     Install-Skills
     Install-Agents
+    Install-SkillSets
     Install-CommunitySkills
     Set-FeatureFlags
     Remove-OptOutFeatureFiles

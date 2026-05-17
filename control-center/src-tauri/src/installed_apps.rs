@@ -207,11 +207,35 @@ async fn run_ps_command(
         .await
         .map_err(|e| format!("spawn powershell: {}", e))?;
     Ok((
-        String::from_utf8_lossy(&output.stdout).to_string(),
-        String::from_utf8_lossy(&output.stderr).to_string(),
+        decode_ps_stdout(&output.stdout),
+        decode_ps_stdout(&output.stderr),
         output.status.code(),
         output.status.success(),
     ))
+}
+
+/// v15.4.13 — Windows PowerShell 5.1 emits stdout as UTF-16 LE by default
+/// (the console codepage). Decoding the bytes as UTF-8 produces mojibake
+/// for any non-ASCII character — that's why the Apps panel showed
+/// "Aplicaci\u{00f3}n" instead of "Aplicación" and the Folder button
+/// failed to resolve the path. We sniff the BOM and pick the right
+/// decoder: UTF-16 LE BOM → from_utf16_lossy; UTF-8 BOM → strip + utf8;
+/// no BOM → assume UTF-8 (CI / unit tests / PS 7 with explicit
+/// `[Console]::OutputEncoding = UTF8` fall here).
+fn decode_ps_stdout(bytes: &[u8]) -> String {
+    // UTF-16 LE BOM (FF FE)
+    if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
+        let pairs: Vec<u16> = bytes[2..]
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        return String::from_utf16_lossy(&pairs);
+    }
+    // UTF-8 BOM (EF BB BF)
+    if bytes.len() >= 3 && bytes[0] == 0xEF && bytes[1] == 0xBB && bytes[2] == 0xBF {
+        return String::from_utf8_lossy(&bytes[3..]).to_string();
+    }
+    String::from_utf8_lossy(bytes).to_string()
 }
 
 // ---------------------------------------------------------------------------
