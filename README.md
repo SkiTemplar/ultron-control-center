@@ -108,7 +108,7 @@ ULTRON is a **local command center** layered on top of the official [Claude Code
 | **Personas & skills** | A dispatcher activates the right specialist by intent — `debugger`, `code-reviewer`, `ui-designer`, etc. |
 | **Agents** | 9 ULTRON agents + 15 community = 24 pre-installed autonomous subagents, plus a catalog of 60 more, all scanned by the same PI ruleset as skills. |
 | **Hardened hooks** | Anti-prompt-injection, note auto-recall, session logging and vault sync, wired into `settings.json`. |
-| **Desktop Control Center** | Tauri 2 + React 19 with 17 tabs for memory, skills, agents, hooks, plans, sessions, costs and MCPs. |
+| **Desktop Control Center** | Tauri 2 + React 19 with 16 tabs for memory, skills, agents, hooks, plans, sessions, costs and MCPs. |
 
 **Philosophy.** Plain text files. Everything opt-in. Zero SaaS. Zero external telemetry. No cloud backend. Rip pieces out, fork them, or hand-edit the JSON — the system is designed to be taken apart.
 
@@ -236,7 +236,7 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 | **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
 | **Agents** | 24 pre-installed (9 ULTRON + 15 community), catalog with 60 more in `cockpit/agent-catalog.json`, dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — all auditable |
-| **Control Center** | 17 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks |
+| **Control Center** | 16 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks. (Logs tab is wired but currently disabled.) |
 | **Dual-mode** | Optional Codex CLI peer review + Gemini CLI long-context delegation, both subscription-only |
 | **Security** | Anti-prompt-injection scanner, quarantine folder, Tauri IPC allow-list |
 | **Privacy** | No telemetry, no external calls without user action, vault is yours |
@@ -340,7 +340,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 | Release | Status | Highlights |
 |---|---|---|
-| **v15.4** | Current | Control Center polish — visual installer with 10 optional toggles, IDE-aware launch (12 editors), Agents Markdown viewer, 35 button prompts across every section, Cmd+K palette extended with maintenance commands. |
+| **v15.4** | Current | Control Center polish — visual installer with 10 optional toggles, IDE-aware launch (13 editors including CLion + JetBrains family), Agents Markdown viewer, 36 button prompts across every section, Cmd+K palette extended with maintenance commands, boot-time update detector + 1-click rebuild, Settings → Features panel + AI Router smart defaults per zone. |
 | **v15.3.x** | Stable | Tauri auto-updater, Projects IDE-aware launch, Agents tab, AI Router auto-mode, security scanner, agent ecosystem. |
 | **v15.2** | Released | Control Center with 17 tabs, L0–L3 memory, hardened hooks, 12 core skills, dual-mode v2 via subscription CLIs. |
 | **v15.5+** | Next | Cross-session event bus, supervisor daemon, mobile companion via Tailscale. |

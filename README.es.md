@@ -109,7 +109,7 @@ ULTRON es un **centro de mando local** que se monta encima del CLI oficial de [C
 | **Personas y skills** | Un dispatcher activa al especialista correcto segun la intencion: `debugger`, `code-reviewer`, `ui-designer`, etc. |
 | **Agents** | 9 agentes ULTRON + 15 community = 24 subagentes autonomos pre-instalados, mas un catalogo de 60 adicionales, todos pasados por el mismo ruleset PI que las skills. |
 | **Hooks endurecidos** | Anti-prompt-injection, recall automatico de notas, log de sesion y sync con el vault — todo enchufado a `settings.json`. |
-| **Panel desktop** | Tauri 2 + React 19 con 17 pestañas para memoria, skills, agents, hooks, planes, sesiones, costes y MCPs. |
+| **Panel desktop** | Tauri 2 + React 19 con 16 pestañas para memoria, skills, agents, hooks, planes, sesiones, costes y MCPs. |
 
 **Filosofia.** Archivos de texto plano. Todo opt-in. Cero SaaS. Cero telemetria externa. No hay backend en la nube. Arranca piezas, forkealas o edita el JSON a mano — el sistema esta pensado para desmontarse.
 
@@ -237,7 +237,7 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 | **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
 | **Agents** | 24 pre-instalados (9 ULTRON + 15 community), catalogo con 60 mas en `cockpit/agent-catalog.json`, pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
-| **Control Center** | 17 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Logs, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks |
+| **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks. (La pestaña Logs está cableada pero deshabilitada hoy.) |
 | **Dual-mode** | Peer review opcional con Codex CLI + delegacion long-context con Gemini CLI, ambos via suscripcion |
 | **Seguridad** | Scanner anti-prompt-injection, carpeta de cuarentena, allow-list IPC en Tauri |
 | **Privacidad** | Sin telemetria, sin llamadas externas sin accion del usuario, el vault es tuyo |
@@ -341,7 +341,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 | Release | Estado | Highlights |
 |---|---|---|
-| **v15.4** | Actual | Pulido del Control Center — instalador visual con 10 toggles opcionales, lanzamiento IDE-aware (12 editores), visor Markdown en Agents, 35 button prompts en cada seccion, Cmd+K palette con comandos de mantenimiento. |
+| **v15.4** | Actual | Pulido del Control Center — instalador visual con 10 toggles opcionales, lanzamiento IDE-aware (13 editores incluyendo CLion + familia JetBrains), visor Markdown en Agents, 36 button prompts en cada seccion, Cmd+K palette con comandos de mantenimiento, auto-detector de updates al arrancar + rebuild 1-click, panel Settings → Features + AI Router con defaults inteligentes por zona. |
 | **v15.3.x** | Estable | Auto-updater Tauri, Projects IDE-aware launch, Agents tab, AI Router auto-mode, security scanner, ecosistema de agentes. |
 | **v15.2** | Lanzado | Control Center con 17 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core, dual-mode v2 via CLIs de suscripcion. |
 | **v15.5+** | Siguiente | Bus de eventos cross-session, supervisor daemon, companion movil via Tailscale. |

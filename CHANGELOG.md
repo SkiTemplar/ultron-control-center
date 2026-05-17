@@ -1,5 +1,36 @@
 # Changelog
 
+<!-- v15.4.6 -->
+## v15.4.6 — 2026-05-17
+
+Kirkardo audit follow-up. Code is healthy (TS green, cargo 54/54, pytest 863
+collected); only README drift to clean up.
+
+### Docs
+
+- fix(README): Control Center sidebar lists **16 tabs**, not 17 — the Logs tab is wired in `Sidebar.tsx` but `available: false` today. Same fix in `README.es.md`.
+- fix(README): IDE selector now exposes **13 editors** (CLion landed in v15.4.4) — the v15.4 roadmap row said 12. Same fix in `README.es.md`.
+- fix(README): v15.4 roadmap row updated to include the v15.4.2-v15.4.5 features Kirkardo flagged as missing: boot-time update detector, 1-click rebuild, Settings → Features panel, AI Router smart defaults per zone. Same fix in `README.es.md`.
+
+### Cleanup (user-local, not in git)
+
+- chore(plans): drop the orphan `spec_path` on the `v15.3-mobile-app` wontfix entry — the file never existed in `plans/specs/`. `PLANS.json` is gitignored, so this is local-only.
+
+### Verification
+
+- Audit pass: `npx tsc --noEmit` green, `cargo test --release --lib` green (54/54), `pytest --collect-only` clean (863).
+- AI Router agent references all resolve: debugger, mcp-developer, context-manager, ultron-context, ultron-arch, powershell-7-expert all present in `~/.claude/agents/`.
+- Update flow integrity verified: `update_checker.rs` → SkiTemplar/ultron, `run_app_lifecycle("update")` does pull→install→build→kill→relaunch, `UpdateBanner` early-returns on auto-rebuild ON.
+
+
+<!-- v15.4.5 -->
+## v15.4.5 — 2026-05-17
+
+- fix(v15.4.5): MemoryGraph nodos colapsados + 7 agents nuevos + ftfy sweep
+
+_Auto-generated from 6900ddfd by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.4 -->
 ## v15.4.4 — 2026-05-17
 
