@@ -6,6 +6,7 @@ import { GeneralSection } from "./GeneralSection";
 import { ModeSection } from "./ModeSection";
 import { AiRouterSection } from "./AiRouterSection";
 import { ButtonPromptsSection } from "./ButtonPromptsSection";
+import { FeaturesSection } from "./FeaturesSection";
 import { JsonEditor } from "./EditorSection";
 import { BackupRootEditor, DiskBackupStatus } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
@@ -19,6 +20,7 @@ type Section =
   | "mode"
   | "ai-router"
   | "button-prompts"
+  | "features"
   | "raw"
   | "backups"
   | "lifecycle";
@@ -80,9 +82,6 @@ export function Settings() {
       setSaveResult(null);
     }
   }
-
-  // v15.2 F7: toggleMcp / mcps memo removed — MCP enable/disable now lives
-  // in the MCPs top-level tab (EnableDisableSection in MCPs.tsx).
 
   return (
     <div className="px-10 py-8">
@@ -153,6 +152,7 @@ export function Settings() {
           { id: "mode" as Section, label: "Mode" },
           { id: "ai-router" as Section, label: "AI Router" },
           { id: "button-prompts" as Section, label: "Button prompts" },
+          { id: "features" as Section, label: "Features" },
           // v15.2 F7: "MCPs" sub-tab removed — moved to top-level MCPs tab.
           { id: "raw" as Section, label: "Editor" },
           { id: "backups" as Section, label: "Backups" },
@@ -208,10 +208,7 @@ export function Settings() {
         {section === "mode" && <ModeSection />}
         {section === "ai-router" && <AiRouterSection />}
         {section === "button-prompts" && <ButtonPromptsSection />}
-        {/* v15.2 F7: MCPs enable/disable moved to the top-level MCPs tab.
-            The MCPRow / toggleMcp / mcps memo below remain in scope as
-            inert helpers — kept for retrocompat in case external code
-            imports them, will be removed in F8. */}
+        {section === "features" && <FeaturesSection />}
 
         {section === "raw" && draft && (
           <JsonEditor

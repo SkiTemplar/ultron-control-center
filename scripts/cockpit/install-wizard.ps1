@@ -127,26 +127,48 @@ foreach ($item in $Catalog) {
 }
 
 # ----------------------------------------------------------------------
-# Colors and fonts. Match the cockpit dark theme.
+# Colors and fonts. Match the Control Center dark theme — same tokens
+# the Tauri app's CSS variables resolve to (var(--color-surface-*),
+# var(--color-accent)) so the WinForms wizard reads as a sibling of the
+# main app, not a relic.
 # ----------------------------------------------------------------------
-$ColorBg          = [System.Drawing.Color]::FromArgb(24, 26, 31)
-$ColorPanel       = [System.Drawing.Color]::FromArgb(32, 35, 42)
-$ColorFg          = [System.Drawing.Color]::FromArgb(220, 222, 226)
-$ColorMuted       = [System.Drawing.Color]::FromArgb(140, 145, 155)
-$ColorAccent      = [System.Drawing.Color]::FromArgb(120, 170, 255)
+$ColorBg          = [System.Drawing.Color]::FromArgb(20, 22, 27)    # --color-bg
+$ColorPanel       = [System.Drawing.Color]::FromArgb(27, 30, 36)    # --color-surface-1
+$ColorSurface2    = [System.Drawing.Color]::FromArgb(34, 38, 46)    # --color-surface-2 (hover/cards)
+$ColorBorder      = [System.Drawing.Color]::FromArgb(54, 60, 70)    # --color-border-strong
+$ColorFg          = [System.Drawing.Color]::FromArgb(230, 232, 236) # --color-text
+$ColorMuted       = [System.Drawing.Color]::FromArgb(150, 156, 168) # --color-text-tertiary
+$ColorFaint       = [System.Drawing.Color]::FromArgb(110, 116, 128) # --color-text-faint
+$ColorAccent      = [System.Drawing.Color]::FromArgb(88, 166, 255)  # --color-accent
+$ColorAccentHi    = [System.Drawing.Color]::FromArgb(126, 192, 255)
+$ColorSuccess     = [System.Drawing.Color]::FromArgb(63, 185, 80)
 $ColorDanger      = [System.Drawing.Color]::FromArgb(232, 95, 95)
 
-$FontHeader  = New-Object System.Drawing.Font("Segoe UI", 14, [System.Drawing.FontStyle]::Bold)
-$FontGroup   = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
-$FontItem    = New-Object System.Drawing.Font("Segoe UI", 9)
-$FontNote    = New-Object System.Drawing.Font("Segoe UI", 8, [System.Drawing.FontStyle]::Italic)
+# Try Segoe UI Variable first (Windows 11 native UI font); fall back to
+# Segoe UI if it isn't installed. WinForms throws on missing fonts so we
+# probe with a try/catch instead of trusting the Family enum.
+function _PickFont([string]$name, [single]$size, [System.Drawing.FontStyle]$style) {
+    try {
+        return New-Object System.Drawing.Font($name, $size, $style)
+    } catch {
+        return New-Object System.Drawing.Font("Segoe UI", $size, $style)
+    }
+}
+
+$FontHero    = _PickFont "Segoe UI Variable Display" 22 ([System.Drawing.FontStyle]::Bold)
+$FontTagline = _PickFont "Segoe UI Variable Text"     9 ([System.Drawing.FontStyle]::Regular)
+$FontGroup   = _PickFont "Segoe UI Variable Text"     10 ([System.Drawing.FontStyle]::Bold)
+$FontItem    = _PickFont "Segoe UI Variable Text"     9 ([System.Drawing.FontStyle]::Regular)
+$FontNote    = _PickFont "Segoe UI Variable Text"     8 ([System.Drawing.FontStyle]::Regular)
+$FontFooter  = _PickFont "Segoe UI Variable Text"     9 ([System.Drawing.FontStyle]::Regular)
+$FontButton  = _PickFont "Segoe UI Variable Text"     9 ([System.Drawing.FontStyle]::Bold)
 
 # ----------------------------------------------------------------------
 # Build the form.
 # ----------------------------------------------------------------------
 $form               = New-Object System.Windows.Forms.Form
 $form.Text          = "ULTRON Installer"
-$form.Size          = New-Object System.Drawing.Size(740, 760)
+$form.Size          = New-Object System.Drawing.Size(820, 820)
 $form.StartPosition = "CenterScreen"
 $form.FormBorderStyle = "FixedSingle"
 $form.MaximizeBox   = $false
@@ -158,27 +180,49 @@ $form.Topmost       = $false
 $form.KeyPreview    = $true
 
 # ---- Header banner ---------------------------------------------------
+# 92px tall hero card. Title on row 1, tagline on row 2, version chip
+# on the right. Border-bottom drawn with a 1px Label so it lands flush
+# instead of relying on Fixed3D bevels which clash with the dark theme.
 $header             = New-Object System.Windows.Forms.Panel
 $header.Dock        = "Top"
-$header.Height      = 58
+$header.Height      = 92
 $header.BackColor   = $ColorPanel
 $form.Controls.Add($header)
 
+$headerSep          = New-Object System.Windows.Forms.Panel
+$headerSep.Dock     = "Bottom"
+$headerSep.Height   = 1
+$headerSep.BackColor = $ColorBorder
+$header.Controls.Add($headerSep)
+
 $lblTitle           = New-Object System.Windows.Forms.Label
-$lblTitle.Text      = "ULTRON Installer"
-$lblTitle.Font      = $FontHeader
-$lblTitle.ForeColor = $ColorAccent
+$lblTitle.Text      = "ULTRON"
+$lblTitle.Font      = $FontHero
+$lblTitle.ForeColor = $ColorFg
 $lblTitle.AutoSize  = $true
-$lblTitle.Location  = New-Object System.Drawing.Point(20, 10)
+$lblTitle.Location  = New-Object System.Drawing.Point(24, 18)
 $header.Controls.Add($lblTitle)
 
 $lblSubtitle        = New-Object System.Windows.Forms.Label
-$lblSubtitle.Text   = "Pick what to install - " + $Version + "   |   Re-running keeps your previous choices."
-$lblSubtitle.Font   = $FontNote
+$lblSubtitle.Text   = "Pick what to install. Re-running keeps your previous choices."
+$lblSubtitle.Font   = $FontTagline
 $lblSubtitle.ForeColor = $ColorMuted
 $lblSubtitle.AutoSize  = $true
-$lblSubtitle.Location  = New-Object System.Drawing.Point(22, 35)
+$lblSubtitle.Location  = New-Object System.Drawing.Point(26, 56)
 $header.Controls.Add($lblSubtitle)
+
+# Version chip top-right.
+$lblVerChip          = New-Object System.Windows.Forms.Label
+$lblVerChip.Text     = $Version
+$lblVerChip.Font     = $FontTagline
+$lblVerChip.ForeColor = $ColorAccent
+$lblVerChip.BackColor = $ColorSurface2
+$lblVerChip.AutoSize  = $false
+$lblVerChip.TextAlign = "MiddleCenter"
+$lblVerChip.Size      = New-Object System.Drawing.Size(80, 22)
+$lblVerChip.Location  = New-Object System.Drawing.Point(($form.Width - 124), 24)
+$lblVerChip.BorderStyle = "FixedSingle"
+$header.Controls.Add($lblVerChip)
 
 # ---- Scrollable body -------------------------------------------------
 $body               = New-Object System.Windows.Forms.Panel
@@ -192,35 +236,47 @@ $body.BringToFront()
 # ---- Footer ----------------------------------------------------------
 $footer             = New-Object System.Windows.Forms.Panel
 $footer.Dock        = "Bottom"
-$footer.Height      = 60
+$footer.Height      = 64
 $footer.BackColor   = $ColorPanel
 $form.Controls.Add($footer)
 
+$footerSep          = New-Object System.Windows.Forms.Panel
+$footerSep.Dock     = "Top"
+$footerSep.Height   = 1
+$footerSep.BackColor = $ColorBorder
+$footer.Controls.Add($footerSep)
+
 $lblStatus          = New-Object System.Windows.Forms.Label
 $lblStatus.Text     = "Ready."
+$lblStatus.Font     = $FontFooter
 $lblStatus.ForeColor = $ColorMuted
 $lblStatus.AutoSize = $true
-$lblStatus.Location = New-Object System.Drawing.Point(18, 22)
+$lblStatus.Location = New-Object System.Drawing.Point(22, 24)
 $footer.Controls.Add($lblStatus)
 
 $btnCancel          = New-Object System.Windows.Forms.Button
 $btnCancel.Text     = "Cancel"
-$btnCancel.Size     = New-Object System.Drawing.Size(110, 32)
-$btnCancel.Location = New-Object System.Drawing.Point(498, 14)
-$btnCancel.BackColor = [System.Drawing.Color]::FromArgb(60, 64, 72)
+$btnCancel.Size     = New-Object System.Drawing.Size(120, 34)
+$btnCancel.Location = New-Object System.Drawing.Point(($form.Width - 290), 15)
+$btnCancel.BackColor = $ColorSurface2
 $btnCancel.ForeColor = $ColorFg
 $btnCancel.FlatStyle = "Flat"
-$btnCancel.FlatAppearance.BorderColor = $ColorMuted
+$btnCancel.Font     = $FontButton
+$btnCancel.FlatAppearance.BorderColor = $ColorBorder
+$btnCancel.FlatAppearance.BorderSize  = 1
+$btnCancel.FlatAppearance.MouseOverBackColor = [System.Drawing.Color]::FromArgb(48, 54, 64)
 $footer.Controls.Add($btnCancel)
 
 $btnInstall         = New-Object System.Windows.Forms.Button
 $btnInstall.Text    = "Install"
-$btnInstall.Size    = New-Object System.Drawing.Size(110, 32)
-$btnInstall.Location = New-Object System.Drawing.Point(614, 14)
+$btnInstall.Size    = New-Object System.Drawing.Size(140, 34)
+$btnInstall.Location = New-Object System.Drawing.Point(($form.Width - 160), 15)
 $btnInstall.BackColor = $ColorAccent
-$btnInstall.ForeColor = [System.Drawing.Color]::Black
+$btnInstall.ForeColor = [System.Drawing.Color]::FromArgb(10, 12, 16)
 $btnInstall.FlatStyle = "Flat"
-$btnInstall.Font    = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+$btnInstall.Font    = $FontButton
+$btnInstall.FlatAppearance.BorderSize = 0
+$btnInstall.FlatAppearance.MouseOverBackColor = $ColorAccentHi
 $footer.Controls.Add($btnInstall)
 
 $form.AcceptButton = $btnInstall
@@ -239,58 +295,65 @@ $y          = 8
 $groups = $Catalog | ForEach-Object { $_.group } | Select-Object -Unique
 
 foreach ($groupName in $groups) {
-    # Group header label
+    # Group header — accent-coloured bar on the left + label, no Fixed3D
+    # separator (the bevels read as scratches on a dark theme).
+    $accentBar          = New-Object System.Windows.Forms.Panel
+    $accentBar.BackColor = $ColorAccent
+    $accentBar.Size     = New-Object System.Drawing.Size(3, 16)
+    $accentBar.Location = New-Object System.Drawing.Point(10, ($y + 4))
+    $body.Controls.Add($accentBar)
+
     $lblGroup           = New-Object System.Windows.Forms.Label
     $lblGroup.Text      = $groupName
     $lblGroup.Font      = $FontGroup
-    $lblGroup.ForeColor = $ColorAccent
+    $lblGroup.ForeColor = $ColorFg
     $lblGroup.AutoSize  = $true
-    $lblGroup.Location  = New-Object System.Drawing.Point(10, $y)
+    $lblGroup.Location  = New-Object System.Drawing.Point(22, $y)
     $body.Controls.Add($lblGroup)
-    $y += 24
-
-    # Thin separator line
-    $sep            = New-Object System.Windows.Forms.Label
-    $sep.Text       = ""
-    $sep.BorderStyle = "Fixed3D"
-    $sep.Height     = 2
-    $sep.Width      = 660
-    $sep.Location   = New-Object System.Drawing.Point(10, $y)
-    $body.Controls.Add($sep)
-    $y += 8
+    $y += 26
 
     $items = $Catalog | Where-Object { $_.group -eq $groupName }
     foreach ($item in $items) {
-        $cb              = New-Object System.Windows.Forms.CheckBox
-        $cb.Text         = $item.label
-        $cb.Font         = $FontItem
-        $cb.ForeColor    = $ColorFg
-        $cb.BackColor    = $ColorBg
-        $cb.AutoSize     = $true
-        $cb.Checked      = [bool]$item.default
-        $cb.Location     = New-Object System.Drawing.Point(20, $y)
-        if ($item.required) {
-            $cb.Enabled  = $false
-            $cb.ForeColor = $ColorMuted
-        }
-        # Stash the id on the control so the result-collector can find it.
-        $cb.Tag          = $item.id
-        $body.Controls.Add($cb)
-        $Checkboxes[$item.id] = $cb
-        $y += 21
+        # Card container so each row reads as a discrete control even in
+        # dense groups. Background flips to surface-2 to lift it off the
+        # form bg, and the AutoSize/AutoEllipsis settings keep long lines
+        # from spilling past the scroll viewport.
+        $card                = New-Object System.Windows.Forms.Panel
+        $card.BackColor      = $ColorSurface2
+        $card.Size           = New-Object System.Drawing.Size(740, 50)
+        $card.Location       = New-Object System.Drawing.Point(22, $y)
 
-        # Note line
-        $note            = New-Object System.Windows.Forms.Label
-        $note.Text       = "  " + $item.note
-        $note.Font       = $FontNote
-        $note.ForeColor  = $ColorMuted
-        $note.AutoSize   = $true
-        $note.Location   = New-Object System.Drawing.Point(36, $y)
-        $body.Controls.Add($note)
-        $y += 19
+        $cb                  = New-Object System.Windows.Forms.CheckBox
+        $cb.Text             = $item.label
+        $cb.Font             = $FontItem
+        $cb.ForeColor        = $ColorFg
+        $cb.BackColor        = $ColorSurface2
+        $cb.AutoSize         = $true
+        $cb.Checked          = [bool]$item.default
+        $cb.Location         = New-Object System.Drawing.Point(10, 6)
+        if ($item.required) {
+            $cb.Enabled      = $false
+            $cb.ForeColor    = $ColorMuted
+        }
+        $cb.Tag              = $item.id
+        $card.Controls.Add($cb)
+        $Checkboxes[$item.id] = $cb
+
+        $note                = New-Object System.Windows.Forms.Label
+        $note.Text           = $item.note
+        $note.Font           = $FontNote
+        $note.ForeColor      = $ColorFaint
+        $note.AutoSize       = $false
+        $note.Size           = New-Object System.Drawing.Size(700, 18)
+        $note.Location       = New-Object System.Drawing.Point(32, 26)
+        $note.AutoEllipsis   = $true
+        $card.Controls.Add($note)
+
+        $body.Controls.Add($card)
+        $y += 54
     }
 
-    $y += 10
+    $y += 8
 }
 
 # ----------------------------------------------------------------------

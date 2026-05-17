@@ -1,4 +1,4 @@
-# Installing ULTRON v15.2
+# Installing ULTRON v15.4
 
 ULTRON is a personal control center: a Tauri desktop app plus a Python toolkit
 that orchestrates Claude Code, Codex, and Gemini through their official CLIs.
@@ -48,9 +48,13 @@ non-zero code.
    find it.
 5. **Python sync.** Runs `uv sync` at the repo root.
 6. **Node sync.** Runs `npm install` inside `control-center/`.
-7. **Feature toggles.** Asks five questions and writes your choices to
-   `~/.ultron/cockpit/features.json`. The desktop app reads this file at
-   startup to decide which optional tabs to expose.
+7. **Feature toggles.** The visual wizard (or CLI fallback) asks per
+   optional module (News, Gaming, Personal, Schedules, Self-improve,
+   Notifications, Usage, Sessions, Projects, Plans) and writes your
+   choices to `~/.ultron/cockpit/features.json`. The desktop app reads
+   this file at startup to decide which optional tabs to expose. You
+   can flip toggles later from **Settings → Features**, or re-run
+   `install.ps1` to physically purge a module's files.
 
 ## What you need ahead of time
 
@@ -71,11 +75,16 @@ subscription. ULTRON never asks for an API key.
 When the installer prompts you for optional features, the defaults are:
 
 ```
-News digest        [y/N]   default N (costs Gemini tokens)
+News digest        [y/N]   default N  (costs Gemini tokens)
 Gaming utilities   [Y/n]   default Y
 Personal section   [Y/n]   default Y
 Schedules          [Y/n]   default Y
 Self-improve       [Y/n]   default Y
+Notifications      [Y/n]   default Y  (toast/tray alerts + pending-actions panel)
+Usage tracking     [y/N]   default N  (Anthropic API plans only)
+Sessions archive   [Y/n]   default Y  (session replay + highlights + compactor)
+Project manager    [Y/n]   default Y  (project editor + scan + notes)
+Plans & goals      [y/N]   default N  (power-user lifecycle tracker)
 ```
 
 Press Enter at any prompt to take the default. Your choices land in
@@ -87,12 +96,24 @@ Press Enter at any prompt to take the default. Your choices land in
   "gaming": true,
   "personal": true,
   "schedules": true,
-  "self_improve": true
+  "self_improve": true,
+  "notifications": true,
+  "usage": false,
+  "sessions": true,
+  "projects": true,
+  "plans": false,
+  "memory": true,
+  "mcps": true,
+  "skills": true,
+  "hooks": true
 }
 ```
 
 You can edit this file by hand at any time and restart the desktop app to
-apply the changes.
+apply the changes — or use **Settings → Features** in the Control Center
+to flip toggles live. Unchecking a checkbox in the installer wizard
+**also deletes the implementing scripts** (see the `optOutManifest` table
+in `INSTALL.md`); the in-app panel is a runtime-only toggle.
 
 ## Launching the app
 

@@ -109,6 +109,7 @@ const VALID_IDES: &[&str] = &[
     "rider",
     "webstorm",
     "pycharm",
+    "clion",
     "androidstudio",
     "fleet",
     "nvim",
@@ -146,6 +147,7 @@ fn normalise_ide(raw: Option<&str>) -> Option<String> {
         "rider" => Some("rider"),
         "webstorm" => Some("webstorm"),
         "pycharm" => Some("pycharm"),
+        "clion" | "c-lion" | "c lion" => Some("clion"),
         "androidstudio" | "android studio" | "android-studio" => Some("androidstudio"),
         "fleet" => Some("fleet"),
         "nvim" | "neovim" => Some("nvim"),
@@ -904,6 +906,14 @@ pub struct AddLauncherItemPayload {
 
 /// Append a new launcher item to `project.items[]`. Creates the array if
 /// it doesn't exist on disk yet (old-style entries).
+///
+/// v15.4.1 fix: when the project still has empty `items[]` but a non-empty
+/// `path`, `load_items_for()` synthesises virtual `folder` + `claude`
+/// chips so the UI never looks empty. Appending a new item without first
+/// materialising those virtual chips silently drops them (the synthesise
+/// branch only triggers when `items` is empty). We now materialise them
+/// here so the user's first added item joins the existing folder + claude
+/// pair instead of replacing it — matches the behaviour the user expected.
 pub fn add_launcher_item_inner(p: AddLauncherItemPayload) -> Result<UpdateProjectResult, String> {
     if p.project_id.trim().is_empty() {
         return Err("project_id is empty".to_string());
@@ -912,6 +922,14 @@ pub fn add_launcher_item_inner(p: AddLauncherItemPayload) -> Result<UpdateProjec
     let (registry, mut root) = load_registry_mut()?;
     {
         let entry = find_entry_mut(&mut root, &p.project_id)?;
+        // Capture path before mutably borrowing items — needed to seed the
+        // fallback chips when materialising.
+        let project_path = entry
+            .get("path")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .unwrap_or_default();
+
         let items = match entry.get_mut("items").and_then(|v| v.as_array_mut()) {
             Some(arr) => arr,
             None => {
@@ -922,6 +940,44 @@ pub fn add_launcher_item_inner(p: AddLauncherItemPayload) -> Result<UpdateProjec
                     .ok_or_else(|| "items array missing after init".to_string())?
             }
         };
+
+        // Materialise the virtual folder + claude chips before appending so
+        // the user's first added item joins them instead of replacing them.
+        // Only do this when items is empty AND we have a path to seed from
+        // AND the incoming item is NOT one of those two chips (else we'd
+        // duplicate). When the user adds a folder or a claude chip
+        // explicitly we let it stand alone — they signalled intent.
+        let is_folder_seed_dup = p.item.kind == "folder";
+        let is_claude_seed_dup = p.item.kind == "claude";
+        if items.is_empty() && !project_path.trim().is_empty() {
+            if !is_folder_seed_dup {
+                let folder = LauncherItem {
+                    kind: "folder".to_string(),
+                    path: Some(project_path.clone()),
+                    cwd: None,
+                    args: None,
+                    label: Some("Open folder".to_string()),
+                };
+                items.push(
+                    serde_json::to_value(&folder)
+                        .map_err(|e| format!("serialize folder seed: {}", e))?,
+                );
+            }
+            if !is_claude_seed_dup {
+                let claude = LauncherItem {
+                    kind: "claude".to_string(),
+                    path: None,
+                    cwd: Some(project_path),
+                    args: None,
+                    label: Some("New Claude session".to_string()),
+                };
+                items.push(
+                    serde_json::to_value(&claude)
+                        .map_err(|e| format!("serialize claude seed: {}", e))?,
+                );
+            }
+        }
+
         items.push(serde_json::to_value(&p.item).map_err(|e| format!("serialize item: {}", e))?);
     }
     let serialized =
@@ -1182,6 +1238,7 @@ pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), Stri
         "rider" => Some("rider"),
         "webstorm" => Some("webstorm"),
         "pycharm" => Some("pycharm"),
+        "clion" => Some("clion"),
         "androidstudio" => Some("studio"),
         "fleet" => Some("fleet"),
         "nvim" => Some("nvim"),
@@ -1205,6 +1262,7 @@ pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), Stri
         "rider",
         "webstorm",
         "pycharm",
+        "clion",
         "studio",
         "fleet",
         "nvim",

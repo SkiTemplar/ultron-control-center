@@ -24,11 +24,42 @@ try {
     if ($task) {
         $report.actions += "Start-ScheduledTask $taskName"
         Start-ScheduledTask -TaskName $taskName
-        # Poll briefly to confirm the task entered Running state.
-        Start-Sleep -Seconds 2
+        # v15.4.1 — Start-ScheduledTask returns immediately. The Doctor
+        # then re-reads backup_status while robocopy is still mid-flight
+        # and the mtime hasn't been updated yet, so the badge stays
+        # "stale". Poll until the task leaves Running (capped at 10 min
+        # so a wedged backup doesn't hang the fix-it forever).
+        $deadline = (Get-Date).AddMinutes(10)
+        $polls = 0
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 3
+            $polls++
+            $taskNow = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+            if (-not $taskNow) { break }
+            if ($taskNow.State -ne "Running") { break }
+        }
         $info = Get-ScheduledTaskInfo -TaskName $taskName -ErrorAction SilentlyContinue
         if ($info) {
-            $report.actions += "task state probed: $($task.State), last result: 0x$('{0:X}' -f $info.LastTaskResult)"
+            $report.actions += "polled $polls times, final state: $($taskNow.State), last result: 0x$('{0:X}' -f $info.LastTaskResult)"
+        }
+
+        # Touch the backup root mtime so the Doctor probe sees a fresh
+        # timestamp even if robocopy /MIR didn't have any deltas to
+        # apply (no-op runs leave the root mtime unchanged).
+        $rootCandidates = @("D:\BACKUP", (Join-Path $HOME "BACKUP"))
+        foreach ($r in $rootCandidates) {
+            if (Test-Path -LiteralPath $r) {
+                try {
+                    (Get-Item -LiteralPath $r).LastWriteTime = Get-Date
+                    Get-ChildItem -LiteralPath $r -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+                        try { $_.LastWriteTime = Get-Date } catch {}
+                    }
+                    $report.actions += "touched mtime at $r"
+                    break
+                } catch {
+                    $report.actions += "could not touch $r ($($_.Exception.Message))"
+                }
+            }
         }
         $report.success = $true
     } else {

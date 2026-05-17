@@ -112,7 +112,12 @@ fn parse_toml_version(text: &str) -> Option<String> {
 }
 
 fn parse_json_version(text: &str) -> Option<String> {
-    let v: serde_json::Value = serde_json::from_str(text).ok()?;
+    // v15.4.1 — tolerate UTF-8 BOM. Windows PowerShell's `Set-Content` writes
+    // BOMs by default unless `-Encoding utf8NoBOM` is passed; without this
+    // tolerance every PS-side version bump silently turned the file into
+    // "no parseable version" until someone stripped the bytes by hand.
+    let cleaned = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let v: serde_json::Value = serde_json::from_str(cleaned).ok()?;
     v.get("version")?.as_str().map(|s| s.to_string())
 }
 

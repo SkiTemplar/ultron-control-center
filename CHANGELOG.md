@@ -1,5 +1,40 @@
 # Changelog
 
+<!-- v15.4.1 -->
+## v15.4.1 — 2026-05-17
+
+Triple-review follow-up (Codex `gpt-5.3-codex` + Gemini `gemini-3.1-pro-preview`
++ repo-evaluator pass on top of `0ccb6bb`).
+
+### Fixes (Codex / Gemini blockers)
+
+- fix(features): wizard wrote `project` (singular) to `features.json`; Rust struct + sidebar gate use `projects` (plural). Renamed both branches of `Set-FeatureFlags` so the toggle finally reaches the sidebar.
+- fix(features): extend `Features` struct + `lib/features.ts` with `notifications`, `usage`, `sessions` so the installer toggles persist end-to-end (previously dropped on read).
+- fix(installer): remove non-existent `scripts/cockpit/pending_panel.py` from the `feat_notifications` opt-out manifest.
+- fix(System.tsx): the Hooks-disabled empty state was pointing at a sidebar "Features" panel that was removed — points to `Settings → Features` now.
+- fix(README.es.md): version badge / "tested" line / roadmap table all stale on v15.2 — bumped to v15.4 in parity with the English README.
+- fix(docs/INSTALL.md): title pinned to v15.2 + feature-toggles section only listed the old 5 modules + sample `features.json` missing the new keys. Rebuilt to match the v15.4 wizard.
+- fix(INSTALL.md): opt-out narrative said "News, Gaming, Schedules" while the table below already listed 8 modules — paragraph rewritten to match the table.
+
+### Features
+
+- feat(Settings/Features): new tab inside Settings exposes 14 runtime toggles (news, gaming, personal, schedules, self_improve, memory, plans, projects, mcps, skills, hooks, notifications, usage, sessions) with per-feature descriptions. Writes to `features.json` via `save_features` so the sidebar reacts immediately.
+- feat(sidebar): `usage`, `notifications`, `sessions` items now honour their feature gate (`featureKey="..."`). Disabling them from Settings hides the tab.
+- feat(button-prompts): add `logs.summarize_recent` so the Logs tab now has a default AI prompt (was the only tab without one).
+- feat(IDE selector): CLion added to the dropdown + Rust mapping (`clion` / `c-lion` / `c lion` aliases → CLI `clion`). Asked specifically by USER for ProgGrafica.
+
+### Cleanup
+
+- chore(sidebar): remove `FeaturesModal` + `showFeaturesModal` state — deduplicated by the new Settings → Features panel. Drops ~95 LOC.
+- chore(Settings/index.tsx): drop two stale comments referencing v15.2 F7 / F8 MCP migration work that already shipped.
+
+### Verification
+
+- `npx tsc --noEmit` green.
+- `cargo check` + `cargo test` green (51/51 unit tests).
+- Manual: 4 Codex blockers re-verified resolved end-to-end (`feat_project` → `projects` → sidebar gate, `feat_notifications/usage/sessions` → struct fields → sidebar visibility, `pending_panel.py` no longer referenced, System.tsx message updated).
+
+
 <!-- v15.4.0 -->
 ## v15.4.0 — 2026-05-17
 

@@ -36,7 +36,7 @@ try {
         $t = Get-Content -LiteralPath $cargo -Raw
         $t2 = [regex]::Replace($t, '(?m)^version\s*=\s*"[^"]*"', "version = `"$canonical`"", 1)
         if ($t2 -ne $t) {
-            Set-Content -LiteralPath $cargo -Value $t2 -Encoding UTF8 -NoNewline
+            [System.IO.File]::WriteAllText($cargo, $t2, [System.Text.UTF8Encoding]::new($false))
             $report.actions += "Cargo.toml updated"
         }
     }
@@ -47,7 +47,7 @@ try {
         $t = Get-Content -LiteralPath $pkg -Raw
         $t2 = [regex]::Replace($t, '"version":\s*"[^"]*"', "`"version`": `"$canonical`"", 1)
         if ($t2 -ne $t) {
-            Set-Content -LiteralPath $pkg -Value $t2 -Encoding UTF8 -NoNewline
+            [System.IO.File]::WriteAllText($pkg, $t2, [System.Text.UTF8Encoding]::new($false))
             $report.actions += "package.json updated"
         }
     }
@@ -58,7 +58,7 @@ try {
         $t = Get-Content -LiteralPath $tc -Raw
         $t2 = [regex]::Replace($t, '"version":\s*"[^"]*"', "`"version`": `"$canonical`"", 1)
         if ($t2 -ne $t) {
-            Set-Content -LiteralPath $tc -Value $t2 -Encoding UTF8 -NoNewline
+            [System.IO.File]::WriteAllText($tc, $t2, [System.Text.UTF8Encoding]::new($false))
             $report.actions += "tauri.conf.json updated"
         }
     }
@@ -70,7 +70,7 @@ try {
         $t2 = [regex]::Replace($t, '(?m)^version:\s*v\d+\.\d+\.\d+\b', "version: v$canonical")
         $t2 = [regex]::Replace($t2, '(?m)^last_verified:\s*\d{4}-\d{2}-\d{2}', "last_verified: $today")
         if ($t2 -ne $t) {
-            Set-Content -LiteralPath $skill -Value $t2 -Encoding UTF8 -NoNewline
+            [System.IO.File]::WriteAllText($skill, $t2, [System.Text.UTF8Encoding]::new($false))
             $report.actions += "ULTRON skill updated"
         }
     }
@@ -81,7 +81,7 @@ try {
         $t = Get-Content -LiteralPath $sm -Raw
         $t2 = [regex]::Replace($t, 'SSOT version:\s*v?\d+\.\d+\.\d+\S*', "SSOT version: v$canonical")
         if ($t2 -ne $t) {
-            Set-Content -LiteralPath $sm -Value $t2 -Encoding UTF8 -NoNewline
+            [System.IO.File]::WriteAllText($sm, $t2, [System.Text.UTF8Encoding]::new($false))
             $report.actions += "SYSTEM-MAP.md updated"
         }
     }

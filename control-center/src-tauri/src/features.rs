@@ -2,8 +2,9 @@
 //
 // The installer writes `~/.ultron/cockpit/features.json` with a flat map of
 // booleans (one per togglable area: news, gaming, personal, schedules,
-// self_improve, memory, plans, projects, mcps, skills, hooks). When a flag is
-// false, the corresponding sidebar entry is hidden on the frontend.
+// self_improve, memory, plans, projects, mcps, skills, hooks, notifications,
+// usage, sessions). When a flag is false, the corresponding sidebar entry
+// is hidden on the frontend.
 //
 // Defaults: all true. If the file is missing or malformed we return the
 // default (everything enabled) so a fresh install never surfaces an empty
@@ -42,6 +43,13 @@ pub struct Features {
     pub skills: bool,
     #[serde(default = "default_true")]
     pub hooks: bool,
+    // v15.4 — added to mirror the installer wizard's expanded toggle set.
+    #[serde(default = "default_true")]
+    pub notifications: bool,
+    #[serde(default = "default_true")]
+    pub usage: bool,
+    #[serde(default = "default_true")]
+    pub sessions: bool,
 }
 
 fn default_true() -> bool {
@@ -62,6 +70,9 @@ impl Default for Features {
             mcps: true,
             skills: true,
             hooks: true,
+            notifications: true,
+            usage: true,
+            sessions: true,
         }
     }
 }

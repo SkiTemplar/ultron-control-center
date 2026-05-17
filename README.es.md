@@ -18,7 +18,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.2-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.4-44cc11.svg" /></a>
   <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Construido sobre Claude Code" src="https://img.shields.io/badge/construido%20sobre-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Estado" src="https://img.shields.io/badge/estado-beta%20publica-orange.svg" />
@@ -179,7 +179,7 @@ Encima de L1 vive una instancia local de **Qdrant** (el binario nativo de Window
 ## Quick start
 
 > [!IMPORTANT]
-> Windows 11 es la plataforma principal. macOS y Linux no estan testeados oficialmente en v15.2.
+> Windows 11 es la plataforma principal. macOS y Linux no estan testeados oficialmente en v15.4.
 
 **One-liner.**
 
@@ -341,9 +341,11 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 | Release | Estado | Highlights |
 |---|---|---|
-| **v15.2** | Actual | Control Center con 16 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core, dual-mode v2 via CLIs de suscripcion |
-| **v15.3** | Siguiente | Capa anti-alucinacion, bus de eventos cross-session, supervisor daemon |
-| **v16** | Futuro | Pipeline DAG, overnight loop, mobile companion PWA, expansion multi-plataforma |
+| **v15.4** | Actual | Pulido del Control Center — instalador visual con 10 toggles opcionales, lanzamiento IDE-aware (12 editores), visor Markdown en Agents, 35 button prompts en cada seccion, Cmd+K palette con comandos de mantenimiento. |
+| **v15.3.x** | Estable | Auto-updater Tauri, Projects IDE-aware launch, Agents tab, AI Router auto-mode, security scanner, ecosistema de agentes. |
+| **v15.2** | Lanzado | Control Center con 17 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core, dual-mode v2 via CLIs de suscripcion. |
+| **v15.5+** | Siguiente | Bus de eventos cross-session, supervisor daemon, companion movil via Tailscale. |
+| **v16** | Futuro | Pipeline DAG, overnight loop, expansion multi-plataforma. |
 
 Notas detalladas en [`CHANGELOG.md`](CHANGELOG.md).
 

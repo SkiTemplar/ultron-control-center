@@ -1311,8 +1311,7 @@ function Remove-OptOutFeatureFiles {
             "scripts\cockpit\install-scheduler.ps1"
         )
         feat_notifications = @(
-            "scripts\hooks\qdrant-notify.ps1",
-            "scripts\cockpit\pending_panel.py"
+            "scripts\hooks\qdrant-notify.ps1"
         )
         feat_usage = @(
             "scripts\cockpit\usage_report.py",
@@ -1389,7 +1388,7 @@ function Set-FeatureFlags {
         notifications = $true
         usage         = $false  # off by default — only useful when on paid plan
         sessions      = $true
-        project       = $true
+        projects      = $true   # plural — matches Rust Features struct + sidebar key
         plans         = $false  # off by default — power-user feature
     }
     if (Test-Path -LiteralPath $featuresFile) {
@@ -1416,7 +1415,11 @@ function Set-FeatureFlags {
             notifications = Get-Choice -Id "feat_notifications" -Default $defaults.notifications
             usage         = Get-Choice -Id "feat_usage"         -Default $defaults.usage
             sessions      = Get-Choice -Id "feat_sessions"      -Default $defaults.sessions
-            project       = Get-Choice -Id "feat_project"       -Default $defaults.project
+            # NB: the Rust `Features` struct field is `projects` (plural). The
+            # wizard checkbox id stays `feat_project` (legacy), but the key
+            # written to features.json MUST be `projects` so the sidebar's
+            # featureKey="projects" gate resolves correctly.
+            projects      = Get-Choice -Id "feat_project"       -Default $defaults.projects
             plans         = Get-Choice -Id "feat_plans"         -Default $defaults.plans
         }
     } else {
@@ -1434,7 +1437,7 @@ function Set-FeatureFlags {
             notifications = Read-FeatureToggle -Name "Notifications"    -Default $defaults.notifications -Note "toast/tray alerts + pending-actions panel"
             usage         = Read-FeatureToggle -Name "Usage tracking"   -Default $defaults.usage         -Note "token budget + /usage cache (Anthropic API only)"
             sessions      = Read-FeatureToggle -Name "Sessions archive" -Default $defaults.sessions      -Note "session replay + highlights + compactor"
-            project       = Read-FeatureToggle -Name "Project manager"  -Default $defaults.project       -Note "project editor + scan + notes panel"
+            projects      = Read-FeatureToggle -Name "Project manager"  -Default $defaults.projects      -Note "project editor + scan + notes panel"
             plans         = Read-FeatureToggle -Name "Plans & goals"    -Default $defaults.plans         -Note "lifecycle open -> in-progress -> resolved"
         }
     }

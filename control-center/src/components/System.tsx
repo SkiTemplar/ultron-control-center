@@ -1652,7 +1652,7 @@ export function System() {
                   color: "var(--color-text-tertiary)",
                 }}
               >
-                Hooks feature is disabled. Enable it from the sidebar's "Features" panel.
+                Hooks feature is disabled. Enable it from Settings → Features.
               </div>
             </div>
           )}

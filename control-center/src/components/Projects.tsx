@@ -1300,6 +1300,7 @@ export function Projects() {
                 <option value="rider">Rider</option>
                 <option value="webstorm">WebStorm</option>
                 <option value="pycharm">PyCharm</option>
+                <option value="clion">CLion</option>
                 <option value="androidstudio">Android Studio</option>
                 <option value="fleet">JetBrains Fleet</option>
                 <option value="nvim">Neovim</option>

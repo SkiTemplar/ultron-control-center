@@ -24,6 +24,10 @@ export type Features = {
   mcps: boolean;
   skills: boolean;
   hooks: boolean;
+  // v15.4 — wizard toggles surfaced in the sidebar.
+  notifications: boolean;
+  usage: boolean;
+  sessions: boolean;
 };
 
 /** All toggles enabled — the safe default for a fresh install. */
@@ -39,6 +43,9 @@ export const ALL_ENABLED: Features = {
   mcps: true,
   skills: true,
   hooks: true,
+  notifications: true,
+  usage: true,
+  sessions: true,
 };
 
 // Module-level cache so multiple consumers share state.
@@ -134,4 +141,7 @@ export const FEATURE_KEYS: ReadonlyArray<keyof Features> = [
   "mcps",
   "skills",
   "hooks",
+  "notifications",
+  "usage",
+  "sessions",
 ] as const;

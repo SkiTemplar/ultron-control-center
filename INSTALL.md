@@ -49,11 +49,13 @@ anything.
 
 ### Wizard opt-outs are authoritative (v15.3.5+)
 
-Unchecking an **Optional features** box (News, Gaming, Schedules) does not
-just hide the tab — `install.ps1` step 8d (`Remove-OptOutFeatureFiles`)
-physically deletes the corresponding files from `~/.ultron/scripts/cockpit/`
-so a minimal install really is minimal. The Features tab inside the desktop
-app only toggles **visibility** of tabs/widgets; it cannot uninstall code.
+Unchecking any **Optional features** checkbox (News, Gaming, Schedules,
+Notifications, Usage, Sessions, Project, Plans, Personal, Self-improve)
+does not just hide the tab — `install.ps1` step 8d
+(`Remove-OptOutFeatureFiles`) physically deletes the corresponding files
+from `~/.ultron/scripts/cockpit/` so a minimal install really is minimal.
+The **Settings → Features** panel inside the desktop app only toggles
+**runtime visibility** of tabs/widgets; it cannot uninstall code.
 
 If you want to opt out of a feature **after** the initial install, the
 correct workflow is to re-run `install.ps1` and uncheck the box in the
@@ -64,7 +66,7 @@ wizard — re-running is idempotent and the purge step is safe to re-do.
 | `feat_news`          | News digest          | `scripts/cockpit/news_html_generator.py`, `scripts/cockpit/news_alerts.py`, `scripts/cockpit/templates/newsletter.md.tmpl`, `cockpit/news/` |
 | `feat_gaming`        | Gaming utilities     | `scripts/cockpit/game_detector.py`, `scripts/cockpit/gaming-enum.ps1`                                                                       |
 | `feat_schedules`     | Schedules            | `scripts/cockpit/install-scheduler.ps1`                                                                                                     |
-| `feat_notifications` | Notifications        | `scripts/hooks/qdrant-notify.ps1`, `scripts/cockpit/pending_panel.py`                                                                       |
+| `feat_notifications` | Notifications        | `scripts/hooks/qdrant-notify.ps1`                                                                                                            |
 | `feat_usage`         | Usage tracking       | `scripts/cockpit/usage_report.py`, `scripts/cockpit/token_baseline.py`, `scripts/cockpit/token_budget.py`                                   |
 | `feat_sessions`      | Sessions archive     | `scripts/cockpit/session_compactor.py`, `scripts/cockpit/session_highlights.py`, `scripts/cockpit/session_replay.py`                        |
 | `feat_project`       | Project manager      | `scripts/cockpit/project_editor.py`, `scripts/cockpit/project_notes.py`, `scripts/cockpit/launch_project.py`, `scripts/cockpit/scan_projects.py` |

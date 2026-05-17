@@ -399,6 +399,15 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             &["target_change"],
             "Recorre ~/.claude/agents/*.md. Para cada uno, propón los cambios necesarios para aplicar: {target_change}\n\nDevuelve un plan tabular (agent | cambio sugerido | diff line) ANTES de tocar nada. Espera mi OK por lotes de 5 agents.",
         ),
+        default_button(
+            "logs.summarize_recent",
+            "Logs · Summarize recent log file",
+            "Logs / per-row context menu",
+            "Compress the tail of a log file into a 5-line summary + flagged issues.",
+            "diagnose",
+            &["log_path"],
+            "Lee la cola (últimas 500 líneas) de {log_path} y devuelve:\n1. Qué proceso lo escribe\n2. Eventos relevantes (errores, warnings, transiciones)\n3. ¿Hay un patrón anómalo?\n4. Sugerencia de siguiente paso (investigar/silenciar/ignorar)\n\nMáximo 150 palabras.",
+        ),
     ]
 }
 

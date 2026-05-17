@@ -1,12 +1,7 @@
 import { useEffect, useState } from "react";
 import type { GlobalStatus } from "../types";
 import { statusColor, statusLabel } from "../lib/status";
-import {
-  useFeatures,
-  saveFeatures,
-  type Features,
-  FEATURE_KEYS,
-} from "../lib/features";
+import { useFeatures, type Features } from "../lib/features";
 
 export type Tab =
   | "dashboard"
@@ -67,8 +62,8 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     heading: "Overview",
     items: [
       { id: "dashboard", label: "Dashboard", available: true },
-      { id: "usage", label: "Usage", available: true },
-      { id: "notifications", label: "Notifications", available: true },
+      { id: "usage", label: "Usage", available: true, featureKey: "usage" },
+      { id: "notifications", label: "Notifications", available: true, featureKey: "notifications" },
       { id: "changelog", label: "Changelog", available: true, tier: "more" },
       { id: "news", label: "News", available: true, featureKey: "news", tier: "more" },
     ],
@@ -86,7 +81,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "Workspace",
     items: [
-      { id: "sessions", label: "Sessions", available: true },
+      { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
       { id: "gaming", label: "Gaming", available: true, featureKey: "gaming", tier: "more" },
       { id: "plans", label: "Plans", available: true, featureKey: "plans" },
@@ -210,8 +205,7 @@ function SidebarButton({
 }
 
 export function Sidebar({ active, onSelect, globalStatus }: Props) {
-  const { features, refresh } = useFeatures();
-  const [showFeaturesModal, setShowFeaturesModal] = useState(false);
+  const { features } = useFeatures();
   const [moreOpen, setMoreOpen] = useState<boolean>(loadMoreOpen());
 
   // v15.3 — auto-expand "More" if the active tab lives inside it, otherwise
@@ -360,29 +354,9 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
           );
         })()}
 
-        {/* Features toggle entry — sits below the last section so it's
-            visible but unobtrusive. */}
-        <div className="mb-2">
-          <button
-            type="button"
-            onClick={() => setShowFeaturesModal(true)}
-            className="flex w-full items-center justify-between rounded px-2 py-1 text-[13px] transition-colors"
-            style={{
-              background: "transparent",
-              color: "var(--color-text-tertiary)",
-              cursor: "pointer",
-            }}
-            onMouseEnter={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background =
-                "var(--color-surface-2)";
-            }}
-            onMouseLeave={(e) => {
-              (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-            }}
-          >
-            <span>Features</span>
-          </button>
-        </div>
+        {/* v15.4 — the standalone "Features" modal was deduplicated. The
+            same toggles live in Settings → Features (richer UI with
+            descriptions per toggle). */}
       </nav>
 
       {/* Status footer */}
@@ -399,122 +373,10 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
         </span>
       </div>
 
-      {showFeaturesModal && (
-        <FeaturesModal
-          features={features}
-          onClose={() => setShowFeaturesModal(false)}
-          onChanged={refresh}
-        />
-      )}
     </aside>
   );
 }
 
-// ---------------------------------------------------------------------------
-// Features modal
-// ---------------------------------------------------------------------------
-
-const FEATURE_LABELS: Record<keyof Features, string> = {
-  news: "News",
-  gaming: "Gaming",
-  personal: "Personal",
-  schedules: "Schedules",
-  self_improve: "Stats / Self-improve",
-  memory: "Memory",
-  plans: "Plans",
-  projects: "Projects",
-  mcps: "MCPs",
-  skills: "Skills",
-  hooks: "Hooks",
-};
-
-type FeaturesModalProps = {
-  features: Features;
-  onClose: () => void;
-  onChanged: () => void;
-};
-
-function FeaturesModal({ features, onClose, onChanged }: FeaturesModalProps) {
-  const [local, setLocal] = useState<Features>(features);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  async function toggle(key: keyof Features) {
-    const next: Features = { ...local, [key]: !local[key] };
-    setLocal(next);
-    setSaving(true);
-    setErr(null);
-    try {
-      await saveFeatures(next);
-      onChanged();
-    } catch (e) {
-      setErr(String(e));
-      // Roll back the optimistic flip on failure.
-      setLocal(local);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.45)" }}
-      onClick={onClose}
-    >
-      <div
-        className="w-[360px] rounded-md border p-4 shadow-lg"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "var(--color-surface-1)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-3 flex items-center justify-between">
-          <div className="text-[14px] font-semibold">Features</div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded px-2 py-0.5 text-[12px]"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            Close
-          </button>
-        </div>
-        <div className="mb-3 text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Disabled features are hidden from the sidebar. Stored at
-          <br />
-          <code>~/.ultron/cockpit/features.json</code>
-        </div>
-        <div className="space-y-1">
-          {FEATURE_KEYS.map((key) => (
-            <label
-              key={key}
-              className="flex cursor-pointer items-center justify-between rounded px-2 py-1.5 text-[13px]"
-              style={{ background: "var(--color-surface-2)" }}
-            >
-              <span>{FEATURE_LABELS[key]}</span>
-              <input
-                type="checkbox"
-                checked={local[key]}
-                disabled={saving}
-                onChange={() => toggle(key)}
-              />
-            </label>
-          ))}
-        </div>
-        {err && (
-          <div
-            className="mt-3 rounded border px-2 py-1 text-[11px]"
-            style={{
-              borderColor: "var(--color-border)",
-              color: "var(--color-danger, #f88)",
-            }}
-          >
-            {err}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
+// v15.4: FeaturesModal removed — the same toggles now live in
+// Settings → Features (richer UI with per-feature descriptions).
+// FEATURE_LABELS lived here for the deleted modal; gone with it.
