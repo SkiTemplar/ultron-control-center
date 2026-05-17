@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.16 -->
+## v15.4.16 — 2026-05-17
+
+- feat(v15.4.16): 8 new intent-dispatcher rules from real telemetry
+
+_Auto-generated from d92caa9d by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.15 -->
 ## v15.4.15 — 2026-05-17
 

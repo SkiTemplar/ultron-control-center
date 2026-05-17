@@ -974,7 +974,14 @@ export function Projects() {
         iKind === "gemini";
       const item: LauncherItem = {
         kind: iKind,
-        path: needsPath ? trimmed(iPath) : null,
+        // For 'ide' items, the path input is OPTIONAL — when left blank we
+        // fall back to the parent project's path so the backend can launch
+        // the IDE on the project root. Without this fallback, an empty
+        // input was saved as "" and `launch_item` errored at runtime
+        // (gemini review v15.4.16).
+        path: needsPath
+          ? trimmed(iPath) || (iKind === "ide" ? itemTarget?.path ?? null : null)
+          : null,
         cwd: needsCwd ? trimmed(iCwd) : null,
         args: args.length > 0 ? args : null,
         label: trimmed(iLabel),

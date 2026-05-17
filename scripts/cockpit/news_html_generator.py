@@ -414,16 +414,30 @@ def extract_json_articles(output: str) -> list[dict]:
     prefix = re.sub(r"^```(?:json)?\s*", "", prefix.strip(), flags=re.IGNORECASE)
     prefix = re.sub(r"```\s*$", "", prefix.strip())
 
-    # Find the outermost [...] array.
-    m = re.search(r"(\[[\s\S]*\])", prefix)
-    if not m:
-        return []
-    try:
-        data = json.loads(m.group(1))
-        if isinstance(data, list):
-            return [a for a in data if isinstance(a, dict)]
-    except json.JSONDecodeError:
-        pass
+    # Find a top-level [...] array. The previous greedy `(\[[\s\S]*\])`
+    # spanned from the first `[` to the last `]` in the whole prefix,
+    # which broke on markdown link lists or extra unrelated arrays
+    # (gemini review v15.4.16). Walk from each `[` outward, tracking
+    # bracket depth, and return the first balanced array that parses
+    # as a list of dicts.
+    starts = [i for i, c in enumerate(prefix) if c == "["]
+    for start in starts:
+        depth = 0
+        for i in range(start, len(prefix)):
+            c = prefix[i]
+            if c == "[":
+                depth += 1
+            elif c == "]":
+                depth -= 1
+                if depth == 0:
+                    candidate = prefix[start : i + 1]
+                    try:
+                        data = json.loads(candidate)
+                        if isinstance(data, list) and all(isinstance(a, dict) for a in data):
+                            return data
+                    except json.JSONDecodeError:
+                        pass
+                    break  # try next outer `[`
     return []
 
 
@@ -1003,6 +1017,12 @@ def main() -> int:
             print(f"[articles] Fallback: {len(articles_from_model)} artículos extraídos del HTML")
 
     # ── SQLite: filter duplicates + record published articles ─────────────────
+    # NOTE: the rendered HTML at out_path has ALREADY been written above. The
+    # primary dedup defence is the prompt-side hash list passed to the LLM,
+    # which usually keeps duplicates out of the HTML entirely. This DB pass
+    # is a post-hoc audit: only fresh articles are inserted, and a warning
+    # is printed if duplicates slipped past the prompt — re-run the
+    # generator to get a clean HTML when that happens.
     if not args.no_dedup and articles_from_model:
         with open_db() as conn:
             fresh_articles, dropped_count = filter_candidates_with_db(
@@ -1012,6 +1032,10 @@ def main() -> int:
                   f"({len(fresh_articles)} frescos registrados en DB)")
             inserted = record_articles(conn, fresh_articles)
             print(f"[dedup-db]    {inserted} artículos insertados en news_history.db")
+            if dropped_count > 0:
+                print(f"[warn-dedup]  {dropped_count} duplicados llegaron al HTML — "
+                      "el modelo ignoró el prompt-side hash list. "
+                      "Considera re-correr el generador para un HTML limpio.")
     elif args.no_dedup and articles_from_model:
         print("[dedup-db]    Saltando DB (--no-dedup activo)")
 

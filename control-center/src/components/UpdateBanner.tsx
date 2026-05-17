@@ -101,6 +101,11 @@ export function UpdateBanner() {
   }, []);
 
   async function triggerRebuild() {
+    // Two startup paths can call this (the initial check_for_updates poll
+    // and the backend `update-available` event 6 s later). Without this
+    // guard both would spawn parallel git-pull + tauri-build processes
+    // that race on target/ and corrupt the binary — gemini review v15.4.16.
+    if (busy) return;
     setBusy(true);
     try {
       // Same path Settings → App lifecycle → Rebuild uses. Spawns a

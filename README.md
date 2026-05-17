@@ -62,12 +62,6 @@
   <sub><i>Skills tab — strict security scan, quarantined skills surfaced first, findings + waiver flow inline.</i></sub>
 </p>
 
-<p align="center">
-  <img alt="Agents tab — 9 ULTRON agents + 22 community pre-installed with the same security scan as Skills" src="assets/screenshots/agents.png" width="820" />
-  <br />
-  <sub><i>Agents tab — same PI security scan as Skills, with the AI Router slot for per-zone routing.</i></sub>
-</p>
-
 > Screenshots will fill in as the public beta gets capture cycles — the layout you see in the GIFs is the current one.
 
 ---

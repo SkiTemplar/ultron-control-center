@@ -63,12 +63,6 @@
   <sub><i>Pesta&ntilde;a Skills &mdash; scanner de seguridad estricto, skills quarantined arriba del todo, findings + waiver inline.</i></sub>
 </p>
 
-<p align="center">
-  <img alt="Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + catalogo community con el mismo scan de seguridad que Skills" src="assets/screenshots/agents.png" width="820" />
-  <br />
-  <sub><i>Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + 22 community pre-instalados; el catalogo trae 69 community adicionales que se instalan a demanda. El autor lleva 73 instalados localmente. Mismo ruleset PI que Skills.</i></sub>
-</p>
-
 > Los screenshots se llenar&aacute;n a medida que avance la beta p&uacute;blica &mdash; el layout que ves coincide con la versi&oacute;n actual.
 
 ---

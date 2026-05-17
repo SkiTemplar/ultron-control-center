@@ -220,7 +220,7 @@ def _scan_vault_skills(prompt: str) -> list[dict]:
         try:
             # Read only the first 60 lines — enough to cover any frontmatter.
             lines: list[str] = []
-            with skill_md.open(encoding="utf-8", errors="replace") as fh:
+            with skill_md.open(encoding="utf-8-sig", errors="replace") as fh:
                 for i, ln in enumerate(fh):
                     lines.append(ln.rstrip("\n"))
                     if i > 60:
@@ -259,7 +259,7 @@ def _scan_vault_agents(prompt: str) -> list[dict]:
     for agent_md in _AGENT_VAULT_DIR.glob("*.md"):
         try:
             lines: list[str] = []
-            with agent_md.open(encoding="utf-8", errors="replace") as fh:
+            with agent_md.open(encoding="utf-8-sig", errors="replace") as fh:
                 for i, ln in enumerate(fh):
                     lines.append(ln.rstrip("\n"))
                     if i > 60:

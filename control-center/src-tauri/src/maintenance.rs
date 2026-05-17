@@ -104,13 +104,14 @@ Write-Host '[ULTRON] Build OK. Closing old instance + relaunching...' -Foregroun
 # es exactamente 'control-center'. Cuando el binario corre desde el NSIS
 # installer (Program Files / AppData), el process name puede diferir o
 # el spawned PS no tiene permisos suficientes para matarlo. taskkill
-# /IM control-center.exe /F /T mata por imagen + child tree, ignora
-# privilegios sobre el parent (es el patrón estándar en Windows para
-# self-replace).
-taskkill.exe /IM 'control-center.exe' /F /T 2>$null | Out-Null
+# /IM control-center.exe /F mata por imagen sin /T — el /T (tree)
+# tomaba también este script PowerShell porque es child de
+# control-center, lo que dejaba la app muerta sin relauch (gemini
+# review v15.4.16, confirmado).
+taskkill.exe /IM 'control-center.exe' /F 2>$null | Out-Null
 # Fallback por si el binario fuera renombrado por el installer NSIS al
 # productName del tauri.conf (ULTRON Control Center.exe).
-taskkill.exe /IM 'ULTRON Control Center.exe' /F /T 2>$null | Out-Null
+taskkill.exe /IM 'ULTRON Control Center.exe' /F 2>$null | Out-Null
 $deadline = (Get-Date).AddSeconds(8)
 while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 200

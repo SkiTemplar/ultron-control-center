@@ -386,8 +386,9 @@ pub fn send_agent_to_vault_inner(name: String) -> Result<AgentMutationResult, St
     let vault = agent_vault_dir().ok_or_else(|| "no HOME".to_string())?;
     fs::create_dir_all(&vault).map_err(|e| format!("mkdir vault: {}", e))?;
     let target = vault.join(format!("{}.md", name));
-    // If the vault already has this agent (e.g. user restored, edited,
-    // and is now sending back), overwrite with the current version.
+    if target.exists() {
+        fs::remove_file(&target).map_err(|e| format!("clear stale vault entry: {}", e))?;
+    }
     fs::rename(&path, &target).map_err(|e| format!("move to vault: {}", e))?;
     Ok(AgentMutationResult {
         success: true,
