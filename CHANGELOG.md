@@ -495,9 +495,10 @@ scheduler. ULTRON stays a single-machine native tool. If something on
 that list lands later it will be its own opt-in module, not a roadmap
 promise.
 
-Note: the project is **Windows-only by design** — no macOS / Linux ports
-planned. The hooks, installer and dual-mode wiring all assume PowerShell
-+ winget + Windows-specific APIs.
+Platform note: Windows 11 is the primary target. Linux x86_64 (Debian /
+Ubuntu / Fedora / Arch) is supported from v15.5.0 with .deb + .AppImage
+release artifacts and a parallel bash install path. macOS remains an
+explicit non-goal.
 
 ## [15.2.32] - 2026-05-16
 

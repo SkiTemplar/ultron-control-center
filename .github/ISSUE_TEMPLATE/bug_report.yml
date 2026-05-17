@@ -35,8 +35,11 @@ body:
       options:
         - Windows 11
         - Windows 10
+        - Linux (Debian / Ubuntu)
+        - Linux (Fedora / RHEL)
+        - Linux (Arch / Manjaro)
+        - Linux (other)
         - macOS (unsupported)
-        - Linux (unsupported)
     validations:
       required: true
   - type: textarea

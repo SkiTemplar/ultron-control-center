@@ -42,7 +42,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-readonly ULTRON_VERSION="v15.4"
+readonly ULTRON_VERSION="v15.5"
 readonly QDRANT_VERSION="v1.18.0"
 # Native Linux x86_64 tarball from the official qdrant/qdrant GitHub release.
 readonly QDRANT_TARBALL="qdrant-x86_64-unknown-linux-gnu.tar.gz"
@@ -757,11 +757,38 @@ merge_hooks() {
         install_pkg jq
     fi
 
-    # The template uses {USERPROFILE} as a placeholder so install.ps1 can swap
-    # in the Windows home path. On Linux we use $HOME with forward-slash paths
-    # (which the template already expects).
+    # The template is Windows-canonical: it hardcodes `.venv/Scripts/python.exe`
+    # and `PowerShell -WindowStyle Hidden -File ... .ps1` invocations. install.ps1
+    # uses it as-is; install.sh has to rewrite it before merging so the resulting
+    # ~/.claude/settings.json fires real Linux binaries (Kirkardo audit v15.5.0).
+    #
+    # Three substitutions:
+    #   1. {USERPROFILE}            -> $HOME (placeholder expansion)
+    #   2. .venv/Scripts/python.exe -> .venv/bin/python (uv venv layout on Linux)
+    #   3. PowerShell -WindowStyle Hidden -NoProfile -NonInteractive
+    #      -ExecutionPolicy Bypass -File <path>.ps1
+    #      -> bash <path>.sh
+    # Then jq filters out any hook whose `.command` still references
+    # `.ps1` — those scripts have no .sh sibling yet (session-init,
+    # stop-memory-sync, session-cleanup; flagged in v15.5.x backlog).
     local expanded
-    expanded="$(sed "s|{USERPROFILE}|${HOME}|g" "$tpl")"
+    expanded="$(sed \
+        -e "s|{USERPROFILE}|${HOME}|g" \
+        -e "s|\.venv/Scripts/python\.exe|.venv/bin/python|g" \
+        -e "s|PowerShell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -File \\([^\"]*\\)\\.ps1|bash \\1.sh|g" \
+        "$tpl")"
+
+    # Drop any remaining hook entry that still references a .ps1 file —
+    # those scripts have no Linux sibling yet and would silently fail
+    # every session. The Python hooks (auto-recall, intent-dispatcher,
+    # mode-trigger, etc.) are cross-platform and stay wired.
+    expanded="$(printf '%s' "$expanded" | jq '
+        .hooks |= with_entries(
+            .value |= map(
+                .hooks |= map(select(.command | test("\\.ps1") | not))
+            ) | map(select(.hooks | length > 0))
+        )
+    ')"
 
     if [[ -f "$settings" ]]; then
         # Back up first — never blow away a user-edited settings.json silently.

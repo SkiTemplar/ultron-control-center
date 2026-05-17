@@ -96,18 +96,23 @@ jobs:
 
           $include = @(
             "install.ps1",
+            "install.sh",
             "bootstrap.ps1",
+            "bootstrap.sh",
+            "uninstall.ps1",
             "README.md",
             "README.es.md",
             "CHANGELOG.md",
             "LICENSE",
+            "NOTICE",
             "scripts",
             "skills-catalog",
             "agents",
             "config",
             "docs",
             "schedules",
-            "cockpit"
+            "cockpit",
+            "templates"
           )
 
           foreach ($item in $include) {
