@@ -62,6 +62,7 @@ jobs:
         run: npm ci
 
       - name: Build and publish Tauri release
+        id: tauri
         uses: tauri-apps/tauri-action@v0
         env:
           # GitHub token is auto-provided; tauri-action uses it to create the
@@ -75,17 +76,26 @@ jobs:
         with:
           # The tag name pushed by the user (e.g. v15.2.0).
           tagName: ${{ github.ref_name }}
-          releaseName: "ULTRON Control Center ${{ github.ref_name }}"
+          releaseName: "ULTRON ${{ github.ref_name }}"
           releaseBody: |
             Automated release built from tag `${{ github.ref_name }}`.
 
-            Download the Windows installer below. On first launch Windows
-            SmartScreen may warn that the publisher is unverified — this is
-            expected for self-signed releases. Click "More info" then
-            "Run anyway".
+            **Two install paths:**
 
-            See docs/INSTALL.md for full install notes and
-            docs/RELEASE-PROCESS.md for how releases are produced.
+            * **Desktop app only** — download `ULTRON Control Center_*_x64-setup.exe`
+              below and run it. NSIS installer, no Git required. On first launch
+              Windows SmartScreen may warn that the publisher is unverified — this
+              is expected for unsigned releases. Click "More info" → "Run anyway".
+
+            * **Full system** (skills, agents, hooks, cockpit scripts) — one-liner
+              in PowerShell:
+              `iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex`
+              This downloads `ultron-system-*.zip` from this release, extracts to
+              `~/.ultron`, runs `install.ps1`, and (optionally) launches the
+              Control Center installer.
+
+            See `docs/INSTALL.md` for full notes and `docs/RELEASE-PROCESS.md` for
+            how releases are produced.
           releaseDraft: false
           prerelease: false
           # Tauri config lives inside control-center/src-tauri/tauri.conf.json.
@@ -94,3 +104,68 @@ jobs:
           # NSIS setup.exe rather than the .msi when both are produced.
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # Full-system ZIP — bundles everything bootstrap.ps1 needs to wire up the
+      # skills / agents / hooks layer on a fresh machine. Excludes node_modules,
+      # build outputs, vault personal data, and other heavy or sensitive paths.
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Build ultron-system ZIP
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $stage = Join-Path $env:RUNNER_TEMP "ultron-system"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+          # Files/dirs to include (paths relative to repo root).
+          $include = @(
+            "install.ps1",
+            "bootstrap.ps1",
+            "README.md",
+            "README.es.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "scripts",
+            "skills-catalog",
+            "agents",
+            "config",
+            "docs",
+            "schedules",
+            "cockpit"
+          )
+
+          foreach ($item in $include) {
+            if (Test-Path $item) {
+              $dest = Join-Path $stage $item
+              if ((Get-Item $item) -is [System.IO.DirectoryInfo]) {
+                Copy-Item -Path $item -Destination $dest -Recurse -Force `
+                  -Exclude @("node_modules","target",".venv","__pycache__","*.pyc","dist","build")
+              } else {
+                $parent = Split-Path $dest -Parent
+                if ($parent -and -not (Test-Path $parent)) {
+                  New-Item -ItemType Directory -Path $parent -Force | Out-Null
+                }
+                Copy-Item -Path $item -Destination $dest -Force
+              }
+            } else {
+              Write-Host "[skip] $item not present"
+            }
+          }
+
+          $zipName = "ultron-system-$tag.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP $zipName
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath -CompressionLevel Optimal
+
+          Write-Host "Built $zipPath ($([math]::Round((Get-Item $zipPath).Length / 1MB, 1)) MB)"
+          echo "ULTRON_SYSTEM_ZIP=$zipPath" >> $env:GITHUB_ENV
+
+      - name: Attach ultron-system ZIP to release
+        if: matrix.platform == 'windows-latest'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ env.ULTRON_SYSTEM_ZIP }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -201,3 +201,65 @@ If a release ships a regression:
 
 Do not delete a published release. Deletion breaks the auto-updater for
 anyone caught mid-download and removes the audit trail.
+
+---
+
+## Bootstrap installer (v15.4.17+)
+
+`bootstrap.ps1` at the repo root is the one-liner entry point for users who
+do **not** want to clone the repo. It depends on three release assets being
+present:
+
+1. `ultron-system-<tag>.zip` — built and uploaded by the `Build
+   ultron-system ZIP` step in `.github/workflows/release.yml`. Contains
+   `install.ps1`, `bootstrap.ps1`, `scripts/`, `skills-catalog/`, `agents/`,
+   `config/`, `docs/`, `schedules/`, `cockpit/`. Excludes `node_modules/`,
+   `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`.
+2. `ULTRON Control Center_<ver>_x64-setup.exe` — NSIS installer produced by
+   `tauri-action`.
+3. `latest.json` — auto-updater manifest (produced by `tauri-action`).
+
+If the system ZIP is missing from a release, `bootstrap.ps1` exits with
+code 3. Always verify the asset list on the GitHub Releases page after a tag
+push.
+
+The bootstrap one-liner that users see in the README:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
+```
+
+---
+
+## Code signing (planned, not yet active)
+
+The NSIS installer is currently **unsigned**, so Windows SmartScreen shows a
+"Windows protected your PC" warning on first launch. Users click *More
+info* → *Run anyway* to proceed. This is acceptable for a small beta but
+will hurt adoption once distribution widens.
+
+Three options, ordered by cost:
+
+| Option | Cost | SmartScreen behaviour | Notes |
+|---|---|---|---|
+| **OV (Organization Validation) cert** | ~150–250 USD/yr (Sectigo, Certum, SSL.com) | Warning persists ~2–4 weeks while Microsoft accrues reputation, then disappears. | Cheapest legitimate path. Requires a registered business or DBA. |
+| **EV (Extended Validation) cert** | ~300–500 USD/yr | Instant SmartScreen reputation, no warning at all. Requires a hardware token (FIPS 140-2). | Best UX, worst friction to set up. Token must be inserted at sign time, which complicates CI signing. |
+| **Microsoft Trusted Signing** (formerly Azure Code Signing) | ~10 USD/month | Same instant reputation as EV. Cloud-based, no hardware token. | Newest path; subscription gated and may require a Microsoft Partner relationship. |
+
+Wiring an OV cert into the release workflow:
+
+1. Purchase the cert; receive a `.pfx` file + password.
+2. Store the `.pfx` base64-encoded as a GitHub secret named
+   `WINDOWS_SIGNING_CERT_PFX_BASE64`, and the password as
+   `WINDOWS_SIGNING_CERT_PASSWORD`.
+3. Add a step before `tauri-action` that decodes the cert to disk.
+4. Set `tauri.conf.json > bundle > windows > certificateThumbprint` (or use
+   the `signtool.exe` env vars `WINDOWS_SIGNING_*` that `tauri-action`
+   reads).
+5. Re-run a release tag; verify the resulting `setup.exe` is signed via
+   `Get-AuthenticodeSignature setup.exe`.
+
+Until a cert is wired, the README warns users about the SmartScreen prompt.
+Do NOT advertise signed binaries unless a cert is actually present in the
+build pipeline — it erodes trust the first time someone notices the
+discrepancy.

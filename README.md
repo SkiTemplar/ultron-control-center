@@ -174,7 +174,23 @@ On top of L1 lives a local **Qdrant** instance (the native Windows binary — no
 > [!IMPORTANT]
 > Windows 11 is the primary target. macOS and Linux are not officially tested at v15.4.
 
-**One-liner.**
+There are **two install paths**. Pick one.
+
+### Option A — Bootstrap from the latest GitHub Release (no Git required)
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
+```
+
+What `bootstrap.ps1` does:
+1. Hits the GitHub Releases API to find the latest `v*.*.*` tag.
+2. Downloads `ultron-system-<ver>.zip` (skills · agents · hooks · cockpit scripts) and extracts to `~/.ultron`.
+3. Runs `install.ps1` to wire everything into `~/.claude/`.
+4. Downloads `ULTRON Control Center_<ver>_x64-setup.exe` (NSIS installer) and launches it.
+
+Re-run it any time to upgrade — `~/.ultron-vault/` and `~/.ultron/plans/` are preserved.
+
+### Option B — Clone the repo (recommended for contributors)
 
 ```powershell
 git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
@@ -182,7 +198,7 @@ cd $env:USERPROFILE\.ultron
 .\install.ps1
 ```
 
-**Common flags.**
+**Common installer flags.**
 
 ```powershell
 .\install.ps1                  # interactive (recommended)
@@ -193,6 +209,9 @@ cd $env:USERPROFILE\.ultron
 ```
 
 The installer is **idempotent** — rerun it any time; it detects what is already done and only applies pending changes. If something fails, see [`INSTALL.md`](INSTALL.md) for manual troubleshooting.
+
+> [!NOTE]
+> **About Windows SmartScreen.** The NSIS installer is currently **unsigned**, so SmartScreen will show a "Windows protected your PC" warning on first launch. Click **More info** → **Run anyway**. Code signing certificates (~$200/yr from Sectigo/DigiCert) would remove the warning; tracked in [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 
 To remove everything ULTRON installed (without touching your Claude Code skills in `~/.claude/skills/`):
 
