@@ -206,7 +206,7 @@ export function Personal() {
           onGenerate={generateAnalysis}
         />
 
-        <div className="flex w-1/2 flex-col gap-4 overflow-hidden">
+        <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden">
           <ProfileSection
             profile={profile}
             draft={draft}
