@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.17 -->
+## v15.4.17 — 2026-05-17
+
+- feat(v15.4.17): release pipeline via bootstrap.ps1 + system ZIP
+
+_Auto-generated from 2797db6e by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.16 -->
 ## v15.4.16 — 2026-05-17
 

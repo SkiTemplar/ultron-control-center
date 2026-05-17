@@ -182,6 +182,15 @@ There are **two install paths**. Pick one.
 iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
 ```
 
+> [!CAUTION]
+> The URL above resolves to whatever is on `main` *right now*. If you want a
+> reproducible install pinned to a specific release, point at the tag instead:
+> ```powershell
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.4.17/bootstrap.ps1 | iex
+> ```
+> The release also ships an `ultron-system-<tag>.zip.sha256` you can use to
+> verify the system ZIP after download.
+
 What `bootstrap.ps1` does:
 1. Hits the GitHub Releases API to find the latest `v*.*.*` tag.
 2. Downloads `ultron-system-<ver>.zip` (skills · agents · hooks · cockpit scripts) and extracts to `~/.ultron`.

@@ -55,11 +55,22 @@ try {
 $tag = $release.tag_name
 Write-Step "Latest tag: $tag"
 
-$systemAsset = $release.assets | Where-Object { $_.name -like "ultron-system-*.zip" } | Select-Object -First 1
-$installerAsset = $release.assets | Where-Object { $_.name -like "*setup.exe" } | Select-Object -First 1
+$expectedZip = "ultron-system-$tag.zip"
+$installerPattern = "^ULTRON Control Center_.*_x64-setup\.exe$"
+
+# Strict matching: bind the ZIP name to the tag, require exactly one
+# installer match. Wildcards used to accept stale duplicates / spoofed
+# assets (codex review v15.4.17).
+$systemAsset = $release.assets | Where-Object { $_.name -eq $expectedZip }
+$installerCandidates = @($release.assets | Where-Object { $_.name -match $installerPattern })
+$installerAsset = if ($installerCandidates.Count -eq 1) { $installerCandidates[0] } else { $null }
 
 if (-not $systemAsset) {
-    Write-Err "Release $tag does not include an ultron-system-*.zip asset. Cannot bootstrap."
+    Write-Err "Release $tag does not include the expected asset '$expectedZip'. Cannot bootstrap."
+    exit 3
+}
+if ($installerCandidates.Count -gt 1) {
+    Write-Err "Release $tag has multiple installers matching '$installerPattern'. Refusing to guess."
     exit 3
 }
 
@@ -93,8 +104,13 @@ if (-not (Test-Path $installScript)) {
 Write-Step "Running install.ps1 (skills + agents + hooks wiring)"
 if (-not $DryRun) {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $installScript
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warn "install.ps1 exited with $LASTEXITCODE — check the log above."
+    $installExit = $LASTEXITCODE
+    if ($installExit -ne 0) {
+        # Don't silently launch the Control Center installer over a broken
+        # base system — surface the failure and stop (codex review v15.4.17).
+        Write-Err "install.ps1 exited with code $installExit. Bootstrap aborted."
+        Write-Err "Investigate the log above; fix the issue; re-run bootstrap.ps1."
+        exit $installExit
     }
 }
 
