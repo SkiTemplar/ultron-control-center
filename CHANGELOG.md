@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.3 -->
+## v15.5.3 — 2026-05-17
+
+- fix(v15.5.3): Kirkardo 2 CRITICAL â€” Linux install was broken end-to-end
+
+_Auto-generated from 6374fdf5 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.2 -->
 ## v15.5.2 — 2026-05-17
 
