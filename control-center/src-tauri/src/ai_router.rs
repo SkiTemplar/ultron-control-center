@@ -67,6 +67,19 @@ impl AiRouterEntry {
             auto_mode: false,
         }
     }
+
+    /// Full constructor — provider + pinned model + optional subagent.
+    /// Used by `default_*` recommendations so a fresh install (or a
+    /// `reset_ai_router_to_defaults` invocation) lands on the curated
+    /// agent+model combo instead of bare "claude default".
+    fn with_full(provider: &str, model: Option<&str>, agent: Option<&str>) -> Self {
+        AiRouterEntry {
+            provider: provider.to_string(),
+            model: model.map(str::to_string),
+            agent: agent.map(str::to_string),
+            auto_mode: false,
+        }
+    }
 }
 
 /// Wire shape that accepts both the legacy bare-string form and the new
@@ -136,20 +149,76 @@ where
     Ok(wire.into())
 }
 
-fn default_diagnose() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_summarize() -> AiRouterEntry { AiRouterEntry::new("codex") }
-fn default_brainstorm_plans() -> AiRouterEntry { AiRouterEntry::new("codex") }
-fn default_news_generate() -> AiRouterEntry { AiRouterEntry::new("gemini") }
-fn default_skill_edit() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_mcp_create() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_repo_review() -> AiRouterEntry { AiRouterEntry::new("codex") }
-fn default_personal_analyse() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_memory_analyse() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_notif_fix() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_self_improve() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_system_analyse() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_usage_analyse() -> AiRouterEntry { AiRouterEntry::new("claude") }
-fn default_skill_create() -> AiRouterEntry { AiRouterEntry::new("claude") }
+// v15.4.4 — curated provider + model + agent per zone. Picked to match
+// the strengths of each agent in `~/.claude/agents/` and the cost/quality
+// trade-off of each provider:
+//   - Opus 4.7 → brainstorm / creative / architectural reasoning.
+//   - Sonnet 4.6 → default fast-but-smart (edits, fix-ups, analysis).
+//   - Codex gpt-5.5 → adversarial review (different model = different blind spots).
+//   - Gemini 3.1 pro → long-context (full repo, full newsletter).
+
+fn default_diagnose() -> AiRouterEntry {
+    // PC report → root-cause analysis is the debugger agent's job.
+    AiRouterEntry::with_full("claude", Some("claude-sonnet-4-6"), Some("debugger"))
+}
+fn default_summarize() -> AiRouterEntry {
+    // Newsletter HTML → long context wins, no agent needed.
+    AiRouterEntry::with_full("gemini", Some("gemini-3.1-flash-preview"), None)
+}
+fn default_brainstorm_plans() -> AiRouterEntry {
+    // Plan brainstorm wants depth → Opus, no agent (free-form exploration).
+    AiRouterEntry::with_full("claude", Some("claude-opus-4-7"), None)
+}
+fn default_news_generate() -> AiRouterEntry {
+    // Generative + long context → Gemini Pro, no agent.
+    AiRouterEntry::with_full("gemini", Some("gemini-3.1-pro-preview"), None)
+}
+fn default_skill_edit() -> AiRouterEntry {
+    // Markdown frontmatter tweaks → Sonnet is plenty, no agent.
+    AiRouterEntry::with_full("claude", Some("claude-sonnet-4-6"), None)
+}
+fn default_mcp_create() -> AiRouterEntry {
+    // mcp-developer agent exists for exactly this — Opus for the templating.
+    AiRouterEntry::with_full("claude", Some("claude-opus-4-7"), Some("mcp-developer"))
+}
+fn default_repo_review() -> AiRouterEntry {
+    // Adversarial → different model from author. Codex's gpt-5.5 is the
+    // designated peer reviewer in ULTRON.
+    AiRouterEntry::with_full("codex", Some("gpt-5.5"), None)
+}
+fn default_personal_analyse() -> AiRouterEntry {
+    // Profile / known.json analysis → context-manager owns cross-doc state.
+    AiRouterEntry::with_full("claude", Some("claude-sonnet-4-6"), Some("context-manager"))
+}
+fn default_memory_analyse() -> AiRouterEntry {
+    // Vault / brain_index navigation → ultron-context is purpose-built.
+    AiRouterEntry::with_full("claude", Some("claude-sonnet-4-6"), Some("ultron-context"))
+}
+fn default_notif_fix() -> AiRouterEntry {
+    // Alert triage → debugger again (same root-cause discipline).
+    AiRouterEntry::with_full("claude", Some("claude-sonnet-4-6"), Some("debugger"))
+}
+fn default_self_improve() -> AiRouterEntry {
+    // Telemetry → architecture lens, Opus.
+    AiRouterEntry::with_full("claude", Some("claude-opus-4-7"), Some("ultron-arch"))
+}
+fn default_system_analyse() -> AiRouterEntry {
+    // Hooks / scheduled tasks / processes on Windows → PowerShell expert.
+    AiRouterEntry::with_full(
+        "claude",
+        Some("claude-sonnet-4-6"),
+        Some("powershell-7-expert"),
+    )
+}
+fn default_usage_analyse() -> AiRouterEntry {
+    // Token / cost arithmetic — small task, fast model, no agent.
+    AiRouterEntry::with_full("claude", Some("claude-haiku-4-5"), None)
+}
+fn default_skill_create() -> AiRouterEntry {
+    // Brand-new skill = creative + structured → Opus, no agent (the
+    // skill-creator skill itself handles the methodology).
+    AiRouterEntry::with_full("claude", Some("claude-opus-4-7"), None)
+}
 
 impl Default for AiRouterConfig {
     fn default() -> Self {
@@ -472,6 +541,15 @@ pub fn save_ai_router_inner(cfg: AiRouterConfig) -> Result<AiRouterConfig, Strin
     Ok(cfg)
 }
 
+/// v15.4.4 — re-apply the curated `default_*` recommendations across all
+/// zones, ignoring whatever the user (or a previous version) wrote.
+/// Useful when ULTRON ships a new mapping (better agent for X) and the
+/// user wants to opt in without editing 14 dropdowns by hand.
+pub fn reset_ai_router_to_defaults_inner() -> Result<AiRouterConfig, String> {
+    let cfg = AiRouterConfig::default();
+    save_ai_router_inner(cfg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -567,8 +645,9 @@ mod tests {
         assert_eq!(cfg.diagnose.provider, "claude");
         assert!(cfg.diagnose.model.is_none());
         assert_eq!(cfg.news_generate.model.as_deref(), Some("gemini-3.1-flash"));
-        // Missing fields fall back to defaults.
-        assert_eq!(cfg.summarize.provider, "codex");
+        // Missing fields fall back to defaults (v15.4.4 — summarize now
+        // defaults to gemini for long-context HTML).
+        assert_eq!(cfg.summarize.provider, "gemini");
     }
 
     #[test]

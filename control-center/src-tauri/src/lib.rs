@@ -242,6 +242,7 @@ pub fn run() {
             // -- AI router --
             commands::ai_router::read_ai_router,
             commands::ai_router::save_ai_router,
+            commands::ai_router::reset_ai_router_to_defaults,
             commands::ai_router::resolve_zone_for_prompt,
             // -- news --
             commands::news::list_news,

@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.3 -->
+## v15.4.3 — 2026-05-17
+
+- feat(v15.4.3): rebuild auto-relaunches the Control Center
+
+_Auto-generated from ef59a2a3 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.2 -->
 ## v15.4.2 — 2026-05-17
 

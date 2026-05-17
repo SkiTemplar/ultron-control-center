@@ -486,32 +486,71 @@ export function AiRouterSection() {
             })}
           </div>
 
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex items-center justify-between gap-2">
             <button
               type="button"
-              onClick={() => config && setDraft({ ...config })}
-              disabled={!dirty || saving}
+              onClick={async () => {
+                if (
+                  !window.confirm(
+                    "Reset every zone to ULTRON's recommended provider + model + agent? Your current overrides will be lost."
+                  )
+                ) {
+                  return;
+                }
+                setSaving(true);
+                setError(null);
+                setSuccess(null);
+                try {
+                  const r = (await invoke(
+                    "reset_ai_router_to_defaults"
+                  )) as AiRouterConfig;
+                  setConfig(r);
+                  setDraft({ ...r });
+                  setSuccess("Reset to ULTRON recommended defaults.");
+                } catch (e) {
+                  setError(String(e));
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving}
+              title="Re-apply the curated agent + model per zone (debugger for diagnose, mcp-developer for MCP generator, ultron-context for memory, etc.). Overrides your current config."
               className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-40"
               style={{
-                background: "transparent",
-                color: "var(--color-text-tertiary)",
+                background: "var(--color-surface-1)",
+                color: "var(--color-text-secondary)",
                 border: "1px solid var(--color-border-strong)",
               }}
             >
-              Reset
+              Reset to ULTRON recommended
             </button>
-            <button
-              type="button"
-              onClick={save}
-              disabled={!dirty || saving}
-              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
-              style={{
-                background: "var(--color-accent)",
-                color: "var(--color-accent-text)",
-              }}
-            >
-              {saving ? "Guardando…" : "Save"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => config && setDraft({ ...config })}
+                disabled={!dirty || saving}
+                className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-40"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={save}
+                disabled={!dirty || saving}
+                className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                {saving ? "Guardando…" : "Save"}
+              </button>
+            </div>
           </div>
         </>
       )}

@@ -13,6 +13,11 @@ pub async fn save_ai_router(
     ai_router::save_ai_router_inner(config)
 }
 
+#[tauri::command]
+pub async fn reset_ai_router_to_defaults() -> Result<ai_router::AiRouterConfig, String> {
+    ai_router::reset_ai_router_to_defaults_inner()
+}
+
 /// v15.2.40 — resolve a zone for a specific prompt. Honours `auto_mode`
 /// by shelling out to `embed_agents.py query` and picking the best
 /// subagent. Falls back to the manual config on any failure so the
