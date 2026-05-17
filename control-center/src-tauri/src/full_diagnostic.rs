@@ -688,7 +688,7 @@ pub fn run_full_diagnostic_inner() -> Result<FullDiagnostic, String> {
     // coste" — they pay per subscription, not per token). The probe and
     // the cost_watchdog module stay defined in case a future build re-
     // exposes them as an opt-in (Settings feature flag).
-    let probes: Vec<Probe> = vec![
+    let mut probes: Vec<Probe> = vec![
         probe_qdrant,
         probe_brain,
         probe_vault,
@@ -697,8 +697,17 @@ pub fn run_full_diagnostic_inner() -> Result<FullDiagnostic, String> {
         probe_skills,
         probe_disk,
         probe_backup,
-        probe_version_drift,
     ];
+    // v15.4.21: version_drift only matters for developer clones — end-user
+    // installs (bootstrap / NSIS / MSI) have no editable Cargo.toml or
+    // package.json to drift, so the row was always green-or-meaningless
+    // noise for them. Gate on the .git presence at ~/.ultron, same signal
+    // the is_developer_install command exposes.
+    if let Some(home) = dirs::home_dir() {
+        if home.join(".ultron").join(".git").exists() {
+            probes.push(probe_version_drift);
+        }
+    }
 
     let mut handles = Vec::with_capacity(probes.len());
     for probe in probes {

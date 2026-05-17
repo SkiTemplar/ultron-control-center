@@ -154,8 +154,17 @@ def _utc_now_iso() -> str:
 
 
 def _gen_msg_id() -> str:
-    """Sortable unique ID: <ts_ns_hex><rand_hex>. ULID-like without dependency."""
-    return f"{time.time_ns():016x}{secrets.token_hex(4)}"
+    """Sortable unique ID: <ts_ns_hex><rand_hex>. ULID-like without dependency.
+
+    Random suffix is 8 bytes (64 bits) — previously 4 bytes (32 bits) which
+    occasionally collided in test_concurrent_sends_no_corruption when Windows'
+    coarse time_ns() granularity (100ns ticks) lined two concurrent calls up
+    into the same nanosecond window. Birthday math for 20 messages with the
+    old 32-bit suffix gave ~4e-8 collision probability per pair; bumping to
+    64 bits removes the failure mode entirely (kirkardo audit cleanup
+    v15.4.21).
+    """
+    return f"{time.time_ns():016x}{secrets.token_hex(8)}"
 
 
 # ── Sessions registry API ─────────────────────────────────────────────────────

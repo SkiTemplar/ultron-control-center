@@ -188,6 +188,7 @@ pub fn run() {
             commands::maintenance::run_maintenance_command,
             commands::maintenance::run_detect_gaps,
             commands::maintenance::run_app_lifecycle,
+            commands::maintenance::is_developer_install,
             update_checker::check_for_updates,
             // -- projects + launcher --
             commands::projects::open_project_in_ide,

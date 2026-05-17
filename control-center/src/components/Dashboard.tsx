@@ -578,6 +578,19 @@ export function Dashboard({
   const [fixSelected, setFixSelected] = useState<Set<string>>(new Set());
   const [fixRunning, setFixRunning] = useState(false);
   const [fixResults, setFixResults] = useState<AutoFixResult[]>([]);
+  // v15.4.21: end-user installs (NSIS / MSI / bootstrap) have no editable
+  // Cargo.toml / package.json to keep in sync, so the "Sync version
+  // numbers" fix is hidden for them. Developer clones (with .git at
+  // ~/.ultron) keep seeing it.
+  const [isDevInstall, setIsDevInstall] = useState(false);
+  useEffect(() => {
+    invoke<boolean>("is_developer_install")
+      .then((v) => setIsDevInstall(v))
+      .catch(() => setIsDevInstall(false));
+  }, []);
+  const visibleAutoFixes = isDevInstall
+    ? AUTO_FIX_CATALOG
+    : AUTO_FIX_CATALOG.filter((f) => f.name !== "refresh-versions");
 
   async function runFullDiagnostic() {
     setDiagLoading(true);
@@ -1182,7 +1195,7 @@ export function Dashboard({
             </p>
 
             <ul className="mt-4 space-y-2">
-              {AUTO_FIX_CATALOG.map((f) => (
+              {visibleAutoFixes.map((f) => (
                 <li
                   key={f.name}
                   className="rounded p-3"

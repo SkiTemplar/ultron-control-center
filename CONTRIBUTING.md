@@ -184,11 +184,18 @@ These will be declined regardless of code quality. Open a discussion before writ
 ## Opening a PR
 
 1. Fork, branch off `main`. Naming: `feat/<slug>`, `fix/<slug>`, `docs/<slug>`, `chore/<slug>`, `refactor/<slug>`, `test/<slug>`.
-2. Commit in conventional-commits style with imperative mood:
-   - `feat(plans): add archive-on-resolve toggle`
-   - `fix(hooks): handle UTF-8 BOM in settings.json`
-   - `docs(install): clarify Qdrant binary location`
-   - `chore(deps): bump tauri to 2.x`
+2. Commit in conventional-commits style with imperative mood, and **always include
+   the target version** in the scope so the commit log is self-documenting and the
+   Dashboard / changelog views surface the bump correctly:
+   - `feat(v15.4.21/plans): add archive-on-resolve toggle`
+   - `fix(v15.4.21/hooks): handle UTF-8 BOM in settings.json`
+   - `docs(v15.4.21/install): clarify Qdrant binary location`
+   - `chore(v15.4.21/deps): bump tauri to 2.x`
+
+   If a commit doesn't change `package.json` / `tauri.conf.json` / `Cargo.toml`, use
+   the next-pending version (i.e. the one you would bump to if you tagged now). The
+   version drift Doctor row catches mismatches between the three files on developer
+   clones.
 3. Co-author trailers for AI assistants (`Co-Authored-By: Claude ...`) are encouraged for transparency but **never required** from external contributors.
 4. Run the three local checks above. CI runs the same three on `windows-latest` — if any is red on your machine, do not request review.
 5. Push and open the PR. Description checklist:

@@ -1,5 +1,17 @@
 # Release Process
 
+> [!IMPORTANT]
+> **Release cadence (v15.4.21+).** A public release is **not** cut for every
+> patch commit. Tag `v*.*.*` only when the current `main` represents a
+> stable milestone — bugs fixed, new features verified across at least one
+> session, docs updated. Intermediate work bumps the version numbers in
+> `package.json` / `tauri.conf.json` / `Cargo.toml` and commits with
+> `feat(vX.Y.Z/...)` so the log stays self-documenting, but does **not**
+> push a tag. The GitHub Release stays pointed at the last stable version
+> until the next milestone is ready. This keeps the auto-updater (and
+> users running `iwr ... bootstrap.ps1 | iex`) on a known-good version
+> instead of bouncing through unverified intermediates.
+
 Step-by-step for cutting a public release of ULTRON Control Center. This is
 the operational counterpart to `docs/RELEASE-CHECKLIST-v15.2.md`. Run the
 checklist first, then follow this document to actually ship the bits.
