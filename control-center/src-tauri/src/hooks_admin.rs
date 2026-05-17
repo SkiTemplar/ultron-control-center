@@ -838,27 +838,46 @@ pub fn test_hook_inner(
 
     let start = Instant::now();
 
-    let mut child = Command::new("powershell.exe")
-        .args([
+    // Kirkardo R3 #2: pipe the hook command through PowerShell on Windows,
+    // bash on Linux. The hook's own command is platform-agnostic (Python
+    // script or shell snippet) but the test wrapper has to use the host
+    // shell to drive stdin.
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("powershell.exe");
+        c.args([
             "-NoProfile",
             "-NonInteractive",
             "-ExecutionPolicy",
             "Bypass",
             "-Command",
             "-",
-        ])
+        ]);
+        c
+    };
+    #[cfg(not(target_os = "windows"))]
+    let mut cmd = {
+        let mut c = Command::new("bash");
+        c.arg("-s");
+        c
+    };
+
+    let mut child = cmd
         .env("CLAUDE_HOOK_PAYLOAD", &payload)
         .env("ULTRON_HOOK_TEST", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("spawn powershell: {}", e))?;
+        .map_err(|e| format!("spawn test shell: {}", e))?;
 
-    // Write the command on stdin then close it so PowerShell exits.
+    // Write the command on stdin then close it so the shell exits.
     if let Some(stdin) = child.stdin.as_mut() {
         let _ = stdin.write_all(hook.command.as_bytes());
+        #[cfg(target_os = "windows")]
         let _ = stdin.write_all(b"\nexit $LASTEXITCODE\n");
+        #[cfg(not(target_os = "windows"))]
+        let _ = stdin.write_all(b"\nexit $?\n");
     }
     // Drop stdin handle so the child sees EOF.
     drop(child.stdin.take());

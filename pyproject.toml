@@ -1,6 +1,6 @@
 [project]
 name = "ultron"
-version = "15.5.5"
+version = "15.5.8"
 requires-python = ">=3.12"
 dependencies = [
     "bashlex>=0.18",

@@ -178,6 +178,23 @@ async fn run_ps(
     app: &tauri::AppHandle,
     args: &[&str],
 ) -> Result<(String, String, Option<i32>, bool), String> {
+    // Kirkardo R3 #1: scheduled-task module wraps `system_tasks.ps1` which
+    // shells out to Windows Task Scheduler (`schtasks.exe`). Linux uses a
+    // different scheduler (systemd timers / cron) with no equivalent
+    // wrapper today. Return a clean Err on non-Windows so the UI can
+    // surface "scheduled tasks are Windows-only" instead of crashing the
+    // spawn with "program not found".
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, args);
+        return Err(
+            "Scheduled tasks are a Windows-only feature today. \
+             Linux equivalent (systemd timers / cron) is on the v15.5.x backlog."
+                .to_string(),
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
     let script = script_path()?;
     let script_str = script.to_string_lossy().to_string();
     let mut full_args: Vec<String> = vec![
@@ -206,6 +223,7 @@ async fn run_ps(
         output.status.code(),
         output.status.success(),
     ))
+    } // end #[cfg(target_os = "windows")]
 }
 
 // ---------------------------------------------------------------------------

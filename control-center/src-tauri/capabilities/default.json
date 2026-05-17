@@ -57,7 +57,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\ultron\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]ultron\\.ps1$" },
             "status"
           ]
         },
@@ -70,7 +70,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\ultron\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]ultron\\.ps1$" },
             "open",
             { "validator": "^[a-zA-Z0-9._\\-]{1,60}$" }
           ]
@@ -84,7 +84,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\ultron\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]ultron\\.ps1$" },
             "scan"
           ]
         },
@@ -97,7 +97,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_tasks\\.ps1$" },
             "-Action",
             "list"
           ]
@@ -111,7 +111,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_tasks\\.ps1$" },
             "-Action",
             "info"
           ]
@@ -125,7 +125,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_tasks\\.ps1$" },
             "-Action",
             "richinfo"
           ]
@@ -139,7 +139,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_tasks\\.ps1$" },
             "-Action",
             "detail",
             "-Name",
@@ -155,7 +155,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\gaming-enum\\.ps1$" }
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]gaming-enum\\.ps1$" }
           ]
         },
         {
@@ -176,7 +176,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_tasks\\.ps1$" },
             "-Action",
             "run",
             "-Name",
@@ -192,7 +192,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_tasks\\.ps1$" },
             "-Action",
             "edit",
             "-Name",
@@ -212,7 +212,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_tasks\\.ps1$" },
             "-Action",
             "edit",
             "-Name",
@@ -230,7 +230,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_tasks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_tasks\\.ps1$" },
             "-Action",
             "delete",
             "-Name",
@@ -243,7 +243,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\mcp_health_check\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]mcp_health_check\\.py$" },
             "--quiet"
           ]
         },
@@ -253,7 +253,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\brain_index\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]brain_index\\.py$" },
             "query",
             { "validator": "^[\\s\\S]{1,500}$" },
             "--limit",
@@ -266,7 +266,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\memory_sync\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]memory_sync\\.py$" },
             "sync"
           ]
         },
@@ -276,7 +276,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\brain_index\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]brain_index\\.py$" },
             "update"
           ]
         },
@@ -286,7 +286,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\embed_vault\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]embed_vault\\.py$" },
             "index"
           ]
         },
@@ -296,7 +296,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]news_html_generator\\.py$" },
             "--no-open",
             "--model",
             { "validator": "^gemini-[0-9]\\.[0-9]+-(pro|flash|flash-lite)(-preview)?$" }
@@ -308,7 +308,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]news_html_generator\\.py$" },
             "--clipboard"
           ]
         },
@@ -318,7 +318,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]news_html_generator\\.py$" },
             "--clipboard",
             "--days",
             { "validator": "^[0-9]{1,2}$" }
@@ -330,7 +330,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]news_html_generator\\.py$" },
             "--clipboard",
             "--theme",
             { "validator": "^[^\\r\\n]{1,200}$" }
@@ -342,7 +342,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]news_html_generator\\.py$" },
             "--clipboard",
             "--days",
             { "validator": "^[0-9]{1,2}$" },
@@ -356,7 +356,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]news_html_generator\\.py$" },
             "--no-open",
             "--model",
             { "validator": "^gemini-[0-9]\\.[0-9]+-(pro|flash|flash-lite)(-preview)?$" },
@@ -370,7 +370,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]news_html_generator\\.py$" },
             "--no-open",
             "--model",
             { "validator": "^gemini-[0-9]\\.[0-9]+-(pro|flash|flash-lite)(-preview)?$" },
@@ -384,7 +384,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\news_html_generator\\.py$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]news_html_generator\\.py$" },
             "--no-open",
             "--model",
             { "validator": "^gemini-[0-9]\\.[0-9]+-(pro|flash|flash-lite)(-preview)?$" },
@@ -400,7 +400,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\embed_skills\\.py$" }
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]embed_skills\\.py$" }
           ]
         },
         {
@@ -412,7 +412,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\run-inline\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]run-inline\\.ps1$" },
             "-Payload",
             { "validator": "^[A-Za-z0-9+/=]{4,100000}$" }
           ]
@@ -426,7 +426,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\windows-tweaks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]windows-tweaks\\.ps1$" },
             "-Action",
             { "validator": "^status$" }
           ]
@@ -440,7 +440,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\windows-tweaks\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]windows-tweaks\\.ps1$" },
             "-Action",
             { "validator": "^(apply|revert)$" },
             "-Key",
@@ -456,7 +456,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\system_diagnose\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]system_diagnose\\.ps1$" },
             "-Hours",
             { "validator": "^[0-9]{1,3}$" }
           ]
@@ -470,7 +470,7 @@
             "-ExecutionPolicy",
             "Bypass",
             "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\spawn-claude-session\\.ps1$" },
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]spawn-claude-session\\.ps1$" },
             "-Payload",
             { "validator": "^[A-Za-z0-9+/=]{4,100000}$" }
           ]
@@ -481,7 +481,7 @@
           "args": [
             "run",
             "python",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts\\\\cockpit\\\\doctor_check\\.py$" }
+            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]doctor_check\\.py$" }
           ]
         }
       ]

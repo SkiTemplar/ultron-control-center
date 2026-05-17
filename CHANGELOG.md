@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.7 -->
+## v15.5.7 — 2026-05-17
+
+- fix(v15.5.7): wave 3 â€” 5 cross-axis fixes from kirkardo round 2
+
+_Auto-generated from 97cb27fd by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.6 -->
 ## v15.5.6 — 2026-05-17
 

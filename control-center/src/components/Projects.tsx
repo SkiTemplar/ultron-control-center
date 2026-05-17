@@ -1709,7 +1709,7 @@ export function Projects() {
                       placeholder={
                         iKind === "exe"
                           ? "C:/Riot Games/Riot Client/RiotClientServices.exe"
-                          : "C:/Users/USER/.ultron/control-center"
+                          : "~/.ultron/control-center"
                       }
                       className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                       style={{
@@ -1783,7 +1783,7 @@ export function Projects() {
                       value={iCwd}
                       onChange={(e) => setICwd(e.target.value)}
                       placeholder={
-                        itemTarget?.path ?? "C:/Users/USER/.ultron"
+                        itemTarget?.path ?? "~/.ultron"
                       }
                       className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                       style={{
@@ -1825,7 +1825,7 @@ export function Projects() {
                       type="text"
                       value={iPath || itemTarget?.path || ""}
                       onChange={(e) => setIPath(e.target.value)}
-                      placeholder={itemTarget?.path ?? "C:/Users/USER/..."}
+                      placeholder={itemTarget?.path ?? "~/..."}
                       className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                       style={{
                         background: "var(--color-surface-2)",
