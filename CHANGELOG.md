@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.10 -->
+## v15.5.10 — 2026-05-17
+
+- fix(v15.5.10): wave 6 — routing accuracy + README polish + dead-code purge
+
+_Auto-generated from 3b517885 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.9 -->
 ## v15.5.9 — 2026-05-17
 

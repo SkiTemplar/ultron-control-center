@@ -372,9 +372,13 @@ rules:
     suggest_mode: "MEDIUM"
     confidence: 0.85
 
-  # Plan / spec / roadmap — 50 unmatched, current architect rule too narrow
+  # Plan / spec / roadmap — 50 unmatched, current architect rule too narrow.
+  # v15.5.11: tightened from "\\bplan ..." (matched "plan de precios del API",
+  # "plan de viaje", etc.) to require a development context keyword
+  # (sistema/feature/arquitectura/sprint/release/refactor/implementacion/migracion)
+  # within ~30 chars OR an explicit dev term (behaviour tree, roadmap técnico).
   - id: plan-loose
-    match: "\\bplan(?:ifica|ear|ifico)?\\s+(?:para |de |del )?\\w+|\\b(?:estrategia|roadmap|behaviour tree|behavior tree|spec para)\\b"
+    match: "\\b(?:planifica(?:r|me)?|hiper.?plan|spec(?:ifica)?)\\b.{0,40}(?:sistema|feature|arquitectura|sprint|release|refactor|implementaci[óo]n|migraci[óo]n|m[óo]dulo)|\\b(?:behaviour|behavior) tree\\b|\\broadmap (?:t[ée]cnico|del producto|de la release)\\b"
     skill: "agent-skills:plan"
     suggest_mode: "MEDIUM"
     confidence: 0.80

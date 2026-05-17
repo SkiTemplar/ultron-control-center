@@ -403,15 +403,18 @@ def _dispatch_unsafe(prompt: str, budget_left_ms_fn) -> str:
     # Step 1 — Slash command short-circuit
     if prompt.lstrip().startswith("/"):
         return ""
-    # Kirkardo R6 #4: short-prompt short-circuit. 231 / 1088 unmatched
-    # prompts in the last 2k events were 1-word acknowledgements
-    # ("si", "ok", "continua", "sigue") that no rule should match by
-    # design. Currently they go through the full pipeline and bloat the
-    # source=none bucket, dragging the real match rate from ~30% to ~17%.
-    # Skip dispatch entirely for prompts under 8 chars OR matching the
-    # known-ack set.
+    # Kirkardo R6 #4: ack short-circuit. Acknowledgements ("si", "ok",
+    # "continua", "sigue") don't carry routing intent — skip them so
+    # they stop bloating the source=none bucket.
+    #
+    # v15.5.11 (Kirkardo R7 followup): the previous `len < 8` length
+    # gate was too aggressive — it swallowed single-token technical
+    # nouns like "CUDA" / "UE5" / "GPU" that legitimately route to
+    # gamedev / senior-engineer rules. Now we ONLY skip ack patterns,
+    # not arbitrarily short prompts. The dispatcher runs in <40ms even
+    # on short prompts so the perf cost is negligible.
     stripped = prompt.strip()
-    if len(stripped) < 8 or _SHORT_ACK_RE.match(stripped):
+    if _SHORT_ACK_RE.match(stripped):
         return ""
 
     if budget_left_ms_fn() < 5:

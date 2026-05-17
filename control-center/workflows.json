@@ -1,0 +1,29 @@
+{
+  "total_count": 2,
+  "workflows": [
+    {
+      "id": 278005970,
+      "node_id": "W_kwDOSfKjIM4QkgjS",
+      "name": "CI",
+      "path": ".github/workflows/ci.yml",
+      "state": "active",
+      "created_at": "2026-05-16T20:10:48.000Z",
+      "updated_at": "2026-05-16T20:10:48.000Z",
+      "url": "https://api.github.com/repos/SkiTemplar/ultron/actions/workflows/278005970",
+      "html_url": "https://github.com/SkiTemplar/ultron/blob/main/.github/workflows/ci.yml",
+      "badge_url": "https://github.com/SkiTemplar/ultron/workflows/CI/badge.svg"
+    },
+    {
+      "id": 277832734,
+      "node_id": "W_kwDOSfKjIM4Qj2Qe",
+      "name": "release",
+      "path": ".github/workflows/release.yml",
+      "state": "active",
+      "created_at": "2026-05-16T11:34:35.000Z",
+      "updated_at": "2026-05-16T11:34:35.000Z",
+      "url": "https://api.github.com/repos/SkiTemplar/ultron/actions/workflows/277832734",
+      "html_url": "https://github.com/SkiTemplar/ultron/blob/main/.github/workflows/release.yml",
+      "badge_url": "https://github.com/SkiTemplar/ultron/workflows/release/badge.svg"
+    }
+  ]
+}

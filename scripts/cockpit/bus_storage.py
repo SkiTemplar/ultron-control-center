@@ -35,6 +35,7 @@ import json
 import os
 import secrets
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -96,15 +97,29 @@ DEAD_THRESHOLDS_S = {
 # ── File lock (pattern reused from pending_actions._FileLock) ─────────────────
 
 
+# Process-wide in-memory mutex. Pairs with the file lock below so that
+# multi-thread races inside ONE process serialize cleanly without paying
+# the file-create / file-unlink round-trip 8 times when 8 threads hammer
+# register_session() simultaneously (was test_concurrent_register_no_corruption
+# flake — 7/8 sessions persisted because two threads dropped the same
+# lock file via the stale-recovery path).
+_PROCESS_LOCK = threading.RLock()
+
+
 class _FileLock:
-    """Exclusive-create lock-file with timeout. Stale locks recovered by unlink."""
+    """Process + thread safe lock. RLock for intra-process, file for cross-process."""
 
     def __init__(self, path: Path, timeout: float = LOCK_TIMEOUT_S):
         self.path = path
         self.timeout = timeout
         self._acquired = False
+        self._proc_lock_held = False
 
     def __enter__(self) -> "_FileLock":
+        # 1. Intra-process: block other threads in this Python.
+        _PROCESS_LOCK.acquire()
+        self._proc_lock_held = True
+        # 2. Inter-process: exclusive-create the lock file.
         deadline = time.monotonic() + self.timeout
         while True:
             try:
@@ -129,6 +144,9 @@ class _FileLock:
                 self.path.unlink(missing_ok=True)
             except OSError:
                 pass
+        if self._proc_lock_held:
+            _PROCESS_LOCK.release()
+            self._proc_lock_held = False
 
 
 # ── Atomic write helper ────────────────────────────────────────────────────────

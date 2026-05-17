@@ -1,0 +1,251 @@
+name: release
+
+# -----------------------------------------------------------------------------
+# ULTRON Control Center — public release pipeline.
+#
+# Trigger: push a tag matching v*.*.* (e.g. `git tag v15.2.0 && git push --tags`).
+# Output: a GitHub Release containing the Windows installer (.msi / setup.exe)
+#         plus `latest.json`, the manifest consumed by the Tauri auto-updater.
+#
+# Runs on the GitHub-hosted `windows-latest` AND `ubuntu-22.04` runners.
+# Linux produces .AppImage + .deb via tauri-action (targets: "all" already in
+# tauri.conf.json). macOS is still intentionally absent — add it by extending
+# the matrix below when the cross-platform build is verified.
+# -----------------------------------------------------------------------------
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# Required so tauri-action can create the GitHub Release and upload assets.
+permissions:
+  contents: write
+
+jobs:
+  publish-tauri:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows x64 — produces the NSIS setup.exe + MSI.
+          - platform: windows-latest
+            args: ""
+          # Linux x64 — produces .AppImage + .deb (tauri.conf.json bundle
+          # targets: "all"). macOS still pending verified universal build.
+          - platform: ubuntu-22.04
+            args: ""
+
+    runs-on: ${{ matrix.platform.platform || matrix.platform }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: control-center/package-lock.json
+
+      - name: Setup Rust stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./control-center/src-tauri -> target"
+
+      - name: Install frontend dependencies
+        working-directory: ./control-center
+        run: npm ci
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # Linux Tauri build deps. Required for webkit2gtk + libsoup on
+      # ubuntu-22.04; not needed on windows-latest. Must run BEFORE tauri-action.
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Install Tauri Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            libjavascriptcoregtk-4.1-dev \
+            build-essential \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            libfuse2 \
+            file \
+            patchelf
+          # libfuse2 is required by appimagetool which Tauri invokes to
+          # produce the .AppImage. Without it, `tauri build` aborts with
+          # SIGABRT (exit 134) after the .deb is produced. patchelf is
+          # required by appimagetool; libayatana-appindicator3-dev covers
+          # the system-tray feature even when it's off (Tauri probes for
+          # it). file is required by tauri-action's bundle step.
+
+      # ─────────────────────────────────────────────────────────────────────────
+      # Build the system ZIP + run the leak gate BEFORE tauri-action publishes
+      # the release. If the leak gate fails here, no GitHub release is created
+      # at all — clean fail. Round 2 codex review v15.4.17.
+      #
+      # Gated to windows-latest only — the system ZIP is platform-agnostic
+      # (PowerShell, Python, JSON, markdown) so building it twice would just
+      # race on the same release asset filename and waste runner minutes.
+      # The Linux runner consumes the same ZIP at install time via bootstrap.sh.
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Build ultron-system ZIP (pre-release)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $stage = Join-Path $env:RUNNER_TEMP "ultron-system"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+          $include = @(
+            "install.ps1",
+            "install.sh",
+            "bootstrap.ps1",
+            "bootstrap.sh",
+            "uninstall.ps1",
+            "uninstall.sh",
+            "README.md",
+            "README.es.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "NOTICE",
+            "scripts",
+            "skills-catalog",
+            "agents",
+            "config",
+            "docs",
+            "cockpit",
+            "templates"
+          )
+
+          foreach ($item in $include) {
+            if (Test-Path $item) {
+              $dest = Join-Path $stage $item
+              if ((Get-Item $item) -is [System.IO.DirectoryInfo]) {
+                Copy-Item -Path $item -Destination $dest -Recurse -Force `
+                  -Exclude @("node_modules","target",".venv","__pycache__","*.pyc","dist","build")
+              } else {
+                $parent = Split-Path $dest -Parent
+                if ($parent -and -not (Test-Path $parent)) {
+                  New-Item -ItemType Directory -Path $parent -Force | Out-Null
+                }
+                Copy-Item -Path $item -Destination $dest -Force
+              }
+            } else {
+              Write-Host "[skip] $item not present"
+            }
+          }
+
+          $denyList = @(
+            "*.env", ".env", ".env.*",
+            "*.pem", "*.key", "*.pfx", "*.p12",
+            "id_rsa*", "id_ed25519*", "id_dsa*",
+            "secrets.json", "credentials.json", "service-account*.json",
+            ".git", ".gitconfig",
+            "*.sqlite", "*.db",
+            "MEMORY.md", "context.md",
+            "preferred-mode.txt", "current-session.json"
+          )
+          $hits = @()
+          foreach ($pattern in $denyList) {
+            $matches = Get-ChildItem -Path $stage -Recurse -Force -Filter $pattern -ErrorAction SilentlyContinue
+            foreach ($m in $matches) { $hits += $m.FullName }
+          }
+          foreach ($subtree in @("plans", "ultron-vault", ".ultron-vault", "telemetry", "sessions", "backups")) {
+            $hit = Get-ChildItem -Path $stage -Recurse -Force -Directory -Filter $subtree -ErrorAction SilentlyContinue
+            foreach ($h in $hit) { $hits += $h.FullName }
+          }
+          if ($hits.Count -gt 0) {
+            Write-Host "::error::Leak gate FAILED — release aborted before any artifact published:"
+            $hits | ForEach-Object { Write-Host "::error::  $_" }
+            exit 1
+          }
+          Write-Host "[leak-gate] Clean: 0 deny-list hits across $($denyList.Count) patterns."
+
+          $zipName = "ultron-system-$tag.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP $zipName
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath -CompressionLevel Optimal
+
+          $sha = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLower()
+          $shaFile = "$zipPath.sha256"
+          "$sha  $zipName" | Out-File -Encoding ascii -FilePath $shaFile
+
+          Write-Host "Built $zipPath ($([math]::Round((Get-Item $zipPath).Length / 1MB, 1)) MB)"
+          Write-Host "SHA256: $sha"
+          echo "ULTRON_SYSTEM_ZIP=$zipPath" >> $env:GITHUB_ENV
+          echo "ULTRON_SYSTEM_SHA=$shaFile" >> $env:GITHUB_ENV
+
+      - name: Build and publish Tauri release
+        id: tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          # GitHub token is auto-provided; tauri-action uses it to create the
+          # release and upload installer assets.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Tauri signing key for the auto-updater. Generated locally once via
+          # `npx tauri signer generate`. Stored as repo secret. See
+          # docs/RELEASE-PROCESS.md for setup steps.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          # The tag name pushed by the user (e.g. v15.2.0).
+          tagName: ${{ github.ref_name }}
+          releaseName: "ULTRON ${{ github.ref_name }}"
+          releaseBody: |
+            Automated release built from tag `${{ github.ref_name }}`.
+
+            **Three install paths:**
+
+            * **Windows desktop app** — download `ULTRON Control Center_*_x64-setup.exe`
+              (NSIS) or `*_x64_en-US.msi` and run it. No Git required. On first launch
+              Windows SmartScreen may warn that the publisher is unverified — this
+              is expected for unsigned releases. Click "More info" → "Run anyway".
+
+            * **Linux desktop app** ⚠️ *unverified — looking for testers* —
+              download the `.AppImage` (universal: `chmod +x` and run) or the
+              `.deb` (`sudo dpkg -i …`). The CI matrix builds green on
+              ubuntu-22.04 but the author has not end-to-end tested an actual
+              Linux install yet. Please open an issue with distro + version + log
+              if you try it.
+
+            * **Full system** (skills, agents, hooks, cockpit scripts) — one-liner:
+              * Windows: `iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex`
+              * Linux:   `curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash`
+
+              Either downloads `ultron-system-*.zip` from this release, verifies
+              the SHA-256, extracts to `~/.ultron`, runs the matching `install.ps1`
+              / `install.sh`, and launches the Control Center installer.
+
+            See `docs/INSTALL.md` for full notes and `docs/RELEASE-PROCESS.md` for
+            how releases are produced.
+          releaseDraft: false
+          prerelease: false
+          # Tauri config lives inside control-center/src-tauri/tauri.conf.json.
+          projectPath: ./control-center
+          # `updaterJsonPreferNsis: true` keeps the updater pointed at the
+          # NSIS setup.exe rather than the .msi when both are produced.
+          updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}
+
+      # Gated to windows-latest for the same reason as the build step above:
+      # one ZIP per release. Don't unset this guard without also removing the
+      # build step's guard, otherwise two runners will race on the same asset.
+      - name: Attach ultron-system ZIP to release
+        if: matrix.platform == 'windows-latest'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            ${{ env.ULTRON_SYSTEM_ZIP }}
+            ${{ env.ULTRON_SYSTEM_SHA }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
