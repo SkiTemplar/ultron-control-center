@@ -1,0 +1,68 @@
+name: Bug report
+description: Something is broken in ULTRON, the Control Center, the installer, or a hook
+title: "[bug] <one-line summary>"
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Before submitting, please re-run `install.ps1`
+        once (it's idempotent) — many issues are state drift fixed by a
+        re-install. If the bug persists, fill the form below.
+  - type: input
+    id: version
+    attributes:
+      label: ULTRON version
+      description: Find it in the Control Center bottom bar, or run `Get-Content $env:USERPROFILE\.ultron\control-center\package.json | Select-String version`.
+      placeholder: "v15.4.18"
+    validations:
+      required: true
+  - type: dropdown
+    id: install-path
+    attributes:
+      label: How did you install ULTRON?
+      options:
+        - "Bootstrap one-liner (iwr | iex)"
+        - "Clone the repo + install.ps1"
+        - "Downloaded NSIS installer manually"
+        - "Other"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS (unsupported)
+        - Linux (unsupported)
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Be specific. What did you click / type? What did you expect? What happened instead?
+      placeholder: |
+        1. Open Control Center → Skills tab
+        2. Click "Vault" on the X skill
+        3. Expected: X moves to ~/.ultron/skill-vault/
+        4. Actual: error "Y"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: |
+        Paste the relevant snippet. Sources:
+        - `~/.ultron/logs/*.jsonl`
+        - Control Center → System tab → Doctor → Run diagnostics
+        - PowerShell window output if installer-related
+      render: shell
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Screenshots, related issues, why this matters to you. Optional.

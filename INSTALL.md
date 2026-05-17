@@ -5,6 +5,13 @@ The full polished walkthrough lives in [`docs/INSTALL.md`](docs/INSTALL.md);
 this file is the dry, copy-pasteable checklist you reach for when the
 bootstrap installer breaks.
 
+> [!TIP]
+> The fastest path (v15.4.18+) is the bootstrap one-liner, NOT this file:
+> ```powershell
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
+> ```
+> Reach for this manual checklist only when bootstrap or `install.ps1` fail.
+
 ## Quick path (the happy one)
 
 `install.ps1` is **zero-friction**: it auto-installs every missing

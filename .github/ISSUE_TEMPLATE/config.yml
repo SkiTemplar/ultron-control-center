@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Read the docs first
+    url: https://github.com/SkiTemplar/ultron/tree/main/docs
+    about: README · INSTALL · COMMANDS · RELEASE-PROCESS · architecture notes.
+  - name: Security disclosure (private)
+    url: https://github.com/SkiTemplar/ultron/security/policy
+    about: For vulnerabilities, prefer the private channel in SECURITY.md.

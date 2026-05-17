@@ -38,6 +38,8 @@ function isBuiltinItem(item: LauncherItem): boolean {
     item.kind === "claude" ||
     item.kind === "codex" ||
     item.kind === "gemini" ||
+    item.kind === "session" ||
+    item.kind === "ide" ||
     item.kind === "exe";
   if (!knownKind) return false;
   const label = (item.label ?? "").trim();
@@ -54,6 +56,15 @@ function builtinTooltip(item: LauncherItem): string {
       return `Start Claude session in ${item.cwd ?? "cwd"}`;
     case "codex":
       return `Start Codex session in ${item.cwd ?? "cwd"}`;
+    case "gemini":
+      return `Start Gemini session in ${item.cwd ?? "cwd"}`;
+    case "session": {
+      const p = (item.provider ?? "claude").toString();
+      const pName = p === "codex" ? "Codex" : p === "gemini" ? "Gemini" : "Claude";
+      return `Start ${pName} session in ${item.cwd ?? "cwd"}`;
+    }
+    case "ide":
+      return `Open in preferred IDE: ${item.path ?? "(project path)"}`;
     case "exe": {
       const args =
         item.args && item.args.length > 0 ? " " + item.args.join(" ") : "";
@@ -166,12 +177,23 @@ function GeminiMark() {
   );
 }
 
-/** Icon picked from the item kind for built-in chips. */
-function BuiltinIcon({ kind }: { kind: string }) {
-  if (kind === "folder") return <FolderIcon />;
-  if (kind === "claude") return <ClaudeMark />;
-  if (kind === "codex") return <CodexMark />;
-  if (kind === "gemini") return <GeminiMark />;
+/** Icon picked from the item for built-in chips. v15.4.19: handles the
+ *  `session` kind (added in v15.4.11) by inspecting `item.provider` so the
+ *  ClaudeMark / CodexMark / GeminiMark still render after the refactor.
+ *  Previously a "session" chip with provider=claude rendered as PlayIcon. */
+function BuiltinIcon({ item }: { item: LauncherItem }) {
+  const k = item.kind;
+  if (k === "folder") return <FolderIcon />;
+  if (k === "claude") return <ClaudeMark />;
+  if (k === "codex") return <CodexMark />;
+  if (k === "gemini") return <GeminiMark />;
+  if (k === "session") {
+    const p = item.provider ?? "claude";
+    if (p === "codex") return <CodexMark />;
+    if (p === "gemini") return <GeminiMark />;
+    return <ClaudeMark />;
+  }
+  if (k === "ide") return <FolderIcon />;
   return <PlayIcon />;
 }
 
@@ -505,7 +527,7 @@ function Row({
                   {busy ? (
                     <span className="text-[10px]">…</span>
                   ) : (
-                    <BuiltinIcon kind={it.kind} />
+                    <BuiltinIcon item={it} />
                   )}
                 </button>
                 <button

@@ -5,26 +5,42 @@ that orchestrates Claude Code, Codex, and Gemini through their official CLIs.
 It runs entirely on your machine and uses your existing subscriptions — no
 API keys, no cloud services, no admin rights.
 
-## One-line install
+## Quickest path (v15.4.18+) — bootstrap from the latest GitHub Release
 
-```bash
-# Windows (PowerShell 5+)
-git clone https://github.com/SkiTemplar/ultron.git
-cd ultron
-./scripts/install.ps1
+If you don't need to contribute code, skip the clone:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
 ```
 
-```bash
-# macOS / Linux (bash)
-git clone https://github.com/SkiTemplar/ultron.git
-cd ultron
-chmod +x scripts/install.sh
-./scripts/install.sh
+That single line: resolves the latest release, downloads
+`ultron-system-<tag>.zip` + `.sha256`, verifies the hash, extracts to
+`~/.ultron`, runs `install.ps1`, downloads + launches the Control Center
+NSIS installer. See [`RELEASE-PROCESS.md`](RELEASE-PROCESS.md) for the
+release pipeline behind the scenes.
+
+For reproducible installs pinned to a release tag, swap `main` for the tag:
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.4.18/bootstrap.ps1 | iex
+```
+
+## Clone the repo (recommended for contributors)
+
+```powershell
+# Windows (PowerShell 5+)
+git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
+cd $env:USERPROFILE\.ultron
+.\install.ps1
 ```
 
 The installer is **idempotent** — re-running it is safe. It accepts an
-optional `-NonInteractive` (PowerShell) or `--non-interactive` (bash) flag
-that takes all defaults, useful for CI.
+optional `-NonInteractive` flag that takes all defaults, useful for CI.
+
+> [!NOTE]
+> A `scripts/install.sh` bash variant existed in early v15 but is no longer
+> maintained. macOS / Linux are not officially supported in v15.4 —
+> Windows 11 is the primary target.
 
 ## What the installer does
 

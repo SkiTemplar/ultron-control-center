@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest a new capability or improvement
+title: "[feat] <one-line summary>"
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ULTRON is opinionated and small on purpose. Before requesting,
+        check `docs/COMMANDS.md` and the README — the feature may already
+        exist with a different name.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What is hard or impossible today? Be concrete; avoid solution-shaped descriptions.
+      placeholder: |
+        When I dictate "haz un commit y push", the dispatcher routes to
+        commit-push-pr but skips the test step, so I sometimes ship broken
+        builds.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Your best guess. Be explicit about scope — what's IN, what's OUT.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches you ruled out and why. Optional but appreciated.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Scope of impact
+      options:
+        - "Personal — just me"
+        - "Small group (3-10 users)"
+        - "Likely useful to most ULTRON users"
+        - "Foundational change"
+    validations:
+      required: true
