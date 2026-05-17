@@ -6,7 +6,9 @@ import type {
   MemoryActionResult,
   MemoryStatusInfo,
 } from "../types";
-import { MemoryGraphForce } from "./MemoryGraphForce";
+// v15.4.11 — MemoryGraphForce removed from this view. Component file
+// kept for future re-introduction (link-based layout).
+// import { MemoryGraphForce } from "./MemoryGraphForce";
 
 // ---------------------------------------------------------------------------
 // Compact highlights for sidebar — uses compute_memory_highlights backend
@@ -1023,21 +1025,18 @@ export function Memory() {
           className="flex flex-1 overflow-hidden border-t"
           style={{ borderColor: "var(--color-border)" }}
         >
-          {/* Graph — 60% width, full height of the pane. */}
-          <div className="flex w-[60%] min-w-[480px] flex-col overflow-hidden border-r"
-            style={{ borderColor: "var(--color-border)" }}
-          >
-            <MemoryGraphForce
-              selectedId={graphSelectedId}
-              onSelect={(n) => setGraphSelectedId(n?.id ?? null)}
-              hideAside
-              hideLegend
-            />
-          </div>
+          {/* v15.4.11 — MemoryGraphForce retired from the Memory tab by
+              USER's call: el grafo agrupado-por-categorías no aportaba
+              el insight visual que esperaba (mejor sería agrupado por
+              vínculos, pero el ROI es bajo). Sidebar promoted a 100%
+              width: stats + highlights + recent notes son el contenido
+              principal ahora. El componente MemoryGraphForce.tsx
+              permanece en el repo por si se retoma con otro layout
+              (force-directed real por links). */}
 
-          {/* Sidebar — 40% width, scrollable. Stats + compact highlights
+          {/* Sidebar — 100% width, scrollable. Stats + compact highlights
               + recent notes. */}
-          <aside className="flex w-[40%] min-w-[320px] flex-col overflow-auto px-4 py-4">
+          <aside className="flex w-full flex-col overflow-auto px-4 py-4">
             <div
               className="mb-3 text-[10px] font-medium uppercase tracking-[0.06em]"
               style={{ color: "var(--color-text-tertiary)" }}

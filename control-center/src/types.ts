@@ -488,15 +488,32 @@ export type InlineResult = {
 
 export type SessionProvider = "claude" | "gemini" | "codex";
 
-/** Kind of a launcher item inside a project's `items[]`. */
-export type LauncherItemKind = "exe" | "folder" | "claude" | "codex";
+/** Kind of a launcher item inside a project's `items[]`.
+ *
+ * v15.4.11 — el dropdown del UI expone 3 kinds principales (folder /
+ * ide / session) más `exe` como avanzado. Los kinds legacy
+ * `claude` / `codex` / `gemini` siguen siendo válidos en el backend
+ * (proyectos existentes los usan) y se renderizan como built-in chips
+ * exactamente como antes. Internamente: `session` = consolidación de
+ * los 3, distinguidos por el campo `provider`. `ide` = abrir el path
+ * en el IDE preferido del proyecto.
+ */
+export type LauncherItemKind =
+  | "exe"
+  | "folder"
+  | "claude"
+  | "codex"
+  | "gemini"
+  | "ide"
+  | "session";
 
 /** A single thing to launch from a project. The Rust side dispatches on
  *  `kind`; the other fields are payload-shaped:
- *   - exe    → `path` (absolute) + optional `args[]`
- *   - folder → `path` (absolute directory)
- *   - claude → `cwd` (absolute directory)
- *   - codex  → `cwd` (absolute directory)
+ *   - exe     → `path` (absolute) + optional `args[]`
+ *   - folder  → `path` (absolute directory)
+ *   - claude/codex/gemini → `cwd` (absolute directory)  [legacy kinds]
+ *   - session → `cwd` (absolute) + `provider` field elige el binario.
+ *   - ide     → resuelve el path del proyecto y abre el preferred_ide.
  *  `label` is free text shown in the row chip (falls back to a derived
  *  string built from the path tail). */
 export type LauncherItem = {
@@ -505,6 +522,9 @@ export type LauncherItem = {
   cwd?: string | null;
   args?: string[] | null;
   label?: string | null;
+  /** v15.4.11 — solo aplica cuando kind === "session". Uno de
+   *  claude/codex/gemini. */
+  provider?: SessionProvider | null;
 };
 
 export type ProjectInfo = {

@@ -1,7 +1,7 @@
 {
   "name": "control-center",
   "private": true,
-  "version": "15.4.10",
+  "version": "15.4.11",
   "type": "module",
   "scripts": {
     "dev": "vite",

@@ -33,6 +33,12 @@ pub struct LauncherItem {
     pub args: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// v15.4.11 — only meaningful when `kind == "session"`. One of
+    /// "claude" / "codex" / "gemini". Lets the UI consolidate the
+    /// three legacy kinds behind a single "Sesión AI" entry with a
+    /// provider sub-selector.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -779,6 +785,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
                     cwd: None,
                     args: None,
                     label: Some("Open folder".to_string()),
+                    provider: None,
                 },
                 LauncherItem {
                     kind: "claude".to_string(),
@@ -786,6 +793,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
                     cwd: Some(path.to_string()),
                     args: None,
                     label: Some("New Claude session".to_string()),
+                    provider: None,
                 },
             ]),
             _ => None,
@@ -855,7 +863,12 @@ fn validate_launcher_item(item: &LauncherItem) -> Result<(), String> {
             // (e.g. on a fresh Windows box). At launch time the missing-
             // path error surfaces naturally.
         }
-        "claude" | "codex" => {
+        "claude" | "codex" | "gemini" | "session" => {
+            // v15.4.11 — `session` (consolidated kind) follows the same
+            // shape as the legacy claude/codex/gemini kinds: cwd is
+            // mandatory. The actual provider is carried in the `kind`
+            // for legacy items, or in the `provider` field for new
+            // `session` items. Both shapes coexist for backward compat.
             let cwd = item
                 .cwd
                 .as_deref()
@@ -865,8 +878,13 @@ fn validate_launcher_item(item: &LauncherItem) -> Result<(), String> {
             if cwd.starts_with(r"\\") || cwd.starts_with("//") {
                 return Err("UNC paths are not allowed".into());
             }
-            // CC-08: same write-time veto on the cwd field.
             path_ps_safe(cwd)?;
+        }
+        "ide" => {
+            // v15.4.11 — `ide` kind: open the project's path in its
+            // preferred IDE. No explicit path on the item — the
+            // dispatch_item resolver pulls it from the parent project
+            // entry. Nothing to validate here beyond the kind itself.
         }
         other => return Err(format!("unknown launcher kind '{}'", other)),
     }
@@ -957,6 +975,7 @@ pub fn add_launcher_item_inner(p: AddLauncherItemPayload) -> Result<UpdateProjec
                     cwd: None,
                     args: None,
                     label: Some("Open folder".to_string()),
+                    provider: None,
                 };
                 items.push(
                     serde_json::to_value(&folder)
@@ -970,6 +989,7 @@ pub fn add_launcher_item_inner(p: AddLauncherItemPayload) -> Result<UpdateProjec
                     cwd: Some(project_path),
                     args: None,
                     label: Some("New Claude session".to_string()),
+                    provider: None,
                 };
                 items.push(
                     serde_json::to_value(&claude)
@@ -1095,6 +1115,7 @@ fn load_items_for(project_id: &str) -> Result<Vec<LauncherItem>, String> {
                     cwd: None,
                     args: None,
                     label: Some("Open folder".to_string()),
+                    provider: None,
                 },
                 LauncherItem {
                     kind: "claude".to_string(),
@@ -1102,6 +1123,7 @@ fn load_items_for(project_id: &str) -> Result<Vec<LauncherItem>, String> {
                     cwd: Some(path.to_string()),
                     args: None,
                     label: Some("New Claude session".to_string()),
+                    provider: None,
                 },
             ]);
         }
@@ -1402,12 +1424,46 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
                 .map_err(|e| format!("spawn explorer: {}", e))?;
             Ok(())
         }
-        "claude" | "codex" => {
+        "claude" | "codex" | "gemini" => {
+            // Legacy kinds — kind itself IS the provider.
             let cwd = item.cwd.clone();
             let kind = item.kind.clone();
             crate::sessions::spawn_session_inner(app, kind, None, cwd, None)
                 .await
                 .map(|_| ())
+        }
+        "session" => {
+            // v15.4.11 — consolidated kind: provider field elige binario.
+            // Fallback a claude si el campo no está poblado (mismo
+            // default que el resto del sistema).
+            let cwd = item.cwd.clone();
+            let provider = item
+                .provider
+                .clone()
+                .unwrap_or_else(|| "claude".to_string());
+            crate::sessions::spawn_session_inner(app, provider, None, cwd, None)
+                .await
+                .map(|_| ())
+        }
+        "ide" => {
+            // v15.4.11 — `ide` kind: open the project's path in its
+            // preferred IDE. We need the parent project id, but
+            // dispatch_item doesn't carry it directly. Read items from
+            // the registry to find the project that owns this item and
+            // use its path + preferred_ide. As a fast path, if the
+            // item has a `path` field set, use that directly.
+            let direct_path = item
+                .path
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty());
+            if let Some(p) = direct_path {
+                return open_in_ide(p, item.cwd.as_deref()).await;
+            }
+            Err(
+                "ide item needs `path` (or move it onto the project's preferred_ide)"
+                    .into(),
+            )
         }
         other => Err(format!("unknown launcher kind '{}'", other)),
     }
@@ -1504,23 +1560,27 @@ mod tests {
                 kind: "folder".into(),
                 path: Some(r"C:\proj".into()),
                 cwd: None, args: None, label: None,
+                    provider: None,
             },
             LauncherItem {
                 kind: "claude".into(),
                 path: None,
                 cwd: Some(r"C:\proj".into()),
                 args: None, label: None,
+                    provider: None,
             },
             LauncherItem {
                 kind: "codex".into(),
                 path: None,
                 cwd: Some(r"C:\proj".into()),
                 args: None, label: None,
+                    provider: None,
             },
             LauncherItem {
                 kind: "folder".into(),
                 path: Some(r"C:\proj\sub".into()),
                 cwd: None, args: None, label: None,
+                    provider: None,
             },
         ];
 

@@ -673,11 +673,13 @@ function lastActiveScore(p: ProjectInfo): number {
   return p.last_active.charCodeAt(0);
 }
 
+// v15.4.11 — 3 kinds primarios + exe como advanced. Sesión consolida
+// claude/codex/gemini detrás de un sub-selector provider.
 const ITEM_KINDS: { value: LauncherItemKind; label: string; hint: string }[] = [
-  { value: "exe", label: "Executable", hint: "Spawn a .exe / .lnk / .bat with optional args" },
-  { value: "folder", label: "Folder", hint: "Open the folder in Windows Explorer" },
-  { value: "claude", label: "Claude session", hint: "New wt.exe tab running claude in cwd" },
-  { value: "codex", label: "Codex session", hint: "New wt.exe tab running codex in cwd" },
+  { value: "folder", label: "Folder", hint: "Abrir la carpeta en Windows Explorer" },
+  { value: "ide", label: "IDE", hint: "Abrir el proyecto en el IDE preferido (VS Code / Cursor / Rider / CLion / etc.)" },
+  { value: "session", label: "Sesión AI", hint: "Lanzar nueva sesión de Claude / Codex / Gemini (selector debajo)" },
+  { value: "exe", label: "Executable (advanced)", hint: "Spawn de .exe / .lnk / .bat con argumentos opcionales" },
 ];
 
 export function Projects() {
@@ -721,11 +723,14 @@ export function Projects() {
 
   // Add-item modal state.
   const [itemTarget, setItemTarget] = useState<ProjectInfo | null>(null);
-  const [iKind, setIKind] = useState<LauncherItemKind>("exe");
+  // v15.4.11 — default `folder` (kind más común y siempre seguro).
+  const [iKind, setIKind] = useState<LauncherItemKind>("folder");
   const [iPath, setIPath] = useState("");
   const [iCwd, setICwd] = useState("");
   const [iArgs, setIArgs] = useState("");
   const [iLabel, setILabel] = useState("");
+  // v15.4.11 — provider sub-selector cuando iKind === "session".
+  const [iProvider, setIProvider] = useState<SessionProvider>("claude");
   const [itemSaving, setItemSaving] = useState(false);
   const [itemError, setItemError] = useState<string | null>(null);
 
@@ -945,12 +950,25 @@ export function Projects() {
           args.push(m[1] !== undefined ? m[1] : m[2]);
         }
       }
+      // v15.4.11 — el shape depende del kind:
+      //   folder/exe → path
+      //   session    → cwd + provider
+      //   ide        → path del proyecto se infiere; opcionalmente
+      //                el usuario puede pasar un path explícito
+      //   claude/codex/gemini (legacy) → cwd
+      const needsPath = iKind === "exe" || iKind === "folder" || iKind === "ide";
+      const needsCwd =
+        iKind === "session" ||
+        iKind === "claude" ||
+        iKind === "codex" ||
+        iKind === "gemini";
       const item: LauncherItem = {
         kind: iKind,
-        path: iKind === "exe" || iKind === "folder" ? trimmed(iPath) : null,
-        cwd: iKind === "claude" || iKind === "codex" ? trimmed(iCwd) : null,
+        path: needsPath ? trimmed(iPath) : null,
+        cwd: needsCwd ? trimmed(iCwd) : null,
         args: args.length > 0 ? args : null,
         label: trimmed(iLabel),
+        provider: iKind === "session" ? iProvider : null,
       };
       await invoke("add_launcher_item", {
         projectId: itemTarget.id,
@@ -1679,7 +1697,40 @@ export function Projects() {
                 </div>
               )}
 
-              {(iKind === "claude" || iKind === "codex") && (
+              {/* v15.4.11 — provider sub-selector cuando kind=session */}
+              {iKind === "session" && (
+                <div>
+                  <label
+                    className="text-[10px] uppercase tracking-wide"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Provider
+                  </label>
+                  <select
+                    value={iProvider}
+                    onChange={(e) =>
+                      setIProvider(e.target.value as SessionProvider)
+                    }
+                    className="mt-1 w-full rounded px-2 py-1.5 text-[12px]"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border-strong)",
+                      fontFamily: "var(--font-mono)",
+                      outline: "none",
+                    }}
+                  >
+                    <option value="claude">Claude</option>
+                    <option value="codex">Codex</option>
+                    <option value="gemini">Gemini</option>
+                  </select>
+                </div>
+              )}
+
+              {(iKind === "claude" ||
+                iKind === "codex" ||
+                iKind === "gemini" ||
+                iKind === "session") && (
                 <div>
                   <label
                     className="text-[10px] uppercase tracking-wide"
@@ -1692,7 +1743,9 @@ export function Projects() {
                       type="text"
                       value={iCwd}
                       onChange={(e) => setICwd(e.target.value)}
-                      placeholder="C:/Users/USER/.ultron"
+                      placeholder={
+                        itemTarget?.path ?? "C:/Users/USER/.ultron"
+                      }
                       className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
                       style={{
                         background: "var(--color-surface-2)",
@@ -1715,6 +1768,55 @@ export function Projects() {
                       Pick
                     </button>
                   </div>
+                </div>
+              )}
+
+              {/* v15.4.11 — IDE kind: usa el path del proyecto. El input
+                  permite override pero defaultea al project.path. */}
+              {iKind === "ide" && (
+                <div>
+                  <label
+                    className="text-[10px] uppercase tracking-wide"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Project path
+                  </label>
+                  <div className="mt-1 flex gap-2">
+                    <input
+                      type="text"
+                      value={iPath || itemTarget?.path || ""}
+                      onChange={(e) => setIPath(e.target.value)}
+                      placeholder={itemTarget?.path ?? "C:/Users/USER/..."}
+                      className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
+                      style={{
+                        background: "var(--color-surface-2)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        fontFamily: "var(--font-mono)",
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={pickItemFolder}
+                      className="rounded px-2 py-1 text-[11px]"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text-secondary)",
+                        border: "1px solid var(--color-border-strong)",
+                      }}
+                    >
+                      Pick
+                    </button>
+                  </div>
+                  <p
+                    className="mt-1 text-[10.5px]"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    Abre el directorio en el IDE preferido del proyecto
+                    (configurable en Edit project). Auto-detecta si no hay
+                    uno explícito.
+                  </p>
                 </div>
               )}
 
@@ -1793,7 +1895,15 @@ export function Projects() {
                 disabled={
                   itemSaving ||
                   ((iKind === "exe" || iKind === "folder") && !iPath.trim()) ||
-                  ((iKind === "claude" || iKind === "codex") && !iCwd.trim())
+                  (iKind === "ide" &&
+                    !iPath.trim() &&
+                    !itemTarget?.path) ||
+                  ((iKind === "claude" ||
+                    iKind === "codex" ||
+                    iKind === "gemini" ||
+                    iKind === "session") &&
+                    !iCwd.trim() &&
+                    !itemTarget?.path)
                 }
                 className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
                 style={{
