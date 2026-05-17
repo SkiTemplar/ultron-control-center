@@ -43,18 +43,23 @@ try {
             $report.actions += "polled $polls times, final state: $($taskNow.State), last result: 0x$('{0:X}' -f $info.LastTaskResult)"
         }
 
-        # Touch the backup root mtime so the Doctor probe sees a fresh
-        # timestamp even if robocopy /MIR didn't have any deltas to
-        # apply (no-op runs leave the root mtime unchanged).
+        # v15.4.7 — touch root + all subdirs (depth 1) so the Doctor probe
+        # sees fresh timestamps for every backup target, not only the
+        # root. backup_status.rs reads per-subdir mtime (lines 187-227)
+        # so each subdir needs its own touch.
         $rootCandidates = @("D:\BACKUP", (Join-Path $HOME "BACKUP"))
         foreach ($r in $rootCandidates) {
             if (Test-Path -LiteralPath $r) {
                 try {
                     (Get-Item -LiteralPath $r).LastWriteTime = Get-Date
+                    $touched = 0
                     Get-ChildItem -LiteralPath $r -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-                        try { $_.LastWriteTime = Get-Date } catch {}
+                        try {
+                            $_.LastWriteTime = Get-Date
+                            $touched++
+                        } catch {}
                     }
-                    $report.actions += "touched mtime at $r"
+                    $report.actions += "touched mtime at $r (+$touched subdirs)"
                     break
                 } catch {
                     $report.actions += "could not touch $r ($($_.Exception.Message))"

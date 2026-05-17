@@ -30,7 +30,7 @@ export function KnownSection({
 
   return (
     <section
-      className="flex w-2/5 min-w-[320px] max-w-[460px] flex-col gap-3 overflow-hidden rounded p-4"
+      className="flex h-full w-full min-w-0 flex-col gap-3 overflow-hidden rounded p-4"
       style={{
         background: "var(--color-surface-1)",
         border: "1px solid var(--color-border-strong)",

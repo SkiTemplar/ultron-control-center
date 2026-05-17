@@ -13,6 +13,12 @@ import type {
   MemoryStatusInfo,
 } from "../types";
 import { statusColor } from "../lib/status";
+import packageJson from "../../package.json";
+
+// v15.4.7 — read version from package.json (single source of truth, no
+// hardcoded literal). Vite inlines the import at build time so this has
+// zero runtime cost.
+const APP_VERSION: string = (packageJson as { version?: string }).version ?? "";
 
 // ---------------------------------------------------------------------------
 // Pending items — surfaces the detect_gaps.py hook output as a Dashboard
@@ -774,7 +780,7 @@ export function Dashboard({
         <div>
           <h1 className="text-[20px] font-semibold leading-tight">Dashboard</h1>
           <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-            System overview · Control Center v15.2
+            System overview · Control Center v{APP_VERSION}
           </p>
         </div>
         <button

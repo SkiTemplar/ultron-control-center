@@ -194,6 +194,17 @@ foreach ($src in $sourcesToRun) {
         Write-Log "FAIL: $src robocopy exit code $($r.Code)" "ERROR"
     } else {
         Write-Log "OK: $src robocopy exit code $($r.Code)"
+        # v15.4.7 — touch the destination mtime so the Doctor backup-stale
+        # detector (control-center/src-tauri/src/backup_status.rs) sees a
+        # fresh timestamp even when robocopy /MIR had no deltas to apply.
+        # Without this, a successful no-op run leaves the badge orange.
+        if (-not $DryRun -and (Test-Path -LiteralPath $destAbs)) {
+            try {
+                (Get-Item -LiteralPath $destAbs).LastWriteTime = Get-Date
+            } catch {
+                Write-Log "WARN: could not touch mtime on $destAbs ($($_.Exception.Message))" "WARN"
+            }
+        }
     }
 }
 

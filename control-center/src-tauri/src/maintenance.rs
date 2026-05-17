@@ -100,7 +100,17 @@ if (-not (Test-Path -LiteralPath $exe)) {
 
 Write-Host ''
 Write-Host '[ULTRON] Build OK. Closing old instance + relaunching...' -ForegroundColor Green
-Get-Process -Name 'control-center' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# v15.4.7 — Stop-Process -Name solo matchea procesos cuyo nombre del .exe
+# es exactamente 'control-center'. Cuando el binario corre desde el NSIS
+# installer (Program Files / AppData), el process name puede diferir o
+# el spawned PS no tiene permisos suficientes para matarlo. taskkill
+# /IM control-center.exe /F /T mata por imagen + child tree, ignora
+# privilegios sobre el parent (es el patrón estándar en Windows para
+# self-replace).
+taskkill.exe /IM 'control-center.exe' /F /T 2>$null | Out-Null
+# Fallback por si el binario fuera renombrado por el installer NSIS al
+# productName del tauri.conf (ULTRON Control Center.exe).
+taskkill.exe /IM 'ULTRON Control Center.exe' /F /T 2>$null | Out-Null
 $deadline = (Get-Date).AddSeconds(8)
 while ((Get-Date) -lt $deadline) {
     Start-Sleep -Milliseconds 200

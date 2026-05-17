@@ -40,7 +40,10 @@ export function StyleSection({
   onRegenerateSample,
 }: Props) {
   return (
-    <div className="flex flex-1 flex-col gap-3 overflow-hidden">
+    // v15.4.7 — Train + Sample son ahora side-by-side (eran column-stack).
+    // Combinado con el 2x2 de Personal.tsx, el resultado son 4 cuadrantes
+    // reales (Known | Profile arriba, Training | Sample abajo).
+    <div className="flex min-h-0 flex-1 flex-row gap-3 overflow-hidden">
       <TrainBlock
         trainText={trainText}
         setTrainText={setTrainText}

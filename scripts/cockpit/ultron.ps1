@@ -774,16 +774,16 @@ switch ($Command.ToLower()) {
     # @ULTRON-DEPRECATED-END
 
     "desktop" {
-        $action = if ($Rest -and $Rest.Count -gt 0) { ([string]$Rest[0]).ToLower() } else { "install" }
-        switch ($action) {
-            "install"   { Invoke-Ps "desktop-shortcut.ps1" @() }
-            "uninstall" { Invoke-Ps "desktop-shortcut.ps1" @("-Uninstall") }
-            default {
-                Write-Host "Unknown desktop action: $action" -ForegroundColor Red
-                Write-Host "Try: ultron desktop install | ultron desktop uninstall" -ForegroundColor Yellow
-                exit 1
-            }
-        }
+        # v15.4.7 — `ultron desktop` retired in v15.4. The Control Center
+        # is launched via its own Start Menu / NSIS shortcut (or the dev
+        # `npm run tauri dev`). The old desktop-shortcut.ps1 was removed
+        # along with the TUI cleanup; this subcommand stayed orphan and
+        # crashed with "script not found".
+        Write-Host "[ULTRON] 'ultron desktop' was removed in v15.4 — TUI lifecycle is gone." -ForegroundColor Yellow
+        Write-Host "         Launch the Control Center directly:" -ForegroundColor Yellow
+        Write-Host "           Start Menu → ULTRON Control Center" -ForegroundColor White
+        Write-Host "           or:  cd ~/.ultron/control-center && npm run tauri dev" -ForegroundColor White
+        exit 1
     }
 
     "pause" {

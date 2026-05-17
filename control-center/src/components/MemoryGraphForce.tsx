@@ -233,25 +233,26 @@ function initParticles(nodes: GraphNode[]): Particle[] {
   // hash jitter is at most ~3% of that radius, so the spiral structure
   // dominates and the layout never starts piled-up regardless of id
   // quality.
-  const n = nodes.length;
   const maxR = SOFT_BOUNDARY * 0.55;
-  return nodes.map((node, i) => {
+  return nodes.map((node) => {
+    // v15.4.7 — position is derived ENTIRELY from the id hash, never
+    // from the array index. The previous Vogel-by-index attempt
+    // (v15.4.5) broke when the parent reordered nodes by degree on
+    // the >200 path, because two renders ago the same node landed at
+    // a different `i` and therefore a different spiral slot — the
+    // re-init then piled everything back together. Hashing the id
+    // makes the layout deterministic AND order-invariant.
     let seed = 0;
     for (let k = 0; k < node.id.length; k++) {
       seed = (seed * 31 + node.id.charCodeAt(k)) >>> 0;
     }
-    // Vogel spiral base: r = sqrt(i/n), θ = i · golden_angle.
-    // sqrt makes the area-density uniform across the disk.
-    const baseR = maxR * Math.sqrt((i + 0.5) / Math.max(n, 1));
-    const baseTheta = i * GOLDEN_ANGLE;
-    // Small id-hash jitter so two visits look identical and visually
-    // similar ids don't end up exactly next to each other.
-    const jitterR = ((seed & 0xff) / 0xff - 0.5) * maxR * 0.03;
-    const jitterT = (((seed >>> 8) & 0xff) / 0xff - 0.5) * GOLDEN_ANGLE * 0.15;
-    const r = Math.max(0, baseR + jitterR);
-    const t = baseTheta + jitterT;
-    const rx = CENTER + Math.cos(t) * r;
-    const ry = CENTER + Math.sin(t) * r;
+    // Spread radius via sqrt of low 24 bits (uniform area density);
+    // angle via golden-angle multiple of the seed (every distinct id
+    // lands far from its neighbours on the circle).
+    const baseR = maxR * Math.sqrt(((seed & 0xffffff) + 0.5) / 0x1000000);
+    const baseTheta = (seed * GOLDEN_ANGLE) % (Math.PI * 2);
+    const rx = CENTER + Math.cos(baseTheta) * baseR;
+    const ry = CENTER + Math.sin(baseTheta) * baseR;
     return { id: node.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };
   });
 }

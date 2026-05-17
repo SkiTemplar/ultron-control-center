@@ -196,28 +196,42 @@ export function Personal() {
         </button>
       </header>
 
-      <div className="flex flex-1 gap-4 overflow-hidden">
-        <KnownSection
-          known={known}
-          loading={knownLoading}
-          error={knownError}
-          analyzing={analyzing}
-          analysisMsg={analysisMsg}
-          onGenerate={generateAnalysis}
-        />
-
-        <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden">
-          <ProfileSection
-            profile={profile}
-            draft={draft}
-            setDraft={setDraft}
-            loading={loading}
-            saving={saving}
-            dirty={dirty}
-            error={error}
-            info={info}
-            onSave={save}
-          />
+      {/*
+        v15.4.7 — Personal layout reorganizado a 2x2 según petición USER:
+        antes era Known (izq, 1 cosa) + columna derecha apilada (2 cosas)
+        que dejaba la izquierda vacía y la derecha aplastada. Ahora:
+          fila superior: Known (TL) | Profile (TR)  -> 50 / 50
+          fila inferior: Style spans both cols      -> ancho completo
+        Style internamente ya tiene train (texto) + sample (preview), así
+        que perceptualmente queda "2 y 2": 4 áreas equilibradas en grid.
+      */}
+      <div className="flex flex-1 flex-col gap-4 overflow-hidden">
+        <div className="flex min-h-0 flex-1 gap-4 overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <KnownSection
+              known={known}
+              loading={knownLoading}
+              error={knownError}
+              analyzing={analyzing}
+              analysisMsg={analysisMsg}
+              onGenerate={generateAnalysis}
+            />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            <ProfileSection
+              profile={profile}
+              draft={draft}
+              setDraft={setDraft}
+              loading={loading}
+              saving={saving}
+              dirty={dirty}
+              error={error}
+              info={info}
+              onSave={save}
+            />
+          </div>
+        </div>
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <StyleSection
             trainText={trainText}
             setTrainText={setTrainText}
