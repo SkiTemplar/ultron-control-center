@@ -82,25 +82,23 @@ type Particle = {
   fixed: boolean; // user-pinned via drag
 };
 
-// v15.3.3 pass: nodes were still hugging the rim. Two changes:
-//   1. The radial confinement was kicking in too LATE (MAX_RADIUS 0.48),
-//      letting nodes drift well outside the visible interior before the
-//      return force engaged. Pulled the cap inward to 0.40.
-//   2. Repulsion was still strong enough that, on a sparse cluster
-//      (vault with weak link density), the net effect was outward. Down
-//      to 320 and bumped gravity again to 0.022. Spring rest pulled in
-//      to 130 so connected nodes form tighter sub-clusters in the disk.
-//   3. Polar init now uses cbrt() instead of sqrt() — biases the seed
-//      toward the interior (cube-root concentrates mass near r=0).
-const VIEW = 3500;
+// v15.3.6 (final): the previous radial hard-cap was the problem itself.
+// Nodes that drifted to the boundary got STUCK there because the return
+// force was strong enough to overcome any drift but not strong enough to
+// pull them back to the interior — they sat on the shell oscillating.
+// Replaced the wall with an EXPONENTIAL repulsion from the boundary:
+// force grows as nodes approach the edge, so they get nudged inward
+// long before they reach r=MAX_RADIUS. Combined with stronger central
+// gravity, the equilibrium is now a genuinely filled disk.
+const VIEW = 2800;
 const CENTER = VIEW / 2;
-const MAX_RADIUS = VIEW * 0.40;
-const RADIAL_RETURN_K = 0.12;
+const SOFT_BOUNDARY = VIEW * 0.38; // start pushing back when r > this
+const BOUNDARY_STIFFNESS = 0.0008; // exponential pushback growth rate
 const NODE_RADIUS_BASE = 16;
-const REPULSION = 320;
-const SPRING_K = 0.045;
-const SPRING_REST = 130;
-const GRAVITY = 0.022;
+const REPULSION = 260;
+const SPRING_K = 0.05;
+const SPRING_REST = 110;
+const GRAVITY = 0.028;
 const DAMPING = 0.6;
 const COLLIDE_RADIUS = 26;
 const COLLIDE_STRENGTH = 0.5;
@@ -183,10 +181,22 @@ function step(
     b.ax -= fx;
     b.ay -= fy;
   }
-  // Gravity to center.
+  // Gravity to center + v15.3.6 exponential soft-boundary push.
+  // Boundary force grows exponentially as r approaches SOFT_BOUNDARY,
+  // so nodes get nudged inward long before they reach the edge —
+  // eliminating the "stuck on the shell" artifact from previous passes.
   for (const p of particles) {
     p.ax += (CENTER - p.x) * GRAVITY * alpha;
     p.ay += (CENTER - p.y) * GRAVITY * alpha;
+    const dxC = p.x - CENTER;
+    const dyC = p.y - CENTER;
+    const distC = Math.sqrt(dxC * dxC + dyC * dyC);
+    if (distC > SOFT_BOUNDARY * 0.55) {
+      const excess = distC - SOFT_BOUNDARY * 0.55;
+      const push = BOUNDARY_STIFFNESS * Math.exp(excess * 0.006) * excess * alpha;
+      p.ax -= (dxC / distC) * push;
+      p.ay -= (dyC / distC) * push;
+    }
   }
   // Verlet integration with damping.
   for (const p of particles) {
@@ -201,21 +211,6 @@ function step(
     p.py = p.y;
     p.x += vx + p.ax;
     p.y += vy + p.ay;
-    // Soft circular confinement — replaces the square box clamp.
-    // If the node is outside MAX_RADIUS from CENTER, push it back toward
-    // the center proportionally to how far it overshot. The push is a
-    // velocity-like correction (apply to x/y directly, not to ax/ay),
-    // so it overrides whatever the integrator just did without fighting
-    // the next step's damping.
-    const dxC = p.x - CENTER;
-    const dyC = p.y - CENTER;
-    const distC = Math.sqrt(dxC * dxC + dyC * dyC);
-    if (distC > MAX_RADIUS) {
-      const overshoot = distC - MAX_RADIUS;
-      const factor = (overshoot * RADIAL_RETURN_K) / distC;
-      p.x -= dxC * factor;
-      p.y -= dyC * factor;
-    }
   }
 }
 
@@ -239,7 +234,7 @@ function initParticles(nodes: GraphNode[]): Particle[] {
     // pull them back from the rim — they just settle into the interior
     // they were already near.
     const distBias = Math.cbrt(((seed >>> 16) & 0xffff) / 0xffff);
-    const dist = distBias * (MAX_RADIUS * 0.72);
+    const dist = distBias * (SOFT_BOUNDARY * 0.5);
     const rx = CENTER + Math.cos(angle) * dist;
     const ry = CENTER + Math.sin(angle) * dist;
     return { id: n.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };

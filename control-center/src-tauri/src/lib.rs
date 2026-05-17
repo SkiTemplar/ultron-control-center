@@ -236,6 +236,7 @@ pub fn run() {
             commands::lifecycle::get_ultron_mode,
             commands::lifecycle::set_ultron_mode,
             commands::lifecycle::reset_mode_to_autodetect,
+            commands::lifecycle::close_control_center,
             // -- AI router --
             commands::ai_router::read_ai_router,
             commands::ai_router::save_ai_router,

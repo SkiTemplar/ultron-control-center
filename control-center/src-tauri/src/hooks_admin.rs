@@ -276,7 +276,37 @@ fn validate_command(command: &str) -> Result<(), String> {
     if trimmed.len() > 4_000 {
         return Err("command is suspiciously long (>4000 chars)".into());
     }
+    // CC-12 hardening: PowerShell treats a backtick as a no-op escape
+    // before any non-special char — `` `i`ex `` evaluates identically to
+    // `iex`. The original substring check missed that. Normalise the
+    // command by (a) stripping every backtick AND (b) lower-casing the
+    // whole string before scanning for forbidden fragments. The needles
+    // are also normalised the same way so we don't have to encode every
+    // possible casing variant in the blocklist.
+    let normalised: String = trimmed
+        .chars()
+        .filter(|c| *c != '`')
+        .collect::<String>()
+        .to_ascii_lowercase();
     for needle in forbidden_fragments() {
+        // Apply the same normalisation to the needle so the fixture list
+        // stays human-readable in source.
+        let needle_norm: String = needle
+            .chars()
+            .filter(|c| *c != '`')
+            .collect::<String>()
+            .to_ascii_lowercase();
+        if normalised.contains(&needle_norm) {
+            return Err(format!(
+                "command contains forbidden fragment '{}' (blocked by safety net)",
+                needle.trim()
+            ));
+        }
+        // Also check the *raw* trimmed string — the trim-aware needles in
+        // forbidden_fragments() (e.g. " IEX ", "; rm -rf") rely on word
+        // boundaries that the lower-case+strip pass would still preserve,
+        // but we run the raw check too in case the normalisation ever
+        // softens a needle we wanted strict.
         if trimmed.contains(&needle) {
             return Err(format!(
                 "command contains forbidden fragment '{}' (blocked by safety net)",

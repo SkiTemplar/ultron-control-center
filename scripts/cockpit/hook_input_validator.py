@@ -83,10 +83,21 @@ _STRIP_CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 def _sanitize_string(s: str, max_len: int) -> tuple[str | None, list[str]]:
-    """Return (cleaned, errors). Cleaned is None if string is unrecoverable."""
+    """Return (cleaned, errors). Cleaned is None if string is unrecoverable.
+
+    v15.3.5 (2026-05-17): NUL bytes are now STRIPPED defensively instead
+    of rejected. Real-world payloads from Windows clipboards and some IME
+    layers occasionally smuggle a stray \\x00 into the prompt; rejecting
+    the whole UserPromptSubmit (dropping the user's message) is a worse
+    UX than quietly removing the byte. We still report ``null_byte_in_string``
+    in the errors list as informational telemetry so the cause can be
+    traced if it spikes — but the payload is no longer marked unrecoverable.
+    The hard byte-cap check in :func:`safe_load_stdin` still rejects
+    pre-parse NULs (defence in depth at the stdin layer).
+    """
     errs: list[str] = []
     if "\x00" in s:
-        return None, ["null_byte_in_string"]
+        errs.append("null_byte_in_string")
     cleaned = _STRIP_CTRL.sub("", s)
     if len(cleaned) > max_len:
         errs.append(f"string_too_long:{len(cleaned)}>{max_len}")
@@ -260,14 +271,26 @@ def validate(event_name: str, payload: Any) -> ValidationResult:
     # Decide the per-string length cap based on event.
     str_cap = MAX_PROMPT_LEN if event_name == "UserPromptSubmit" else MAX_STRING_LEN
     sanitized, sanitize_errs = _sanitize_tree(payload, str_cap)
-    if "null_byte_in_string" in sanitize_errs:
-        return ValidationResult(False, None, sanitize_errs)
+
+    # v15.3.5: ``null_byte_in_string`` is no longer fatal here. The
+    # offending byte has already been stripped by ``_sanitize_string``;
+    # we keep the tag in ``sanitize_errs`` only so the alerts log can
+    # show it surfaced. Filter it out of the validator-level error list
+    # so a stray NUL from the Windows clipboard does not drop the whole
+    # UserPromptSubmit payload.
+    fatal_sanitize_errs = [e for e in sanitize_errs if e != "null_byte_in_string"]
 
     validator = _VALIDATORS[event_name]
-    errs = validator(sanitized) + sanitize_errs
+    errs = validator(sanitized) + fatal_sanitize_errs
     if errs:
-        return ValidationResult(False, sanitized, errs)
-    return ValidationResult(True, sanitized, [])
+        return ValidationResult(False, sanitized, errs + (
+            ["null_byte_in_string"] if "null_byte_in_string" in sanitize_errs else []
+        ))
+    # Success path: still surface the NUL telemetry tag to the caller
+    # (alerts pipeline) without flipping ok=False.
+    return ValidationResult(True, sanitized,
+                            ["null_byte_in_string"] if "null_byte_in_string" in sanitize_errs
+                            else [])
 
 
 # F-MaxDual-R2-Hnew3: hard byte cap on stdin BEFORE json.loads. A
@@ -315,16 +338,30 @@ def safe_load_stdin(event_name: str) -> dict[str, Any] | None:
         raw = raw_bytes.decode("utf-8", errors="replace")
     except Exception:  # noqa: BLE001
         return None
+    # v15.3.5: strip pre-parse NUL bytes instead of rejecting the payload.
+    # Windows clipboard / IME layers sometimes inject a stray \x00 into the
+    # UserPromptSubmit prompt; killing the whole hook event for that is
+    # disproportionate. We keep the alert (info) so the cause stays
+    # observable, but the prompt still reaches Claude.
     if "\x00" in raw:
         _alert("hook_input_validator",
-                "stdin contains null byte — rejected", event_name)
-        return None
+                "stdin contains null byte — stripped (was: rejected)",
+                event_name)
+        raw = raw.replace("\x00", "")
     try:
         payload = json.loads(raw)
     except (json.JSONDecodeError, ValueError):
         _alert("hook_input_validator", "stdin is not valid JSON", event_name)
         return None
     result = validate(event_name, payload)
+    # ok=True but with telemetry tags (e.g. null_byte_in_string after the
+    # defensive strip above) is the normal happy path; surface the tag to
+    # alerts.jsonl without dropping the payload.
+    if result.ok and result.errors:
+        _alert("hook_input_validator",
+                f"sanitized: {', '.join(result.errors[:5])}",
+                event_name)
+        return result.payload
     if not result.ok:
         _alert("hook_input_validator",
                 f"validation failed: {', '.join(result.errors[:5])}",
@@ -347,7 +384,13 @@ def _alert(source: str, message: str, event_name: str) -> None:
         return
     if "not valid JSON" in message:
         return
-    severity = "warn"
+    # v15.3.5: defensive sanitization (NUL strip, control-char strip) is
+    # informational telemetry, not a real failure — log at "info" so it
+    # never trips the "warn" dedupe + notification path.
+    if message.startswith("sanitized:") or "stripped" in message:
+        severity = "info"
+    else:
+        severity = "warn"
     try:
         _alerts.write_dedupe(
             severity=severity,

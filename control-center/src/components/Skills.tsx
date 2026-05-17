@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   AllowSkillResult,
   SkillCreateResult,
@@ -10,7 +11,8 @@ import type {
   SkillUpdateResult,
 } from "../types";
 import { SkillRichView } from "./SkillRichView";
-import { SecurityPanel, securityHintFromInfo } from "./SecurityPanel";
+import { SecurityPanel } from "./SecurityPanel";
+import { HeaderBtn, KindBadge, Pill, SkillAgentRow } from "./SkillAgentShared";
 import { getHomeDir, joinPath } from "../lib/paths";
 
 // Default body when creating a new skill. Keeps the user oriented without
@@ -58,15 +60,11 @@ function stateBadge(s: SkillState): { color: string; bg: string; label: string }
   }
 }
 
-// Per-skill security badge shown next to the state pill in each Row.
-// Delegates to the shared helper so the Skills and Agents tabs share
-// identical badge colors and copy.
-function securityHint(s: SkillInfo) {
-  return securityHintFromInfo(s.security ?? null);
-}
-
 // ---------------------------------------------------------------------------
-// Row
+// Row — thin adapter over <SkillAgentRow/> (the shared primitive). The
+// kind-specific bits (state badge on the left, usage count on the
+// right) live here; everything else is centralised so the Agents tab
+// can render the same layout from its own adapter.
 // ---------------------------------------------------------------------------
 
 function Row({
@@ -79,146 +77,26 @@ function Row({
   onClick: () => void;
 }) {
   const b = stateBadge(s.state);
-  const sec = securityHint(s);
   return (
-    <button
-      type="button"
+    <SkillAgentRow
+      name={s.name}
+      description={s.description ?? null}
+      selected={selected}
       onClick={onClick}
-      className="flex w-full items-baseline gap-3 rounded px-3 py-2 text-left transition-colors"
-      style={{
-        background: selected ? "var(--color-surface-3)" : "transparent",
-        border: `1px solid ${selected ? "var(--color-border-strong)" : "transparent"}`,
-      }}
-      onMouseEnter={(e) => {
-        if (!selected)
-          (e.currentTarget as HTMLButtonElement).style.background =
-            "var(--color-surface-2)";
-      }}
-      onMouseLeave={(e) => {
-        if (!selected)
-          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-      }}
-    >
-      <span
-        className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide tabular-nums"
-        style={{ background: b.bg, color: b.color, minWidth: 56, textAlign: "center" }}
-      >
-        {b.label}
-      </span>
-      {sec && (
-        <span
-          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium tabular-nums"
-          style={{ background: sec.bg, color: sec.color }}
-          title={sec.title}
-        >
-          {sec.label}
-        </span>
-      )}
-      <div className="min-w-0 flex-1">
-        <div
-          className="truncate text-[12.5px] font-medium"
-          style={{ color: "var(--color-text)" }}
-        >
-          {s.name}
-        </div>
-        {s.description && (
-          <div
-            className="truncate text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
+      security={s.security ?? null}
+      leftBadge={<KindBadge label={b.label} bg={b.bg} color={b.color} />}
+      rightMeta={
+        s.usage_count > 0 ? (
+          <span
+            className="shrink-0 tabular-nums text-[10.5px]"
+            style={{ color: "var(--color-text-faint)" }}
+            title={`Used ${s.usage_count} times`}
           >
-            {s.description}
-          </div>
-        )}
-      </div>
-      {s.usage_count > 0 && (
-        <span
-          className="shrink-0 tabular-nums text-[10.5px]"
-          style={{ color: "var(--color-text-faint)" }}
-          title={`Used ${s.usage_count} times`}
-        >
-          ×{s.usage_count}
-        </span>
-      )}
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Filter pill
-// ---------------------------------------------------------------------------
-
-function Pill({
-  active,
-  label,
-  count,
-  onClick,
-  color,
-}: {
-  active: boolean;
-  label: string;
-  count: number;
-  onClick: () => void;
-  color?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] transition-colors"
-      style={{
-        background: active ? "var(--color-surface-3)" : "transparent",
-        color: active ? "var(--color-text)" : "var(--color-text-tertiary)",
-        border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}`,
-      }}
-    >
-      {color && (
-        <span
-          className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ background: color, opacity: active ? 1 : 0.4 }}
-        />
-      )}
-      <span>{label}</span>
-      <span
-        className="tabular-nums"
-        style={{ color: active ? "var(--color-text-secondary)" : "var(--color-text-faint)" }}
-      >
-        {count}
-      </span>
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Preview panel
-// ---------------------------------------------------------------------------
-
-// Tiny inline icon-buttons for the preview header. Match existing styling.
-function HeaderBtn({
-  label,
-  onClick,
-  disabled,
-  variant = "default",
-}: {
-  label: string;
-  onClick: () => void;
-  disabled?: boolean;
-  variant?: "default" | "danger";
-}) {
-  const danger = variant === "danger";
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      className="rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
-      style={{
-        background: "var(--color-surface-2)",
-        color: danger ? "var(--color-danger)" : "var(--color-text-secondary)",
-        border: `1px solid ${danger ? "rgba(248, 81, 73, 0.32)" : "var(--color-border-strong)"}`,
-      }}
-    >
-      {label}
-    </button>
+            ×{s.usage_count}
+          </span>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -415,6 +293,21 @@ function Preview({
     }
   }
 
+  // Open the skill's directory in Windows Explorer. SkillInfo.path is
+  // the directory itself (skills live in ~/.claude/skills/<name>/),
+  // unlike agents whose `path` points at the .md file — we don't need
+  // to strip a trailing segment here.
+  async function handleOpenFolder() {
+    try {
+      const dir =
+        skill.path ??
+        joinPath(await getHomeDir(), ".claude", "skills", skill.name);
+      await openPath(dir);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   const b = stateBadge(skill.state);
 
   return (
@@ -424,12 +317,7 @@ function Preview({
         style={{ borderColor: "var(--color-border)" }}
       >
         <div className="flex items-center gap-2">
-          <span
-            className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
-            style={{ background: b.bg, color: b.color }}
-          >
-            {b.label}
-          </span>
+          <KindBadge label={b.label} bg={b.bg} color={b.color} />
           <h2 className="text-[15px] font-semibold leading-none">{skill.name}</h2>
           <div className="ml-auto flex items-center gap-1.5">
             {mode === "view" && (
@@ -453,6 +341,12 @@ function Preview({
                     </button>
                   ))}
                 </div>
+                <HeaderBtn
+                  label="Folder"
+                  onClick={() => void handleOpenFolder()}
+                  disabled={busy || loading}
+                  title="Open this skill's directory in Windows Explorer"
+                />
                 <HeaderBtn label="Edit" onClick={() => setMode("edit")} disabled={busy || loading} />
                 <HeaderBtn
                   label="AI"

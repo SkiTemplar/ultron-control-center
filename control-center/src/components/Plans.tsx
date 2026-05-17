@@ -718,19 +718,21 @@ export function Plans() {
       const instrPath = (await invoke("instruction_path", {
         kind: "plans",
       })) as string;
-      const promptByKind: Record<typeof kind, string> = {
-        execute:
-          "Claude, ejecuta lo que tenemos pendiente en PLANS.json. Lee primero el GUIDE.md de esta carpeta y los items con status=open en orden de priority (p0→p4). Para cada uno: márcalo in_progress con patch_plan_status, propon plan de ejecución corto, y si lo terminas, márcalo resolved o revision según corresponda.",
-        review:
-          "Claude, revisa los planes con status=revision (y los open p0/p1 si no hay revision). Verifica que todavía sean accionables, sigan vigentes, y que el spec_path exista. Sugiere mover a wontfix los que dejaron de tener sentido. Resume hallazgos antes de tocar nada.",
-        add:
-          "Claude, voy a darte un goal en lenguaje natural. Crea 1-5 planes accionables vía add_plan siguiendo el GUIDE.md (priority p0-p4, kind apropiado, tags útiles, description 1-2 párrafos). Si necesitas más contexto del repo, lee ~/.ultron/MEMORY.md primero. Goal: <ESCRIBE-AQUÍ>",
-        resolve:
-          "Claude, ayúdame a resolver el plan que tenga in_progress (o el primero open p0/p1). Lee su description + spec_path si existe, ejecuta los pasos, y cuando termines márcalo resolved. Si te bloquea algo, márcalo blocked con una nota explicando.",
+      // v15.3.5: prompt bodies migrated to the central button-prompts
+      // catalog. Each header button maps 1:1 to a `plans.*` key so the
+      // user can refine the prompts from Settings → Button prompts
+      // without recompiling. The kind→key mapping mirrors the four flows.
+      const keyByKind: Record<typeof kind, string> = {
+        execute: "plans.execute",
+        review: "plans.review",
+        add: "plans.add_from_goal",
+        resolve: "plans.resolve_in_progress",
       };
+      const { getPrompt } = await import("../lib/button-prompts");
+      const prompt = await getPrompt(keyByKind[kind]);
       await invoke("spawn_session", {
         provider: "claude",
-        prompt: promptByKind[kind],
+        prompt,
         cwd: instrPath,
         flags: { dangerouslySkipPermissions: false },
       });

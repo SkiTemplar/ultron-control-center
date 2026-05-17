@@ -173,17 +173,25 @@ fn audit_all_agents_map() -> Option<std::collections::HashMap<String, AgentSecur
     if !scanner.is_file() {
         return None;
     }
-    let output = std::process::Command::new("uv")
-        .arg("run")
+    let mut cmd = std::process::Command::new("uv");
+    cmd.arg("run")
         .arg("python")
         .arg(&scanner)
         .arg("audit-all")
         .arg("--target-type")
         .arg("agent")
         .arg("--json")
-        .current_dir(home.join(".ultron"))
-        .output()
-        .ok()?;
+        .current_dir(home.join(".ultron"));
+    // CREATE_NO_WINDOW (0x08000000) suppresses the cmd.exe flash that
+    // would otherwise pop up every time the Agents tab loads — the
+    // scanner sweep is invoked synchronously inside list_agents_inner,
+    // so without this the user sees a console window appear for ~200ms.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd.output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -445,8 +453,8 @@ pub fn get_agent_findings_inner(name: String) -> Result<AgentSecurityReport, Str
         return Err(format!("scanner missing: {}", scanner.display()));
     }
     // uv run honours the cockpit lockfile (same as skills.rs).
-    let output = std::process::Command::new("uv")
-        .arg("run")
+    let mut cmd = std::process::Command::new("uv");
+    cmd.arg("run")
         .arg("python")
         .arg(&scanner)
         .arg("scan")
@@ -454,7 +462,15 @@ pub fn get_agent_findings_inner(name: String) -> Result<AgentSecurityReport, Str
         .arg("--target-type")
         .arg("agent")
         .arg("--json")
-        .current_dir(home.join(".ultron"))
+        .current_dir(home.join(".ultron"));
+    // CREATE_NO_WINDOW — no console flash when the user opens an agent's
+    // Security drawer. Same fix as audit_all_agents_map above.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd
         .output()
         .map_err(|e| format!("spawn uv: {}", e))?;
 

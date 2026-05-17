@@ -223,6 +223,71 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             &[],
             "/usage",
         ),
+        // ─── v15.3.5 batch — migrate the last remaining hardcoded prompts.
+        default_button(
+            "news.generate_with_ai",
+            "News · Generate newsletter (Gemini)",
+            "News / generator card",
+            "Banner seed shown in the wt.exe Gemini tab opened by the \
+             'Open Gemini session' button. The real prompt is built by \
+             news_html_generator.py and copied to the clipboard. The seed \
+             text reminds Gemini where to save the output HTML and which \
+             model to use.",
+            "news_generate",
+            &["today", "model"],
+            "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Guarda el HTML final en ~/.ultron/cockpit/news/newsletter-{today}.html y usa el modelo {model}.",
+        ),
+        default_button(
+            "mcps.add_with_ai",
+            "MCPs · Add server with AI",
+            "MCPs / header AI add button",
+            "Spawns a Claude session in ~/.ultron/instructions/mcps so the \
+             user can register a new MCP server following the GUIDE's \
+             allowlist and validation rules.",
+            "",
+            &[],
+            "Vamos a añadir un MCP server a ~/.claude/settings.json. Lee el GUIDE.md de esta carpeta para conocer la allowlist de commands, fragmentos prohibidos en args y el shape esperado. Después pregúntame nombre, comando, args y env, valida con la allowlist y registra el MCP (espera mi OK antes de escribir). Tras añadir, ejecuta mcp_health_check.py.",
+        ),
+        default_button(
+            "plans.execute",
+            "Plans · Execute open plans",
+            "Plans / header Execute button",
+            "Opens a Claude session in instructions/plans to walk through \
+             every open plan in priority order and run them.",
+            "brainstorm_plans",
+            &[],
+            "Claude, ejecuta lo que tenemos pendiente en PLANS.json. Lee primero el GUIDE.md de esta carpeta y los items con status=open en orden de priority (p0→p4). Para cada uno: márcalo in_progress con patch_plan_status, propon plan de ejecución corto, y si lo terminas, márcalo resolved o revision según corresponda.",
+        ),
+        default_button(
+            "plans.review",
+            "Plans · Review revision plans",
+            "Plans / header Review button",
+            "Opens a Claude session that audits plans in status=revision (or \
+             top-priority open ones) for staleness and proposes wontfix moves.",
+            "brainstorm_plans",
+            &[],
+            "Claude, revisa los planes con status=revision (y los open p0/p1 si no hay revision). Verifica que todavía sean accionables, sigan vigentes, y que el spec_path exista. Sugiere mover a wontfix los que dejaron de tener sentido. Resume hallazgos antes de tocar nada.",
+        ),
+        default_button(
+            "plans.add_from_goal",
+            "Plans · Add plans from goal",
+            "Plans / header Add-from-goal button",
+            "Spawns a Claude session that turns a natural-language goal into \
+             1-5 actionable plans via add_plan.",
+            "brainstorm_plans",
+            &[],
+            "Claude, voy a darte un goal en lenguaje natural. Crea 1-5 planes accionables vía add_plan siguiendo el GUIDE.md (priority p0-p4, kind apropiado, tags útiles, description 1-2 párrafos). Si necesitas más contexto del repo, lee ~/.ultron/MEMORY.md primero. Goal: <ESCRIBE-AQUÍ>",
+        ),
+        default_button(
+            "plans.resolve_in_progress",
+            "Plans · Resolve in-progress plan",
+            "Plans / header Resolve button",
+            "Opens a Claude session that picks up the current in_progress \
+             plan (or the top open p0/p1) and drives it to resolved.",
+            "brainstorm_plans",
+            &[],
+            "Claude, ayúdame a resolver el plan que tenga in_progress (o el primero open p0/p1). Lee su description + spec_path si existe, ejecuta los pasos, y cuando termines márcalo resolved. Si te bloquea algo, márcalo blocked con una nota explicando.",
+        ),
     ]
 }
 

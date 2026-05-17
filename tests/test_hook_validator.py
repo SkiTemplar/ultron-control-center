@@ -42,11 +42,21 @@ def test_hook_validator_rejects_oversized_prompt():
     assert any("too_long" in e or "string_too_long" in e for e in r.errors)
 
 
-def test_hook_validator_rejects_null_bytes():
+def test_hook_validator_strips_null_bytes_defensively():
+    """v15.3.5: NUL bytes are now stripped instead of being a fatal reject.
+
+    Real-world clipboards / IME layers occasionally smuggle a stray
+    \\x00 into the prompt; dropping the whole UserPromptSubmit (losing
+    the user's message) is a worse UX than quietly removing the byte.
+    The ``null_byte_in_string`` tag is still surfaced in ``errors`` as
+    informational telemetry so the alerts pipeline can dedupe + count.
+    """
     payload = {"hook_event_name": "UserPromptSubmit",
                "prompt": "hi\x00there", "session_id": _VALID_SESSION}
     r = hv.validate("UserPromptSubmit", payload)
-    assert not r.ok
+    assert r.ok, f"expected ok=True after NUL strip, got errors={r.errors}"
+    assert r.payload["prompt"] == "hithere"
+    # Telemetry tag still surfaces — the alerts pipeline relies on this.
     assert "null_byte_in_string" in r.errors
 
 

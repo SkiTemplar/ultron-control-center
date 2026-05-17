@@ -970,10 +970,14 @@ export function MCPs() {
                 const instr = (await invoke("instruction_path", {
                   kind: "mcps",
                 })) as string;
+                // v15.3.5: prompt now lives in the central catalog
+                // (key `mcps.add_with_ai`) so it can be tuned from
+                // Settings → Button prompts without recompiling.
+                const { getPrompt } = await import("../lib/button-prompts");
+                const prompt = await getPrompt("mcps.add_with_ai");
                 await invoke("spawn_session", {
                   provider: "claude",
-                  prompt:
-                    "Vamos a añadir un MCP server a ~/.claude/settings.json. Lee el GUIDE.md de esta carpeta para conocer la allowlist de commands, fragmentos prohibidos en args y el shape esperado. Después pregúntame nombre, comando, args y env, valida con la allowlist y registra el MCP (espera mi OK antes de escribir). Tras añadir, ejecuta mcp_health_check.py.",
+                  prompt,
                   cwd: instr,
                   flags: { dangerouslySkipPermissions: false },
                 });

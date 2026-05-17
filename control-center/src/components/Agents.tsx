@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   AgentInfo,
   AgentMutationResult,
@@ -7,7 +8,8 @@ import type {
   AllowAgentResult,
 } from "../types";
 import { getHomeDir, joinPath } from "../lib/paths";
-import { SecurityPanel, securityHintFromInfo } from "./SecurityPanel";
+import { SecurityPanel } from "./SecurityPanel";
+import { HeaderBtn, KindBadge, Pill, SkillAgentRow } from "./SkillAgentShared";
 
 // ---------------------------------------------------------------------------
 // Agents tab — sister to Skills, scoped to ~/.claude/agents/*.md.
@@ -50,65 +52,32 @@ function Row({
   selected: boolean;
   onClick: () => void;
 }) {
-  const sec = securityHintFromInfo(agent.security ?? null);
   return (
-    <button
-      type="button"
+    <SkillAgentRow
+      name={agent.name}
+      description={agent.description ?? null}
+      selected={selected}
       onClick={onClick}
-      className="flex w-full items-baseline gap-3 rounded px-3 py-2 text-left transition-colors"
-      style={{
-        background: selected ? "var(--color-surface-3)" : "transparent",
-        border: `1px solid ${selected ? "var(--color-border-strong)" : "transparent"}`,
-      }}
-      onMouseEnter={(e) => {
-        if (!selected)
-          (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)";
-      }}
-      onMouseLeave={(e) => {
-        if (!selected)
-          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-      }}
-    >
-      <span
-        className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide tabular-nums"
-        style={{
-          background: "rgba(63, 185, 80, 0.08)",
-          color: "var(--color-success)",
-          minWidth: 56,
-          textAlign: "center",
-        }}
-      >
-        agent
-      </span>
-      {sec && (
-        <span
-          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium tabular-nums"
-          style={{ background: sec.bg, color: sec.color }}
-          title={sec.title}
-        >
-          {sec.label}
-        </span>
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[12.5px] font-medium" style={{ color: "var(--color-text)" }}>
-          {agent.name}
-        </div>
-        {agent.description && (
-          <div className="truncate text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-            {agent.description}
-          </div>
-        )}
-      </div>
-      {agent.model && (
-        <span
-          className="shrink-0 text-[10.5px]"
-          style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
-          title={agent.model}
-        >
-          {agent.model.length > 18 ? agent.model.slice(0, 16) + "…" : agent.model}
-        </span>
-      )}
-    </button>
+      security={agent.security ?? null}
+      leftBadge={
+        <KindBadge
+          label="agent"
+          bg="rgba(63, 185, 80, 0.08)"
+          color="var(--color-success)"
+        />
+      }
+      rightMeta={
+        agent.model ? (
+          <span
+            className="shrink-0 text-[10.5px]"
+            style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+            title={agent.model}
+          >
+            {agent.model.length > 18 ? agent.model.slice(0, 16) + "…" : agent.model}
+          </span>
+        ) : undefined
+      }
+    />
   );
 }
 
@@ -286,141 +255,99 @@ function Preview({
     }
   }
 
+  // Open the parent directory of the agent's .md file in Windows
+  // Explorer. We pass the dir (not the file) because openPath on a .md
+  // would launch the registered handler instead of revealing it. Falls
+  // back to the canonical ~/.claude/agents/ if the registry didn't
+  // populate `agent.path` for some reason.
+  async function openFolder() {
+    try {
+      const file = agent.path ?? "";
+      const dir = file
+        ? file.replace(/[\\/][^\\/]+$/, "")
+        : joinPath(await getHomeDir(), ".claude", "agents");
+      await openPath(dir);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       <header className="border-b px-5 py-4" style={{ borderColor: "var(--color-border)" }}>
         <div className="flex items-center gap-2">
-          <span
-            className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
-            style={{ background: "rgba(63, 185, 80, 0.08)", color: "var(--color-success)" }}
-          >
-            agent
-          </span>
+          <KindBadge
+            label="agent"
+            bg="rgba(63, 185, 80, 0.08)"
+            color="var(--color-success)"
+          />
           <h2 className="text-[15px] font-semibold leading-none">{agent.name}</h2>
           <div className="ml-auto flex items-center gap-1.5">
             {mode === "view" && (
               <>
-                <button
-                  type="button"
+                <HeaderBtn
+                  label="Folder"
+                  onClick={() => void openFolder()}
+                  disabled={busy || loading}
+                  title="Open ~/.claude/agents/ in Windows Explorer"
+                />
+                <HeaderBtn
+                  label="Edit"
                   onClick={() => setMode("edit")}
                   disabled={busy || loading}
-                  className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-text-secondary)",
-                    border: "1px solid var(--color-border-strong)",
-                  }}
-                >
-                  Edit
-                </button>
-                <button
-                  type="button"
+                />
+                <HeaderBtn
+                  label="AI"
                   onClick={() => void openInClaude()}
                   disabled={busy || loading}
-                  className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-text-secondary)",
-                    border: "1px solid var(--color-border-strong)",
-                  }}
                   title="Abre una sesión Claude para refinar este agent con asistencia AI"
-                >
-                  AI
-                </button>
+                />
                 {agent.security && agent.security.decision !== "allow" && (
-                  <button
-                    type="button"
+                  <HeaderBtn
+                    label="Security"
+                    variant="danger"
                     onClick={() => void openSecurity()}
                     disabled={busy || loading}
-                    className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
-                    style={{
-                      background: "var(--color-surface-2)",
-                      color: "var(--color-danger)",
-                      border: "1px solid rgba(248, 81, 73, 0.32)",
-                    }}
                     title="Open the prompt-injection scan report for this agent"
-                  >
-                    Security
-                  </button>
+                  />
                 )}
-                <button
-                  type="button"
+                <HeaderBtn
+                  label="Delete"
+                  variant="danger"
                   onClick={() => setMode("confirm-delete")}
                   disabled={busy || loading}
-                  className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-danger)",
-                    border: "1px solid rgba(248, 81, 73, 0.32)",
-                  }}
-                >
-                  Delete
-                </button>
+                />
               </>
             )}
             {mode === "security" && (
-              <button
-                type="button"
+              <HeaderBtn
+                label="Close"
                 onClick={() => {
                   setMode("view");
                   setSecError(null);
                 }}
                 disabled={allowBusy}
-                className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text-secondary)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                Close
-              </button>
+              />
             )}
             {mode === "edit" && (
               <>
-                <button
-                  type="button"
+                <HeaderBtn
+                  label="Cancel"
                   onClick={() => {
                     setDraft(content);
                     setMode("view");
                     setError(null);
                   }}
-                  className="rounded px-2 py-1 text-[11px]"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-text-secondary)",
-                    border: "1px solid var(--color-border-strong)",
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
+                />
+                <HeaderBtn
+                  label={busy ? "Saving…" : "Save"}
                   onClick={() => void saveEdit()}
                   disabled={busy || draft === content}
-                  className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
-                  style={{
-                    background: "var(--color-accent)",
-                    color: "var(--color-accent-text)",
-                  }}
-                >
-                  {busy ? "Saving…" : "Save"}
-                </button>
+                />
               </>
             )}
             {mode === "confirm-delete" && (
-              <button
-                type="button"
-                onClick={() => setMode("view")}
-                className="rounded px-2 py-1 text-[11px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text-secondary)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                Cancel
-              </button>
+              <HeaderBtn label="Cancel" onClick={() => setMode("view")} />
             )}
           </div>
         </div>
@@ -495,19 +422,12 @@ function Preview({
             }}
           >
             <span>Confirm: archive this agent? (copied to ~/.ultron/backups/agent-deleted/)</span>
-            <button
-              type="button"
+            <HeaderBtn
+              label={busy ? "Archiving…" : "Archive"}
+              variant="danger"
               onClick={() => void handleDelete()}
               disabled={busy}
-              className="rounded px-2 py-1 text-[11px] disabled:opacity-40"
-              style={{
-                background: "rgba(248, 81, 73, 0.10)",
-                color: "var(--color-danger)",
-                border: "1px solid rgba(248, 81, 73, 0.32)",
-              }}
-            >
-              {busy ? "Archiving…" : "Archive"}
-            </button>
+            />
           </div>
         )}
         <SecurityPanel
@@ -767,51 +687,6 @@ function NewAgentModal({
         </footer>
       </div>
     </div>
-  );
-}
-
-// Tiny filter pill — mirrors the one in Skills.tsx so the Agents tab's
-// chrome is visually consistent. Local to this file because the Skills
-// version embeds a `count` slot we want here too; extracting yet another
-// shared component would be overkill for a 25-line widget.
-function Pill({
-  active,
-  label,
-  count,
-  onClick,
-  color,
-}: {
-  active: boolean;
-  label: string;
-  count: number;
-  onClick: () => void;
-  color?: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] transition-colors"
-      style={{
-        background: active ? "var(--color-surface-3)" : "transparent",
-        color: active ? "var(--color-text)" : "var(--color-text-tertiary)",
-        border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}`,
-      }}
-    >
-      {color && (
-        <span
-          className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ background: color, opacity: active ? 1 : 0.4 }}
-        />
-      )}
-      <span>{label}</span>
-      <span
-        className="tabular-nums"
-        style={{ color: active ? "var(--color-text-secondary)" : "var(--color-text-faint)" }}
-      >
-        {count}
-      </span>
-    </button>
   );
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Sidebar, type Tab } from "./components/Sidebar";
@@ -261,22 +261,259 @@ export default function App() {
 
   const globalStatus = computeGlobalStatus(qdrant, qdrantErr, alerts);
 
-  const extraPaletteActions: PaletteAction[] = [
-    {
+  // v15.3.7 — Command palette gets the full ULTRON system surface.
+  // Maintenance commands are pulled dynamically from the backend so the
+  // palette stays in sync with whatever `list_maintenance_commands_inner`
+  // returns (no hardcoded duplicate list). Everything else is static.
+  type MaintenanceCommand = {
+    kind: string;
+    label: string;
+    description: string;
+    group: string;
+  };
+  const [maintenanceCommands, setMaintenanceCommands] = useState<
+    MaintenanceCommand[]
+  >([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const list = (await invoke(
+          "list_maintenance_commands",
+        )) as MaintenanceCommand[];
+        if (!cancelled) setMaintenanceCommands(list ?? []);
+      } catch (err) {
+        console.warn("[ultron] list_maintenance_commands failed", err);
+      }
+    }
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Helper: fire-and-forget invoke that logs failures into alerts so the
+  // user finds out about a broken script via the Notifications tab
+  // instead of by wondering why nothing happened.
+  async function runQuiet(label: string, cmd: string, args?: Record<string, unknown>) {
+    try {
+      await invoke(cmd, args);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      void invoke("record_ui_alert", {
+        severity: "warn",
+        source: "palette",
+        message: `${label} failed: ${msg}`.slice(0, 600),
+      }).catch(() => {});
+    }
+  }
+
+  const extraPaletteActions: PaletteAction[] = useMemo(() => {
+    const list: PaletteAction[] = [];
+
+    // -- Actions (refresh / settings / close) -------------------------
+    list.push({
       id: "refresh",
       label: "Refresh dashboard data",
+      description: "Re-pull Qdrant health, alerts, and changelog.",
       group: "Actions",
       shortcut: "Ctrl+R",
-      run: () => refreshAll(),
-    },
-    {
+      run: () => void refreshAll(),
+    });
+    list.push({
       id: "settings",
       label: "Open Settings",
       group: "Actions",
       shortcut: "Ctrl+,",
       run: () => setTab("settings"),
-    },
-  ];
+    });
+    list.push({
+      id: "close-control-center",
+      label: "Close Control Center",
+      description: "Fully exit the app (not minimize to tray). Frees file locks.",
+      group: "Actions",
+      run: () => {
+        const ok = window.confirm(
+          "Close ULTRON Control Center? Global hotkeys stop until you relaunch.",
+        );
+        if (ok) void runQuiet("Close Control Center", "close_control_center");
+      },
+    });
+
+    // -- Diagnostics --------------------------------------------------
+    list.push({
+      id: "diag.full",
+      label: "Run Full Diagnostic",
+      description: "All-systems sweep — Qdrant, MCPs, skills, agents, backups.",
+      group: "Diagnostics",
+      run: () => void runQuiet("Full Diagnostic", "run_full_diagnostic"),
+    });
+    list.push({
+      id: "diag.pending",
+      label: "Detect Pending Items",
+      description: "Run detect_gaps.py — surfaces stale TODOs, missing files, drift.",
+      group: "Diagnostics",
+      run: () => void runQuiet("Detect Pending", "run_detect_gaps"),
+    });
+    list.push({
+      id: "diag.doctor",
+      label: "Run Doctor",
+      description: "Enhanced doctor script — read-only system health report.",
+      group: "Diagnostics",
+      run: () => void runQuiet("Doctor", "run_doctor"),
+    });
+    list.push({
+      id: "diag.diagnose",
+      label: "Run PC Diagnose (last 24h)",
+      description: "system_diagnose — Windows event log + process snapshot.",
+      group: "Diagnostics",
+      run: () => void runQuiet("Diagnose", "run_diagnose", { hours: 24 }),
+    });
+    list.push({
+      id: "diag.adversarial",
+      label: "Codex Adversarial Review",
+      description: "Run /codex:adversarial-review against the current session.",
+      group: "Diagnostics",
+      run: () =>
+        void runQuiet("Codex Adversarial Review", "run_codex_adversarial_review"),
+    });
+    list.push({
+      id: "diag.self-improve",
+      label: "Self-Improve Report",
+      description: "Routing telemetry · skill usage · recent errors snapshot.",
+      group: "Diagnostics",
+      run: () => void runQuiet("Self-Improve Report", "self_improve_report"),
+    });
+
+    // -- AI sessions --------------------------------------------------
+    list.push({
+      id: "ai.spawn.claude",
+      label: "Spawn Claude session",
+      description: "Open a new Claude Code terminal (clipboard prompt mode).",
+      group: "AI",
+      run: () =>
+        void runQuiet("Spawn Claude", "spawn_session", {
+          provider: "claude",
+          prompt: null,
+        }),
+    });
+    list.push({
+      id: "ai.spawn.codex",
+      label: "Spawn Codex session",
+      description: "Launch the Codex CLI (ChatGPT subscription auth).",
+      group: "AI",
+      run: () =>
+        void runQuiet("Spawn Codex", "spawn_session", {
+          provider: "codex",
+          prompt: null,
+        }),
+    });
+    list.push({
+      id: "ai.spawn.gemini",
+      label: "Spawn Gemini session",
+      description: "Launch the Gemini CLI (Google OAuth, long-context).",
+      group: "AI",
+      run: () =>
+        void runQuiet("Spawn Gemini", "spawn_session", {
+          provider: "gemini",
+          prompt: null,
+        }),
+    });
+
+    // -- Maintenance (pulled dynamically from the backend) ------------
+    // The backend's `list_maintenance_commands_inner` is the source of
+    // truth. Whenever a new MaintenanceCommand is added there it shows
+    // up here automatically — no duplicate frontend list to keep in sync.
+    for (const m of maintenanceCommands) {
+      list.push({
+        id: `maint.${m.kind}`,
+        label: m.label,
+        description: m.description,
+        group: `Maintenance (${m.group})`,
+        run: () =>
+          void runQuiet(m.label, "run_maintenance_command", { kind: m.kind }),
+      });
+    }
+
+    // -- Memory actions (separate from maintenance because they call a
+    //    different backend command — memory_action, not run_maintenance_command)
+    list.push({
+      id: "mem.qdrant-reembed",
+      label: "Qdrant re-embed vault",
+      description: "Re-vectorize ~/.ultron-vault notes into Qdrant.",
+      group: "Memory",
+      run: () =>
+        void runQuiet("Qdrant re-embed", "memory_action", {
+          action: "qdrant-reembed",
+        }),
+    });
+    list.push({
+      id: "mem.skills-reembed",
+      label: "Embed skills index",
+      description: "Re-embed installed skills metadata for semantic recall.",
+      group: "Memory",
+      run: () =>
+        void runQuiet("Skills re-embed", "memory_action", {
+          action: "skills-reembed",
+        }),
+    });
+
+    // -- System / lifecycle ------------------------------------------
+    list.push({
+      id: "sys.rebuild",
+      label: "Rebuild Control Center",
+      description: "Spawn `npm run tauri build` in a new window.",
+      group: "System",
+      run: () =>
+        void runQuiet("Rebuild", "run_app_lifecycle", { kind: "update" }),
+    });
+    list.push({
+      id: "sys.uninstall",
+      label: "Uninstall ULTRON",
+      description: "Run the uninstall script in a new window (asks for confirmation).",
+      group: "System",
+      run: () => {
+        const ok = window.confirm(
+          "Open the uninstaller? This walks you through removing ULTRON.",
+        );
+        if (ok)
+          void runQuiet("Uninstall", "run_app_lifecycle", { kind: "uninstall" });
+      },
+    });
+    list.push({
+      id: "sys.reset-mode",
+      label: "Reset ULTRON mode to autodetect",
+      description: "Forget the pinned LOW/MEDIUM/HIGH/ULTRA override.",
+      group: "System",
+      run: () => void runQuiet("Reset mode", "reset_mode_to_autodetect"),
+    });
+    list.push({
+      id: "sys.purge-autostart",
+      label: "Purge legacy autostart entries",
+      description: "Remove stale Run-key / Startup shim left by older installs.",
+      group: "System",
+      run: () => void runQuiet("Purge autostart", "purge_legacy_autostart"),
+    });
+    list.push({
+      id: "sys.scan-projects",
+      label: "Scan projects",
+      description: "Re-scan project folders so the launcher picks up new entries.",
+      group: "System",
+      run: () => void runQuiet("Scan projects", "scan_projects"),
+    });
+
+    // -- News --------------------------------------------------------
+    list.push({
+      id: "news.generate",
+      label: "Generate news brief",
+      description: "Kick off the ULTRON Times generator (HTML newsletter).",
+      group: "News",
+      run: () => void runQuiet("Generate news", "generate_news"),
+    });
+
+    return list;
+  }, [maintenanceCommands]);
 
   return (
     <div className="flex h-full">

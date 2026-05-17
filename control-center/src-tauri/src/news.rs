@@ -215,10 +215,28 @@ pub async fn generate_news_session_inner(
         let year = if m <= 2 { y + 1 } else { y };
         format!("{:04}-{:02}-{:02}", year, m, d)
     };
-    let seed = format!(
-        "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Guarda el HTML final en ~/.ultron/cockpit/news/newsletter-{}.html y usa el modelo {}.",
-        today, effective_model
-    );
+    // v15.3.5: seed text migrated to the central button-prompts catalog
+    // (key `news.generate_with_ai`) so the user can tune what Gemini sees
+    // before pasting the clipboard. The template uses `{today}` and
+    // `{model}` as vars. We fall back to the historical hardcoded string
+    // when the catalog read fails so this code path never breaks the
+    // newsletter flow on a fresh install (button-prompts.json missing).
+    let seed = {
+        let mut vars: std::collections::BTreeMap<String, String> =
+            std::collections::BTreeMap::new();
+        vars.insert("today".to_string(), today.clone());
+        vars.insert("model".to_string(), effective_model.clone());
+        crate::button_prompts::get_button_prompt_inner(
+            "news.generate_with_ai".to_string(),
+            vars,
+        )
+        .unwrap_or_else(|_| {
+            format!(
+                "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Guarda el HTML final en ~/.ultron/cockpit/news/newsletter-{}.html y usa el modelo {}.",
+                today, effective_model
+            )
+        })
+    };
     // F1.8: pin Gemini to 3.1-pro explicitly. Without this the wt.exe tab
     // launches `gemini --yolo` (no -m) and falls back to whatever the user's
     // gemini CLI default model is (typically "auto"), which produces lower

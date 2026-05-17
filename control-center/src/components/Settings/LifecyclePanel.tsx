@@ -23,11 +23,17 @@ export function LifecyclePanel() {
     downloaded: number;
     total: number | null;
   } | null>(null);
+  // After a Rebuild we offer to fully close the app so the new binary
+  // can replace `control-center.exe` (locked while this process runs).
+  // Set true when the user hits Rebuild and stays true until they close
+  // or dismiss the prompt.
+  const [showCloseAfterRebuild, setShowCloseAfterRebuild] = useState(false);
 
   async function run(kind: "uninstall" | "update") {
     setBusy(kind);
     setError(null);
     setStatus(null);
+    setShowCloseAfterRebuild(false);
     try {
       await invoke("run_app_lifecycle", { kind });
       setStatus(
@@ -35,10 +41,39 @@ export function LifecyclePanel() {
           ? "Uninstaller opened in a new terminal. Follow the prompts there."
           : "Update opened in a new terminal. Rebuild takes ~3-5 minutes the first time.",
       );
+      if (kind === "update") {
+        // The new binary can't overwrite control-center.exe while this
+        // process holds the file lock. Surface the close prompt so the
+        // user can free it once the build finishes.
+        setShowCloseAfterRebuild(true);
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(null);
+    }
+  }
+
+  // Fully exit the app. Same flow as the Dashboard "Close Control Center"
+  // button — confirm dialog + invoke close_control_center which calls
+  // `app.exit(0)` on the Rust side. The window X only hides to tray, so
+  // this is the only opt-out for a full shutdown short of the tray menu.
+  async function closeControlCenter(reason: "rebuild" | "manual") {
+    const msg =
+      reason === "rebuild"
+        ? "Close ULTRON Control Center now?\n\n" +
+          "This frees the file lock on control-center.exe so the rebuild " +
+          "can replace it. The current window will exit fully (not just " +
+          "minimize to tray)."
+        : "Close ULTRON Control Center?\n\n" +
+          "This fully exits the app (not just minimize to tray). " +
+          "Global hotkeys stop working until you relaunch.";
+    const ok = window.confirm(msg);
+    if (!ok) return;
+    try {
+      await invoke("close_control_center");
+    } catch (e) {
+      console.error("close_control_center failed", e);
     }
   }
 
@@ -225,6 +260,82 @@ export function LifecyclePanel() {
             }}
           >
             {busy === "update" ? "Opening…" : "Rebuild"}
+          </button>
+        </div>
+        {showCloseAfterRebuild && (
+          <div
+            className="mt-3 flex items-center justify-between gap-3 rounded p-3 text-[11.5px]"
+            style={{
+              background: "rgba(210, 153, 34, 0.06)",
+              border: "1px solid rgba(210, 153, 34, 0.28)",
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            <span>
+              Once the rebuild finishes, this process must exit so the new
+              binary can overwrite <code style={{ fontFamily: "var(--font-mono)" }}>control-center.exe</code>.
+            </span>
+            <div className="flex shrink-0 gap-2">
+              <button
+                type="button"
+                onClick={() => setShowCloseAfterRebuild(false)}
+                className="rounded px-2.5 py-1 text-[11px]"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                Not yet
+              </button>
+              <button
+                type="button"
+                onClick={() => void closeControlCenter("rebuild")}
+                className="rounded px-2.5 py-1 text-[11px] font-medium"
+                style={{
+                  background: "var(--color-warn)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                Close Control Center now
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div
+        className="rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border-strong)",
+        }}
+      >
+        <div className="flex items-baseline justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold">Close Control Center</div>
+            <p
+              className="mt-1 text-[11.5px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              Fully exit the app. The window X button only minimizes to the
+              system tray so global hotkeys keep working — use this when you
+              actually want the process to stop (e.g. before a rebuild, to
+              free file locks, or to disable the hotkey listener).
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void closeControlCenter("manual")}
+            disabled={busy !== null}
+            className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-danger)",
+              border: "1px solid rgba(248, 81, 73, 0.32)",
+            }}
+          >
+            Close Control Center
           </button>
         </div>
       </div>

@@ -41,7 +41,7 @@ $ScriptMap = @{
     "GithubTrending-Daily" = "github_trending.py"
     "Doctor-Weekly"        = "doctor.py"
 }
-$TUITaskName = "TUI-Login"  # special: uses wt.exe not python+log redirect
+# v15.4: TUI-Login removed (tui.py deleted; Control Center is the new cockpit).
 $BackupTaskName = "Backup-Weekly"  # special: invokes ~/.ultron/scripts/backup/weekly-backup.ps1
 $BackupScriptPath = Join-Path $env:USERPROFILE ".ultron\scripts\backup\weekly-backup.ps1"
 
@@ -187,13 +187,12 @@ foreach ($prop in $config.tasks.PSObject.Properties) {
 
     $trigger = New-TriggerFromFrequency $taskCfg.frequency $taskCfg.delay_minutes
 
-    # Special-case TUI-Login: launches Windows Terminal with the TUI inside, not python+log
+    # v15.4: TUI-Login branch removed (tui.py deleted; Control Center is the cockpit).
+    # If schedule.json still lists "TUI-Login", skip it gracefully.
     if ($taskShortName -eq "TUI-Login") {
-        $tuiPath = Join-Path $PSScriptRoot "tui.py"
-        $wtArgs  = "new-tab --title `"ULTRON Cockpit`" `"$pythonExe`" `"$tuiPath`""
-        $action  = New-ScheduledTaskAction -Execute "wt.exe" `
-                                           -Argument $wtArgs `
-                                           -WorkingDirectory $env:USERPROFILE
+        Write-Host "[Cockpit] [INFO] TUI-Login task is obsolete (tui.py removed in v15.4). Skipping."
+        $skipped++
+        continue
     } elseif ($taskShortName -eq $BackupTaskName) {
         # v14.7 Backup: invoke weekly-backup.ps1 in ~/.ultron/scripts/backup/.
         # Script self-skips if D: drive is missing (exit 2). Logs go to its own dir.

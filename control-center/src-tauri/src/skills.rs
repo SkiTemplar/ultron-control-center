@@ -494,14 +494,22 @@ pub fn get_skill_findings_inner(name: String) -> Result<SkillSecurityReport, Str
         return Err(format!("scanner missing: {}", scanner.display()));
     }
     // Use uv run to honour the cockpit's lockfile (PI rule set lives there).
-    let output = std::process::Command::new("uv")
-        .arg("run")
+    let mut cmd = std::process::Command::new("uv");
+    cmd.arg("run")
         .arg("python")
         .arg(&scanner)
         .arg("scan")
         .arg(&skill_dir)
         .arg("--json")
-        .current_dir(home.join(".ultron"))
+        .current_dir(home.join(".ultron"));
+    // CREATE_NO_WINDOW — no console flash when the Security drawer opens
+    // for a skill. Mirrors the fix in agents.rs.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000);
+    }
+    let output = cmd
         .output()
         .map_err(|e| format!("spawn uv: {}", e))?;
 

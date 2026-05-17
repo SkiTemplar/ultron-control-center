@@ -69,7 +69,8 @@ EXPECTED_SCRIPTS = [
     "route_quality_aggregator.py", "context_primer.py",
     "context_packet_builder.py", "cleanup_inventory.py",
     "session_highlights.py", "session_compactor.py",
-    "session_replay.py", "tui.py",
+    "session_replay.py",
+    # tui.py removed in v15.4 (Control Center replaces it).
     # v14 GENESIS routing
     "intent_dispatcher.py", "routing_decide.py", "dispatcher_audit.py",
     "decay_queue.py",

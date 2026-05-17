@@ -1189,7 +1189,7 @@ export function Projects() {
               color: "var(--color-text)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Walk del filesystem en busca de proyectos nuevos (ultron.ps1 scan + rewrite de projects.json). Tarda más; ejecuta sólo cuando hayas añadido carpetas en disco."
+            title="Walk del filesystem en busca de proyectos nuevos (uv run scan_projects.py + rewrite de projects.json). Tarda más; ejecuta sólo cuando hayas añadido carpetas en disco."
           >
             {scanning ? "Scanning…" : "Rescan disk"}
           </button>

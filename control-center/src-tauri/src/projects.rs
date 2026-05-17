@@ -157,13 +157,55 @@ pub struct ProjectActionResult {
     pub exit_code: Option<i32>,
 }
 
-fn ultron_ps1_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".ultron/scripts/cockpit/ultron.ps1"))
+/// Path to the Python project launcher (scripts/cockpit/launch_project.py).
+/// v15.4: replaces the legacy `ultron.ps1 open <id>` hop. The Tauri backend
+/// now calls the Python script directly via `uv run python`, removing the
+/// PowerShell dispatcher from the control-center's runtime dependencies.
+fn launch_project_py_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".ultron/scripts/cockpit/launch_project.py"))
 }
 
-/// Spawn `ultron.ps1 open <id>` and return the result. Validates id against
-/// a tight charset on the Rust side so the capability layer just needs the
-/// generic shape.
+/// CC-08 hardening: defensive sanity check before a path string is
+/// interpolated into a PowerShell `-Command` argument. PowerShell
+/// single-quoted strings are *literal* (so `;`, `` ` ``, `$`, `&`, `|`
+/// inside them don't dispatch), but a malformed projects.json that
+/// somehow contains a NUL byte, embedded newline, or path-traversal
+/// segment is still pathological — we reject it instead of hoping PS
+/// does the right thing. Callers that target a bare `.exe` should
+/// prefer `Command::new(path).spawn()` (no PS at all) over this; this
+/// helper covers the ShellExecute-required cases (.lnk / .url / .bat /
+/// .cmd / .pdf / .html) and the folder reveal.
+fn path_ps_safe(path: &str) -> Result<(), String> {
+    if path.is_empty() {
+        return Err("path is empty".into());
+    }
+    // Any control char (NUL / CR / LF / etc) is automatic-reject — they
+    // would let the path break out of the single-quoted PS payload.
+    if path.chars().any(|c| c.is_control()) {
+        return Err("path contains control characters".into());
+    }
+    // Path-traversal sentinel — projects.json must hold canonical
+    // absolute paths, not relative `..\..\..` chains. If the launch
+    // path is relative or contains traversal we refuse, since we have
+    // no way to ground it safely from the Tauri runtime.
+    if path.contains("..\\") || path.contains("../") {
+        return Err("path traversal segments are not allowed".into());
+    }
+    Ok(())
+}
+
+/// Open a project by id. v15.4 migration: no longer shells out to
+/// `ultron.ps1`. Three fast paths handled in pure Rust:
+///   1. `path` points to a file (.exe / .lnk / .bat / .url / .pdf / .html /
+///      .cmd) OR `ide` is one of the "external launcher" kinds — Start-Process
+///      it directly.
+///   2. `path` is an existing directory AND `ide` is one of the editor slugs
+///      Rust knows ("vscode" / "cursor" / "code-insiders" plus their aliases)
+///      — delegate to `open_in_ide` (the same helper used by `launch_all`).
+///   3. Anything else (JetBrains tools, UnityHub, AndroidStudio, missing IDE,
+///      etc.) falls through to `launch_project.py` via `uv run python`, which
+///      owns the full launcher matrix (Rider, Webstorm, UnityHub, CLion,
+///      PyCharm, VisualStudio, …) plus context.md prefill.
 pub async fn open_project_inner(
     app: &tauri::AppHandle,
     id: String,
@@ -174,11 +216,6 @@ pub async fn open_project_inner(
     {
         return Err(format!("invalid project id '{}'", id));
     }
-    // Look up the entry first. If `ide` is empty AND path points to a file
-    // (.exe / .lnk / .bat / .url), bypass ultron.ps1 (which assumes an IDE
-    // workflow) and just Start-Process the binary. This lets the registry
-    // hold games, GUI apps, and other arbitrary launchers — not just code
-    // projects.
     let registry = registry_path().ok_or_else(|| "no HOME".to_string())?;
     let raw = std::fs::read_to_string(&registry)
         .map_err(|e| format!("read projects.json: {}", e))?;
@@ -190,65 +227,115 @@ pub async fn open_project_inner(
         .and_then(|arr| {
             arr.iter().find(|p| p.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
         })
-        .cloned();
+        .cloned()
+        .ok_or_else(|| format!("project '{}' not found", id))?;
 
-    if let Some(entry) = entry {
-        let ide = entry.get("ide").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-        let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let path_ref = std::path::Path::new(&path);
-        let is_file = path_ref.is_file();
-        let is_external_kind = matches!(
-            ide.to_lowercase().as_str(),
-            "external" | "app" | "game" | "browser"
-        );
+    let ide = entry.get("ide").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+    let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let path_ref = std::path::Path::new(&path);
+    let is_file = path_ref.is_file();
+    let is_dir = path_ref.is_dir();
+    let is_external_kind = matches!(
+        ide.to_lowercase().as_str(),
+        "external" | "app" | "game" | "browser"
+    );
 
-        if !path.is_empty() && (is_file || is_external_kind) {
-            // Start-Process handles .exe, .lnk, .url, .bat, and protocol
-            // handlers via ShellExecute. The arg gets wrapped in single
-            // quotes inside PowerShell to survive paths with spaces.
-            let ps_quoted = format!("'{}'", path.replace('\'', "''"));
-            let cmd = format!("Start-Process -FilePath {}", ps_quoted);
-            let output = app
-                .shell()
-                .command("powershell.exe")
-                .args([
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    &cmd,
-                ])
-                .output()
-                .await
-                .map_err(|e| format!("spawn ps: {}", e))?;
-            return Ok(ProjectActionResult {
-                success: output.status.success(),
-                stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                exit_code: output.status.code(),
-            });
+    // Path 1: external launcher (file path or "external"/"app"/"game"/"browser" IDE).
+    // CC-08 hardening: defensive validation BEFORE the path enters any
+    // PS payload. Bare .exe files bypass PS entirely via
+    // `std::process::Command::new(path).spawn()` — there's no shell
+    // interpolation surface there at all, so even a malicious projects.json
+    // can't smuggle metachars into a parent shell. Other launcher kinds
+    // (.lnk / .url / .bat / .cmd / .pdf / .html) need PS Start-Process
+    // for ShellExecute association handling, so they still go through PS
+    // but only after `path_ps_safe` rejects control chars / traversal.
+    if !path.is_empty() && (is_file || is_external_kind) {
+        path_ps_safe(&path)?;
+        let lower = path.to_ascii_lowercase();
+        if lower.ends_with(".exe") {
+            // No shell — Command::new gets the path as an argv element.
+            // CreateProcess interprets it as the binary path, full stop.
+            let mut cmd = std::process::Command::new(&path);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            let spawn_result = cmd.spawn();
+            return match spawn_result {
+                Ok(_child) => Ok(ProjectActionResult {
+                    success: true,
+                    stdout: format!("spawned {}", path),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                Err(e) => Ok(ProjectActionResult {
+                    success: false,
+                    stdout: String::new(),
+                    stderr: format!("spawn {}: {}", path, e),
+                    exit_code: None,
+                }),
+            };
+        }
+        // .lnk / .url / .bat / .cmd / .pdf / .html — keep ShellExecute via PS,
+        // but path_ps_safe already vetoed any control char / traversal.
+        let ps_quoted = format!("'{}'", path.replace('\'', "''"));
+        let ps_cmd = format!("Start-Process -FilePath {}", ps_quoted);
+        let output = app
+            .shell()
+            .command("powershell.exe")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                &ps_cmd,
+            ])
+            .output()
+            .await
+            .map_err(|e| format!("spawn ps: {}", e))?;
+        return Ok(ProjectActionResult {
+            success: output.status.success(),
+            stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+            stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+            exit_code: output.status.code(),
+        });
+    }
+
+    // Path 2: directory + Rust-known editor slug → delegate to open_in_ide.
+    if is_dir {
+        let normalised_ide = normalise_ide(Some(ide.as_str()));
+        if let Some(slug) = normalised_ide.as_deref() {
+            match open_in_ide(&path, Some(slug)).await {
+                Ok(()) => {
+                    return Ok(ProjectActionResult {
+                        success: true,
+                        stdout: format!("opened {} in {}", id, slug),
+                        stderr: String::new(),
+                        exit_code: Some(0),
+                    });
+                }
+                Err(e) => {
+                    // Fall through to Python launcher rather than aborting —
+                    // it has its own fallback chain (JetBrains Toolbox, etc).
+                    eprintln!("[projects] open_in_ide({}, {}) failed: {} — falling back to launch_project.py", id, slug, e);
+                }
+            }
         }
     }
 
-    let ps = ultron_ps1_path().ok_or_else(|| "no HOME".to_string())?;
-    let ps_str = ps.to_string_lossy().to_string();
+    // Path 3: defer to launch_project.py (Rider, UnityHub, CLion, PyCharm,
+    // Webstorm, AndroidStudio, etc — plus context.md prefill).
+    let py = launch_project_py_path().ok_or_else(|| "no HOME".to_string())?;
+    let py_str = py.to_string_lossy().to_string();
     let output = app
         .shell()
-        .command("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &ps_str,
-            "open",
-            &id,
-        ])
+        .command("uv")
+        .args(["run", "python", &py_str, &id])
         .output()
         .await
-        .map_err(|e| format!("spawn ps: {}", e))?;
+        .map_err(|e| format!("spawn uv run launch_project.py: {}", e))?;
     Ok(ProjectActionResult {
         success: output.status.success(),
         stdout: String::from_utf8_lossy(&output.stdout).to_string(),
@@ -623,25 +710,23 @@ pub fn delete_project_inner(id: String) -> Result<DeleteProjectResult, String> {
     })
 }
 
-/// Run `ultron.ps1 scan` and return the rescanned project list.
+/// Run the project scanner and return the rescanned project list. v15.4:
+/// invokes `uv run python scan_projects.py` directly instead of routing
+/// through the legacy `ultron.ps1 scan` dispatcher. The Python scanner
+/// remains the source of truth for the IDE-detection / tag-inference
+/// matrix; this just removes the PowerShell hop.
 pub async fn scan_projects_inner(app: &tauri::AppHandle) -> Result<Vec<ProjectInfo>, String> {
-    let ps = ultron_ps1_path().ok_or_else(|| "no HOME".to_string())?;
-    let ps_str = ps.to_string_lossy().to_string();
+    let py = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/scripts/cockpit/scan_projects.py");
+    let py_str = py.to_string_lossy().to_string();
     let _output = app
         .shell()
-        .command("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &ps_str,
-            "scan",
-        ])
+        .command("uv")
+        .args(["run", "python", &py_str])
         .output()
         .await
-        .map_err(|e| format!("spawn ps: {}", e))?;
+        .map_err(|e| format!("spawn uv run scan_projects.py: {}", e))?;
     // Re-read the registry — the scan rewrites projects.json
     list_projects_inner()
 }
@@ -736,6 +821,11 @@ fn validate_launcher_item(item: &LauncherItem) -> Result<(), String> {
             if path.starts_with(r"\\") || path.starts_with("//") {
                 return Err("UNC paths are not allowed".into());
             }
+            // CC-08: reject control chars / traversal segments at write time
+            // so a malformed payload can't reach the registry in the first
+            // place. dispatch_item enforces the same gate at launch time
+            // for defence in depth.
+            path_ps_safe(path)?;
             // We don't require the path to exist at validation time — the
             // user may be authoring an entry before the binary is installed
             // (e.g. on a fresh Windows box). At launch time the missing-
@@ -751,6 +841,8 @@ fn validate_launcher_item(item: &LauncherItem) -> Result<(), String> {
             if cwd.starts_with(r"\\") || cwd.starts_with("//") {
                 return Err("UNC paths are not allowed".into());
             }
+            // CC-08: same write-time veto on the cwd field.
+            path_ps_safe(cwd)?;
         }
         other => return Err(format!("unknown launcher kind '{}'", other)),
     }
@@ -1106,16 +1198,42 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
     match item.kind.as_str() {
         "exe" => {
             let path = item.path.as_deref().unwrap_or("").trim();
+            // CC-08 hardening: defensive reject before path enters any PS
+            // payload. Control chars / traversal segments get refused even
+            // though single-quoted PS strings are literal — defence in depth.
+            path_ps_safe(path)?;
             let exe_path = std::path::Path::new(path);
             if !exe_path.is_file() {
                 return Err(format!("exe not found: {}", path));
             }
-            // We hand the args[] as a Vec<String> to PowerShell's Start-Process
-            // via -ArgumentList; that side wraps each argument in single
-            // quotes, so embedded spaces/quotes survive. The alternative —
-            // CreateProcess directly with std::process::Command — works too
-            // but loses Start-Process's ShellExecute semantics (handy for .lnk).
             let args = item.args.clone().unwrap_or_default();
+            // arg-level control-char veto: a `\r\n` smuggled into args would
+            // let an attacker break out of Start-Process's -ArgumentList.
+            for a in &args {
+                if a.chars().any(|c| c.is_control()) {
+                    return Err("launcher argument contains control characters".into());
+                }
+            }
+            // CC-08: bare .exe goes through std::process::Command directly —
+            // no shell, no interpolation surface at all. Other extensions
+            // (.lnk/.bat/.cmd/.url/.pdf/.html) need PS Start-Process for
+            // ShellExecute association handling.
+            let lower = path.to_ascii_lowercase();
+            if lower.ends_with(".exe") {
+                let mut cmd = std::process::Command::new(path);
+                cmd.args(&args);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+                }
+                cmd.spawn().map_err(|e| format!("spawn exe: {}", e))?;
+                return Ok(());
+            }
+            // .lnk / .url / .bat / .cmd / .pdf / .html — Start-Process via PS.
+            // Single-quoted PS strings keep `;`, `` ` ``, `$`, `&`, `|`
+            // literal, so the path_ps_safe veto on control chars / traversal
+            // is the meaningful defence here.
             let ps_path = format!("'{}'", path.replace('\'', "''"));
             let cmd = if args.is_empty() {
                 format!("Start-Process -FilePath {}", ps_path)
@@ -1152,6 +1270,8 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
         }
         "folder" => {
             let path = item.path.as_deref().unwrap_or("").trim();
+            // CC-08 hardening: vet the path before it lands in any PS payload.
+            path_ps_safe(path)?;
             if !std::path::Path::new(path).is_dir() {
                 return Err(format!("folder not found: {}", path));
             }

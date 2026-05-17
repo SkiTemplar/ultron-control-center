@@ -53,57 +53,51 @@ pub fn run_app_lifecycle_inner(kind: String) -> Result<(), String> {
             if !script.is_file() {
                 return Err(format!("uninstall.ps1 missing: {}", script.display()));
             }
-            // Run the script with Bypass policy, keep the window open at end
-            // so the user can read the final summary before closing.
+            // v15.3.6: switched from [Console]::ReadKey to Read-Host. The
+            // Console.ReadKey API requires a real interactive console which
+            // wt.exe doesn't reliably present (4-window race observed by
+            // user — Win32 error 2147942402). Read-Host always works.
             let cmd = format!(
-                "& '{}'; Write-Host ''; Write-Host 'Press any key to close'; [void][System.Console]::ReadKey($true)",
+                "& '{}'; Write-Host ''; Read-Host 'Press Enter to close'",
                 script.display()
             );
             (ultron.clone(), cmd)
         }
         "update" => {
+            // v15.3.6: after the build, signal the user to close ULTRON
+            // and relaunch. We can't auto-relaunch from a detached terminal
+            // (the old binary may still be locked). The Dashboard now has a
+            // 'Close Control Center' button to make that step one-click.
+            let cmd = "npm run tauri build; Write-Host ''; Write-Host 'Build done. Close the running ULTRON window via Dashboard - Close Control Center, then run the new binary from src-tauri/target/release/'; Read-Host 'Press Enter to close this terminal'".to_string();
             let cc = ultron.join("control-center");
             if !cc.is_dir() {
                 return Err(format!("control-center/ missing: {}", cc.display()));
             }
-            let cmd = "npm run tauri build; Write-Host ''; Write-Host 'Build finished. Press any key to close'; [void][System.Console]::ReadKey($true)".to_string();
             (cc, cmd)
         }
         other => return Err(format!("unknown lifecycle kind: {}", other)),
     };
 
-    // Resolve wt.exe — Windows Terminal. Fall back to plain powershell.exe
-    // if wt is not on PATH (shouldn't happen on Win11 but Win10 LTSC etc.).
-    let use_wt = std::process::Command::new("where")
-        .arg("wt.exe")
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false);
-
-    let mut command = if use_wt {
-        let mut c = std::process::Command::new("wt.exe");
-        c.arg("new-tab")
-            .arg("--startingDirectory")
-            .arg(&cwd)
-            .arg("powershell.exe")
-            .arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-NoExit")
-            .arg("-Command")
-            .arg(&ps_script);
-        c
-    } else {
-        let mut c = std::process::Command::new("powershell.exe");
-        c.current_dir(&cwd)
-            .arg("-NoProfile")
-            .arg("-ExecutionPolicy")
-            .arg("Bypass")
-            .arg("-NoExit")
-            .arg("-Command")
-            .arg(&ps_script);
-        c
-    };
+    // v15.3.6: stopped using wt.exe `new-tab` — when wt is already running
+    // it routes new-tabs through the existing instance, which has been
+    // observed to fire 3-4 child processes on first launch. Use plain
+    // powershell.exe directly. The window is still visible to the user
+    // (CREATE_NEW_CONSOLE on Windows), just without the wt.exe wrapper.
+    let mut command = std::process::Command::new("powershell.exe");
+    command
+        .current_dir(&cwd)
+        .arg("-NoProfile")
+        .arg("-ExecutionPolicy")
+        .arg("Bypass")
+        .arg("-NoExit")
+        .arg("-Command")
+        .arg(&ps_script);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NEW_CONSOLE = 0x00000010
+        command.creation_flags(0x00000010);
+    }
 
     // Detach so the Control Center thread doesn't wait on the new window.
     command

@@ -432,7 +432,7 @@ def check_cockpit_artifacts() -> list[str]:
         "scripts/cockpit/ai_standup.py":       "AI standup daily (4.M)",
         "scripts/cockpit/memory_sync.py":      "Memory L2 vault sync utility (v12)",
         "scripts/cockpit/research.py":         "Gemini-driven research (v10.1)",
-        "scripts/cockpit/tui.py":              "Interactive TUI textual (v10.1)",
+        # tui.py removed in v15.4 (Control Center replaces it).
     }
     for rel, desc in required.items():
         p = ULTRON_DIR / rel

@@ -1582,7 +1582,8 @@ function AppsPanel() {
 // ---------------------------------------------------------------------------
 
 export function System() {
-  const [subTab, setSubTab] = useState<SystemSubTab>("overview");
+  // v15.3.6: default to Schedules (was overview). Reordered per user.
+  const [subTab, setSubTab] = useState<SystemSubTab>("schedules");
   const { features } = useFeatures();
   const hooksEnabled = features.hooks !== false;
 
@@ -1804,11 +1805,13 @@ function SystemHeader({
   onRefresh: () => void;
   loading: boolean;
 }) {
+  // v15.3.6: reorder per user request — Schedules is the most-used sub-tab,
+  // followed by Hooks, then Overview, then Apps last.
   const TABS: { id: SystemSubTab; label: string; hidden?: boolean }[] = [
-    { id: "overview", label: "Overview" },
-    { id: "apps", label: "Apps" },
     { id: "schedules", label: "Schedules" },
     { id: "hooks", label: "Hooks", hidden: !hooksEnabled },
+    { id: "overview", label: "Overview" },
+    { id: "apps", label: "Apps" },
   ];
   return (
     <header className="mb-5 flex flex-wrap items-baseline justify-between gap-4 px-10 pt-8">

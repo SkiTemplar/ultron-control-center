@@ -25,9 +25,9 @@ audit signal (we err toward false positives, not false negatives).
 Allowlist
 ---------
 Hard-coded skip set — these files are not flagged:
-- ``tui.py``           (intentional console rendering)
 - ``test_*.py``        (test harnesses; subprocess noise is expected)
 - ``audit_silent_exec.py`` (this file — we discuss subprocess in docstrings)
+- ``silent_exec.py``   (the wrapper itself)
 
 CLI
 ---
@@ -54,7 +54,7 @@ HOOKS_PS_DIR = HOME / ".ultron" / "hooks"
 OUTPUT_FILE = HOME / ".ultron" / ".tmp" / "silent-audit.json"
 
 # ─── Allowlist ───────────────────────────────────────────────────────────────
-ALLOWLIST_NAMES = {"tui.py", "audit_silent_exec.py", "silent_exec.py"}
+ALLOWLIST_NAMES = {"audit_silent_exec.py", "silent_exec.py"}
 ALLOWLIST_GLOBS = ("test_",)  # any file whose basename starts with test_
 
 # ─── PowerShell regex ────────────────────────────────────────────────────────

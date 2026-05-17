@@ -14,6 +14,8 @@
     5.  Dir layout    - ~/.ultron, ~/.ultron-vault, ~/.claude/skills
     7.  Hooks         - merge templates/settings-hooks.json into settings.json
     8.  Skills picker - install core skills, prompt one-by-one for personal
+    8c. Feature flags - writes ~/.ultron/cockpit/features.json (visibility)
+    8d. Opt-out purge - delete files for unchecked wizard features (v15.3.5+)
     9.  brain_index   - initialize SQLite FTS5 index
     10. Control Center- npm install + tauri build (optional, -NoApp skips)
     11. Verification  - run scripts/cockpit/doctor.py if present
@@ -86,7 +88,16 @@ param(
     # default.
     [switch]$Gui,
     [switch]$Cli,
-    [string]$InstallRoot = (Join-Path $env:USERPROFILE ".ultron")
+    [string]$InstallRoot = (Join-Path $env:USERPROFILE ".ultron"),
+    # CC-13 hardening: opt-in multi-user host lockdown. When set, the
+    # installer breaks ACL inheritance on $InstallRoot and grants Full
+    # Control only to the current user. Default OFF — single-user laptops
+    # have no exposure (the home directory already inherits per-user
+    # SIDs), and locking the tree breaks scenarios where another local
+    # account legitimately needs to read the brain index (e.g. shared
+    # household laptop). Set this when ~/.ultron will hold secrets you
+    # don't want other Windows accounts on the same machine to read.
+    [switch]$LockdownAcl
 )
 
 Set-StrictMode -Version Latest
@@ -561,22 +572,26 @@ function Test-OrInstall-Uv {
         Write-OK ("uv " + $ver)
         return
     }
-    Write-Warn2 "uv missing. Attempting auto-install via astral.sh/uv/install.ps1"
-    try {
-        Invoke-Expression (Invoke-RestMethod -Uri "https://astral.sh/uv/install.ps1" -UseBasicParsing)
-        # uv installer typically adds ~/.local/bin or ~/.cargo/bin to PATH for this session.
-        $env:Path = $env:Path + ";" + (Join-Path $env:USERPROFILE ".local\bin")
-        if (Get-Command "uv" -ErrorAction SilentlyContinue) {
-            $ver = (& uv --version 2>$null) -join " "
-            Write-OK ("uv " + $ver + " (just installed)")
-        } else {
-            Write-Fail "uv installed but not on PATH. Open a fresh shell and re-run."
-            throw "uv PATH"
-        }
-    } catch {
-        Write-Fail ("uv install failed: " + $_.Exception.Message)
+    # CC-05 hardening: switched from `iex (irm astral.sh/uv/install.ps1)` (no
+    # signature/hash check, RCE-via-MITM in unsafe network) to winget, which
+    # signs packages and is the same trust root we use for git/node/rust here.
+    Write-Warn2 "uv missing. Attempting auto-install via winget (astral-sh.uv)"
+    $installed = Install-WingetPackage -PackageId "astral-sh.uv" -FriendlyName "uv" -ProbeCmd "uv"
+    if (-not $installed) {
+        Write-Fail "uv install via winget skipped or failed."
         Write-Info "Install manually from https://docs.astral.sh/uv and re-run."
-        throw
+        throw "uv install"
+    }
+    Update-SessionPath
+    # winget drops the binary under %LOCALAPPDATA%\Microsoft\WinGet\Links — already on PATH.
+    # Fall back to ~/.local/bin in case a previous standalone install put it there.
+    $env:Path = $env:Path + ";" + (Join-Path $env:USERPROFILE ".local\bin")
+    if (Get-Command "uv" -ErrorAction SilentlyContinue) {
+        $ver = (& uv --version 2>$null) -join " "
+        Write-OK ("uv " + $ver + " (just installed)")
+    } else {
+        Write-Warn2 "uv installed but not on PATH yet. Open a fresh shell and re-run."
+        # Don't hard-throw — winget reported success; new shell will see it.
     }
 }
 
@@ -773,8 +788,22 @@ function Install-QdrantNative {
         }
         $zipUrl = "https://github.com/qdrant/qdrant/releases/download/v1.18.0/qdrant-x86_64-pc-windows-msvc.zip"
         $zipPath = Join-Path $env:TEMP "qdrant-windows.zip"
+        # CC-06 hardening: pin the SHA256 of the upstream Windows release zip
+        # so a MITM / compromised mirror cannot drop a different binary on
+        # us. Hash captured 2026-05-17 from the official GitHub release
+        # asset (29,652,104 bytes, recompute with:
+        #   Get-FileHash qdrant-x86_64-pc-windows-msvc.zip -Algorithm SHA256
+        # when bumping the version). Mismatch = wipe + throw, no extract.
+        $expectedSha = "B69196D0AA1D73AE5488A099360FC958FC2A4D82920A75E1D0975952C0441F6F"
         try {
             Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing -TimeoutSec 120
+            $actualSha = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+            if ($actualSha -ne $expectedSha) {
+                Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
+                Write-Fail ("Qdrant zip SHA256 mismatch. Expected " + $expectedSha + ", got " + $actualSha)
+                throw "Qdrant zip hash mismatch — refusing to extract untrusted binary."
+            }
+            Write-V ("Qdrant zip SHA256 verified (" + $actualSha.Substring(0, 12) + "...)")
             Write-V "Extracting to $nativeDir"
             Expand-Archive -LiteralPath $zipPath -DestinationPath $nativeDir -Force
             Remove-Item -LiteralPath $zipPath -Force -ErrorAction SilentlyContinue
@@ -786,7 +815,7 @@ function Install-QdrantNative {
             }
         } catch {
             Write-Warn2 ("Qdrant download failed: " + $_.Exception.Message)
-            Write-Info "Manually: download $zipUrl, extract to $nativeDir, re-run."
+            Write-Info "Manually: download $zipUrl, verify SHA256 == $expectedSha, extract to $nativeDir, re-run."
             return
         }
     }
@@ -864,6 +893,56 @@ function New-DirectoryLayout {
         Write-Info  "Most scripts expect the repo to live at $InstallRoot. Either:"
         Write-Info  "  - move the clone there, OR"
         Write-Info  "  - re-run with -InstallRoot $repoNorm"
+    }
+}
+
+# ----------------------------------------------------------------------
+# Step 5b: optional ACL lockdown of the install root.
+#
+# CC-13 hardening: on a multi-user host (shared family PC, lab machine,
+# domain workstation with shadow admin accounts) the default ACL on
+# %USERPROFILE%\.ultron inherits from the user's home directory, which on
+# most Windows installs grants Read/Execute to BUILTIN\Users. That's fine
+# for code, but ULTRON's vault, alerts.jsonl and SQLite brain_index can
+# hold personal-content artefacts the user probably doesn't want other
+# accounts on the same box to be able to read.
+#
+# This step is OFF by default — single-user laptops have no exposure,
+# and locking the tree breaks scenarios where another local account
+# legitimately needs to read the brain index. Opt-in with -LockdownAcl.
+#
+# The icacls invocation:
+#   /inheritance:r            break inheritance, remove inherited ACEs
+#   /grant:r ${user}:(OI)(CI)F  re-grant Full Control to the current user
+#                              with Object/Container Inherit so newly
+#                              created files inherit the new ACL.
+# ----------------------------------------------------------------------
+function Set-InstallRootAcl {
+    Write-Step "5a. ACL lockdown (optional)"
+    if (-not $LockdownAcl) {
+        Write-Skip "skipped (use -LockdownAcl to enable on multi-user hosts)"
+        return
+    }
+    if (-not (Test-Path -LiteralPath $InstallRoot)) {
+        Write-Skip ("install root missing: " + $InstallRoot)
+        return
+    }
+    $user = $env:USERNAME
+    if (-not $user) {
+        Write-Warn2 "USERNAME env var empty; refusing to run icacls with anonymous grantee."
+        return
+    }
+    $grantSpec = ("{0}:(OI)(CI)F" -f $user)
+    try {
+        $out = & icacls $InstallRoot "/inheritance:r" "/grant:r" $grantSpec 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn2 ("icacls returned " + $LASTEXITCODE + " - lockdown may be partial.")
+            $out | ForEach-Object { Write-V $_ }
+        } else {
+            Write-OK ("ACL locked: " + $InstallRoot + " — only " + $user + " has access (inheritance broken)")
+        }
+    } catch {
+        Write-Warn2 ("icacls failed: " + $_.Exception.Message)
     }
 }
 
@@ -1181,6 +1260,93 @@ function Read-FeatureToggle {
     return $Default
 }
 
+# ----------------------------------------------------------------------
+# Step 8d: physically remove files for opted-out features.
+#
+# v15.3.5: the wizard checkboxes used to be purely cosmetic — the
+# install pipeline ran every step unconditionally because they were
+# "cheap on re-run". That meant unchecking News in the wizard still
+# shipped news_html_generator.py + news_alerts.py + cockpit/news/ to
+# the user's machine. People who wanted a minimal install (no
+# Gemini tokens, no daily newsletter) ended up carrying the files
+# anyway.
+#
+# This step is the authoritative "minimal install" enforcer. For each
+# optional feature the user UNCHECKED in the wizard, we delete the
+# corresponding files from ~/.ultron/scripts/cockpit/ (and any sibling
+# data dirs). The Features tab in the desktop app only toggles
+# *visibility* — it cannot uninstall code. The decision to NOT install
+# an optional feature must be made in the wizard.
+#
+# Guarantees:
+#   - Core stuff (skills, agents, hooks, brain_index, qdrant) is NEVER
+#     touched by this step.
+#   - Skipped when the wizard did not run (CLI / NonInteractive / Force)
+#     so legacy automated installs never lose files.
+#   - Idempotent: re-running with the same selections is a no-op.
+# ----------------------------------------------------------------------
+function Remove-OptOutFeatureFiles {
+    Write-Step "8d. opt-out cleanup (purge files for unchecked wizard features)"
+    if ($Script:Selections.Count -eq 0) {
+        Write-Skip "wizard did not run - keeping all optional feature files"
+        return
+    }
+
+    # Manifest: id -> list of repo-relative paths to remove if id == false.
+    # Paths are interpreted under $Script:RepoRoot. Missing files are silent;
+    # never throw. ONLY optional feature code — never core (skills, agents,
+    # hooks, brain_index, qdrant).
+    $optOutManifest = @{
+        feat_news = @(
+            "scripts\cockpit\news_html_generator.py",
+            "scripts\cockpit\news_alerts.py",
+            "scripts\cockpit\templates\newsletter.md.tmpl",
+            "cockpit\news"
+        )
+        feat_gaming = @(
+            "scripts\cockpit\game_detector.py",
+            "scripts\cockpit\gaming-enum.ps1"
+        )
+        feat_schedules = @(
+            "scripts\cockpit\install-scheduler.ps1"
+        )
+    }
+
+    $purgedTotal = 0
+    $keptTotal   = 0
+    foreach ($id in $optOutManifest.Keys) {
+        # Default $true means: when a wizard ran but did not stamp this id
+        # for any reason, keep the files (the safe choice). The Catalog in
+        # install-wizard.ps1 always stamps these ids though.
+        $picked = Get-Choice -Id $id -Default $true
+        if ($picked) {
+            Write-V ("keeping " + $id + " files (selected in wizard)")
+            $keptTotal += $optOutManifest[$id].Count
+            continue
+        }
+        Write-Info ($id + " unchecked - purging " + $optOutManifest[$id].Count + " file(s)/dir(s)")
+        foreach ($rel in $optOutManifest[$id]) {
+            $full = Join-Path $Script:RepoRoot $rel
+            if (-not (Test-Path -LiteralPath $full)) {
+                Write-V ("  (already absent) " + $rel)
+                continue
+            }
+            try {
+                if ((Get-Item -LiteralPath $full).PSIsContainer) {
+                    Remove-Item -LiteralPath $full -Recurse -Force -ErrorAction Stop
+                } else {
+                    Remove-Item -LiteralPath $full -Force -ErrorAction Stop
+                }
+                Write-V ("  purged " + $rel)
+                $purgedTotal++
+            } catch {
+                Write-Warn2 ("could not remove " + $rel + ": " + $_.Exception.Message)
+            }
+        }
+    }
+    Write-OK ("opt-out cleanup: " + $purgedTotal + " purged, " + $keptTotal + " kept")
+}
+
 function Set-FeatureFlags {
     Write-Step "8c. optional feature toggles"
     $cockpitDir = Join-Path $env:USERPROFILE ".ultron\cockpit"
@@ -1486,6 +1652,7 @@ try {
     # zip if `~/.ultron/qdrant-native/qdrant.exe` is missing.
     Install-QdrantNative
     New-DirectoryLayout
+    Set-InstallRootAcl
     New-WakeUpStubs
     New-CockpitSeeds
     Initialize-PythonVenv
@@ -1493,6 +1660,7 @@ try {
     Install-Skills
     Install-CommunitySkills
     Set-FeatureFlags
+    Remove-OptOutFeatureFiles
     Initialize-BrainIndex
     Install-GitHooks
     Build-ControlCenter

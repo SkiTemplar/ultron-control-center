@@ -2,13 +2,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { Tab } from "./Sidebar";
 
 // Lightweight in-app command palette (Ctrl+K). Surfaces tab navigation
-// and a handful of quick actions. Lives outside any tab so it works
-// everywhere without leaking state between tabs.
+// and every system-wide action ULTRON exposes. Lives outside any tab so
+// it works everywhere without leaking state between tabs.
+//
+// v15.3.7: palette expanded from ~20 entries to a full system command
+// surface — maintenance commands (fetched dynamically via
+// `list_maintenance_commands`), diagnostics (Doctor, Full Diagnostic,
+// Pending Items, Codex adversarial review), AI spawn (Claude / Codex /
+// Gemini), Memory rebuild, app lifecycle (Close, Rebuild, Update). Plus a
+// fuzzy scorer so users can type "skreg" → "Skill registry rebuild".
 
 export type PaletteAction = {
   id: string;
   label: string;
   hint?: string;
+  /** Optional second-line description, shown muted under the label. */
+  description?: string;
   group: string;
   shortcut?: string;
   run: () => void;
@@ -48,10 +57,41 @@ const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
   { id: "logs", label: "Go to Logs", group: "Navigate (More)" },
 ];
 
+// Tiny in-order fuzzy scorer. Returns a positive score when every char of
+// `q` appears in `text` in order, with bonuses for consecutive matches
+// and word-boundary starts. Negative result means "no match".
+function fuzzyScore(text: string, q: string): number {
+  if (!q) return 1;
+  const t = text.toLowerCase();
+  const query = q.toLowerCase();
+  let ti = 0;
+  let qi = 0;
+  let score = 0;
+  let streak = 0;
+  let prevWasBoundary = true;
+  while (ti < t.length && qi < query.length) {
+    const tc = t[ti];
+    if (tc === query[qi]) {
+      score += 2 + streak; // bonus for consecutive matches
+      if (prevWasBoundary) score += 3; // bonus for word-start matches
+      streak += 1;
+      qi += 1;
+    } else {
+      streak = 0;
+    }
+    prevWasBoundary = tc === " " || tc === "-" || tc === "_" || tc === "/";
+    ti += 1;
+  }
+  if (qi < query.length) return -1; // incomplete match
+  // Prefer shorter labels when scores are otherwise tied.
+  return score - Math.floor(t.length / 40);
+}
+
 export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }: Props) {
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -73,17 +113,27 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
   }, [extraActions, onNavigate]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.trim();
     if (!q) return actions;
-    return actions.filter(
-      (a) =>
-        a.label.toLowerCase().includes(q) ||
-        (a.hint ?? "").toLowerCase().includes(q) ||
-        a.group.toLowerCase().includes(q),
-    );
+    // Score each action against label + description + group + hint, keep
+    // any with a non-negative composite score, then sort by score desc.
+    const scored = actions
+      .map((a) => {
+        const labelScore = fuzzyScore(a.label, q);
+        const descScore = a.description ? fuzzyScore(a.description, q) * 0.5 : -1;
+        const groupScore = fuzzyScore(a.group, q) * 0.4;
+        const hintScore = a.hint ? fuzzyScore(a.hint, q) * 0.3 : -1;
+        const best = Math.max(labelScore, descScore, groupScore, hintScore);
+        return { action: a, score: best };
+      })
+      .filter((entry) => entry.score >= 0)
+      .sort((a, b) => b.score - a.score);
+    return scored.map((s) => s.action);
   }, [actions, query]);
 
-  // Group consecutive items by group label for visual separation.
+  // Group consecutive items by group label for visual separation. When
+  // the user has typed a query, the list is already sorted by score so
+  // grouping reflects relevance order rather than the original taxonomy.
   const grouped = useMemo(() => {
     const groups: { group: string; items: PaletteAction[] }[] = [];
     for (const item of filtered) {
@@ -97,6 +147,16 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
   useEffect(() => {
     if (cursor >= filtered.length) setCursor(Math.max(0, filtered.length - 1));
   }, [filtered.length, cursor]);
+
+  // Scroll the active item into view as the user arrows through results.
+  useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const active = list.querySelector<HTMLElement>("[data-active='true']");
+    if (active && typeof active.scrollIntoView === "function") {
+      active.scrollIntoView({ block: "nearest" });
+    }
+  }, [cursor]);
 
   function runAction(a: PaletteAction) {
     onClose();
@@ -137,7 +197,7 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
       onClick={onClose}
     >
       <div
-        className="mt-24 w-[640px] max-w-[90vw] overflow-hidden rounded shadow-2xl"
+        className="mt-24 w-[680px] max-w-[90vw] overflow-hidden rounded shadow-2xl"
         style={{
           background: "var(--color-surface-2)",
           border: "1px solid var(--color-border-strong)",
@@ -162,7 +222,7 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
             style={{ color: "var(--color-text)" }}
           />
         </div>
-        <div className="max-h-[400px] overflow-auto p-2">
+        <div ref={listRef} className="max-h-[460px] overflow-auto p-2">
           {grouped.length === 0 && (
             <div
               className="px-3 py-4 text-[12px]"
@@ -186,18 +246,29 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
                   <button
                     key={a.id}
                     type="button"
+                    data-active={active ? "true" : "false"}
                     onMouseEnter={() => setCursor(globalIdx)}
                     onClick={() => runAction(a)}
-                    className="flex w-full items-center justify-between rounded px-2 py-1.5 text-left text-[12.5px] transition-colors"
+                    className="flex w-full items-start justify-between gap-3 rounded px-2 py-1.5 text-left text-[12.5px] transition-colors"
                     style={{
                       background: active ? "var(--color-surface-3)" : "transparent",
                       color: active ? "var(--color-text)" : "var(--color-text-secondary)",
                     }}
                   >
-                    <span>{a.label}</span>
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate">{a.label}</span>
+                      {a.description && (
+                        <span
+                          className="mt-0.5 truncate text-[11px]"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                        >
+                          {a.description}
+                        </span>
+                      )}
+                    </span>
                     {a.shortcut && (
                       <span
-                        className="text-[10.5px]"
+                        className="shrink-0 text-[10.5px]"
                         style={{ color: "var(--color-text-faint)" }}
                       >
                         {a.shortcut}
@@ -213,7 +284,10 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
           className="flex items-center justify-between border-t px-3 py-1.5 text-[10.5px]"
           style={{ borderColor: "var(--color-border)", color: "var(--color-text-tertiary)" }}
         >
-          <span>↑↓ navigate · Enter run · Esc close</span>
+          <span>
+            ↑↓ navigate · Enter run · Esc close · {filtered.length} command
+            {filtered.length === 1 ? "" : "s"}
+          </span>
           <span>Ctrl+K</span>
         </div>
       </div>

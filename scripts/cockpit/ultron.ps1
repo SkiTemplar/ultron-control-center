@@ -430,8 +430,12 @@ switch ($Command.ToLower()) {
     }
 
     "tui" {
-        # Launch the Textual TUI cockpit
-        Invoke-Py "tui.py" @()
+        # v15.4: tui.py removed. Control Center (Tauri GUI) is the cockpit.
+        Write-Host "ULTRON TUI was removed in v15.4." -ForegroundColor Yellow
+        Write-Host "Use the Control Center instead:" -ForegroundColor Cyan
+        Write-Host "  cd ~/.ultron/control-center && npm run tauri dev"
+        Write-Host "  (or launch the installed app from Start Menu)"
+        exit 1
     }
 
     "calendar" {

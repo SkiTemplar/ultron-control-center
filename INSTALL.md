@@ -47,6 +47,27 @@ The wizard is `scripts/cockpit/install-wizard.ps1` — same script you can
 run standalone with `-DryRun` to preview the dialog without writing
 anything.
 
+### Wizard opt-outs are authoritative (v15.3.5+)
+
+Unchecking an **Optional features** box (News, Gaming, Schedules) does not
+just hide the tab — `install.ps1` step 8d (`Remove-OptOutFeatureFiles`)
+physically deletes the corresponding files from `~/.ultron/scripts/cockpit/`
+so a minimal install really is minimal. The Features tab inside the desktop
+app only toggles **visibility** of tabs/widgets; it cannot uninstall code.
+
+If you want to opt out of a feature **after** the initial install, the
+correct workflow is to re-run `install.ps1` and uncheck the box in the
+wizard — re-running is idempotent and the purge step is safe to re-do.
+
+| Wizard ID         | Feature              | Files removed when unchecked                                                                                              |
+| ----------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `feat_news`       | News digest          | `scripts/cockpit/news_html_generator.py`, `scripts/cockpit/news_alerts.py`, `scripts/cockpit/templates/newsletter.md.tmpl`, `cockpit/news/` |
+| `feat_gaming`     | Gaming utilities     | `scripts/cockpit/game_detector.py`, `scripts/cockpit/gaming-enum.ps1`                                                     |
+| `feat_schedules`  | Schedules            | `scripts/cockpit/install-scheduler.ps1`                                                                                   |
+
+Skills, agents, hooks, brain_index, and Qdrant are **always** installed —
+they are core infrastructure and have no opt-out path through the wizard.
+
 ### Auto-install matrix
 
 | Dependency        | Installed via                                  | Skipped when            |
