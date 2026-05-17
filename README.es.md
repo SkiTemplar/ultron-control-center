@@ -101,7 +101,7 @@ ULTRON es un **centro de mando local** que se monta encima del CLI oficial de [C
 |---|---|
 | **Memoria jerarquica** | Cuatro capas (L0 contexto caliente hasta L3 mirror remoto) para que Claude retome donde lo dejaste tras cada reinicio. |
 | **Personas y skills** | Un dispatcher activa al especialista correcto segun la intencion: `debugger`, `code-reviewer`, `ui-designer`, etc. |
-| **Agents** | 9 agentes ULTRON + 15 community = 24 subagentes autonomos pre-instalados, mas un catalogo de 60 adicionales, todos pasados por el mismo ruleset PI que las skills. |
+| **Agents** | 12 ULTRON + 7 community curados = 19 subagentes autonomos pre-instalados, mas un catalogo de 69 adicionales (88 totales), todos pasados por el mismo ruleset PI que las skills. |
 | **Hooks endurecidos** | Anti-prompt-injection, recall automatico de notas, log de sesion y sync con el vault — todo enchufado a `settings.json`. |
 | **Panel desktop** | Tauri 2 + React 19 con 16 pestañas para memoria, skills, agents, hooks, planes, sesiones, costes y MCPs. |
 
@@ -122,7 +122,7 @@ ULTRON resuelve todo eso en local, sin alquilar un backend:
 
 - Cada sesion nueva arranca leyendo un primer pre-computado (`context.md`, tope ~400 tokens).
 - Las personas auto-enrutan por intencion — no necesitas recordar los nombres exactos de las skills.
-- El vault (`~/.ultron-vault/`) se indexa en SQLite FTS5 y en una instancia local de Qdrant (binario nativo de Windows, sin Docker) para recall semantico.
+- El vault (`~/.ultron-vault/`) se indexa en SQLite FTS5 y en una instancia local de Qdrant (binario nativo, sin daemon) para recall semantico.
 - El panel concentra hooks, planes, sesiones, costes y MCPs instalados en una sola ventana.
 
 ---
@@ -166,7 +166,7 @@ Las **cuatro capas de memoria**:
 | **L2** vault | `~/.ultron-vault/*.md` | Notas markdown curadas con wikilinks — fuente de verdad |
 | **L3** remote | git remote opcional | Mirror externo de L2, drenado por el hook `Stop` |
 
-Encima de L1 vive una instancia local de **Qdrant** (el binario nativo de Windows — sin Docker, sin daemon) para recall semantico sobre el mismo corpus. Un sistema de decay devuelve notas estancadas a la superficie cada vez que arrancas sesion.
+Encima de L1 vive una instancia local de **Qdrant** (binario nativo de la plataforma en Windows o Linux, sin daemon) para recall semantico sobre el mismo corpus. Un sistema de decay devuelve notas estancadas a la superficie cada vez que arrancas sesion.
 
 ---
 
@@ -272,7 +272,7 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 | 1 | Preflight | Chequeos de OS / PowerShell / RAM / disco / internet |
 | 2 | Claude Code | Verifica que el CLI esta instalado y autenticado |
 | 3 | uv | Instala uv si falta |
-| 4 | Qdrant | Descarga el binario nativo de Windows (v1.18.0) en `~/.ultron/qdrant-native/` y siembra `config/production.yaml`. Sin Docker, sin daemon. Lo arranca `ensure-qdrant.ps1` en cada SessionStart |
+| 4 | Qdrant | Descarga el binario nativo de la plataforma (v1.18.0) en `~/.ultron/qdrant-native/` y siembra `config/production.yaml`. Proceso unico, sin daemon. Lo arranca `ensure-qdrant.ps1` (Windows) / `ensure-qdrant.sh` (Linux) en cada SessionStart |
 | 5 | Layout | Crea `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
 | 6 | Hooks | Fusiona `templates/settings-hooks.json` en `settings.json` (no destructivo, con backup) |
 | 7 | Skills | Picker interactivo: 12 core (siempre ON) + slots opt-in |
@@ -288,9 +288,9 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 
 | Area | Highlights |
 |---|---|
-| **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, Qdrant nativo para recall semantico (sin Docker), decay surfacing |
+| **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, binario Qdrant nativo para recall semantico, decay surfacing |
 | **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
-| **Agents** | Instalacion limpia: 31 pre-instalados (9 ULTRON + 22 community curados). Catalogo: 69 mas en `cockpit/agent-catalog.json`, instalables on-demand (100 total posibles). Pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico. |
+| **Agents** | Instalacion limpia: 19 pre-instalados (12 ULTRON + 7 community curados). Catalogo: 69 mas en `cockpit/agent-catalog.json`, instalables on-demand (88 total posibles). Pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico. |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
 | **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks. (La pestaña Logs está cableada pero deshabilitada hoy.) |
 | **Dual-mode** | Peer review opcional con Codex CLI + delegacion long-context con Gemini CLI, ambos via suscripcion |
@@ -307,15 +307,13 @@ Los slots opt-in se entregan como **plantillas vacias**: forkea ULTRON y rellena
 </details>
 
 <details>
-<summary><b>Agents (24 pre-instalados, catalogo de 60+)</b></summary>
+<summary><b>Agents (19 pre-instalados, catalogo de 69)</b></summary>
 
-Los agents viven en `~/.claude/agents/*.md` y siguen el mismo contrato de YAML frontmatter que las skills. ULTRON trae **9 agentes propios** — `ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`, `ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`, `ultron-test` — mas **22 community** organizados en dos grupos:
+Los agents viven en `~/.claude/agents/*.md` y siguen el mismo contrato de YAML frontmatter que las skills. ULTRON trae **12 agentes propios** — `ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`, `ultron-metadata`, `ultron-news`, `ultron-perf`, `ultron-refactor`, `ultron-security`, `ultron-self-improve`, `ultron-skill-editor`, `ultron-test` — mas **7 community curados**:
 
-**Generalistas (15):** `architect-reviewer`, `code-reviewer`, `context-manager`, `debugger`, `legacy-modernizer`, `mcp-developer`, `multi-agent-coordinator`, `powershell-7-expert`, `python-pro`, `react-specialist`, `refactoring-specialist`, `rust-engineer`, `security-auditor`, `test-automator`, `typescript-pro`.
+**Stack-aligned (7):** `cpp-pro` (C++17/20/23 moderno), `graphics-programmer` (OpenGL/Vulkan/HLSL/GLSL/WGSL + RenderDoc), `unreal-engine-engineer` (UE5 C++/Blueprints/GAS/Nanite/Lumen), `unity-engineer` (Unity 2022 LTS + Unity 6, DOTS, URP/HDRP), `devops-engineer` (GitHub Actions, signing, Tauri release), `database-admin` (Postgres/Supabase/SQLite + EXPLAIN ANALYZE), `fullstack-developer` (features cross-stack).
 
-**Stack-aligned añadidos en v15.4.5 (7):** `cpp-pro` (C++17/20/23 moderno), `graphics-programmer` (OpenGL/Vulkan/HLSL/GLSL/WGSL + RenderDoc), `unreal-engine-engineer` (UE5 C++/Blueprints/GAS/Nanite/Lumen), `unity-engineer` (Unity 2022 LTS + Unity 6, DOTS, URP/HDRP), `devops-engineer` (GitHub Actions, signing, Tauri release), `database-admin` (Postgres/Supabase/SQLite + EXPLAIN ANALYZE), `fullstack-developer` (features cross-stack).
-
-El catalogo trae **69 agentes adicionales** en `cockpit/agent-catalog.json` (conteo verificado, no una estimacion redondeada), instalables a demanda desde la pestaña Agents. **100 agentes en total** entre pre-instalados y catalogo. Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo — Settings → AI Router incluye un botón "Reset to ULTRON recommended" que cablea pares curados de agent + modelo por zona. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semantico.
+El catalogo trae **69 agentes adicionales** en `cockpit/agent-catalog.json` (conteo verificado, no una estimacion redondeada), instalables a demanda desde la pestaña Agents. **88 agentes en total** entre pre-instalados (19) y catalogo (69). Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo — Settings → AI Router incluye un botón "Reset to ULTRON recommended" que cablea pares curados de agent + modelo por zona. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semantico.
 
 </details>
 
@@ -389,7 +387,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 | Control Center (frontend) | Tauri 2 + React 19 + TypeScript (strict) |
 | Control Center (backend) | Rust (estable) |
 | Herramientas Python (cockpit/) | Python 3.13 + uv |
-| Memoria | SQLite FTS5 + Qdrant (binario nativo de Windows, sin Docker) |
+| Memoria | SQLite FTS5 + Qdrant (binario nativo de la plataforma, proceso unico) |
 | Agents | Markdown con YAML frontmatter en `~/.claude/agents/`, catalogo en `cockpit/agent-catalog.json`, embeddings via `embed_agents.py` |
 | Scripting OS | PowerShell 5.1+ |
 | Runtimes LLM | Claude Code CLI (principal), Codex CLI (peer review, opcional), Gemini CLI (long-context, opcional) |
@@ -398,9 +396,11 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ## Notas de release
 
-Version actual: **v15.4.8** (pulido del Control Center — instalador visual con 10 toggles opcionales, IDE-aware launch para 13 editores, visor Markdown en Agents, 36 button prompts, Cmd+K palette extendido, auto-detector de updates al arrancar + rebuild 1-click, panel Settings → Features, AI Router con defaults inteligentes por zona, MemoryGraph galaxy clusters, badge backup `stale` ahora informativo).
+Stable actual: **[v15.5.0](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.0)** — primer release Linux. Añade `.deb` + `.AppImage`, `bootstrap.sh` + `install.sh`, CI matrix en `ubuntu-22.04`, cfg gates Rust para que los modulos Windows-only (inventario registry, NSIS uninstaller, lifecycle PowerShell) compilen limpio en Linux. La build Linux esta **sin verificar** end-to-end — buscamos testers.
 
-Notas completas en [`CHANGELOG.md`](CHANGELOG.md).
+Stable anterior: **v15.4.21** — panel Vault para skills + agents, news pipeline con dedup SQLite, auto-recall del vault layer surfaceando hints `[VAULT·SKILL·N%]`, search en pestaña hooks, 8 reglas nuevas en intent-dispatcher desde telemetria real, 4 ciclos de fixes Codex + Gemini + Kirkardo aplicados.
+
+Notas completas en [`CHANGELOG.md`](CHANGELOG.md). El [release mas reciente en GitHub](https://github.com/SkiTemplar/ultron/releases/latest) trae NSIS `.exe` + MSI para Windows, `.deb` + `.AppImage` para Linux, y el `ultron-system-<tag>.zip` + `.sha256` que consumen los bootstrap one-liners.
 
 ---
 

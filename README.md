@@ -100,7 +100,7 @@ ULTRON is a **local command center** layered on top of the official [Claude Code
 |---|---|
 | **Hierarchical memory** | Four layers (L0 hot context to L3 remote mirror) so Claude resumes on the same page after every reboot. |
 | **Personas & skills** | A dispatcher activates the right specialist by intent — `debugger`, `code-reviewer`, `ui-designer`, etc. |
-| **Agents** | Autonomous subagents under `~/.claude/agents/`. Ships with 16 first-party + 15 curated community; a 69-agent catalog installs on demand. Same security scan as skills. |
+| **Agents** | Autonomous subagents under `~/.claude/agents/`. Ships with 12 ULTRON + 7 curated community (= 19 pre-installed); a 69-agent catalog installs on demand. Same security scan as skills. |
 | **Hardened hooks** | Anti-prompt-injection, note auto-recall, session logging and vault sync, wired into `settings.json`. |
 | **Desktop Control Center** | Tauri 2 + React 19 with 16 tabs for memory, skills, agents, hooks, plans, sessions, costs and MCPs. |
 
@@ -121,7 +121,7 @@ ULTRON addresses all of that locally, without renting a backend:
 
 - Every new session reads a pre-computed primer (`context.md`, capped at ~400 tokens).
 - Personas auto-route by user intent — no need to remember exact skill names.
-- The vault (`~/.ultron-vault/`) is indexed in SQLite FTS5 plus a local Qdrant instance (native Windows binary, no Docker) for semantic recall.
+- The vault (`~/.ultron-vault/`) is indexed in SQLite FTS5 plus a local Qdrant instance (native binary, no daemon) for semantic recall.
 - The Control Center surfaces hooks, plans, sessions, costs and installed MCPs in one window.
 
 ---
@@ -165,7 +165,7 @@ The **four memory layers**:
 | **L2** vault | `~/.ultron-vault/*.md` | Curated markdown notes with wikilinks — the source of truth |
 | **L3** remote | optional git remote | Off-machine mirror of L2, drained by the `Stop` hook |
 
-On top of L1 lives a local **Qdrant** instance (the native Windows binary — no Docker, no daemon) for semantic recall over the same corpus. A decay system bubbles stale notes back to the surface every time you start a session.
+On top of L1 lives a local **Qdrant** instance (a native platform binary on Windows or Linux, no daemon) for semantic recall over the same corpus. A decay system bubbles stale notes back to the surface every time you start a session.
 
 ---
 
@@ -271,7 +271,7 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 | 1 | Preflight | OS / PowerShell / RAM / disk / internet checks |
 | 2 | Claude Code | Verifies the CLI is installed and authenticated |
 | 3 | uv | Installs uv if missing |
-| 4 | Qdrant | Downloads the native Windows binary (v1.18.0) into `~/.ultron/qdrant-native/`, seeds `config/production.yaml`. No Docker, no daemon. Boots from `ensure-qdrant.ps1` on SessionStart |
+| 4 | Qdrant | Downloads the native platform binary (v1.18.0) into `~/.ultron/qdrant-native/`, seeds `config/production.yaml`. Single process, no daemon. Boots from `ensure-qdrant.ps1` (Windows) / `ensure-qdrant.sh` (Linux) on SessionStart |
 | 5 | Layout | Creates `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
 | 6 | Hooks | Merges `templates/settings-hooks.json` into `settings.json` (non-destructive, with backup) |
 | 7 | Skills | Interactive picker: 12 core (always ON) + opt-in slots |
@@ -287,7 +287,7 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 
 | Area | Highlights |
 |---|---|
-| **Memory** | L0-L3 hierarchy, SQLite FTS5 index, native Qdrant for semantic recall (no Docker), decay surfacing |
+| **Memory** | L0-L3 hierarchy, SQLite FTS5 index, native Qdrant binary for semantic recall, decay surfacing |
 | **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
 | **Agents** | Fresh install: 12 ULTRON + 7 curated community in `repo/agents/`. Catalog: 69 more in `cockpit/agent-catalog.json`, installable on demand. Dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery. |
 | **Skill / Agent Vault** | Demote a skill or agent without deleting it. Vault button in the detail pane moves the file to `~/.ultron/skill-vault/` or `~/.ultron/agent-vault/`; Claude stops auto-loading it. Restore from the sidebar Vault panel. Vaulted entries can still surface as suggestions via the auto-recall hook (`[VAULT·SKILL·82%] …`). |
@@ -397,7 +397,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 | Control Center (frontend) | Tauri 2 + React 19 + TypeScript (strict) |
 | Control Center (backend) | Rust (stable) |
 | Cockpit Python tools | Python 3.13 + uv |
-| Memory store | SQLite FTS5 + Qdrant (native Windows binary, no Docker) |
+| Memory store | SQLite FTS5 + Qdrant (native platform binary, single process) |
 | Agents | YAML-frontmatter markdown under `~/.claude/agents/`, catalog in `cockpit/agent-catalog.json`, embeddings via `embed_agents.py` |
 | OS scripting | PowerShell 5.1+ |
 | LLM runtimes | Claude Code CLI (primary), Codex CLI (peer review, optional), Gemini CLI (long context, optional) |
@@ -406,9 +406,11 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 ## Release notes
 
-Current version: **v15.4.8** (Control Center polish — visual installer with 10 optional toggles, IDE-aware launch for 13 editors, Agents Markdown viewer, 36 button prompts, Cmd+K palette extended, boot-time update detector + 1-click rebuild, Settings → Features panel, AI Router smart defaults per zone, MemoryGraph galaxy clusters, backup stale demoted to operational info).
+Current stable: **[v15.5.0](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.0)** — first Linux release. Adds `.deb` + `.AppImage`, `bootstrap.sh` + `install.sh`, CI matrix on `ubuntu-22.04`, Rust cfg gates so Windows-only modules (registry inventory, NSIS uninstaller, PowerShell lifecycle) compile cleanly on Linux. Linux build is **unverified** end-to-end — testers wanted.
 
-Full release notes in [`CHANGELOG.md`](CHANGELOG.md).
+Previous stable: **v15.4.21** — Vault panel UI for skills + agents, news pipeline SQLite dedup, auto-recall vault layer surfacing `[VAULT·SKILL·N%]` hints, hooks tab search, 8 new intent-dispatcher rules from real telemetry, 4 cycles of Codex + Gemini + Kirkardo review fixes applied.
+
+Full release notes in [`CHANGELOG.md`](CHANGELOG.md). Latest release on [GitHub Releases](https://github.com/SkiTemplar/ultron/releases/latest) ships the NSIS `.exe` + MSI for Windows, `.deb` + `.AppImage` for Linux, and the `ultron-system-<tag>.zip` + `.sha256` consumed by the bootstrap one-liners.
 
 ---
 
