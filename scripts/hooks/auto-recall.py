@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ULTRON v14.8 P1 — Auto-recall hook (UserPromptSubmit, asyncRewake).
+"""ULTRON v15.4.14 — Auto-recall hook (UserPromptSubmit, asyncRewake).
 
 On the FIRST turn of every Claude Code session, embeds the user prompt with
 fastembed (ONNX MPNet — interoperable with the sentence-transformers index
@@ -17,6 +17,14 @@ Architecture (per Research-9 audit):
 - File-based state (~/.ultron/.tmp/auto-recall-fired-sessions.json) tracks
   which session_ids already had recall fired — keeps cost minimal while
   delivering value where it matters most.
+
+v15.4.14 additions:
+- Vaulted skills  (~/.ultron/skill-vault/<name>/SKILL.md) are matched
+  against the prompt with a keyword scorer and surfaced as VAULT·SKILL hints.
+- Vaulted agents  (~/.ultron/agent-vault/<name>.md) are matched the same way
+  and surfaced as VAULT·AGENT hints.
+  Both are ADDITIVE — they appear after existing vault-note, skill, and agent
+  sections and share the overall token budget (no new Qdrant calls).
 
 Knob via env:
   ULTRON_AUTO_RECALL  unset|"1" → first-turn-only (default)
@@ -96,6 +104,180 @@ _LAST_SKILL_MATCH: dict | None = None
 # AGENT_MIN_SCORE, otherwise a list of dicts).
 _LAST_AGENT_MATCHES: list | None = None
 
+# ── v15.4.14: file-based vault scoring ────────────────────────────────────────
+# Directories for demoted skills and agents (may not exist on older installs).
+_SKILL_VAULT_DIR = Path.home() / ".ultron" / "skill-vault"
+_AGENT_VAULT_DIR = Path.home() / ".ultron" / "agent-vault"
+
+# How many vaulted items to surface at most (combined ceiling respects budget).
+VAULT_SKILL_TOP_N = int(os.environ.get("ULTRON_RECALL_VAULT_SKILL_TOP", "2"))
+VAULT_AGENT_TOP_N = int(os.environ.get("ULTRON_RECALL_VAULT_AGENT_TOP", "2"))
+
+# Minimum keyword score (0..1) to surface a vaulted item.
+VAULT_SKILL_MIN_SCORE = float(os.environ.get("ULTRON_RECALL_VAULT_SKILL_MIN", "0.20"))
+VAULT_AGENT_MIN_SCORE = float(os.environ.get("ULTRON_RECALL_VAULT_AGENT_MIN", "0.20"))
+
+
+# ── v15.4.14 helpers ──────────────────────────────────────────────────────────
+
+def _parse_frontmatter(text: str) -> dict[str, str]:
+    """Extract name and description from YAML frontmatter (stdlib only).
+
+    Handles both bare scalars and quoted strings for both fields. Stops
+    parsing after the closing ``---`` delimiter so it never reads the full
+    skill body, keeping I/O cost negligible.
+
+    Args:
+        text: Raw file contents, UTF-8.
+
+    Returns:
+        Dict with keys ``name`` and/or ``description`` that were found.
+        Empty dict when no frontmatter is present.
+    """
+    import re
+
+    result: dict[str, str] = {}
+    lines = text.splitlines()
+    # Must start with opening ---
+    if not lines or lines[0].strip() != "---":
+        return result
+    in_fm = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "---":
+            if not in_fm:
+                in_fm = True
+                continue
+            else:
+                break  # closing delimiter reached
+        if not in_fm:
+            continue
+        # Match   key: value   or   key: "value"
+        m = re.match(r'^(name|description)\s*:\s*(.*)', line)
+        if m:
+            key = m.group(1)
+            val = m.group(2).strip()
+            # Strip surrounding quotes
+            if (val.startswith('"') and val.endswith('"')) or (
+                val.startswith("'") and val.endswith("'")
+            ):
+                val = val[1:-1]
+            result[key] = val
+    return result
+
+
+def _keyword_score(prompt: str, description: str) -> float:
+    """Return a simple keyword overlap score in [0, 1].
+
+    Tokenises both strings into lowercase alphabetic words, then computes
+    the Jaccard-like overlap weighted by the query side:
+
+        score = |query_tokens ∩ desc_tokens| / max(|query_tokens|, 1)
+
+    This intentionally mirrors the BM25 spirit (term frequency in the doc
+    side is irrelevant here; we only care whether the query terms appear).
+    No external deps — pure stdlib ``re`` + ``set``.
+
+    Args:
+        prompt: The raw user prompt.
+        description: The skill/agent description to score against.
+
+    Returns:
+        Float in [0.0, 1.0].
+    """
+    import re
+
+    def _tokens(s: str) -> set[str]:
+        return {w for w in re.findall(r"[a-z]+", s.lower()) if len(w) > 2}
+
+    q_tokens = _tokens(prompt)
+    if not q_tokens:
+        return 0.0
+    d_tokens = _tokens(description)
+    overlap = len(q_tokens & d_tokens)
+    return round(overlap / len(q_tokens), 4)
+
+
+def _scan_vault_skills(prompt: str) -> list[dict]:
+    """Score all SKILL.md files in skill-vault against *prompt*.
+
+    Reads only the YAML frontmatter block of each file (stops at the second
+    ``---`` delimiter) so the I/O cost is small even when hundreds of skills
+    are vaulted.
+
+    Args:
+        prompt: Raw user prompt text.
+
+    Returns:
+        List of ``{name, score, description}`` dicts sorted by score
+        descending, filtered to >= VAULT_SKILL_MIN_SCORE, capped at
+        VAULT_SKILL_TOP_N entries.
+    """
+    if not _SKILL_VAULT_DIR.exists():
+        return []
+    results: list[dict] = []
+    for skill_md in _SKILL_VAULT_DIR.glob("*/SKILL.md"):
+        try:
+            # Read only the first 60 lines — enough to cover any frontmatter.
+            lines: list[str] = []
+            with skill_md.open(encoding="utf-8", errors="replace") as fh:
+                for i, ln in enumerate(fh):
+                    lines.append(ln.rstrip("\n"))
+                    if i > 60:
+                        break
+            fm = _parse_frontmatter("\n".join(lines))
+            name = fm.get("name") or skill_md.parent.name
+            description = fm.get("description", "")
+            if not description:
+                continue
+            score = _keyword_score(prompt, description)
+            if score < VAULT_SKILL_MIN_SCORE:
+                continue
+            results.append({"name": name, "score": score, "description": description})
+        except Exception:
+            continue
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:VAULT_SKILL_TOP_N]
+
+
+def _scan_vault_agents(prompt: str) -> list[dict]:
+    """Score all agent markdown files in agent-vault against *prompt*.
+
+    Same frontmatter-only reading strategy as :func:`_scan_vault_skills`.
+
+    Args:
+        prompt: Raw user prompt text.
+
+    Returns:
+        List of ``{name, score, description}`` dicts sorted by score
+        descending, filtered to >= VAULT_AGENT_MIN_SCORE, capped at
+        VAULT_AGENT_TOP_N entries.
+    """
+    if not _AGENT_VAULT_DIR.exists():
+        return []
+    results: list[dict] = []
+    for agent_md in _AGENT_VAULT_DIR.glob("*.md"):
+        try:
+            lines: list[str] = []
+            with agent_md.open(encoding="utf-8", errors="replace") as fh:
+                for i, ln in enumerate(fh):
+                    lines.append(ln.rstrip("\n"))
+                    if i > 60:
+                        break
+            fm = _parse_frontmatter("\n".join(lines))
+            name = fm.get("name") or agent_md.stem
+            description = fm.get("description", "")
+            if not description:
+                continue
+            score = _keyword_score(prompt, description)
+            if score < VAULT_AGENT_MIN_SCORE:
+                continue
+            results.append({"name": name, "score": score, "description": description})
+        except Exception:
+            continue
+    results.sort(key=lambda x: x["score"], reverse=True)
+    return results[:VAULT_AGENT_TOP_N]
+
 
 def _state_path() -> Path:
     return Path.home() / ".ultron" / ".tmp" / "auto-recall-fired-sessions.json"
@@ -169,15 +351,21 @@ def _save_last_skill_match(query: str, skill: dict | None) -> None:
 
 
 def _format_reminder(
-    query: str, hits: list[dict], skill_match: dict | None = None,
+    query: str,
+    hits: list[dict],
+    skill_match: dict | None = None,
     agent_matches: list[dict] | None = None,
+    vault_skills: list[dict] | None = None,
+    vault_agents: list[dict] | None = None,
 ) -> str:
     """Render the system-reminder body the model will see.
 
-    Three sections when all are available:
+    Up to five sections when all are available:
       - Vault recall (top-N notes semantically related to the query)
       - Skill suggestion (top-1 skill from ultron_skills collection)
       - Available subagents matching (top-N from ultron_agents collection)
+      - Vaulted skills (file-based keyword match, v15.4.14)
+      - Vaulted agents (file-based keyword match, v15.4.14)
     """
     lines = ["<ultron-recall>"]
 
@@ -243,6 +431,30 @@ def _format_reminder(
             "  Delegate via the Task tool ONLY if the agent's specialty truly fits the "
             "request — these are suggestions, not orders."
         )
+        lines.append("")
+
+    # v15.4.14: vaulted skills (keyword-scored from skill-vault filesystem).
+    # These are ADDITIVE — placed after Qdrant-backed sections so they never
+    # displace primary recall content.
+    if vault_skills:
+        for vs in vault_skills:
+            name = vs.get("name", "?")
+            score_pct = int(round(vs.get("score", 0.0) * 100))
+            lines.append(
+                f"[VAULT·SKILL·{score_pct}%] {name}"
+                " — Restore from Skills tab if useful for this prompt."
+            )
+        lines.append("")
+
+    # v15.4.14: vaulted agents (keyword-scored from agent-vault filesystem).
+    if vault_agents:
+        for va in vault_agents:
+            name = va.get("name", "?")
+            score_pct = int(round(va.get("score", 0.0) * 100))
+            lines.append(
+                f"[VAULT·AGENT·{score_pct}%] {name}"
+                " — Restore from Agents tab to delegate."
+            )
         lines.append("")
 
     lines.append("</ultron-recall>")
@@ -477,9 +689,22 @@ def main() -> int:
     skill_match = _LAST_SKILL_MATCH
     agent_matches = _LAST_AGENT_MATCHES
 
-    # If neither vault hits, skill match, nor agent matches passed thresholds,
-    # stay silent. v15.3.5: agent matches alone are a valid reason to surface.
-    if not hits and not skill_match and not agent_matches:
+    # v15.4.14: file-based vault scans (no Qdrant, pure keyword scoring).
+    # Wrapped defensively so any filesystem issue stays silent.
+    try:
+        vault_skills: list[dict] = _scan_vault_skills(prompt)
+    except Exception:
+        vault_skills = []
+    try:
+        vault_agents: list[dict] = _scan_vault_agents(prompt)
+    except Exception:
+        vault_agents = []
+
+    # If neither vault hits, skill match, agent matches, nor vault items
+    # passed thresholds, stay silent.
+    # v15.3.5: agent matches alone are a valid reason to surface.
+    # v15.4.14: vault hints alone are also a valid reason.
+    if not hits and not skill_match and not agent_matches and not vault_skills and not vault_agents:
         return EXIT_SILENT
 
     # Persist for downstream introspection (TUI dashboard, future tools).
@@ -488,8 +713,12 @@ def main() -> int:
 
     # Inject as system-reminder via stderr + exit 2
     reminder = _format_reminder(
-        prompt, hits or [], skill_match=skill_match,
+        prompt,
+        hits or [],
+        skill_match=skill_match,
         agent_matches=agent_matches,
+        vault_skills=vault_skills or None,
+        vault_agents=vault_agents or None,
     )
     sys.stderr.write(reminder + "\n")
     sys.stderr.flush()

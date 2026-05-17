@@ -110,6 +110,7 @@ export function Hooks() {
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [filterEvent, setFilterEvent] = useState<string>("All");
+  const [filterText, setFilterText] = useState<string>("");
 
   const [addOpen, setAddOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -209,9 +210,16 @@ export function Hooks() {
 
   const filtered = useMemo(() => {
     if (!list) return [];
-    if (filterEvent === "All") return list.hooks;
-    return list.hooks.filter((h) => h.event === filterEvent);
-  }, [list, filterEvent]);
+    const base = filterEvent === "All"
+      ? list.hooks
+      : list.hooks.filter((h) => h.event === filterEvent);
+    const q = filterText.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter((h) => {
+      const hay = `${h.matcher ?? ""} ${h.command ?? ""} ${h.event ?? ""}`.toLowerCase();
+      return hay.includes(q);
+    });
+  }, [list, filterEvent, filterText]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, HookRecord[]>();
@@ -341,7 +349,7 @@ export function Hooks() {
           </div>
         )}
 
-        <div className="mb-4 flex items-center gap-2 text-[12px]">
+        <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px]">
           <span style={{ color: "var(--color-text-tertiary)" }}>Filter:</span>
           <select
             value={filterEvent}
@@ -360,6 +368,22 @@ export function Hooks() {
               </option>
             ))}
           </select>
+          <input
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Search by matcher / command…"
+            className="min-w-[220px] flex-1 rounded px-2 py-1"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+              outline: "none",
+            }}
+          />
+          <span style={{ color: "var(--color-text-tertiary)" }}>
+            {filtered.length} / {list?.hooks.length ?? 0}
+          </span>
         </div>
 
         {loading && (

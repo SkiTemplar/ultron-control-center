@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ULTRON Times — News HTML Generator (v14.2 "Tech/AI Focus Edition").
+ULTRON Times — News HTML Generator (v14.3 "SQLite Dedup Edition").
 
 Flow:
 1. Build prompt from a local newsletter SKILL.md template + section config
@@ -10,6 +10,13 @@ Flow:
 
 Sections: tech (default, the only built-in) + any registered custom section
 in ~/.ultron/news_categories.json.
+
+SQLite dedup (v14.3):
+- DB: ~/.ultron/cockpit/news_history.db
+- Articles are recorded AFTER a successful HTML render (atomicity: retry on failure).
+- seen_recently() checks hash_url, hash_title, hash_summary within a rolling window.
+- The model is asked to emit a JSON article array before the HTML; that array feeds
+  the DB insert and is also used to log dropped duplicates.
 
 Usage:
     python news_html_generator.py                              # tech, 3 days
@@ -24,14 +31,18 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import webbrowser
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Generator
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -39,7 +50,7 @@ if hasattr(sys.stdout, "reconfigure"):
 _WIN_HIDDEN = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 sys.path.insert(0, str(Path(__file__).parent))
-from cockpit_base import NEWS_DIR  # noqa: E402
+from cockpit_base import COCKPIT_DIR, NEWS_DIR  # noqa: E402
 
 SKILL_PATH = Path.home() / ".claude" / "skills" / "newsletter-publisher" / "SKILL.md"
 NEWS_CATEGORIES_FILE = NEWS_DIR.parent / "news_categories.json"
@@ -49,6 +60,9 @@ GEMINI_TIMEOUT_SEC = 600
 DEDUP_DAYS = 7
 DEDUP_MAX_URLS = 80
 DEDUP_MIN_NEWS = 25
+
+# SQLite DB lives alongside the other cockpit data files.
+NEWS_HISTORY_DB = COCKPIT_DIR / "news_history.db"
 
 # ── Built-in section configs ───────────────────────────────────────────────────
 
@@ -124,7 +138,7 @@ def today_existing_editions(sections: dict, date_str: str) -> dict[str, Path]:
     return existing
 
 
-# ── Deduplication ──────────────────────────────────────────────────────────────
+# ── Deduplication (file-based, legacy) ────────────────────────────────────────
 
 # Tracking-param strip list — avoids treating same article with utm_* as new.
 _TRACKING_PARAMS = re.compile(
@@ -240,6 +254,179 @@ def load_recent_dedup_urls(cfg: dict, days: int = DEDUP_DAYS) -> list[str]:
     return urls
 
 
+# ── SQLite dedup history ───────────────────────────────────────────────────────
+
+_DB_SCHEMA = """
+CREATE TABLE IF NOT EXISTS news_history (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    hash_url       TEXT NOT NULL,
+    hash_title     TEXT NOT NULL,
+    hash_summary   TEXT,
+    title          TEXT NOT NULL,
+    url            TEXT NOT NULL,
+    source         TEXT,
+    summary        TEXT,
+    priority_score REAL,
+    section        TEXT,
+    published_at   TEXT,
+    inserted_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_news_hash_url   ON news_history(hash_url);
+CREATE INDEX IF NOT EXISTS idx_news_hash_title ON news_history(hash_title);
+"""
+
+
+def _sha1(text: str) -> str:
+    """Return the lowercase hex SHA-1 of *text* encoded as UTF-8."""
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()
+
+
+def _hash_url(url: str) -> str:
+    """Canonical-URL hash: strip tracking params + fragments, lowercase host."""
+    return _sha1(canonicalize_url(url))
+
+
+def _hash_title(title: str) -> str:
+    """Normalised-title hash: lowercase, strip punctuation, collapse whitespace."""
+    return _sha1(normalize_title(title))
+
+
+def _hash_summary(summary: str | None) -> str | None:
+    """SHA-1 of first 80 chars of normalised summary, or None if no summary."""
+    if not summary:
+        return None
+    normalised = re.sub(r"\s+", " ", summary.lower().strip())[:80]
+    return _sha1(normalised) if normalised else None
+
+
+@contextmanager
+def open_db() -> Generator[sqlite3.Connection, None, None]:
+    """Open (and lazily create) news_history.db, yielding a ready connection."""
+    NEWS_HISTORY_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(NEWS_HISTORY_DB))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    try:
+        conn.executescript(_DB_SCHEMA)
+        conn.commit()
+        yield conn
+    finally:
+        conn.close()
+
+
+def seen_recently(
+    conn: sqlite3.Connection,
+    hash_url: str,
+    hash_title: str,
+    hash_summary: str | None,
+    days: int = 30,
+) -> bool:
+    """Return True if any of the three hashes appear in news_history within *days* days.
+
+    Any single match is sufficient — same URL with different title, or same title
+    with different URL, both count as a duplicate.
+    """
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+    # Always check URL and title hashes.
+    row = conn.execute(
+        """
+        SELECT 1 FROM news_history
+        WHERE inserted_at >= ?
+          AND (hash_url = ? OR hash_title = ?)
+        LIMIT 1
+        """,
+        (cutoff, hash_url, hash_title),
+    ).fetchone()
+    if row:
+        return True
+
+    # Only check summary hash when we actually have one.
+    if hash_summary:
+        row = conn.execute(
+            """
+            SELECT 1 FROM news_history
+            WHERE inserted_at >= ?
+              AND hash_summary = ?
+            LIMIT 1
+            """,
+            (cutoff, hash_summary),
+        ).fetchone()
+        if row:
+            return True
+
+    return False
+
+
+def record_article(conn: sqlite3.Connection, article: dict) -> None:
+    """Insert one article into news_history after a successful newsletter render.
+
+    Args:
+        conn: Open SQLite connection (caller manages commit/rollback).
+        article: Dict with at minimum 'title' and 'url' keys.  Optional keys:
+                 source, summary, priority_score, section, published_at.
+    """
+    title = article.get("title", "").strip()
+    url = article.get("url", "").strip()
+    if not title or not url:
+        return  # Skip malformed entries silently.
+
+    summary = article.get("summary") or None
+    conn.execute(
+        """
+        INSERT INTO news_history
+            (hash_url, hash_title, hash_summary, title, url,
+             source, summary, priority_score, section, published_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            _hash_url(url),
+            _hash_title(title),
+            _hash_summary(summary),
+            title,
+            url,
+            article.get("source") or None,
+            summary,
+            article.get("priority_score") or None,
+            article.get("section") or None,
+            article.get("published_at") or None,
+        ),
+    )
+
+
+# ── JSON article array extraction ─────────────────────────────────────────────
+
+def extract_json_articles(output: str) -> list[dict]:
+    """Parse the structured JSON article array the model emits before the HTML.
+
+    The agent spec mandates that the model emits a JSON array of article objects
+    before the <!DOCTYPE html> block.  We tolerate the array being inside a
+    markdown fence or bare.  Returns an empty list on any parse failure so the
+    caller can degrade gracefully.
+    """
+    # Try to find a JSON array that precedes <!DOCTYPE (case-insensitive).
+    doctype_pos = output.lower().find("<!doctype")
+    if doctype_pos < 0:
+        doctype_pos = len(output)
+    prefix = output[:doctype_pos]
+
+    # Strip optional ```json fence.
+    prefix = re.sub(r"^```(?:json)?\s*", "", prefix.strip(), flags=re.IGNORECASE)
+    prefix = re.sub(r"```\s*$", "", prefix.strip())
+
+    # Find the outermost [...] array.
+    m = re.search(r"(\[[\s\S]*\])", prefix)
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(1))
+        if isinstance(data, list):
+            return [a for a in data if isinstance(a, dict)]
+    except json.JSONDecodeError:
+        pass
+    return []
+
+
 # ── Nav bar ────────────────────────────────────────────────────────────────────
 
 def build_nav_instruction(existing: dict[str, Path], current_label: str) -> str:
@@ -301,7 +488,21 @@ def build_section_prompt(
     dedup_urls: list[str],
     nav_instruction: str,
     dedup_titles: list[str] | None = None,
+    db_dedup_hashes: tuple[list[str], list[str]] | None = None,
 ) -> str:
+    """Build the full Gemini prompt for one newsletter section.
+
+    Args:
+        cfg: Section config dict.
+        days: Coverage window in days.
+        theme: Optional special theme override.
+        notes: Optional free-form editor notes.
+        dedup_urls: Canonicalized URLs from recent HTML files (file-based dedup).
+        nav_instruction: HTML nav bar injection block, or empty string.
+        dedup_titles: Normalized titles from recent HTML files (file-based dedup).
+        db_dedup_hashes: Optional (url_hashes, title_hashes) already in DB — shown
+                         to the model as an additional exclusion signal.
+    """
     date_str = datetime.now().strftime("%-d de %B de %Y") if sys.platform != "win32" \
         else datetime.now().strftime("%d de %B de %Y").lstrip("0")
     timeframe = f"últimas {days * 24}h / {days} días"
@@ -336,25 +537,40 @@ HEADER:
 FUENTES (busca activamente en internet):
 {cfg['sources']}
 
+PRIORITY SCORING (ultron-news rubric — assign priority_score 0-1 to each article):
+- 0.95+ : GitHub AI / Claude Code / new LLM model release / agentic framework launch
+- 0.80-0.94 : significant dev tooling (IDE plugins, CLI tools, MCP servers, eval frameworks)
+- 0.50-0.79 : research papers with code, infra news (Vercel, Cloudflare, Supabase product launches)
+- 0.20-0.49 : industry chatter (funding rounds, hires, partnerships)
+- < 0.20 : drop — do not include
+
+EDITORIAL DISCIPLINE (ultron-news rules — mandatory):
+- No marketing-speak. Verbs over adjectives. "Anthropic ships X" beats "Anthropic announces innovative X".
+- No filler. If you cannot find 8 articles above 0.5, ship fewer — never pad with low-priority items.
+- One sentence summary max — the newsletter is scannable; readers click for depth.
+- Always link the primary source. Blog post > tweet > secondary coverage.
+- Section headers in CAPS with em-dash separator: e.g. "AI RESEARCH — {date_str}".
+- Date stamps on every article (ISO format in data, human format in render).
+
 EVITA:
 - "Alguien dijo en Twitter" sin fuente verificable
-- Marketing copy sin substancia ("revolutionary")
+- Marketing copy sin substancia ("revolutionary", "game-changing", "innovative")
 - Noticias >7 días presentadas como "today"
 - Fillers — sé concreto o omite
 - Hallucinations: 10 noticias reales > 15 inventadas
 
 CALIDAD:
-- Cada artículo cita SOURCE + LINK real (URL completa)
+- Cada artículo cita SOURCE + LINK real (URL completa) — always the primary source
 - Los leads son SUBSTANTIVOS: contexto + qué pasó + impacto
 - Cero placeholders
-- Total mínimo: {min_news} items con sustancia
+- Total mínimo: {min_news} items con sustancia (only those above priority_score 0.20)
 """
 
     # Navigation bar
     if nav_instruction:
         prompt += nav_instruction
 
-    # Deduplication
+    # Deduplication (file-based)
     if dedup_urls or dedup_titles:
         prompt += (
             f"\n\nDEDUPLICACIÓN — No incluyas artículos ya cubiertos en ediciones de los "
@@ -369,6 +585,17 @@ CALIDAD:
             prompt += f"\nTitulares ya publicados ({len(dedup_titles)}):\n"
             prompt += "\n".join(f"- {t[:160]}" for t in dedup_titles[:60])
             prompt += "\n"
+
+    # SQLite-based dedup signal (hash counts only — hashes are internal identifiers)
+    if db_dedup_hashes:
+        url_hashes, title_hashes = db_dedup_hashes
+        if url_hashes or title_hashes:
+            prompt += (
+                f"\nHISTORIAL SQLITE — Adicionalmente, {len(url_hashes)} URLs y "
+                f"{len(title_hashes)} titulares están registrados en el historial "
+                f"persistente (últimos 30 días). El pipeline filtrará duplicados "
+                f"automáticamente — evita repetir historias ya publicadas.\n"
+            )
 
     # Theme override
     if theme:
@@ -385,6 +612,13 @@ CALIDAD:
 
     prompt += (
         "\n\n[OUTPUT INSTRUCTION — CRITICAL]\n"
+        "Tu respuesta debe tener DOS partes en orden:\n\n"
+        "PARTE 1 — JSON array de artículos (ANTES del HTML):\n"
+        "Emite un array JSON con cada artículo que incluyas en el newsletter.\n"
+        "Formato exacto (una sola línea de JSON por artículo, array completo):\n"
+        '[{"title":"...","url":"...","source":"...","summary":"...","priority_score":0.92,'
+        '"section":"DEV TOOLING & AGENTS","published_at":"YYYY-MM-DD"}, ...]\n\n'
+        "PARTE 2 — HTML5 completo:\n"
         "Imprime SOLO el HTML5 completo, desde <!DOCTYPE html> hasta </html>.\n"
         "NADA de markdown fences (no ```html). NADA de explicación previa.\n"
         "NADA después del </html>. Solo HTML directo, ready-to-render.\n"
@@ -449,7 +683,7 @@ def write_audit_flags_file(flags: dict[str, list[str]]) -> Path | None:
     for skill in sorted(flags.keys()):
         lines.append(f"ultron self-improve audit {skill} --quick")
     lines += ["```"]
-    flag_file.write_text("\n".join(lines), encoding="utf-8")
+    flag_file.write_text("\n".join(lines), encoding="utf-8", newline="\n")
     return flag_file
 
 
@@ -502,10 +736,16 @@ def copy_to_clipboard(text: str) -> bool:
                 pass
 
 
-def call_gemini(prompt: str, out_path: Path, model: str) -> tuple[bool, str]:
+def call_gemini(prompt: str, out_path: Path, model: str) -> tuple[bool, str, str]:
+    """Call Gemini CLI and write the HTML portion to *out_path*.
+
+    Returns:
+        (success, reason, raw_stdout) — raw_stdout is the full model output
+        (JSON + HTML) so the caller can parse the article array.
+    """
     gemini_bin = shutil.which("gemini")
     if not gemini_bin:
-        return False, "gemini CLI no encontrado en PATH"
+        return False, "gemini CLI no encontrado en PATH", ""
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -516,29 +756,109 @@ def call_gemini(prompt: str, out_path: Path, model: str) -> tuple[bool, str]:
             creationflags=_WIN_HIDDEN,
         )
     except subprocess.TimeoutExpired:
-        return False, f"timeout ({GEMINI_TIMEOUT_SEC}s)"
+        return False, f"timeout ({GEMINI_TIMEOUT_SEC}s)", ""
     except Exception as e:
-        return False, f"exec error: {e}"
+        return False, f"exec error: {e}", ""
 
     if r.returncode != 0:
         err = r.stderr or ""
         if "429" in err or "RESOURCE_EXHAUSTED" in err:
-            return False, "Gemini 429 capacity exhausted. Retry in ~1min or use --clipboard."
-        return False, f"gemini exit {r.returncode}: {err[:300]}"
+            return False, "Gemini 429 capacity exhausted. Retry in ~1min or use --clipboard.", ""
+        return False, f"gemini exit {r.returncode}: {err[:300]}", ""
 
-    html = _strip_code_fences(r.stdout or "")
+    raw_stdout = r.stdout or ""
+    html = _strip_code_fences(raw_stdout)
+
+    # Isolate the HTML portion (from <!DOCTYPE to </html>).
+    doctype_pos = html.lower().find("<!doctype")
+    if doctype_pos > 0:
+        html = html[doctype_pos:]
     end_idx = html.lower().rfind("</html>")
     if end_idx > 0:
         html = html[:end_idx + len("</html>")]
 
     if len(html) < 1000 or "</html>" not in html.lower():
-        return False, f"stdout sin HTML válido ({len(html)} chars). Usa --clipboard para modo manual."
+        return False, f"stdout sin HTML válido ({len(html)} chars). Usa --clipboard para modo manual.", raw_stdout
 
     try:
-        out_path.write_text(html, encoding="utf-8")
+        out_path.write_text(html, encoding="utf-8", newline="\n")
     except OSError as e:
-        return False, f"write failed: {e}"
-    return True, "stdout-capture"
+        return False, f"write failed: {e}", raw_stdout
+    return True, "stdout-capture", raw_stdout
+
+
+# ── SQLite post-render: filter candidates + record published articles ──────────
+
+def filter_candidates_with_db(
+    conn: sqlite3.Connection,
+    articles: list[dict],
+    days: int = 30,
+) -> tuple[list[dict], int]:
+    """Remove articles already seen in news_history within *days* days.
+
+    Args:
+        conn: Open DB connection.
+        articles: Candidate article dicts from the model's JSON array.
+        days: Dedup window in days.
+
+    Returns:
+        (fresh_articles, dropped_count)
+    """
+    fresh: list[dict] = []
+    dropped = 0
+    for art in articles:
+        title = art.get("title", "").strip()
+        url = art.get("url", "").strip()
+        if not title or not url:
+            fresh.append(art)  # Malformed entries pass through — not our business.
+            continue
+        h_url = _hash_url(url)
+        h_title = _hash_title(title)
+        h_summary = _hash_summary(art.get("summary"))
+        if seen_recently(conn, h_url, h_title, h_summary, days=days):
+            dropped += 1
+        else:
+            fresh.append(art)
+    return fresh, dropped
+
+
+def record_articles(conn: sqlite3.Connection, articles: list[dict]) -> int:
+    """Bulk-insert *articles* into news_history after a successful render.
+
+    Args:
+        conn: Open DB connection.
+        articles: Article dicts that made it into the final newsletter.
+
+    Returns:
+        Number of rows actually inserted.
+    """
+    inserted = 0
+    for art in articles:
+        try:
+            record_article(conn, art)
+            inserted += 1
+        except sqlite3.Error:
+            pass  # Non-fatal — a duplicate insert just means the hash was already there.
+    conn.commit()
+    return inserted
+
+
+def _load_db_dedup_hashes(
+    conn: sqlite3.Connection, days: int = 30
+) -> tuple[list[str], list[str]]:
+    """Return (url_hashes, title_hashes) already in DB for the last *days* days.
+
+    Used to pass a count signal into the prompt so the model is aware that the
+    pipeline will enforce DB-level dedup on its output.
+    """
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    rows = conn.execute(
+        "SELECT hash_url, hash_title FROM news_history WHERE inserted_at >= ?",
+        (cutoff,),
+    ).fetchall()
+    url_hashes = [r["hash_url"] for r in rows]
+    title_hashes = [r["hash_title"] for r in rows]
+    return url_hashes, title_hashes
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -581,7 +901,7 @@ def main() -> int:
     date_str = datetime.now().strftime("%Y-%m-%d")
 
     print("=" * 80)
-    print(f"⌬  ULTRON Times — {cfg['label']} (v13.0)")
+    print(f"ULTRON Times — {cfg['label']} (v14.3)")
     print("=" * 80)
 
     # Check which other editions exist today (for nav bar)
@@ -590,18 +910,28 @@ def main() -> int:
     if nav_instruction:
         print(f"[nav] Ediciones hoy: {', '.join(existing.keys())} → añadiendo nav bar")
 
-    # Deduplication
+    # ── File-based dedup (legacy, feeds the prompt) ───────────────────────────
     dedup_urls: list[str] = []
     dedup_titles: list[str] = []
     if not args.no_dedup:
         dedup_urls, dedup_titles, dedup_files = load_recent_dedup_corpus(cfg, days=DEDUP_DAYS)
         if dedup_urls or dedup_titles:
-            print(f"[dedup] lookback {DEDUP_DAYS}d · {dedup_files} newsletters → "
+            print(f"[dedup-files] lookback {DEDUP_DAYS}d · {dedup_files} newsletters → "
                   f"{len(dedup_urls)} URLs + {len(dedup_titles)} titulares se excluyen")
+
+    # ── SQLite-based dedup (persistent, feeds both prompt + post-filter) ───────
+    db_dedup_hashes: tuple[list[str], list[str]] | None = None
+    if not args.no_dedup:
+        with open_db() as conn:
+            db_dedup_hashes = _load_db_dedup_hashes(conn, days=30)
+        url_h_count, title_h_count = db_dedup_hashes
+        print(f"[dedup-db]    history DB → {len(url_h_count)} URL hashes + "
+              f"{len(title_h_count)} title hashes (30d window)")
 
     prompt = build_section_prompt(
         cfg, args.days, args.theme, args.notes, dedup_urls, nav_instruction,
         dedup_titles=dedup_titles,
+        db_dedup_hashes=db_dedup_hashes,
     )
     print(f"[prompt] sección={args.section} días={args.days}" +
           (f" · tema='{args.theme}'" if args.theme else "") +
@@ -627,10 +957,11 @@ def main() -> int:
         full_prompt = prompt + save_instruction
         ok = copy_to_clipboard(full_prompt)
         if ok:
-            print("[clipboard] ✓ Prompt copiado al portapapeles.")
+            print("[clipboard] Prompt copiado al portapapeles.")
             print(f"[clipboard] Gemini guardará el resultado en: {out_path}")
+            print("[clipboard] Dedup DB recording requires --no-clipboard (headless) mode.")
         else:
-            print("[clipboard] ✗ No pude copiar. Imprimiendo prompt:\n")
+            print("[clipboard] No pude copiar. Imprimiendo prompt:\n")
             print(full_prompt)
         return 0
 
@@ -638,9 +969,9 @@ def main() -> int:
     NEWS_DIR.mkdir(parents=True, exist_ok=True)
     out_path = section_output_path(cfg, date_str)
 
-    print(f"[gemini] Generando con {args.model} (timeout {GEMINI_TIMEOUT_SEC}s)…")
+    print(f"[gemini] Generando con {args.model} (timeout {GEMINI_TIMEOUT_SEC}s)...")
     print(f"[gemini] Output → {out_path}")
-    ok, reason = call_gemini(prompt, out_path, args.model)
+    ok, reason, raw_stdout = call_gemini(prompt, out_path, args.model)
 
     if not ok:
         print(f"[error] {reason}")
@@ -655,6 +986,36 @@ def main() -> int:
 
     print(f"[ok] HTML válido — {len(html):,} chars  ({reason})")
 
+    # ── Parse model's JSON article array ──────────────────────────────────────
+    articles_from_model = extract_json_articles(raw_stdout)
+    if articles_from_model:
+        print(f"[articles] Modelo emitió {len(articles_from_model)} artículos en JSON")
+    else:
+        # Fallback: build minimal article dicts from URLs/titles extracted from HTML
+        # so we can still record something to the DB even when the model skips the JSON.
+        fallback_urls = extract_article_urls(html)
+        fallback_titles = extract_article_titles(html)
+        articles_from_model = [
+            {"title": t, "url": u}
+            for t, u in zip(fallback_titles, fallback_urls)
+        ]
+        if articles_from_model:
+            print(f"[articles] Fallback: {len(articles_from_model)} artículos extraídos del HTML")
+
+    # ── SQLite: filter duplicates + record published articles ─────────────────
+    if not args.no_dedup and articles_from_model:
+        with open_db() as conn:
+            fresh_articles, dropped_count = filter_candidates_with_db(
+                conn, articles_from_model, days=30
+            )
+            print(f"[dedup-db]    {dropped_count} artículos descartados como duplicados "
+                  f"({len(fresh_articles)} frescos registrados en DB)")
+            inserted = record_articles(conn, fresh_articles)
+            print(f"[dedup-db]    {inserted} artículos insertados en news_history.db")
+    elif args.no_dedup and articles_from_model:
+        print("[dedup-db]    Saltando DB (--no-dedup activo)")
+
+    # ── Audit flags ───────────────────────────────────────────────────────────
     flags = extract_audit_flags(html)
     if flags:
         flag_file = write_audit_flags_file(flags)

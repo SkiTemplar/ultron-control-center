@@ -707,19 +707,24 @@ function NewAgentModal({
   );
 }
 
+type VaultedAgent = { name: string; description: string };
+
 export function Agents() {
   const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [vaulted, setVaulted] = useState<VaultedAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [showNew, setShowNew] = useState(false);
-  // "Quarantined" filter pill — when active, only agents with a non-allow
-  // security decision are shown. Off by default (we don't want to hide
-  // the bulk of the tab on first paint).
   const [onlyQuarantined, setOnlyQuarantined] = useState(false);
+  const [showVault, setShowVault] = useState(false);
+  const [vaultBusy, setVaultBusy] = useState<string | null>(null);
 
   function reload(): Promise<AgentInfo[]> {
+    void invoke<VaultedAgent[]>("list_vaulted_agents")
+      .then((vlist) => setVaulted(vlist))
+      .catch(() => setVaulted([]));
     return invoke<AgentInfo[]>("list_agents")
       .then((list) => {
         setAgents(list);
@@ -730,6 +735,18 @@ export function Agents() {
         setError(String(e));
         return [] as AgentInfo[];
       });
+  }
+
+  async function restoreFromVault(name: string) {
+    setVaultBusy(name);
+    try {
+      await invoke("restore_agent_from_vault", { name });
+      await reload();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setVaultBusy(null);
+    }
   }
 
   useEffect(() => {
@@ -826,6 +843,13 @@ export function Agents() {
               active={onlyQuarantined}
               onClick={() => setOnlyQuarantined(!onlyQuarantined)}
             />
+            <Pill
+              label="Vault"
+              count={vaulted.length}
+              color="#7c83ff"
+              active={showVault}
+              onClick={() => setShowVault(!showVault)}
+            />
           </div>
         </header>
         <div className="flex-1 overflow-auto px-2 py-2">
@@ -871,6 +895,45 @@ export function Agents() {
               />
             ))}
           </div>
+          {showVault && (
+            <div className="mt-4 border-t pt-3" style={{ borderColor: "var(--color-border)" }}>
+              <div className="px-3 pb-2 text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
+                Vaulted ({vaulted.length}) — not auto-loaded by Claude
+              </div>
+              {vaulted.length === 0 && (
+                <div className="px-3 py-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+                  Nothing in the vault. Use the "Vault" button in an agent's detail pane to demote it here.
+                </div>
+              )}
+              {vaulted.map((v) => (
+                <div
+                  key={v.name}
+                  className="flex items-center justify-between gap-2 rounded px-3 py-2 text-[12px]"
+                  style={{ background: "var(--color-surface-2)" }}
+                >
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{v.name}</div>
+                    <div className="truncate text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+                      {v.description || "(no description)"}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={vaultBusy === v.name}
+                    onClick={() => void restoreFromVault(v.name)}
+                    className="shrink-0 rounded px-2 py-0.5 text-[11px]"
+                    style={{
+                      background: "var(--color-accent)",
+                      color: "var(--color-accent-text)",
+                      opacity: vaultBusy === v.name ? 0.5 : 1,
+                    }}
+                  >
+                    {vaultBusy === v.name ? "…" : "Restore"}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           {!loading && agents.length > 0 && (
             <div
               className="mt-3 px-3 py-2 text-[10.5px]"

@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.14 -->
+## v15.4.14 — 2026-05-17
+
+- feat(v15.4.14): Send to Vault + 3 new ULTRON agents
+
+_Auto-generated from 796c24c0 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.13 -->
 ## v15.4.13 — 2026-05-17
 
