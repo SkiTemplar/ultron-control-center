@@ -101,7 +101,7 @@ function Row({
 }
 
 type PreviewMode = "view" | "edit" | "ai-edit" | "confirm-delete" | "security";
-type ViewKind = "rich" | "raw";
+// v15.4.8 — ViewKind retired (rich is the only mode).
 
 function Preview({
   skill,
@@ -119,7 +119,7 @@ function Preview({
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [mode, setMode] = useState<PreviewMode>("view");
-  const [view, setView] = useState<ViewKind>("rich");
+  // v15.4.8 — view state retired; rich is the only mode.
   const [aiInstruction, setAiInstruction] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
   // Security drawer state. The reason textarea + submit button now live
@@ -322,25 +322,10 @@ function Preview({
           <div className="ml-auto flex items-center gap-1.5">
             {mode === "view" && (
               <>
-                <div
-                  className="flex items-center overflow-hidden rounded text-[10.5px]"
-                  style={{ border: "1px solid var(--color-border-strong)" }}
-                >
-                  {(["rich", "raw"] as const).map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={() => setView(v)}
-                      className="px-2 py-1 uppercase tracking-wide"
-                      style={{
-                        background: view === v ? "var(--color-surface-3)" : "transparent",
-                        color: view === v ? "var(--color-text)" : "var(--color-text-tertiary)",
-                      }}
-                    >
-                      {v}
-                    </button>
-                  ))}
-                </div>
+                {/* v15.4.8 — rich/raw toggle retired. Rich is the only
+                    view; raw was a fallback nobody used and the dual
+                    paths created edge cases. The previewer always
+                    renders Markdown via SkillRichView now. */}
                 <HeaderBtn
                   label="Folder"
                   onClick={() => void handleOpenFolder()}
@@ -560,7 +545,8 @@ function Preview({
             }}
           />
         )}
-        {!loading && mode !== "edit" && view === "rich" && (
+        {/* v15.4.8 — single Markdown view (rich-only). Raw was dropped. */}
+        {!loading && mode !== "edit" && (
           <div
             style={{
               opacity: mode === "security" ? 0.35 : 1,
@@ -571,20 +557,6 @@ function Preview({
           >
             <SkillRichView raw={content} />
           </div>
-        )}
-        {!loading && mode !== "edit" && view === "raw" && (
-          <pre
-            className="whitespace-pre-wrap text-[11.5px] leading-relaxed"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--color-text-secondary)",
-              opacity: mode === "security" ? 0.35 : 1,
-              filter: mode === "security" ? "grayscale(0.7)" : "none",
-              pointerEvents: mode === "security" ? "none" : "auto",
-            }}
-          >
-            {content}
-          </pre>
         )}
       </div>
     </div>
