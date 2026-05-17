@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "control-center"
-version = "15.5.9"
+version = "15.5.10"
 dependencies = [
  "dirs 5.0.1",
  "once_cell",

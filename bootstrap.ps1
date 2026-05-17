@@ -56,7 +56,9 @@ $tag = $release.tag_name
 Write-Step "Latest tag: $tag"
 
 $expectedZip = "ultron-system-$tag.zip"
-$installerPattern = "^ULTRON Control Center_.*_x64-setup\.exe$"
+# Match both legacy (space-separated) and the current tauri-action
+# output (dot-separated: "ULTRON.Control.Center_*_x64-setup.exe").
+$installerPattern = "^ULTRON[ .]Control[ .]Center_.*_x64-setup\.exe$"
 
 # Strict matching: bind the ZIP name to the tag, require exactly one
 # installer match. Wildcards used to accept stale duplicates / spoofed

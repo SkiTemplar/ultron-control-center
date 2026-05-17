@@ -392,10 +392,26 @@ def dispatch(prompt: str, budget_left_ms_fn=None) -> str:
         return ""
 
 
+_SHORT_ACK_RE = re.compile(
+    r"^(si|sí|ok|vale|dale|yes|continua|continúa|continue|sigue|adelante|gracias|thx|thanks|nope|no|venga|listo)\.?$",
+    re.IGNORECASE,
+)
+
+
 def _dispatch_unsafe(prompt: str, budget_left_ms_fn) -> str:
     """Inner dispatch implementation — may raise. Callers must catch."""
     # Step 1 — Slash command short-circuit
     if prompt.lstrip().startswith("/"):
+        return ""
+    # Kirkardo R6 #4: short-prompt short-circuit. 231 / 1088 unmatched
+    # prompts in the last 2k events were 1-word acknowledgements
+    # ("si", "ok", "continua", "sigue") that no rule should match by
+    # design. Currently they go through the full pipeline and bloat the
+    # source=none bucket, dragging the real match rate from ~30% to ~17%.
+    # Skip dispatch entirely for prompts under 8 chars OR matching the
+    # known-ack set.
+    stripped = prompt.strip()
+    if len(stripped) < 8 or _SHORT_ACK_RE.match(stripped):
         return ""
 
     if budget_left_ms_fn() < 5:

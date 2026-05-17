@@ -80,7 +80,7 @@
 6. [Arquitectura](#arquitectura)
 7. [Personalizar](#personalizar)
 8. [Stack tecnico](#stack-tecnico)
-9. [Roadmap](#roadmap)
+9. [Notas de release](#notas-de-release)
 10. [Contribuir](#contribuir)
 11. [Origen y atribucion](#origen-y-atribucion)
 12. [Licencia](#licencia)
@@ -187,7 +187,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > La URL de arriba apunta a lo que haya en `main` *ahora mismo*. Si quieres una
 > install reproducible fijada a una release concreta, usa el tag:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.9/bootstrap.ps1 | iex
 > ```
 > La release tambien adjunta `ultron-system-<tag>.zip.sha256` para verificar la
 > integridad del ZIP despues de descargarlo.
@@ -226,7 +226,7 @@ Que hace `bootstrap.sh`:
 Las releases Linux adjuntan `ultron-control-center_<ver>_amd64.deb` y `ULTRON Control Center_<ver>_amd64.AppImage` junto a los instaladores Windows. Fija una release concreta igual que en Windows:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.9/bootstrap.sh | bash
 ```
 
 `install.sh` puede invocar `sudo` para el paso del package manager; el resto es per-user. Si se detecta WSL, avisa y recomienda usar la ruta Windows nativa en su lugar.
@@ -396,7 +396,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ## Notas de release
 
-Stable actual: **[v15.5.0](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.0)** — primer release Linux. Añade `.deb` + `.AppImage`, `bootstrap.sh` + `install.sh`, CI matrix en `ubuntu-22.04`, cfg gates Rust para que los modulos Windows-only (inventario registry, NSIS uninstaller, lifecycle PowerShell) compilen limpio en Linux. La build Linux esta **sin verificar** end-to-end — buscamos testers.
+Stable actual: **[v15.5.9](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.9)** — release Linux con barrido completo de cfg gates. Adjunta `.deb` + `.rpm` + `.AppImage` junto a los instaladores Windows NSIS / MSI, matriz CI en `ubuntu-22.04`, `#[cfg(target_os)]` Rust en cada modulo Windows-only para que la build Tauri sea limpia en ambas plataformas. La build Linux sigue **sin verificar end-to-end** por el autor — buscamos testers, abre un issue si la pruebas.
 
 Stable anterior: **v15.4.21** — panel Vault para skills + agents, news pipeline con dedup SQLite, auto-recall del vault layer surfaceando hints `[VAULT·SKILL·N%]`, search en pestaña hooks, 8 reglas nuevas en intent-dispatcher desde telemetria real, 4 ciclos de fixes Codex + Gemini + Kirkardo aplicados.
 

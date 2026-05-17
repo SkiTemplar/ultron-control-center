@@ -58,6 +58,8 @@ def recent_commits(root: Path) -> list[tuple[str, str]]:
                 "--pretty=format:%H%x09%s",
             ],
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
@@ -96,6 +98,9 @@ def collect_section_commits(root: Path, version: str, anchor_sha: str) -> list[s
     # We intentionally don't walk all of git history — the user can edit
     # CHANGELOG.md by hand for deeper releases.
     try:
+        # Explicit utf-8: on Windows, text=True defaults to cp1252 which
+        # mangles em-dashes / unicode in commit subjects (mojibake `â€"`
+        # in the rendered CHANGELOG).
         out = subprocess.check_output(
             [
                 "git",
@@ -107,6 +112,8 @@ def collect_section_commits(root: Path, version: str, anchor_sha: str) -> list[s
                 anchor_sha,
             ],
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
         )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):

@@ -357,4 +357,32 @@ rules:
     skill: "ultron"
     confidence: 0.85
 
+  # ── v15.5.10: Kirkardo R6 #4 — top unmatched clusters ──────────────────────
+
+  # Git ops — 13 unmatched hits in last window
+  - id: git-ops
+    match: "\\b(?:haz |hacer )?(?:un )?git\\s+(?:commit|push|pull|rebase|stash|merge|cherry.?pick|amend)\\b|\\b(?:commit y push|quita la desc(?:ripci[o\xf3]n)? del commit)\\b"
+    skill: "commit-commands:commit"
+    confidence: 0.90
+
+  # ULTRON state questions — 69 unmatched hits
+  - id: ultron-state-query
+    match: "\\b(?:qu[e\xe9] falta|c[o\xf3]mo va el sistema|verifica (?:que|todo)|est[a\xe1] funcional|dame (?:lo que )?recomiend|dame diagn[o\xf3]stico|estado (?:del|de) ultron)\\b"
+    skill: "ultron"
+    suggest_mode: "MEDIUM"
+    confidence: 0.85
+
+  # Plan / spec / roadmap — 50 unmatched, current architect rule too narrow
+  - id: plan-loose
+    match: "\\bplan(?:ifica|ear|ifico)?\\s+(?:para |de |del )?\\w+|\\b(?:estrategia|roadmap|behaviour tree|behavior tree|spec para)\\b"
+    skill: "agent-skills:plan"
+    suggest_mode: "MEDIUM"
+    confidence: 0.80
+
+  # Memory / vault / sync — 34 unmatched
+  - id: memory-vault-ops
+    match: "\\b(?:limpi[ao]s? la memoria|vault deprecado|skills no sincronizan|memory.sync|memoria.sync|recall (?:no )?funciona)\\b"
+    skill: "ultron"
+    confidence: 0.80
+
 

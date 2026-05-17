@@ -106,7 +106,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------------------------------------------------
 # Constants and state
 # ----------------------------------------------------------------------
-$Script:VersionFallback = "v15.5.9"
+$Script:VersionFallback = "v15.5.10"
 $Script:RepoRoot        = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
 $Script:Warnings        = New-Object System.Collections.Generic.List[string]
 $Script:Errors          = New-Object System.Collections.Generic.List[string]
@@ -640,111 +640,17 @@ function Test-OrInstall-Rust {
 }
 
 # ----------------------------------------------------------------------
-# Step 4: Docker Desktop (optional, but auto-install offered)
-# ----------------------------------------------------------------------
-function Test-Docker {
-    Write-Step "4. Docker Desktop"
-    if ($NoDocker) { Write-Skip "skipped via -NoDocker"; return $false }
-
-    if (Get-Command "docker" -ErrorAction SilentlyContinue) {
-        try {
-            $ver = (& docker --version 2>$null)
-            Write-OK ("docker " + $ver)
-            # Probe daemon
-            $null = & docker info 2>$null
-            if ($LASTEXITCODE -eq 0) {
-                Write-OK "docker daemon responsive"
-                return $true
-            } else {
-                Write-Warn2 "docker installed but daemon not running. Start Docker Desktop."
-                return $false
-            }
-        } catch {
-            Write-Warn2 ("docker --version failed: " + $_.Exception.Message)
-            return $false
-        }
-    }
-
-    Write-Warn2 "Docker not installed. Qdrant (semantic recall) needs it."
-    $installed = Install-WingetPackage -PackageId "Docker.DockerDesktop" -FriendlyName "Docker Desktop" -ProbeCmd "docker"
-    if (-not $installed) {
-        Write-Warn2 "Docker install skipped or failed. Qdrant will be skipped."
-        $cont = Confirm-YesNo -Question "Continue without Qdrant?" -Default $true
-        if (-not $cont) {
-            Write-Info "Install Docker Desktop and re-run."
-            exit 3
-        }
-        return $false
-    }
-
-    Update-SessionPath
-    Write-Info ""
-    Write-Info "  ====== Docker Desktop installed ======"
-    Write-Info "  IMPORTANT: Docker Desktop does NOT auto-start after install."
-    Write-Info "  You must:"
-    Write-Info "    1. Launch 'Docker Desktop' from the Start menu (first run"
-    Write-Info "       prompts to accept terms + may require a reboot)."
-    Write-Info "    2. Wait until the system tray whale icon stops animating."
-    Write-Info "    3. Re-run this installer to set up Qdrant (or run"
-    Write-Info "       'docker run -d --name qdrant ...' from INSTALL.md)."
-    Write-Info ""
-
-    if (Get-Command "docker" -ErrorAction SilentlyContinue) {
-        $null = & docker info 2>$null
-        if ($LASTEXITCODE -eq 0) {
-            Write-OK "docker daemon responsive — proceeding with Qdrant setup"
-            return $true
-        }
-    }
-    Write-Skip "Docker installed but daemon not running yet — Qdrant will be skipped this run."
-    return $false
-}
-
-# ----------------------------------------------------------------------
-# Step 5: Qdrant (if Docker available)
-# ----------------------------------------------------------------------
-function Initialize-Qdrant {
-    param([bool]$DockerOK)
-    Write-Step "5. Qdrant vector store"
-    if (-not $DockerOK) { Write-Skip "Docker not available"; return }
-
-    try {
-        Write-V "docker pull qdrant/qdrant:latest"
-        & docker pull qdrant/qdrant:latest 2>&1 | ForEach-Object { Write-V $_ }
-        if ($LASTEXITCODE -ne 0) { Write-Warn2 "docker pull qdrant failed (continuing)"; return }
-
-        $existing = & docker ps -a --filter "name=^qdrant$" --format "{{.Names}}" 2>$null
-        if ($existing -eq "qdrant") {
-            Write-OK "qdrant container already exists"
-            $running = & docker ps --filter "name=^qdrant$" --format "{{.Names}}" 2>$null
-            if ($running -ne "qdrant") {
-                Write-V "qdrant exists but stopped - starting"
-                & docker start qdrant 2>&1 | ForEach-Object { Write-V $_ }
-            }
-        } else {
-            $dataDir = Join-Path $env:USERPROFILE ".ultron\qdrant-data"
-            if (-not (Test-Path -LiteralPath $dataDir)) {
-                New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-            }
-            Write-V ("docker run -d --name qdrant -p 6333:6333 -v " + $dataDir + ":/qdrant/storage qdrant/qdrant")
-            & docker run -d --name qdrant -p 6333:6333 -v "${dataDir}:/qdrant/storage" qdrant/qdrant 2>&1 | ForEach-Object { Write-V $_ }
-            if ($LASTEXITCODE -ne 0) { Write-Warn2 "docker run qdrant failed"; return }
-            Write-OK "qdrant container started"
-        }
-
-        # Healthcheck (poll briefly)
-        Start-Sleep -Seconds 2
-        try {
-            $resp = Invoke-WebRequest -Uri "http://localhost:6333/healthz" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-            if ($resp.StatusCode -eq 200) { Write-OK "qdrant /healthz 200" }
-            else                          { Write-Warn2 "qdrant /healthz $($resp.StatusCode)" }
-        } catch {
-            Write-Warn2 ("qdrant healthcheck failed: " + $_.Exception.Message)
-        }
-    } catch {
-        Write-Warn2 ("Qdrant step failed: " + $_.Exception.Message)
-    }
-}
+# (Removed v15.5.10 / Kirkardo R6 #2)
+#
+# The Test-Docker + Initialize-Qdrant functions used to provision Qdrant
+# via Docker Desktop. They have been replaced by Install-QdrantNative
+# (below) since v15.0.2, which downloads the native Windows binary
+# straight from qdrant/qdrant releases — no daemon, no container.
+#
+# The dead Docker functions were still defined in this script even though
+# the main flow never called them, which confused contributors reading
+# the source ("does ULTRON depend on Docker?"). Deleted in v15.5.10.
+# The -NoDocker flag is kept as a historical alias for "skip Qdrant".
 
 # ----------------------------------------------------------------------
 # Step 4 (new): Qdrant native Windows binary (no Docker)

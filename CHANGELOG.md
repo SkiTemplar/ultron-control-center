@@ -1,9 +1,17 @@
 # Changelog
 
+<!-- v15.5.9 -->
+## v15.5.9 — 2026-05-17
+
+- fix(v15.5.9): wave 5 closing — final platform gates + prompt cleanup + tag immutability
+
+_Auto-generated from b9312963 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.8 -->
 ## v15.5.8 — 2026-05-17
 
-- fix(v15.5.8): wave 4 â€” Linux runtime gates + version unify + identifier + placeholders
+- fix(v15.5.8): wave 4 — Linux runtime gates + version unify + identifier + placeholders
 
 _Auto-generated from 54738538 by scripts/hooks/auto-changelog.py_
 
@@ -11,7 +19,7 @@ _Auto-generated from 54738538 by scripts/hooks/auto-changelog.py_
 <!-- v15.5.7 -->
 ## v15.5.7 — 2026-05-17
 
-- fix(v15.5.7): wave 3 â€” 5 cross-axis fixes from kirkardo round 2
+- fix(v15.5.7): wave 3 — 5 cross-axis fixes from kirkardo round 2
 
 _Auto-generated from 97cb27fd by scripts/hooks/auto-changelog.py_
 
@@ -27,7 +35,7 @@ _Auto-generated from 61c8a0aa by scripts/hooks/auto-changelog.py_
 <!-- v15.5.5 -->
 ## v15.5.5 — 2026-05-17
 
-- fix(v15.5.5): 5-kirkardo integration wave 1 â€” 13 high-signal fixes
+- fix(v15.5.5): 5-kirkardo integration wave 1 — 13 high-signal fixes
 
 _Auto-generated from 6486ccee by scripts/hooks/auto-changelog.py_
 
@@ -35,7 +43,7 @@ _Auto-generated from 6486ccee by scripts/hooks/auto-changelog.py_
 <!-- v15.5.4 -->
 ## v15.5.4 — 2026-05-17
 
-- fix(v15.5.4): Linux release build â€” add libayatana-appindicator3-dev + libfuse2
+- fix(v15.5.4): Linux release build — add libayatana-appindicator3-dev + libfuse2
 
 _Auto-generated from 8a37f678 by scripts/hooks/auto-changelog.py_
 
@@ -43,7 +51,7 @@ _Auto-generated from 8a37f678 by scripts/hooks/auto-changelog.py_
 <!-- v15.5.3 -->
 ## v15.5.3 — 2026-05-17
 
-- fix(v15.5.3): Kirkardo 2 CRITICAL â€” Linux install was broken end-to-end
+- fix(v15.5.3): Kirkardo 2 CRITICAL — Linux install was broken end-to-end
 
 _Auto-generated from 6374fdf5 by scripts/hooks/auto-changelog.py_
 
@@ -141,7 +149,7 @@ _Auto-generated from 1aaea559 by scripts/hooks/auto-changelog.py_
 <!-- v15.4.20 -->
 ## v15.4.20 — 2026-05-17
 
-- fix(v15.4.20): kill running app before any build â€” no more "Acceso denegado"
+- fix(v15.4.20): kill running app before any build — no more "Acceso denegado"
 
 _Auto-generated from de30c846 by scripts/hooks/auto-changelog.py_
 
@@ -149,7 +157,7 @@ _Auto-generated from de30c846 by scripts/hooks/auto-changelog.py_
 <!-- v15.4.19 -->
 ## v15.4.19 — 2026-05-17
 
-- feat(v15.4.19): final polish â€” session icon fix + GitHub project files
+- feat(v15.4.19): final polish — session icon fix + GitHub project files
 
 _Auto-generated from 7460f9d1 by scripts/hooks/auto-changelog.py_
 

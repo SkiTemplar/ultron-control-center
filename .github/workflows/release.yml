@@ -111,6 +111,7 @@ jobs:
             "bootstrap.ps1",
             "bootstrap.sh",
             "uninstall.ps1",
+            "uninstall.sh",
             "README.md",
             "README.es.md",
             "CHANGELOG.md",
@@ -121,7 +122,6 @@ jobs:
             "agents",
             "config",
             "docs",
-            "schedules",
             "cockpit",
             "templates"
           )
