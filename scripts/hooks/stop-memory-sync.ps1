@@ -133,6 +133,11 @@ $phaseAScripts = @(
     # best-effort guarantees as embed_vault. Cold path with model already
     # warm from embed_vault: ~30s for first run, <1s incremental.
     @{ Name = 'embed_skills';             Script = "$cockpit\embed_skills.py";             Args = @('index') }
+    # v15.3.5: parallel sync for the agents catalog (~25-50 .md files under
+    # ~/.claude/agents). Same model already warm from embed_skills, so
+    # incremental cost is ~50-100ms. Required for the auto-recall agent
+    # suggestion path (semantic match against ultron_agents collection).
+    @{ Name = 'embed_agents';             Script = "$cockpit\embed_agents.py";             Args = @('index') }
     # v15.0b WS6: regenerate the unified skills registry (~/.ultron/skills/registry.json)
     # from live disk state (active 46 + vault 334 + plugin) — SSOT go-forward. Cheap (~1s).
     @{ Name = 'skill_vault_registry';     Script = "$cockpit\skill_vault.py";              Args = @('registry') }
@@ -171,7 +176,7 @@ if ($phaseAJobs.Count -gt 0) {
     # Scripts that report a structured `qdrant_unreachable` field in stdout
     # when Qdrant is down. We surface that as a distinct log status so the
     # silent-desync class of bug stays visible.
-    $qdrantSensitive = @('embed_vault', 'embed_skills')
+    $qdrantSensitive = @('embed_vault', 'embed_skills', 'embed_agents')
     foreach ($entry in $phaseAJobs) {
         $j = $entry.Job
         if ($j.State -eq 'Completed') {

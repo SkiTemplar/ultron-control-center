@@ -56,6 +56,7 @@ SESSIONS_DIR = ULTRON_DIR / "sessions"
 ARCHIVE_DIR = ULTRON_DIR / "archive"  # cold but searchable: deferred plans, retired sessions
 CLAUDE_SKILLS_DIR = Path.home() / ".claude" / "skills"
 VAULT_SKILLS_DIR = ULTRON_DIR / "skill-vault"  # v15.0b: skills fuera del contexto, pero indexables para recall
+CLAUDE_AGENTS_DIR = Path.home() / ".claude" / "agents"  # v15.3.5: subagent catalog (parallel to skills)
 
 INDEX_DIR = ULTRON_DIR / "brain_index"
 INDEX_PATH = INDEX_DIR / "index.db"
@@ -145,6 +146,16 @@ CREATE INDEX IF NOT EXISTS idx_links_dst      ON links(dst_path);
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
+);
+
+-- v15.3.5: subagent catalog mirror. Lives alongside notes_fts so a single
+-- SQLite open serves both vault recall and agent auto-suggest. Schema is
+-- agent-specific (name + description + body excerpt + path + model + tools)
+-- to keep BM25 ranked purely against agent-relevant text. Re-populated
+-- on every `brain_index update` by `_rebuild_agents_fts` (idempotent).
+CREATE VIRTUAL TABLE IF NOT EXISTS agents_fts USING fts5(
+    name, description, body, model, tools, path UNINDEXED,
+    tokenize='unicode61 remove_diacritics 2'
 );
 """
 
@@ -562,6 +573,17 @@ def open_db() -> sqlite3.Connection:
         conn.commit()
     except sqlite3.OperationalError:
         pass  # already exists
+    # v15.3.5: ensure agents_fts exists (for DBs created before agent wiring)
+    try:
+        conn.executescript("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS agents_fts USING fts5(
+                name, description, body, model, tools, path UNINDEXED,
+                tokenize='unicode61 remove_diacritics 2'
+            );
+        """)
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # already exists
     return conn
 
 
@@ -758,6 +780,103 @@ def prune_missing(conn: sqlite3.Connection,
     return len(drop_ids)
 
 
+# ── v15.3.5: agents_fts repopulation ─────────────────────────────────────────
+
+_AGENT_FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
+
+
+def _parse_agent_md(path: Path) -> dict | None:
+    """Read an agent .md → {name, description, body, model, tools, path}.
+
+    Defensive: returns None on read error or missing description (which is the
+    only field the harness actually requires to surface an agent). Mirrors
+    embed_agents.extract_agent_meta but stays pure-stdlib so brain_index has
+    no new dependencies.
+    """
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    m = _AGENT_FM_RE.match(text)
+    if not m:
+        return None
+    fm_text, body = m.group(1), m.group(2)
+    # Pure stdlib mini-YAML — only what we need (key: value, scalar fields).
+    fm: dict[str, str] = {}
+    current_key: str | None = None
+    multiline_buf: list[str] = []
+    for line in fm_text.splitlines():
+        if not line.strip():
+            continue
+        if line.startswith(" ") or line.startswith("\t"):
+            if current_key:
+                multiline_buf.append(line.strip())
+            continue
+        if current_key and multiline_buf:
+            fm[current_key] = " ".join(multiline_buf)
+            multiline_buf = []
+        if ":" not in line:
+            continue
+        key, _, value = line.partition(":")
+        value = value.strip()
+        if value in (">", "|"):
+            current_key = key.strip()
+        else:
+            current_key = None
+            fm[key.strip()] = value.strip().strip('"').strip("'")
+    if current_key and multiline_buf:
+        fm[current_key] = " ".join(multiline_buf)
+
+    name = (fm.get("name") or path.stem).strip()
+    description = (fm.get("description") or "").strip()
+    if not description:
+        return None
+    return {
+        "name": name,
+        "description": description[:6000],
+        "body": body.strip()[:1500],
+        "model": (fm.get("model") or "").strip(),
+        "tools": (fm.get("tools") or "").strip(),
+        "path": str(path),
+    }
+
+
+def _rebuild_agents_fts(conn: sqlite3.Connection) -> tuple[int, int]:
+    """Full rebuild of agents_fts from ~/.claude/agents/*.md. (indexed, skipped).
+
+    Idempotent. Agents catalog is small (~25-50 files) and cheap to fully
+    rewrite each update — keeps the sync logic dead simple vs incremental
+    SHA tracking (which embed_agents already does for Qdrant).
+    """
+    if not CLAUDE_AGENTS_DIR.exists():
+        return 0, 0
+    try:
+        conn.execute("DELETE FROM agents_fts")
+    except sqlite3.OperationalError:
+        return 0, 0
+    indexed = skipped = 0
+    rows: list[tuple] = []
+    for md in sorted(CLAUDE_AGENTS_DIR.glob("*.md")):
+        if md.name.startswith("."):
+            continue
+        meta = _parse_agent_md(md)
+        if meta is None:
+            skipped += 1
+            continue
+        rows.append((
+            meta["name"], meta["description"], meta["body"],
+            meta["model"], meta["tools"], meta["path"],
+        ))
+        indexed += 1
+    if rows:
+        conn.executemany(
+            "INSERT INTO agents_fts(name, description, body, model, tools, path) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            rows,
+        )
+    return indexed, skipped
+
+
 def cmd_build(_args) -> int:
     """Full rebuild — wipes the FTS5 + notes data, but PRESERVES decay_state
     so manual `ultron decay verify` history doesn't get wiped on rebuild.
@@ -847,6 +966,11 @@ def cmd_update(_args) -> int:
                 else:
                     updated += 1
             pruned = prune_missing(conn, valid_sources=sources)
+            # v15.3.5: refresh agents_fts (cheap full rebuild — ~25-50 files).
+            try:
+                agents_indexed, agents_skipped = _rebuild_agents_fts(conn)
+            except sqlite3.OperationalError:
+                agents_indexed, agents_skipped = 0, 0
             conn.execute(
                 "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
                 ("last_updated", datetime.now().isoformat()),
@@ -855,6 +979,7 @@ def cmd_update(_args) -> int:
         conn.close()
     print(f"[brain_index] inserted={inserted} updated={updated} "
            f"unchanged={unchanged} pruned={pruned}")
+    print(f"[brain_index] agents indexed={agents_indexed} skipped={agents_skipped}")
     print(f"[brain_index] index → {INDEX_PATH}")
     return 0
 
@@ -889,6 +1014,8 @@ def cmd_query(args) -> int:
 
         if mode == "chunks":
             return _cmd_query_chunks(conn, args, fts_query)
+        if mode == "agents":
+            return _cmd_query_agents(conn, args, fts_query)
 
         # ── mode=notes (default, back-compat) ──
         where = []
@@ -972,6 +1099,37 @@ def _cmd_query_chunks(conn: sqlite3.Connection, args, fts_query: str) -> int:
     return 0
 
 
+def _cmd_query_agents(conn: sqlite3.Connection, args, fts_query: str) -> int:
+    """Execute a --mode agents query against agents_fts.
+
+    JSON shape mirrors the other modes for parity with `ultron recall`:
+    {"query": str, "mode": "agents", "matches": int, "results": [...]}
+    """
+    top_k = getattr(args, "top", None) or 5
+    try:
+        sql = (
+            "SELECT name, snippet(agents_fts, 1, '', '', '…', 12) AS snippet, "
+            "bm25(agents_fts) AS rank, path, model, tools "
+            "FROM agents_fts WHERE agents_fts MATCH ? "
+            "ORDER BY rank LIMIT ?"
+        )
+        rows = conn.execute(sql, (fts_query, top_k)).fetchall()
+    except sqlite3.OperationalError as e:
+        print(json.dumps({"error": str(e), "query": fts_query, "mode": "agents"}, indent=2))
+        return 1
+    out = [
+        {
+            "name": r[0], "snippet": r[1] or "", "rank": round(r[2], 3),
+            "path": r[3], "model": r[4] or "", "tools": r[5] or "",
+        }
+        for r in rows
+    ]
+    print(json.dumps({"query": fts_query, "mode": "agents", "matches": len(out),
+                       "results": out},
+                       indent=2, ensure_ascii=False))
+    return 0
+
+
 def cmd_stats(_args) -> int:
     if not INDEX_PATH.exists():
         print("[error] Index not built — run: brain_index.py build", file=sys.stderr)
@@ -994,6 +1152,12 @@ def cmd_stats(_args) -> int:
         ).fetchone()[0]
         last = conn.execute(
             "SELECT value FROM meta WHERE key='last_updated'").fetchone()
+        # v15.3.5: agents count (fail-soft — agents_fts may not exist yet)
+        agents_total = 0
+        try:
+            agents_total = conn.execute("SELECT COUNT(*) FROM agents_fts").fetchone()[0]
+        except sqlite3.OperationalError:
+            pass
         # S2-A: chunk + token stats (fail-soft — chunks_fts may not exist yet)
         total_chunks = 0
         total_tokens = 0
@@ -1036,6 +1200,7 @@ def cmd_stats(_args) -> int:
     print()
     print(f"  Total links:    {link_count}")
     print(f"  Broken wikilinks (target not in index): {broken}")
+    print(f"  Agents indexed: {agents_total}")
     print()
     print("  S2-A Chunk stats:")
     print(f"    total_chunks:           {total_chunks}")
@@ -1097,8 +1262,8 @@ def main() -> int:
     sp.add_argument("--domain", help="Filter: cpp-ue5 | opengl | claude-platform | gamedev-engineer | …")
     sp.add_argument("--top", "--limit", type=int, default=None, dest="top",
                     help="Top-K (default: 8 for --mode notes, 5 for --mode chunks). --limit accepted as alias.")
-    sp.add_argument("--mode", choices=["notes", "chunks"], default="notes",
-                    help="Query mode: notes (default, back-compat) | chunks (S2-A chunk-level BM25)")
+    sp.add_argument("--mode", choices=["notes", "chunks", "agents"], default="notes",
+                    help="Query mode: notes (default, back-compat) | chunks (S2-A chunk-level BM25) | agents (v15.3.5 agent catalog BM25)")
     sp.set_defaults(func=cmd_query)
 
     sub.add_parser("stats", help="Index counts + health").set_defaults(

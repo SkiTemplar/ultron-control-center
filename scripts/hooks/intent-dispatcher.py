@@ -473,6 +473,70 @@ def _dispatch_unsafe(prompt: str, budget_left_ms_fn) -> str:
     return ""
 
 
+# ── v15.3.5: agent auto-suggest (additive, budget-gated) ──────────────────────
+
+# Independent budget for the agent suggestion path. The 40ms hook-wide budget
+# (DEADLINE_MS) is reserved for the routing pipeline; agent suggestion adds a
+# net new SQLite open + BM25 query that needs its own ms allowance. Empirically
+# the agent FTS5 path completes in ~3-8ms warm, so 20ms is a safe ceiling.
+_AGENT_BUDGET_MS = 20
+
+
+def _build_agent_suggestion(prompt: str, budget_left_ms_fn=None) -> str:
+    """Return a one-line agent suggestion or empty string.
+
+    Wire-format (parallel to the routing line):
+      [ULTRON·AGENTS] Consider delegating to subagent: <name1>, <name2> | via=fts
+
+    Behaviour contract:
+      * NEVER raises — any failure returns empty string.
+      * Slash-command short-circuit — mirrors the dispatch() contract so
+        `/whatever` produces NO output (Slash commands are pure UI directives,
+        not prompts to route).
+      * Short prompts (<12 chars) → no suggestion. Same threshold as
+        auto-recall — too little signal to risk a wrong route.
+      * Honours `agent_auto_suggest` feature gate (off ⇒ empty).
+      * Uses its own _AGENT_BUDGET_MS allowance (default 20ms) — independent
+        from the dispatch budget, which is frequently exhausted on no-route
+        ZTMSI paths. The `budget_left_ms_fn` arg is accepted for backwards
+        compatibility but is no longer consulted internally.
+      * Additive: emitted as a separate line; does not modify the existing
+        routing line or context packet.
+      * FTS5-only path (sync-safe) — Qdrant lives in auto-recall.py.
+    """
+    if not prompt or prompt.lstrip().startswith("/"):
+        return ""
+    if len(prompt.strip()) < 12:
+        return ""
+    # Independent budget — see _AGENT_BUDGET_MS comment. The dispatch budget
+    # is often consumed (or even negative) by the time we reach here on
+    # no-route ZTMSI paths; agent suggestion would never run. With its own
+    # closure we can still afford the ~3-8ms FTS5 lookup.
+    agent_budget = _make_budget(_AGENT_BUDGET_MS)
+    try:
+        import agent_suggest  # type: ignore  # noqa: PLC0415 — lazy import
+        if not agent_suggest.is_enabled():
+            return ""
+        hits = agent_suggest.query_agents_fts(
+            prompt,
+            budget_left_ms_fn=agent_budget,
+        )
+    except Exception:
+        return ""
+    if not hits:
+        return ""
+    # Cap names list length: top names sorted by score desc.
+    hits = sorted(hits, key=lambda h: -h.get("score", 0.0))
+    names = [_sanitize(h.get("name", "?")) for h in hits if h.get("name")]
+    if not names:
+        return ""
+    top_score = int(round(hits[0].get("score", 0.0) * 100))
+    return (
+        f"[ULTRON·AGENTS·{top_score}%] Consider delegating to subagent: "
+        f"{', '.join(names)} | via=fts"
+    )
+
+
 # ── Context packet builder (S3-B) ─────────────────────────────────────────────
 
 def _build_context_packet(prompt: str, budget_left_ms_fn) -> str:
@@ -612,6 +676,13 @@ def main() -> None:
             conf_val = int(conf_match.group(1)) / 100.0 if conf_match else 0.0
             sys.stdout.write(result + "\n")
             sys.stdout.flush()
+            # v15.3.5: telemetry BEFORE the context packet + agent suggestion
+            # so a tight budget never starves the telemetry write. The agent
+            # path adds ~5-10ms of FTS5 work and was empirically consuming
+            # the remaining budget — moving the write up keeps the original
+            # invariant ("every successful route is logged") intact.
+            if budget() > 2:
+                _write_telemetry(prompt, route_str, conf_val, latency_ms, source_str)
             # S3-B: Context packet injection. Emitted as a second line AFTER the
             # routing line. Budget-gated (≥10ms required). Lazy import keeps
             # module load time unchanged. Any failure is silently skipped so the
@@ -621,14 +692,22 @@ def main() -> None:
                 if ctx_packet:
                     sys.stdout.write(ctx_packet + "\n")
                     sys.stdout.flush()
-            # Telemetry AFTER stdout flush so a slow disk never delays the
-            # injected context to Claude (Codex H2 fix). Also gated by remaining
-            # budget — if we're near the deadline, skip telemetry entirely.
-            if budget() > 2:
-                _write_telemetry(prompt, route_str, conf_val, latency_ms, source_str)
+            # v15.3.5: agent auto-suggest line. Additive — emitted after the
+            # routing line + context packet so it never displaces them.
+            agent_line = _build_agent_suggestion(prompt, budget)
+            if agent_line:
+                sys.stdout.write(agent_line + "\n")
+                sys.stdout.flush()
         else:
-            # No-route path: only write telemetry if we still have time. Drop
-            # rather than risk a slow append on a locked/AV-scanned disk.
+            # No-route path: still surface an agent suggestion if any matches —
+            # this is the whole point of v15.3.5 wiring (agents auto-suggest
+            # even when no skill route fires).
+            agent_line = _build_agent_suggestion(prompt, budget)
+            if agent_line:
+                sys.stdout.write(agent_line + "\n")
+                sys.stdout.flush()
+            # Only write telemetry if we still have time. Drop rather than
+            # risk a slow append on a locked/AV-scanned disk.
             if budget() > 2:
                 _write_telemetry(prompt, None, 0.0, latency_ms, "none")
 

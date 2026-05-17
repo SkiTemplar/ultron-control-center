@@ -18,7 +18,8 @@ manual steps below.
 # from a fresh PowerShell window (NO admin needed for winget user-scope):
 git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
 cd $env:USERPROFILE\.ultron
-.\install.ps1                   # interactive, prompts per dependency
+.\install.ps1                   # visual wizard (WinForms checkboxes) - default
+.\install.ps1 -Cli              # legacy CLI prompts (Read-Host per step)
 .\install.ps1 -NonInteractive   # CI / unattended, auto-Y to every install
 .\install.ps1 -Verbose          # debug what each step is doing
 .\install.ps1 -NoApp            # no Tauri build (faster, headless)
@@ -28,6 +29,23 @@ cd $env:USERPROFILE\.ultron
 `install.ps1` is **idempotent**: run it again any time, it skips steps
 that are already done. Dependencies already on PATH are auto-detected
 and never reinstalled.
+
+### Visual wizard (default)
+
+On first run, `install.ps1` opens a WinForms window with one checkbox per
+optional component, grouped into Core (greyed, always installed), Memory,
+Claude Code integration, Optional UI (Tauri build is **off by default** —
+it's a 3-5 min Rust compile), and Optional features. Your choices are
+saved to `~/.ultron/cockpit/install-profile.json`, so re-runs pre-check
+the same boxes.
+
+- `-Cli`            — skip the wizard, use the old Read-Host prompts.
+- `-NonInteractive` — skip the wizard AND every prompt; use defaults.
+- `-Force`          — skip the wizard; run every idempotent step anyway.
+
+The wizard is `scripts/cockpit/install-wizard.ps1` — same script you can
+run standalone with `-DryRun` to preview the dialog without writing
+anything.
 
 ### Auto-install matrix
 

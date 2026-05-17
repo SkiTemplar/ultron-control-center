@@ -67,6 +67,7 @@ EXIT_SILENT = 0
 QDRANT_URL = os.environ.get("ULTRON_QDRANT_URL", "http://localhost:6333")
 VAULT_COLLECTION = os.environ.get("ULTRON_QDRANT_COLL", "ultron_vault")
 SKILLS_COLLECTION = os.environ.get("ULTRON_SKILLS_COLL", "ultron_skills")
+AGENTS_COLLECTION = os.environ.get("ULTRON_AGENTS_COLL", "ultron_agents")
 # Backwards-compat alias for tests that reference COLLECTION
 COLLECTION = VAULT_COLLECTION
 # fastembed identifies models with the `sentence-transformers/` prefix even
@@ -81,11 +82,19 @@ EMBED_MODEL = os.environ.get(
 TOP_N = int(os.environ.get("ULTRON_RECALL_TOP", "3"))
 MIN_SCORE = float(os.environ.get("ULTRON_RECALL_MIN_SCORE", "0.35"))
 SKILL_MIN_SCORE = float(os.environ.get("ULTRON_RECALL_SKILL_MIN_SCORE", "0.40"))
+# v15.3.5: agent suggestion threshold. Default matches the skill threshold
+# but is independently tunable via env so power users can dial it without
+# touching features.json.
+AGENT_MIN_SCORE = float(os.environ.get("ULTRON_RECALL_AGENT_MIN_SCORE", "0.40"))
+AGENT_TOP_N = int(os.environ.get("ULTRON_RECALL_AGENT_TOP", "3"))
 
 # Module-level cache: _do_recall fills this with the top skill match found
 # while it was already running its vault query. main() consumes it for the
 # combined system-reminder. None when no skill cleared the threshold.
 _LAST_SKILL_MATCH: dict | None = None
+# v15.3.5: same pattern for top-N agent matches (None when no agent cleared
+# AGENT_MIN_SCORE, otherwise a list of dicts).
+_LAST_AGENT_MATCHES: list | None = None
 
 
 def _state_path() -> Path:
@@ -161,12 +170,14 @@ def _save_last_skill_match(query: str, skill: dict | None) -> None:
 
 def _format_reminder(
     query: str, hits: list[dict], skill_match: dict | None = None,
+    agent_matches: list[dict] | None = None,
 ) -> str:
     """Render the system-reminder body the model will see.
 
-    Two sections when both are available:
+    Three sections when all are available:
       - Vault recall (top-N notes semantically related to the query)
       - Skill suggestion (top-1 skill from ultron_skills collection)
+      - Available subagents matching (top-N from ultron_agents collection)
     """
     lines = ["<ultron-recall>"]
 
@@ -216,8 +227,78 @@ def _format_reminder(
             )
         lines.append("")
 
+    # v15.3.5: subagent suggestions (semantic match against ultron_agents)
+    if agent_matches:
+        lines.append("Available subagents matching (semantic match against agents catalog):")
+        for am in agent_matches:
+            name = am.get("name", "?")
+            score = am.get("score", 0.0)
+            desc = (am.get("description") or "").replace("\n", " ").strip()
+            if len(desc) > 140:
+                desc = desc[:140] + "..."
+            lines.append(f"  → {name} (similarity {score:.2f})")
+            if desc:
+                lines.append(f"    {desc}")
+        lines.append(
+            "  Delegate via the Task tool ONLY if the agent's specialty truly fits the "
+            "request — these are suggestions, not orders."
+        )
+        lines.append("")
+
     lines.append("</ultron-recall>")
     return "\n".join(lines)
+
+
+def _agent_auto_suggest_enabled() -> bool:
+    """Feature-gate: features.json → agent_auto_suggest (default True).
+
+    Reads cockpit/features.json via the agent_suggest helper if available,
+    falling back to True so the wiring is opt-out. Failures keep the feature
+    on — the goal is to make agents discoverable, not silently hidden.
+    """
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "cockpit"))
+        import agent_suggest  # type: ignore
+        return bool(agent_suggest.is_enabled())
+    except Exception:
+        return True
+
+
+def _do_agent_match(client, vector: list[float]) -> list[dict] | None:
+    """Top-N semantic agent suggestions. Returns list or None.
+
+    Uses the SAME query vector that vault recall already computed (zero
+    extra embedding cost — that's why this lives in _do_recall rather than
+    as a separate hook).
+    """
+    if not _agent_auto_suggest_enabled():
+        return None
+    try:
+        existing = {c.name for c in client.get_collections().collections}
+        if AGENTS_COLLECTION not in existing:
+            return None
+        results = client.query_points(
+            collection_name=AGENTS_COLLECTION,
+            query=vector,
+            limit=AGENT_TOP_N,
+            with_payload=True,
+        ).points
+    except Exception:
+        return None
+    out: list[dict] = []
+    for r in results:
+        score = float(getattr(r, "score", 0.0) or 0.0)
+        if score < AGENT_MIN_SCORE:
+            continue
+        payload = r.payload or {}
+        out.append({
+            "name": payload.get("name", ""),
+            "score": round(score, 4),
+            "model": payload.get("model", ""),
+            "tools": payload.get("tools", []),
+            "description": (payload.get("description") or "")[:200],
+        })
+    return out or None
 
 
 def _do_skill_match(client, vector: list[float]) -> dict | None:
@@ -304,6 +385,13 @@ def _do_recall(prompt: str) -> list[dict] | None:
     except Exception:
         _LAST_SKILL_MATCH = None
 
+    # v15.3.5: also probe ultron_agents with the SAME vector.
+    try:
+        global _LAST_AGENT_MATCHES
+        _LAST_AGENT_MATCHES = _do_agent_match(client, vector)
+    except Exception:
+        _LAST_AGENT_MATCHES = None
+
     hits = []
     for r in results:
         score = float(getattr(r, "score", 0.0) or 0.0)
@@ -387,9 +475,11 @@ def main() -> int:
 
     hits = _do_recall(prompt)
     skill_match = _LAST_SKILL_MATCH
+    agent_matches = _LAST_AGENT_MATCHES
 
-    # If neither vault hits nor skill match passed thresholds, stay silent.
-    if not hits and not skill_match:
+    # If neither vault hits, skill match, nor agent matches passed thresholds,
+    # stay silent. v15.3.5: agent matches alone are a valid reason to surface.
+    if not hits and not skill_match and not agent_matches:
         return EXIT_SILENT
 
     # Persist for downstream introspection (TUI dashboard, future tools).
@@ -397,7 +487,10 @@ def main() -> int:
     _save_last_skill_match(prompt, skill_match)
 
     # Inject as system-reminder via stderr + exit 2
-    reminder = _format_reminder(prompt, hits or [], skill_match=skill_match)
+    reminder = _format_reminder(
+        prompt, hits or [], skill_match=skill_match,
+        agent_matches=agent_matches,
+    )
     sys.stderr.write(reminder + "\n")
     sys.stderr.flush()
     return EXIT_INJECT

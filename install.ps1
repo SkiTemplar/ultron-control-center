@@ -43,10 +43,25 @@
 
 .PARAMETER Force
   Re-run idempotent steps even if their sentinel says they completed.
+  Also skips the visual wizard.
+
+.PARAMETER Gui
+  Open the visual installer wizard (WinForms checkboxes). This is the
+  default behaviour when no flag is given; -Gui is here for symmetry
+  with -Cli and so scripts can be explicit.
+
+.PARAMETER Cli
+  Force the legacy CLI flow (Read-Host prompts per step). Use this on
+  hosts where WinForms is unavailable (PS Server Core) or when you want
+  every choice scripted/scrollable.
 
 .EXAMPLE
-  # Standard one-liner from a fresh shell:
+  # Standard one-liner from a fresh shell - opens the visual wizard:
   iex (irm https://raw.githubusercontent.com/SkiTemplar/ultron/main/install.ps1)
+
+.EXAMPLE
+  # Skip the wizard, ask each question in the terminal:
+  .\install.ps1 -Cli
 
 .EXAMPLE
   # CI / unattended:
@@ -64,6 +79,13 @@ param(
     [switch]$NoApp,
     [switch]$NoDocker,
     [switch]$Force,
+    # Visual installer wizard (WinForms). Default ON. -Cli forces the legacy
+    # CLI Read-Host flow that this script always had. -NonInteractive also
+    # skips the wizard (no prompts at all). -Gui is here for symmetry and
+    # to make the flag explicit in scripts; behaviour is identical to the
+    # default.
+    [switch]$Gui,
+    [switch]$Cli,
     [string]$InstallRoot = (Join-Path $env:USERPROFILE ".ultron")
 )
 
@@ -73,13 +95,19 @@ $ErrorActionPreference = "Stop"
 # ----------------------------------------------------------------------
 # Constants and state
 # ----------------------------------------------------------------------
-$Script:VersionFallback = "v15.2.0"
+$Script:VersionFallback = "v15.3.4"
 $Script:RepoRoot        = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
 $Script:Warnings        = New-Object System.Collections.Generic.List[string]
 $Script:Errors          = New-Object System.Collections.Generic.List[string]
 $Script:StepsOK         = New-Object System.Collections.Generic.List[string]
 $Script:StepsSkipped    = New-Object System.Collections.Generic.List[string]
 $Script:VerboseOn       = $PSBoundParameters.ContainsKey("Verbose") -or $VerbosePreference -ne "SilentlyContinue"
+# Selections hashtable from Show-InstallWizard. Empty means "no wizard
+# was run" (CLI/NonInteractive mode) - downstream steps then use their
+# legacy defaults.
+$Script:Selections      = @{}
+# Where the wizard reads/writes its profile so re-runs remember choices.
+$Script:ProfilePath     = Join-Path $env:USERPROFILE ".ultron\cockpit\install-profile.json"
 
 # ----------------------------------------------------------------------
 # Logging
@@ -122,6 +150,108 @@ function Confirm-YesNo {
         "^(n|no)$"  { return $false }
         default     { return $Default }
     }
+}
+
+# ----------------------------------------------------------------------
+# Selection helper: read a boolean choice from the wizard result.
+#
+# Steps that have a wizard checkbox call Get-Choice with the id and a
+# fallback. If the wizard ran and the id is present, that wins. Otherwise
+# we fall through to the caller's default — which is the legacy behaviour
+# this script had before the wizard existed. This is how the same step
+# functions transparently work in -Cli, -NonInteractive, and -Gui modes
+# without forking the codepaths.
+# ----------------------------------------------------------------------
+function Get-Choice {
+    param(
+        [string]$Id,
+        [bool]$Default
+    )
+    if ($Script:Selections -and $Script:Selections.ContainsKey($Id)) {
+        return [bool]$Script:Selections[$Id]
+    }
+    return $Default
+}
+
+# ----------------------------------------------------------------------
+# Visual installer wizard (WinForms checkboxes).
+#
+# Invokes scripts/cockpit/install-wizard.ps1 in the same PowerShell
+# session and stores the returned selection hashtable on $Script:Selections.
+# The wizard's job is to ASK; the actual install work stays in the
+# step functions below, which just call Get-Choice to decide whether to
+# run.
+#
+# Persistence: the result is written to ~/.ultron/cockpit/install-profile.json
+# so the next re-run pre-checks whatever the user picked last time.
+#
+# Bypass rules:
+#   -NonInteractive : skip wizard entirely, use built-in defaults
+#   -Cli            : skip wizard, fall back to the legacy Read-Host prompts
+#   -Force          : skip wizard, run every step (override defaults)
+#   otherwise       : open the wizard (default behaviour, even without -Gui)
+# ----------------------------------------------------------------------
+function Show-InstallWizard {
+    if ($NonInteractive -or $Cli -or $Force) {
+        $mode = if ($NonInteractive) { "non-interactive" } elseif ($Cli) { "cli" } else { "force" }
+        Write-Skip ("install wizard (mode: " + $mode + ")")
+        return
+    }
+
+    $wizard = Join-Path $Script:RepoRoot "scripts\cockpit\install-wizard.ps1"
+    if (-not (Test-Path -LiteralPath $wizard)) {
+        Write-Warn2 "install-wizard.ps1 missing - falling back to CLI prompts"
+        return
+    }
+
+    # Load previous profile, if any. Corrupt JSON is silently discarded.
+    $prev = @{}
+    if (Test-Path -LiteralPath $Script:ProfilePath) {
+        try {
+            $raw = Get-Content -LiteralPath $Script:ProfilePath -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($p in $raw.PSObject.Properties) {
+                if ($p.Name -notmatch '^_') { $prev[$p.Name] = $p.Value }
+            }
+        } catch {
+            Write-V ("previous install profile corrupt - ignoring: " + $_.Exception.Message)
+        }
+    }
+
+    Write-Step "0. install wizard (choose what to install)"
+    try {
+        $result = & $wizard -PreviousProfile $prev -Version $Script:VersionFallback
+    } catch {
+        Write-Warn2 ("wizard failed (" + $_.Exception.Message + ") - falling back to CLI prompts")
+        return
+    }
+
+    if (-not $result -or $result.Count -eq 0) {
+        Write-Host ""
+        Write-Host "Installer cancelled by user."
+        exit 130
+    }
+
+    $Script:Selections = $result
+
+    # Persist for next run.
+    try {
+        $dir = Split-Path -Parent $Script:ProfilePath
+        if (-not (Test-Path -LiteralPath $dir)) {
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        }
+        ($result | ConvertTo-Json -Depth 3) | Set-Content -LiteralPath $Script:ProfilePath -Encoding UTF8
+        Write-V ("install profile saved -> " + $Script:ProfilePath)
+    } catch {
+        Write-Warn2 ("could not save install profile: " + $_.Exception.Message)
+    }
+
+    # Build-ControlCenter, Install-QdrantNative, Set-FeatureFlags etc. all
+    # read from $Script:Selections via Get-Choice. We deliberately do NOT
+    # rewrite $NoApp / $NoDocker — those legacy CLI flags are still
+    # respected at their own check points, and inferring them from the
+    # wizard would muddle precedence rules.
+    $picked = ($Script:Selections.Keys | Where-Object { $_ -notmatch '^_' -and $Script:Selections[$_] }).Count
+    Write-OK ("wizard: " + $picked + " items selected")
 }
 
 # ----------------------------------------------------------------------
@@ -619,6 +749,10 @@ function Install-QdrantNative {
         Write-Skip "Skipped via -NoDocker (kept for backwards compat — Qdrant is native, not Docker)"
         return
     }
+    if (-not (Get-Choice -Id "mem_qdrant" -Default $true)) {
+        Write-Skip "Qdrant unchecked in wizard - semantic recall will be disabled"
+        return
+    }
 
     $nativeDir = Join-Path $env:USERPROFILE ".ultron\qdrant-native"
     $exe = Join-Path $nativeDir "qdrant.exe"
@@ -930,7 +1064,13 @@ function Install-Skills {
 # ----------------------------------------------------------------------
 function Install-CommunitySkills {
     Write-Step "8b. community skills from SkiTemplar/ultron-skills (optional)"
-    $want = Confirm-YesNo -Question "Install curated community skills from ultron-skills repo?" -Default $false
+    # Wizard wins over the legacy prompt. When no wizard ran, fall back
+    # to asking on the command line just like before.
+    $want = if ($Script:Selections.Count -gt 0) {
+        Get-Choice -Id "cc_skills_comm" -Default $false
+    } else {
+        Confirm-YesNo -Question "Install curated community skills from ultron-skills repo?" -Default $false
+    }
     if (-not $want) { Write-Skip "user declined"; return }
     if (-not (Get-Command "git" -ErrorAction SilentlyContinue)) {
         Write-Warn2 "git not on PATH; cannot clone ultron-skills"
@@ -1069,18 +1209,30 @@ function Set-FeatureFlags {
         }
     }
 
-    if ($NonInteractive) {
-        Write-Info "non-interactive: keeping existing features.json (or defaults if new)"
+    # If the wizard ran, its checkboxes have already answered every
+    # toggle. Skip the CLI re-prompt entirely and just write the file.
+    if ($Script:Selections.Count -gt 0) {
+        Write-Info "applying selections from the visual wizard"
+        $features = [ordered]@{
+            news         = Get-Choice -Id "feat_news"      -Default $defaults.news
+            gaming       = Get-Choice -Id "feat_gaming"    -Default $defaults.gaming
+            personal     = Get-Choice -Id "feat_personal"  -Default $defaults.personal
+            schedules    = Get-Choice -Id "feat_schedules" -Default $defaults.schedules
+            self_improve = Get-Choice -Id "feat_selfimp"   -Default $defaults.self_improve
+        }
     } else {
-        Write-Info "Enable optional features? Press Enter to accept the default."
-    }
-
-    $features = [ordered]@{
-        news         = Read-FeatureToggle -Name "News digest"      -Default $defaults.news         -Note "Gemini-generated daily newsletter (cost-heavy)"
-        gaming       = Read-FeatureToggle -Name "Gaming utilities" -Default $defaults.gaming       -Note "game detector + tweaks panel"
-        personal     = Read-FeatureToggle -Name "Personal section" -Default $defaults.personal     -Note "private profile slots in the cockpit"
-        schedules    = Read-FeatureToggle -Name "Schedules"        -Default $defaults.schedules    -Note "Windows scheduled-task management"
-        self_improve = Read-FeatureToggle -Name "Self-improve"     -Default $defaults.self_improve -Note "route telemetry feeds the dispatcher tuner"
+        if ($NonInteractive) {
+            Write-Info "non-interactive: keeping existing features.json (or defaults if new)"
+        } else {
+            Write-Info "Enable optional features? Press Enter to accept the default."
+        }
+        $features = [ordered]@{
+            news         = Read-FeatureToggle -Name "News digest"      -Default $defaults.news         -Note "Gemini-generated daily newsletter (cost-heavy)"
+            gaming       = Read-FeatureToggle -Name "Gaming utilities" -Default $defaults.gaming       -Note "game detector + tweaks panel"
+            personal     = Read-FeatureToggle -Name "Personal section" -Default $defaults.personal     -Note "private profile slots in the cockpit"
+            schedules    = Read-FeatureToggle -Name "Schedules"        -Default $defaults.schedules    -Note "Windows scheduled-task management"
+            self_improve = Read-FeatureToggle -Name "Self-improve"     -Default $defaults.self_improve -Note "route telemetry feeds the dispatcher tuner"
+        }
     }
 
     try {
@@ -1169,6 +1321,18 @@ function Initialize-PythonVenv {
 function Build-ControlCenter {
     Write-Step "10. control-center (npm install + optional Tauri build)"
     if ($NoApp) { Write-Skip "skipped via -NoApp"; return }
+    # Wizard veto: if both UI checkboxes are off, skip this step entirely.
+    # Get-Choice returns the legacy default ($false for ui_*) when the
+    # wizard did not run, so CLI mode keeps the historical "ask first"
+    # behaviour for the Tauri build prompt below.
+    if ($Script:Selections.Count -gt 0) {
+        $wantNpm = Get-Choice -Id "ui_npm" -Default $false
+        $wantBld = Get-Choice -Id "ui_tauri_build" -Default $false
+        if (-not ($wantNpm -or $wantBld)) {
+            Write-Skip "Control Center unchecked in wizard - keeping repo as source-only"
+            return
+        }
+    }
 
     $inner = Join-Path $Script:RepoRoot "scripts\install.ps1"
     if (-not (Test-Path -LiteralPath $inner)) {
@@ -1211,8 +1375,12 @@ function Build-ControlCenter {
         $ErrorActionPreference = $prevEAP
     }
 
-    # Optional Tauri build (cost-heavy - opt-in)
-    $doBuild = Confirm-YesNo -Question "Compile Tauri binary now? (takes several minutes)" -Default $false
+    # Optional Tauri build (cost-heavy - opt-in). Wizard wins.
+    $doBuild = if ($Script:Selections.Count -gt 0) {
+        Get-Choice -Id "ui_tauri_build" -Default $false
+    } else {
+        Confirm-YesNo -Question "Compile Tauri binary now? (takes several minutes)" -Default $false
+    }
     if ($doBuild) {
         $cc = Join-Path $Script:RepoRoot "control-center"
         if (-not (Test-Path -LiteralPath $cc)) { Write-Skip "control-center/ missing"; return }
@@ -1306,6 +1474,7 @@ function Write-Summary {
 # ----------------------------------------------------------------------
 try {
     Write-Banner
+    Show-InstallWizard
     Test-Preflight
     Test-OrInstall-Git    | Out-Null
     Test-OrInstall-Node   | Out-Null
