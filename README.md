@@ -186,7 +186,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > The URL above resolves to whatever is on `main` *right now*. If you want a
 > reproducible install pinned to a specific release, point at the tag instead:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.4.17/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.4.18/bootstrap.ps1 | iex
 > ```
 > The release also ships an `ultron-system-<tag>.zip.sha256` you can use to
 > verify the system ZIP after download.
