@@ -65,7 +65,7 @@
 <p align="center">
   <img alt="Agents tab — 9 ULTRON agents + 22 community pre-installed with the same security scan as Skills" src="assets/screenshots/agents.png" width="820" />
   <br />
-  <sub><i>Agents tab — 9 ULTRON agents + 22 community pre-installed, 60+ more browsable from the catalog, same PI ruleset as Skills.</i></sub>
+  <sub><i>Agents tab — 9 ULTRON agents + 22 community pre-installed, 69 more browsable from the catalog (100 total available), same PI ruleset as Skills.</i></sub>
 </p>
 
 > Screenshots will fill in as the public beta gets capture cycles — the layout you see in the GIFs is the current one.
@@ -106,7 +106,7 @@ ULTRON is a **local command center** layered on top of the official [Claude Code
 |---|---|
 | **Hierarchical memory** | Four layers (L0 hot context to L3 remote mirror) so Claude resumes on the same page after every reboot. |
 | **Personas & skills** | A dispatcher activates the right specialist by intent — `debugger`, `code-reviewer`, `ui-designer`, etc. |
-| **Agents** | 9 ULTRON agents + 22 community = 31 pre-installed autonomous subagents (incl. stack-aligned set: `cpp-pro`, `graphics-programmer`, `unreal-engine-engineer`, `unity-engineer`, `devops-engineer`, `database-admin`, `fullstack-developer`), plus a catalog of 60+ more — over 90 agents available, all scanned by the same PI ruleset as skills. |
+| **Agents** | 9 ULTRON agents + 22 community = 31 pre-installed autonomous subagents (incl. stack-aligned set: `cpp-pro`, `graphics-programmer`, `unreal-engine-engineer`, `unity-engineer`, `devops-engineer`, `database-admin`, `fullstack-developer`), plus a catalog of 69 more in `cockpit/agent-catalog.json` — 100 agents available end-to-end, all scanned by the same PI ruleset as skills. |
 | **Hardened hooks** | Anti-prompt-injection, note auto-recall, session logging and vault sync, wired into `settings.json`. |
 | **Desktop Control Center** | Tauri 2 + React 19 with 16 tabs for memory, skills, agents, hooks, plans, sessions, costs and MCPs. |
 
@@ -234,7 +234,7 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 |---|---|
 | **Memory** | L0-L3 hierarchy, SQLite FTS5 index, native Qdrant for semantic recall (no Docker), decay surfacing |
 | **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
-| **Agents** | 31 pre-installed (9 ULTRON + 22 community), catalog with 60+ more in `cockpit/agent-catalog.json` (~90 agents available total), dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery |
+| **Agents** | 31 pre-installed (9 ULTRON + 22 community), catalog with 69 more in `cockpit/agent-catalog.json` (100 agents total), dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — all auditable |
 | **Control Center** | 16 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks. (Logs tab is wired but currently disabled.) |
 | **Dual-mode** | Optional Codex CLI peer review + Gemini CLI long-context delegation, both subscription-only |
@@ -251,7 +251,7 @@ Opt-in slots ship as **empty templates**: fork ULTRON and fill them with your ow
 </details>
 
 <details>
-<summary><b>Agents (31 pre-installed, catalog of 60+ more — ~90 available)</b></summary>
+<summary><b>Agents (31 pre-installed, 69 more in the catalog — 100 total)</b></summary>
 
 Agents live in `~/.claude/agents/*.md` and follow the same YAML-frontmatter contract as skills. ULTRON ships **9 first-party agents** — `ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`, `ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`, `ultron-test` — plus **22 community agents** organised in two groups:
 
@@ -259,7 +259,7 @@ Agents live in `~/.claude/agents/*.md` and follow the same YAML-frontmatter cont
 
 **Stack-aligned set added in v15.4.5 (7):** `cpp-pro` (modern C++17/20/23), `graphics-programmer` (OpenGL/Vulkan/HLSL/GLSL/WGSL + RenderDoc), `unreal-engine-engineer` (UE5 C++/Blueprints/GAS/Nanite/Lumen), `unity-engineer` (Unity 2022 LTS + Unity 6, DOTS, URP/HDRP), `devops-engineer` (GitHub Actions, signing, Tauri release), `database-admin` (Postgres/Supabase/SQLite + EXPLAIN ANALYZE), `fullstack-developer` (cross-stack features).
 
-A further **60+ agents** are described in `cockpit/agent-catalog.json` and can be installed on demand from the Agents tab, taking the total to **~90 agents** available. Every agent passes the same PI001-PI013 scanner that gates skills; failed agents land in quarantine with the same Allow-anyway waiver flow. The AI Router exposes an Agent slot so a task can target an agent instead of a raw model — Settings → AI Router includes a "Reset to ULTRON recommended" button that wires curated agent + model pairs per zone. Agent descriptions are embedded into Qdrant by `scripts/cockpit/embed_agents.py` for semantic recall.
+The catalog ships another **69 agents** in `cockpit/agent-catalog.json` (verified count, not a rounded estimate), installable on demand from the Agents tab. **100 agents total** between pre-installed and catalog. Every agent passes the same PI001-PI013 scanner that gates skills; failed agents land in quarantine with the same Allow-anyway waiver flow. The AI Router exposes an Agent slot so a task can target an agent instead of a raw model — Settings → AI Router includes a "Reset to ULTRON recommended" button that wires curated agent + model pairs per zone. Agent descriptions are embedded into Qdrant by `scripts/cockpit/embed_agents.py` for semantic recall.
 
 </details>
 
@@ -340,17 +340,11 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 ---
 
-## Roadmap
+## Release notes
 
-| Release | Status | Highlights |
-|---|---|---|
-| **v15.4** | Current | Control Center polish — visual installer with 10 optional toggles, IDE-aware launch (13 editors including CLion + JetBrains family), Agents Markdown viewer, 36 button prompts across every section, Cmd+K palette extended with maintenance commands, boot-time update detector + 1-click rebuild, Settings → Features panel + AI Router smart defaults per zone. |
-| **v15.3.x** | Stable | Tauri auto-updater, Projects IDE-aware launch, Agents tab, AI Router auto-mode, security scanner, agent ecosystem. |
-| **v15.2** | Released | Control Center with 17 tabs, L0–L3 memory, hardened hooks, 12 core skills, dual-mode v2 via subscription CLIs. |
-| **v15.5+** | Next | Cross-session event bus, supervisor daemon, mobile companion via Tailscale. |
-| **v16** | Future | Pipeline DAG, overnight loop, multi-platform expansion. |
+Current version: **v15.4.8** (Control Center polish — visual installer with 10 optional toggles, IDE-aware launch for 13 editors, Agents Markdown viewer, 36 button prompts, Cmd+K palette extended, boot-time update detector + 1-click rebuild, Settings → Features panel, AI Router smart defaults per zone, MemoryGraph galaxy clusters, backup stale demoted to operational info).
 
-Detailed release notes in [`CHANGELOG.md`](CHANGELOG.md).
+Full release notes in [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 

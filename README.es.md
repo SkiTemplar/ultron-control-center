@@ -66,7 +66,7 @@
 <p align="center">
   <img alt="Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + catalogo community con el mismo scan de seguridad que Skills" src="assets/screenshots/agents.png" width="820" />
   <br />
-  <sub><i>Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + 22 community pre-instalados, 60+ disponibles en el catalogo, mismo ruleset PI que Skills.</i></sub>
+  <sub><i>Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + 22 community pre-instalados, 69 disponibles en el catalogo (100 en total), mismo ruleset PI que Skills.</i></sub>
 </p>
 
 > Los screenshots se llenar&aacute;n a medida que avance la beta p&uacute;blica &mdash; el layout que ves coincide con la versi&oacute;n actual.
@@ -235,7 +235,7 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 |---|---|
 | **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, Qdrant nativo para recall semantico (sin Docker), decay surfacing |
 | **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
-| **Agents** | 31 pre-instalados (9 ULTRON + 22 community), catalogo con 60+ mas en `cockpit/agent-catalog.json` (~90 agentes disponibles en total), pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico |
+| **Agents** | 31 pre-instalados (9 ULTRON + 22 community), catalogo con 69 mas en `cockpit/agent-catalog.json` (100 agentes en total), pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
 | **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks. (La pestaña Logs está cableada pero deshabilitada hoy.) |
 | **Dual-mode** | Peer review opcional con Codex CLI + delegacion long-context con Gemini CLI, ambos via suscripcion |
@@ -260,7 +260,7 @@ Los agents viven en `~/.claude/agents/*.md` y siguen el mismo contrato de YAML f
 
 **Stack-aligned añadidos en v15.4.5 (7):** `cpp-pro` (C++17/20/23 moderno), `graphics-programmer` (OpenGL/Vulkan/HLSL/GLSL/WGSL + RenderDoc), `unreal-engine-engineer` (UE5 C++/Blueprints/GAS/Nanite/Lumen), `unity-engineer` (Unity 2022 LTS + Unity 6, DOTS, URP/HDRP), `devops-engineer` (GitHub Actions, signing, Tauri release), `database-admin` (Postgres/Supabase/SQLite + EXPLAIN ANALYZE), `fullstack-developer` (features cross-stack).
 
-Hay **60+ agentes adicionales** descritos en `cockpit/agent-catalog.json` que se instalan a demanda desde la pestaña Agents, llevando el total a **~90 agentes** disponibles. Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo — Settings → AI Router incluye un botón "Reset to ULTRON recommended" que cablea pares curados de agent + modelo por zona. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semantico.
+El catalogo trae **69 agentes adicionales** en `cockpit/agent-catalog.json` (conteo verificado, no una estimacion redondeada), instalables a demanda desde la pestaña Agents. **100 agentes en total** entre pre-instalados y catalogo. Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo — Settings → AI Router incluye un botón "Reset to ULTRON recommended" que cablea pares curados de agent + modelo por zona. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semantico.
 
 </details>
 
@@ -341,17 +341,11 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ---
 
-## Roadmap
+## Notas de release
 
-| Release | Estado | Highlights |
-|---|---|---|
-| **v15.4** | Actual | Pulido del Control Center — instalador visual con 10 toggles opcionales, lanzamiento IDE-aware (13 editores incluyendo CLion + familia JetBrains), visor Markdown en Agents, 36 button prompts en cada seccion, Cmd+K palette con comandos de mantenimiento, auto-detector de updates al arrancar + rebuild 1-click, panel Settings → Features + AI Router con defaults inteligentes por zona. |
-| **v15.3.x** | Estable | Auto-updater Tauri, Projects IDE-aware launch, Agents tab, AI Router auto-mode, security scanner, ecosistema de agentes. |
-| **v15.2** | Lanzado | Control Center con 17 pestañas, memoria L0-L3, hooks endurecidos, 12 skills core, dual-mode v2 via CLIs de suscripcion. |
-| **v15.5+** | Siguiente | Bus de eventos cross-session, supervisor daemon, companion movil via Tailscale. |
-| **v16** | Futuro | Pipeline DAG, overnight loop, expansion multi-plataforma. |
+Version actual: **v15.4.8** (pulido del Control Center — instalador visual con 10 toggles opcionales, IDE-aware launch para 13 editores, visor Markdown en Agents, 36 button prompts, Cmd+K palette extendido, auto-detector de updates al arrancar + rebuild 1-click, panel Settings → Features, AI Router con defaults inteligentes por zona, MemoryGraph galaxy clusters, badge backup `stale` ahora informativo).
 
-Notas detalladas en [`CHANGELOG.md`](CHANGELOG.md).
+Notas completas en [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
