@@ -1,28 +1,41 @@
-# Installing ULTRON v15.4
+# Installing ULTRON v15.5
 
 ULTRON is a personal control center: a Tauri desktop app plus a Python toolkit
 that orchestrates Claude Code, Codex, and Gemini through their official CLIs.
 It runs entirely on your machine and uses your existing subscriptions — no
 API keys, no cloud services, no admin rights.
 
-## Quickest path (v15.4.18+) — bootstrap from the latest GitHub Release
+## Quickest path (v15.5.0+) — bootstrap from the latest GitHub Release
 
-If you don't need to contribute code, skip the clone:
+If you don't need to contribute code, skip the clone. Pick the line for
+your OS:
 
 ```powershell
+# Windows (PowerShell)
 iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
 ```
 
-That single line: resolves the latest release, downloads
-`ultron-system-<tag>.zip` + `.sha256`, verifies the hash, extracts to
-`~/.ultron`, runs `install.ps1`, downloads + launches the Control Center
-NSIS installer. See [`RELEASE-PROCESS.md`](RELEASE-PROCESS.md) for the
-release pipeline behind the scenes.
+```bash
+# Linux (bash) — Debian / Ubuntu / Fedora / Arch
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
+```
+
+Both one-liners resolve the latest release, download
+`ultron-system-<tag>.zip` + `.sha256`, verify the hash, extract to
+`~/.ultron`, run the per-OS installer (`install.ps1` on Windows,
+`install.sh` on Linux), and pull the Control Center binary
+(NSIS `.exe` on Windows; `.deb` or `.AppImage` on Linux). See
+[`RELEASE-PROCESS.md`](RELEASE-PROCESS.md) for the release pipeline
+behind the scenes.
 
 For reproducible installs pinned to a release tag, swap `main` for the tag:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.4.18/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.0/bootstrap.ps1 | iex
+```
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.0/bootstrap.sh | bash
 ```
 
 ## Clone the repo (recommended for contributors)
@@ -34,13 +47,22 @@ cd $env:USERPROFILE\.ultron
 .\install.ps1
 ```
 
+```bash
+# Linux (bash)
+git clone https://github.com/SkiTemplar/ultron.git "$HOME/.ultron"
+cd "$HOME/.ultron"
+./install.sh
+```
+
 The installer is **idempotent** — re-running it is safe. It accepts an
-optional `-NonInteractive` flag that takes all defaults, useful for CI.
+optional `-NonInteractive` flag (PowerShell) / `--non-interactive` flag
+(bash) that takes all defaults, useful for CI.
 
 > [!NOTE]
-> A `scripts/install.sh` bash variant existed in early v15 but is no longer
-> maintained. macOS / Linux are not officially supported in v15.4 —
-> Windows 11 is the primary target.
+> Linux x86_64 (Debian / Ubuntu / Fedora / Arch) is supported from v15.5.
+> macOS is an explicit non-goal. The Windows-only maintenance commands
+> (NSIS uninstaller, CrashDumps cleanup, Recycle Bin) are hidden from the
+> UI on Linux; the rest of the system works the same.
 
 ## What the installer does
 
@@ -248,6 +270,63 @@ reproducible from the public GitHub Actions workflow at
 GitHub-hosted runner from a tagged commit and signed there with the
 project's updater key.
 
+## Linux specifics (v15.5+)
+
+A few things that differ from the Windows path. All paths assume a
+single-user install — `install.sh` never writes outside `$HOME`,
+`~/.local/`, or (with `sudo` for the package-manager step) the system
+package database.
+
+### File layout
+
+| Asset | Linux location |
+|---|---|
+| Desktop binary (AppImage) | `~/.local/bin/ultron-control-center` (renamed from the downloaded `.AppImage`, marked `+x`) |
+| Desktop binary (.deb install) | `/usr/bin/ultron-control-center` (laid down by `dpkg`) |
+| `.desktop` launcher | `~/.local/share/applications/ultron-control-center.desktop` — picked up by GNOME / KDE / XFCE menus on next session |
+| Qdrant native binary | `~/.ultron/qdrant-native/qdrant` (Linux ELF, not the `.exe` from the Windows release) |
+| Qdrant config | `~/.ultron/qdrant-native/config/production.yaml` (same shape as Windows) |
+| Skills / agents / hooks | `~/.claude/skills/`, `~/.claude/agents/`, hook scripts referenced by `~/.claude/settings.json` |
+| Vault & state | `~/.ultron-vault/`, `~/.ultron/` — identical to Windows |
+
+### What runs and what doesn't
+
+Maintenance commands are gated per-OS. On Linux the Control Center hides
+the Windows-only entries (NSIS uninstaller, CrashDumps cleanup, Recycle
+Bin, MSI repair). The cross-platform ones — `skill-registry-rebuild`,
+`brain-index-update`, `memory-vault-sync`, `mcp-health`, `agents-reembed`,
+`deadwood-scan`, `audit-skills`, `weekly-backup` (bash variant) —
+behave the same.
+
+Hooks: PowerShell `.ps1` hooks are not invoked on Linux. The Python
+hooks (`auto-recall.py`, `intent-dispatcher.py`, `validate_push.py`,
+`block-dangerous-bash.py`, `auto-approve-readonly.py`, `auto-changelog.py`,
+`detect_gaps.py`, etc.) are cross-platform and run identically. The
+Qdrant boot and memory-sync hooks have bash siblings (`ensure-qdrant.sh`,
+`stop-memory-sync.sh`) wired into `settings.json` on Linux installs.
+
+### Removing ULTRON on Linux
+
+There is no `uninstall.sh` for the Linux flow yet (tracked for v15.5.x).
+The manual three-liner:
+
+```bash
+# Remove the desktop app (AppImage install)
+rm -f ~/.local/bin/ultron-control-center
+rm -f ~/.local/share/applications/ultron-control-center.desktop
+
+# OR remove the .deb install
+sudo apt remove ultron-control-center      # Debian / Ubuntu
+sudo dpkg -r ultron-control-center         # any distro that has dpkg
+
+# Remove all ULTRON state (DANGEROUS — takes your vault with it)
+rm -rf ~/.ultron ~/.ultron-vault
+```
+
+This leaves `~/.claude/` untouched, mirroring the Windows uninstaller's
+behaviour. Back up `~/.ultron-vault/` first if you want to keep your
+notes.
+
 ## Uninstall
 
 Run the matching uninstall script. It moves any backups out of the way
@@ -261,13 +340,8 @@ before removing `~/.ultron/`. It never touches `~/.claude/`.
 ./scripts/uninstall.ps1 -Yes
 ```
 
-```bash
-# macOS / Linux
-./scripts/uninstall.sh
-
-# Add --yes to skip the confirmation prompt
-./scripts/uninstall.sh --yes
-```
+On Linux, follow the manual removal steps in the **Linux specifics**
+section above. A scripted `uninstall.sh` is planned for v15.5.x.
 
 After uninstall, backups (if any) live at
 `$HOME/.ultron-backup-<timestamp>/`. You can delete that directory by hand

@@ -10,6 +10,16 @@ A flat index of everything you can run, organised by surface:
 
 If you only read one section, read **§1** — the command palette is the fastest path to 90 % of what the system does.
 
+> [!NOTE]
+> **Platform notes (v15.5+).** Most things are cross-platform: the
+> command palette, Python cockpit toolkit, hooks written in Python, the
+> memory pipeline, and the bulk of the `ultron` shell alias all work on
+> both Windows and Linux. Surfaces that are Windows-only are marked with
+> **(Windows-only)** below. On Linux the Control Center hides those
+> entries; running the underlying script directly is a no-op or errors
+> cleanly. PowerShell-only helpers (`*.ps1`) do not run on Linux; their
+> bash siblings (where they exist) are noted inline.
+
 ---
 
 ## 1. Control Center command palette (Ctrl+K)
@@ -32,23 +42,30 @@ The palette is fuzzy: `skreg` matches `Skill registry rebuild`, `agreem` matches
 
 ## 2. Maintenance commands
 
-Surfaced both in the palette (under `Maintenance ·`) and as buttons on the Dashboard. All run from the Tauri backend with `CREATE_NO_WINDOW`, results land in `~/.ultron/cockpit/audits/`.
+Surfaced both in the palette (under `Maintenance ·`) and as buttons on the Dashboard. All run from the Tauri backend with `CREATE_NO_WINDOW` (Windows) or a detached spawn (Linux); results land in `~/.ultron/cockpit/audits/`.
 
-| Kind | What it does |
-|---|---|
-| `skill-registry-rebuild` | Re-scan `~/.claude/skills`, refresh `~/.ultron/skills/registry.json` with security verdicts. |
-| `skill-security-audit` | Run the prompt-injection scanner against every installed skill (JSON report). |
-| `registry-sync` | Rebuild the cross-CLI skill manifest (Claude / Codex / Agents mirrors). |
-| `memory-vault-sync` | Refresh `~/.ultron-vault` highlights + brain_index incremental update. |
-| `brain-index-update` | Incrementally re-index changed notes into `~/.ultron/brain_index`. |
-| `mcp-health` | Probe configured MCP servers and write the latest status snapshot. |
-| `weekly-backup` | Run the weekly mirror backup script. Updates the Doctor backup status. |
-| `agents-reembed` | Re-vectorize `~/.claude/agents` into Qdrant for semantic discovery. |
-| `deadwood-scan` | Detect orphaned scripts, stale skills, unreferenced data files. |
-| `doctor-fix` | Run doctor with `--fix` to apply only the changes marked safe. |
-| `audit-skills` | Aggregate usage / freshness stats per persona — output to `~/.ultron/cockpit/audits/`. |
+| Kind | Platform | What it does |
+|---|---|---|
+| `skill-registry-rebuild` | cross | Re-scan `~/.claude/skills`, refresh `~/.ultron/skills/registry.json` with security verdicts. |
+| `skill-security-audit` | cross | Run the prompt-injection scanner against every installed skill (JSON report). |
+| `registry-sync` | cross | Rebuild the cross-CLI skill manifest (Claude / Codex / Agents mirrors). |
+| `memory-vault-sync` | cross | Refresh `~/.ultron-vault` highlights + brain_index incremental update. |
+| `brain-index-update` | cross | Incrementally re-index changed notes into `~/.ultron/brain_index`. |
+| `mcp-health` | cross | Probe configured MCP servers and write the latest status snapshot. |
+| `weekly-backup` | cross | Run the weekly mirror backup script (ps1 on Windows, sh on Linux). Updates the Doctor backup status. |
+| `agents-reembed` | cross | Re-vectorize `~/.claude/agents` into Qdrant for semantic discovery. |
+| `deadwood-scan` | cross | Detect orphaned scripts, stale skills, unreferenced data files. |
+| `doctor-fix` | cross | Run doctor with `--fix` to apply only the changes marked safe. |
+| `audit-skills` | cross | Aggregate usage / freshness stats per persona — output to `~/.ultron/cockpit/audits/`. |
+| `nsis-uninstall` | Windows-only | Run the NSIS uninstaller for the desktop app. |
+| `crashdumps-cleanup` | Windows-only | Purge `%LOCALAPPDATA%\CrashDumps`. |
+| `recycle-bin-empty` | Windows-only | Empty the Recycle Bin. |
+| `msi-repair` | Windows-only | `msiexec /fa` against the installed MSI. |
 
-Add a new one in `src-tauri/src/maintenance.rs` — the palette picks it up automatically through `list_maintenance_commands_inner`.
+Linux builds hide the Windows-only entries automatically via
+`#[cfg(target_os = "windows")]` gates in `maintenance.rs`. Add a new
+command in that file — the palette picks it up through
+`list_maintenance_commands_inner`.
 
 ---
 
@@ -77,7 +94,11 @@ The full Python toolkit is ~90 scripts; the ones above are the ones the UI surfa
 
 ## 4. The `ultron` shell alias
 
-`scripts/cockpit/ultron.ps1` is the canonical CLI front-end. It dispatches ~90 subcommands. The ones you actually use day-to-day:
+`scripts/cockpit/ultron.ps1` is the canonical CLI front-end on Windows.
+On Linux the same surface is provided by `scripts/cockpit/ultron.sh`
+(installed to `~/.local/bin/ultron` by `install.sh`). Both dispatch the
+same ~90 subcommands; the underlying Python cockpit tools they wrap are
+cross-platform. The ones you actually use day-to-day:
 
 | Command | Purpose |
 |---|---|
@@ -104,19 +125,24 @@ Type `ultron <command> --help` for any of them, or `ultron --help` for the full 
 
 Hooks under `scripts/hooks/` are the auto-magic layer. They fire on Claude Code lifecycle events and are wired into `~/.claude/settings.json` by the installer. The ones that matter:
 
-| Hook | Event | What it does |
-|---|---|---|
-| `session-init.ps1` | SessionStart | Read `context.md`, set up Qdrant, surface BLOCKING alerts. |
-| `auto-recall.py` | UserPromptSubmit | Hit the brain_index for relevant notes and surface them inline. |
-| `intent-dispatcher.py` | UserPromptSubmit | Suggest the right persona/skill/agent based on prompt content. |
-| `validate_push.py` | PreToolUse (Bash) | Block `git push -f origin main` and laundered variants. |
-| `block-dangerous-bash.py` | PreToolUse (Bash) | Hard refuse `rm -rf /`-style suicide commands. |
-| `auto-approve-readonly.py` | PreToolUse | Skip the confirmation prompt for safe read-only Bash. |
-| `hook_input_validator.py` | (all) | Defensive shape validation on stdin payloads. |
-| `stop-memory-sync.ps1` | Stop | Embed new notes, refresh `context.md`, push to L3 if HIGH+ mode. |
-| `ensure-qdrant.ps1` | session-init / boot | Verify Qdrant is alive, restart if needed. |
-| `qdrant-notify.ps1` | post-failure | WinForm toast bottom-right if Qdrant won't come up. |
-| `auto-changelog.py` | post-commit (git) | Append commit message to `CHANGELOG.md` under the right version banner. |
-| `detect_gaps.py` | dashboard refresh | Surface stale TODOs, missing files, drift. |
+| Hook | Event | Platform | What it does |
+|---|---|---|---|
+| `session-init.ps1` / `session-init.sh` | SessionStart | cross (per-OS) | Read `context.md`, set up Qdrant, surface BLOCKING alerts. |
+| `auto-recall.py` | UserPromptSubmit | cross | Hit the brain_index for relevant notes and surface them inline. |
+| `intent-dispatcher.py` | UserPromptSubmit | cross | Suggest the right persona/skill/agent based on prompt content. |
+| `validate_push.py` | PreToolUse (Bash) | cross | Block `git push -f origin main` and laundered variants. |
+| `block-dangerous-bash.py` | PreToolUse (Bash) | cross | Hard refuse `rm -rf /`-style suicide commands. |
+| `auto-approve-readonly.py` | PreToolUse | cross | Skip the confirmation prompt for safe read-only Bash. |
+| `hook_input_validator.py` | (all) | cross | Defensive shape validation on stdin payloads. |
+| `stop-memory-sync.ps1` / `stop-memory-sync.sh` | Stop | cross (per-OS) | Embed new notes, refresh `context.md`, push to L3 if HIGH+ mode. |
+| `ensure-qdrant.ps1` / `ensure-qdrant.sh` | session-init / boot | cross (per-OS) | Verify Qdrant is alive, restart if needed. |
+| `qdrant-notify.ps1` | post-failure | Windows-only | WinForm toast bottom-right if Qdrant won't come up. Linux uses `notify-send` if available, silent fallback otherwise. |
+| `auto-changelog.py` | post-commit (git) | cross | Append commit message to `CHANGELOG.md` under the right version banner. |
+| `detect_gaps.py` | dashboard refresh | cross | Surface stale TODOs, missing files, drift. |
 
-All hooks live in version control; they're plain Python or PowerShell, fully auditable. If a hook misbehaves, disable it in `~/.claude/settings.json` and the system keeps working (degraded but functional).
+All hooks live in version control; they're plain Python, PowerShell, or
+bash — fully auditable. PowerShell hooks (`*.ps1`) are wired into
+`settings.json` only on Windows installs; their bash siblings (`*.sh`)
+take their place on Linux. If a hook misbehaves, disable it in
+`~/.claude/settings.json` and the system keeps working (degraded but
+functional).

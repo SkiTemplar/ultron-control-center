@@ -1,5 +1,74 @@
 # Changelog
 
+<!-- v15.5.0 -->
+## v15.5.0 — 2026-MM-DD
+
+First Linux release. Windows path unchanged.
+
+### Added
+
+- **Linux x86_64 support** (Debian / Ubuntu / Fedora / Arch). The Tauri
+  desktop app builds and runs natively; the cockpit Python toolkit, hooks,
+  and memory layers were already cross-platform.
+- `bootstrap.sh` — the Linux equivalent of `bootstrap.ps1`. Same flow:
+  resolve latest tag, download `ultron-system-<tag>.zip` + verify SHA-256,
+  extract to `~/.ultron`, hand off to `install.sh`, pull the matching
+  Linux binary (`.deb` on Debian/Ubuntu, `.AppImage` on the rest).
+- `install.sh` — package-manager-aware (`apt` / `dnf` / `pacman`)
+  installer. Installs Tauri 2 system deps (`webkit2gtk-4.1`,
+  `libsoup-3.0`, `librsvg2-bin`, build essentials), Node 22, uv, Rust,
+  Claude Code CLI, and the native Qdrant Linux binary.
+- Release pipeline matrixed across `windows-latest` and `ubuntu-22.04`.
+  Linux releases now ship `ultron-control-center_<ver>_amd64.deb` and
+  `ULTRON Control Center_<ver>_amd64.AppImage` alongside the Windows
+  `.exe` + `.msi`.
+- AppImage placement: `~/.local/bin/ultron-control-center` with a
+  `.desktop` launcher at `~/.local/share/applications/` so the app
+  appears in the standard application menu.
+
+### Changed
+
+- Compatibility matrix updated in `README.md`, `README.es.md`,
+  `docs/INSTALL.md`. macOS is now listed as an explicit non-goal
+  (was "planned for v16").
+- Maintenance command list filtered per-platform: Windows-only
+  entries (NSIS uninstaller, CrashDumps cleanup, Recycle Bin, MSI
+  repair) are hidden from the UI on Linux builds via
+  `#[cfg(target_os = "windows")]` gates in `maintenance.rs`.
+- `docs/RELEASE-PROCESS.md` documents the dual-bootstrap pattern and
+  the expanded release-asset list.
+- `INSTALL.md` (root) gained a "Manual install on Linux" section with
+  copy-pasteable `apt` / `dnf` / `pacman` matrices for the same content
+  `install.sh` runs.
+
+### Non-goals (explicit)
+
+- **macOS.** Out of scope; not on any roadmap.
+- **ARM Linux.** v15.5 is x86_64 only.
+- **Snap / Flatpak Store submissions.** AppImage is the path of least
+  resistance; revisit if there's demand.
+
+### Known limitations
+
+- No `uninstall.sh` yet — manual three-liner documented in
+  `docs/INSTALL.md` (Linux specifics → Removing ULTRON on Linux).
+  Tracked for v15.5.x.
+- WSL: detected and warned against. Run the native Windows path inside
+  WSL2 instead.
+
+_See `plans/specs/v15.5-linux-support.md` for the full plan + execution
+log._
+
+
+<!-- v15.4.21 -->
+## v15.4.21 — 2026-05-17
+
+- feat(v15.4.21): hide dev-only doctor + test flake fix + release cadence policy
+- Update CHANGELOG.md
+
+_Auto-generated from 1aaea559 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.20 -->
 ## v15.4.20 — 2026-05-17
 

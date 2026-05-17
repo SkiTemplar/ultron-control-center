@@ -25,11 +25,14 @@
 //     and must resolve under an existing directory before we hand it to
 //     explorer.exe.
 
+#[cfg(target_os = "windows")]
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+#[cfg(target_os = "windows")]
 use tauri_plugin_shell::ShellExt;
 
+#[cfg(target_os = "windows")]
 const CACHE_TTL_SECS: u64 = 3600; // 1 hour
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -78,6 +81,7 @@ pub struct UninstallResult {
     pub command: String,
 }
 
+#[cfg(target_os = "windows")]
 fn cache_path() -> Result<PathBuf, String> {
     dirs::home_dir()
         .map(|h| h.join(".ultron/.tmp/installed-apps.json"))
@@ -139,6 +143,7 @@ fn iso_now_utc() -> String {
 // Cache
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "windows")]
 #[derive(Debug, Serialize, Deserialize)]
 struct CachedSnapshot {
     apps: Vec<InstalledApp>,
@@ -147,12 +152,14 @@ struct CachedSnapshot {
     written_unix: u64,
 }
 
+#[cfg(target_os = "windows")]
 fn read_cache() -> Option<CachedSnapshot> {
     let path = cache_path().ok()?;
     let raw = std::fs::read_to_string(&path).ok()?;
     serde_json::from_str(&raw).ok()
 }
 
+#[cfg(target_os = "windows")]
 fn write_cache(apps: &[InstalledApp]) -> Result<(), String> {
     let path = cache_path()?;
     if let Some(parent) = path.parent() {
@@ -171,6 +178,7 @@ fn write_cache(apps: &[InstalledApp]) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
 fn cache_fresh(snapshot: &CachedSnapshot) -> bool {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -186,6 +194,7 @@ fn cache_fresh(snapshot: &CachedSnapshot) -> bool {
 /// Runs a PowerShell snippet via `powershell.exe -NoProfile -NonInteractive
 /// -ExecutionPolicy Bypass -Command <cmd>`. Returns (stdout, stderr,
 /// exit_code, success).
+#[cfg(target_os = "windows")]
 async fn run_ps_command(
     app: &tauri::AppHandle,
     command: &str,
@@ -222,6 +231,7 @@ async fn run_ps_command(
 /// decoder: UTF-16 LE BOM → from_utf16_lossy; UTF-8 BOM → strip + utf8;
 /// no BOM → assume UTF-8 (CI / unit tests / PS 7 with explicit
 /// `[Console]::OutputEncoding = UTF8` fall here).
+#[cfg(target_os = "windows")]
 fn decode_ps_stdout(bytes: &[u8]) -> String {
     // UTF-16 LE BOM (FF FE)
     if bytes.len() >= 2 && bytes[0] == 0xFF && bytes[1] == 0xFE {
@@ -255,6 +265,7 @@ fn decode_ps_stdout(bytes: &[u8]) -> String {
 /// winget versions is `winget export` which only emits installed packages
 /// that have a known manifest. To get coverage we fall back to the
 /// columnar parser when --json isn't available.
+#[cfg(target_os = "windows")]
 const INVENTORY_PS: &str = r#"
 $ErrorActionPreference = 'SilentlyContinue'
 $apps = New-Object System.Collections.Generic.List[object]
@@ -365,12 +376,14 @@ $json = $out | ConvertTo-Json -Depth 4 -Compress
 Write-Output $json
 "#;
 
+#[cfg(target_os = "windows")]
 #[derive(Debug, Deserialize)]
 struct PsInventoryResult {
     apps: Vec<InstalledApp>,
     errors: Vec<String>,
 }
 
+#[cfg(target_os = "windows")]
 async fn scan_apps(app: &tauri::AppHandle) -> Result<(Vec<InstalledApp>, Vec<String>), String> {
     let (stdout, stderr, code, ok) = run_ps_command(app, INVENTORY_PS).await?;
     if !ok {
@@ -392,6 +405,7 @@ async fn scan_apps(app: &tauri::AppHandle) -> Result<(Vec<InstalledApp>, Vec<Str
 // Commands
 // ---------------------------------------------------------------------------
 
+#[cfg(target_os = "windows")]
 pub async fn list_installed_apps_inner(
     app: &tauri::AppHandle,
     force: bool,
@@ -418,6 +432,24 @@ pub async fn list_installed_apps_inner(
     })
 }
 
+/// Linux/macOS stub — returns an empty inventory so the UI doesn't crash
+/// when the user launches the Apps panel on a non-Windows host. The
+/// frontend already handles `apps.is_empty()` (it shows an empty-state
+/// card), so no extra signalling is needed.
+#[cfg(not(target_os = "windows"))]
+pub async fn list_installed_apps_inner(
+    _app: &tauri::AppHandle,
+    _force: bool,
+) -> Result<InstalledAppsReport, String> {
+    Ok(InstalledAppsReport {
+        apps: Vec::new(),
+        source_errors: vec!["installed-apps inventory is Windows-only".to_string()],
+        generated_at: iso_now_utc(),
+        cached: false,
+    })
+}
+
+#[cfg(target_os = "windows")]
 pub fn open_app_folder_inner(install_location: String) -> Result<String, String> {
     let trimmed = install_location.trim().trim_matches('"');
     if trimmed.is_empty() {
@@ -451,14 +483,21 @@ pub fn open_app_folder_inner(install_location: String) -> Result<String, String>
     Ok(cleaned)
 }
 
+#[cfg(not(target_os = "windows"))]
+pub fn open_app_folder_inner(_install_location: String) -> Result<String, String> {
+    Err("open_app_folder is not supported on this platform".to_string())
+}
+
 /// Escapes a string for embedding inside a PowerShell single-quoted
 /// literal. The only character we have to worry about is `'` itself,
 /// which doubles. Everything else (including $, `, etc.) is literal
 /// inside single quotes. PS does NOT process backslash escapes.
+#[cfg(target_os = "windows")]
 fn ps_single_quote_escape(s: &str) -> String {
     s.replace('\'', "''")
 }
 
+#[cfg(target_os = "windows")]
 pub async fn uninstall_app_inner(
     app: &tauri::AppHandle,
     name: String,
@@ -535,7 +574,17 @@ pub async fn uninstall_app_inner(
     })
 }
 
-#[cfg(test)]
+#[cfg(not(target_os = "windows"))]
+pub async fn uninstall_app_inner(
+    _app: &tauri::AppHandle,
+    _name: String,
+    _provider: String,
+    _package_id: Option<String>,
+) -> Result<UninstallResult, String> {
+    Err("uninstall_app is not supported on this platform".to_string())
+}
+
+#[cfg(all(test, target_os = "windows"))]
 mod tests {
     use super::*;
 

@@ -18,8 +18,8 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.4-44cc11.svg" /></a>
-  <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011-lightgrey.svg" />
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5-44cc11.svg" /></a>
+  <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Construido sobre Claude Code" src="https://img.shields.io/badge/construido%20sobre-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Estado" src="https://img.shields.io/badge/estado-beta%20publica-orange.svg" />
   <img alt="Hecho con" src="https://img.shields.io/badge/Tauri%202-React%2019-orange.svg" />
@@ -173,11 +173,11 @@ Encima de L1 vive una instancia local de **Qdrant** (el binario nativo de Window
 ## Quick start
 
 > [!IMPORTANT]
-> Windows 11 es la plataforma principal. macOS y Linux no estan testeados oficialmente en v15.4.
+> Windows 11 es la plataforma principal; Linux x86_64 (Debian / Ubuntu / Fedora / Arch) soportado desde v15.5. macOS es un non-goal explicito.
 
-Hay **dos rutas de instalacion**. Elige una.
+Hay **tres rutas de instalacion**. Elige una.
 
-### Opcion A — Bootstrap desde la release de GitHub (sin Git)
+### Opcion A — Bootstrap desde la release de GitHub (Windows, sin Git)
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
@@ -187,7 +187,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > La URL de arriba apunta a lo que haya en `main` *ahora mismo*. Si quieres una
 > install reproducible fijada a una release concreta, usa el tag:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.4.18/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.0/bootstrap.ps1 | iex
 > ```
 > La release tambien adjunta `ultron-system-<tag>.zip.sha256` para verificar la
 > integridad del ZIP despues de descargarlo.
@@ -199,6 +199,26 @@ Que hace `bootstrap.ps1`:
 4. Descarga `ULTRON Control Center_<ver>_x64-setup.exe` (instalador NSIS) y lo lanza.
 
 Re-ejecutalo cuando quieras para actualizar — `~/.ultron-vault/` y `~/.ultron/plans/` se preservan.
+
+### Opcion A2 — Bootstrap en Linux (Debian / Ubuntu / Fedora / Arch)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
+```
+
+Que hace `bootstrap.sh`:
+1. Resuelve el ultimo tag `v*.*.*` via la GitHub Releases API.
+2. Descarga `ultron-system-<ver>.zip` + `.sha256`, verifica el hash y extrae en `~/.ultron`.
+3. Ejecuta `install.sh`, que detecta el package manager (`apt` / `dnf` / `pacman`) e instala las deps (`webkit2gtk-4.1`, `libsoup-3.0`, `librsvg2-bin`, build essentials, Node 22, uv, Rust, Claude Code CLI).
+4. Descarga el binario Linux (`.deb` en Debian/Ubuntu, `.AppImage` en el resto), coloca el AppImage en `~/.local/bin/` y escribe un launcher `.desktop` en `~/.local/share/applications/`.
+
+Las releases Linux adjuntan `ultron-control-center_<ver>_amd64.deb` y `ULTRON Control Center_<ver>_amd64.AppImage` junto a los instaladores Windows. Fija una release concreta igual que en Windows:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.0/bootstrap.sh | bash
+```
+
+`install.sh` puede invocar `sudo` para el paso del package manager; el resto es per-user. Si se detecta WSL, avisa y recomienda usar la ruta Windows nativa en su lugar.
 
 ### Opcion B — Clonar el repo (recomendado para contribuir)
 
@@ -222,6 +242,8 @@ El installer es **idempotente** — puedes ejecutarlo varias veces sin miedo; de
 
 > [!NOTE]
 > **Sobre Windows SmartScreen.** El instalador NSIS no esta **firmado** todavia, asi que SmartScreen mostrara un aviso "Windows protegio tu PC" al lanzarlo. Click en **Mas informacion** -> **Ejecutar de todos modos**. Un certificado de code signing (~200 USD/ano en Sectigo/DigiCert) quitaria el aviso; documentado en [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
+>
+> **En Linux.** El `.AppImage` no tiene un aviso equivalente al de SmartScreen — `chmod +x` y a correr. El `.deb` no esta firmado y se instala con `sudo dpkg -i ultron-control-center_<ver>_amd64.deb` (si apt se queja por deps faltantes, `sudo apt -f install` lo cierra).
 
 Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills en `~/.claude/skills/`):
 
@@ -323,10 +345,10 @@ flowchart LR
 
 | Plataforma | Estado |
 |---|---|
-| Windows 11 | Soportada |
+| Windows 11 | Soportada (objetivo principal) |
 | Windows 10 | Best effort (no esta en CI) |
-| macOS | Planificada para v16 |
-| Linux | Planificada para v16 |
+| Linux x86_64 (Debian / Ubuntu / Fedora / Arch) | Soportada desde v15.5 (`.deb` + `.AppImage`) |
+| macOS | Fuera de scope — non-goal explicito |
 
 </details>
 

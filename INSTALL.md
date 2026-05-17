@@ -429,6 +429,152 @@ Or use the canonical uninstaller that backs everything up first:
 .\scripts\uninstall.ps1 -Yes       # unattended
 ```
 
+## Manual install on Linux (v15.5+)
+
+The happy path on Linux is the bootstrap one-liner:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
+```
+
+If `bootstrap.sh` or `install.sh` aborts at any step, run the equivalent
+commands below by hand. `install.sh` detects your package manager
+(`apt` / `dnf` / `pacman`) and runs the matching block; this section is
+the same content, copy-pasteable.
+
+### 0. System dependencies
+
+Tauri 2 on Linux needs `webkit2gtk-4.1`, `libsoup-3.0`, `librsvg2`, plus
+the usual build essentials. Node 22+, Rust stable, and `git` are also
+required.
+
+```bash
+# Debian / Ubuntu (apt)
+sudo apt update
+sudo apt install -y \
+  curl wget git build-essential pkg-config \
+  libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-bin \
+  libgtk-3-dev libayatana-appindicator3-dev \
+  libssl-dev nodejs npm
+
+# Fedora (dnf)
+sudo dnf install -y \
+  curl wget git gcc gcc-c++ make pkgconf-pkg-config \
+  webkit2gtk4.1-devel libsoup3-devel librsvg2-tools \
+  gtk3-devel libappindicator-gtk3-devel \
+  openssl-devel nodejs npm
+
+# Arch / Manjaro (pacman)
+sudo pacman -S --needed \
+  curl wget git base-devel pkgconf \
+  webkit2gtk-4.1 libsoup3 librsvg \
+  gtk3 libayatana-appindicator \
+  openssl nodejs npm
+```
+
+If your distro ships Node older than v22, install via `nvm` instead:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/master/install.sh | bash
+exec "$SHELL"
+nvm install 22 && nvm use 22
+```
+
+### 1. Claude Code CLI
+
+```bash
+npm install -g @anthropic-ai/claude-code
+claude login   # one-time browser sign-in to your Claude.ai subscription
+```
+
+### 2. uv (Python package manager)
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+exec "$SHELL"   # reload PATH
+uv --version
+```
+
+### 3. Rust toolchain (only needed if you build the desktop app from source)
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+rustc --version
+```
+
+If you install the `.deb` / `.AppImage` from the release page, Rust is
+not needed — those are prebuilt binaries.
+
+### 4. Qdrant (native binary)
+
+`install.sh` downloads the official Linux build to
+`~/.ultron/qdrant-native/`:
+
+```bash
+mkdir -p ~/.ultron/qdrant-native
+cd ~/.ultron/qdrant-native
+curl -fsSL -o qdrant.tar.gz \
+  https://github.com/qdrant/qdrant/releases/download/v1.18.0/qdrant-x86_64-unknown-linux-gnu.tar.gz
+tar -xzf qdrant.tar.gz
+rm qdrant.tar.gz
+chmod +x qdrant
+
+mkdir -p config
+cat > config/production.yaml <<'YAML'
+storage:
+  storage_path: ./storage
+  snapshots_path: ./snapshots
+
+service:
+  host: 127.0.0.1
+  http_port: 6333
+  grpc_port: 6334
+
+log_level: INFO
+YAML
+```
+
+Verify the binary serves:
+
+```bash
+~/.ultron/qdrant-native/qdrant --config-path ~/.ultron/qdrant-native/config/production.yaml &
+curl -sf http://localhost:6333/healthz   # should print "healthz check passed"
+```
+
+### 5. Desktop app
+
+Either install the prebuilt package (recommended):
+
+```bash
+# Debian / Ubuntu
+sudo dpkg -i ultron-control-center_<ver>_amd64.deb
+sudo apt -f install   # in case dpkg flagged missing deps
+
+# AppImage (Fedora, Arch, anything else)
+mkdir -p ~/.local/bin
+mv "ULTRON Control Center_<ver>_amd64.AppImage" ~/.local/bin/ultron-control-center
+chmod +x ~/.local/bin/ultron-control-center
+```
+
+Or build from source if you cloned the repo:
+
+```bash
+cd ~/.ultron/control-center
+npm install
+npm run tauri build
+```
+
+### 6. Health check
+
+```bash
+uv run python ~/.ultron/scripts/cockpit/doctor.py
+```
+
+Exit codes: `0` clean, `1` warnings only, `2` blocking findings. Some
+Windows-only checks (CrashDumps, Recycle Bin, NSIS uninstaller) are
+skipped automatically on Linux.
+
 ## Where to get help
 
 - Architecture and feature docs: `README.md`

@@ -44,6 +44,7 @@ pub struct GapsReport {
 /// `npm run tauri build`. The Control Center keeps running; the spawned
 /// terminal shows progress / asks for confirmation. Fire-and-forget —
 /// we do not wait for completion.
+#[cfg(target_os = "windows")]
 pub fn run_app_lifecycle_inner(kind: String) -> Result<(), String> {
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let ultron = home.join(".ultron");
@@ -188,6 +189,15 @@ Start-Sleep -Seconds 3
     Ok(())
 }
 
+/// Linux/macOS stub — the lifecycle scripts (`uninstall.ps1`, the
+/// in-place `tauri build` + relaunch flow) are PowerShell + Windows-only
+/// taskkill calls. There's no equivalent shipped today; the Linux build
+/// uses the OS package manager for install/uninstall instead.
+#[cfg(not(target_os = "windows"))]
+pub fn run_app_lifecycle_inner(_kind: String) -> Result<(), String> {
+    Err("app lifecycle commands are Windows-only".to_string())
+}
+
 pub fn run_detect_gaps_inner() -> Result<GapsReport, String> {
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let script = home
@@ -305,8 +315,14 @@ fn cockpit(home: &PathBuf) -> PathBuf {
     home.join(".ultron").join("scripts").join("cockpit")
 }
 
+#[cfg(target_os = "windows")]
 fn backup_script(home: &PathBuf) -> PathBuf {
     home.join(".ultron").join("scripts").join("backup").join("weekly-backup.ps1")
+}
+
+#[cfg(not(target_os = "windows"))]
+fn backup_script(home: &PathBuf) -> PathBuf {
+    home.join(".ultron").join("scripts").join("backup").join("weekly-backup.sh")
 }
 
 fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String> {
@@ -372,17 +388,24 @@ fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String
             if !script.is_file() {
                 return Err(format!("backup script missing: {}", script.display()));
             }
-            (
-                "powershell.exe".into(),
-                vec![
-                    "-NoProfile".into(),
-                    "-NonInteractive".into(),
-                    "-ExecutionPolicy".into(),
-                    "Bypass".into(),
-                    "-File".into(),
-                    script.to_string_lossy().into_owned(),
-                ],
-            )
+            #[cfg(target_os = "windows")]
+            {
+                (
+                    "powershell.exe".into(),
+                    vec![
+                        "-NoProfile".into(),
+                        "-NonInteractive".into(),
+                        "-ExecutionPolicy".into(),
+                        "Bypass".into(),
+                        "-File".into(),
+                        script.to_string_lossy().into_owned(),
+                    ],
+                )
+            }
+            #[cfg(not(target_os = "windows"))]
+            {
+                ("bash".into(), vec![script.to_string_lossy().into_owned()])
+            }
         }
         "agents-reembed" => (
             "uv".into(),

@@ -150,14 +150,18 @@ git push --tags
 Open the repository's Actions tab. The `release` workflow starts within a
 few seconds of the tag push. A successful run:
 
-- Installs Node 22 and the stable Rust toolchain on `windows-latest`.
+- Matrixes across `windows-latest` and `ubuntu-22.04` (from v15.5.0; the
+  Linux runner installs `webkit2gtk-4.1`, `libsoup-3.0`, `librsvg2-bin`,
+  and build essentials before invoking `tauri-action`).
+- Installs Node 22 and the stable Rust toolchain on every runner.
 - Runs `npm ci` inside `control-center/`.
 - Invokes `tauri-action`, which runs `npm run tauri build`, signs the
   installer with `TAURI_SIGNING_PRIVATE_KEY`, generates `latest.json`, and
-  creates the GitHub Release.
+  creates the GitHub Release. On Linux, `targets: "all"` produces both
+  `.deb` and `.AppImage`.
 
-Typical runtime on a free-tier runner: 12 to 25 minutes for a cold cache,
-6 to 10 minutes with `swatinem/rust-cache` warm.
+Typical runtime on a free-tier runner: 12 to 25 minutes per matrix leg
+for a cold cache, 6 to 10 minutes with `swatinem/rust-cache` warm.
 
 ### 1.6 Verify the release
 
@@ -216,29 +220,41 @@ anyone caught mid-download and removes the audit trail.
 
 ---
 
-## Bootstrap installer (v15.4.17+)
+## Bootstrap installer (v15.4.17+, bash variant from v15.5.0)
 
-`bootstrap.ps1` at the repo root is the one-liner entry point for users who
-do **not** want to clone the repo. It depends on three release assets being
-present:
+`bootstrap.ps1` (Windows) and `bootstrap.sh` (Linux) at the repo root are
+the one-liner entry points for users who do **not** want to clone the
+repo. Both expect the same cross-platform `ultron-system-<tag>.zip` and
+hand off to their respective per-OS installer (`install.ps1` /
+`install.sh`).
 
-1. `ultron-system-<tag>.zip` — built and uploaded by the `Build
-   ultron-system ZIP` step in `.github/workflows/release.yml`. Contains
-   `install.ps1`, `bootstrap.ps1`, `scripts/`, `skills-catalog/`, `agents/`,
-   `config/`, `docs/`, `schedules/`, `cockpit/`. Excludes `node_modules/`,
-   `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`.
-2. `ULTRON Control Center_<ver>_x64-setup.exe` — NSIS installer produced by
-   `tauri-action`.
-3. `latest.json` — auto-updater manifest (produced by `tauri-action`).
+Required release assets (built and uploaded by
+`.github/workflows/release.yml`):
 
-If the system ZIP is missing from a release, `bootstrap.ps1` exits with
-code 3. Always verify the asset list on the GitHub Releases page after a tag
-push.
+| Asset | Built by | Notes |
+|---|---|---|
+| `ultron-system-<tag>.zip` | `Build ultron-system ZIP` step | Cross-platform: `install.ps1`, `install.sh`, `bootstrap.ps1`, `bootstrap.sh`, `scripts/`, `skills-catalog/`, `agents/`, `config/`, `docs/`, `schedules/`, `cockpit/`. Excludes `node_modules/`, `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`. |
+| `ultron-system-<tag>.zip.sha256` | same step | SHA-256 of the ZIP for both bootstrappers to verify. |
+| `ULTRON Control Center_<ver>_x64-setup.exe` | `tauri-action` on `windows-latest` | NSIS installer, Windows. |
+| `ULTRON Control Center_<ver>_x64_en-US.msi` | `tauri-action` on `windows-latest` | MSI installer, Windows (optional but built by default). |
+| `ultron-control-center_<ver>_amd64.deb` | `tauri-action` on `ubuntu-22.04` | Debian / Ubuntu package, Linux. |
+| `ULTRON Control Center_<ver>_amd64.AppImage` | `tauri-action` on `ubuntu-22.04` | AppImage, works on any glibc-based distro. |
+| `latest.json` | `tauri-action` | Auto-updater manifest. Lists both Windows and Linux signatures so the in-app updater can pick the right asset per platform. |
 
-The bootstrap one-liner that users see in the README:
+If the system ZIP or the platform-specific binary is missing from a
+release, the corresponding bootstrap exits with code 3. Always verify
+the asset list on the GitHub Releases page after a tag push.
+
+The bootstrap one-liners users see in the README:
 
 ```powershell
+# Windows
 iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
+```
+
+```bash
+# Linux
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
 ```
 
 ---

@@ -7,9 +7,10 @@ name: release
 # Output: a GitHub Release containing the Windows installer (.msi / setup.exe)
 #         plus `latest.json`, the manifest consumed by the Tauri auto-updater.
 #
-# Free-tier friendly: runs on the GitHub-hosted `windows-latest` runner only.
-# macOS and Linux jobs are intentionally absent from v15.2.0; add them by
-# extending the matrix below when the cross-platform build is verified.
+# Runs on the GitHub-hosted `windows-latest` AND `ubuntu-22.04` runners.
+# Linux produces .AppImage + .deb via tauri-action (targets: "all" already in
+# tauri.conf.json). macOS is still intentionally absent — add it by extending
+# the matrix below when the cross-platform build is verified.
 # -----------------------------------------------------------------------------
 
 on:
@@ -27,13 +28,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Windows x64 only for v15.2.0. To add platforms later, append
-          # entries here, e.g.:
-          #   - platform: macos-latest
-          #     args: "--target universal-apple-darwin"
-          #   - platform: ubuntu-22.04
-          #     args: ""
+          # Windows x64 — produces the NSIS setup.exe + MSI.
           - platform: windows-latest
+            args: ""
+          # Linux x64 — produces .AppImage + .deb (tauri.conf.json bundle
+          # targets: "all"). macOS still pending verified universal build.
+          - platform: ubuntu-22.04
             args: ""
 
     runs-on: ${{ matrix.platform.platform || matrix.platform }}
@@ -62,9 +62,29 @@ jobs:
         run: npm ci
 
       # ─────────────────────────────────────────────────────────────────────────
+      # Linux Tauri build deps. Required for webkit2gtk + libsoup on
+      # ubuntu-22.04; not needed on windows-latest. Must run BEFORE tauri-action.
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Install Tauri Linux build deps
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libsoup-3.0-dev \
+            librsvg2-dev \
+            build-essential \
+            libssl-dev
+
+      # ─────────────────────────────────────────────────────────────────────────
       # Build the system ZIP + run the leak gate BEFORE tauri-action publishes
       # the release. If the leak gate fails here, no GitHub release is created
       # at all — clean fail. Round 2 codex review v15.4.17.
+      #
+      # Gated to windows-latest only — the system ZIP is platform-agnostic
+      # (PowerShell, Python, JSON, markdown) so building it twice would just
+      # race on the same release asset filename and waste runner minutes.
+      # The Linux runner consumes the same ZIP at install time via bootstrap.sh.
       # ─────────────────────────────────────────────────────────────────────────
       - name: Build ultron-system ZIP (pre-release)
         if: matrix.platform == 'windows-latest'
@@ -192,6 +212,9 @@ jobs:
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
 
+      # Gated to windows-latest for the same reason as the build step above:
+      # one ZIP per release. Don't unset this guard without also removing the
+      # build step's guard, otherwise two runners will race on the same asset.
       - name: Attach ultron-system ZIP to release
         if: matrix.platform == 'windows-latest'
         uses: softprops/action-gh-release@v2
