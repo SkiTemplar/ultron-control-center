@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.1 -->
+## v15.5.1 — 2026-05-17
+
+- docs(v15.5.1/contributing+readmes): Linux unverified warning + API key policy + LinkedIn + drop CODE_OF_CONDUCT
+
+_Auto-generated from aa039788 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.0 -->
 ## v15.5.0 — 2026-MM-DD
 
