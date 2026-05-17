@@ -146,6 +146,11 @@ export default function App() {
   // Behaviour: open Control Center on the Projects tab, then invoke
   // open_project so the user lands on the configured project ready to go.
   useEffect(() => {
+    // Kirkardo audit v15.5.4: a cancelled flag closes the race between
+    // unmount and the listen() promise resolving. Without it, React
+    // StrictMode (or any quick remount) leaves a listener attached to
+    // the Tauri event bus forever.
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
     void listen<{ slot: number; project_id: string; combo: string }>(
       "project-hotkey-custom",
@@ -160,9 +165,16 @@ export default function App() {
         }
       },
     ).then((fn) => {
+      if (cancelled) {
+        // Listener registered after the component already unmounted —
+        // detach immediately so it doesn't outlive the host.
+        fn();
+        return;
+      }
       unlisten = fn;
     });
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
     };
   }, []);

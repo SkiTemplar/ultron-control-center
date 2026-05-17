@@ -16,7 +16,7 @@
 
 </div>
 
-ULTRON is a Windows-native, subscription-only orchestrator for Claude Code, Codex and Gemini. It is a small project with strong opinions. This document is the operational guide for getting a dev environment up and landing a PR — not a manifesto. If you only want to *use* ULTRON, read `INSTALL.md` instead.
+ULTRON is a Windows 11 + Linux x86_64 (v15.5+) orchestrator for Claude Code, Codex and Gemini. The default install runs against existing subscriptions; an opt-in API-key path is welcome as a contribution. It is a small project with strong opinions. This document is the operational guide for getting a dev environment up and landing a PR — not a manifesto. If you only want to *use* ULTRON, read `INSTALL.md` instead.
 
 ---
 

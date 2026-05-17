@@ -933,7 +933,7 @@ export function Projects() {
 
   function openAddItem(p: ProjectInfo) {
     setItemTarget(p);
-    setIKind("exe");
+    setIKind("folder");
     setIPath("");
     setICwd("");
     setIArgs("");

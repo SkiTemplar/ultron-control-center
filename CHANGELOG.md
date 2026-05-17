@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.4 -->
+## v15.5.4 — 2026-05-17
+
+- fix(v15.5.4): Linux release build â€” add libayatana-appindicator3-dev + libfuse2
+
+_Auto-generated from 8a37f678 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.3 -->
 ## v15.5.3 — 2026-05-17
 

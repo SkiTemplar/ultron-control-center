@@ -757,27 +757,42 @@ pub async fn apply_auto_fix_inner(
     let Some(home) = home_dir() else {
         return Err("no HOME".to_string());
     };
+    // Kirkardo audit v15.5.4: most auto-fixes are Windows-only (NSIS, MSI,
+    // CrashDumps, Recycle Bin). Only restart-qdrant has a .sh sibling
+    // today. On Linux we prefer the .sh script when it exists; on Windows
+    // we always use the .ps1. The frontend should already filter the
+    // catalog by platform (Dashboard.tsx visibleAutoFixes), but the
+    // backend gates as defence-in-depth.
+    #[cfg(target_os = "windows")]
+    let (script_ext, runner, runner_args): (&str, &str, Vec<&str>) = (
+        "ps1",
+        "powershell.exe",
+        vec!["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File"],
+    );
+    #[cfg(not(target_os = "windows"))]
+    let (script_ext, runner, runner_args): (&str, &str, Vec<&str>) = ("sh", "bash", vec![]);
+
     let script = home
         .join(".ultron/scripts/cockpit/auto-fixes")
-        .join(format!("{}.ps1", name));
+        .join(format!("{}.{}", name, script_ext));
     if !script.exists() {
-        return Err(format!("auto-fix script not found: {}", script.display()));
+        return Err(format!(
+            "auto-fix '{}' has no {} script for this platform: {}",
+            name,
+            script_ext,
+            script.display()
+        ));
     }
     let script_str = script.to_string_lossy().to_string();
+    let mut args: Vec<&str> = runner_args.clone();
+    args.push(&script_str);
     let output = app
         .shell()
-        .command("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &script_str,
-        ])
+        .command(runner)
+        .args(args)
         .output()
         .await
-        .map_err(|e| format!("spawn powershell: {}", e))?;
+        .map_err(|e| format!("spawn {}: {}", runner, e))?;
 
     Ok(AutoFixResult {
         name,

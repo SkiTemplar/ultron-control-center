@@ -122,7 +122,7 @@
         "type": "stdio"
       },
       "prompts": [
-        {"key": "ROOT_PATH", "label": "Sandbox root path (e.g. C:\\Users\\USER\\Documents)", "secret": false,
+        {"key": "ROOT_PATH", "label": "Sandbox root path (e.g. C:\\Users\\<you>\\Documents or /home/<you>/Documents)", "secret": false,
          "applies_to": "args"}
       ]
     },

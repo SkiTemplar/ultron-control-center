@@ -79,8 +79,10 @@ wizard — re-running is idempotent and the purge step is safe to re-do.
 | `feat_project`       | Project manager      | `scripts/cockpit/project_editor.py`, `scripts/cockpit/project_notes.py`, `scripts/cockpit/launch_project.py`, `scripts/cockpit/scan_projects.py` |
 | `feat_plans`         | Plans & goals        | `scripts/cockpit/plans_cli.py`                                                                                                              |
 
-Skills, agents, hooks, brain_index, and Qdrant are **always** installed —
-they are core infrastructure and have no opt-out path through the wizard.
+Core deps (Git, Node, uv, Claude Code CLI, layout) are **always** installed —
+they're hard requirements. Skills, agents, hooks, brain_index and Qdrant
+are checked on by default but **can be unchecked** in the wizard if you want
+a stripped install (e.g. you already manage skills/agents yourself).
 
 ### Post-install removal (advanced)
 
@@ -297,17 +299,16 @@ Skip skills you don't want — Claude Code only loads what's in
 ### 8b. Agents
 
 `install.ps1` mirrors the skills flow for autonomous subagents under
-`~/.claude/agents/`. It always copies the 9 ULTRON first-party agents
+`~/.claude/agents/`. It always copies the 12 ULTRON first-party agents
 (`ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`,
-`ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`,
-`ultron-test`). It then offers to install the 15 community agents
-already downloaded under `~/.ultron/agents/community/` (`architect-reviewer`,
-`code-reviewer`, `context-manager`, `debugger`, `legacy-modernizer`,
-`mcp-developer`, `multi-agent-coordinator`, `powershell-7-expert`,
-`python-pro`, `react-specialist`, `refactoring-specialist`,
-`rust-engineer`, `security-auditor`, `test-automator`,
-`typescript-pro`). Decline and you can install them one by one later
-from the Agents tab in the Control Center.
+`ultron-metadata`, `ultron-news`, `ultron-perf`, `ultron-refactor`,
+`ultron-security`, `ultron-self-improve`, `ultron-skill-editor`,
+`ultron-test`) plus the 7 stack-aligned community agents in `repo/agents/`
+(`cpp-pro`, `graphics-programmer`, `unreal-engine-engineer`,
+`unity-engineer`, `devops-engineer`, `database-admin`,
+`fullstack-developer`). The `cockpit/agent-catalog.json` lists 69 more
+that you can install on demand from the Agents tab in the Control
+Center (88 total available).
 
 To install an agent by hand:
 

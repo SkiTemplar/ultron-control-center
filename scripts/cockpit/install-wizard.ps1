@@ -99,7 +99,7 @@ $Catalog = @(
     @{ id="cc_skills_core";  group="Claude Code integration";      label="Core skills";               note="superpowers, ultron, agent-skills - the always-on set";        default=$true;  required=$false }
     @{ id="cc_skills_extra"; group="Claude Code integration";      label="Personal skills";           note="optional personality skills (alfred, terry, pana, einstein...)"; default=$false; required=$false }
     @{ id="cc_skills_comm";  group="Claude Code integration";      label="Community skills";          note="clone curated skills from SkiTemplar/ultron-skills";           default=$false; required=$false }
-    @{ id="cc_agents";       group="Claude Code integration";      label="Agents (24 pre-installed)"; note="copy agent manifests into ~/.claude/agents/";                  default=$true;  required=$false }
+    @{ id="cc_agents";       group="Claude Code integration";      label="Agents (19 pre-installed)"; note="copy 12 ULTRON + 7 community agent manifests into ~/.claude/agents/ (69 more available from the Agents tab catalog)"; default=$true;  required=$false }
 
     # ---- Optional UI --------------------------------------------------
     @{ id="ui_npm";          group="Optional UI";                  label="Control Center deps (npm install)"; note="~150 MB, ~2 min - needed even if you skip the Tauri build"; default=$false; required=$false }
