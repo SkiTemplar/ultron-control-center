@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.20 -->
+## v15.4.20 — 2026-05-17
+
+- fix(v15.4.20): kill running app before any build â€” no more "Acceso denegado"
+
+_Auto-generated from de30c846 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.19 -->
 ## v15.4.19 — 2026-05-17
 
