@@ -235,6 +235,19 @@ function Preview({
     }
   }
 
+  async function handleSendToVault() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await invoke<AgentMutationResult>("send_agent_to_vault", { name: agent.name });
+      flash(`Moved to vault: ${res.backup_path ?? "(unknown)"}`);
+      onDeleted();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  }
+
   async function openInClaude() {
     try {
       const agentsDir = joinPath(await getHomeDir(), ".claude", "agents");
@@ -312,6 +325,12 @@ function Preview({
                     title="Open the prompt-injection scan report for this agent"
                   />
                 )}
+                <HeaderBtn
+                  label="Vault"
+                  onClick={() => void handleSendToVault()}
+                  disabled={busy || loading}
+                  title="Move this agent to ~/.ultron/agent-vault/ (Claude stops auto-loading it; restore from the Vault panel)"
+                />
                 <HeaderBtn
                   label="Delete"
                   variant="danger"

@@ -181,21 +181,23 @@ fn default_brainstorm_plans() -> AiRouterEntry {
     )
 }
 fn default_news_generate() -> AiRouterEntry {
-    // Generative + long context → Gemini Pro + knowledge-synthesizer
-    // (mismo perfil que summarize, reutilizamos).
+    // v15.4.14 — ultron-news is the purpose-built editor (SQLite dedup
+    // hist + GitHub/AI prioritisation rubric). Replaces the prior
+    // knowledge-synthesizer reuse.
     AiRouterEntry::with_full(
         "gemini",
         Some("gemini-3.1-pro-preview"),
-        Some("knowledge-synthesizer"),
+        Some("ultron-news"),
     )
 }
 fn default_skill_edit() -> AiRouterEntry {
-    // Markdown frontmatter tweaks → Sonnet + documentation-engineer
-    // (catalog) que conoce convenciones MD/YAML.
+    // v15.4.14 — ultron-skill-editor enforces ULTRON's frontmatter
+    // invariants (versioned model, ≤200-char desc, kebab-case tags,
+    // ftfy on body) so generic documentation-engineer is overkill.
     AiRouterEntry::with_full(
         "claude",
         Some("claude-sonnet-4-6"),
-        Some("documentation-engineer"),
+        Some("ultron-skill-editor"),
     )
 }
 fn default_mcp_create() -> AiRouterEntry {
@@ -221,8 +223,10 @@ fn default_notif_fix() -> AiRouterEntry {
     AiRouterEntry::with_full("claude", Some("claude-sonnet-4-6"), Some("debugger"))
 }
 fn default_self_improve() -> AiRouterEntry {
-    // Telemetry → architecture lens, Opus.
-    AiRouterEntry::with_full("claude", Some("claude-opus-4-7"), Some("ultron-arch"))
+    // v15.4.14 — ultron-self-improve is the dedicated observability +
+    // tuning specialist. Emits concrete YAML patches for
+    // intent-rules.yaml. ultron-arch is too broad for this lens.
+    AiRouterEntry::with_full("claude", Some("claude-opus-4-7"), Some("ultron-self-improve"))
 }
 fn default_system_analyse() -> AiRouterEntry {
     // Hooks / scheduled tasks / processes on Windows → PowerShell expert.

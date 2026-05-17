@@ -366,6 +366,110 @@ pub fn delete_agent_inner(name: String) -> Result<AgentMutationResult, String> {
     })
 }
 
+// v15.4.14 — Send-to-vault / restore-from-vault flow for agents.
+// The vault is `~/.ultron/agent-vault/<name>.md`. Sent agents are
+// removed from `~/.claude/agents/` so Claude no longer auto-loads
+// them on SessionStart, but the .md stays on disk for inspection /
+// restore. The auto-recall hook can read the vault dir on demand to
+// surface a vaulted agent when a prompt matches its description.
+fn agent_vault_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".ultron").join("agent-vault"))
+}
+
+pub fn send_agent_to_vault_inner(name: String) -> Result<AgentMutationResult, String> {
+    validate_slug(&name)?;
+    let dir = agents_dir().ok_or_else(|| "no HOME".to_string())?;
+    let path = dir.join(format!("{}.md", name));
+    if !path.is_file() {
+        return Err(format!("agent not found: {}", path.display()));
+    }
+    let vault = agent_vault_dir().ok_or_else(|| "no HOME".to_string())?;
+    fs::create_dir_all(&vault).map_err(|e| format!("mkdir vault: {}", e))?;
+    let target = vault.join(format!("{}.md", name));
+    // If the vault already has this agent (e.g. user restored, edited,
+    // and is now sending back), overwrite with the current version.
+    fs::rename(&path, &target).map_err(|e| format!("move to vault: {}", e))?;
+    Ok(AgentMutationResult {
+        success: true,
+        name,
+        path: path.to_string_lossy().to_string(),
+        backup_path: Some(target.to_string_lossy().to_string()),
+    })
+}
+
+pub fn restore_agent_from_vault_inner(name: String) -> Result<AgentMutationResult, String> {
+    validate_slug(&name)?;
+    let vault = agent_vault_dir().ok_or_else(|| "no HOME".to_string())?;
+    let src = vault.join(format!("{}.md", name));
+    if !src.is_file() {
+        return Err(format!("agent not in vault: {}", src.display()));
+    }
+    let dir = agents_dir().ok_or_else(|| "no HOME".to_string())?;
+    fs::create_dir_all(&dir).map_err(|e| format!("mkdir agents: {}", e))?;
+    let target = dir.join(format!("{}.md", name));
+    if target.exists() {
+        return Err(format!(
+            "agent already installed at {}; delete it first if you want the vaulted copy back",
+            target.display()
+        ));
+    }
+    fs::rename(&src, &target).map_err(|e| format!("restore from vault: {}", e))?;
+    Ok(AgentMutationResult {
+        success: true,
+        name,
+        path: target.to_string_lossy().to_string(),
+        backup_path: None,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultedAgent {
+    pub name: String,
+    pub description: String,
+}
+
+pub fn list_vaulted_agents_inner() -> Result<Vec<VaultedAgent>, String> {
+    let vault = match agent_vault_dir() {
+        Some(p) => p,
+        None => return Ok(Vec::new()),
+    };
+    if !vault.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for entry in fs::read_dir(&vault).map_err(|e| format!("read vault: {}", e))? {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("md") {
+            continue;
+        }
+        let name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        if name.is_empty() {
+            continue;
+        }
+        let body = fs::read_to_string(&path).unwrap_or_default();
+        let description = body
+            .lines()
+            .find_map(|l| l.strip_prefix("description:"))
+            .unwrap_or("")
+            .trim()
+            .trim_matches('"')
+            .chars()
+            .take(200)
+            .collect::<String>();
+        out.push(VaultedAgent { name, description });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
 fn validate_slug(name: &str) -> Result<(), String> {
     let len = name.len();
     if len < 2 || len > 61 {

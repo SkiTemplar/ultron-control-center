@@ -406,6 +406,87 @@ pub fn delete_skill_inner(name: String, soft: bool) -> Result<SkillDeleteResult,
     })
 }
 
+/// v15.4.14 — restore a vaulted skill back to ~/.claude/skills/<name>/.
+/// Inverse of delete_skill_inner(soft=true). Refuses if a non-vault copy
+/// already exists, since silently overwriting an installed skill would
+/// erase user-local edits.
+pub fn restore_skill_from_vault_inner(name: String) -> Result<SkillDeleteResult, String> {
+    validate_slug(&name)?;
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let from = home.join(format!(".ultron/skill-vault/{}", name));
+    if !from.is_dir() {
+        return Err(format!("skill not in vault: {}", from.display()));
+    }
+    let to = home.join(format!(".claude/skills/{}", name));
+    if to.exists() {
+        return Err(format!(
+            "skill already installed at {}; remove it first if you want the vaulted copy back",
+            to.display()
+        ));
+    }
+    fs::create_dir_all(to.parent().unwrap())
+        .map_err(|e| format!("mkdir {}: {}", to.display(), e))?;
+    if let Err(_e) = fs::rename(&from, &to) {
+        copy_dir_recursive(&from, &to)
+            .map_err(|e| format!("copy fallback {}→{}: {}", from.display(), to.display(), e))?;
+        fs::remove_dir_all(&from)
+            .map_err(|e| format!("remove src {}: {}", from.display(), e))?;
+    }
+    Ok(SkillDeleteResult {
+        success: true,
+        name,
+        from_path: from.to_string_lossy().to_string(),
+        to_path: to.to_string_lossy().to_string(),
+        soft: true,
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct VaultedSkill {
+    pub name: String,
+    pub description: String,
+}
+
+pub fn list_vaulted_skills_inner() -> Result<Vec<VaultedSkill>, String> {
+    let home = match dirs::home_dir() {
+        Some(h) => h,
+        None => return Ok(Vec::new()),
+    };
+    let vault = home.join(".ultron/skill-vault");
+    if !vault.is_dir() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    for entry in fs::read_dir(&vault).map_err(|e| format!("read vault: {}", e))? {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let skill_md = entry.path().join("SKILL.md");
+        let description = if skill_md.is_file() {
+            fs::read_to_string(&skill_md)
+                .unwrap_or_default()
+                .lines()
+                .find_map(|l| l.strip_prefix("description:"))
+                .unwrap_or("")
+                .trim()
+                .trim_matches('"')
+                .chars()
+                .take(200)
+                .collect::<String>()
+        } else {
+            String::new()
+        };
+        out.push(VaultedSkill { name, description });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {

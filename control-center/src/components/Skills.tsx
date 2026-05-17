@@ -293,6 +293,19 @@ function Preview({
     }
   }
 
+  async function handleRestoreFromVault() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await invoke<SkillDeleteResult>("restore_skill_from_vault", { name: skill.name });
+      flash(`Restored to ${res.to_path}`);
+      onDeleted();
+    } catch (e) {
+      setError(String(e));
+      setBusy(false);
+    }
+  }
+
   // Open the skill's directory in Windows Explorer. SkillInfo.path is
   // the directory itself (skills live in ~/.claude/skills/<name>/),
   // unlike agents whose `path` points at the .md file — we don't need
@@ -344,6 +357,21 @@ function Preview({
                     variant="danger"
                     onClick={openSecurity}
                     disabled={busy || loading}
+                  />
+                )}
+                {skill.state === "vaulted" ? (
+                  <HeaderBtn
+                    label="Restore"
+                    onClick={() => void handleRestoreFromVault()}
+                    disabled={busy || loading}
+                    title="Move this skill back to ~/.claude/skills/ so Claude auto-loads it again"
+                  />
+                ) : (
+                  <HeaderBtn
+                    label="Vault"
+                    onClick={() => void handleDelete(true)}
+                    disabled={busy || loading}
+                    title="Move to ~/.ultron/skill-vault/ — Claude stops auto-loading it; reversible from the vault layer"
                   />
                 )}
                 <HeaderBtn

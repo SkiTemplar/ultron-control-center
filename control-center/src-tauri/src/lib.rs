@@ -168,6 +168,8 @@ pub fn run() {
             commands::skills::create_skill,
             commands::skills::update_skill_md,
             commands::skills::delete_skill,
+            commands::skills::restore_skill_from_vault,
+            commands::skills::list_vaulted_skills,
             commands::skills::get_skill_findings,
             commands::skills::allow_skill_manually,
             // -- agents --
@@ -176,6 +178,9 @@ pub fn run() {
             commands::agents::create_agent,
             commands::agents::update_agent_md,
             commands::agents::delete_agent,
+            commands::agents::send_agent_to_vault,
+            commands::agents::restore_agent_from_vault,
+            commands::agents::list_vaulted_agents,
             commands::agents::get_agent_findings,
             commands::agents::allow_agent_manually,
             // -- maintenance / lifecycle --

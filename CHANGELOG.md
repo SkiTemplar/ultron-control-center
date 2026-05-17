@@ -1,5 +1,65 @@
 # Changelog
 
+<!-- v15.4.13 -->
+## v15.4.13 — 2026-05-17
+
+- feat(v15.4.13): publish 332 skills + Install-SkillSets + top_intent fix + apps path UTF-16 decode
+
+_Auto-generated from fa456c6f by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.4.12 -->
+## v15.4.12 — 2026-05-17
+
+- feat(v15.4.12): publica 16 agents al repo + install.ps1 paso Install-Agents + docs/COMMANDS.md + README polish
+- fix(v15.4.11b): agent model versioning + README counts clarified
+
+_Auto-generated from f419eb2b by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.4.11 -->
+## v15.4.11 — 2026-05-17
+
+- feat(v15.4.11): MemoryGraph retirado del Memory tab + Projects items consolidados a 3 kinds
+
+_Auto-generated from 4ac6aec0 by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.4.10 -->
+## v15.4.10 — 2026-05-17
+
+- fix(v15.4.10): MemoryGraph - clusters mas juntos + bolitas mas densas (USER lo queria al reves)
+
+_Auto-generated from efb18ede by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.4.9 -->
+## v15.4.9 — 2026-05-17
+
+- feat(v15.4.9): MemoryGraph spacing + AI Router agents en todas zones + Mode persistence + toggle UI redesign + 42 catalog agents installed
+- docs(v15.4.8c): README real catalog count + roadmap removed + Personal profile generated
+- fix(v15.4.8b): Skills always-rich + mojibake sweep in skills/agents/docs
+
+_Auto-generated from 55adba85 by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.4.8 -->
+## v15.4.8 — 2026-05-17
+
+- fix(v15.4.8): MemoryGraph galaxy clusters + backup stale silencioso + PLANS empty
+
+_Auto-generated from 05dce858 by scripts/hooks/auto-changelog.py_
+
+
+<!-- v15.4.7 -->
+## v15.4.7 — 2026-05-17
+
+- fix(v15.4.7): full army audit follow-up - 7 bugs reales corregidos
+- docs: agent catalog count refresh to 31 pre-installed (~90 available)
+
+_Auto-generated from 7ec157f8 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.6 -->
 ## v15.4.6 — 2026-05-17
 
@@ -151,7 +211,7 @@ _Auto-generated from 3d25b052 by scripts/hooks/auto-changelog.py_
 <!-- v15.3.5 -->
 ## v15.3.5 — 2026-05-16
 
-- fix(v15.3.5): version drift sweep â€” SSOT sync + Doctor probe + auto-fix + agent catalog reality + Task matcher
+- fix(v15.3.5): version drift sweep — SSOT sync + Doctor probe + auto-fix + agent catalog reality + Task matcher
 - chore: refresh changelog (auto)
 
 _Auto-generated from 27ed24e5 by scripts/hooks/auto-changelog.py_
