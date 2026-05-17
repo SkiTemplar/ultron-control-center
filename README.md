@@ -256,7 +256,8 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 |---|---|
 | **Memory** | L0-L3 hierarchy, SQLite FTS5 index, native Qdrant for semantic recall (no Docker), decay surfacing |
 | **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
-| **Agents** | Fresh install: 31 pre-installed (9 ULTRON + 22 curated community). Catalog: 69 more in `cockpit/agent-catalog.json`, installable on demand (100 total possible). Dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery. |
+| **Agents** | Fresh install: 12 ULTRON + 7 curated community in `repo/agents/`. Catalog: 69 more in `cockpit/agent-catalog.json`, installable on demand. Dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery. |
+| **Skill / Agent Vault** | Demote a skill or agent without deleting it. Vault button in the detail pane moves the file to `~/.ultron/skill-vault/` or `~/.ultron/agent-vault/`; Claude stops auto-loading it. Restore from the sidebar Vault panel. Vaulted entries can still surface as suggestions via the auto-recall hook (`[VAULT·SKILL·82%] …`). |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — all auditable |
 | **Control Center** | 16 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks. (Logs tab is wired but currently disabled.) |
 | **Dual-mode** | Optional Codex CLI peer review + Gemini CLI long-context delegation, both subscription-only |
@@ -273,9 +274,9 @@ Opt-in slots ship as **empty templates**: fork ULTRON and fill them with your ow
 </details>
 
 <details>
-<summary><b>Agents (16 first-party + 15 curated community + 69 catalog)</b></summary>
+<summary><b>Agents (12 ULTRON + 7 curated community + 69 catalog)</b></summary>
 
-Agents live in `~/.claude/agents/*.md` with the same YAML-frontmatter contract as skills. The installer copies 16 first-party agents from `repo/agents/` and the 15-strong curated community set. A further 69 community agents are described in `cockpit/agent-catalog.json` and install on demand from the **Agents tab → Discover online**. Every agent is scanned by the PI001-PI013 ruleset; failures land in quarantine with the same Allow-anyway waiver as skills. The AI Router exposes a per-zone Agent slot (Settings → AI Router → Reset to ULTRON recommended wires curated pairs).
+Agents live in `~/.claude/agents/*.md` with the same YAML-frontmatter contract as skills. The installer copies the agents under `repo/agents/` (12 first-party ULTRON agents plus a small curated community set). A further 69 community agents are described in `cockpit/agent-catalog.json` and install on demand from the **Agents tab → Discover online**. Every agent is scanned by the PI001-PI013 ruleset; failures land in quarantine with the same Allow-anyway waiver as skills. The AI Router exposes a per-zone Agent slot (Settings → AI Router → Reset to ULTRON recommended wires curated pairs).
 
 </details>
 

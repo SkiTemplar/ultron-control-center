@@ -89,6 +89,28 @@ if (-not $DryRun) {
     Invoke-WebRequest -Uri $systemAsset.browser_download_url -OutFile $zipPath
 }
 
+# 2b. SHA256 verification — kirkardo audit v15.4.18: the release publishes
+# a .zip.sha256 manifest; without checking it, tag-pinning is theatre. A
+# tampered or partial download silently corrupts ~/.ultron. Hard-fail if
+# the manifest is present and the hashes diverge.
+$shaAsset = $release.assets | Where-Object { $_.name -eq "$expectedZip.sha256" } | Select-Object -First 1
+if ($shaAsset -and -not $DryRun) {
+    $shaTmp = Join-Path $tmpDir "$expectedZip.sha256"
+    Write-Step "Fetching $($shaAsset.name) for integrity check"
+    Invoke-WebRequest -Uri $shaAsset.browser_download_url -OutFile $shaTmp
+    $expectedSha = (Get-Content $shaTmp -Raw).Trim().Split()[0].ToLower()
+    $actualSha = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLower()
+    if ($expectedSha -ne $actualSha) {
+        Write-Err "SHA256 mismatch — ZIP corrupt or tampered."
+        Write-Err "  expected: $expectedSha"
+        Write-Err "  actual:   $actualSha"
+        exit 5
+    }
+    Write-Step "SHA256 verified: $actualSha"
+} elseif (-not $shaAsset) {
+    Write-Warn "Release $tag does not include $expectedZip.sha256 — proceeding WITHOUT integrity check."
+}
+
 # 3. Extract over $InstallDir
 if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Path $InstallDir | Out-Null

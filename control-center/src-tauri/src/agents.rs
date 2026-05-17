@@ -376,6 +376,19 @@ fn agent_vault_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron").join("agent-vault"))
 }
 
+/// Move a single file with a cross-volume copy+remove fallback. Mirrors the
+/// pattern in skills.rs::copy_dir_recursive so vault operations don't crash
+/// on Windows installs where `~/.claude` and `~/.ultron` live on different
+/// drives (kirkardo audit v15.4.18).
+fn move_file_with_fallback(src: &Path, dst: &Path) -> Result<(), String> {
+    if fs::rename(src, dst).is_ok() {
+        return Ok(());
+    }
+    fs::copy(src, dst).map_err(|e| format!("copy fallback {}→{}: {}", src.display(), dst.display(), e))?;
+    fs::remove_file(src).map_err(|e| format!("remove src {}: {}", src.display(), e))?;
+    Ok(())
+}
+
 pub fn send_agent_to_vault_inner(name: String) -> Result<AgentMutationResult, String> {
     validate_slug(&name)?;
     let dir = agents_dir().ok_or_else(|| "no HOME".to_string())?;
@@ -389,7 +402,7 @@ pub fn send_agent_to_vault_inner(name: String) -> Result<AgentMutationResult, St
     if target.exists() {
         fs::remove_file(&target).map_err(|e| format!("clear stale vault entry: {}", e))?;
     }
-    fs::rename(&path, &target).map_err(|e| format!("move to vault: {}", e))?;
+    move_file_with_fallback(&path, &target)?;
     Ok(AgentMutationResult {
         success: true,
         name,
@@ -414,7 +427,7 @@ pub fn restore_agent_from_vault_inner(name: String) -> Result<AgentMutationResul
             target.display()
         ));
     }
-    fs::rename(&src, &target).map_err(|e| format!("restore from vault: {}", e))?;
+    move_file_with_fallback(&src, &target)?;
     Ok(AgentMutationResult {
         success: true,
         name,
@@ -795,5 +808,42 @@ mod tests {
         assert!(validate_slug("foo-bar").is_ok());
         assert!(validate_slug("agent-123").is_ok());
         assert!(validate_slug("a1").is_ok());
+    }
+
+    // ── Vault flow happy-path (kirkardo audit v15.4.18) ──────────────────────
+    // Uses the real `move_file_with_fallback` helper plus tempdirs so we
+    // don't touch ~/.claude or ~/.ultron. We can't test
+    // send_agent_to_vault_inner directly because it derives both paths from
+    // dirs::home_dir() — but we test the underlying move helper which is
+    // where cross-volume bugs would actually live.
+
+    #[test]
+    fn move_file_with_fallback_renames_in_same_volume() {
+        let tmp = std::env::temp_dir().join(format!("ultron-test-{}", unix_ts()));
+        fs::create_dir_all(&tmp).unwrap();
+        let src = tmp.join("a.md");
+        let dst = tmp.join("b.md");
+        fs::write(&src, "hello").unwrap();
+
+        move_file_with_fallback(&src, &dst).expect("move should succeed");
+
+        assert!(!src.exists(), "src should be gone after move");
+        assert!(dst.exists(), "dst should exist after move");
+        assert_eq!(fs::read_to_string(&dst).unwrap(), "hello");
+
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn move_file_with_fallback_errors_on_missing_src() {
+        let tmp = std::env::temp_dir().join(format!("ultron-test-miss-{}", unix_ts()));
+        fs::create_dir_all(&tmp).unwrap();
+        let src = tmp.join("nope.md");
+        let dst = tmp.join("out.md");
+
+        let res = move_file_with_fallback(&src, &dst);
+        assert!(res.is_err(), "moving a missing file must fail loud");
+
+        fs::remove_dir_all(&tmp).ok();
     }
 }

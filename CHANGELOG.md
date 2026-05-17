@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.18 -->
+## v15.4.18 — 2026-05-17
+
+- chore(v15.4.18): bump after codex-r2 fixes for clean release tag
+
+_Auto-generated from 8e7d3888 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.17 -->
 ## v15.4.17 — 2026-05-17
 
