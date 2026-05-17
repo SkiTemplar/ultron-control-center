@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.5 -->
+## v15.5.5 — 2026-05-17
+
+- fix(v15.5.5): 5-kirkardo integration wave 1 â€” 13 high-signal fixes
+
+_Auto-generated from 6486ccee by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.4 -->
 ## v15.5.4 — 2026-05-17
 
