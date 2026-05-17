@@ -101,7 +101,20 @@ const VALID_PROVIDERS: &[&str] = &["claude", "codex", "gemini"];
 /// modal dropdown and consumed by `open_project_in_ide` to skip auto-detect.
 /// Legacy values (e.g. "external", "app", "game", anything else) collapse
 /// to `None` at load time so the row falls back to the auto-detect path.
-const VALID_IDES: &[&str] = &["vscode", "cursor", "code-insiders"];
+const VALID_IDES: &[&str] = &[
+    "vscode",
+    "cursor",
+    "code-insiders",
+    "intellij",
+    "rider",
+    "webstorm",
+    "pycharm",
+    "androidstudio",
+    "fleet",
+    "nvim",
+    "sublime",
+    "zed",
+];
 
 fn normalise_provider(raw: Option<&str>) -> String {
     match raw.map(str::trim).filter(|s| !s.is_empty()) {
@@ -129,6 +142,15 @@ fn normalise_ide(raw: Option<&str>) -> Option<String> {
         "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => {
             Some("code-insiders")
         }
+        "intellij" | "idea" | "intellij idea" => Some("intellij"),
+        "rider" => Some("rider"),
+        "webstorm" => Some("webstorm"),
+        "pycharm" => Some("pycharm"),
+        "androidstudio" | "android studio" | "android-studio" => Some("androidstudio"),
+        "fleet" => Some("fleet"),
+        "nvim" | "neovim" => Some("nvim"),
+        "sublime" | "sublime text" | "subl" => Some("sublime"),
+        "zed" => Some("zed"),
         _ => None,
     };
     canonical.map(|s| s.to_string()).or_else(|| {
@@ -1149,20 +1171,46 @@ pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), Stri
 
     // Map our slug to the CLI binary name on PATH. "vscode" maps to
     // `code`; cursor and code-insiders ship the CLI under their own name.
+    // JetBrains IDEs ship `idea64.exe` / `rider64.exe` / etc. when the
+    // "Generate shell scripts" option is enabled in Toolbox; we accept
+    // the short forms here. Sublime is `subl`, neovim is `nvim`.
     let slug_to_cli = |s: &str| match s {
         "vscode" => Some("code"),
         "cursor" => Some("cursor"),
         "code-insiders" => Some("code-insiders"),
+        "intellij" => Some("idea"),
+        "rider" => Some("rider"),
+        "webstorm" => Some("webstorm"),
+        "pycharm" => Some("pycharm"),
+        "androidstudio" => Some("studio"),
+        "fleet" => Some("fleet"),
+        "nvim" => Some("nvim"),
+        "sublime" => Some("subl"),
+        "zed" => Some("zed"),
         _ => None,
     };
 
     // Build the ordered list of CLIs to try. With a preference set, that
-    // CLI is tried first and the others act as fallbacks.
+    // CLI is tried first and the rest of the catalogue acts as fallback so
+    // the user always gets *some* editor instead of an error.
     let mut candidates: Vec<&str> = Vec::new();
     if let Some(pref) = preferred.and_then(slug_to_cli) {
         candidates.push(pref);
     }
-    for c in ["code", "cursor", "code-insiders"] {
+    for c in [
+        "code",
+        "cursor",
+        "code-insiders",
+        "idea",
+        "rider",
+        "webstorm",
+        "pycharm",
+        "studio",
+        "fleet",
+        "nvim",
+        "subl",
+        "zed",
+    ] {
         if !candidates.contains(&c) {
             candidates.push(c);
         }

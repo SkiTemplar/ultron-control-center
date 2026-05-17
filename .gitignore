@@ -65,8 +65,14 @@ qdrant-native/config/production.yaml
 qdrant_storage/
 
 # === Personal data (NEVER commit) ===
-personal/
-personal/**
+# Anclado a top-level + vault — NO bloquear código UI con nombre `personal/`
+# (ej. control-center/src/components/personal/ es código TypeScript de la app)
+/personal/
+/personal/**
+/control-center/personal/
+/control-center/personal/**
+!/control-center/src/**/personal/
+!/control-center/src/**/personal/**
 MEMORY.md
 SYSTEM-MAP.md
 alerts.jsonl

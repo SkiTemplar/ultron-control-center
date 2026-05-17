@@ -281,16 +281,25 @@ def validate(event_name: str, payload: Any) -> ValidationResult:
     fatal_sanitize_errs = [e for e in sanitize_errs if e != "null_byte_in_string"]
 
     validator = _VALIDATORS[event_name]
-    errs = validator(sanitized) + fatal_sanitize_errs
+    raw_errs = validator(sanitized) + fatal_sanitize_errs
+    # v15.4: ``hook_event_name_mismatch`` is downgraded to a non-fatal
+    # telemetry tag. Claude Code occasionally posts a payload with the
+    # `hook_event_name` from a sibling event when hooks chain, which used
+    # to drop the prompt entirely. Surfacing the tag in alerts is enough
+    # — losing the user's prompt because of a metadata typo is worse UX
+    # than handling a slightly-misnamed payload.
+    soft_tags = {"hook_event_name_mismatch"}
+    errs = [e for e in raw_errs if e not in soft_tags]
+    telemetry_tags: list[str] = []
+    if "null_byte_in_string" in sanitize_errs:
+        telemetry_tags.append("null_byte_in_string")
+    if any(e in soft_tags for e in raw_errs):
+        telemetry_tags.append("hook_event_name_mismatch")
     if errs:
-        return ValidationResult(False, sanitized, errs + (
-            ["null_byte_in_string"] if "null_byte_in_string" in sanitize_errs else []
-        ))
-    # Success path: still surface the NUL telemetry tag to the caller
+        return ValidationResult(False, sanitized, errs + telemetry_tags)
+    # Success path: still surface the telemetry tags to the caller
     # (alerts pipeline) without flipping ok=False.
-    return ValidationResult(True, sanitized,
-                            ["null_byte_in_string"] if "null_byte_in_string" in sanitize_errs
-                            else [])
+    return ValidationResult(True, sanitized, telemetry_tags)
 
 
 # F-MaxDual-R2-Hnew3: hard byte cap on stdin BEFORE json.loads. A

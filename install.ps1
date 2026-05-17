@@ -1310,6 +1310,29 @@ function Remove-OptOutFeatureFiles {
         feat_schedules = @(
             "scripts\cockpit\install-scheduler.ps1"
         )
+        feat_notifications = @(
+            "scripts\hooks\qdrant-notify.ps1",
+            "scripts\cockpit\pending_panel.py"
+        )
+        feat_usage = @(
+            "scripts\cockpit\usage_report.py",
+            "scripts\cockpit\token_baseline.py",
+            "scripts\cockpit\token_budget.py"
+        )
+        feat_sessions = @(
+            "scripts\cockpit\session_compactor.py",
+            "scripts\cockpit\session_highlights.py",
+            "scripts\cockpit\session_replay.py"
+        )
+        feat_project = @(
+            "scripts\cockpit\project_editor.py",
+            "scripts\cockpit\project_notes.py",
+            "scripts\cockpit\launch_project.py",
+            "scripts\cockpit\scan_projects.py"
+        )
+        feat_plans = @(
+            "scripts\cockpit\plans_cli.py"
+        )
     }
 
     $purgedTotal = 0
@@ -1358,11 +1381,16 @@ function Set-FeatureFlags {
     # Read previous answers as the defaults; falls back to baseline values
     # the first time around.
     $defaults = [ordered]@{
-        news         = $false  # Gemini tokens — off by default
-        gaming       = $true
-        personal     = $true
-        schedules    = $true
-        self_improve = $true
+        news          = $false  # Gemini tokens — off by default
+        gaming        = $true
+        personal      = $true
+        schedules     = $true
+        self_improve  = $true
+        notifications = $true
+        usage         = $false  # off by default — only useful when on paid plan
+        sessions      = $true
+        project       = $true
+        plans         = $false  # off by default — power-user feature
     }
     if (Test-Path -LiteralPath $featuresFile) {
         try {
@@ -1380,11 +1408,16 @@ function Set-FeatureFlags {
     if ($Script:Selections.Count -gt 0) {
         Write-Info "applying selections from the visual wizard"
         $features = [ordered]@{
-            news         = Get-Choice -Id "feat_news"      -Default $defaults.news
-            gaming       = Get-Choice -Id "feat_gaming"    -Default $defaults.gaming
-            personal     = Get-Choice -Id "feat_personal"  -Default $defaults.personal
-            schedules    = Get-Choice -Id "feat_schedules" -Default $defaults.schedules
-            self_improve = Get-Choice -Id "feat_selfimp"   -Default $defaults.self_improve
+            news          = Get-Choice -Id "feat_news"          -Default $defaults.news
+            gaming        = Get-Choice -Id "feat_gaming"        -Default $defaults.gaming
+            personal      = Get-Choice -Id "feat_personal"      -Default $defaults.personal
+            schedules     = Get-Choice -Id "feat_schedules"     -Default $defaults.schedules
+            self_improve  = Get-Choice -Id "feat_selfimp"       -Default $defaults.self_improve
+            notifications = Get-Choice -Id "feat_notifications" -Default $defaults.notifications
+            usage         = Get-Choice -Id "feat_usage"         -Default $defaults.usage
+            sessions      = Get-Choice -Id "feat_sessions"      -Default $defaults.sessions
+            project       = Get-Choice -Id "feat_project"       -Default $defaults.project
+            plans         = Get-Choice -Id "feat_plans"         -Default $defaults.plans
         }
     } else {
         if ($NonInteractive) {
@@ -1393,11 +1426,16 @@ function Set-FeatureFlags {
             Write-Info "Enable optional features? Press Enter to accept the default."
         }
         $features = [ordered]@{
-            news         = Read-FeatureToggle -Name "News digest"      -Default $defaults.news         -Note "Gemini-generated daily newsletter (cost-heavy)"
-            gaming       = Read-FeatureToggle -Name "Gaming utilities" -Default $defaults.gaming       -Note "game detector + tweaks panel"
-            personal     = Read-FeatureToggle -Name "Personal section" -Default $defaults.personal     -Note "private profile slots in the cockpit"
-            schedules    = Read-FeatureToggle -Name "Schedules"        -Default $defaults.schedules    -Note "Windows scheduled-task management"
-            self_improve = Read-FeatureToggle -Name "Self-improve"     -Default $defaults.self_improve -Note "route telemetry feeds the dispatcher tuner"
+            news          = Read-FeatureToggle -Name "News digest"      -Default $defaults.news          -Note "Gemini-generated daily newsletter (cost-heavy)"
+            gaming        = Read-FeatureToggle -Name "Gaming utilities" -Default $defaults.gaming        -Note "game detector + tweaks panel"
+            personal      = Read-FeatureToggle -Name "Personal section" -Default $defaults.personal      -Note "private profile slots in the cockpit"
+            schedules     = Read-FeatureToggle -Name "Schedules"        -Default $defaults.schedules     -Note "Windows scheduled-task management"
+            self_improve  = Read-FeatureToggle -Name "Self-improve"     -Default $defaults.self_improve  -Note "route telemetry feeds the dispatcher tuner"
+            notifications = Read-FeatureToggle -Name "Notifications"    -Default $defaults.notifications -Note "toast/tray alerts + pending-actions panel"
+            usage         = Read-FeatureToggle -Name "Usage tracking"   -Default $defaults.usage         -Note "token budget + /usage cache (Anthropic API only)"
+            sessions      = Read-FeatureToggle -Name "Sessions archive" -Default $defaults.sessions      -Note "session replay + highlights + compactor"
+            project       = Read-FeatureToggle -Name "Project manager"  -Default $defaults.project       -Note "project editor + scan + notes panel"
+            plans         = Read-FeatureToggle -Name "Plans & goals"    -Default $defaults.plans         -Note "lifecycle open -> in-progress -> resolved"
         }
     }
 

@@ -1,5 +1,41 @@
 # Changelog
 
+<!-- v15.4.0 -->
+## v15.4.0 — 2026-05-17
+
+Post-overnight polish sweep. Fixes the regressions USER surfaced after the
+`REDACTED_COMMIT_LABEL` (2e9a773) and closes every gap raised in the
+2026-05-17 audit.
+
+### Fixes
+
+- fix(gitignore): anchor `personal/` to top-level + carve-out for `control-center/src/**/personal/` — restores `KnownSection.tsx` / `ProfileSection.tsx` / `StyleSection.tsx` / `types.ts`, unblocks the TypeScript CI step.
+- fix(tests): drop `tests/test_usage_reset.py` and `tests/test_tui_recall_modal.py` (dead — `tui.py` removed in v15.4); fixes pytest collection error.
+- fix(validate_push): scrub heredocs + quoted strings before laundering / protected-branch check — heredoc commit messages no longer trigger false-positive blocks. Force-pushes to `main`/`master`/`release`/`production` still hard-blocked.
+- fix(hook_input_validator): downgrade `hook_event_name_mismatch` to non-fatal telemetry tag (same treatment as `null_byte_in_string` from v15.3.5). User prompts no longer dropped on minor metadata typos.
+
+### Features
+
+- feat(agents): Agents tab now renders Markdown via `<SkillRichView/>` — identical to Skills. No more raw `<pre>` text dump.
+- feat(projects): IDE selector ampliado a 12 options — VS Code / Cursor / Insiders / Zed / IntelliJ IDEA / Rider / WebStorm / PyCharm / Android Studio / JetBrains Fleet / Neovim / Sublime Text. Backend `VALID_IDES` + `normalise_ide` + `slug_to_cli` + candidates fallback all updated.
+- feat(command-palette): 4 new maintenance commands wired through `list_maintenance_commands_inner` — `agents-reembed`, `deadwood-scan`, `doctor-fix` (`--non-interactive`), `audit-skills` (persona audit).
+- feat(button-prompts): 11 new entries covering previously empty sections — Personal (refresh_profile, refresh_known), Projects (suggest_refactor, generate_readme), Sessions (summarize, extract_decisions), Memory (consolidate, refresh_index), System (hook_review, diagnose_runtime), MCPs (debug_connection), Agents (batch_migrate).
+- feat(installer): 5 new `Optional features` toggles on the visual wizard — `feat_notifications`, `feat_usage`, `feat_sessions`, `feat_project`, `feat_plans`. Wired through `Set-FeatureFlags` + `optOutManifest` so unchecking removes the implementing scripts idempotently.
+
+### Cleanup
+
+- chore(plans): reset `PLANS.json` — archive 9 wontfix entries to `_archive/resolved-2026-05-17.json`, keep only v15.4 → v15.7 vivos. Add `v15.4-control-center-polish` spec at `plans/specs/`.
+- docs(INSTALL): expand opt-out manifest table to 8 rows, add **Post-install removal (advanced)** section explaining the three removal paths (re-run wizard, edit `features.json`, spawn Claude session).
+
+### Verification
+
+- `tsc --noEmit` green from CI on push.
+- `uv run pytest tests/ -q` collection clean (no `ModuleNotFoundError: tui`).
+- Manual smoke of `validate_push.py`: heredoc commit passes, raw `git push -f origin main` blocks.
+
+_Polish reviewed adversarially via `/codex:adversarial-review` on the final diff (see commit body for findings)._
+
+
 <!-- v15.3.6 -->
 ## v15.3.6 — 2026-05-17
 

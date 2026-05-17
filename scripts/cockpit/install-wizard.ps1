@@ -106,11 +106,16 @@ $Catalog = @(
     @{ id="ui_tauri_build";  group="Optional UI";                  label="Tauri release build";       note="3-5 min Rust compile, produces installer.exe";                 default=$false; required=$false }
 
     # ---- Optional features --------------------------------------------
-    @{ id="feat_news";       group="Optional features";            label="News digest";               note="Gemini-generated daily newsletter - costs tokens";             default=$false; required=$false }
-    @{ id="feat_gaming";     group="Optional features";            label="Gaming utilities";          note="game detector + tweaks panel";                                 default=$false; required=$false }
-    @{ id="feat_personal";   group="Optional features";            label="Personal section";         note="private profile slots in the cockpit";                          default=$true;  required=$false }
-    @{ id="feat_schedules";  group="Optional features";            label="Schedules";                 note="Windows scheduled-task management";                            default=$false; required=$false }
-    @{ id="feat_selfimp";    group="Optional features";            label="Self-improve";              note="route telemetry feeds the dispatcher tuner";                   default=$true;  required=$false }
+    @{ id="feat_news";          group="Optional features";            label="News digest";               note="Gemini-generated daily newsletter - costs tokens";             default=$false; required=$false }
+    @{ id="feat_gaming";        group="Optional features";            label="Gaming utilities";          note="game detector + tweaks panel";                                 default=$false; required=$false }
+    @{ id="feat_personal";      group="Optional features";            label="Personal section";         note="private profile slots in the cockpit";                          default=$true;  required=$false }
+    @{ id="feat_schedules";     group="Optional features";            label="Schedules";                 note="Windows scheduled-task management";                            default=$false; required=$false }
+    @{ id="feat_selfimp";       group="Optional features";            label="Self-improve";              note="route telemetry feeds the dispatcher tuner";                   default=$true;  required=$false }
+    @{ id="feat_notifications"; group="Optional features";            label="Notifications";             note="toast/tray alerts + on-screen pending-actions panel";          default=$true;  required=$false }
+    @{ id="feat_usage";         group="Optional features";            label="Usage tracking";            note="token budget + /usage cache + weekly reset reports";           default=$false; required=$false }
+    @{ id="feat_sessions";      group="Optional features";            label="Sessions archive";          note="session replay + highlights + compactor";                       default=$true;  required=$false }
+    @{ id="feat_project";       group="Optional features";            label="Project manager";           note="project editor + scan + notes panel";                           default=$true;  required=$false }
+    @{ id="feat_plans";         group="Optional features";            label="Plans & goals";             note="lifecycle open -> in-progress -> resolved tracker";            default=$false; required=$false }
 )
 
 # Merge defaults with previous profile (previous wins, except for required).

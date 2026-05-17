@@ -192,6 +192,30 @@ pub fn list_maintenance_commands_inner() -> Vec<MaintenanceCommand> {
             description: "Run the weekly mirror backup script. Updates the Doctor backup status.".into(),
             group: "system".into(),
         },
+        MaintenanceCommand {
+            kind: "agents-reembed".into(),
+            label: "Agents re-embed".into(),
+            description: "Re-vectorize ~/.claude/agents into Qdrant for semantic discovery.".into(),
+            group: "skills".into(),
+        },
+        MaintenanceCommand {
+            kind: "deadwood-scan".into(),
+            label: "Deadwood scan".into(),
+            description: "Detect orphaned scripts, stale skills, unreferenced data files.".into(),
+            group: "system".into(),
+        },
+        MaintenanceCommand {
+            kind: "doctor-fix".into(),
+            label: "Doctor — auto-fix safe issues".into(),
+            description: "Run doctor with --fix to apply only the changes marked safe.".into(),
+            group: "system".into(),
+        },
+        MaintenanceCommand {
+            kind: "audit-skills".into(),
+            label: "Persona audit (skills + agents)".into(),
+            description: "Aggregate usage / freshness stats per persona — output to ~/.ultron/cockpit/audits/.".into(),
+            group: "skills".into(),
+        },
     ]
 }
 
@@ -278,6 +302,40 @@ fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String
                 ],
             )
         }
+        "agents-reembed" => (
+            "uv".into(),
+            vec![
+                "run".into(),
+                "python".into(),
+                cock.join("embed_agents.py").to_string_lossy().into_owned(),
+            ],
+        ),
+        "deadwood-scan" => (
+            "uv".into(),
+            vec![
+                "run".into(),
+                "python".into(),
+                cock.join("deadwood_scanner.py").to_string_lossy().into_owned(),
+            ],
+        ),
+        "doctor-fix" => (
+            "uv".into(),
+            vec![
+                "run".into(),
+                "python".into(),
+                cock.join("doctor.py").to_string_lossy().into_owned(),
+                "--fix".into(),
+                "--non-interactive".into(),
+            ],
+        ),
+        "audit-skills" => (
+            "uv".into(),
+            vec![
+                "run".into(),
+                "python".into(),
+                cock.join("persona_audit.py").to_string_lossy().into_owned(),
+            ],
+        ),
         other => return Err(format!("unknown maintenance kind: {}", other)),
     })
 }

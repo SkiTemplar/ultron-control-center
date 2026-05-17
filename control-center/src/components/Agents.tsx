@@ -10,6 +10,7 @@ import type {
 import { getHomeDir, joinPath } from "../lib/paths";
 import { SecurityPanel } from "./SecurityPanel";
 import { HeaderBtn, KindBadge, Pill, SkillAgentRow } from "./SkillAgentShared";
+import { SkillRichView } from "./SkillRichView";
 
 // ---------------------------------------------------------------------------
 // Agents tab — sister to Skills, scoped to ~/.claude/agents/*.md.
@@ -463,11 +464,8 @@ function Preview({
           />
         )}
         {!loading && mode !== "edit" && (
-          <pre
-            className="whitespace-pre-wrap text-[11.5px] leading-relaxed"
+          <div
             style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--color-text-secondary)",
               // Dim the body when the Security panel is open so the
               // findings drawer is the visual foreground — mirrors the
               // Skills tab's behaviour.
@@ -477,8 +475,8 @@ function Preview({
               pointerEvents: mode === "security" ? "none" : "auto",
             }}
           >
-            {content}
-          </pre>
+            <SkillRichView raw={content} />
+          </div>
         )}
       </div>
     </div>

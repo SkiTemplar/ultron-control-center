@@ -59,14 +59,27 @@ If you want to opt out of a feature **after** the initial install, the
 correct workflow is to re-run `install.ps1` and uncheck the box in the
 wizard — re-running is idempotent and the purge step is safe to re-do.
 
-| Wizard ID         | Feature              | Files removed when unchecked                                                                                              |
-| ----------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `feat_news`       | News digest          | `scripts/cockpit/news_html_generator.py`, `scripts/cockpit/news_alerts.py`, `scripts/cockpit/templates/newsletter.md.tmpl`, `cockpit/news/` |
-| `feat_gaming`     | Gaming utilities     | `scripts/cockpit/game_detector.py`, `scripts/cockpit/gaming-enum.ps1`                                                     |
-| `feat_schedules`  | Schedules            | `scripts/cockpit/install-scheduler.ps1`                                                                                   |
+| Wizard ID            | Feature              | Files removed when unchecked                                                                                                                |
+| -------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `feat_news`          | News digest          | `scripts/cockpit/news_html_generator.py`, `scripts/cockpit/news_alerts.py`, `scripts/cockpit/templates/newsletter.md.tmpl`, `cockpit/news/` |
+| `feat_gaming`        | Gaming utilities     | `scripts/cockpit/game_detector.py`, `scripts/cockpit/gaming-enum.ps1`                                                                       |
+| `feat_schedules`     | Schedules            | `scripts/cockpit/install-scheduler.ps1`                                                                                                     |
+| `feat_notifications` | Notifications        | `scripts/hooks/qdrant-notify.ps1`, `scripts/cockpit/pending_panel.py`                                                                       |
+| `feat_usage`         | Usage tracking       | `scripts/cockpit/usage_report.py`, `scripts/cockpit/token_baseline.py`, `scripts/cockpit/token_budget.py`                                   |
+| `feat_sessions`      | Sessions archive     | `scripts/cockpit/session_compactor.py`, `scripts/cockpit/session_highlights.py`, `scripts/cockpit/session_replay.py`                        |
+| `feat_project`       | Project manager      | `scripts/cockpit/project_editor.py`, `scripts/cockpit/project_notes.py`, `scripts/cockpit/launch_project.py`, `scripts/cockpit/scan_projects.py` |
+| `feat_plans`         | Plans & goals        | `scripts/cockpit/plans_cli.py`                                                                                                              |
 
 Skills, agents, hooks, brain_index, and Qdrant are **always** installed —
 they are core infrastructure and have no opt-out path through the wizard.
+
+### Post-install removal (advanced)
+
+If you decide *later* you no longer want a module:
+
+1. **Re-run the wizard** (recommended): `./install.ps1`, untick the box, finish. The opt-out manifest above is re-applied and the files are removed idempotently.
+2. **Edit `~/.ultron/cockpit/features.json`** directly — flips the runtime toggle so the desktop app hides the corresponding tab/widget without touching the files. Useful if you want to keep the scripts around for an occasional manual run.
+3. **Spawn a Claude session in the install root** — `cd ~/.ultron && claude` and ask: *"remove the `feat_<name>` module idempotently and update features.json"*. Claude has read/write access to the same paths the installer uses; the operation is reversible from `git status` if anything looks wrong.
 
 ### Auto-install matrix
 

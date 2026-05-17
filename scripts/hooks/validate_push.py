@@ -80,6 +80,28 @@ def _mentions_protected_branch(cmd: str) -> bool:
     return False
 
 
+_HEREDOC_RE = re.compile(
+    r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[\s\S]*?^\2\s*$",
+    re.MULTILINE,
+)
+_SINGLE_QUOTED_RE = re.compile(r"'[^'\\]*(?:\\.[^'\\]*)*'")
+_DOUBLE_QUOTED_RE = re.compile(r'"[^"\\]*(?:\\.[^"\\]*)*"')
+
+
+def _scrub_quotes_and_heredocs(cmd: str) -> str:
+    """Replace heredoc bodies + quoted-string contents with placeholders.
+
+    Heredocs and quoted strings are *data*, not shell statements — the
+    laundering / push detector should never inspect them. This produces a
+    sanitised view of the command suitable for the protected-push checks
+    without changing the original (logged-) `cmd` for telemetry.
+    """
+    scrubbed = _HEREDOC_RE.sub("<<HEREDOC_BODY>>", cmd)
+    scrubbed = _SINGLE_QUOTED_RE.sub("'QSTR'", scrubbed)
+    scrubbed = _DOUBLE_QUOTED_RE.sub('"QSTR"', scrubbed)
+    return scrubbed
+
+
 def main() -> int:
     try:
         raw = sys.stdin.read()
@@ -97,12 +119,30 @@ def main() -> int:
     if not cmd:
         return 0
 
-    # CC-07: laundering short-circuit. If the command starts with one of
-    # eval / bash -c / sh -c / base64 decode AND mentions `git push`
-    # somewhere in the line, refuse — we can't audit obfuscated commands.
-    # We anchor the laundering keyword to the start of a shell statement
-    # (start of line OR after &&/||/;/|/&) so a commit message that
-    # happens to describe these wrappers in prose doesn't trip the hook.
+    # v15.4: scrub heredocs and quoted strings before the *protected-
+    # branch* check. Without this, a multi-line commit message written
+    # via `$(cat <<'EOF' ... EOF)` or a quoted `-m "..."` that mentions
+    # `git push -f origin main` in prose triggers a false positive —
+    # which happened during the v15.4 REDACTED_COMMIT_LABEL
+    # (alerts validate_push_force at 2026-05-17 01:44–01:51).
+    #
+    # The laundering check, by contrast, MUST run against the original
+    # `cmd` — scrubbing replaces the quoted string body with `"QSTR"`,
+    # which would mask a real attack of the form `eval "git push origin
+    # main"`. The laundering keyword is already anchored to the start
+    # of a shell statement (start of line OR after &&/||/;/|/&), so a
+    # commit message that describes `eval` in prose doesn't trip it.
+    scrubbed = _scrub_quotes_and_heredocs(cmd)
+
+    # CC-07: laundering short-circuit. If a shell statement starts with
+    # eval / bash -c / sh -c / base64 decode AND the *full* command line
+    # mentions `git push` somewhere, refuse — we can't audit obfuscated
+    # commands and an attacker would hide the push inside the wrapper's
+    # quoted payload. We deliberately use a relaxed `\bgit\s+push\b`
+    # here (NOT GIT_PUSH_RE) because the push token typically sits
+    # *inside* the wrapper's quoted string, where the strict
+    # `(?<!\S)` anchor in GIT_PUSH_RE would refuse to match the
+    # leading quote.
     statements = re.split(r"&&|\|\||;|(?<![|&])\|(?!\|)|(?<!&)&(?!&)", cmd)
     laundering_in_command = any(
         LAUNDERING_RE.match(stmt.strip()) for stmt in statements
@@ -128,12 +168,15 @@ def main() -> int:
             pass
         return 2
 
-    if not GIT_PUSH_RE.search(cmd):
+    # Run the protected-push check against the scrubbed view too — a `git
+    # push -f origin main` quoted inside a commit message is not a real
+    # push attempt.
+    if not GIT_PUSH_RE.search(scrubbed):
         return 0
 
-    if not FORCE_FLAG_RE.search(cmd):
+    if not FORCE_FLAG_RE.search(scrubbed):
         return 0
-    if not _mentions_protected_branch(cmd):
+    if not _mentions_protected_branch(scrubbed):
         # force push to a feature branch is fine — common pattern. But the
         # +refs/heads/<protected> form only matches inside FORCE_FLAG_RE, so
         # by the time we get here we either have an explicit `--force` (and

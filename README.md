@@ -17,7 +17,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.2-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.4-44cc11.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2011-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Built on Claude Code" src="https://img.shields.io/badge/built%20on-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Stage" src="https://img.shields.io/badge/stage-public%20beta-orange.svg" />
@@ -178,7 +178,7 @@ On top of L1 lives a local **Qdrant** instance (the native Windows binary — no
 ## Quick start
 
 > [!IMPORTANT]
-> Windows 11 is the primary target. macOS and Linux are not officially tested at v15.2.
+> Windows 11 is the primary target. macOS and Linux are not officially tested at v15.4.
 
 **One-liner.**
 
@@ -340,9 +340,11 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 | Release | Status | Highlights |
 |---|---|---|
-| **v15.2** | Current | Control Center with 16 tabs, L0-L3 memory, hardened hooks, 12 core skills, dual-mode v2 via subscription CLIs |
-| **v15.3** | Next | Anti-hallucination layer, cross-session event bus, supervisor daemon |
-| **v16** | Future | Pipeline DAG, overnight loop, mobile companion PWA, multi-platform expansion |
+| **v15.4** | Current | Control Center polish — visual installer with 10 optional toggles, IDE-aware launch (12 editors), Agents Markdown viewer, 35 button prompts across every section, Cmd+K palette extended with maintenance commands. |
+| **v15.3.x** | Stable | Tauri auto-updater, Projects IDE-aware launch, Agents tab, AI Router auto-mode, security scanner, agent ecosystem. |
+| **v15.2** | Released | Control Center with 17 tabs, L0–L3 memory, hardened hooks, 12 core skills, dual-mode v2 via subscription CLIs. |
+| **v15.5+** | Next | Cross-session event bus, supervisor daemon, mobile companion via Tailscale. |
+| **v16** | Future | Pipeline DAG, overnight loop, multi-platform expansion. |
 
 Detailed release notes in [`CHANGELOG.md`](CHANGELOG.md).
 

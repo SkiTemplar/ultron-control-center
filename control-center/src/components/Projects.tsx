@@ -1295,6 +1295,15 @@ export function Projects() {
                 <option value="vscode">VS Code</option>
                 <option value="cursor">Cursor</option>
                 <option value="code-insiders">VS Code Insiders</option>
+                <option value="zed">Zed</option>
+                <option value="intellij">IntelliJ IDEA</option>
+                <option value="rider">Rider</option>
+                <option value="webstorm">WebStorm</option>
+                <option value="pycharm">PyCharm</option>
+                <option value="androidstudio">Android Studio</option>
+                <option value="fleet">JetBrains Fleet</option>
+                <option value="nvim">Neovim</option>
+                <option value="sublime">Sublime Text</option>
               </select>
             </div>
             <div>

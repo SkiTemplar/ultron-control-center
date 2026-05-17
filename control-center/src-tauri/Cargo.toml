@@ -1,6 +1,6 @@
 [package]
 name = "control-center"
-version = "15.3.4"
+version = "15.4.0"
 description = "ULTRON Control Center - desktop control panel for the ULTRON system"
 authors = ["USER SURNAME"]
 edition = "2021"
