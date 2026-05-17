@@ -42,11 +42,6 @@
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
     "global-shortcut:default",
-    "updater:default",
-    "updater:allow-check",
-    "updater:allow-download",
-    "updater:allow-install",
-    "updater:allow-download-and-install",
     "process:default",
     "process:allow-restart",
     "process:allow-exit",
@@ -487,18 +482,6 @@
             "run",
             "python",
             { "validator": "^C:\\\\Users\\\\USER\\\\\\.ultron\\\\scripts\\\\cockpit\\\\doctor_check\\.py$" }
-          ]
-        },
-        {
-          "name": "launcher-start-process",
-          "cmd": "powershell.exe",
-          "args": [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            { "validator": "^Start-Process [\\s\\S]{1,8000}$" }
           ]
         }
       ]

@@ -32,7 +32,7 @@ use serde::Serialize;
 use tauri_plugin_shell::ShellExt;
 
 use crate::backup_status;
-use crate::cost_watchdog;
+// use crate::cost_watchdog;  // v15.3.6: pruned with probe_cost
 use crate::mcps;
 
 // ---------------------------------------------------------------------------
@@ -505,38 +505,9 @@ fn probe_skills() -> DiagItem {
     }
 }
 
-fn probe_cost() -> DiagItem {
-    let t0 = now_epoch_ms();
-    match cost_watchdog::compute_cost_inner(6) {
-        Err(e) => DiagItem {
-            key: "cost".into(),
-            label: "Cost watchdog".into(),
-            color: "orange".into(),
-            metric: "no data".into(),
-            detail: Some(e),
-            fix: None,
-            elapsed_ms: now_epoch_ms() - t0,
-        },
-        Ok(snap) => {
-            let color = if snap.alert.is_some() { "orange" } else { "green" };
-            DiagItem {
-                key: "cost".into(),
-                label: "Cost watchdog".into(),
-                color: color.into(),
-                metric: format!(
-                    "${:.2}–${:.2}/day",
-                    snap.projected_daily_usd_low, snap.projected_daily_usd_high
-                ),
-                detail: Some(format!(
-                    "{} tok in {}h",
-                    snap.total_tokens, snap.window_hours
-                )),
-                fix: None,
-                elapsed_ms: now_epoch_ms() - t0,
-            }
-        }
-    }
-}
+// v15.3.6 cleanup: probe_cost() removed. User pays per subscription, not
+// per token. cost_watchdog module stays defined in case a future build
+// re-exposes it as an opt-in Settings feature. Restore from git history.
 
 fn probe_disk() -> DiagItem {
     let t0 = now_epoch_ms();

@@ -25,7 +25,7 @@
 // (~12.5K tokens at avg 4 chars/tok) stays well under any Codex CLI
 // argument cap and under any reasonable model context budget.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::cmp::Ordering;
 use std::fs;
 use std::path::{Path, PathBuf};

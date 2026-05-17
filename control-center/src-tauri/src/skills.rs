@@ -168,15 +168,22 @@ pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
 ///   2. ~/.claude/skills/<name>/SKILL.md  (active layer)
 ///   3. ~/.ultron/skill-vault/<name>/SKILL.md  (vault layer)
 /// Same Latin-only sanitization for SKILL.md preview content.
-pub fn read_skill_md_inner_raw(name: &str) -> Result<String, String> {
-    read_skill_md_internal(name)
-}
+//
+// v15.3.6 cleanup: read_skill_md_inner_raw() removed (no callers — every
+// public entry sanitises Latin chars via read_skill_md_inner). Restore
+// from git history if a raw bytestring variant is ever needed.
 
 pub fn read_skill_md_inner(name: &str) -> Result<String, String> {
     read_skill_md_internal(name).map(|c| strip_non_latin(&c))
 }
 
 fn read_skill_md_internal(name: &str) -> Result<String, String> {
+    // SECURITY (v15.3.6 CC-04): without this validation, a renderer can
+    // pass `name = "../../../Windows/System32/drivers/etc/hosts/.."` and
+    // walk the FS for any file named SKILL.md. validate_slug() rejects
+    // anything outside [a-z0-9-]{2,61} starting with [a-z0-9], which is
+    // the same shape skills already enforce on create/update/delete.
+    validate_slug(name)?;
     // 1. registry path
     let Some(home) = dirs::home_dir() else {
         return Err("no HOME".to_string());

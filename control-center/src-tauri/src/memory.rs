@@ -321,15 +321,12 @@ fn parse_collection_detail(body: &str) -> (Option<u64>, Option<u64>, Option<Stri
 // Public entry
 // ---------------------------------------------------------------------------
 
-pub fn memory_status_inner() -> MemoryStatus {
-    MemoryStatus {
-        vault: read_vault(),
-        brain: read_brain(),
-        qdrant: read_qdrant(),
-    }
-}
+// v15.3.6 cleanup: memory_status_inner() removed — replaced by
+// memory_status_with_emit which has the same shape but also fires UI
+// alerts on qdrant failure. The non-emitting wrapper had no callers.
+// If you need a silent variant, restore from git history.
 
-/// Same as `memory_status_inner` but plumbs an AppHandle through so the
+/// Same as the old `memory_status_inner` but plumbs an AppHandle through so the
 /// qdrant probe can fire a UI alert + Windows toast when the daemon is
 /// unreachable. Behaviour is otherwise identical — the returned struct
 /// is byte-for-byte the same, the side effect is just the alert.
