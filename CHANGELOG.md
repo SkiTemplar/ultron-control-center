@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.2 -->
+## v15.5.2 — 2026-05-17
+
+- fix(v15.5.2): unblock release CI + README sync + drop defensive Docker mentions
+
+_Auto-generated from 5ea5dabf by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.1 -->
 ## v15.5.1 — 2026-05-17
 
