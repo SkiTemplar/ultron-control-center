@@ -624,28 +624,31 @@ fn probe_backup() -> DiagItem {
             elapsed_ms: now_epoch_ms() - t0,
         },
         Ok(rep) => {
+            // v15.4.8 — USER's call: `stale` (8–30 days) is operational
+            // info, not a guard. The Doctor only flags `cold` (>30 d) and
+            // hard errors. Rationale: with no source-side changes a
+            // backup that hasn't run in 12 days is still semantically
+            // up-to-date; the only honest warning is "you have a
+            // freshness gap so large the mirror is probably stale
+            // relative to working state" — that's ~30 d.
+            //
+            // Future improvement: compare source dir mtime vs dest dir
+            // mtime per entry and flag orange only when source moved
+            // forward but dest didn't. For now, severity is by age tier.
             let color = match rep.overall_status.as_str() {
-                "ok" => "green",
-                "stale" => "orange",
+                "ok" | "stale" => "green",
                 _ => "orange",
             };
-            // v15.3.2: surface the auto-fix when the mirrors are stale or
-            // cold. The user kept asking "cómo se corrige Backup stale?"
-            // and the answer was buried in the Maintenance commands
-            // panel. Now the diag row itself proposes the fix and the
-            // user can apply it from "Auto-fix common issues".
             let fix = match rep.overall_status.as_str() {
-                "ok" => None,
+                "ok" | "stale" => None,
                 _ => Some("run-weekly-backup".to_string()),
             };
             let detail = match rep.overall_status.as_str() {
                 "ok" => Some(format!("status: {}", rep.overall_status)),
-                "stale" => Some(
-                    "Mirrors not refreshed in 8–30 days. Click \
-                    'Auto-fix common issues' → run-weekly-backup to \
-                    trigger the scheduled task now."
-                        .into(),
-                ),
+                "stale" => Some(format!(
+                    "info: {} (no warning — backups can refresh on the next weekly trigger)",
+                    rep.overall_status
+                )),
                 _ => Some(format!("status: {} — run weekly-backup to refresh", rep.overall_status)),
             };
             DiagItem {

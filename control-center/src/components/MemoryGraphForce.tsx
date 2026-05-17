@@ -102,7 +102,10 @@ const GRAVITY = 0.028;
 const DAMPING = 0.6;
 const COLLIDE_RADIUS = 26;
 const COLLIDE_STRENGTH = 0.5;
-const PRE_FRAMES = 600;
+// v15.4.8 — PRE_FRAMES retired: the cluster layout is final at mount,
+// no warm-up simulation needed. Kept the constant name reserved in case
+// drag-induced settling makes a comeback.
+// const PRE_FRAMES = 600;
 const MAX_RENDER_NODES = 200; // cap client-side; backend may still send more
 const ALPHA_DECAY = 0.985; // multiplicative cooling on per-step force scale
 const ALPHA_MIN = 0.01; // below this we freeze physics (alpha=0)
@@ -220,40 +223,103 @@ function step(
 // in nature do.
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 
+/**
+ * v15.4.8 — galaxy cluster layout. The previous attempts (Vogel-by-index,
+ * Vogel-by-hash) both failed in practice: nodes still landed on top of
+ * each other because the simulation step / re-renders fought the
+ * deterministic seed. New approach:
+ *
+ *   1. Group nodes by `category` (fallback to first tag, then "(other)").
+ *   2. Lay clusters out on a coarse hex grid so they never overlap.
+ *   3. Inside each cluster, place nodes on concentric rings — the most
+ *      connected one in the centre, the rest spiral outward.
+ *   4. Positions are fixed once and the simulation no longer mutates
+ *      them (see the disabled step() call in the useEffects below).
+ *
+ * Edges are still drawn as straight lines between node positions. With
+ * clusters spatially separated, cross-cluster edges trace the topology
+ * of the vault at a glance and intra-cluster edges become legible.
+ */
 function initParticles(nodes: GraphNode[]): Particle[] {
-  // Seed positions deterministically. Two layers:
-  //   1. Hash of id → small jitter (so repeat opens land in the same
-  //      neighbourhood for visual continuity).
-  //   2. Vogel-spiral by index → guarantees a unique base position per
-  //      node even when the id hash collides (or is empty/short, which
-  //      caused every node to land on top of each other in the
-  //      "all-nodes-collapsed" bug USER hit).
-  //
-  // The base spiral spans ~SOFT_BOUNDARY * 0.55 (interior radius). The
-  // hash jitter is at most ~3% of that radius, so the spiral structure
-  // dominates and the layout never starts piled-up regardless of id
-  // quality.
-  const maxR = SOFT_BOUNDARY * 0.55;
+  if (nodes.length === 0) return [];
+
+  // 1. Bucket by category.
+  const bucket = new Map<string, GraphNode[]>();
+  for (const n of nodes) {
+    const key = (n.category && n.category.trim())
+      || (n.tags[0] && n.tags[0].trim())
+      || "(other)";
+    if (!bucket.has(key)) bucket.set(key, []);
+    bucket.get(key)!.push(n);
+  }
+  // Sort categories so the layout is deterministic across renders even
+  // if the parent re-orders `nodes`.
+  const categories = Array.from(bucket.keys()).sort();
+  const G = categories.length;
+
+  // 2. Hex grid for cluster centres. Sqrt cols keeps the grid roughly
+  // square. clusterRadius is the radius reserved for each cluster (the
+  // node fan inside fits within it). gridGap leaves breathing room.
+  const cols = Math.max(1, Math.ceil(Math.sqrt(G)));
+  const rows = Math.max(1, Math.ceil(G / cols));
+  const usable = SOFT_BOUNDARY * 1.6;            // total drawable diameter
+  const clusterRadius = (usable / cols) * 0.42;  // per-cluster fan radius
+  const stepX = usable / cols;
+  const stepY = (usable / rows) * 0.9;
+
+  // Position lookup, populated below; we materialise Particles in the
+  // ORIGINAL node order at the end so consumers' idIndex stays valid.
+  const pos = new Map<string, { x: number; y: number }>();
+
+  categories.forEach((cat, gi) => {
+    const col = gi % cols;
+    const row = Math.floor(gi / cols);
+    // Stagger odd rows by half a column so the hex grid spaces out
+    // — also breaks "every cluster is on the same vertical line" look.
+    const offsetX = row % 2 === 1 ? stepX * 0.5 : 0;
+    const ccx = CENTER + (col - (cols - 1) / 2) * stepX + offsetX;
+    const ccy = CENTER + (row - (rows - 1) / 2) * stepY;
+
+    // 3. Inside the cluster, place nodes on concentric rings. The most
+    // connected node (inbound+outbound) goes in the centre; the rest
+    // fan out in golden-angle increments so consecutive ring slots
+    // don't collide.
+    const sorted = [...bucket.get(cat)!].sort(
+      (a, b) => (b.inbound + b.outbound) - (a.inbound + a.outbound),
+    );
+    sorted.forEach((node, i) => {
+      if (i === 0) {
+        // Hub of the cluster.
+        pos.set(node.id, { x: ccx, y: ccy });
+        return;
+      }
+      // sqrt growth keeps density uniform — the same trick Vogel uses
+      // but applied to a single cluster, anchored on the hub.
+      const t = i / Math.max(sorted.length - 1, 1);
+      const r = clusterRadius * Math.sqrt(t);
+      const theta = i * GOLDEN_ANGLE;
+      pos.set(node.id, {
+        x: ccx + Math.cos(theta) * r,
+        y: ccy + Math.sin(theta) * r,
+      });
+    });
+  });
+
   return nodes.map((node) => {
-    // v15.4.7 — position is derived ENTIRELY from the id hash, never
-    // from the array index. The previous Vogel-by-index attempt
-    // (v15.4.5) broke when the parent reordered nodes by degree on
-    // the >200 path, because two renders ago the same node landed at
-    // a different `i` and therefore a different spiral slot — the
-    // re-init then piled everything back together. Hashing the id
-    // makes the layout deterministic AND order-invariant.
-    let seed = 0;
-    for (let k = 0; k < node.id.length; k++) {
-      seed = (seed * 31 + node.id.charCodeAt(k)) >>> 0;
-    }
-    // Spread radius via sqrt of low 24 bits (uniform area density);
-    // angle via golden-angle multiple of the seed (every distinct id
-    // lands far from its neighbours on the circle).
-    const baseR = maxR * Math.sqrt(((seed & 0xffffff) + 0.5) / 0x1000000);
-    const baseTheta = (seed * GOLDEN_ANGLE) % (Math.PI * 2);
-    const rx = CENTER + Math.cos(baseTheta) * baseR;
-    const ry = CENTER + Math.sin(baseTheta) * baseR;
-    return { id: node.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };
+    const p = pos.get(node.id) ?? { x: CENTER, y: CENTER };
+    return {
+      id: node.id,
+      x: p.x,
+      y: p.y,
+      px: p.x,
+      py: p.y,
+      ax: 0,
+      ay: 0,
+      // v15.4.8 — fixed=true freezes the node so the (now-disabled)
+      // physics step ignores it even if someone re-enables tick().
+      // Drag still works via the dedicated drag handler.
+      fixed: true,
+    };
   });
 }
 
@@ -366,9 +432,13 @@ export function MemoryGraphForce({
     };
   }, []);
 
-  // Initialise physics + pre-render PRE_FRAMES once graph arrives.
-  // We pre-render with a cooling alpha so the layout converges and the
-  // SVG mounts visually stable — no more "balls flying around".
+  // v15.4.8 — initialise positions via the deterministic cluster layout
+  // and SKIP the physics pre-render. With clusters laid out on a hex
+  // grid + concentric rings, the simulation step() actively pulled
+  // nodes back together (gravity to CENTER + edge attraction). Now
+  // positions are fixed at mount; the rAF loop below is also a no-op
+  // (kept for the drag-to-rearrange affordance, where alpha jumps and
+  // a single redraw is enough).
   useEffect(() => {
     if (!graph) return;
     const parts = initParticles(graph.nodes);
@@ -376,18 +446,7 @@ export function MemoryGraphForce({
     parts.forEach((p, i) => idx.set(p.id, i));
     particlesRef.current = parts;
     idIndexRef.current = idx;
-    let a = 1;
-    for (let f = 0; f < PRE_FRAMES; f++) {
-      step(parts, graph.edges, idx, a);
-      a *= ALPHA_DECAY;
-      if (a < ALPHA_MIN) {
-        a = 0;
-        break;
-      }
-    }
-    // Post-pre-render: physics is essentially cold. Live tick will only
-    // wake up if the user drags a node.
-    alphaRef.current = a;
+    alphaRef.current = 0; // physics disabled by default
     forceRender((n) => n + 1);
   }, [graph]);
 
