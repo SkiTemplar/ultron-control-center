@@ -213,3 +213,11 @@ scripts/cockpit/_categorize_skills.py
 scripts/consistency-check.py
 scripts/register_wake_triggers.ps1
 cockpit/audits/
+
+# Kirkardo / subagent audit artifacts (transient JSON / TXT dumps)
+control-center/release_runs.json
+control-center/release_yml.txt
+control-center/releases.json
+control-center/run*.json
+control-center/tags.json
+control-center/workflows.json
