@@ -97,13 +97,17 @@ def main() -> int:
     if not cmd:
         return 0
 
-    # CC-07: laundering short-circuit. If the command wraps anything in
+    # CC-07: laundering short-circuit. If the command starts with one of
     # eval / bash -c / sh -c / base64 decode AND mentions `git push`
-    # anywhere in the line (even inside the quoted payload), refuse on
-    # principle — we can't reason about what it actually pushes once
-    # obfuscation is in play. Done BEFORE GIT_PUSH_RE because the inner
-    # `git push` would be preceded by a quote and miss the boundary check.
-    if LAUNDERING_RE.search(cmd) and re.search(r"\bgit\s+push\b", cmd, re.IGNORECASE):
+    # somewhere in the line, refuse — we can't audit obfuscated commands.
+    # We anchor the laundering keyword to the start of a shell statement
+    # (start of line OR after &&/||/;/|/&) so a commit message that
+    # happens to describe these wrappers in prose doesn't trip the hook.
+    statements = re.split(r"&&|\|\||;|(?<![|&])\|(?!\|)|(?<!&)&(?!&)", cmd)
+    laundering_in_command = any(
+        LAUNDERING_RE.match(stmt.strip()) for stmt in statements
+    )
+    if laundering_in_command and re.search(r"\bgit\s+push\b", cmd, re.IGNORECASE):
         sys.stderr.write(
             "[ULTRON validate-push] Blocked: git push wrapped in eval / "
             "bash -c / sh -c / base64 decode. The push hook can't audit "
