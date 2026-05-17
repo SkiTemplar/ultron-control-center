@@ -61,6 +61,93 @@ jobs:
         working-directory: ./control-center
         run: npm ci
 
+      # ─────────────────────────────────────────────────────────────────────────
+      # Build the system ZIP + run the leak gate BEFORE tauri-action publishes
+      # the release. If the leak gate fails here, no GitHub release is created
+      # at all — clean fail. Round 2 codex review v15.4.17.
+      # ─────────────────────────────────────────────────────────────────────────
+      - name: Build ultron-system ZIP (pre-release)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $stage = Join-Path $env:RUNNER_TEMP "ultron-system"
+          New-Item -ItemType Directory -Path $stage -Force | Out-Null
+
+          $include = @(
+            "install.ps1",
+            "bootstrap.ps1",
+            "README.md",
+            "README.es.md",
+            "CHANGELOG.md",
+            "LICENSE",
+            "scripts",
+            "skills-catalog",
+            "agents",
+            "config",
+            "docs",
+            "schedules",
+            "cockpit"
+          )
+
+          foreach ($item in $include) {
+            if (Test-Path $item) {
+              $dest = Join-Path $stage $item
+              if ((Get-Item $item) -is [System.IO.DirectoryInfo]) {
+                Copy-Item -Path $item -Destination $dest -Recurse -Force `
+                  -Exclude @("node_modules","target",".venv","__pycache__","*.pyc","dist","build")
+              } else {
+                $parent = Split-Path $dest -Parent
+                if ($parent -and -not (Test-Path $parent)) {
+                  New-Item -ItemType Directory -Path $parent -Force | Out-Null
+                }
+                Copy-Item -Path $item -Destination $dest -Force
+              }
+            } else {
+              Write-Host "[skip] $item not present"
+            }
+          }
+
+          $denyList = @(
+            "*.env", ".env", ".env.*",
+            "*.pem", "*.key", "*.pfx", "*.p12",
+            "id_rsa*", "id_ed25519*", "id_dsa*",
+            "secrets.json", "credentials.json", "service-account*.json",
+            ".git", ".gitconfig",
+            "*.sqlite", "*.db",
+            "MEMORY.md", "context.md",
+            "preferred-mode.txt", "current-session.json"
+          )
+          $hits = @()
+          foreach ($pattern in $denyList) {
+            $matches = Get-ChildItem -Path $stage -Recurse -Force -Filter $pattern -ErrorAction SilentlyContinue
+            foreach ($m in $matches) { $hits += $m.FullName }
+          }
+          foreach ($subtree in @("plans", "ultron-vault", ".ultron-vault", "telemetry", "sessions", "backups")) {
+            $hit = Get-ChildItem -Path $stage -Recurse -Force -Directory -Filter $subtree -ErrorAction SilentlyContinue
+            foreach ($h in $hit) { $hits += $h.FullName }
+          }
+          if ($hits.Count -gt 0) {
+            Write-Host "::error::Leak gate FAILED — release aborted before any artifact published:"
+            $hits | ForEach-Object { Write-Host "::error::  $_" }
+            exit 1
+          }
+          Write-Host "[leak-gate] Clean: 0 deny-list hits across $($denyList.Count) patterns."
+
+          $zipName = "ultron-system-$tag.zip"
+          $zipPath = Join-Path $env:RUNNER_TEMP $zipName
+          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
+          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath -CompressionLevel Optimal
+
+          $sha = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLower()
+          $shaFile = "$zipPath.sha256"
+          "$sha  $zipName" | Out-File -Encoding ascii -FilePath $shaFile
+
+          Write-Host "Built $zipPath ($([math]::Round((Get-Item $zipPath).Length / 1MB, 1)) MB)"
+          Write-Host "SHA256: $sha"
+          echo "ULTRON_SYSTEM_ZIP=$zipPath" >> $env:GITHUB_ENV
+          echo "ULTRON_SYSTEM_SHA=$shaFile" >> $env:GITHUB_ENV
+
       - name: Build and publish Tauri release
         id: tauri
         uses: tauri-apps/tauri-action@v0
@@ -104,101 +191,6 @@ jobs:
           # NSIS setup.exe rather than the .msi when both are produced.
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
-
-      # ─────────────────────────────────────────────────────────────────────────
-      # Full-system ZIP — bundles everything bootstrap.ps1 needs to wire up the
-      # skills / agents / hooks layer on a fresh machine. Excludes node_modules,
-      # build outputs, vault personal data, and other heavy or sensitive paths.
-      # ─────────────────────────────────────────────────────────────────────────
-      - name: Build ultron-system ZIP
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          $stage = Join-Path $env:RUNNER_TEMP "ultron-system"
-          New-Item -ItemType Directory -Path $stage -Force | Out-Null
-
-          # Files/dirs to include (paths relative to repo root).
-          $include = @(
-            "install.ps1",
-            "bootstrap.ps1",
-            "README.md",
-            "README.es.md",
-            "CHANGELOG.md",
-            "LICENSE",
-            "scripts",
-            "skills-catalog",
-            "agents",
-            "config",
-            "docs",
-            "schedules",
-            "cockpit"
-          )
-
-          foreach ($item in $include) {
-            if (Test-Path $item) {
-              $dest = Join-Path $stage $item
-              if ((Get-Item $item) -is [System.IO.DirectoryInfo]) {
-                Copy-Item -Path $item -Destination $dest -Recurse -Force `
-                  -Exclude @("node_modules","target",".venv","__pycache__","*.pyc","dist","build")
-              } else {
-                $parent = Split-Path $dest -Parent
-                if ($parent -and -not (Test-Path $parent)) {
-                  New-Item -ItemType Directory -Path $parent -Force | Out-Null
-                }
-                Copy-Item -Path $item -Destination $dest -Force
-              }
-            } else {
-              Write-Host "[skip] $item not present"
-            }
-          }
-
-          # ─────────────────────────────────────────────────────────────────
-          # Leak gate — fail the release before zipping if any
-          # secret/personal file slipped into the staging dir. Adds defence
-          # in depth on top of the Copy-Item -Exclude (codex review v15.4.17).
-          # ─────────────────────────────────────────────────────────────────
-          $denyList = @(
-            "*.env", ".env", ".env.*",
-            "*.pem", "*.key", "*.pfx", "*.p12",
-            "id_rsa*", "id_ed25519*", "id_dsa*",
-            "secrets.json", "credentials.json", "service-account*.json",
-            ".git", ".gitconfig",
-            "*.sqlite", "*.db",
-            "MEMORY.md", "context.md",
-            "preferred-mode.txt", "current-session.json"
-          )
-          $hits = @()
-          foreach ($pattern in $denyList) {
-            $matches = Get-ChildItem -Path $stage -Recurse -Force -Filter $pattern -ErrorAction SilentlyContinue
-            foreach ($m in $matches) { $hits += $m.FullName }
-          }
-          # Also reject entire forbidden subtrees if any slipped in.
-          foreach ($subtree in @("plans", "ultron-vault", ".ultron-vault", "telemetry", "sessions", "backups")) {
-            $hit = Get-ChildItem -Path $stage -Recurse -Force -Directory -Filter $subtree -ErrorAction SilentlyContinue
-            foreach ($h in $hit) { $hits += $h.FullName }
-          }
-          if ($hits.Count -gt 0) {
-            Write-Host "::error::Leak gate FAILED — the following secret/personal paths landed in the release stage:"
-            $hits | ForEach-Object { Write-Host "::error::  $_" }
-            exit 1
-          }
-          Write-Host "[leak-gate] Clean: 0 deny-list hits across $($denyList.Count) patterns."
-
-          $zipName = "ultron-system-$tag.zip"
-          $zipPath = Join-Path $env:RUNNER_TEMP $zipName
-          if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-          Compress-Archive -Path (Join-Path $stage "*") -DestinationPath $zipPath -CompressionLevel Optimal
-
-          # SHA256 manifest for users who want to verify integrity.
-          $sha = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLower()
-          $shaFile = "$zipPath.sha256"
-          "$sha  $zipName" | Out-File -Encoding ascii -FilePath $shaFile
-
-          Write-Host "Built $zipPath ($([math]::Round((Get-Item $zipPath).Length / 1MB, 1)) MB)"
-          Write-Host "SHA256: $sha"
-          echo "ULTRON_SYSTEM_ZIP=$zipPath" >> $env:GITHUB_ENV
-          echo "ULTRON_SYSTEM_SHA=$shaFile" >> $env:GITHUB_ENV
 
       - name: Attach ultron-system ZIP to release
         if: matrix.platform == 'windows-latest'

@@ -73,6 +73,10 @@ if ($installerCandidates.Count -gt 1) {
     Write-Err "Release $tag has multiple installers matching '$installerPattern'. Refusing to guess."
     exit 3
 }
+if ($installerCandidates.Count -eq 0 -and -not $SkipInstaller) {
+    Write-Warn "Release $tag has no Control Center installer; will install the system layer only."
+    Write-Warn "Re-run with -SkipInstaller to suppress this warning, or wait for a fully built release."
+}
 
 # 2. Download system ZIP
 $tmpDir = Join-Path $env:TEMP "ultron-bootstrap-$tag"
