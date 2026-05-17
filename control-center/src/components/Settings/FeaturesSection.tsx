@@ -257,22 +257,29 @@ export function FeaturesSection() {
                 title={on ? "Click to disable" : "Click to enable"}
                 className="relative shrink-0 rounded-full transition-colors"
                 style={{
-                  width: 34,
-                  height: 18,
+                  width: 44,
+                  height: 24,
                   background: on
                     ? "var(--color-accent)"
                     : "var(--color-surface-3)",
-                  border: "1px solid var(--color-border-strong)",
+                  border: `1px solid ${on ? "var(--color-accent)" : "var(--color-border-strong)"}`,
                   cursor: saving ? "not-allowed" : "pointer",
+                  boxShadow: on
+                    ? "inset 0 0 0 1px rgba(255,255,255,0.08)"
+                    : "inset 0 1px 2px rgba(0,0,0,0.25)",
+                  transition: "background 160ms, border-color 160ms",
                 }}
               >
                 <span
-                  className="absolute top-[1px] rounded-full transition-all"
+                  className="absolute top-[2px] rounded-full"
                   style={{
-                    width: 14,
-                    height: 14,
-                    background: "white",
-                    left: on ? 17 : 2,
+                    width: 18,
+                    height: 18,
+                    background: "#ffffff",
+                    left: on ? 23 : 2,
+                    boxShadow:
+                      "0 1px 2px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.10)",
+                    transition: "left 180ms cubic-bezier(.22,.61,.36,1)",
                   }}
                 />
               </button>
@@ -335,22 +342,29 @@ export function FeaturesSection() {
             title={autoRebuild ? "Click to disable" : "Click to enable"}
             className="relative shrink-0 rounded-full transition-colors"
             style={{
-              width: 34,
-              height: 18,
+              width: 44,
+              height: 24,
               background: autoRebuild
                 ? "var(--color-accent)"
                 : "var(--color-surface-3)",
-              border: "1px solid var(--color-border-strong)",
+              border: `1px solid ${autoRebuild ? "var(--color-accent)" : "var(--color-border-strong)"}`,
               cursor: "pointer",
+              boxShadow: autoRebuild
+                ? "inset 0 0 0 1px rgba(255,255,255,0.08)"
+                : "inset 0 1px 2px rgba(0,0,0,0.25)",
+              transition: "background 160ms, border-color 160ms",
             }}
           >
             <span
-              className="absolute top-[1px] rounded-full transition-all"
+              className="absolute top-[2px] rounded-full"
               style={{
-                width: 14,
-                height: 14,
-                background: "white",
-                left: autoRebuild ? 17 : 2,
+                width: 18,
+                height: 18,
+                background: "#ffffff",
+                left: autoRebuild ? 23 : 2,
+                boxShadow:
+                  "0 1px 2px rgba(0,0,0,0.45), 0 0 0 1px rgba(0,0,0,0.10)",
+                transition: "left 180ms cubic-bezier(.22,.61,.36,1)",
               }}
             />
           </button>

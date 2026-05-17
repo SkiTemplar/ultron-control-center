@@ -162,20 +162,41 @@ fn default_diagnose() -> AiRouterEntry {
     AiRouterEntry::with_full("claude", Some("claude-sonnet-4-6"), Some("debugger"))
 }
 fn default_summarize() -> AiRouterEntry {
-    // Newsletter HTML → long context wins, no agent needed.
-    AiRouterEntry::with_full("gemini", Some("gemini-3.1-flash-preview"), None)
+    // Newsletter HTML → long context wins. Agent: knowledge-synthesizer
+    // (catalog) — purpose-built para condensar long-form a TL;DR.
+    AiRouterEntry::with_full(
+        "gemini",
+        Some("gemini-3.1-flash-preview"),
+        Some("knowledge-synthesizer"),
+    )
 }
 fn default_brainstorm_plans() -> AiRouterEntry {
-    // Plan brainstorm wants depth → Opus, no agent (free-form exploration).
-    AiRouterEntry::with_full("claude", Some("claude-opus-4-7"), None)
+    // Plan brainstorm wants depth + structured thinking → Opus +
+    // workflow-orchestrator agent (catalog), bueno descomponiendo
+    // objetivos en steps accionables.
+    AiRouterEntry::with_full(
+        "claude",
+        Some("claude-opus-4-7"),
+        Some("workflow-orchestrator"),
+    )
 }
 fn default_news_generate() -> AiRouterEntry {
-    // Generative + long context → Gemini Pro, no agent.
-    AiRouterEntry::with_full("gemini", Some("gemini-3.1-pro-preview"), None)
+    // Generative + long context → Gemini Pro + knowledge-synthesizer
+    // (mismo perfil que summarize, reutilizamos).
+    AiRouterEntry::with_full(
+        "gemini",
+        Some("gemini-3.1-pro-preview"),
+        Some("knowledge-synthesizer"),
+    )
 }
 fn default_skill_edit() -> AiRouterEntry {
-    // Markdown frontmatter tweaks → Sonnet is plenty, no agent.
-    AiRouterEntry::with_full("claude", Some("claude-sonnet-4-6"), None)
+    // Markdown frontmatter tweaks → Sonnet + documentation-engineer
+    // (catalog) que conoce convenciones MD/YAML.
+    AiRouterEntry::with_full(
+        "claude",
+        Some("claude-sonnet-4-6"),
+        Some("documentation-engineer"),
+    )
 }
 fn default_mcp_create() -> AiRouterEntry {
     // mcp-developer agent exists for exactly this — Opus for the templating.
@@ -183,8 +204,9 @@ fn default_mcp_create() -> AiRouterEntry {
 }
 fn default_repo_review() -> AiRouterEntry {
     // Adversarial → different model from author. Codex's gpt-5.5 is the
-    // designated peer reviewer in ULTRON.
-    AiRouterEntry::with_full("codex", Some("gpt-5.5"), None)
+    // designated peer reviewer in ULTRON. Agent: code-reviewer
+    // (community) que tiene checklist senior.
+    AiRouterEntry::with_full("codex", Some("gpt-5.5"), Some("code-reviewer"))
 }
 fn default_personal_analyse() -> AiRouterEntry {
     // Profile / known.json analysis → context-manager owns cross-doc state.
@@ -211,13 +233,22 @@ fn default_system_analyse() -> AiRouterEntry {
     )
 }
 fn default_usage_analyse() -> AiRouterEntry {
-    // Token / cost arithmetic — small task, fast model, no agent.
-    AiRouterEntry::with_full("claude", Some("claude-haiku-4-5"), None)
+    // Token / cost arithmetic — small task, fast model, agent:
+    // data-engineer (catalog) que entiende pipelines + métricas.
+    AiRouterEntry::with_full(
+        "claude",
+        Some("claude-haiku-4-5"),
+        Some("data-engineer"),
+    )
 }
 fn default_skill_create() -> AiRouterEntry {
-    // Brand-new skill = creative + structured → Opus, no agent (the
-    // skill-creator skill itself handles the methodology).
-    AiRouterEntry::with_full("claude", Some("claude-opus-4-7"), None)
+    // Brand-new skill = creative + structured → Opus + ai-engineer
+    // (catalog), que conoce el patrón skill / agent / tool.
+    AiRouterEntry::with_full(
+        "claude",
+        Some("claude-opus-4-7"),
+        Some("ai-engineer"),
+    )
 }
 
 impl Default for AiRouterConfig {
@@ -596,8 +627,9 @@ mod tests {
         let cfg: AiRouterConfig = serde_json::from_str(raw).expect("with-agent shape parses");
         assert_eq!(cfg.diagnose.agent.as_deref(), Some("debugger"));
         assert_eq!(cfg.skill_edit.agent.as_deref(), Some("refactoring-specialist"));
-        // Other zones default to no agent.
-        assert!(cfg.summarize.agent.is_none());
+        // Other zones default to whatever default_* assigns. v15.4.9 wired
+        // an agent to every zone, so we now check the default holds.
+        assert_eq!(cfg.summarize.agent.as_deref(), Some("knowledge-synthesizer"));
     }
 
     #[test]

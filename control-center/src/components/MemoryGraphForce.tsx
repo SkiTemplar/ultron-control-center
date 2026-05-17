@@ -257,15 +257,16 @@ function initParticles(nodes: GraphNode[]): Particle[] {
   const categories = Array.from(bucket.keys()).sort();
   const G = categories.length;
 
-  // 2. Hex grid for cluster centres. Sqrt cols keeps the grid roughly
-  // square. clusterRadius is the radius reserved for each cluster (the
-  // node fan inside fits within it). gridGap leaves breathing room.
+  // 2. Hex grid for cluster centres. v15.4.9 — sized up for breathing
+  // room: clusterRadius drops from 0.42 → 0.30 (so the internal fan
+  // doesn't bleed into neighbours) and the step factors grow so the
+  // GAP between clusters is the visual default, not the exception.
   const cols = Math.max(1, Math.ceil(Math.sqrt(G)));
   const rows = Math.max(1, Math.ceil(G / cols));
-  const usable = SOFT_BOUNDARY * 1.6;            // total drawable diameter
-  const clusterRadius = (usable / cols) * 0.42;  // per-cluster fan radius
+  const usable = SOFT_BOUNDARY * 2.4;             // bigger virtual canvas
+  const clusterRadius = (usable / cols) * 0.30;   // per-cluster fan radius
   const stepX = usable / cols;
-  const stepY = (usable / rows) * 0.9;
+  const stepY = (usable / rows) * 0.95;
 
   // Position lookup, populated below; we materialise Particles in the
   // ORIGINAL node order at the end so consumers' idIndex stays valid.
