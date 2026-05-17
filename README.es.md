@@ -66,7 +66,7 @@
 <p align="center">
   <img alt="Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + catalogo community con el mismo scan de seguridad que Skills" src="assets/screenshots/agents.png" width="820" />
   <br />
-  <sub><i>Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + 22 community pre-instalados, 69 disponibles en el catalogo (100 en total), mismo ruleset PI que Skills.</i></sub>
+  <sub><i>Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + 22 community pre-instalados; el catalogo trae 69 community adicionales que se instalan a demanda. El autor lleva 73 instalados localmente. Mismo ruleset PI que Skills.</i></sub>
 </p>
 
 > Los screenshots se llenar&aacute;n a medida que avance la beta p&uacute;blica &mdash; el layout que ves coincide con la versi&oacute;n actual.
@@ -235,7 +235,7 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 |---|---|
 | **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, Qdrant nativo para recall semantico (sin Docker), decay surfacing |
 | **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
-| **Agents** | 31 pre-instalados (9 ULTRON + 22 community), catalogo con 69 mas en `cockpit/agent-catalog.json` (100 agentes en total), pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico |
+| **Agents** | Instalacion limpia: 31 pre-instalados (9 ULTRON + 22 community curados). Catalogo: 69 mas en `cockpit/agent-catalog.json`, instalables on-demand (100 total posibles). Pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico. |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
 | **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks. (La pestaña Logs está cableada pero deshabilitada hoy.) |
 | **Dual-mode** | Peer review opcional con Codex CLI + delegacion long-context con Gemini CLI, ambos via suscripcion |
