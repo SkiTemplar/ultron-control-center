@@ -22,6 +22,7 @@ import { Plans } from "./components/Plans";
 import { SelfImprove } from "./components/SelfImprove";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
+import { UpdateBanner } from "./components/UpdateBanner";
 import { computeGlobalStatus } from "./lib/status";
 import { setupTrayEventListeners } from "./lib/tauri-events";
 import type { QdrantHealth, AlertEntry, ChangelogEntry } from "./types";
@@ -519,6 +520,7 @@ export default function App() {
     <div className="flex h-full">
       <Sidebar active={tab} onSelect={setTab} globalStatus={globalStatus} />
       <main className="flex-1 overflow-auto">
+        <UpdateBanner />
         {tab === "dashboard" && (
           <Dashboard
             qdrant={qdrant}

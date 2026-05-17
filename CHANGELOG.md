@@ -1,5 +1,24 @@
 # Changelog
 
+<!-- v15.4.2 -->
+## v15.4.2 — 2026-05-17
+
+### Features
+
+- feat(update-checker): pragmatic auto-update path that doesn't require the still-unimplemented Ed25519 signing / release workflow. New `update_checker.rs` Rust module hits `api.github.com/repos/SkiTemplar/ultron/releases/latest` 6 s after startup and emits an `update-available` event when the local `CARGO_PKG_VERSION` is older than the latest stable tag. Frontend `<UpdateBanner/>` (mounted once in `App.tsx`) listens for the event, surfaces a non-blocking card at the top of the active tab with a "Update now" button that runs `git pull + npm install + npm run tauri build` in a visible PowerShell (same path Settings → App lifecycle → Rebuild already uses). Release-notes link + per-version dismiss preserved across sessions in `localStorage`.
+- feat(settings/features): new "Update behaviour" sub-section in `Settings → Features` exposes the `Auto-rebuild on update` toggle (stored locally, `ultron.auto_rebuild_on_update`). When ON, the boot-time check skips the banner and fires the rebuild directly — for the "I never remember to rebuild" workflow.
+
+### Verification
+
+- `npx tsc --noEmit` green.
+- `cargo test --release --lib` green (54/54 — 51 existing + 3 new semver-comparator units).
+- Manual: simulated startup with a forced `latest_version = 99.99.99` payload — banner mounts, dismiss + per-version cache work, "Update now" invokes `run_app_lifecycle("update")`.
+
+### Out of scope (deferred to a future release)
+
+- Tauri-native auto-updater plugin (Ed25519 signing, release workflow with `latest.json`, silent in-place binary swap). Tracked as a separate plan; this lightweight check covers 95 % of the "I rebuilt main yesterday and forgot to bump the desktop" case without that infra.
+
+
 <!-- v15.4.1 -->
 ## v15.4.1 — 2026-05-17
 

@@ -5,6 +5,7 @@ import {
   useFeatures,
   type Features,
 } from "../../lib/features";
+import { AUTO_REBUILD_KEY } from "../UpdateBanner";
 
 // v15.4: post-install feature toggles. Lets the user enable/disable
 // optional modules from Settings — same set of flags the installer
@@ -84,10 +85,28 @@ export function FeaturesSection() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [autoRebuild, setAutoRebuild] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AUTO_REBUILD_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     setDraft(features);
   }, [features]);
+
+  function toggleAutoRebuild() {
+    const next = !autoRebuild;
+    setAutoRebuild(next);
+    try {
+      if (next) localStorage.setItem(AUTO_REBUILD_KEY, "1");
+      else localStorage.removeItem(AUTO_REBUILD_KEY);
+    } catch {
+      // localStorage unavailable — state is in-memory only this session.
+    }
+  }
 
   const dirty = FEATURE_KEYS.some((k) => draft[k] !== features[k]);
 
@@ -271,6 +290,72 @@ export function FeaturesSection() {
         is the destructive path — unticking there deletes the implementing
         scripts under <code style={{ fontFamily: "var(--font-mono)" }}>~/.ultron/scripts/cockpit/</code>.
       </p>
+
+      {/* Auto-update toggle. Stored in localStorage (per-machine), not in
+          features.json, because it's a UX preference rather than a
+          feature-flag — the rest of the system has no need to read it. */}
+      <header className="mb-3 mt-8">
+        <h3 className="text-[13px] font-semibold">Update behaviour</h3>
+        <p
+          className="mt-1 text-[11.5px] leading-relaxed"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          When the Control Center boots it asks GitHub for the latest
+          release tag. If a newer one exists, a banner appears at the top
+          of the window. Optionally apply it without confirmation.
+        </p>
+      </header>
+      <ul
+        className="divide-y rounded"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <li
+          className="flex items-start justify-between gap-4 px-4 py-3"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <div className="min-w-0">
+            <div className="text-[13px] font-medium">Auto-rebuild on update</div>
+            <div
+              className="mt-0.5 text-[11.5px] leading-snug"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              When ON, a detected update fires <code style={{ fontFamily: "var(--font-mono)" }}>git pull + npm install + tauri build</code> in
+              a visible terminal at boot — no banner, no click. OFF (the
+              default) means the banner waits for "Update now".
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={autoRebuild}
+            onClick={toggleAutoRebuild}
+            title={autoRebuild ? "Click to disable" : "Click to enable"}
+            className="relative shrink-0 rounded-full transition-colors"
+            style={{
+              width: 34,
+              height: 18,
+              background: autoRebuild
+                ? "var(--color-accent)"
+                : "var(--color-surface-3)",
+              border: "1px solid var(--color-border-strong)",
+              cursor: "pointer",
+            }}
+          >
+            <span
+              className="absolute top-[1px] rounded-full transition-all"
+              style={{
+                width: 14,
+                height: 14,
+                background: "white",
+                left: autoRebuild ? 17 : 2,
+              }}
+            />
+          </button>
+        </li>
+      </ul>
     </section>
   );
 }

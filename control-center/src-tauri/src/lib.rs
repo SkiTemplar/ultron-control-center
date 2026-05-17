@@ -55,6 +55,7 @@ mod system;
 mod system_diagnose;
 mod toast_emit;
 mod tray;
+mod update_checker;
 mod usage;
 mod version_drift;
 
@@ -182,6 +183,7 @@ pub fn run() {
             commands::maintenance::run_maintenance_command,
             commands::maintenance::run_detect_gaps,
             commands::maintenance::run_app_lifecycle,
+            update_checker::check_for_updates,
             // -- projects + launcher --
             commands::projects::open_project_in_ide,
             commands::projects::list_projects,
@@ -346,6 +348,21 @@ pub fn run() {
             if let Err(e) = tray::init_tray(app.handle()) {
                 eprintln!("[ultron] tray init failed: {}", e);
             }
+
+            // v15.4.2 — fire a startup update check. We spawn it on a
+            // background thread + sleep 6s so the webview has time to
+            // paint and the event listener is wired before we emit.
+            // Network failures stay silent (no banner on transient
+            // errors); only a real `has_update == true` triggers
+            // `update-available` on the frontend.
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(6));
+                let info = update_checker::check_for_updates_inner();
+                if info.has_update {
+                    let _ = app_handle.emit("update-available", &info);
+                }
+            });
 
             Ok(())
         })
