@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.13 -->
+## v15.5.13 — 2026-05-17
+
+- fix(v15.5.13): wave 10 — R8 follow-ups (cleanliness, versions, manifest, chmod)
+
+_Auto-generated from 8f06aea2 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.12 -->
 ## v15.5.12 — 2026-05-17
 
