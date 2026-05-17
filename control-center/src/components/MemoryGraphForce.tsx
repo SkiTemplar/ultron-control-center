@@ -214,30 +214,45 @@ function step(
   }
 }
 
+// Golden-angle in radians. Used as the angular increment for the
+// Vogel/Fermat spiral so consecutive points never collide and the disk
+// fills with perceptually-even density — what flower-petal arrangements
+// in nature do.
+const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+
 function initParticles(nodes: GraphNode[]): Particle[] {
-  // Seed positions deterministically (hash of id) so repeat opens give
-  // the same starting layout — feels stable across refreshes.
-  return nodes.map((n) => {
+  // Seed positions deterministically. Two layers:
+  //   1. Hash of id → small jitter (so repeat opens land in the same
+  //      neighbourhood for visual continuity).
+  //   2. Vogel-spiral by index → guarantees a unique base position per
+  //      node even when the id hash collides (or is empty/short, which
+  //      caused every node to land on top of each other in the
+  //      "all-nodes-collapsed" bug USER hit).
+  //
+  // The base spiral spans ~SOFT_BOUNDARY * 0.55 (interior radius). The
+  // hash jitter is at most ~3% of that radius, so the spiral structure
+  // dominates and the layout never starts piled-up regardless of id
+  // quality.
+  const n = nodes.length;
+  const maxR = SOFT_BOUNDARY * 0.55;
+  return nodes.map((node, i) => {
     let seed = 0;
-    for (let i = 0; i < n.id.length; i++) seed = (seed * 31 + n.id.charCodeAt(i)) >>> 0;
-    // F29: polar distribution (radius + angle) instead of grid (x, y).
-    // The old grid mapped seed bytes directly to x and y, which made hashed
-    // names with similar prefixes cluster at the same corner — that's why
-    // nodes were piling against an "invisible square edge" even with the
-    // bigger world. With polar, every hash maps to a (angle, radius) pair
-    // sampled uniformly in the disk centered at CENTER, so nodes scatter
-    // organically across the world.
-    const angle = ((seed & 0xffff) / 0xffff) * Math.PI * 2;
-    // v15.3.3: cbrt bias pulls more seeds toward the interior than the
-    // sqrt-uniform area distribution. The result is fewer nodes parked at
-    // r ≈ MAX_RADIUS at t=0, which means the simulation no longer has to
-    // pull them back from the rim — they just settle into the interior
-    // they were already near.
-    const distBias = Math.cbrt(((seed >>> 16) & 0xffff) / 0xffff);
-    const dist = distBias * (SOFT_BOUNDARY * 0.5);
-    const rx = CENTER + Math.cos(angle) * dist;
-    const ry = CENTER + Math.sin(angle) * dist;
-    return { id: n.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };
+    for (let k = 0; k < node.id.length; k++) {
+      seed = (seed * 31 + node.id.charCodeAt(k)) >>> 0;
+    }
+    // Vogel spiral base: r = sqrt(i/n), θ = i · golden_angle.
+    // sqrt makes the area-density uniform across the disk.
+    const baseR = maxR * Math.sqrt((i + 0.5) / Math.max(n, 1));
+    const baseTheta = i * GOLDEN_ANGLE;
+    // Small id-hash jitter so two visits look identical and visually
+    // similar ids don't end up exactly next to each other.
+    const jitterR = ((seed & 0xff) / 0xff - 0.5) * maxR * 0.03;
+    const jitterT = (((seed >>> 8) & 0xff) / 0xff - 0.5) * GOLDEN_ANGLE * 0.15;
+    const r = Math.max(0, baseR + jitterR);
+    const t = baseTheta + jitterT;
+    const rx = CENTER + Math.cos(t) * r;
+    const ry = CENTER + Math.sin(t) * r;
+    return { id: node.id, x: rx, y: ry, px: rx, py: ry, ax: 0, ay: 0, fixed: false };
   });
 }
 

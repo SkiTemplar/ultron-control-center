@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.4 -->
+## v15.4.4 — 2026-05-17
+
+- feat(v15.4.4): AI Router smart defaults per zone + Reset to recommended button
+
+_Auto-generated from c8e4f219 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.3 -->
 ## v15.4.3 — 2026-05-17
 
