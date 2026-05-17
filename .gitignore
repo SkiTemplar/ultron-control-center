@@ -212,3 +212,4 @@ scripts/cockpit/_categorize_skills.py
 # === v15.2.18: root legacy duplicates ===
 scripts/consistency-check.py
 scripts/register_wake_triggers.ps1
+cockpit/audits/
