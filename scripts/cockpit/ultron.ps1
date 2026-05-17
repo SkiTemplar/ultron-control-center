@@ -763,7 +763,7 @@ switch ($Command.ToLower()) {
     #   reason: auth_vault.py / auth_wizard.py / auth-vault.ps1 dropped in v12.5 cockpit reorg
     #   replaced-by: Windows Credential Manager (cmdkey) or environment variables
     #   remove-after: 2026-11-07
-    #   owner: USER
+    #   owner: <your-username>
     "auth" {
         Write-Host "ultron auth: removed in v12.5" -ForegroundColor Yellow
         Write-Host "  Use Windows Credential Manager or env vars for credentials." -ForegroundColor Gray
@@ -873,7 +873,7 @@ switch ($Command.ToLower()) {
     #   reason: usage_tracker.py dropped in v12.5 cockpit reorg
     #   replaced-by: claude /usage (interactive native command)
     #   remove-after: 2026-11-07
-    #   owner: USER
+    #   owner: <your-username>
     "usage" {
         Write-Host "ultron usage: removed in v12.5" -ForegroundColor Yellow
         Write-Host "  Use: claude /usage   (interactive native command)" -ForegroundColor Gray
@@ -1105,7 +1105,7 @@ switch ($Command.ToLower()) {
     #   reason: usage_limits.py dropped in v12.5 cockpit reorg
     #   replaced-by: claude /usage (window limits visible there)
     #   remove-after: 2026-11-07
-    #   owner: USER
+    #   owner: <your-username>
     "limits" {
         Write-Host "ultron limits: removed in v12.5" -ForegroundColor Yellow
         Write-Host "  Window limits are visible via: claude /usage" -ForegroundColor Gray
@@ -1302,7 +1302,7 @@ switch ($Command.ToLower()) {
     #   reason: telemetry.py + telemetry.db were dead pipeline (4 hand-typed rows ever, no automatic writer)
     #   replaced-by: routing.jsonl + route_quality_aggregator.py + usage_report.py
     #   remove-after: 2026-11-07
-    #   owner: USER
+    #   owner: <your-username>
     "telemetry" {
         Write-Host "ultron telemetry: removed in v12.5" -ForegroundColor Yellow
         Write-Host "  Routing data now in route_quality.json - query with:" -ForegroundColor Gray

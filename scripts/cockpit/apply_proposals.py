@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -321,7 +322,7 @@ def cmd_apply(args) -> int:
                 "skill": skill_name,
                 "source_proposals": str(proposals_path),
                 "applied_log": str(applied_log),
-                "reviewer": "USER" if signed else "unsigned",
+                "reviewer": os.environ.get("USER", os.environ.get("USERNAME", "unsigned")) if signed else "unsigned",
                 "signed_at": datetime.now().isoformat(timespec="seconds")
                               if signed else None,
                 "rollback_plan": {

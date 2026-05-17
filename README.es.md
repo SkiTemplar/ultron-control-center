@@ -18,7 +18,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.12-44cc11.svg" /></a>
   <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Construido sobre Claude Code" src="https://img.shields.io/badge/construido%20sobre-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Estado" src="https://img.shields.io/badge/estado-beta%20publica-orange.svg" />
@@ -187,7 +187,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > La URL de arriba apunta a lo que haya en `main` *ahora mismo*. Si quieres una
 > install reproducible fijada a una release concreta, usa el tag:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.9/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.12/bootstrap.ps1 | iex
 > ```
 > La release tambien adjunta `ultron-system-<tag>.zip.sha256` para verificar la
 > integridad del ZIP despues de descargarlo.
@@ -203,7 +203,7 @@ Re-ejecutalo cuando quieras para actualizar — `~/.ultron-vault/` y `~/.ultron/
 ### Opcion A2 — Bootstrap en Linux (Debian / Ubuntu / Fedora / Arch)
 
 > [!WARNING]
-> **Build de Linux sin verificar.** v15.5.0 añadio el camino de release
+> **Build de Linux sin verificar.** v15.5 añadio el camino de release
 > para Linux (`.deb`, `.AppImage`, `bootstrap.sh`, `install.sh`, modulos
 > Rust con cfg gates, scripts cockpit portados a bash) y el workflow de
 > GitHub Actions compila bien en `ubuntu-22.04`. El autor desarrolla en
@@ -226,7 +226,7 @@ Que hace `bootstrap.sh`:
 Las releases Linux adjuntan `ultron-control-center_<ver>_amd64.deb` y `ULTRON Control Center_<ver>_amd64.AppImage` junto a los instaladores Windows. Fija una release concreta igual que en Windows:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.9/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.12/bootstrap.sh | bash
 ```
 
 `install.sh` puede invocar `sudo` para el paso del package manager; el resto es per-user. Si se detecta WSL, avisa y recomienda usar la ruta Windows nativa en su lugar.
@@ -396,7 +396,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ## Notas de release
 
-Stable actual: **[v15.5.9](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.9)** — release Linux con barrido completo de cfg gates. Adjunta `.deb` + `.rpm` + `.AppImage` junto a los instaladores Windows NSIS / MSI, matriz CI en `ubuntu-22.04`, `#[cfg(target_os)]` Rust en cada modulo Windows-only para que la build Tauri sea limpia en ambas plataformas. La build Linux sigue **sin verificar end-to-end** por el autor — buscamos testers, abre un issue si la pruebas.
+Stable actual: **[v15.5.12](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.12)** — release Linux con barrido completo de cfg gates. Adjunta `.deb` + `.rpm` + `.AppImage` junto a los instaladores Windows NSIS / MSI, matriz CI en `ubuntu-22.04`, `#[cfg(target_os)]` Rust en cada modulo Windows-only para que la build Tauri sea limpia en ambas plataformas. La build Linux sigue **sin verificar end-to-end** por el autor — buscamos testers, abre un issue si la pruebas.
 
 Stable anterior: **v15.4.21** — panel Vault para skills + agents, news pipeline con dedup SQLite, auto-recall del vault layer surfaceando hints `[VAULT·SKILL·N%]`, search en pestaña hooks, 8 reglas nuevas en intent-dispatcher desde telemetria real, 4 ciclos de fixes Codex + Gemini + Kirkardo aplicados.
 

@@ -5,7 +5,7 @@ that orchestrates Claude Code, Codex, and Gemini through their official CLIs.
 It runs entirely on your machine and uses your existing subscriptions — no
 API keys, no cloud services, no admin rights.
 
-## Quickest path (v15.5.0+) — bootstrap from the latest GitHub Release
+## Quickest path (v15.5+) — bootstrap from the latest GitHub Release
 
 If you don't need to contribute code, skip the clone. Pick the line for
 your OS:
@@ -31,11 +31,11 @@ behind the scenes.
 For reproducible installs pinned to a release tag, swap `main` for the tag:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.0/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.12/bootstrap.ps1 | iex
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.0/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.12/bootstrap.sh | bash
 ```
 
 ## Clone the repo (recommended for contributors)

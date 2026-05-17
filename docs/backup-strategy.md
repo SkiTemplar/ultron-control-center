@@ -1,7 +1,7 @@
 # ULTRON Backup Strategy — 2 mirrors, NO history
 
-> Fecha: 2026-05-10. Decidido por USER: dos sistemas de mirror sin histórico.
-> Mirror = los borrados locales se reflejan en el destino.
+> Design decision (2026-05-10): two mirror systems, no history kept.
+> Mirror = local deletions propagate to the destination.
 
 ## Sistema 1 — Google Drive Desktop (automático)
 
