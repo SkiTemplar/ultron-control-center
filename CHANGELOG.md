@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.19 -->
+## v15.4.19 — 2026-05-17
+
+- feat(v15.4.19): final polish â€” session icon fix + GitHub project files
+
+_Auto-generated from 7460f9d1 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.18 -->
 ## v15.4.18 — 2026-05-17
 

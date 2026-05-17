@@ -77,6 +77,30 @@ pub fn run_app_lifecycle_inner(kind: String) -> Result<(), String> {
             // whether to relaunch or pause for the user.
             let cmd = r#"
 $ErrorActionPreference = 'Continue'
+
+# v15.4.20 fix: kill the running Control Center BEFORE the build, not after.
+# `tauri build` overwrites src-tauri\target\release\control-center.exe at
+# the end of the compile, which fails with "Acceso denegado" (os error 5)
+# when the running app holds the binary's file handle. Same flow used
+# below at relaunch time, but here we need it pre-build too.
+$exePath = Join-Path (Get-Location) 'src-tauri\target\release\control-center.exe'
+if (Test-Path -LiteralPath $exePath) {
+    Write-Host '[ULTRON] Closing running Control Center before build...' -ForegroundColor Cyan
+    taskkill.exe /IM 'control-center.exe' /F 2>$null | Out-Null
+    taskkill.exe /IM 'ULTRON Control Center.exe' /F 2>$null | Out-Null
+    # Wait up to 8 s for Windows to release the file handle. Without this
+    # the link step can still race the kill and lock the exe.
+    $deadline = (Get-Date).AddSeconds(8)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 200
+        try {
+            $fs = [System.IO.File]::Open($exePath, 'Open', 'ReadWrite', 'None')
+            $fs.Close()
+            break
+        } catch { }
+    }
+}
+
 Write-Host '[ULTRON] git pull...' -ForegroundColor Cyan
 git pull --ff-only
 Write-Host '[ULTRON] npm install...' -ForegroundColor Cyan

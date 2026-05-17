@@ -1,13 +1,15 @@
 {
   "name": "control-center",
   "private": true,
-  "version": "15.4.19",
+  "version": "15.4.20",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "kill-app": "node scripts/kill-running-app.mjs",
+    "build:app": "npm run kill-app && tauri build"
   },
   "dependencies": {
     "@fontsource-variable/inter": "^5.2.8",
