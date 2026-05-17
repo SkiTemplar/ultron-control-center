@@ -714,6 +714,20 @@ fn parse_iso_secs(s: &str) -> Option<u64> {
 pub async fn run_codex_adversarial_review_inner(
     app: &tauri::AppHandle,
 ) -> Result<ReviewResult, String> {
+    // Kirkardo R4 #A: run-inline.ps1 is Windows-only. Linux port of the
+    // wrapper (run-inline.sh handling base64 payloads) is on the v15.5.x
+    // backlog. Until then, return a clean platform error.
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        return Err(
+            "Codex adversarial review uses scripts/cockpit/run-inline.ps1 which is Windows-only. \
+             A bash wrapper is on the v15.5.x backlog."
+                .to_string(),
+        );
+    }
+    #[cfg(target_os = "windows")]
+    {
     // Route through run-inline.ps1 so the prompt isn't subject to cmd.exe
     // quoting weirdness. The CLI needs to run with cwd = ~/.ultron so
     // `git diff` sees the actual repo (previously inherited the Tauri exe
@@ -784,4 +798,5 @@ pub async fn run_codex_adversarial_review_inner(
             stderr,
         }),
     }
+    } // end #[cfg(target_os = "windows")]
 }

@@ -163,6 +163,17 @@ const MIN_RAM_MB: f64 = 50.0;
 pub async fn list_killable_inner(
     app: &tauri::AppHandle,
 ) -> Result<Vec<GameProcessInfo>, String> {
+    // Kirkardo R4 #A: Gaming features (process killer, Windows tweaks,
+    // game detection) are Windows-only by design — Steam library paths,
+    // MSI Afterburner, GPU OC tools all live in the Windows world. Linux
+    // gets a clean empty list / error instead of a spawn crash.
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        return Ok(Vec::new());
+    }
+    #[cfg(target_os = "windows")]
+    {
     // Aggregate per process-name to avoid 50 chrome.exe rows.
     // PS one-liner:
     //   Get-Process | Group-Object Name | ForEach-Object {
@@ -247,6 +258,7 @@ pub async fn list_killable_inner(
             .then_with(|| b.ram_mb.partial_cmp(&a.ram_mb).unwrap_or(std::cmp::Ordering::Equal))
     });
     Ok(out)
+    } // end #[cfg(target_os = "windows")]
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +269,13 @@ pub async fn kill_processes_inner(
     app: &tauri::AppHandle,
     pids: Vec<i64>,
 ) -> Result<KillResult, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, pids);
+        return Err("Process killer is Windows-only (taskkill). Use kill(1) on Linux.".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
     if pids.is_empty() {
         return Ok(KillResult {
             killed: Vec::new(),
@@ -339,6 +358,7 @@ pub async fn kill_processes_inner(
         failed,
         freed_mb_estimate: (freed_mb * 10.0).round() / 10.0,
     })
+    } // end #[cfg(target_os = "windows")]
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +392,13 @@ async fn run_tweaks(
     action: &str,
     key: Option<&str>,
 ) -> Result<Vec<WindowsTweak>, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (app, action, key);
+        return Err("Windows tweaks (registry + powercfg) are Windows-only.".to_string());
+    }
+    #[cfg(target_os = "windows")]
+    {
     let script = tweaks_script()?;
     let script_str = script.to_string_lossy().to_string();
     let mut args: Vec<String> = vec![
@@ -406,6 +433,7 @@ async fn run_tweaks(
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     serde_json::from_str::<Vec<WindowsTweak>>(stdout.trim())
         .map_err(|e| format!("parse output: {} (raw={})", e, stdout))
+    } // end #[cfg(target_os = "windows")]
 }
 
 pub async fn windows_tweaks_status_inner(
@@ -464,6 +492,13 @@ static SEEN_GAMES: once_cell::sync::Lazy<std::sync::Mutex<std::collections::BTre
 /// sure we only fire once per game per CC session — when you alt-tab
 /// out of and back into a game we don't re-spam.
 pub async fn detect_running_games_inner(app: &tauri::AppHandle) -> Result<Vec<String>, String> {
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = app;
+        return Ok(Vec::new());
+    }
+    #[cfg(target_os = "windows")]
+    {
     let script = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/scripts/cockpit/gaming-enum.ps1");
@@ -529,6 +564,7 @@ pub async fn detect_running_games_inner(app: &tauri::AppHandle) -> Result<Vec<St
         }
     }
     Ok(newly_detected)
+    } // end #[cfg(target_os = "windows")]
 }
 
 // LIB_RS_WIRING:

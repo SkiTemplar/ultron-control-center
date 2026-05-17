@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.8 -->
+## v15.5.8 — 2026-05-17
+
+- fix(v15.5.8): wave 4 â€” Linux runtime gates + version unify + identifier + placeholders
+
+_Auto-generated from 54738538 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.7 -->
 ## v15.5.7 — 2026-05-17
 

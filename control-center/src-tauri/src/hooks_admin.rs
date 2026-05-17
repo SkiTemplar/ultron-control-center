@@ -1021,9 +1021,13 @@ The "matcher" field is optional. It's a regex matched against tool names
 for PreToolUse / PostToolUse (e.g. "Bash", "Read|Glob|Grep", "mcp__.*").
 Other events ignore it.
 
-The "command" field is what gets executed. On Windows, prefer:
-  - PowerShell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -File C:/Users/USER/.ultron/scripts/hooks/<name>.ps1
-  - C:/Users/USER/.ultron/.venv/Scripts/python.exe C:/Users/USER/.ultron/scripts/hooks/<name>.py
+The "command" field is what gets executed. The placeholders below are
+rewritten at install time to the user's actual home. On Windows, prefer:
+  - PowerShell -WindowStyle Hidden -NoProfile -NonInteractive -ExecutionPolicy Bypass -File <HOME>/.ultron/scripts/hooks/<name>.ps1
+  - <HOME>/.ultron/.venv/Scripts/python.exe <HOME>/.ultron/scripts/hooks/<name>.py
+On Linux:
+  - bash <HOME>/.ultron/scripts/hooks/<name>.sh
+  - <HOME>/.ultron/.venv/bin/python <HOME>/.ultron/scripts/hooks/<name>.py
 
 The user described what they want:
 ---
