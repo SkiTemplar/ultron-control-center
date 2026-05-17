@@ -64,11 +64,52 @@ pub fn run_app_lifecycle_inner(kind: String) -> Result<(), String> {
             (ultron.clone(), cmd)
         }
         "update" => {
-            // v15.3.6: after the build, signal the user to close ULTRON
-            // and relaunch. We can't auto-relaunch from a detached terminal
-            // (the old binary may still be locked). The Dashboard now has a
-            // 'Close Control Center' button to make that step one-click.
-            let cmd = "npm run tauri build; Write-Host ''; Write-Host 'Build done. Close the running ULTRON window via Dashboard - Close Control Center, then run the new binary from src-tauri/target/release/'; Read-Host 'Press Enter to close this terminal'".to_string();
+            // v15.4.3: auto-relaunch after a successful build. We kill the
+            // running control-center.exe, wait for the file lock to drop,
+            // then Start-Process the fresh binary. The terminal closes
+            // itself 3 s after launch so the user isn't left with a stale
+            // PowerShell window. On build failure we leave the window open
+            // (Read-Host) so the user can read the cargo / npm error
+            // instead of seeing the terminal vanish.
+            //
+            // Run the cmd as a here-string so PS sees the multi-line
+            // logic. `$LASTEXITCODE` after `npm run tauri build` tells us
+            // whether to relaunch or pause for the user.
+            let cmd = r#"
+$ErrorActionPreference = 'Continue'
+Write-Host '[ULTRON] git pull...' -ForegroundColor Cyan
+git pull --ff-only
+Write-Host '[ULTRON] npm install...' -ForegroundColor Cyan
+npm install
+Write-Host '[ULTRON] tauri build...' -ForegroundColor Cyan
+npm run tauri build
+$buildExit = $LASTEXITCODE
+if ($buildExit -ne 0) {
+    Write-Host ''
+    Write-Host '[ULTRON] Build FAILED (exit ' $buildExit '). The window stays open so you can read the error above.' -ForegroundColor Red
+    Read-Host 'Press Enter to close this terminal'
+    exit $buildExit
+}
+
+$exe = Join-Path (Get-Location) 'src-tauri\target\release\control-center.exe'
+if (-not (Test-Path -LiteralPath $exe)) {
+    Write-Host ('[ULTRON] Build succeeded but binary missing at ' + $exe) -ForegroundColor Yellow
+    Read-Host 'Press Enter to close this terminal'
+    exit 1
+}
+
+Write-Host ''
+Write-Host '[ULTRON] Build OK. Closing old instance + relaunching...' -ForegroundColor Green
+Get-Process -Name 'control-center' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+$deadline = (Get-Date).AddSeconds(8)
+while ((Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 200
+    if (-not (Get-Process -Name 'control-center' -ErrorAction SilentlyContinue)) { break }
+}
+Start-Process -FilePath $exe
+Write-Host '[ULTRON] Relaunched. This terminal closes in 3 s.' -ForegroundColor Green
+Start-Sleep -Seconds 3
+"#.to_string();
             let cc = ultron.join("control-center");
             if !cc.is_dir() {
                 return Err(format!("control-center/ missing: {}", cc.display()));
@@ -83,15 +124,21 @@ pub fn run_app_lifecycle_inner(kind: String) -> Result<(), String> {
     // observed to fire 3-4 child processes on first launch. Use plain
     // powershell.exe directly. The window is still visible to the user
     // (CREATE_NEW_CONSOLE on Windows), just without the wt.exe wrapper.
+    //
+    // v15.4.3: `-NoExit` only applies to `uninstall`. The new `update`
+    // script handles its own lifetime (auto-close after relaunch, pause
+    // on failure), so layering `-NoExit` on top would leave a dead
+    // PowerShell window behind after the user's relaunch.
     let mut command = std::process::Command::new("powershell.exe");
     command
         .current_dir(&cwd)
         .arg("-NoProfile")
         .arg("-ExecutionPolicy")
-        .arg("Bypass")
-        .arg("-NoExit")
-        .arg("-Command")
-        .arg(&ps_script);
+        .arg("Bypass");
+    if kind == "uninstall" {
+        command.arg("-NoExit");
+    }
+    command.arg("-Command").arg(&ps_script);
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
