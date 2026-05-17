@@ -30,7 +30,39 @@ _SESSION_JSON = _ULTRON / ".tmp" / "current-session.json"
 L0_TOKEN_LIMIT = 200
 _MAX_ALERTS_BYTES = 1_048_576   # 1 MB read cap
 _MAX_ALERTS_LINES = 200
-_USER_LINE = "USER · Ing. Programación + PROGRAM_A · Stack: C++/UE5/C#/Unity/TS/Python"
+# Kirkardo round 2 #2: pull the user identity from ~/.ultron/personal/profile.md
+# instead of a hardcoded "USER · ..." line. Falls back to a generic ULTRON
+# user description when the personal profile is missing so a fresh install
+# still gets a sensible L0 primer.
+_DEFAULT_USER_LINE = "ULTRON user (set ~/.ultron/personal/profile.md to customise this line)"
+
+
+def _read_user_line() -> str:
+    """Return the first non-empty, non-heading line of personal/profile.md,
+    or a neutral default if the file is missing / unreadable.
+
+    The convention: profile.md's first non-heading line is a one-liner bio
+    suitable for a session primer. Anything longer than 160 chars is
+    truncated to keep L0 tight.
+    """
+    try:
+        from pathlib import Path
+        p = Path.home() / ".ultron" / "personal" / "profile.md"
+        if not p.is_file():
+            return _DEFAULT_USER_LINE
+        for raw in p.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or line.startswith("---"):
+                continue
+            if line.startswith("> "):
+                line = line[2:].strip()
+            return line[:160] if line else _DEFAULT_USER_LINE
+    except Exception:
+        pass
+    return _DEFAULT_USER_LINE
+
+
+_USER_LINE = _read_user_line()
 
 
 def _read_focus() -> str:

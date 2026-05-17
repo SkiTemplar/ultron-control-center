@@ -139,16 +139,26 @@ function formatNextRun(d: Date | null): string {
 function EditTriggerModal({
   name,
   initialCatchUp,
+  initialTriggerType,
+  initialTriggerAt,
   onClose,
   onSaved,
 }: {
   name: string;
   initialCatchUp: boolean;
+  // Kirkardo round 2 #5 (data loss bug): if the modal opens for a Weekly /
+  // AtLogon task with defaults "Daily" + "09:00", clicking Save silently
+  // overwrites the real trigger. Pass the current task's trigger so the
+  // form starts populated.
+  initialTriggerType?: ScheduledTriggerType;
+  initialTriggerAt?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [triggerType, setTriggerType] = useState<ScheduledTriggerType>("Daily");
-  const [triggerAt, setTriggerAt] = useState("09:00");
+  const [triggerType, setTriggerType] = useState<ScheduledTriggerType>(
+    initialTriggerType ?? "Daily",
+  );
+  const [triggerAt, setTriggerAt] = useState(initialTriggerAt ?? "09:00");
   const [catchUp, setCatchUp] = useState<boolean>(initialCatchUp);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -692,14 +702,34 @@ function DetailPanel({
         )}
       </div>
 
-      {showEdit && (
-        <EditTriggerModal
-          name={name}
-          initialCatchUp={!!detail.catch_up}
-          onClose={() => setShowEdit(false)}
-          onSaved={onChanged}
-        />
-      )}
+      {showEdit && (() => {
+        const first = detail.triggers?.[0];
+        let mappedType: ScheduledTriggerType = "Daily";
+        let mappedAt: string | undefined;
+        if (first) {
+          const k = (first.kind || "").toLowerCase();
+          if (k.includes("logon") || k.includes("boot")) mappedType = "AtLogon";
+          else if (k.includes("week")) mappedType = "Weekly";
+          else mappedType = "Daily";
+          if (first.start) {
+            const matched = /(\d{1,2}):(\d{2})/.exec(first.start);
+            if (matched) {
+              const hh = matched[1].padStart(2, "0");
+              mappedAt = `${hh}:${matched[2]}`;
+            }
+          }
+        }
+        return (
+          <EditTriggerModal
+            name={name}
+            initialCatchUp={!!detail.catch_up}
+            initialTriggerType={mappedType}
+            initialTriggerAt={mappedAt}
+            onClose={() => setShowEdit(false)}
+            onSaved={onChanged}
+          />
+        );
+      })()}
     </div>
   );
 }

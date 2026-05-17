@@ -666,9 +666,13 @@ pub fn allow_skill_manually_inner(
         .collect::<Vec<_>>()
         .join(", ");
     let reason_one_line = reason.replace('\n', " ").replace('"', "'");
+    // Kirkardo round 2 #2: the OS user, not a hardcoded "USER@local".
+    let approver = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string());
     let entry = format!(
-        "\n  - skill_name: \"{}\"\n    skill_md_sha1: \"{}\"\n    waived_rules: [{}]\n    reason: \"{}\"\n    approved_by: \"USER@local\"\n    approved_at: \"{}\"\n",
-        name, sha1, rules_yaml, reason_one_line, today
+        "\n  - skill_name: \"{}\"\n    skill_md_sha1: \"{}\"\n    waived_rules: [{}]\n    reason: \"{}\"\n    approved_by: \"{}@local\"\n    approved_at: \"{}\"\n",
+        name, sha1, rules_yaml, reason_one_line, approver, today
     );
     yaml.push_str(&entry);
     fs::write(&trust_path, yaml)

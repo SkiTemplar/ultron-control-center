@@ -511,50 +511,70 @@ fn probe_skills() -> DiagItem {
 
 fn probe_disk() -> DiagItem {
     let t0 = now_epoch_ms();
-    // Cheap probe: shell out to PowerShell. On Windows there's no portable
-    // libc statvfs we can lean on without an extra crate, and we already
-    // depend on the shell for everything else.
-    let out = std::process::Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "(Get-PSDrive C).Free",
-        ])
-        .output();
+    // Kirkardo round 2 #1: per-platform probe. Windows shells out to
+    // PowerShell (no portable statvfs in std); Linux runs `df` against the
+    // user's home filesystem.
+    #[cfg(target_os = "windows")]
+    let (cmd, args, label): (&str, Vec<&str>, &str) = (
+        "powershell.exe",
+        vec!["-NoProfile", "-NonInteractive", "-Command", "(Get-PSDrive C).Free"],
+        "Disk C:",
+    );
+    #[cfg(not(target_os = "windows"))]
+    let (cmd, args, label): (&str, Vec<&str>, &str) =
+        ("df", vec!["-B1", "--output=avail", &"/"], "Disk /");
+
+    let out = std::process::Command::new(cmd).args(&args).output();
     let elapsed = now_epoch_ms() - t0;
-    match out {
-        Err(e) => DiagItem {
-            key: "disk".into(),
-            label: "Disk C:".into(),
-            color: "orange".into(),
-            metric: "unknown".into(),
-            detail: Some(format!("probe failed: {}", e)),
-            fix: None,
-            elapsed_ms: elapsed,
-        },
-        Ok(o) => {
-            let stdout = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            let bytes: u64 = stdout.parse().unwrap_or(0);
-            let gb = bytes as f64 / (1024.0 * 1024.0 * 1024.0);
-            let color = if gb < 10.0 {
-                "red"
-            } else if gb < 30.0 {
-                "orange"
-            } else {
-                "green"
-            };
-            let fix = if gb < 30.0 { Some("clear-temp-30d".into()) } else { None };
-            DiagItem {
+    let bytes: u64 = match out {
+        Err(e) => {
+            return DiagItem {
                 key: "disk".into(),
-                label: "Disk C:".into(),
-                color: color.into(),
-                metric: format!("{:.1} GB free", gb),
-                detail: None,
-                fix,
+                label: label.into(),
+                color: "orange".into(),
+                metric: "unknown".into(),
+                detail: Some(format!("probe failed: {}", e)),
+                fix: None,
                 elapsed_ms: elapsed,
-            }
+            };
         }
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            // Windows PS prints just the number; df --output=avail prints a
+            // header then the value on a new line. Parse defensively.
+            let mut parsed: u64 = 0;
+            for token in stdout.split_whitespace() {
+                if let Ok(n) = token.parse::<u64>() {
+                    parsed = n;
+                    break;
+                }
+            }
+            parsed
+        }
+    };
+    let gb = bytes as f64 / (1024.0 * 1024.0 * 1024.0);
+    let color = if gb < 10.0 {
+        "red"
+    } else if gb < 30.0 {
+        "orange"
+    } else {
+        "green"
+    };
+    let fix = if gb < 30.0 && cfg!(target_os = "windows") {
+        // clear-temp-30d only has a Windows implementation (.ps1). When a
+        // Linux .sh sibling lands, drop the cfg!() and expose it there too.
+        Some("clear-temp-30d".into())
+    } else {
+        None
+    };
+    DiagItem {
+        key: "disk".into(),
+        label: label.into(),
+        color: color.into(),
+        metric: format!("{:.1} GB free", gb),
+        detail: None,
+        fix,
+        elapsed_ms: elapsed,
     }
 }
 

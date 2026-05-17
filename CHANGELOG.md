@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.6 -->
+## v15.5.6 — 2026-05-17
+
+- fix(v15.5.6): wave-1 missed edits + CRITICAL capabilities hardcoded paths
+
+_Auto-generated from 61c8a0aa by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.5 -->
 ## v15.5.5 — 2026-05-17
 

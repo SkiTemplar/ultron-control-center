@@ -583,14 +583,24 @@ export function Dashboard({
   // numbers" fix is hidden for them. Developer clones (with .git at
   // ~/.ultron) keep seeing it.
   const [isDevInstall, setIsDevInstall] = useState(false);
+  // Kirkardo round 2 #1 (Linux parity): only restart-qdrant has a .sh sibling;
+  // every other auto-fix is Windows-only (CrashDumps, Recycle Bin, NSIS, MSI,
+  // Sync version). On Linux the backend returns "no .sh script for this
+  // platform" on click — better to hide the rows entirely.
+  const isWindows =
+    typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
   useEffect(() => {
     invoke<boolean>("is_developer_install")
       .then((v) => setIsDevInstall(v))
       .catch(() => setIsDevInstall(false));
   }, []);
-  const visibleAutoFixes = isDevInstall
-    ? AUTO_FIX_CATALOG
-    : AUTO_FIX_CATALOG.filter((f) => f.name !== "refresh-versions");
+  // Per-fix Linux availability — extend this set as .sh siblings land.
+  const LINUX_OK_AUTO_FIXES = new Set<string>(["restart-qdrant"]);
+  const visibleAutoFixes = AUTO_FIX_CATALOG.filter((f) => {
+    if (f.name === "refresh-versions" && !isDevInstall) return false;
+    if (!isWindows && !LINUX_OK_AUTO_FIXES.has(f.name)) return false;
+    return true;
+  });
 
   async function runFullDiagnostic() {
     setDiagLoading(true);

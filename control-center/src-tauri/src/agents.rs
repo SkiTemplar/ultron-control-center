@@ -717,12 +717,17 @@ pub fn allow_agent_manually_inner(
     // target_type is the only field that distinguishes this block from a
     // skill waiver — keep it next to skill_name so the schema is obvious
     // at a glance when a human edits the YAML.
+    // Kirkardo round 2 #2: the OS user, not a hardcoded "USER@local".
+    let approver = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string());
     let entry = format!(
-        "\n  - skill_name: \"{name}\"\n    target_type: \"agent\"\n    skill_md_sha1: \"{sha1}\"\n    waived_rules: [{rules}]\n    reason: \"{reason}\"\n    approved_by: \"USER@local\"\n    approved_at: \"{today}\"\n",
+        "\n  - skill_name: \"{name}\"\n    target_type: \"agent\"\n    skill_md_sha1: \"{sha1}\"\n    waived_rules: [{rules}]\n    reason: \"{reason}\"\n    approved_by: \"{approver}@local\"\n    approved_at: \"{today}\"\n",
         name = name,
         sha1 = sha1,
         rules = rules_yaml,
         reason = reason_one_line,
+        approver = approver,
         today = today,
     );
     yaml.push_str(&entry);
