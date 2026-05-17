@@ -73,8 +73,19 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libsoup-3.0-dev \
             librsvg2-dev \
+            libjavascriptcoregtk-4.1-dev \
             build-essential \
-            libssl-dev
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            libfuse2 \
+            file \
+            patchelf
+          # libfuse2 is required by appimagetool which Tauri invokes to
+          # produce the .AppImage. Without it, `tauri build` aborts with
+          # SIGABRT (exit 134) after the .deb is produced. patchelf is
+          # required by appimagetool; libayatana-appindicator3-dev covers
+          # the system-tray feature even when it's off (Tauri probes for
+          # it). file is required by tauri-action's bundle step.
 
       # ─────────────────────────────────────────────────────────────────────────
       # Build the system ZIP + run the leak gate BEFORE tauri-action publishes
