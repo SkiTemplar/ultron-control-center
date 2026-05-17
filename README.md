@@ -201,6 +201,17 @@ Re-run it any time to upgrade — `~/.ultron-vault/` and `~/.ultron/plans/` are 
 
 ### Option A2 — Linux bootstrap (Debian / Ubuntu / Fedora / Arch)
 
+> [!WARNING]
+> **Linux build is unverified.** v15.5.0 added the Linux release path
+> (`.deb`, `.AppImage`, `bootstrap.sh`, `install.sh`, cfg-gated Rust
+> modules, ported cockpit scripts) and the GitHub Actions matrix builds
+> successfully on `ubuntu-22.04`. The author develops on Windows and has
+> **not** end-to-end tested an actual Linux install. If you run this on
+> a real Debian/Ubuntu/Fedora/Arch machine and it works (or breaks),
+> please open an issue with the distro + version + log so we can flip
+> this banner to "verified". Pull requests fixing Linux-specific bugs
+> are very welcome.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
 ```
@@ -411,7 +422,7 @@ Report security issues privately per [`SECURITY.md`](SECURITY.md).
 
 ## Origin and attribution
 
-ULTRON was originally created by **USER SURNAME** in 2026.
+ULTRON was originally created by **[USER SURNAME](https://www.linkedin.com/in/USER-SURNAME-SURNAME2-671b02274/)** ([@SkiTemplar](https://github.com/SkiTemplar)) in 2026.
 
 The project is open source under MIT (see [`LICENSE`](LICENSE)). Forks and modifications are welcome — contributors who substantially extend the work may add themselves to [`AUTHORS.md`](AUTHORS.md). Per MIT terms, any copy or derivative work must retain the original copyright notice naming USER SURNAME as the originator of ULTRON. The name "ULTRON" identifies the original project; derivative projects are encouraged to pick a distinct name unless they intend to upstream their changes. Full attribution policy in [`NOTICE`](NOTICE).
 
@@ -435,6 +446,6 @@ The vector layer runs on [Qdrant](https://qdrant.tech). The desktop shell is [Ta
 
 <div align="center">
 
-<sub>Built by <a href="https://github.com/SkiTemplar">USER SURNAME</a> &middot; MIT &middot; 2026</sub>
+<sub>Built by <a href="https://github.com/SkiTemplar">USER SURNAME</a> &middot; <a href="https://www.linkedin.com/in/USER-SURNAME-SURNAME2-671b02274/">LinkedIn</a> &middot; MIT &middot; 2026</sub>
 
 </div>

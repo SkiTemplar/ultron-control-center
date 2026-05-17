@@ -110,8 +110,8 @@ Read the files around yours before adding new code. The patterns are consistent 
 - **PowerShell is strict.** `Set-StrictMode -Version Latest` and `$ErrorActionPreference = 'Stop'` at the top. Use `Test-Path -LiteralPath` to avoid wildcard surprises in user-home paths.
 - **Rust at the Tauri boundary returns `Result<T, String>`.** The frontend deserialises errors as strings; never bubble a typed Rust error across the IPC seam. Domain modules can use richer errors internally; convert at the wrapper.
 - **Python deps via `uv`.** Never `pip install`, never `python script.py`. Use `uv run python script.py` and `uv pip install <pkg>`.
-- **No paid API keys.** Claude, Codex, Gemini are CLI/subscription only. A PR that adds a key prompt or env-var consumption for a paid model will be declined.
-- **No telemetry, no silent network calls.** Every outbound request must be user-initiated.
+- **Subscription-first, API keys are opt-in.** ULTRON's default install uses the Claude / Codex / Gemini CLIs against existing subscriptions — no API keys required. A PR that **adds** an opt-in API-key path for users who prefer pay-per-token is welcome (gated behind an off-by-default config flag and clearly marked as optional). What is NOT welcome is removing the subscription path or making the API-key route the default.
+- **No telemetry, no silent network calls.** Every outbound request must be user-initiated. This is non-negotiable.
 - **No Docker.** ULTRON dropped Docker in v15.0.2 in favour of the native Qdrant binary. Do not reintroduce.
 
 A pre-commit hook runs `ruff`, `cargo fmt`, and `tsc --noEmit` on staged files. Install it once with:
@@ -173,11 +173,11 @@ These will be declined regardless of code quality. Open a discussion before writ
 
 | Will be declined | Why |
 |---|---|
-| Anything requiring a paid API key | Subscription-only by design. Claude / Codex / Gemini reached through their CLIs. |
+| Making paid API keys the **default** path | Subscription-via-CLI is the contract for fresh installs. Adding an opt-in API-key route as a secondary path is fine; replacing or shadowing the CLI path is not. |
 | Personal data, hard-coded user paths, persona names from a single vault | Use generic identifiers; read paths from config. |
 | Telemetry, analytics, silent outbound calls | All network I/O must be initiated by an explicit user action. |
-| Anything that reintroduces Docker | Removed in v15.0.2. Native Qdrant binary is the contract. |
-| Non-Windows ports | The cockpit, hooks, installer and Tauri build all assume PowerShell + Windows APIs. macOS/Linux are not roadmap. |
+| Anything that reintroduces Docker | Removed in v15.0.2. Native Qdrant binary is the contract on both Windows and Linux. |
+| macOS port | Explicit non-goal for v15.x. Windows 11 + Linux x86_64 (v15.5+) are the supported platforms; if you want macOS, fork and maintain it separately. |
 
 ---
 

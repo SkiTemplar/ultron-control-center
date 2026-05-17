@@ -24,6 +24,8 @@
 | **Year** | 2026 |
 | **Role** | Creator and original author of ULTRON |
 | **Scope** | Designed and built the original memory architecture, hook system, skill / persona routing, dual-mode protocol and Control Center |
+| **GitHub** | [@SkiTemplar](https://github.com/SkiTemplar) |
+| **LinkedIn** | [USER SURNAME SURNAME2](https://www.linkedin.com/in/USER-SURNAME-SURNAME2-671b02274/) |
 
 ---
 

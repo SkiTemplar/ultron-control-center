@@ -187,19 +187,27 @@ jobs:
           releaseBody: |
             Automated release built from tag `${{ github.ref_name }}`.
 
-            **Two install paths:**
+            **Three install paths:**
 
-            * **Desktop app only** — download `ULTRON Control Center_*_x64-setup.exe`
-              below and run it. NSIS installer, no Git required. On first launch
+            * **Windows desktop app** — download `ULTRON Control Center_*_x64-setup.exe`
+              (NSIS) or `*_x64_en-US.msi` and run it. No Git required. On first launch
               Windows SmartScreen may warn that the publisher is unverified — this
               is expected for unsigned releases. Click "More info" → "Run anyway".
 
-            * **Full system** (skills, agents, hooks, cockpit scripts) — one-liner
-              in PowerShell:
-              `iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex`
-              This downloads `ultron-system-*.zip` from this release, extracts to
-              `~/.ultron`, runs `install.ps1`, and (optionally) launches the
-              Control Center installer.
+            * **Linux desktop app** ⚠️ *unverified — looking for testers* —
+              download the `.AppImage` (universal: `chmod +x` and run) or the
+              `.deb` (`sudo dpkg -i …`). The CI matrix builds green on
+              ubuntu-22.04 but the author has not end-to-end tested an actual
+              Linux install yet. Please open an issue with distro + version + log
+              if you try it.
+
+            * **Full system** (skills, agents, hooks, cockpit scripts) — one-liner:
+              * Windows: `iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex`
+              * Linux:   `curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash`
+
+              Either downloads `ultron-system-*.zip` from this release, verifies
+              the SHA-256, extracts to `~/.ultron`, runs the matching `install.ps1`
+              / `install.sh`, and launches the Control Center installer.
 
             See `docs/INSTALL.md` for full notes and `docs/RELEASE-PROCESS.md` for
             how releases are produced.

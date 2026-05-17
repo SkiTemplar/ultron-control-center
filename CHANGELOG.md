@@ -5,6 +5,11 @@
 
 First Linux release. Windows path unchanged.
 
+> ⚠️ **Linux build is unverified at release time.** The CI matrix compiles
+> green on `ubuntu-22.04` but the author develops on Windows and has not
+> end-to-end tested an actual Linux install. Looking for testers — open an
+> issue with distro + version + log if you try it.
+
 ### Added
 
 - **Linux x86_64 support** (Debian / Ubuntu / Fedora / Arch). The Tauri
