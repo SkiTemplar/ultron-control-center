@@ -35,9 +35,31 @@ type Item = {
   /**
    * If set, this item is hidden when features[featureKey] === false.
    * Items without a featureKey are always shown (dashboard, usage,
-   * notifications, changelog, sessions, system, settings).
+   * notifications, sessions, system, settings).
    */
   featureKey?: keyof Features;
+  /**
+   * v15.3 — Sidebar reduction (17 → 12 visible).
+   * Items marked tier "more" render inside the collapsible "More" group
+   * at the bottom. Nothing is dropped or de-routed: every tab is still
+   * reachable via the command palette, in-app shortcuts, and a single
+   * click after expanding "More". This gives the new-user surface
+   * area 12 primary items (per Kirkardo's telemetry-driven verdict)
+   * without breaking workflows that currently land on, e.g., Personal
+   * (Tio Gilito) or Changelog.
+   *
+   * Tiering rationale (~/.ultron/sessions/<date>/routing.jsonl, 21 days):
+   *   primary  — Dashboard, Usage, Notifications, System, MCPs, Skills,
+   *              Agents, Memory, Sessions, Projects, Plans, Settings.
+   *   more     — Changelog (drawer-style, only opened on releases),
+   *              News (off by default in features.example), Gaming
+   *              (gated), Stats/SelfImprove (≤1.2% of invocations),
+   *              Personal (≤1.2% of invocations).
+   *   hidden   — Logs (available=false, lives inside System now).
+   *
+   * Default omitted = "primary" so we don't break unrelated callers.
+   */
+  tier?: "primary" | "more";
 };
 
 const SECTIONS: { heading: string; items: Item[] }[] = [
@@ -47,8 +69,8 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "dashboard", label: "Dashboard", available: true },
       { id: "usage", label: "Usage", available: true },
       { id: "notifications", label: "Notifications", available: true },
-      { id: "changelog", label: "Changelog", available: true },
-      { id: "news", label: "News", available: true, featureKey: "news" },
+      { id: "changelog", label: "Changelog", available: true, tier: "more" },
+      { id: "news", label: "News", available: true, featureKey: "news", tier: "more" },
     ],
   },
   {
@@ -66,7 +88,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "sessions", label: "Sessions", available: true },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
-      { id: "gaming", label: "Gaming", available: true, featureKey: "gaming" },
+      { id: "gaming", label: "Gaming", available: true, featureKey: "gaming", tier: "more" },
       { id: "plans", label: "Plans", available: true, featureKey: "plans" },
       { id: "logs", label: "Logs", available: false },
     ],
@@ -74,8 +96,20 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "Meta",
     items: [
-      { id: "self-improve", label: "Stats", available: true, featureKey: "self_improve" },
-      { id: "personal", label: "Personal", available: true, featureKey: "personal" },
+      {
+        id: "self-improve",
+        label: "Stats",
+        available: true,
+        featureKey: "self_improve",
+        tier: "more",
+      },
+      {
+        id: "personal",
+        label: "Personal",
+        available: true,
+        featureKey: "personal",
+        tier: "more",
+      },
     ],
   },
   // v15.2 F7: "Hooks" moved into System as an inner sub-tab — no longer a
@@ -85,6 +119,23 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [{ id: "settings", label: "Settings", available: true }],
   },
 ];
+
+// v15.3 — persisted toggle for the "More" group. Defaults closed so the
+// new-user surface stays at 12 primary tabs. Stored in localStorage so
+// power users who keep it expanded don't have to re-open every relaunch.
+const MORE_OPEN_KEY = "ultron.cc.sidebar.more_open.v1";
+function loadMoreOpen(): boolean {
+  try {
+    return localStorage.getItem(MORE_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+function saveMoreOpen(open: boolean) {
+  try {
+    localStorage.setItem(MORE_OPEN_KEY, open ? "1" : "0");
+  } catch {}
+}
 
 /** Tabs that should redirect to dashboard if disabled while active. */
 const FEATURE_TAB_TO_KEY: Partial<Record<Tab, keyof Features>> = {
@@ -106,9 +157,87 @@ type Props = {
   globalStatus: GlobalStatus;
 };
 
+// v15.3 — extracted button so both the primary sections and the
+// collapsible "More" group render identical chrome. Disabled items
+// still render with the "soon" hint exactly like before.
+function SidebarButton({
+  item,
+  active,
+  onSelect,
+}: {
+  item: Item;
+  active: boolean;
+  onSelect: (t: Tab) => void;
+}) {
+  const dim = false;
+  return (
+    <button
+      key={item.id}
+      type="button"
+      disabled={dim}
+      onClick={() => item.available && onSelect(item.id)}
+      className="flex w-full items-center justify-between rounded px-2 py-1 text-[13px] transition-colors"
+      style={{
+        background: active ? "var(--color-surface-3)" : "transparent",
+        color: active
+          ? "var(--color-text)"
+          : dim
+            ? "var(--color-text-faint)"
+            : "var(--color-text-secondary)",
+        cursor: dim ? "default" : "pointer",
+      }}
+      onMouseEnter={(e) => {
+        if (!dim && !active)
+          (e.currentTarget as HTMLButtonElement).style.background =
+            "var(--color-surface-2)";
+      }}
+      onMouseLeave={(e) => {
+        if (!active)
+          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+      }}
+    >
+      <span>{item.label}</span>
+      {dim && (
+        <span
+          className="text-[10px]"
+          style={{ color: "var(--color-text-faint)" }}
+        >
+          soon
+        </span>
+      )}
+    </button>
+  );
+}
+
 export function Sidebar({ active, onSelect, globalStatus }: Props) {
   const { features, refresh } = useFeatures();
   const [showFeaturesModal, setShowFeaturesModal] = useState(false);
+  const [moreOpen, setMoreOpen] = useState<boolean>(loadMoreOpen());
+
+  // v15.3 — auto-expand "More" if the active tab lives inside it, otherwise
+  // selecting a more-tier item via the command palette would visually flag
+  // the wrong (collapsed) chrome. Persist that expansion so subsequent
+  // sessions don't collapse it again.
+  useEffect(() => {
+    const moreIds = new Set(
+      SECTIONS.flatMap((s) => s.items)
+        .filter((it) => it.tier === "more")
+        .map((it) => it.id),
+    );
+    if (moreIds.has(active) && !moreOpen) {
+      setMoreOpen(true);
+      saveMoreOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active]);
+
+  function toggleMore() {
+    setMoreOpen((prev) => {
+      const next = !prev;
+      saveMoreOpen(next);
+      return next;
+    });
+  }
 
   // If the user disables the currently-active tab (via the modal or by
   // editing features.json on disk), bounce them to the dashboard so we
@@ -145,12 +274,16 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-2 pb-2">
         {SECTIONS.map((section, si) => {
+          // v15.3 — split each section into primary + more so the rendered
+          // sidebar stays the same shape for primary items while the more
+          // group gets aggregated under a single collapsible footer.
           const visibleItems = section.items
             .filter((item) => item.available)
             .filter(
               (item) => !item.featureKey || features[item.featureKey] !== false,
             );
-          if (visibleItems.length === 0) return null;
+          const primary = visibleItems.filter((it) => (it.tier ?? "primary") === "primary");
+          if (primary.length === 0) return null;
           return (
             <div key={si} className="mb-4">
               {section.heading && (
@@ -162,51 +295,70 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
                 </div>
               )}
               <div className="space-y-px">
-                {visibleItems.map((item) => {
-                  const isActive = active === item.id;
-                  const dim = false;
-                  return (
-                    <button
-                      key={item.id}
-                      type="button"
-                      disabled={dim}
-                      onClick={() => item.available && onSelect(item.id)}
-                      className="flex w-full items-center justify-between rounded px-2 py-1 text-[13px] transition-colors"
-                      style={{
-                        background: isActive ? "var(--color-surface-3)" : "transparent",
-                        color: isActive
-                          ? "var(--color-text)"
-                          : dim
-                            ? "var(--color-text-faint)"
-                            : "var(--color-text-secondary)",
-                        cursor: dim ? "default" : "pointer",
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!dim && !isActive)
-                          (e.currentTarget as HTMLButtonElement).style.background =
-                            "var(--color-surface-2)";
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive)
-                          (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                      }}
-                    >
-                      <span>{item.label}</span>
-                      {dim && (
-                        <span
-                          className="text-[10px]"
-                          style={{ color: "var(--color-text-faint)" }}
-                        >
-                          soon
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
+                {primary.map((item) => (
+                  <SidebarButton
+                    key={item.id}
+                    item={item}
+                    active={active === item.id}
+                    onSelect={onSelect}
+                  />
+                ))}
               </div>
             </div>
           );
         })}
+
+        {/* v15.3 — "More" group: collects the low-traffic tabs into a
+            single collapsible row so the primary surface stays at ≤12
+            items per Kirkardo's telemetry verdict. Auto-expanded if the
+            active tab lives inside it. */}
+        {(() => {
+          const moreItems = SECTIONS.flatMap((s) => s.items)
+            .filter((it) => it.available && it.tier === "more")
+            .filter(
+              (it) => !it.featureKey || features[it.featureKey] !== false,
+            );
+          if (moreItems.length === 0) return null;
+          return (
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={toggleMore}
+                className="flex w-full items-center justify-between rounded px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  cursor: "pointer",
+                }}
+                onMouseEnter={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "var(--color-surface-2)";
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    "transparent";
+                }}
+                aria-expanded={moreOpen}
+                title={`Show/hide ${moreItems.length} secondary tab${moreItems.length === 1 ? "" : "s"}`}
+              >
+                <span>More ({moreItems.length})</span>
+                <span aria-hidden="true">{moreOpen ? "▾" : "▸"}</span>
+              </button>
+              {moreOpen && (
+                <div className="mt-1 space-y-px">
+                  {moreItems.map((item) => (
+                    <SidebarButton
+                      key={item.id}
+                      item={item}
+                      active={active === item.id}
+                      onSelect={onSelect}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* Features toggle entry — sits below the last section so it's
             visible but unobtrusive. */}

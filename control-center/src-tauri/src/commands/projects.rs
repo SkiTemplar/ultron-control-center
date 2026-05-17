@@ -1,0 +1,207 @@
+// Project CRUD + launcher + open-in-IDE commands.
+use crate::projects;
+
+#[tauri::command]
+pub async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
+    projects::list_projects_inner()
+}
+
+#[tauri::command]
+pub async fn open_project(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<projects::ProjectActionResult, String> {
+    projects::open_project_inner(&app, id).await
+}
+
+#[tauri::command]
+pub async fn scan_projects(
+    app: tauri::AppHandle,
+) -> Result<Vec<projects::ProjectInfo>, String> {
+    projects::scan_projects_inner(&app).await
+}
+
+#[tauri::command]
+pub async fn create_project(
+    app: tauri::AppHandle,
+    name: String,
+    path: String,
+    ide: Option<String>,
+    language: Option<String>,
+    tags: Option<Vec<String>>,
+    default_provider: Option<String>,
+) -> Result<projects::CreateProjectResult, String> {
+    // F2: route through *_with_emit so project.created notifications fire
+    projects::create_project_inner_with_emit(&app, projects::CreateProjectPayload {
+        name,
+        path,
+        ide,
+        language,
+        tags,
+        default_provider,
+    })
+}
+
+#[tauri::command]
+pub async fn update_project(
+    id: String,
+    name: Option<String>,
+    path: Option<String>,
+    ide: Option<String>,
+    language: Option<String>,
+    tags: Option<Vec<String>>,
+    default_provider: Option<String>,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::update_project_inner(projects::UpdateProjectPayload {
+        id,
+        name,
+        path,
+        ide,
+        language,
+        tags,
+        default_provider,
+    })
+}
+
+/// Surgical patch for `Project.default_provider`. The Projects tab's inline
+/// radio invokes this on every selection change without needing to assemble
+/// a full update payload; keeps the on-disk write to a single field.
+#[tauri::command]
+pub async fn set_default_provider(
+    project_id: String,
+    provider: String,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::set_default_provider_inner(project_id, provider)
+}
+
+#[tauri::command]
+pub async fn delete_project(
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<projects::DeleteProjectResult, String> {
+    // F2: route through *_with_emit so project.deleted notifications fire
+    projects::delete_project_inner_with_emit(&app, id)
+}
+
+#[tauri::command]
+pub async fn add_launcher_item(
+    project_id: String,
+    item: projects::LauncherItem,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::add_launcher_item_inner(projects::AddLauncherItemPayload { project_id, item })
+}
+
+#[tauri::command]
+pub async fn remove_launcher_item(
+    project_id: String,
+    index: usize,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::remove_launcher_item_inner(project_id, index)
+}
+
+#[tauri::command]
+pub async fn reorder_launcher_items(
+    project_id: String,
+    from: usize,
+    to: usize,
+) -> Result<projects::UpdateProjectResult, String> {
+    projects::reorder_launcher_items_inner(project_id, from, to)
+}
+
+#[tauri::command]
+pub async fn launch_item(
+    app: tauri::AppHandle,
+    project_id: String,
+    index: usize,
+) -> Result<(), String> {
+    projects::launch_item_inner(app, project_id, index).await
+}
+
+#[tauri::command]
+pub async fn launch_all_items(
+    app: tauri::AppHandle,
+    project_id: String,
+) -> Result<usize, String> {
+    projects::launch_all_items_inner(app, project_id).await
+}
+
+/// Open a project path in the user's IDE.
+/// Order: VS Code (`code <path>`) -> Cursor (`cursor <path>`) -> file explorer.
+/// Path is canonicalised to reject relative / traversal payloads.
+#[tauri::command]
+pub async fn open_project_in_ide(
+    path: String,
+    preferred_ide: Option<String>,
+) -> Result<String, String> {
+    use std::path::PathBuf;
+    let p = PathBuf::from(&path);
+    if !p.is_dir() && !p.is_file() {
+        return Err(format!("path not found: {}", path));
+    }
+    let canonical = p.canonicalize().map_err(|e| format!("canonicalize: {}", e))?;
+    let canonical_str = canonical.to_string_lossy().to_string();
+    // Strip the Windows extended path prefix \\?\ which `code` doesn't like.
+    let cleaned = canonical_str
+        .strip_prefix(r"\\?\")
+        .unwrap_or(&canonical_str)
+        .to_string();
+
+    // Map the per-project IDE slug ("vscode" / "cursor" / "code-insiders")
+    // to the CLI binary name that ships with that editor. `vscode` is the
+    // canonical slug we expose to the UI; the CLI itself is called `code`.
+    let slug_to_cli = |s: &str| match s.to_ascii_lowercase().as_str() {
+        "vscode" | "vs code" | "code" => Some("code"),
+        "cursor" => Some("cursor"),
+        "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => {
+            Some("code-insiders")
+        }
+        _ => None,
+    };
+
+    // Build the ordered try list. When the caller supplies a preference we
+    // put it first; the remaining CLIs fall in behind it as fallbacks so
+    // a project tagged "cursor" still opens *something* when Cursor is
+    // missing on this machine (instead of dropping to explorer.exe).
+    let mut candidates: Vec<&str> = Vec::new();
+    let pref_cli = preferred_ide
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .and_then(slug_to_cli);
+    if let Some(p) = pref_cli {
+        candidates.push(p);
+    }
+    for c in ["code", "cursor", "code-insiders"] {
+        if !candidates.contains(&c) {
+            candidates.push(c);
+        }
+    }
+
+    for cli in &candidates {
+        if std::process::Command::new("where").arg(cli).output()
+            .map(|o| o.status.success()).unwrap_or(false)
+        {
+            // Use cmd /C to invoke the .cmd shim winget installs.
+            let mut cmd = std::process::Command::new("cmd");
+            cmd.args(["/C", cli, &cleaned]);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            }
+            cmd.spawn().map_err(|e| format!("spawn {}: {}", cli, e))?;
+            return Ok(format!("opened in {}", cli));
+        }
+    }
+
+    // Fallback: file explorer.
+    let mut explorer = std::process::Command::new("explorer.exe");
+    explorer.arg(&cleaned);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        explorer.creation_flags(0x08000000);
+    }
+    explorer.spawn().map_err(|e| format!("spawn explorer: {}", e))?;
+    Ok("opened in file explorer (no IDE on PATH)".to_string())
+}

@@ -510,3 +510,52 @@ pub async fn uninstall_app_inner(
         command,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Replays the provider whitelist gate from `uninstall_app_inner` —
+    /// the actual function needs an `&tauri::AppHandle` we can't build in
+    /// a unit test, so we exercise the discriminator directly.
+    fn provider_whitelist_check(provider: &str) -> Result<String, String> {
+        match provider {
+            "winget" | "store" | "msi" | "manual" => Ok(provider.to_string()),
+            other => Err(format!("invalid provider '{}'", other)),
+        }
+    }
+
+    #[test]
+    fn provider_whitelist_rejects_unknown() {
+        for p in ["winget", "store", "msi", "manual"] {
+            assert!(
+                provider_whitelist_check(p).is_ok(),
+                "expected '{}' to pass whitelist",
+                p
+            );
+        }
+        for bad in ["", "WINGET", "rpm", "deb", "; rm -rf /", "msi'; bad"] {
+            let err = provider_whitelist_check(bad).unwrap_err();
+            assert!(
+                err.contains("invalid provider"),
+                "expected rejection for '{}', got '{}'",
+                bad,
+                err
+            );
+        }
+    }
+
+    #[test]
+    fn ps_single_quote_escape_doubles_quotes() {
+        // No quotes — passthrough
+        assert_eq!(ps_single_quote_escape("hello"), "hello");
+        // One quote — doubled
+        assert_eq!(ps_single_quote_escape("d'arc"), "d''arc");
+        // Multiple quotes — each doubled
+        assert_eq!(ps_single_quote_escape("'a'b'"), "''a''b''");
+        // Backslash, $, backtick are literal inside PS single quotes; left as-is.
+        assert_eq!(ps_single_quote_escape("C:\\Program Files"), "C:\\Program Files");
+        assert_eq!(ps_single_quote_escape("$var"), "$var");
+        assert_eq!(ps_single_quote_escape("`backtick`"), "`backtick`");
+    }
+}

@@ -21,19 +21,31 @@ type Props = {
   extraActions?: PaletteAction[];
 };
 
+// v15.3 — palette enumerates every tab known to the Tab union, including
+// the ones the sidebar now keeps in the "More" group (Changelog, News,
+// Gaming, Stats, Personal, Logs). Drop a sidebar item → it's still one
+// Ctrl+K away. "tier" labels mirror the Sidebar grouping so the
+// secondary tabs are visually grouped together for power-users.
 const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
   { id: "dashboard", label: "Go to Dashboard", group: "Navigate" },
   { id: "usage", label: "Go to Usage", group: "Navigate" },
   { id: "notifications", label: "Go to Notifications", group: "Navigate" },
-  { id: "changelog", label: "Go to Changelog", group: "Navigate" },
   { id: "system", label: "Go to System", group: "Navigate" },
   { id: "mcps", label: "Go to MCPs", group: "Navigate" },
   { id: "skills", label: "Go to Skills", group: "Navigate" },
+  { id: "agents", label: "Go to Agents", group: "Navigate" },
   { id: "memory", label: "Go to Memory", group: "Navigate" },
   { id: "sessions", label: "Go to Sessions", group: "Navigate" },
   { id: "projects", label: "Go to Projects", group: "Navigate" },
-  { id: "gaming", label: "Go to Gaming", group: "Navigate" },
+  { id: "plans", label: "Go to Plans", group: "Navigate" },
   { id: "settings", label: "Go to Settings", group: "Navigate" },
+  // Secondary tabs (now collapsed under "More" in the sidebar).
+  { id: "changelog", label: "Go to Changelog", group: "Navigate (More)" },
+  { id: "news", label: "Go to News", group: "Navigate (More)" },
+  { id: "gaming", label: "Go to Gaming", group: "Navigate (More)" },
+  { id: "self-improve", label: "Go to Stats", group: "Navigate (More)" },
+  { id: "personal", label: "Go to Personal", group: "Navigate (More)" },
+  { id: "logs", label: "Go to Logs", group: "Navigate (More)" },
 ];
 
 export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }: Props) {

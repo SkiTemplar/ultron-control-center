@@ -274,3 +274,90 @@ pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize,
 // `invoke("delete_alert_entries", { fingerprints: [...] })` — no further
 // glue required.
 // ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fingerprint_collapses_whitespace() {
+        // Single-space collapse + trim + head(80)
+        let fp = fingerprint("doctor", "  hello    world\n  ");
+        assert_eq!(fp, "doctor::hello world");
+
+        // Tabs / newlines / multiple consecutive whitespace
+        let fp = fingerprint("hook", "a\t\tb\nc");
+        assert_eq!(fp, "hook::a b c");
+
+        // Trimming both ends
+        let fp = fingerprint("src", " x ");
+        assert_eq!(fp, "src::x");
+    }
+
+    #[test]
+    fn fingerprint_truncates_to_80_chars() {
+        // Long message — head must be exactly 80 chars after collapsing.
+        let long_msg = "a".repeat(200);
+        let fp = fingerprint("svc", &long_msg);
+        // fp = "svc::" + 80 'a's
+        assert_eq!(fp.len(), "svc::".len() + 80);
+        assert!(fp.starts_with("svc::"));
+        assert_eq!(&fp[5..], &"a".repeat(80));
+    }
+
+    #[test]
+    fn is_orphan_tombstone_matches_ack_only_rows() {
+        // Pure ack tombstone: ack=true, every displayable field empty/None
+        let tomb = AlertShape {
+            source: None,
+            message: None,
+            severity: None,
+            ack: Some(true),
+            id: Some("alert-123".into()),
+        };
+        assert!(tomb.is_orphan_tombstone());
+
+        // Empty-string fields also count as "no displayable content".
+        let tomb_empty = AlertShape {
+            source: Some(String::new()),
+            message: Some(String::new()),
+            severity: Some(String::new()),
+            ack: Some(true),
+            id: Some("alert-99".into()),
+        };
+        assert!(tomb_empty.is_orphan_tombstone());
+    }
+
+    #[test]
+    fn is_orphan_tombstone_rejects_displayable_rows() {
+        // Real alert (not acked) — never an orphan
+        let real = AlertShape {
+            source: Some("doctor".into()),
+            message: Some("disk low".into()),
+            severity: Some("warn".into()),
+            ack: Some(false),
+            id: Some("a1".into()),
+        };
+        assert!(!real.is_orphan_tombstone());
+
+        // Acked but still has a message — NOT an orphan (it has UI content)
+        let acked_with_msg = AlertShape {
+            source: None,
+            message: Some("info".into()),
+            severity: None,
+            ack: Some(true),
+            id: Some("a2".into()),
+        };
+        assert!(!acked_with_msg.is_orphan_tombstone());
+
+        // ack=None — definitely not an orphan
+        let unacked = AlertShape {
+            source: None,
+            message: None,
+            severity: None,
+            ack: None,
+            id: Some("a3".into()),
+        };
+        assert!(!unacked.is_orphan_tombstone());
+    }
+}

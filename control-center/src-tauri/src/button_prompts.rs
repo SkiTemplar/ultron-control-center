@@ -368,3 +368,96 @@ pub fn get_button_prompt_inner(
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: minimal interpolation that mirrors what `get_button_prompt_inner`
+    /// does, without touching disk or the catalog. Keeps the test isolated.
+    fn interpolate(template: &str, vars: &[(&str, &str)]) -> String {
+        let mut out = template.to_string();
+        for (k, v) in vars {
+            let placeholder = format!("{{{}}}", k);
+            out = out.replace(&placeholder, v);
+        }
+        out
+    }
+
+    #[test]
+    fn interpolation_replaces_vars() {
+        let template = "Quiero editar este skill (~/.claude/skills/{skill_name}/SKILL.md).\n\
+                        Instrucción:\n{ai_instruction}";
+        let rendered = interpolate(
+            template,
+            &[("skill_name", "agents"), ("ai_instruction", "rename FooBar to foo_bar")],
+        );
+        assert!(rendered.contains("~/.claude/skills/agents/SKILL.md"));
+        assert!(rendered.contains("rename FooBar to foo_bar"));
+        assert!(!rendered.contains("{skill_name}"));
+        assert!(!rendered.contains("{ai_instruction}"));
+    }
+
+    #[test]
+    fn default_catalog_has_seed_entries() {
+        let defaults = build_defaults();
+        // Spot-check known seed keys.
+        let keys: std::collections::HashSet<&str> =
+            defaults.iter().map(|b| b.key.as_str()).collect();
+        assert!(keys.contains("dashboard.pc_diagnose_analyse"));
+        assert!(keys.contains("skills.create_with_ai"));
+        assert!(keys.contains("agents.edit_with_ai"));
+        // Sanity: at least the minimum the v15.2.40 batch added.
+        assert!(defaults.len() >= 10, "expected ≥10 default buttons, got {}", defaults.len());
+
+        // Every entry: non-empty prompt, default_prompt == prompt, overridden=false.
+        for b in &defaults {
+            assert!(!b.prompt.is_empty(), "{} has empty prompt", b.key);
+            assert_eq!(b.prompt, b.default_prompt, "{} default mismatch", b.key);
+            assert!(!b.overridden, "{} should not be marked overridden by default", b.key);
+        }
+    }
+
+    #[test]
+    fn merge_overrides_overlays_default_atomic() {
+        let defaults = build_defaults();
+        let sample_key = "skills.create_with_ai";
+        let default_prompt = defaults
+            .iter()
+            .find(|b| b.key == sample_key)
+            .map(|b| b.default_prompt.clone())
+            .expect("seed key present");
+
+        // Manually simulate the merge step (avoiding disk I/O via
+        // build_catalog → read_stored which would read a real file).
+        let mut overrides: BTreeMap<String, String> = BTreeMap::new();
+        overrides.insert(sample_key.to_string(), "CUSTOM PROMPT".to_string());
+
+        // Mimic build_catalog's merge loop:
+        let mut merged = Vec::with_capacity(defaults.len());
+        for mut b in defaults {
+            if let Some(override_text) = overrides.get(&b.key) {
+                if override_text != &b.default_prompt {
+                    b.prompt = override_text.clone();
+                    b.overridden = true;
+                }
+            }
+            merged.push(b);
+        }
+        let entry = merged
+            .iter()
+            .find(|b| b.key == sample_key)
+            .expect("merged entry");
+        assert_eq!(entry.prompt, "CUSTOM PROMPT");
+        assert_eq!(entry.default_prompt, default_prompt);
+        assert!(entry.overridden);
+
+        // A non-overridden sibling stays clean.
+        let sibling = merged
+            .iter()
+            .find(|b| b.key == "dashboard.pc_diagnose_analyse")
+            .expect("sibling entry");
+        assert!(!sibling.overridden);
+        assert_eq!(sibling.prompt, sibling.default_prompt);
+    }
+}

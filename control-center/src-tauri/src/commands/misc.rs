@@ -1,0 +1,103 @@
+// Miscellaneous commands that don't fit into any of the other domain groups.
+// Path helpers exposed to the frontend, ULTRON status shell-out, qdrant
+// health probe, logs tailing, instruction folders, usage report, activity
+// timeline, and the cost watchdog.
+
+use crate::{activity_timeline, cost_watchdog, instructions, logs, usage};
+use tauri_plugin_shell::ShellExt;
+
+/// Frontend-facing helper: returns the absolute path to the ULTRON root
+/// (`~/.ultron`) as a UTF-8 string. The TS helper `getUltronRoot()` in
+/// `src/lib/paths.ts` invokes this so the frontend never has to hardcode
+/// `C:\Users\<name>\.ultron` to compute child paths.
+#[tauri::command]
+pub fn ultron_root_str() -> Result<String, String> {
+    Ok(crate::ultron_root()?.to_string_lossy().to_string())
+}
+
+/// Frontend-facing helper: returns the absolute path to the user's home
+/// directory as a UTF-8 string. Used by the TS helper `getHomeDir()` to
+/// compute paths like `~/.claude/skills/<name>` without hardcoding the
+/// Windows user folder.
+#[tauri::command]
+pub fn home_dir_str() -> Result<String, String> {
+    dirs::home_dir()
+        .map(|h| h.to_string_lossy().to_string())
+        .ok_or_else(|| "No HOME dir".to_string())
+}
+
+#[tauri::command]
+pub async fn ultron_status(app: tauri::AppHandle) -> Result<super::CmdResult, String> {
+    let script_path = crate::ultron_root()?.join("scripts/cockpit/ultron.ps1");
+    let script_str = script_path.to_string_lossy().to_string();
+
+    let output = app
+        .shell()
+        .command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            &script_str,
+            "status",
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("spawn failed: {}", e))?;
+
+    Ok(super::CmdResult {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: output.status.code(),
+    })
+}
+
+#[tauri::command]
+pub async fn qdrant_health() -> Result<serde_json::Value, String> {
+    let path = crate::ultron_root()?.join(".tmp/qdrant-health.json");
+    let content = std::fs::read_to_string(&path).map_err(|e| format!("read failed: {}", e))?;
+    serde_json::from_str(&content).map_err(|e| format!("parse failed: {}", e))
+}
+
+#[tauri::command]
+pub async fn list_logs() -> Result<Vec<logs::LogSource>, String> {
+    logs::list_logs_inner()
+}
+
+#[tauri::command]
+pub async fn tail_log(
+    source_id: String,
+    lines: Option<usize>,
+) -> Result<logs::LogTail, String> {
+    logs::tail_log_inner(source_id, lines)
+}
+
+#[tauri::command]
+pub async fn list_instruction_folders() -> Result<Vec<instructions::InstructionEntry>, String> {
+    instructions::list_instruction_folders_inner()
+}
+
+#[tauri::command]
+pub async fn instruction_path(kind: String) -> Result<String, String> {
+    instructions::instruction_path_inner(kind)
+}
+
+#[tauri::command]
+pub async fn claude_usage() -> Result<usage::UsageReport, String> {
+    usage::claude_usage_inner()
+}
+
+#[tauri::command]
+pub async fn compute_activity_timeline(
+    days: u32,
+) -> Result<activity_timeline::TimelineSummary, String> {
+    activity_timeline::compute_activity_timeline_inner(days)
+}
+
+#[tauri::command]
+pub async fn compute_cost(window_hours: Option<u32>) -> Result<cost_watchdog::CostSnapshot, String> {
+    cost_watchdog::compute_cost_inner(window_hours.unwrap_or(6))
+}
