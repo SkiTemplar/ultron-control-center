@@ -1,5 +1,14 @@
 # Changelog
 
+<!-- v15.5.11 -->
+## v15.5.11 — 2026-05-17
+
+- fix(v15.5.11): CI tests + ack short-circuit fix + thread-safe bus lock
+- chore: explicit gitignore for cockpit/audits/ post-history-purge
+
+_Auto-generated from 5d4d79b4 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.10 -->
 ## v15.5.10 — 2026-05-17
 
@@ -81,7 +90,7 @@ _Auto-generated from aa039788 by scripts/hooks/auto-changelog.py_
 
 
 <!-- v15.5.0 -->
-## v15.5.0 — 2026-MM-DD
+## v15.5.0 — 2026-05-17
 
 First Linux release. Windows path unchanged.
 

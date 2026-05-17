@@ -1613,7 +1613,12 @@ function AppsPanel() {
 
 export function System() {
   // v15.3.6: default to Schedules (was overview). Reordered per user.
-  const [subTab, setSubTab] = useState<SystemSubTab>("schedules");
+  // Eval #4 Linux: Schedules is Windows-only (system.rs returns Err on Linux).
+  // Default sub-tab to "overview" so Linux users don't land on an unusable
+  // empty table on first open.
+  const _isWin =
+    typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent);
+  const [subTab, setSubTab] = useState<SystemSubTab>(_isWin ? "schedules" : "overview");
   const { features } = useFeatures();
   const hooksEnabled = features.hooks !== false;
 
