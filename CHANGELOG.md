@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.5.12 -->
+## v15.5.12 — 2026-05-17
+
+- fix(v15.5.12): wave 9 — cleanup + install_skill_sets Linux + version unify
+
+_Auto-generated from f4454437 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.5.11 -->
 ## v15.5.11 — 2026-05-17
 
