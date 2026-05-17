@@ -257,16 +257,20 @@ function initParticles(nodes: GraphNode[]): Particle[] {
   const categories = Array.from(bucket.keys()).sort();
   const G = categories.length;
 
-  // 2. Hex grid for cluster centres. v15.4.9 — sized up for breathing
-  // room: clusterRadius drops from 0.42 → 0.30 (so the internal fan
-  // doesn't bleed into neighbours) and the step factors grow so the
-  // GAP between clusters is the visual default, not the exception.
+  // 2. Hex grid for cluster centres. v15.4.10 — USER lo quería al
+  // revés: clusters MÁS JUNTOS entre sí y bolitas MÁS COMPACTAS dentro
+  // de cada cluster. v15.4.9 sobre-esparció todo. Vuelta a densidad:
+  //   - usable: 2.4 → 1.2 (mitad de canvas virtual; los clusters se
+  //     acercan unos a otros).
+  //   - clusterRadius: 0.30 → 0.22 del step (bolitas dentro del cluster
+  //     más juntas, casi tocándose en el ring exterior).
+  //   - stepY: 0.95 → 0.85 (también filas más cercanas).
   const cols = Math.max(1, Math.ceil(Math.sqrt(G)));
   const rows = Math.max(1, Math.ceil(G / cols));
-  const usable = SOFT_BOUNDARY * 2.4;             // bigger virtual canvas
-  const clusterRadius = (usable / cols) * 0.30;   // per-cluster fan radius
+  const usable = SOFT_BOUNDARY * 1.2;             // canvas más compacto
+  const clusterRadius = (usable / cols) * 0.22;   // fan más denso
   const stepX = usable / cols;
-  const stepY = (usable / rows) * 0.95;
+  const stepY = (usable / rows) * 0.85;
 
   // Position lookup, populated below; we materialise Particles in the
   // ORIGINAL node order at the end so consumers' idIndex stays valid.
