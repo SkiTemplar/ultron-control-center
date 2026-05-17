@@ -300,3 +300,61 @@ rules:
     ztmsi_query: true
     confidence: 0.85
 
+  # ── v15.4.16: clusters derived from real telemetry (history.jsonl) ──────────
+  # Added after analyzing 409 unmatched prompts in dispatcher-events.jsonl.
+  # Each rule covers a recurring pattern USER dictates frequently.
+
+  # Full Kirkardo audit (academic + repo polish bundle) -- highest priority
+  - id: kirkardo-audit
+    match: "(?:full\\s+)?(?:kirkardo|kirkard|kirardo)\\b.{0,80}(?:audit|review|nota|corrige|actualiza)"
+    skill: "repo-evaluator"
+    suggest_mode: "HIGH"
+    confidence: 0.92
+
+  # Rebuild / update / recompile the control center
+  - id: ultron-rebuild
+    match: "(?:^|\\s)(?:actualiza(?:r|me)?|recompila(?:r|me)?|rebuild|hacer (?:un )?rebuild|falta (?:un )?(?:recompilar|rebuild))(?:\\s|$|[\\.,;¿!\\?])"
+    skill: "ultron"
+    suggest_mode: "MEDIUM"
+    confidence: 0.85
+
+  # Codex peer verification / dual mode trigger
+  - id: codex-verify
+    match: "\\b(?:codex\\s+verifica|verif[i\xed]calo\\s+con\\s+codex|lanza\\s+(?:modo\\s+)?(?:dual|maxdual)|valid[ao]lo\\s+con\\s+codex|dual\\s+digo)\\b"
+    skill: "codex:codex-rescue"
+    suggest_mode: "HIGH"
+    confidence: 0.90
+
+  # Stack trace / build error paste -> systematic-debugging
+  - id: build-error-paste
+    match: "(?:FAILED|AssertionError|Process completed with exit code [1-9]|NU190[12]|warning as error|API\\s+Error)\\b"
+    skill: "superpowers:systematic-debugging"
+    confidence: 0.85
+
+  # "Faltan cosas / no se ha completado / falta por hacer" - incompleteness reports
+  - id: incomplete-work
+    match: "(?:faltan?\\s+(?:muchas?\\s+)?cosas\\b|no\\s+(?:se\\s+)?(?:ha\\s+|han\\s+)?(?:completad[oa]|terminad[oa])|sigue\\s+pendiente)"
+    skill: "ultron"
+    suggest_mode: "HIGH"
+    confidence: 0.80
+
+  # Diagnostic / final status request
+  - id: diagnostic-final
+    match: "(?:diagn[o\xf3]stico\\s+(?:final|completo)|status\\s+(?:de|del)\\s+(?:control\\s+center|sistema|instal)|estado\\s+(?:final|general)\\s+(?:de|del))"
+    skill: "ultron"
+    suggest_mode: "HIGH"
+    confidence: 0.85
+
+  # Memory / vault layout questions
+  - id: memory-layout
+    match: "(?:memoria\\s+(?:est[a\xe1]|veo|m[a\xe1]s)\\s+(?:agrupad|esparcid)|agrupad[ao]s?\\s+(?:por\\s+)?(?:grupos|v[i\xed]nculos|categor)|bolitas\\s+agrupadas)"
+    skill: "ultron"
+    confidence: 0.80
+
+  # Mojibake / encoding complaints
+  - id: encoding-bug
+    match: "(?:ðŸ|car[a\xe1]cter(?:es)?\\s+(?:chinos?|raros?|extraños?|mal)|error\\s+de\\s+car[a\xe1]ct|mojibake|encoding\\s+(?:bug|broken)|UTF[-\\s]?(?:8|16))"
+    skill: "ultron"
+    confidence: 0.85
+
+

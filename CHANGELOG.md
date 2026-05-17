@@ -1,5 +1,13 @@
 # Changelog
 
+<!-- v15.4.15 -->
+## v15.4.15 — 2026-05-17
+
+- feat(v15.4.15): Vault panel UI + news dedup + auto-recall vault layer + hooks search
+
+_Auto-generated from eb5d8a8f by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.4.14 -->
 ## v15.4.14 — 2026-05-17
 
