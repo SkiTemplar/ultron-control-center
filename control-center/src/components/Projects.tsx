@@ -426,9 +426,19 @@ function Row({
                       : ". Set a preferred IDE in Edit to also open it here.")
                   }
                 >
-                  {launchingAll
-                    ? "Launching…"
-                    : `Launch all (${launchable}${ideHint})`}
+                  {(() => {
+                    if (launchingAll) return "Launching…";
+                    // v15.4.12 — relabel cuando solo hay 1 launchable.
+                    // "Launch all (1 + rider)" confunde — el "all"
+                    // promete multi cuando hay un solo item.
+                    if (launchable === 0) return `Launch ${p.ide}`;
+                    if (launchable === 1) {
+                      return p.ide
+                        ? `Launch + ${p.ide}`
+                        : `Launch`;
+                    }
+                    return `Launch all (${launchable}${ideHint})`;
+                  })()}
                 </button>
               );
             })()}

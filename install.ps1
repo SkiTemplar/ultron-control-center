@@ -1139,6 +1139,48 @@ function Install-Skills {
 }
 
 # ----------------------------------------------------------------------
+# Step 8a': agents installer (v15.4.12)
+# ----------------------------------------------------------------------
+# Copies every agent shipped in the repo's `agents/` directory into
+# `~/.claude/agents/`. Pre-existing destinations are left alone — the
+# user's local edits win, the installer never overwrites.
+#
+# Why a dedicated step (and not part of Install-Skills): agents have
+# their own taxonomy (`~/.claude/agents/<name>.md` flat layout) and the
+# Agents tab + AI Router slot want them present at boot. Without this
+# step the repo's 16 ULTRON+stack-aligned agents stayed in the repo and
+# never reached fresh installs — which manifested as an empty Agents
+# tab post-install (USER bug 2026-05-17).
+function Install-Agents {
+    Write-Step "8a'. agents (copy repo/agents -> ~/.claude/agents)"
+    $src = Join-Path $Script:RepoRoot "agents"
+    if (-not (Test-Path -LiteralPath $src)) {
+        Write-V "agents/ directory missing in repo - skip"
+        return
+    }
+    $dest = Join-Path $env:USERPROFILE ".claude\agents"
+    if (-not (Test-Path -LiteralPath $dest)) {
+        New-Item -ItemType Directory -Path $dest -Force | Out-Null
+    }
+    $installed = 0
+    $skipped = 0
+    foreach ($file in Get-ChildItem -LiteralPath $src -Filter "*.md" -File -ErrorAction SilentlyContinue) {
+        $target = Join-Path $dest $file.Name
+        if (Test-Path -LiteralPath $target) {
+            $skipped++
+            continue
+        }
+        try {
+            Copy-Item -LiteralPath $file.FullName -Destination $target -Force
+            $installed++
+        } catch {
+            Write-Warn2 ("could not install agent " + $file.Name + ": " + $_.Exception.Message)
+        }
+    }
+    Write-OK ("agents: $installed installed, $skipped already present")
+}
+
+# ----------------------------------------------------------------------
 # Step 8b: community skills from SkiTemplar/ultron-skills (optional)
 # ----------------------------------------------------------------------
 function Install-CommunitySkills {
@@ -1699,6 +1741,7 @@ try {
     Initialize-PythonVenv
     Update-ClaudeSettings
     Install-Skills
+    Install-Agents
     Install-CommunitySkills
     Set-FeatureFlags
     Remove-OptOutFeatureFiles
