@@ -66,7 +66,7 @@
 <p align="center">
   <img alt="Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + catalogo community con el mismo scan de seguridad que Skills" src="assets/screenshots/agents.png" width="820" />
   <br />
-  <sub><i>Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + 15 community pre-instalados, 60 mas disponibles en el catalogo, mismo ruleset PI que Skills.</i></sub>
+  <sub><i>Pesta&ntilde;a Agents &mdash; 9 agentes ULTRON + 22 community pre-instalados, 60+ disponibles en el catalogo, mismo ruleset PI que Skills.</i></sub>
 </p>
 
 > Los screenshots se llenar&aacute;n a medida que avance la beta p&uacute;blica &mdash; el layout que ves coincide con la versi&oacute;n actual.
@@ -235,7 +235,7 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 |---|---|
 | **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, Qdrant nativo para recall semantico (sin Docker), decay surfacing |
 | **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
-| **Agents** | 24 pre-instalados (9 ULTRON + 15 community), catalogo con 60 mas en `cockpit/agent-catalog.json`, pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico |
+| **Agents** | 31 pre-instalados (9 ULTRON + 22 community), catalogo con 60+ mas en `cockpit/agent-catalog.json` (~90 agentes disponibles en total), pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
 | **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks. (La pestaña Logs está cableada pero deshabilitada hoy.) |
 | **Dual-mode** | Peer review opcional con Codex CLI + delegacion long-context con Gemini CLI, ambos via suscripcion |
@@ -254,9 +254,13 @@ Los slots opt-in se entregan como **plantillas vacias**: forkea ULTRON y rellena
 <details>
 <summary><b>Agents (24 pre-instalados, catalogo de 60+)</b></summary>
 
-Los agents viven en `~/.claude/agents/*.md` y siguen el mismo contrato de YAML frontmatter que las skills. ULTRON trae 9 agentes propios — `ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`, `ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`, `ultron-test` — mas 15 community seleccionados del catalogo publico: `architect-reviewer`, `code-reviewer`, `context-manager`, `debugger`, `legacy-modernizer`, `mcp-developer`, `multi-agent-coordinator`, `powershell-7-expert`, `python-pro`, `react-specialist`, `refactoring-specialist`, `rust-engineer`, `security-auditor`, `test-automator`, `typescript-pro`.
+Los agents viven en `~/.claude/agents/*.md` y siguen el mismo contrato de YAML frontmatter que las skills. ULTRON trae **9 agentes propios** — `ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`, `ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`, `ultron-test` — mas **22 community** organizados en dos grupos:
 
-Hay 60 agentes adicionales descritos en `cockpit/agent-catalog.json` que se instalan a demanda desde la pestaña Agents. Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semantico.
+**Generalistas (15):** `architect-reviewer`, `code-reviewer`, `context-manager`, `debugger`, `legacy-modernizer`, `mcp-developer`, `multi-agent-coordinator`, `powershell-7-expert`, `python-pro`, `react-specialist`, `refactoring-specialist`, `rust-engineer`, `security-auditor`, `test-automator`, `typescript-pro`.
+
+**Stack-aligned añadidos en v15.4.5 (7):** `cpp-pro` (C++17/20/23 moderno), `graphics-programmer` (OpenGL/Vulkan/HLSL/GLSL/WGSL + RenderDoc), `unreal-engine-engineer` (UE5 C++/Blueprints/GAS/Nanite/Lumen), `unity-engineer` (Unity 2022 LTS + Unity 6, DOTS, URP/HDRP), `devops-engineer` (GitHub Actions, signing, Tauri release), `database-admin` (Postgres/Supabase/SQLite + EXPLAIN ANALYZE), `fullstack-developer` (features cross-stack).
+
+Hay **60+ agentes adicionales** descritos en `cockpit/agent-catalog.json` que se instalan a demanda desde la pestaña Agents, llevando el total a **~90 agentes** disponibles. Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo — Settings → AI Router incluye un botón "Reset to ULTRON recommended" que cablea pares curados de agent + modelo por zona. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semantico.
 
 </details>
 

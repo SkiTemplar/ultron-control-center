@@ -46,9 +46,12 @@ orange **Quarantined** filter.
 ## 3. Agents — "what subagents can I delegate to?"
 
 The Agents tab mirrors the Skills flow but for autonomous subagents
-under `~/.claude/agents/`. Fresh installs ship 24 agents (9 ULTRON
-first-party + 15 community); the catalog at the bottom of the tab
-exposes 60 more from `cockpit/agent-catalog.json`.
+under `~/.claude/agents/`. Fresh installs ship **31 agents** — 9 ULTRON
+first-party + 22 community (15 generalists + 7 stack-aligned added in
+v15.4.5: `cpp-pro`, `graphics-programmer`, `unreal-engine-engineer`,
+`unity-engineer`, `devops-engineer`, `database-admin`, `fullstack-developer`).
+The catalog at the bottom of the tab exposes **60+ more** from
+`cockpit/agent-catalog.json`, taking the total to ~90 available.
 
 - The same security scanner used on Skills runs on every agent
   manifest. Failing agents land under the orange **Quarantined**
