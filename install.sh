@@ -42,7 +42,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-readonly ULTRON_VERSION="v15.5.11"
+readonly ULTRON_VERSION="v15.5.12"
 readonly QDRANT_VERSION="v1.18.0"
 # Native Linux x86_64 tarball from the official qdrant/qdrant GitHub release.
 readonly QDRANT_TARBALL="qdrant-x86_64-unknown-linux-gnu.tar.gz"
@@ -895,6 +895,87 @@ install_skills() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 10c: install skills-catalog by category (mirror of install.ps1
+# Install-SkillSets). Reads skills-catalog/manifest.json with jq, prompts
+# per category (or installs the default-on set in --non-interactive),
+# copies each chosen category's skill dirs into ~/.claude/skills/.
+# ---------------------------------------------------------------------------
+DEFAULT_SKILL_SETS=("meta" "memory")  # parity with install.ps1
+
+install_skill_sets() {
+    step "10c. skills-catalog (per-category picker, 332 skills total)"
+    local manifest="${REPO_ROOT}/skills-catalog/manifest.json"
+    if [[ ! -f "$manifest" ]]; then
+        verb "skills-catalog/manifest.json missing - skip"
+        return 0
+    fi
+    if ! have_cmd jq; then
+        warn "jq missing - cannot parse skills-catalog manifest; skipping"
+        return 0
+    fi
+
+    local cats; cats="$(jq -r '.by_category | keys[]' "$manifest" 2>/dev/null)"
+    if [[ -z "$cats" ]]; then
+        warn "no categories in manifest - skip"
+        return 0
+    fi
+
+    local dest="${CLAUDE_DIR}/skills"
+    mkdir -p "$dest"
+    local installed_cats=0 installed_skills=0 skipped_cats=0
+
+    while IFS= read -r cat; do
+        [[ -z "$cat" ]] && continue
+        local is_default=0
+        for d in "${DEFAULT_SKILL_SETS[@]}"; do
+            [[ "$cat" == "$d" ]] && is_default=1 && break
+        done
+
+        local count; count="$(jq -r ".by_category[\"${cat}\"]" "$manifest")"
+        local pick="n"
+        if [[ $NONINTERACTIVE -eq 1 ]]; then
+            [[ $is_default -eq 1 ]] && pick="y"
+        else
+            if [[ $is_default -eq 1 ]]; then
+                read -r -p "[skill-sets] install '${cat}' (${count} skills)? [Y/n] " ans
+                [[ -z "$ans" || "$ans" =~ ^[YySs]$ ]] && pick="y"
+            else
+                read -r -p "[skill-sets] install '${cat}' (${count} skills)? [y/N] " ans
+                [[ "$ans" =~ ^[YySs]$ ]] && pick="y"
+            fi
+        fi
+
+        if [[ "$pick" != "y" ]]; then
+            ((skipped_cats++))
+            continue
+        fi
+
+        local cat_dir="${REPO_ROOT}/skills-catalog/${cat}"
+        if [[ ! -d "$cat_dir" ]]; then
+            verb "category dir missing: ${cat_dir}"
+            continue
+        fi
+        local n=0
+        for skill_dir in "$cat_dir"/*/; do
+            [[ -d "$skill_dir" ]] || continue
+            local name; name="$(basename "$skill_dir")"
+            local dst="${dest}/${name}"
+            if [[ -e "$dst" ]]; then
+                verb "already installed: ${name}"
+                continue
+            fi
+            cp -r "$skill_dir" "$dst"
+            ((n++))
+        done
+        installed_skills=$((installed_skills + n))
+        ((installed_cats++))
+        verb "category '${cat}': ${n} skills installed"
+    done <<< "$cats"
+
+    ok "skill-sets: ${installed_cats} categories / ${installed_skills} skills installed, ${skipped_cats} categories skipped"
+}
+
+# ---------------------------------------------------------------------------
 # Step 13: flat-copy repo/agents/*.md -> ~/.claude/agents/
 # ---------------------------------------------------------------------------
 install_agents() {
@@ -1080,6 +1161,7 @@ make_dirs
 seed_templates
 merge_hooks
 install_skills
+install_skill_sets
 install_agents
 write_feature_flags
 print_summary

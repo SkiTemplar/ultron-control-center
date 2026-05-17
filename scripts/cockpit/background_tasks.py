@@ -105,15 +105,6 @@ TASKS: list[dict] = [
         "priority":    8,
     },
     {
-        "name":        "cleanup-inventory-scan",
-        "description": "Scan ULTRON roots and generate cleanup report (Task 13)",
-        "script":      "cleanup_inventory.py",
-        "args":        ["report"],
-        "trigger":     "weekly",
-        "priority":    9,
-        "timeout":     180,
-    },
-    {
         "name":        "validate-skills",
         "description": "Validate + auto-fix SKILL.md frontmatter (BOM, YAML hazards, mojibake) across .claude/.agents/.codex skill roots; flags desc>1024 for manual review",
         "script":      "validate_skills.py",

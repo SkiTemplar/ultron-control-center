@@ -62,12 +62,12 @@ EXPECTED_SCRIPTS = [
     "skill_manifest_validate.py", "skill_creator.py",
     "skill_discover.py", "skill_finder.py", "skill_graph.py",
     "skill_summarizer.py", "skill_sync.py", "registry_sync.py",
-    "agent_manifest.py", "personas_ssot.py",
+    "agent_manifest.py", 
     # Sprint 3-4 cockpit (audit pipeline + TUI + sessions)
     "audit_index.py", "audit_to_pending.py", "pending_actions.py",
     "apply_proposals.py", "route_quality.py",
     "route_quality_aggregator.py", "context_primer.py",
-    "context_packet_builder.py", "cleanup_inventory.py",
+    "context_packet_builder.py", 
     "session_highlights.py", "session_compactor.py",
     "session_replay.py",
     # tui.py removed in v15.4 (Control Center replaces it).
@@ -110,7 +110,7 @@ EXPECTED_SCRIPTS = [
     # v14.1 GENESIS deadwood
     "deadwood_scanner.py",
     # Misc / one-off / background
-    "shadow_review.py", "strip_skill_bom.py", "setup_github_token.py",
+    "setup_github_token.py",
     "on_wake.py", "job_supervisor.py", "background_tasks.py",
     "vault_migrator.py", "usage_report.py", "research.py",
     "research_premium.py", "game_detector.py",
