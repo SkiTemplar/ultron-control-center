@@ -1,5 +1,16 @@
 # Changelog
 
+<!-- v15.3.6 -->
+## v15.3.6 — 2026-05-17
+
+- fix(v15.3.6): security CRITICAL fixes + bloatware cleanup + v15.4 plan document
+- feat(v15.4): visual installer (WinForms) + agents wired into ULTRON core
+- feat(v15.4-stabilize): split lib.rs + Settings.tsx + Sidebar tier reduction + Rust tests + CONTRIBUTING rewrite
+- chore: refresh changelog (auto)
+
+_Auto-generated from 3d25b052 by scripts/hooks/auto-changelog.py_
+
+
 <!-- v15.3.5 -->
 ## v15.3.5 — 2026-05-16
 
