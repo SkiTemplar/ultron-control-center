@@ -1,4 +1,7 @@
-﻿# ULTRON New Project Initializer
+﻿# === maintainer-only (not user-facing) ===
+# Local project scaffolder. Not wired into the Control Center or any hook —
+# invoked manually from PowerShell. See docs/MAINTAINERS.md.
+# ULTRON New Project Initializer
 # Uso: powershell -File new-project.ps1 -Name "nombre" -Type "PERSONAL"
 
 param(

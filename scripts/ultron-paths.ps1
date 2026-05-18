@@ -1,4 +1,7 @@
-﻿# ULTRON v13.0 â€” Path resolver SSOT (Sprint 2 F12 â€” PowerShell sibling)
+﻿# === maintainer-only utility (dot-sourced by hooks / scripts) ===
+# Path resolver SSOT — dot-sourced from PowerShell hooks. Not invoked
+# directly. See docs/MAINTAINERS.md.
+# ULTRON - Path resolver SSOT (Sprint 2 F12 - PowerShell sibling)
 #
 # Dot-source from PowerShell hooks / scripts:
 #     . "$env:USERPROFILE\.claude\skills\ultron\scripts\ultron-paths.ps1"

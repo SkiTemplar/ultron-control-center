@@ -100,3 +100,23 @@ skills:
   # personal Gmail/Calendar agent, daily news publisher, etc.). The picker
   # in install.ps1 will surface them with `personal: true` so users have
   # to opt in deliberately.
+  #
+  # Pattern (uncomment to add a slot):
+  #
+  # - name: my-finance-assistant
+  #   source: repo://skills/my-finance-assistant
+  #   core: false
+  #   personal: true
+  #   description: "Private financial advisor — never installed by default."
+  #
+  # - name: my-news-publisher
+  #   source: repo://skills/my-news-publisher
+  #   core: false
+  #   personal: true
+  #   description: "Daily newsletter generator for your topics."
+  #
+  # - name: my-journal-coach
+  #   source: repo://skills/my-journal-coach
+  #   core: false
+  #   personal: true
+  #   description: "Personal journaling persona — reads ~/.ultron-vault/daily/."

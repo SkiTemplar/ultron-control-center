@@ -361,8 +361,13 @@ def _write_telemetry(
     conf: float,
     latency_ms: int,
     source: str,
+    rule_id: str | None = None,
 ) -> None:
-    """Append a JSONL telemetry event. Failures are silent."""
+    """Append a JSONL telemetry event. Failures are silent.
+
+    `rule_id` (v15.5.20+) records which YAML rule matched when source=="rules"
+    so dead-rule detection over the telemetry corpus is possible.
+    """
     try:
         _TELEMETRY_PATH.parent.mkdir(parents=True, exist_ok=True)
         prompt_hash = hashlib.sha1(prompt.encode("utf-8", errors="replace")).hexdigest()[:16]
@@ -373,6 +378,7 @@ def _write_telemetry(
             "conf": round(conf, 4),
             "latency_ms": latency_ms,
             "source": source,
+            "rule_id": rule_id,
         }
         with _TELEMETRY_PATH.open("a", encoding="utf-8") as f:
             f.write(json.dumps(event, ensure_ascii=False) + "\n")
@@ -715,6 +721,10 @@ def main() -> None:
             source_str = source_match.group(1) if source_match else "unknown"
             conf_match = re.search(r"ULTRON·(\d+)%", result)
             conf_val = int(conf_match.group(1)) / 100.0 if conf_match else 0.0
+            # v15.5.20: surface rule_id when present in the dispatch line so
+            # dead-rule cleanup over the telemetry corpus becomes possible.
+            rule_match = re.search(r"rule=([A-Za-z0-9_.\-]+)", result)
+            rule_id_val = rule_match.group(1) if rule_match else None
             sys.stdout.write(result + "\n")
             sys.stdout.flush()
             # v15.3.5: telemetry BEFORE the context packet + agent suggestion
@@ -723,7 +733,7 @@ def main() -> None:
             # the remaining budget — moving the write up keeps the original
             # invariant ("every successful route is logged") intact.
             if budget() > 2:
-                _write_telemetry(prompt, route_str, conf_val, latency_ms, source_str)
+                _write_telemetry(prompt, route_str, conf_val, latency_ms, source_str, rule_id_val)
             # S3-B: Context packet injection. Emitted as a second line AFTER the
             # routing line. Budget-gated (≥10ms required). Lazy import keeps
             # module load time unchanged. Any failure is silently skipped so the

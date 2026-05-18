@@ -128,11 +128,26 @@ def save_state(files: dict[str, dict[str, Any]]) -> None:
 # ── Vault walker ───────────────────────────────────────────────────────────────
 
 
+_EXCLUDED_VAULT_DIRS = {"_archive", ".git", "node_modules", ".obsidian", ".trash"}
+
+
 def walk_vault(root: Path) -> Iterable[Path]:
-    """Yield all markdown files under root, sorted for deterministic order."""
+    """Yield all markdown files under root, sorted for deterministic order.
+
+    Skips archive / VCS / editor trees so stale test fixtures and historical
+    snapshots do not pollute semantic recall.
+    """
     if not root.exists():
         return
-    yield from sorted(p for p in root.rglob("*.md") if p.is_file())
+    candidates: list[Path] = []
+    for p in root.rglob("*.md"):
+        if not p.is_file():
+            continue
+        rel_parts = {seg.lower() for seg in p.relative_to(root).parts}
+        if rel_parts & _EXCLUDED_VAULT_DIRS:
+            continue
+        candidates.append(p)
+    yield from sorted(candidates)
 
 
 def read_file(path: Path) -> str | None:

@@ -118,3 +118,24 @@ location:
 The marker comment is **non-destructive** — every script still runs from its
 current path, every caller still resolves, no .gitignore change is needed.
 The migration is a clean, atomic future step.
+
+---
+
+## Stats panel signals (Hook Signals → 6 sources, 3 dead by design)
+
+`control-center/src-tauri/src/self_improve.rs::read_hook_signals` aggregates
+six telemetry streams. Three fire rarely *by design* — do **not** treat them
+as broken when the panel shows them stale:
+
+| Source | Fires when | Typical interval |
+|---|---|---|
+| `prompt-feedback` | every Skill/Agent invocation | continuous |
+| `token-usage` | every Claude turn | continuous |
+| `hiper-plans` | a `hiper-plans` skill runs | rare |
+| `doctor` | weekly only (`scripts/cockpit/doctor.py` cron, opt-in) | 7+ days |
+| `auto_updater` | on-demand from the update banner | 7-30+ days |
+| `mcp-audit` | weekly only (`scripts/cockpit/mcp-resilience.py` cron) | 7+ days |
+
+The Settings → Notifications panel surfaces freshness only for the first
+three. The last three are scheduled jobs, not realtime signals — their age
+reflects schedule cadence, not health.

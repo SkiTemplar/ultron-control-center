@@ -70,7 +70,7 @@ def _dominant_domain(rows: list[dict]) -> str:
 def build(
     query: str,
     layer: str = "L1",
-    max_tokens: int = 600,
+    max_tokens: int = 300,  # v15.5.20: was 600, aligned with the only real caller (intent-dispatcher line 588)
     index_path: Path | None = None,
     budget_left_ms_fn: Callable[[], float] | None = None,
 ) -> str:

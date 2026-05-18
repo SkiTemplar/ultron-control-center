@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# === maintainer-only (not user-facing) ===
+# One-off discovery scan over ~/.claude/skills/. No runtime caller — invoked
+# manually when rebuilding the catalog. See docs/MAINTAINERS.md.
 """
 ULTRON SKILL DISCOVERY · v1.1
 Detecta skills instaladas que no están mapeadas en FAST PATH Layer 1 o Layer 2.

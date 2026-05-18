@@ -1,4 +1,8 @@
-﻿# ULTRON Memory System Initializer
+﻿# === maintainer-only (not user-facing) ===
+# Bootstrap the vault layout on a fresh machine. install.ps1 + brain_index.py
+# handle this automatically for end users; this script is the manual path.
+# See docs/MAINTAINERS.md.
+# ULTRON Memory System Initializer
 # Uso: powershell -File init-memory.ps1
 
 param([string]$RootPath = "$env:USERPROFILE\.ultron")

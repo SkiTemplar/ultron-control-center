@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# === maintainer-only (not user-facing) ===
+# Local memory audit tool. No runtime hook / control-center caller — invoked
+# manually when diagnosing vault drift. See docs/MAINTAINERS.md.
 """
 ULTRON MEMORY AUDIT · v1.0
 Audita archivos de memoria CC (~/.claude/projects/*/memory/*.md).
