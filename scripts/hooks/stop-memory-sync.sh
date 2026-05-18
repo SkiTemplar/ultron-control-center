@@ -25,7 +25,7 @@ LOG_FILE="${ULTRON_DIR}/logs/stop-memory-sync.log"
 COCKPIT="${ULTRON_DIR}/scripts/cockpit"
 SYNC_SCRIPT="${COCKPIT}/memory_sync.py"
 DEBOUNCE_PATH="${TMP_DIR}/last-stop-sync.json"
-DEBOUNCE_WINDOW=300  # v15.5.20: 90s→300s, Claude harness fires Stop per turn (target ratio ≤2×)
+DEBOUNCE_WINDOW=900  # v15.5.20.1: 300s->900s after R6 measured 21x ratio; 15min absorbs per-turn Stops without freshness loss
 
 mkdir -p "${TMP_DIR}" "$(dirname "${LOG_FILE}")"
 

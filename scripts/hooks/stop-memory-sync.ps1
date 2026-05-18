@@ -59,12 +59,14 @@ try {
 } catch { <# best-effort, never block Stop #> }
 
 # ── Debounce — prevent per-tool-call refire (Auditor 2 finding) ───────────────
-# Stop hook was firing 6× in 62 minutes for the same session → multiplied
+# Stop hook was firing 6x in 62 minutes for the same session -> multiplied
 # brain_index updates, push-async spawns, and Codex compactor calls.
-# v15.5.20: window 90s -> 300s (Claude harness fires Stop per assistant turn,
-# not per session close). Target fires/distinct_sessions ratio ≤2.0.
+# v15.5.20.1: window 300s -> 900s after R6 measured 21x fires/sessions
+# ratio. Claude harness fires Stop per assistant turn; a 15-minute window
+# absorbs the long working tails without losing freshness (brain_index
+# rebuilds in <2s, vault notes don't change mid-turn). Target ratio <=2.0.
 $debouncePath = "$env:USERPROFILE\.ultron\.tmp\last-stop-sync.json"
-$debounceWindow = 300  # seconds
+$debounceWindow = 900  # seconds
 try {
     if ($stdinSessionId -and (Test-Path $debouncePath)) {
         $last = Get-Content $debouncePath -Raw | ConvertFrom-Json

@@ -41,34 +41,49 @@ PLAN_MARKERS = [
 ]
 
 
-_DEDUP_TAIL_LINES = 200  # scan last N inbox lines for duplicates
+# v15.5.20.1: persistent dedup ledger. Tail-based dedup broke when the
+# inbox grew past the scanned tail (R6 caught 15x MAINTAINERS / 10x
+# release-cadence duplicates because the originals had scrolled out of
+# the 200-line window). The ledger keeps every snippet hash ever
+# recorded, so dedup is correct regardless of inbox size.
+_SEEN_LEDGER = INBOX_PATH.parent / ".inbox-seen.json"
+_SEEN_LEDGER_CAP = 5000  # cap entries to bound file size
 
 
-def _existing_snippets() -> set[str]:
-    """Return the trimmed inbox bullet bodies already recorded (last _DEDUP_TAIL_LINES)."""
-    if not INBOX_PATH.exists():
+def _load_seen() -> set[str]:
+    if not _SEEN_LEDGER.exists():
         return set()
     try:
-        tail = INBOX_PATH.read_text(encoding="utf-8", errors="replace").splitlines()[-_DEDUP_TAIL_LINES:]
+        data = json.loads(_SEEN_LEDGER.read_text(encoding="utf-8"))
+        if isinstance(data, list):
+            return set(data)
+    except (OSError, json.JSONDecodeError):
+        pass
+    return set()
+
+
+def _save_seen(seen: set[str]) -> None:
+    try:
+        _SEEN_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+        items = sorted(seen)
+        if len(items) > _SEEN_LEDGER_CAP:
+            items = items[-_SEEN_LEDGER_CAP:]
+        _SEEN_LEDGER.write_text(
+            json.dumps(items, ensure_ascii=False), encoding="utf-8"
+        )
     except OSError:
-        return set()
-    seen: set[str] = set()
-    for line in tail:
-        stripped = line.lstrip("- ").strip()
-        if stripped:
-            seen.add(stripped[:240])
-    return seen
+        pass
 
 
 def append_inbox(items: list[str]) -> None:
     INBOX_PATH.parent.mkdir(parents=True, exist_ok=True)
-    existing = _existing_snippets()
+    seen = _load_seen()
     fresh: list[str] = []
     for item in items:
         snippet = " ".join(item.split())[:240]
-        if snippet and snippet not in existing:
+        if snippet and snippet not in seen:
             fresh.append(snippet)
-            existing.add(snippet)
+            seen.add(snippet)
     if not fresh:
         return
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
@@ -76,6 +91,7 @@ def append_inbox(items: list[str]) -> None:
         f.write(f"\n## {ts}\n\n")
         for snippet in fresh:
             f.write(f"- {snippet}\n")
+    _save_seen(seen)
 
 
 def scan_text(text: str) -> list[str]:
