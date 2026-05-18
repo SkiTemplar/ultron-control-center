@@ -235,7 +235,7 @@ fn build_defaults() -> Vec<ButtonPrompt> {
              model to use.",
             "news_generate",
             &["today", "model"],
-            "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Guarda el HTML final en ~/.ultron/cockpit/news/newsletter-{today}.html y usa el modelo {model}.",
+            "[BANNER — no es el prompt real] El prompt real lo genera news_html_generator.py y se copia a tu portapapeles. Pulsa Ctrl+V dentro de Gemini para usarlo. Output HTML → ~/.ultron/cockpit/news/newsletter-{today}.html. Modelo: {model}.",
         ),
         default_button(
             "mcps.add_with_ai",

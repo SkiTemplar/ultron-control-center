@@ -42,7 +42,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-readonly ULTRON_VERSION="v15.5.17"
+readonly ULTRON_VERSION="v15.5.18"
 readonly QDRANT_VERSION="v1.18.0"
 # Native Linux x86_64 tarball from the official qdrant/qdrant GitHub release.
 readonly QDRANT_TARBALL="qdrant-x86_64-unknown-linux-gnu.tar.gz"
@@ -825,7 +825,7 @@ merge_hooks() {
     # The template is Windows-canonical: it hardcodes `.venv/Scripts/python.exe`
     # and `PowerShell -WindowStyle Hidden -File ... .ps1` invocations. install.ps1
     # uses it as-is; install.sh has to rewrite it before merging so the resulting
-    # ~/.claude/settings.json fires real Linux binaries (Kirkardo audit v15.5.0).
+    # ~/.claude/settings.json fires real Linux binaries (review audit v15.5.0).
     #
     # Three substitutions:
     #   1. {USERPROFILE}            -> $HOME (placeholder expansion)

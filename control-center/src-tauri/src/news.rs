@@ -232,7 +232,7 @@ pub async fn generate_news_session_inner(
         )
         .unwrap_or_else(|_| {
             format!(
-                "El prompt completo está en tu portapapeles (pulsa Ctrl+V). Guarda el HTML final en ~/.ultron/cockpit/news/newsletter-{}.html y usa el modelo {}.",
+                "[BANNER — no es el prompt real] El prompt real lo genera news_html_generator.py y se copia a tu portapapeles. Pulsa Ctrl+V dentro de Gemini para usarlo. Output HTML → ~/.ultron/cockpit/news/newsletter-{}.html. Modelo: {}.",
                 today, effective_model
             )
         })

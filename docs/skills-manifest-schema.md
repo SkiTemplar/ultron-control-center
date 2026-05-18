@@ -1,6 +1,6 @@
 # Skills Manifest Schema — ULTRON v13.7.0 "MANIFEST"
 
-> Architecture unchanged through v15.5.17 — file dated for historical record.
+> Architecture unchanged through v15.5.18 — file dated for historical record.
 
 ## Purpose
 

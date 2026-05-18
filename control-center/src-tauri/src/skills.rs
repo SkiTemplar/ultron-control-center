@@ -666,7 +666,7 @@ pub fn allow_skill_manually_inner(
         .collect::<Vec<_>>()
         .join(", ");
     let reason_one_line = reason.replace('\n', " ").replace('"', "'");
-    // Kirkardo round 2 #2: the OS user, not a hardcoded "USER@local".
+    // v15.5.18 review: the OS user, not a hardcoded "USER@local".
     let approver = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .unwrap_or_else(|_| "unknown".to_string());

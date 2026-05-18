@@ -147,7 +147,7 @@ function EditTriggerModal({
 }: {
   name: string;
   initialCatchUp: boolean;
-  // Kirkardo round 2 #5 (data loss bug): if the modal opens for a Weekly /
+  // v15.5.18 review: (data loss bug): if the modal opens for a Weekly /
   // AtLogon task with defaults "Daily" + "09:00", clicking Save silently
   // overwrites the real trigger. Pass the current task's trigger so the
   // form starts populated.

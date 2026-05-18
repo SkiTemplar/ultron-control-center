@@ -1,5 +1,23 @@
 # Changelog
 
+<!-- v15.5.18 -->
+## v15.5.18 — 2026-05-18
+
+Errores corregidos:
+- SKILL.md de ULTRON con mojibake (re-encode UTF-8 limpio via ftfy).
+- AI Router: 7 zonas con agente asignado (diagnose / summarize / brainstorm_plans / news_generate / skill_edit / mcp_create / repo_review).
+- Plans UI: scroll horizontal por palabras largas eliminado; layout 2-fila (open/in-progress/resolved arriba, revision/blocked abajo).
+- News button-prompt seed clarificado como [BANNER — no es el prompt real].
+- weekly-backup.{ps1,sh}: CARRERA/PERSONAL eliminados de defaults; override via $ULTRON_BACKUP_SOURCES.
+
+Añadido:
+- cockpit/scan-roots.json + cockpit/news_history.db en .gitignore.
+- Brief usuario catalogado en plans/PLANS.json (40+ items, repos a investigar como parking hasta avg ≥9.5).
+
+Limpieza:
+- 20 archivos con comentarios "Kirkardo R..." rewriten a "v15.5.18 review" (MEDIUM 142 → 118).
+- Comments de # incorrectos en .ts/.tsx/.rs auto-fixed a //.
+
 <!-- v15.5.17 -->
 ## v15.5.17 — 2026-05-18
 

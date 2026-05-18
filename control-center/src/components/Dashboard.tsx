@@ -584,7 +584,7 @@ export function Dashboard({
   // numbers" fix is hidden for them. Developer clones (with .git at
   // ~/.ultron) keep seeing it.
   const [isDevInstall, setIsDevInstall] = useState(false);
-  // Kirkardo round 2 #1 (Linux parity): only restart-qdrant has a .sh sibling;
+  // v15.5.18 review: (Linux parity): only restart-qdrant has a .sh sibling;
   // every other auto-fix is Windows-only (CrashDumps, Recycle Bin, NSIS, MSI,
   // Sync version). On Linux the backend returns "no .sh script for this
   // platform" on click — better to hide the rows entirely.

@@ -412,11 +412,11 @@ def _dispatch_unsafe(prompt: str, budget_left_ms_fn) -> str:
     # Step 1 — Slash command short-circuit
     if prompt.lstrip().startswith("/"):
         return ""
-    # Kirkardo R6 #4: ack short-circuit. Acknowledgements ("si", "ok",
+    # v15.5.18 review: ack short-circuit. Acknowledgements ("si", "ok",
     # "continua", "sigue") don't carry routing intent — skip them so
     # they stop bloating the source=none bucket.
     #
-    # v15.5.11 (Kirkardo R7 followup): the previous `len < 8` length
+    # v15.5.11 (review R7 followup): the previous `len < 8` length
     # gate was too aggressive — it swallowed single-token technical
     # nouns like "CUDA" / "UE5" / "GPU" that legitimately route to
     # gamedev / senior-engineer rules. Now we ONLY skip ack patterns,

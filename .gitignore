@@ -91,6 +91,8 @@ cockpit/features.json
 cockpit/features.example.json
 cockpit/apps.json
 cockpit/scan-roots.json
+cockpit/news_history.db
+cockpit/news_history.db-journal
 cockpit/mcp-audit.jsonl
 cockpit/auto_updater.jsonl
 cockpit/pending_actions.json
@@ -217,7 +219,7 @@ scripts/consistency-check.py
 scripts/register_wake_triggers.ps1
 cockpit/audits/
 
-# Kirkardo / subagent audit artifacts (transient JSON / TXT dumps)
+# review / subagent audit artifacts (transient JSON / TXT dumps)
 control-center/release_runs.json
 control-center/release_yml.txt
 control-center/releases.json

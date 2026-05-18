@@ -40,7 +40,7 @@ type Item = {
    * at the bottom. Nothing is dropped or de-routed: every tab is still
    * reachable via the command palette, in-app shortcuts, and a single
    * click after expanding "More". This gives the new-user surface
-   * area 12 primary items (per Kirkardo's telemetry-driven verdict)
+   * area 12 primary items (per review's telemetry-driven verdict)
    * without breaking workflows that currently land on, e.g., Personal
    * (Tio Gilito) or Changelog.
    *
@@ -351,7 +351,7 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
 
         {/* v15.3 — "More" group: collects the low-traffic tabs into a
             single collapsible row so the primary surface stays at ≤12
-            items per Kirkardo's telemetry verdict. Auto-expanded if the
+            items per review's telemetry verdict. Auto-expanded if the
             active tab lives inside it. */}
         {(() => {
           const moreItems = SECTIONS.flatMap((s) => s.items)

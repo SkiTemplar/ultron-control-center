@@ -163,7 +163,7 @@ const MIN_RAM_MB: f64 = 50.0;
 pub async fn list_killable_inner(
     app: &tauri::AppHandle,
 ) -> Result<Vec<GameProcessInfo>, String> {
-    // Kirkardo R4 #A: Gaming features (process killer, Windows tweaks,
+    // v15.5.18 review: #A: Gaming features (process killer, Windows tweaks,
     // game detection) are Windows-only by design — Steam library paths,
     // MSI Afterburner, GPU OC tools all live in the Windows world. Linux
     // gets a clean empty list / error instead of a spawn crash.

@@ -95,7 +95,7 @@ if (-not $DryRun) {
     Invoke-WebRequest -Uri $systemAsset.browser_download_url -OutFile $zipPath
 }
 
-# 2b. SHA256 verification — kirkardo audit v15.4.18: the release publishes
+# 2b. SHA256 verification — review audit v15.4.18: the release publishes
 # a .zip.sha256 manifest; without checking it, tag-pinning is theatre. A
 # tampered or partial download silently corrupts ~/.ultron. Hard-fail if
 # the manifest is present and the hashes diverge.

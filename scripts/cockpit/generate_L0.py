@@ -30,7 +30,7 @@ _SESSION_JSON = _ULTRON / ".tmp" / "current-session.json"
 L0_TOKEN_LIMIT = 200
 _MAX_ALERTS_BYTES = 1_048_576   # 1 MB read cap
 _MAX_ALERTS_LINES = 200
-# Kirkardo round 2 #2: pull the user identity from ~/.ultron/personal/profile.md
+# v15.5.18 review: pull the user identity from ~/.ultron/personal/profile.md
 # instead of a hardcoded "User · ..." line. Falls back to a generic ULTRON
 # user description when the personal profile is missing so a fresh install
 # still gets a sensible L0 primer.

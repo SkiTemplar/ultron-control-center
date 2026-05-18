@@ -379,7 +379,7 @@ fn agent_vault_dir() -> Option<PathBuf> {
 /// Move a single file with a cross-volume copy+remove fallback. Mirrors the
 /// pattern in skills.rs::copy_dir_recursive so vault operations don't crash
 /// on Windows installs where `~/.claude` and `~/.ultron` live on different
-/// drives (kirkardo audit v15.4.18).
+/// drives (review audit v15.4.18).
 fn move_file_with_fallback(src: &Path, dst: &Path) -> Result<(), String> {
     if fs::rename(src, dst).is_ok() {
         return Ok(());
@@ -717,7 +717,7 @@ pub fn allow_agent_manually_inner(
     // target_type is the only field that distinguishes this block from a
     // skill waiver — keep it next to skill_name so the schema is obvious
     // at a glance when a human edits the YAML.
-    // Kirkardo round 2 #2: the OS user, not a hardcoded "USER@local".
+    // v15.5.18 review: the OS user, not a hardcoded "USER@local".
     let approver = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
         .unwrap_or_else(|_| "unknown".to_string());
@@ -815,7 +815,7 @@ mod tests {
         assert!(validate_slug("a1").is_ok());
     }
 
-    // ── Vault flow happy-path (kirkardo audit v15.4.18) ──────────────────────
+    // ── Vault flow happy-path (review audit v15.4.18) ──────────────────────
     // Uses the real `move_file_with_fallback` helper plus tempdirs so we
     // don't touch ~/.claude or ~/.ultron. We can't test
     // send_agent_to_vault_inner directly because it derives both paths from

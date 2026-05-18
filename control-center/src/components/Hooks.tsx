@@ -789,7 +789,7 @@ function HookFormModal({
           id: initial.id,
           command,
           enabled: null,
-          // Kirkardo audit v15.5.4: match add_hook semantics — empty string
+          // review audit v15.5.4: match add_hook semantics — empty string
           // matchers (user cleared the input) should be persisted as null
           // so settings.json doesn't end up with an empty "matcher": "" key.
           matcher: matcher.trim() || null,

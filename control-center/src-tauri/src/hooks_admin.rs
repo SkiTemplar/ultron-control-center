@@ -838,7 +838,7 @@ pub fn test_hook_inner(
 
     let start = Instant::now();
 
-    // Kirkardo R3 #2: pipe the hook command through PowerShell on Windows,
+    // v15.5.18 review: pipe the hook command through PowerShell on Windows,
     // bash on Linux. The hook's own command is platform-agnostic (Python
     // script or shell snippet) but the test wrapper has to use the host
     // shell to drive stdin.

@@ -179,7 +179,7 @@ def _gen_msg_id() -> str:
     coarse time_ns() granularity (100ns ticks) lined two concurrent calls up
     into the same nanosecond window. Birthday math for 20 messages with the
     old 32-bit suffix gave ~4e-8 collision probability per pair; bumping to
-    64 bits removes the failure mode entirely (kirkardo audit cleanup
+    64 bits removes the failure mode entirely (review audit cleanup
     v15.4.21).
     """
     return f"{time.time_ns():016x}{secrets.token_hex(8)}"

@@ -101,7 +101,11 @@ function PlanCard({
         >
           <div
             className="text-[12.5px] font-medium leading-tight"
-            style={{ color: "var(--color-text)" }}
+            style={{
+              color: "var(--color-text)",
+              overflowWrap: "anywhere",
+              wordBreak: "break-word",
+            }}
           >
             {item.title || item.id}
           </div>
@@ -1034,8 +1038,13 @@ export function Plans() {
         </div>
       )}
 
-      <div className="grid flex-1 grid-cols-5 gap-3 overflow-hidden">
-        {COLUMNS.map((c) => (
+      {/* v15.5.18 (user request): 2-row layout. Top row = active states
+          (open / in_progress / resolved). Bottom row = exception states
+          (revision / blocked). Stops the 5-column horizontal scroll caused by
+          long titles in `open` and gives the eye the natural reading order. */}
+      <div className="flex flex-1 flex-col gap-3 overflow-hidden">
+        <div className="grid flex-1 grid-cols-3 gap-3 overflow-hidden">
+          {COLUMNS.filter((c) => ["open", "in_progress", "resolved"].includes(c.key)).map((c) => (
           <div
             key={c.key}
             className="flex flex-col overflow-hidden rounded"
@@ -1099,6 +1108,70 @@ export function Plans() {
             </div>
           </div>
         ))}
+        </div>
+        {/* Bottom row — exception states (revision / blocked). */}
+        <div className="grid grid-cols-2 gap-3 overflow-hidden" style={{ maxHeight: "45%" }}>
+          {COLUMNS.filter((c) => ["revision", "blocked"].includes(c.key)).map((c) => (
+            <div
+              key={c.key}
+              className="flex flex-col overflow-hidden rounded"
+              style={{
+                background: "var(--color-surface-1)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <div
+                className="flex items-baseline justify-between border-b px-3 py-2"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <div className="flex items-center gap-2">
+                  <span
+                    className="inline-block h-1.5 w-1.5 rounded-full"
+                    style={{ background: c.tint }}
+                  />
+                  <span
+                    className="text-[11.5px] font-medium uppercase tracking-[0.06em]"
+                    style={{ color: "var(--color-text-secondary)" }}
+                  >
+                    {c.label}
+                  </span>
+                </div>
+                <span
+                  className="tabular-nums text-[11px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {grouped[c.key]?.length ?? 0}
+                </span>
+              </div>
+              <ColumnActions
+                column={c.key}
+                onNew={startNew}
+                onBrainstorm={aiBrainstorm}
+                brainstormBusy={aiBusy}
+                onExecute={() => spawnClaudePlanFlow("execute")}
+                onReview={() => spawnClaudePlanFlow("review")}
+                onResolveBlock={() => spawnClaudePlanFlow("resolve")}
+                onArchiveSelected={() => setPendingClean(true)}
+                archiveDisabled={resolvedCount === 0}
+                archiveCount={resolvedCount}
+              />
+              <div className="flex-1 space-y-2 overflow-auto p-2">
+                {(grouped[c.key] ?? []).map((it) => (
+                  <PlanCard
+                    key={it.id}
+                    item={it}
+                    expanded={expanded.has(it.id)}
+                    onToggle={() => toggleExpanded(it.id)}
+                    onMove={(target) => move(it.id, target)}
+                    onEdit={() => startEdit(it)}
+                    onDelete={() => setPendingDelete(it)}
+                    onOpenSession={() => openResolutionSession(it)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {archivedOpen && (

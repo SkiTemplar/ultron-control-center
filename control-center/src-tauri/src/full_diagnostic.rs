@@ -511,7 +511,7 @@ fn probe_skills() -> DiagItem {
 
 fn probe_disk() -> DiagItem {
     let t0 = now_epoch_ms();
-    // Kirkardo round 2 #1: per-platform probe. Windows shells out to
+    // v15.5.18 review: per-platform probe. Windows shells out to
     // PowerShell (no portable statvfs in std); Linux runs `df` against the
     // user's home filesystem.
     #[cfg(target_os = "windows")]
@@ -777,7 +777,7 @@ pub async fn apply_auto_fix_inner(
     let Some(home) = home_dir() else {
         return Err("no HOME".to_string());
     };
-    // Kirkardo audit v15.5.4: most auto-fixes are Windows-only (NSIS, MSI,
+    // review audit v15.5.4: most auto-fixes are Windows-only (NSIS, MSI,
     // CrashDumps, Recycle Bin). Only restart-qdrant has a .sh sibling
     // today. On Linux we prefer the .sh script when it exists; on Windows
     // we always use the .ps1. The frontend should already filter the

@@ -304,9 +304,9 @@ rules:
   # Added after analyzing 409 unmatched prompts in dispatcher-events.jsonl.
   # Each rule covers a recurring pattern the user dictates frequently.
 
-  # Full Kirkardo audit (academic + repo polish bundle) -- highest priority
-  - id: kirkardo-audit
-    match: "(?:full\\s+)?(?:kirkardo|kirkard|kirardo)\\b.{0,80}(?:audit|review|nota|corrige|actualiza)"
+  # Full review audit (academic + repo polish bundle) -- highest priority
+  - id: review-audit
+    match: "(?:full\\s+)?(?:review|kirkard|kirardo)\\b.{0,80}(?:audit|review|nota|corrige|actualiza)"
     skill: "repo-evaluator"
     suggest_mode: "HIGH"
     confidence: 0.92
@@ -357,7 +357,7 @@ rules:
     skill: "ultron"
     confidence: 0.85
 
-  # ── v15.5.10: Kirkardo R6 #4 — top unmatched clusters ──────────────────────
+  # ── v15.5.10: review R6 #4 — top unmatched clusters ──────────────────────
 
   # Git ops — 13 unmatched hits in last window
   - id: git-ops

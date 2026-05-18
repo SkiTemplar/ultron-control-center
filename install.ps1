@@ -109,7 +109,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------------------------------------------------
 # Constants and state
 # ----------------------------------------------------------------------
-$Script:VersionFallback = "v15.5.17"
+$Script:VersionFallback = "v15.5.18"
 $Script:RepoRoot        = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
 $Script:Warnings        = New-Object System.Collections.Generic.List[string]
 $Script:Errors          = New-Object System.Collections.Generic.List[string]
@@ -643,7 +643,7 @@ function Test-OrInstall-Rust {
 }
 
 # ----------------------------------------------------------------------
-# (Removed v15.5.10 / Kirkardo R6 #2)
+# (Removed v15.5.10 / review R6 #2)
 #
 # The Test-Docker + Initialize-Qdrant functions used to provision Qdrant
 # via Docker Desktop. They have been replaced by Install-QdrantNative

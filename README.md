@@ -17,7 +17,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.17-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.18-44cc11.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Built on Claude Code" src="https://img.shields.io/badge/built%20on-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Stage" src="https://img.shields.io/badge/stage-public%20beta-orange.svg" />
@@ -186,7 +186,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > The URL above resolves to whatever is on `main` *right now*. If you want a
 > reproducible install pinned to a specific release, point at the tag instead:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.17/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.18/bootstrap.ps1 | iex
 > ```
 > The release also ships an `ultron-system-<tag>.zip.sha256` you can use to
 > verify the system ZIP after download.
@@ -225,7 +225,7 @@ What `bootstrap.sh` does:
 Linux releases ship both `ultron-control-center_<ver>_amd64.deb` and `ULTRON Control Center_<ver>_amd64.AppImage` alongside the Windows installers. Pin to a specific release the same way as Windows:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.17/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.18/bootstrap.sh | bash
 ```
 
 `install.sh` may invoke `sudo` for the package-manager step; everything else is per-user. WSL is detected and warned against (use the native Windows path under WSL).
@@ -406,7 +406,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 ## Release notes
 
-Current stable: **[v15.5.17](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.17)** — Round-2 burn-down + R3 polish: **Tauri `dialog:confirm` ACL bug fixed** (9 destructive flows that silently no-op'd now route through a `confirmDialog()` wrapper using `@tauri-apps/plugin-dialog`), **Stop hook chain 5→3 processes** (session-log + session-cleanup inlined into stop-memory-sync; auto-changelog and plan-detector standalone), Pending Items panel relocated above-fold with sidebar badge polling every 60s, new auto-recall fire trail at `~/.ultron/logs/auto-recall.log`. Builds on v15.5.16 (Round 2 sweep) which added the routing macro-test (95%/20), the version drift markdown-body CI guard, and the `personal-info-leak` CI gate (`audit_personal_data.py` HIGH=0). Ships `.deb` + `.AppImage` + .rpm alongside the Windows NSIS / MSI; CI matrix green on `ubuntu-22.04`. Linux end-to-end install still **unverified by the author** — testers wanted, open an issue if you try it.
+Current stable: **[v15.5.18](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.18)** — Round-2 burn-down + R3 polish: **Tauri `dialog:confirm` ACL bug fixed** (9 destructive flows that silently no-op'd now route through a `confirmDialog()` wrapper using `@tauri-apps/plugin-dialog`), **Stop hook chain 5→3 processes** (session-log + session-cleanup inlined into stop-memory-sync; auto-changelog and plan-detector standalone), Pending Items panel relocated above-fold with sidebar badge polling every 60s, new auto-recall fire trail at `~/.ultron/logs/auto-recall.log`. Builds on v15.5.16 (Round 2 sweep) which added the routing macro-test (95%/20), the version drift markdown-body CI guard, and the `personal-info-leak` CI gate (`audit_personal_data.py` HIGH=0). Ships `.deb` + `.AppImage` + .rpm alongside the Windows NSIS / MSI; CI matrix green on `ubuntu-22.04`. Linux end-to-end install still **unverified by the author** — testers wanted, open an issue if you try it.
 
 Previous stable: **v15.5.16** — Round-2 ULTRA sweep (routing 95% verified, 5 personal personas added, leakage HIGH=0, MAINTAINERS+CHECKLIST docs, qdrant scripts moved, legacy installers archived, SYSTEM-MAP lazy-load).
 

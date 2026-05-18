@@ -178,7 +178,7 @@ async fn run_ps(
     app: &tauri::AppHandle,
     args: &[&str],
 ) -> Result<(String, String, Option<i32>, bool), String> {
-    // Kirkardo R3 #1: scheduled-task module wraps `system_tasks.ps1` which
+    // v15.5.18 review: scheduled-task module wraps `system_tasks.ps1` which
     // shells out to Windows Task Scheduler (`schtasks.exe`). Linux uses a
     // different scheduler (systemd timers / cron) with no equivalent
     // wrapper today. Return a clean Err on non-Windows so the UI can
