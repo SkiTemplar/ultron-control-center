@@ -1,5 +1,5 @@
 <!--
-  ULTRON — README (Espanol)
+  ULTRON — README (Español)
   English version: README.md
 -->
 
@@ -10,15 +10,15 @@
 <p><b>Tu centro de mando local para Claude Code.</b></p>
 
 <p>
-  Memoria jerarquica &middot; personas opt-in &middot; hooks endurecidos &middot;
-  un panel desktop que convierte el trabajo de varios dias con Claude
+  Memoria jerárquica &middot; personas opt-in &middot; hooks endurecidos &middot;
+  un panel desktop que convierte el trabajo de varios días con Claude
   (y, si quieres, Codex y Gemini) en algo que puedes gestionar de verdad.
 </p>
 
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.12-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.13-44cc11.svg" /></a>
   <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Construido sobre Claude Code" src="https://img.shields.io/badge/construido%20sobre-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Estado" src="https://img.shields.io/badge/estado-beta%20publica-orange.svg" />
@@ -27,7 +27,7 @@
 
 <p>
   <b>Docs:</b>
-  <a href="INSTALL.md">Instalacion</a> &middot;
+  <a href="INSTALL.md">Instalación</a> &middot;
   <a href="docs/QUICKSTART.md">Quickstart</a> &middot;
   <a href="CHANGELOG.md">Changelog</a> &middot;
   <a href="CONTRIBUTING.md">Contribuir</a> &middot;
@@ -41,15 +41,15 @@
   <b>Lee en:</b>
   <a href="README.md">English</a>
   ·
-  <a href="README.es.md">Espanol</a>
+  <a href="README.es.md">Español</a>
 </p>
 
-<sub>Texto plano, opt-in, cero SaaS, cero telemetria. La fontaneria es el producto.</sub>
+<sub>Texto plano, opt-in, cero SaaS, cero telemetría. La fontaneria es el producto.</sub>
 
 </div>
 
 > [!WARNING]
-> **Beta publica.** ULTRON se publica como preview funcional. Hay bordes sin pulir, cambios incompatibles entre minor releases y una cola continua de arreglos. Los reports y PRs son MUY bienvenidos &mdash; abre un issue en este repo. Cada release nueva entra en el [Changelog](CHANGELOG.md) a medida que aparecen bugs.
+> **Beta pública.** ULTRON se pública como preview funcional. Hay bordes sin pulir, cambios incompatibles entre minor releases y una cola continua de arreglos. Los reports y PRs son MUY bienvenidos &mdash; abre un issue en este repo. Cada release nueva entra en el [Changelog](CHANGELOG.md) a medida que aparecen bugs.
 
 <p align="center">
   <img alt="ULTRON Dashboard" src="assets/screenshots/dashboard.png" width="820" />
@@ -72,64 +72,64 @@
 <details>
 <summary><b>Click para expandir</b></summary>
 
-1. [Que es ULTRON](#que-es-ultron)
-2. [Que resuelve](#que-resuelve)
-3. [Como funciona](#como-funciona)
+1. [Qué es ULTRON](#que-es-ultron)
+2. [Qué resuelve](#que-resuelve)
+3. [Cómo funciona](#como-funciona)
 4. [Quick start](#quick-start)
 5. [Funcionalidades](#funcionalidades)
 6. [Arquitectura](#arquitectura)
 7. [Personalizar](#personalizar)
-8. [Stack tecnico](#stack-tecnico)
+8. [Stack técnico](#stack-técnico)
 9. [Notas de release](#notas-de-release)
 10. [Contribuir](#contribuir)
-11. [Origen y atribucion](#origen-y-atribucion)
+11. [Origen y atribución](#origen-y-atribución)
 12. [Licencia](#licencia)
-13. [Creditos](#creditos)
+13. [Créditos](#créditos)
 
 </details>
 
 ---
 
-## Que es ULTRON
+## Qué es ULTRON
 
-ULTRON es un **centro de mando local** que se monta encima del CLI oficial de [Claude Code](https://claude.com/claude-code). Vive entero en tu carpeta de usuario (`~/.ultron/`), guarda todo en archivos de texto plano y pareja el runtime con un panel desktop Tauri para que un proyecto de varios dias no se sienta como diez conversaciones huerfanas pegadas con cinta aislante.
+ULTRON es un **centro de mando local** que se monta encima del CLI oficial de [Claude Code](https://claude.com/claude-code). Vive entero en tu carpeta de usuario (`~/.ultron/`), guarda todo en archivos de texto plano y pareja el runtime con un panel desktop Tauri para que un proyecto de varios días no se sienta como diez conversaciones huerfanas pegadas con cinta aislante.
 
 > [!NOTE]
 > ULTRON no sustituye a Claude Code. Lo envuelve, le da memoria persistente, enruta personas especializadas y expone la maquinaria en una UI que puedes auditar y editar.
 
 | Pilar | Lo que aporta |
 |---|---|
-| **Memoria jerarquica** | Cuatro capas (L0 contexto caliente hasta L3 mirror remoto) para que Claude retome donde lo dejaste tras cada reinicio. |
-| **Personas y skills** | Un dispatcher activa al especialista correcto segun la intencion: `debugger`, `code-reviewer`, `ui-designer`, etc. |
-| **Agents** | 12 ULTRON + 7 community curados = 19 subagentes autonomos pre-instalados, mas un catalogo de 69 adicionales (88 totales), todos pasados por el mismo ruleset PI que las skills. |
-| **Hooks endurecidos** | Anti-prompt-injection, recall automatico de notas, log de sesion y sync con el vault — todo enchufado a `settings.json`. |
+| **Memoria jerárquica** | Cuatro capas (L0 contexto caliente hasta L3 mirror remoto) para que Claude retome donde lo dejaste tras cada reinicio. |
+| **Personas y skills** | Un dispatcher activa al especialista correcto segun la intención: `debugger`, `code-reviewer`, `ui-designer`, etc. |
+| **Agents** | 12 ULTRON + 7 community curados = 19 subagentes autónomos pre-instalados, mas un catalogo de 69 adicionales (88 totales), todos pasados por el mismo ruleset PI que las skills. |
+| **Hooks endurecidos** | Anti-prompt-injection, recall automático de notas, log de sesion y sync con el vault — todo enchufado a `settings.json`. |
 | **Panel desktop** | Tauri 2 + React 19 con 16 pestañas para memoria, skills, agents, hooks, planes, sesiones, costes y MCPs. |
 
-**Filosofia.** Archivos de texto plano. Todo opt-in. Cero SaaS. Cero telemetria externa. No hay backend en la nube. Arranca piezas, forkealas o edita el JSON a mano — el sistema esta pensado para desmontarse.
+**Filosofía.** Archivos de texto plano. Todo opt-in. Cero SaaS. Cero telemetría externa. No hay backend en la nube. Arranca piezas, forkealas o edita el JSON a mano — el sistema esta pensado para desmontarse.
 
 ---
 
-## Que resuelve
+## Qué resuelve
 
 Cuando trabajas con Claude Code en proyectos reales aparecen los mismos problemas:
 
 - El contexto se evapora entre sesiones; pierdes los primeros diez minutos rebriefando al modelo.
-- Skills, hooks y servidores MCP viven en carpetas distintas y no hay un panel unico.
-- Los planes largos derivan; no sabes que se decidio hace tres dias sin hacer scroll en chats.
+- Skills, hooks y servidores MCP viven en carpetas distintas y no hay un panel único.
+- Los planes largos derivan; no sabes que se decidió hace tres días sin hacer scroll en chats.
 - Costes y uso de herramientas se acumulan sin visibilidad.
 
 ULTRON resuelve todo eso en local, sin alquilar un backend:
 
 - Cada sesion nueva arranca leyendo un primer pre-computado (`context.md`, tope ~400 tokens).
-- Las personas auto-enrutan por intencion — no necesitas recordar los nombres exactos de las skills.
-- El vault (`~/.ultron-vault/`) se indexa en SQLite FTS5 y en una instancia local de Qdrant (binario nativo, sin daemon) para recall semantico.
+- Las personas auto-enrutan por intención — no necesitas recordar los nombres exactos de las skills.
+- El vault (`~/.ultron-vault/`) se indexa en SQLite FTS5 y en una instancia local de Qdrant (binario nativo, sin daemon) para recall semántico.
 - El panel concentra hooks, planes, sesiones, costes y MCPs instalados en una sola ventana.
 
 ---
 
-## Como funciona
+## Cómo funciona
 
-Cuando arrancas Claude Code, lee `~/.claude/CLAUDE.md` (tus instrucciones globales). Ese archivo contiene un **wake-up protocol** que dispara la lectura de `~/.ultron/.tmp/context.md` (memoria L0) y `~/.ultron/SYSTEM-MAP.md` (indice estable de rutas). En menos de un segundo, Claude sabe quien eres, que estabas haciendo y donde buscar lo demas.
+Cuando arrancas Claude Code, lee `~/.claude/CLAUDE.md` (tus instrucciones globales). Ese archivo contiene un **wake-up protocol** que dispara la lectura de `~/.ultron/.tmp/context.md` (memoria L0) y `~/.ultron/SYSTEM-MAP.md` (índice estable de rutas). En menos de un segundo, Claude sabe quien eres, que estabas haciendo y donde buscar lo demas.
 
 A partir de ahi, los hooks definidos en `~/.claude/settings.json` se enchufan al ciclo:
 
@@ -159,14 +159,14 @@ sequenceDiagram
 
 Las **cuatro capas de memoria**:
 
-| Capa | Donde vive | Para que sirve |
+| Capa | Dónde vive | Para qué sirve |
 |---|---|---|
 | **L0** hot context | `~/.ultron/.tmp/context.md` | Primer pre-computado, <=400 tokens, leido en cada sesion |
 | **L1** indexed | `~/.ultron/brain_index/index.db` | SQLite FTS5 sobre el vault troceado, recall BM25 |
 | **L2** vault | `~/.ultron-vault/*.md` | Notas markdown curadas con wikilinks — fuente de verdad |
 | **L3** remote | git remote opcional | Mirror externo de L2, drenado por el hook `Stop` |
 
-Encima de L1 vive una instancia local de **Qdrant** (binario nativo de la plataforma en Windows o Linux, sin daemon) para recall semantico sobre el mismo corpus. Un sistema de decay devuelve notas estancadas a la superficie cada vez que arrancas sesion.
+Encima de L1 vive una instancia local de **Qdrant** (binario nativo de la plataforma en Windows o Linux, sin daemon) para recall semántico sobre el mismo corpus. Un sistema de decay devuelve notas estancadas a la superficie cada vez que arrancas sesion.
 
 ---
 
@@ -175,9 +175,9 @@ Encima de L1 vive una instancia local de **Qdrant** (binario nativo de la plataf
 > [!IMPORTANT]
 > Windows 11 es la plataforma principal; Linux x86_64 (Debian / Ubuntu / Fedora / Arch) soportado desde v15.5. macOS es un non-goal explicito.
 
-Hay **tres rutas de instalacion**. Elige una.
+Hay **tres rutas de instalación**. Elige una.
 
-### Opcion A — Bootstrap desde la release de GitHub (Windows, sin Git)
+### Opción A — Bootstrap desde la release de GitHub (Windows, sin Git)
 
 ```powershell
 iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1 | iex
@@ -187,28 +187,28 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > La URL de arriba apunta a lo que haya en `main` *ahora mismo*. Si quieres una
 > install reproducible fijada a una release concreta, usa el tag:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.12/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.13/bootstrap.ps1 | iex
 > ```
 > La release tambien adjunta `ultron-system-<tag>.zip.sha256` para verificar la
 > integridad del ZIP despues de descargarlo.
 
-Que hace `bootstrap.ps1`:
-1. Consulta la GitHub Releases API y resuelve el ultimo tag `v*.*.*`.
+Qué hace `bootstrap.ps1`:
+1. Consulta la GitHub Releases API y resuelve el último tag `v*.*.*`.
 2. Descarga `ultron-system-<ver>.zip` (skills · agents · hooks · cockpit scripts) y lo extrae en `~/.ultron`.
 3. Ejecuta `install.ps1` para cablear todo en `~/.claude/`.
 4. Descarga `ULTRON Control Center_<ver>_x64-setup.exe` (instalador NSIS) y lo lanza.
 
-Re-ejecutalo cuando quieras para actualizar — `~/.ultron-vault/` y `~/.ultron/plans/` se preservan.
+Re-ejecútalo cuando quieras para actualizar — `~/.ultron-vault/` y `~/.ultron/plans/` se preservan.
 
-### Opcion A2 — Bootstrap en Linux (Debian / Ubuntu / Fedora / Arch)
+### Opción A2 — Bootstrap en Linux (Debian / Ubuntu / Fedora / Arch)
 
 > [!WARNING]
-> **Build de Linux sin verificar.** v15.5 añadio el camino de release
+> **Build de Linux sin verificar.** v15.5 añadió el camino de release
 > para Linux (`.deb`, `.AppImage`, `bootstrap.sh`, `install.sh`, modulos
 > Rust con cfg gates, scripts cockpit portados a bash) y el workflow de
 > GitHub Actions compila bien en `ubuntu-22.04`. El autor desarrolla en
-> Windows y **no** ha probado end-to-end una instalacion Linux real.
-> Si lo lanzas en una maquina Debian/Ubuntu/Fedora/Arch real y funciona
+> Windows y **no** ha probado end-to-end una instalación Linux real.
+> Si lo lanzas en una máquina Debian/Ubuntu/Fedora/Arch real y funciona
 > (o se rompe), abre un issue con la distro + version + log para que
 > podamos pasar este banner a "verificado". PRs arreglando bugs
 > especificos de Linux son muy bienvenidos.
@@ -217,8 +217,8 @@ Re-ejecutalo cuando quieras para actualizar — `~/.ultron-vault/` y `~/.ultron/
 curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.sh | bash
 ```
 
-Que hace `bootstrap.sh`:
-1. Resuelve el ultimo tag `v*.*.*` via la GitHub Releases API.
+Qué hace `bootstrap.sh`:
+1. Resuelve el último tag `v*.*.*` via la GitHub Releases API.
 2. Descarga `ultron-system-<ver>.zip` + `.sha256`, verifica el hash y extrae en `~/.ultron`.
 3. Ejecuta `install.sh`, que detecta el package manager (`apt` / `dnf` / `pacman`) e instala las deps (`webkit2gtk-4.1`, `libsoup-3.0`, `librsvg2-bin`, build essentials, Node 22, uv, Rust, Claude Code CLI).
 4. Descarga el binario Linux (`.deb` en Debian/Ubuntu, `.AppImage` en el resto), coloca el AppImage en `~/.local/bin/` y escribe un launcher `.desktop` en `~/.local/share/applications/`.
@@ -226,12 +226,12 @@ Que hace `bootstrap.sh`:
 Las releases Linux adjuntan `ultron-control-center_<ver>_amd64.deb` y `ULTRON Control Center_<ver>_amd64.AppImage` junto a los instaladores Windows. Fija una release concreta igual que en Windows:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.12/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.13/bootstrap.sh | bash
 ```
 
 `install.sh` puede invocar `sudo` para el paso del package manager; el resto es per-user. Si se detecta WSL, avisa y recomienda usar la ruta Windows nativa en su lugar.
 
-### Opcion B — Clonar el repo (recomendado para contribuir)
+### Opción B — Clonar el repo (recomendado para contribuir)
 
 ```powershell
 git clone https://github.com/SkiTemplar/ultron.git $env:USERPROFILE\.ultron
@@ -252,11 +252,11 @@ cd $env:USERPROFILE\.ultron
 El installer es **idempotente** — puedes ejecutarlo varias veces sin miedo; detecta lo que ya esta hecho y solo aplica los cambios pendientes. Si algo falla, mira [`INSTALL.md`](INSTALL.md) para troubleshooting manual.
 
 > [!NOTE]
-> **Sobre Windows SmartScreen.** El instalador NSIS no esta **firmado** todavia, asi que SmartScreen mostrara un aviso "Windows protegio tu PC" al lanzarlo. Click en **Mas informacion** -> **Ejecutar de todos modos**. Un certificado de code signing (~200 USD/ano en Sectigo/DigiCert) quitaria el aviso; documentado en [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
+> **Sobre Windows SmartScreen.** El instalador NSIS no esta **firmado** todavia, asi que SmartScreen mostrará un aviso "Windows protegió tu PC" al lanzarlo. Click en **Mas información** -> **Ejecutar de todos modos**. Un certificado de code signing (~200 USD/año en Sectigo/DigiCert) quitaria el aviso; documentado en [`docs/RELEASE-PROCESS.md`](docs/RELEASE-PROCESS.md).
 >
 > **En Linux.** El `.AppImage` no tiene un aviso equivalente al de SmartScreen — `chmod +x` y a correr. El `.deb` no esta firmado y se instala con `sudo dpkg -i ultron-control-center_<ver>_amd64.deb` (si apt se queja por deps faltantes, `sudo apt -f install` lo cierra).
 
-Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills en `~/.claude/skills/`):
+Para desinstalar todo lo que ULTRON metió en tu máquina (sin tocar tus skills en `~/.claude/skills/`):
 
 ```powershell
 .\uninstall.ps1            # interactivo: confirma antes de borrar
@@ -265,20 +265,20 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 ```
 
 <details>
-<summary><b>Que hace el installer (10 pasos)</b></summary>
+<summary><b>Qué hace el installer (10 pasos)</b></summary>
 
-| # | Paso | Que hace |
+| # | Paso | Qué hace |
 |---|---|---|
 | 1 | Preflight | Chequeos de OS / PowerShell / RAM / disco / internet |
 | 2 | Claude Code | Verifica que el CLI esta instalado y autenticado |
 | 3 | uv | Instala uv si falta |
-| 4 | Qdrant | Descarga el binario nativo de la plataforma (v1.18.0) en `~/.ultron/qdrant-native/` y siembra `config/production.yaml`. Proceso unico, sin daemon. Lo arranca `ensure-qdrant.ps1` (Windows) / `ensure-qdrant.sh` (Linux) en cada SessionStart |
+| 4 | Qdrant | Descarga el binario nativo de la plataforma (v1.18.0) en `~/.ultron/qdrant-native/` y siembra `config/production.yaml`. Proceso único, sin daemon. Lo arranca `ensure-qdrant.ps1` (Windows) / `ensure-qdrant.sh` (Linux) en cada SessionStart |
 | 5 | Layout | Crea `~/.ultron/`, `~/.ultron-vault/`, `~/.claude/skills/` |
 | 6 | Hooks | Fusiona `templates/settings-hooks.json` en `settings.json` (no destructivo, con backup) |
 | 7 | Skills | Picker interactivo: 12 core (siempre ON) + slots opt-in |
-| 8 | brain_index | Inicializa el indice SQLite FTS5 |
+| 8 | brain_index | Inicializa el índice SQLite FTS5 |
 | 9 | Control Center | `npm install` y opcionalmente `tauri build` |
-| 10 | Doctor | Verificacion final con `doctor.py` (0 = clean, 1 = warn, 2 = block) |
+| 10 | Doctor | Verificación final con `doctor.py` (0 = clean, 1 = warn, 2 = block) |
 
 </details>
 
@@ -288,14 +288,14 @@ Para desinstalar todo lo que ULTRON metió en tu maquina (sin tocar tus skills e
 
 | Area | Highlights |
 |---|---|
-| **Memoria** | Jerarquia L0-L3, indice SQLite FTS5, binario Qdrant nativo para recall semantico, decay surfacing |
-| **Personas** | 12 skills core, dispatch por intencion, ruleset anti-PI PI001-PI013 |
-| **Agents** | Instalacion limpia: 19 pre-instalados (12 ULTRON + 7 community curados). Catalogo: 69 mas en `cockpit/agent-catalog.json`, instalables on-demand (88 total posibles). Pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semantico. |
+| **Memoria** | Jerarquia L0-L3, índice SQLite FTS5, binario Qdrant nativo para recall semántico, decay surfacing |
+| **Personas** | 12 skills core, dispatch por intención, ruleset anti-PI PI001-PI013 |
+| **Agents** | Instalación limpia: 19 pre-instalados (12 ULTRON + 7 community curados). Catalogo: 69 mas en `cockpit/agent-catalog.json`, instalables on-demand (88 total posibles). Pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semántico. |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
 | **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks. (La pestaña Logs está cableada pero deshabilitada hoy.) |
-| **Dual-mode** | Peer review opcional con Codex CLI + delegacion long-context con Gemini CLI, ambos via suscripcion |
+| **Dual-mode** | Peer review opcional con Codex CLI + delegación long-context con Gemini CLI, ambos via suscripcion |
 | **Seguridad** | Scanner anti-prompt-injection, carpeta de cuarentena, allow-list IPC en Tauri |
-| **Privacidad** | Sin telemetria, sin llamadas externas sin accion del usuario, el vault es tuyo |
+| **Privacidad** | Sin telemetría, sin llamadas externas sin accion del usuario, el vault es tuyo |
 
 <details>
 <summary><b>Skills core (12, instaladas por defecto)</b></summary>
@@ -313,7 +313,7 @@ Los agents viven en `~/.claude/agents/*.md` y siguen el mismo contrato de YAML f
 
 **Stack-aligned (7):** `cpp-pro` (C++17/20/23 moderno), `graphics-programmer` (OpenGL/Vulkan/HLSL/GLSL/WGSL + RenderDoc), `unreal-engine-engineer` (UE5 C++/Blueprints/GAS/Nanite/Lumen), `unity-engineer` (Unity 2022 LTS + Unity 6, DOTS, URP/HDRP), `devops-engineer` (GitHub Actions, signing, Tauri release), `database-admin` (Postgres/Supabase/SQLite + EXPLAIN ANALYZE), `fullstack-developer` (features cross-stack).
 
-El catalogo trae **69 agentes adicionales** en `cockpit/agent-catalog.json` (conteo verificado, no una estimacion redondeada), instalables a demanda desde la pestaña Agents. **88 agentes en total** entre pre-instalados (19) y catalogo (69). Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo — Settings → AI Router incluye un botón "Reset to ULTRON recommended" que cablea pares curados de agent + modelo por zona. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semantico.
+El catalogo trae **69 agentes adicionales** en `cockpit/agent-catalog.json` (conteo verificado, no una estimacion redondeada), instalables a demanda desde la pestaña Agents. **88 agentes en total** entre pre-instalados (19) y catalogo (69). Cada agente pasa por el mismo scanner PI001-PI013 que gatekeepa a las skills; los que fallan caen en quarantine con el mismo flujo de waiver Allow-anyway. El AI Router expone un slot Agent para que una tarea apunte a un agente en lugar de a un modelo crudo — Settings → AI Router incluye un botón "Reset to ULTRON recommended" que cablea pares curados de agent + modelo por zona. Las descripciones de agentes se embeben en Qdrant con `scripts/cockpit/embed_agents.py` para recall semántico.
 
 </details>
 
@@ -370,24 +370,24 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 - **`~/.claude/CLAUDE.md`** — tus instrucciones globales para cada sesion de Claude Code. Edita directamente o usa la pestaña `Personal` del Control Center.
 - **`~/.claude/settings.json`** — hooks y permisos. La pestaña `Hooks` es un editor tipado sobre este archivo.
 - **`~/.claude/skills/<name>/SKILL.md`** — activar / desactivar / editar personas. Borra una carpeta para desinstalar la skill.
-- **`~/.claude/agents/<name>.md`** — misma idea para subagentes autonomos. La pestaña Agents muestra estado de instalacion, findings de seguridad y el catalogo de community agents desde `cockpit/agent-catalog.json`.
-- **`~/.ultron-vault/`** — tu vault L2. Markdown plano con wikilinks. Lo que escribas aqui se indexa en la proxima ejecucion de `brain_index.py update`.
+- **`~/.claude/agents/<name>.md`** — misma idea para subagentes autónomos. La pestaña Agents muestra estado de instalación, findings de seguridad y el catalogo de community agents desde `cockpit/agent-catalog.json`.
+- **`~/.ultron-vault/`** — tu vault L2. Markdown plano con wikilinks. Lo que escribas aqui se indexa en la proxima ejecución de `brain_index.py update`.
 - **`~/.ultron/plans/PLANS.json`** — tus planes en curso. La pestaña `Plans` es un frontend sobre este archivo.
 - **`~/.ultron/personal/profile.md`** — tu perfil personal (intereses, contexto, preferencias).
 
 > [!TIP]
-> Esto es **tu** sistema. Forkealo. Modificalo. La filosofia es texto plano mas Git, asi que todo es revisable con un diff.
+> Esto es **tu** sistema. Forkealo. Modificalo. La filosofía es texto plano mas Git, asi que todo es revisable con un diff.
 
 ---
 
-## Stack tecnico
+## Stack técnico
 
 | Capa | Tecnologia |
 |---|---|
 | Control Center (frontend) | Tauri 2 + React 19 + TypeScript (strict) |
 | Control Center (backend) | Rust (estable) |
 | Herramientas Python (cockpit/) | Python 3.13 + uv |
-| Memoria | SQLite FTS5 + Qdrant (binario nativo de la plataforma, proceso unico) |
+| Memoria | SQLite FTS5 + Qdrant (binario nativo de la plataforma, proceso único) |
 | Agents | Markdown con YAML frontmatter en `~/.claude/agents/`, catalogo en `cockpit/agent-catalog.json`, embeddings via `embed_agents.py` |
 | Scripting OS | PowerShell 5.1+ |
 | Runtimes LLM | Claude Code CLI (principal), Codex CLI (peer review, opcional), Gemini CLI (long-context, opcional) |
@@ -396,9 +396,9 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ## Notas de release
 
-Stable actual: **[v15.5.12](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.12)** — release Linux con barrido completo de cfg gates. Adjunta `.deb` + `.rpm` + `.AppImage` junto a los instaladores Windows NSIS / MSI, matriz CI en `ubuntu-22.04`, `#[cfg(target_os)]` Rust en cada modulo Windows-only para que la build Tauri sea limpia en ambas plataformas. La build Linux sigue **sin verificar end-to-end** por el autor — buscamos testers, abre un issue si la pruebas.
+Stable actual: **[v15.5.13](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.13)** — follow-ups de la ola 10 sobre v15.5.x Linux: propagación reforzada de versión a los 7 ficheros espejo, pasadas de sanity sobre el manifest, fixes de bit ejecutable en los scripts shell distribuidos y limpieza adicional. Adjunta `.deb` + `.AppImage` junto al NSIS / MSI Windows; matriz CI en `ubuntu-22.04` en verde y `version_propagate.py --check` ya bloquea drift a nivel de PR. La build Linux sigue **sin verificar end-to-end** por el autor — buscamos testers, abre un issue si la pruebas.
 
-Stable anterior: **v15.4.21** — panel Vault para skills + agents, news pipeline con dedup SQLite, auto-recall del vault layer surfaceando hints `[VAULT·SKILL·N%]`, search en pestaña hooks, 8 reglas nuevas en intent-dispatcher desde telemetria real, 4 ciclos de fixes Codex + Gemini + Kirkardo aplicados.
+Stable anterior: **v15.4.21** — panel Vault para skills + agents, news pipeline con dedup SQLite, auto-recall del vault layer surfaceando hints `[VAULT·SKILL·N%]`, search en pestaña hooks, 8 reglas nuevas en intent-dispatcher desde telemetría real, 4 ciclos de fixes Codex + Gemini + Kirkardo aplicados.
 
 Notas completas en [`CHANGELOG.md`](CHANGELOG.md). El [release mas reciente en GitHub](https://github.com/SkiTemplar/ultron/releases/latest) trae NSIS `.exe` + MSI para Windows, `.deb` + `.AppImage` para Linux, y el `ultron-system-<tag>.zip` + `.sha256` que consumen los bootstrap one-liners.
 
@@ -412,11 +412,11 @@ Reporta problemas de seguridad de forma privada segun [`SECURITY.md`](SECURITY.m
 
 ---
 
-## Origen y atribucion
+## Origen y atribución
 
 ULTRON fue originalmente creado por **[USER SURNAME](https://www.linkedin.com/in/USER-SURNAME-SURNAME2-671b02274/)** ([@SkiTemplar](https://github.com/SkiTemplar)) en 2026.
 
-El proyecto es open source bajo MIT (ver [`LICENSE`](LICENSE)). Forks y modificaciones son bienvenidos — contribuidores que extiendan sustancialmente el trabajo pueden añadirse a [`AUTHORS.md`](AUTHORS.md). Por los terminos de MIT, cualquier copia o trabajo derivado debe conservar el aviso de copyright original que nombra a USER SURNAME como autor original de ULTRON. El nombre "ULTRON" identifica al proyecto original; los proyectos derivados deberian elegir un nombre distinto salvo que pretendan upstream sus cambios. Politica completa en [`NOTICE`](NOTICE).
+El proyecto es open source bajo MIT (ver [`LICENSE`](LICENSE)). Forks y modificaciones son bienvenidos — contribuidores que extiendan sustancialmente el trabajo pueden añadirse a [`AUTHORS.md`](AUTHORS.md). Por los terminos de MIT, cualquier copia o trabajo derivado debe conservar el aviso de copyright original que nombra a USER SURNAME como autor original de ULTRON. El nombre "ULTRON" identifica al proyecto original; los proyectos derivados deberian elegir un nombre distinto salvo que pretendan upstream sus cambios. Política completa en [`NOTICE`](NOTICE).
 
 ---
 
@@ -426,7 +426,7 @@ MIT — ver [`LICENSE`](LICENSE).
 
 ---
 
-## Creditos
+## Créditos
 
 ULTRON orquesta tres herramientas que no le pertenecen y sin las que no existiria:
 

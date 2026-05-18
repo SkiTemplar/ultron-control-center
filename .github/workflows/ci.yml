@@ -20,6 +20,23 @@ on:
 # all assume PowerShell + Windows APIs, so there's no point matrixing
 # macOS / Linux runners. Sticking to windows-latest keeps minutes cheap.
 jobs:
+  version-drift:
+    name: Version drift guard (7 files must match pyproject SSOT)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run version_propagate.py --check
+        # Fails the whole CI run on the first version drift. Reopened 6 times
+        # this session (PLANS#ci-version-drift-guard); the deterministic guard
+        # is cheaper than another release post-mortem.
+        run: python scripts/cockpit/version_propagate.py --check
+
   cargo:
     name: Rust (cargo check + clippy)
     runs-on: windows-latest

@@ -42,7 +42,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-readonly ULTRON_VERSION="v15.5.13"
+readonly ULTRON_VERSION="v15.5.14"
 readonly QDRANT_VERSION="v1.18.0"
 # Native Linux x86_64 tarball from the official qdrant/qdrant GitHub release.
 readonly QDRANT_TARBALL="qdrant-x86_64-unknown-linux-gnu.tar.gz"
@@ -700,6 +700,43 @@ make_dirs() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 7b: brain_index FTS5 init
+#
+# install.ps1 calls `brain_index.py build` after the cockpit copy. Without an
+# equivalent step here, Linux users finish install with an empty
+# ~/.ultron/brain_index/index.db and the first SessionStart `auto-recall` hook
+# returns 0 hits (CLAUDE.md says deep-dive recall depends on this DB).
+# Skipped if uv is missing — brain_index.py needs uv-managed deps.
+# ---------------------------------------------------------------------------
+init_brain_index() {
+    step "7b. brain_index FTS5 build (cold)"
+    local script="${INSTALL_ROOT}/scripts/cockpit/brain_index.py"
+    if [[ ! -f "$script" ]]; then
+        # Fall back to the in-repo copy (fresh install hasn't bootstrapped yet).
+        script="${REPO_ROOT}/scripts/cockpit/brain_index.py"
+    fi
+    if [[ ! -f "$script" ]]; then
+        warn "brain_index.py not found in install root or repo — skip"
+        return 0
+    fi
+    if ! have_cmd uv; then
+        warn "uv missing — cannot build brain_index (re-run after uv install)"
+        return 0
+    fi
+    local db="${INSTALL_ROOT}/brain_index/index.db"
+    if [[ -f "$db" ]]; then
+        verb "brain_index already present at ${db} — running incremental update"
+        ( cd "$REPO_ROOT" && uv run python "$script" update >/dev/null 2>&1 ) \
+            || warn "brain_index update returned non-zero (continuing)"
+    else
+        info "building FTS5 index (one-time, ~5-15s depending on vault size)"
+        ( cd "$REPO_ROOT" && uv run python "$script" build >/dev/null 2>&1 ) \
+            || warn "brain_index build returned non-zero (continuing)"
+    fi
+    ok "brain_index ready at ${db}"
+}
+
+# ---------------------------------------------------------------------------
 # Step 10: template seeds (CLAUDE.md global, SYSTEM-MAP, MEMORY, cockpit seeds)
 # ---------------------------------------------------------------------------
 seed_templates() {
@@ -844,12 +881,12 @@ install_skills() {
             fi
         fi
         if [[ $should -eq 0 ]]; then
-            ((skipped++))
+            skipped=$((skipped + 1))
             return
         fi
         if [[ -e "$dest" ]]; then
             verb "${name} already at ${dest}"
-            ((installed++))
+            installed=$((installed + 1))
             return
         fi
         case "$source_str" in
@@ -859,15 +896,15 @@ install_skills() {
                 if [[ -e "$src" ]]; then
                     cp -R "$src" "$dest"
                     verb "copied ${rel} -> ${dest}"
-                    ((installed++))
+                    installed=$((installed + 1))
                 else
                     verb "repo source missing for ${name}: ${src} - skip"
-                    ((skipped++))
+                    skipped=$((skipped + 1))
                 fi
                 ;;
             claude://*)
                 verb "claude:// skill ${name} - leaving user's local copy alone"
-                ((installed++))
+                installed=$((installed + 1))
                 ;;
         esac
         # Reset for next entry
@@ -933,7 +970,7 @@ install_skill_sets() {
 
         local count; count="$(jq -r ".by_category[\"${cat}\"]" "$manifest")"
         local pick="n"
-        if [[ $NONINTERACTIVE -eq 1 ]]; then
+        if [[ $NON_INTERACTIVE -eq 1 ]]; then
             [[ $is_default -eq 1 ]] && pick="y"
         else
             if [[ $is_default -eq 1 ]]; then
@@ -946,7 +983,7 @@ install_skill_sets() {
         fi
 
         if [[ "$pick" != "y" ]]; then
-            ((skipped_cats++))
+            skipped_cats=$((skipped_cats + 1))
             continue
         fi
 
@@ -965,10 +1002,10 @@ install_skill_sets() {
                 continue
             fi
             cp -r "$skill_dir" "$dst"
-            ((n++))
+            n=$((n + 1))
         done
         installed_skills=$((installed_skills + n))
-        ((installed_cats++))
+        installed_cats=$((installed_cats + 1))
         verb "category '${cat}': ${n} skills installed"
     done <<< "$cats"
 
@@ -992,10 +1029,10 @@ install_agents() {
         [[ -f "$f" ]] || continue
         local name; name="$(basename "$f")"
         if [[ -e "${dest}/${name}" ]]; then
-            ((skipped++))
+            skipped=$((skipped + 1))
         else
             cp "$f" "${dest}/${name}"
-            ((installed++))
+            installed=$((installed + 1))
         fi
     done
     ok "agents: ${installed} installed, ${skipped} already present"
@@ -1158,6 +1195,7 @@ install_claude
 install_qdrant
 install_tauri_deps
 make_dirs
+init_brain_index
 seed_templates
 merge_hooks
 install_skills

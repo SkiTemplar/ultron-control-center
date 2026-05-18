@@ -204,7 +204,9 @@ scripts/cockpit/audit_plans.py
 scripts/cockpit/audit_plans_pass2.py
 scripts/cockpit/audit_plans_pass3.py
 scripts/cockpit/plans_master_v15_2.py
-scripts/cockpit/version_propagate.py
+# v15.5.13: version_propagate.py rewritten as the SSOT drift guard wired into CI
+# (see .github/workflows/ci.yml § version-drift). MUST be tracked so CI can run it.
+# scripts/cockpit/version_propagate.py  ← intentionally not ignored as of v15.5.13
 scripts/cockpit/changelog_backfill.py
 scripts/cockpit/test_cockpit.py
 scripts/cockpit/_categorize_skills.py

@@ -36,7 +36,7 @@ def alerts_module(tmp_path, monkeypatch):
 
 def test_write_returns_id_format(alerts_module):
     aid = alerts_module.write("info", "test", "hello")
-    today = _dt.datetime.utcnow().strftime("%Y-%m-%d")
+    today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
     assert aid == f"a-{today}-001"
     aid2 = alerts_module.write("warn", "test", "second")
     assert aid2 == f"a-{today}-002"
@@ -357,7 +357,7 @@ def test_write_dedupe_cross_process_serialization(alerts_module, tmp_path):
 
 def test_id_counter_resets_per_day(alerts_module, monkeypatch):
     """If we manually inject a record from yesterday, today's counter starts at 001."""
-    yesterday = (_dt.datetime.utcnow() - _dt.timedelta(days=1)).strftime("%Y-%m-%d")
+    yesterday = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(days=1)).strftime("%Y-%m-%d")
     rec = {
         "id": f"a-{yesterday}-005",
         "ts": f"{yesterday}T12:00:00Z",
@@ -373,6 +373,6 @@ def test_id_counter_resets_per_day(alerts_module, monkeypatch):
     alerts_module.ALERTS_FILE.touch()
     with alerts_module.ALERTS_FILE.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(rec) + "\n")
-    today = _dt.datetime.utcnow().strftime("%Y-%m-%d")
+    today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
     aid = alerts_module.write("info", "today", "first")
     assert aid == f"a-{today}-001"

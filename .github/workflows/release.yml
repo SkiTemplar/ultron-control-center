@@ -117,13 +117,16 @@ jobs:
             "CHANGELOG.md",
             "LICENSE",
             "NOTICE",
+            "pyproject.toml",
+            "uv.lock",
             "scripts",
             "skills-catalog",
             "agents",
             "config",
             "docs",
             "cockpit",
-            "templates"
+            "templates",
+            "git-hooks"
           )
 
           foreach ($item in $include) {
