@@ -94,11 +94,14 @@ The full Python toolkit is ~90 scripts; the ones above are the ones the UI surfa
 
 ## 4. The `ultron` shell alias
 
-`scripts/cockpit/ultron.ps1` is the canonical CLI front-end on Windows.
-On Linux the same surface is provided by `scripts/cockpit/ultron.sh`
-(installed to `~/.local/bin/ultron` by `install.sh`). Both dispatch the
-same ~90 subcommands; the underlying Python cockpit tools they wrap are
-cross-platform. The ones you actually use day-to-day:
+`scripts/cockpit/ultron.ps1` is the canonical CLI front-end on Windows
+and is wired up as a function in the user's `$PROFILE` by `install.ps1`.
+On Linux the cockpit tools are invoked directly with `uv run python
+~/.ultron/scripts/cockpit/<tool>.py …` — there is currently **no
+`ultron.sh` wrapper**; a Linux-side alias is tracked as a future polish
+item. The ~90 subcommands the Windows wrapper exposes are listed below;
+the underlying Python tools they invoke are cross-platform. The ones you
+actually use day-to-day:
 
 | Command | Purpose |
 |---|---|

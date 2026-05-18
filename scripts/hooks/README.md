@@ -19,13 +19,12 @@ directly — the merge step preserves user-added entries.
 | `session-init.ps1` | SessionStart | Drains push-queue, primes decay cache, regenerates `context.md`, injects unacked alerts. | yes | win |
 | `session-init.sh` | SessionStart | POSIX sibling of the above. | yes (Linux) | linux |
 | `detect_gaps.py` | SessionStart | Surfaces open loops: skill drift, stale plans, quarantined items, un-acked criticals. | yes | both |
-| `stop-memory-sync.ps1` | Stop | `brain_index.update` + decay_queue + (HIGH/ULTRA only) vault commit / push / compactor. | yes | win |
-| `stop-memory-sync.sh` | Stop | POSIX sibling. | yes (Linux) | linux |
-| `session-cleanup.ps1` | Stop | Removes empty Claude plugin data dirs (mkdir EEXIST harness bug) + prunes stale `session-env/` >2d. | yes | win |
-| `session-cleanup.sh` | Stop | POSIX sibling. | yes (Linux) | linux |
-| `session-log.py` | Stop | Appends one line per session to `~/.ultron/sessions/YYYY-MM-DD.md`. | yes | both |
-| `auto-changelog.py` | Stop | If the last commit has a `feat(vX.Y.Z/...)` bump, append a CHANGELOG section idempotently. | yes | both |
+| `stop-memory-sync.ps1` | Stop | `brain_index.update` + decay_queue + (HIGH/ULTRA only) vault commit / push / compactor. **Inlines** session-log + session-cleanup behavior since v15.5.17. | yes | win |
+| `stop-memory-sync.sh` | Stop | POSIX sibling (same inline). | yes (Linux) | linux |
+| `auto-changelog.py` | Stop | On minor/major bump, drain `~/.ultron/.tmp/pending-patches.jsonl` into a sucinct CHANGELOG entry (Spanish format). Patch bumps just append to the buffer. HIGH/ULTRA gated. | yes | both |
 | `plan-detector.py` | Stop | Scans the transcript for deferred-work markers and appends to `~/.ultron/plans/_inbox.md`. | yes | both |
+| `session-log.py` | Stop | **Deprecated as standalone in v15.5.17** — behavior inlined into `stop-memory-sync.{ps1,sh}` (top, pre-debounce). Kept on disk for manual maintainer use; see `docs/MAINTAINERS.md`. | no (inlined) | both |
+| `session-cleanup.{ps1,sh}` | Stop | **Deprecated as standalone in v15.5.17** — behavior inlined into `stop-memory-sync.{ps1,sh}` tail. Kept for manual maintainer use. | no (inlined) | both |
 | `pre_compact.py` | PreCompact | Dumps live state (context + plans + routing + alerts) so post-compact survives. | yes | both |
 | `post_compact.py` | PostCompact | Logs the compact event + emits a short recovery roadmap. | yes | both |
 

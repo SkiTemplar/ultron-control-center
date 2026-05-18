@@ -241,7 +241,7 @@ Required release assets (built and uploaded by
 
 | Asset | Built by | Notes |
 |---|---|---|
-| `ultron-system-<tag>.zip` | `Build ultron-system ZIP` step | Cross-platform: `install.ps1`, `install.sh`, `bootstrap.ps1`, `bootstrap.sh`, `scripts/`, `skills-catalog/`, `agents/`, `config/`, `docs/`, `schedules/`, `cockpit/`. Excludes `node_modules/`, `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`. |
+| `ultron-system-<tag>.zip` | `Build ultron-system ZIP` step | Cross-platform: `install.ps1`, `install.sh`, `bootstrap.ps1`, `bootstrap.sh`, `uninstall.ps1`, `uninstall.sh`, `README.md`, `README.es.md`, `CHANGELOG.md`, `LICENSE`, `NOTICE`, `pyproject.toml`, `uv.lock`, `scripts/`, `skills-catalog/`, `agents/`, `config/`, `docs/`, `cockpit/`, `templates/`, `git-hooks/`. Excludes `node_modules/`, `target/`, `.venv/`, `__pycache__/`, `dist/`, `build/`. Authoritative list lives in `release.yml § Build ultron-system ZIP`. |
 | `ultron-system-<tag>.zip.sha256` | same step | SHA-256 of the ZIP for both bootstrappers to verify. |
 | `ULTRON Control Center_<ver>_x64-setup.exe` | `tauri-action` on `windows-latest` | NSIS installer, Windows. |
 | `ULTRON Control Center_<ver>_x64_en-US.msi` | `tauri-action` on `windows-latest` | MSI installer, Windows (optional but built by default). |

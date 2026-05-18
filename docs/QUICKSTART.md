@@ -5,8 +5,8 @@ tab, do the thing, move on. Total time: 5 minutes.
 
 > Paths use `~/.ultron/` form throughout. On Windows that resolves to
 > `%USERPROFILE%\.ultron\`; on Linux (supported from v15.5) to
-> `$HOME/.ultron/`. The Tauri sidebar exposes 17 sections (16 visible + the
-> Logs tab wired but currently disabled).
+> `$HOME/.ultron/`. The Tauri sidebar exposes 18 wired sections (17 visible
+> + the Logs tab wired but `available:false` in the sidebar registry).
 
 ---
 
