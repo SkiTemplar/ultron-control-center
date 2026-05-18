@@ -29,7 +29,7 @@ Editar `~/.claude/settings.json` añadiendo el bloque `hooks`:
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/USER/.ultron/scripts/hooks/auto-approve-readonly.py"
+            "command": "python {USERPROFILE}/.ultron/scripts/hooks/auto-approve-readonly.py"
           }
         ]
       },
@@ -38,7 +38,7 @@ Editar `~/.claude/settings.json` añadiendo el bloque `hooks`:
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/USER/.ultron/scripts/hooks/block-dangerous-bash.py"
+            "command": "python {USERPROFILE}/.ultron/scripts/hooks/block-dangerous-bash.py"
           }
         ]
       }
@@ -48,7 +48,7 @@ Editar `~/.claude/settings.json` añadiendo el bloque `hooks`:
         "hooks": [
           {
             "type": "command",
-            "command": "python C:/Users/USER/.ultron/scripts/hooks/session-log.py"
+            "command": "python {USERPROFILE}/.ultron/scripts/hooks/session-log.py"
           }
         ]
       }

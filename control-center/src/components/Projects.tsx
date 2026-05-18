@@ -1288,7 +1288,7 @@ export function Projects() {
                 type="text"
                 value={wName}
                 onChange={(e) => setWName(e.target.value)}
-                placeholder="e.g. League of Legends"
+                placeholder="e.g. My Game"
                 className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
                 style={{
                   background: "var(--color-surface-1)",
@@ -1708,7 +1708,7 @@ export function Projects() {
                       onChange={(e) => setIPath(e.target.value)}
                       placeholder={
                         iKind === "exe"
-                          ? "C:/Riot Games/Riot Client/RiotClientServices.exe"
+                          ? "C:/Program Files/MyGame/MyGame.exe"
                           : "~/.ultron/control-center"
                       }
                       className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
@@ -1871,7 +1871,7 @@ export function Projects() {
                     type="text"
                     value={iArgs}
                     onChange={(e) => setIArgs(e.target.value)}
-                    placeholder='--launch-product=league_of_legends --launch-patchline=live'
+                    placeholder='--windowed --no-launcher'
                     className="mt-1 w-full rounded px-2 py-1.5 text-[11.5px]"
                     style={{
                       background: "var(--color-surface-2)",
@@ -1895,7 +1895,7 @@ export function Projects() {
                   type="text"
                   value={iLabel}
                   onChange={(e) => setILabel(e.target.value)}
-                  placeholder="e.g. Launch League"
+                  placeholder="e.g. Launch Game"
                   className="mt-1 w-full rounded px-2 py-1.5 text-[12px]"
                   style={{
                     background: "var(--color-surface-2)",

@@ -17,7 +17,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.12-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.13-44cc11.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Built on Claude Code" src="https://img.shields.io/badge/built%20on-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Stage" src="https://img.shields.io/badge/stage-public%20beta-orange.svg" />
@@ -186,7 +186,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > The URL above resolves to whatever is on `main` *right now*. If you want a
 > reproducible install pinned to a specific release, point at the tag instead:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.12/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.13/bootstrap.ps1 | iex
 > ```
 > The release also ships an `ultron-system-<tag>.zip.sha256` you can use to
 > verify the system ZIP after download.
@@ -225,7 +225,7 @@ What `bootstrap.sh` does:
 Linux releases ship both `ultron-control-center_<ver>_amd64.deb` and `ULTRON Control Center_<ver>_amd64.AppImage` alongside the Windows installers. Pin to a specific release the same way as Windows:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.12/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.13/bootstrap.sh | bash
 ```
 
 `install.sh` may invoke `sudo` for the package-manager step; everything else is per-user. WSL is detected and warned against (use the native Windows path under WSL).
@@ -289,7 +289,7 @@ To remove everything ULTRON installed (without touching your Claude Code skills 
 |---|---|
 | **Memory** | L0-L3 hierarchy, SQLite FTS5 index, native Qdrant binary for semantic recall, decay surfacing |
 | **Personas** | 12 core skills, intent-based dispatch, prompt-injection ruleset PI001-PI013 |
-| **Agents** | Fresh install: 12 ULTRON + 7 curated community in `repo/agents/`. Catalog: 69 more in `cockpit/agent-catalog.json`, installable on demand. Dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery. |
+| **Agents** | Fresh install: 12 ULTRON + 7 curated community in `agents/`. Catalog: 69 more in `cockpit/agent-catalog.json`, installable on demand. Dedicated Agents tab with the same security scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery. |
 | **Skill / Agent Vault** | Demote a skill or agent without deleting it. Vault button in the detail pane moves the file to `~/.ultron/skill-vault/` or `~/.ultron/agent-vault/`; Claude stops auto-loading it. Restore from the sidebar Vault panel. Vaulted entries can still surface as suggestions via the auto-recall hook (`[VAULT·SKILL·82%] …`). |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — all auditable |
 | **Control Center** | 16 tabs: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. System tab nests sub-tabs: Overview, Schedules, Hooks. (Logs tab is wired but currently disabled.) |
@@ -406,9 +406,9 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 ## Release notes
 
-Current stable: **[v15.5.12](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.12)** — Linux release with full platform-gate sweep. Ships `.deb` + `.rpm` + `.AppImage` alongside the Windows NSIS / MSI, CI matrix on `ubuntu-22.04`, Rust `#[cfg(target_os)]` gates on every Windows-only module so the Tauri build is clean on both platforms. Linux build remains **unverified end-to-end** by the author — testers wanted, please open an issue if you try it.
+Current stable: **[v15.5.13](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.13)** — wave-10 follow-ups on top of v15.5.x Linux: tightened version propagation across the 7 mirror files, manifest sanity passes, executable bit fixes on shipped shell scripts, and additional cleanliness sweeps. Ships `.deb` + `.AppImage` alongside the Windows NSIS / MSI; the CI matrix on `ubuntu-22.04` is green and `version_propagate.py --check` is now enforced at PR time. Linux build remains **unverified end-to-end** by the author — testers wanted, please open an issue if you try it.
 
-Previous stable: **v15.4.21** — Vault panel UI for skills + agents, news pipeline SQLite dedup, auto-recall vault layer surfacing `[VAULT·SKILL·N%]` hints, hooks tab search, 8 new intent-dispatcher rules from real telemetry, 4 cycles of Codex + Gemini + Kirkardo review fixes applied.
+Previous stable: **v15.5.12** — Linux release with full platform-gate sweep (Rust `#[cfg(target_os)]` gates on every Windows-only module, CI matrix on `ubuntu-22.04`, vault panel UI for skills + agents, news pipeline SQLite dedup, auto-recall vault layer surfacing `[VAULT·SKILL·N%]` hints).
 
 Full release notes in [`CHANGELOG.md`](CHANGELOG.md). Latest release on [GitHub Releases](https://github.com/SkiTemplar/ultron/releases/latest) ships the NSIS `.exe` + MSI for Windows, `.deb` + `.AppImage` for Linux, and the `ultron-system-<tag>.zip` + `.sha256` consumed by the bootstrap one-liners.
 

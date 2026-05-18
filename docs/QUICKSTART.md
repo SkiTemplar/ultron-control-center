@@ -77,7 +77,7 @@ available**.
 
 ## 4. Plans — "where was I yesterday?"
 
-Plans are markdown documents under `~/.ultron/cockpit/PLANS.json`. The
+Plans are markdown documents under `~/.ultron/plans/PLANS.json`. The
 tab is a kanban view: backlog → in-progress → blocked → resolved →
 archived.
 
@@ -122,7 +122,7 @@ The bottom-right of Settings has an **App lifecycle** tab:
 **Stuck?** The uninstaller has a `-DryRun` flag that previews the
 removal without touching disk:
 ```powershell
-& C:\Users\USER\.ultron\uninstall.ps1 -DryRun
+& $env:USERPROFILE\.ultron\uninstall.ps1 -DryRun
 ```
 
 ---

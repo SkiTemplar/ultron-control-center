@@ -303,7 +303,7 @@ Skip skills you don't want — Claude Code only loads what's in
 (`ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`,
 `ultron-metadata`, `ultron-news`, `ultron-perf`, `ultron-refactor`,
 `ultron-security`, `ultron-self-improve`, `ultron-skill-editor`,
-`ultron-test`) plus the 7 stack-aligned community agents in `repo/agents/`
+`ultron-test`) plus the 7 stack-aligned community agents in `agents/`
 (`cpp-pro`, `graphics-programmer`, `unreal-engine-engineer`,
 `unity-engineer`, `devops-engineer`, `database-admin`,
 `fullstack-developer`). The `cockpit/agent-catalog.json` lists 69 more
@@ -313,7 +313,7 @@ Center (88 total available).
 To install an agent by hand:
 
 ```powershell
-Copy-Item $env:USERPROFILE\.ultron\agents\community\<name>.md `
+Copy-Item $env:USERPROFILE\.ultron\agents\<name>.md `
           $env:USERPROFILE\.claude\agents\<name>.md
 ```
 

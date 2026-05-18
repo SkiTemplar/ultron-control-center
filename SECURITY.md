@@ -25,7 +25,7 @@
 > [!IMPORTANT]
 > Please do **not** open a public GitHub issue for security problems.
 
-Email: **anonuser [at] gmail.com**
+Preferred channel: open a [private security advisory](https://github.com/SkiTemplar/ultron/security/advisories/new) on the repo. This keeps the report off the public tracker while giving the maintainer (and any future contributors with security-team access) visibility.
 
 Use a subject line that starts with `[ULTRON SECURITY]` and include:
 

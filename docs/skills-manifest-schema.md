@@ -231,8 +231,10 @@ Standard: JSON Schema 2020-12 (`draft/2020-12`)
 Validate manually:
 ```python
 import json, yaml, jsonschema
-schema = json.load(open(r"C:\Users\USER\.ultron\config\skills-manifest-schema.json"))
-data = yaml.safe_load(open(r"C:\Users\USER\.ultron\skills.manifest.yaml"))
+from pathlib import Path
+home = Path.home()
+schema = json.load(open(home / ".ultron" / "config" / "skills-manifest-schema.json"))
+data = yaml.safe_load(open(home / ".ultron" / "skills.manifest.yaml"))
 jsonschema.validate(data, schema)  # raises ValidationError if invalid
 ```
 

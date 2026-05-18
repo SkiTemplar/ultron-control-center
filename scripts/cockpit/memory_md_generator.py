@@ -153,12 +153,22 @@ def _section_quick_links() -> str:
     )
 
 
-def _section_USER() -> str:
+def _section_user() -> str:
+    """Personal profile section.
+
+    Generic placeholder by default. Override per-user by editing
+    ~/.ultron/personal/profile.md (gitignored) and rendering it here.
+    """
+    profile_path = Path.home() / ".ultron" / "personal" / "profile.md"
+    if profile_path.exists():
+        try:
+            return profile_path.read_text(encoding="utf-8").strip() + "\n"
+        except OSError:
+            pass
     return (
         "## USER\n\n"
-        "Grado Ing. Programación + PROGRAM_A Gráfica · UNIVERSITY · Europe/Madrid · "
-        "Stack C++ (UE5) · C# (Unity) · TS · Python. "
-        "Email <your-email>."
+        "(Drop a `~/.ultron/personal/profile.md` file with your role, stack and "
+        "timezone; it will be inlined here. Default placeholder otherwise.)"
     )
 
 
@@ -173,7 +183,7 @@ def build_memory_md() -> str:
         _section_proyectos(),
         _section_skill_graph(),
         _section_quick_links(),
-        _section_USER(),
+        _section_user(),
         _section_footer(),
     ]
     return "\n\n---\n\n".join(p for p in parts if p) + "\n"

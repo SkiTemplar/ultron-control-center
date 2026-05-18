@@ -40,12 +40,11 @@ GAME_PROCESSES_FILE = COCKPIT_DIR / "game-processes.txt"
 # A launcher being open != actively gaming. Only ACTUAL game executables inhibit
 # crons. User can add more via `ultron games add <process.exe>`.
 DEFAULT_GAME_PROCESSES = [
-    # USER's current games (extend via `ultron games add`):
-    "rdr2.exe",                            # Red Dead Redemption 2
-    "fc24.exe", "fifa24.exe",              # EA FC 24
+    # Default game-process seed list — extend via `ultron games add <process.exe>`.
+    # Conservative defaults so a fresh install does not silently inhibit crons
+    # on a user who only plays casually. Add yours as needed.
     "cs2.exe",                             # Counter-Strike 2
-    "leagueoflegends.exe",                 # League of Legends (the actual game, not client)
-    "universesandbox.exe",                 # Universe Sandbox
+    "rdr2.exe",                            # Red Dead Redemption 2
 ]
 
 

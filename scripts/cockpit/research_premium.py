@@ -48,8 +48,8 @@ def build_prompt(topic: str | None = None) -> str:
         )
     else:
         focus = ""
-    return f"""Eres un research analyst senior para ULTRON, sistema AI personal de USER
-SURNAME (dev indie, Madrid). Hoy es {today}. Genera un research deep-dive
+    return f"""Eres un research analyst senior para ULTRON, sistema AI personal del usuario.
+Hoy es {today}. Genera un research deep-dive
 sobre lo más relevante de la última semana en AI / dev tooling / security.
 
 {focus}Estructura del output (markdown limpio, español):
@@ -79,7 +79,7 @@ Lo más impactante del periodo, sin floreos.
 - Citation breve + por qué importa
 
 ## Impacto en ULTRON
-1-3 bullets sobre qué workflows o skills de ULTRON debería ajustar USER.
+1-3 bullets sobre qué workflows o skills de ULTRON debería ajustar el usuario.
 
 ## Acciones recomendadas
 3-5 bullets concretos: explorar X, actualizar Y, ignorar Z.
