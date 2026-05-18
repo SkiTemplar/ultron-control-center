@@ -1,3 +1,7 @@
+# === maintainer-only (not user-facing) ===
+# CONTRIBUTING.md flags this as a "starting point" discovery tool. Only
+# invoked from `tests/test_silent_exec.py` and ad-hoc audits — no hook,
+# control-center or health caller. See docs/MAINTAINERS.md.
 """ULTRON silent-exec audit — discovery script (read-only, NO auto-fix).
 
 Sprint 1 Pilar A. Walks ULTRON's Python and PowerShell sources and flags any

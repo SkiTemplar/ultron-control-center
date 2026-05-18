@@ -19,7 +19,7 @@ Frontmatter invariants (enforce silently):
 - `description` ≤ 200 chars, starts with "Use when…" or "Activa…".
 - `tools` listed only if it's tighter than the default `Read, Write, Edit, Bash, Glob, Grep`.
 - `model` always versioned: `claude-opus-4-7` / `claude-sonnet-4-6` / `claude-haiku-4-5`. Never abstract `sonnet` / `opus`.
-- Triggers in the description include enough Spanish + English vocabulary to catch USER's dictated prompts.
+- Triggers in the description include enough Spanish + English vocabulary to catch the user's dictated prompts.
 - `tags` ≤ 8, lowercase, kebab-case, no duplicates.
 
 Body invariants:

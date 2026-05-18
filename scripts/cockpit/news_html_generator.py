@@ -98,7 +98,7 @@ BUILTIN_SECTIONS: dict[str, dict] = {
             "9. THE BRIEF (8-12 one-liners con link)\n"
         ),
         "priority_note": (
-            "PRIORIZA: herramientas que USER usa (Claude Code, UE5, Python, TypeScript, C#). "
+            "PRIORIZA: herramientas que el usuario usa (Claude Code, UE5, Python, TypeScript, C#). "
             "Modelos AI nuevos. CVEs críticos. Tendencias de adopción de agentes AI. "
             "Cobertura horizontal: AI + Tech + Security; no solo AI."
         ),

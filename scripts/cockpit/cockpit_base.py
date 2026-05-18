@@ -5,7 +5,7 @@ Provides:
 - Path constants (single source of truth for cockpit dirs/files)
 - Project dataclass (matches projects.json schema)
 - Cockpit class (atomic JSON IO with backup, retention helpers)
-- IDE detection heuristic (with explicit overrides from USER)
+- IDE detection heuristic (with user-configurable name overrides)
 
 Used by: scan_projects.py · launch_project.py · ai_standup.py · retention.py · etc.
 """
@@ -192,30 +192,40 @@ class Cockpit:
         tmp.replace(path)
 
 
-# ── IDE detection (with USER's explicit overrides) ─────────────────────────
+# ── IDE detection (with user-configurable name overrides) ─────────────────────
+
+# Project-name overrides. Seed with generic placeholders; users can extend this
+# list (or load from a config file in a future revision) to map specific project
+# names to a preferred IDE without relying on filesystem markers.
+IDE_NAME_OVERRIDES = [
+    {"name_eq": "my-game",  "ide": "UnityHub",      "lang": "C#",     "type": "game"},
+    {"name_eq": "my-app",   "ide": "AndroidStudio", "lang": "Kotlin", "type": "mobile"},
+]
 
 # Path-pattern → IDE rules. Order matters (first match wins).
-# USER's explicit preferences from his answer:
+# Defaults reflect a common Windows dev stack:
 #   UE5/C++ games → Rider
 #   Unity/C# games → UnityHub
 #   Web → Webstorm
-#   OrbitalDB → AndroidStudio
-#   Resto + Python → Visual Studio / VSCode
+#   Android (Kotlin/Java) → AndroidStudio
+#   Native C++ → CLion / VisualStudio
+#   Python / misc → VSCode
 IDE_RULES = [
+    # Name overrides (highest priority — user-configurable)
+    *IDE_NAME_OVERRIDES,
+
     # Game engines (highest specificity)
     {"contains": "Unreal Engine",       "ide": "Rider",     "lang": "C++", "type": "game"},
     {"glob_in_path": "*.uproject",      "ide": "Rider",     "lang": "C++", "type": "game"},
     {"has_dir": "Assets/Scenes",        "ide": "UnityHub",  "lang": "C#",  "type": "game"},  # Unity
     {"has_file": "ProjectSettings/ProjectVersion.txt", "ide": "UnityHub", "lang": "C#", "type": "game"},  # Unity
-    {"name_eq": "Unity IA_Template",    "ide": "UnityHub",  "lang": "C#",  "type": "game"},
 
     # Mobile
-    {"name_eq": "OrbitalDB",            "ide": "AndroidStudio", "lang": "Kotlin", "type": "mobile"},
     {"has_file": "build.gradle.kts",    "ide": "AndroidStudio", "lang": "Kotlin", "type": "mobile"},
     {"has_file": "build.gradle",        "ide": "AndroidStudio", "lang": "Java",   "type": "mobile"},
     {"has_file": "Podfile",             "ide": "Xcode",         "lang": "Swift",  "type": "mobile"},
 
-    # Web (Webstorm preferred per USER)
+    # Web (Webstorm preferred)
     {"has_file_with_dep": ("package.json", ["next", "react", "vue", "svelte", "astro", "nuxt"]),
         "ide": "Webstorm", "lang": "TypeScript", "type": "web"},
     {"has_file": "package.json",        "ide": "Webstorm", "lang": "JavaScript", "type": "web"},
@@ -244,7 +254,7 @@ def detect_ide(path: Path, project_name: str = "") -> tuple[str, str, str]:
     path_str = str(path)
 
     for rule in IDE_RULES:
-        # name_eq: exact project name match (USER's overrides)
+        # name_eq: exact project name match (user-configurable overrides)
         if "name_eq" in rule and project_name == rule["name_eq"]:
             return rule["ide"], rule["lang"], rule["type"]
 

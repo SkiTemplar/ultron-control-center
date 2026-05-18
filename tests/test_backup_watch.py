@@ -58,8 +58,11 @@ def test_weekly_backup_script_has_required_flags():
     if not script.exists():
         pytest.skip("backup script not on disk")
     body = script.read_text(encoding="utf-8")
+    # Backup root is now configurable via $env:ULTRON_BACKUP_ROOT with a
+    # %USERPROFILE%\BACKUP fallback. Assert against both ends of that contract
+    # instead of a hardcoded D:\<owner>\BACKUP path.
     for token in ("robocopy", "/MIR", "/XD", "/XF", "/LOG+", "Read-Exclusions",
-                  "D:\\USER\\BACKUP", "$KeepWeeks"):
+                  "ULTRON_BACKUP_ROOT", "BackupRoot", "$KeepWeeks"):
         assert token in body, f"missing token: {token}"
 
 

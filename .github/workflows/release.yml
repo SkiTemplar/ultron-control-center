@@ -36,7 +36,7 @@ jobs:
           - platform: ubuntu-22.04
             args: ""
 
-    runs-on: ${{ matrix.platform.platform || matrix.platform }}
+    runs-on: ${{ matrix.platform }}
 
     steps:
       - name: Checkout repository

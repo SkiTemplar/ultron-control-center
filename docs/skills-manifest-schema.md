@@ -1,5 +1,7 @@
 # Skills Manifest Schema — ULTRON v13.7.0 "MANIFEST"
 
+> Architecture unchanged through v15.5.14 — file dated for historical record.
+
 ## Purpose
 
 `~/.ultron/skills.manifest.yaml` is the **Single Source of Truth (SSOT)** for all skill

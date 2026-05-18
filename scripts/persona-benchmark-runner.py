@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# === maintainer-only (not user-facing) ===
+# Persona coverage benchmark. Run manually before persona-set releases.
+# No hook, control-center, or user-command caller. See docs/MAINTAINERS.md.
 """
 ULTRON PERSONA BENCHMARK RUNNER · v1.0
 Parsea references/persona-benchmarks.md y reporta cobertura + estadísticas.

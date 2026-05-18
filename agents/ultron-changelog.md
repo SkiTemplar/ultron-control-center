@@ -51,7 +51,7 @@ Date in ISO 8601. Version in brackets. Use `[Unreleased]` for in-progress work.
 
 ## Entry Style
 
-- Declarative third-person: "Adds dark mode toggle" not "I added dark mode" and not "Added dark mode toggle by USER".
+- Declarative third-person: "Adds dark mode toggle" not "I added dark mode" and not "Added dark mode toggle by the author".
 - Past tense for completed work in tagged sections; present tense fine for `[Unreleased]`.
 - One line per entry. No sub-bullets unless a single change genuinely has multiple aspects.
 - Reference issue or PR numbers when known: `Fixes parser crash on empty input (#142)`.

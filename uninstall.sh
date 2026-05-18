@@ -117,7 +117,21 @@ else
     info "vault preserved: ${VAULT_DIR} (use --remove-vault to delete)"
 fi
 
-# 4. Strip the ULTRON hooks block from ~/.claude/settings.json
+# 4. Strip the ULTRON PATH export from ~/.bashrc (install.sh appends one
+#    marked with '# Added by ULTRON installer' so we can locate + remove it
+#    surgically without touching unrelated user customisations).
+if [[ -f "${HOME}/.bashrc" ]] && grep -q '# Added by ULTRON installer' "${HOME}/.bashrc"; then
+    if [[ $DRY_RUN -eq 1 ]]; then
+        info "[dry-run] would strip ULTRON PATH line from ~/.bashrc"
+    else
+        sed -i '/# Added by ULTRON installer/,/.npm-global\/bin/d' "${HOME}/.bashrc"
+        info "stripped ULTRON PATH line from ~/.bashrc"
+    fi
+else
+    info "skip ~/.bashrc cleanup (no ULTRON marker present)"
+fi
+
+# 5. Strip the ULTRON hooks block from ~/.claude/settings.json
 #    (we wrote it during install.sh; remove it but leave the rest alone)
 if [[ -f "$CLAUDE_SETTINGS" ]]; then
     if command -v jq >/dev/null 2>&1; then

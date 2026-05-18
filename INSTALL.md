@@ -73,7 +73,7 @@ wizard — re-running is idempotent and the purge step is safe to re-do.
 | `feat_news`          | News digest          | `scripts/cockpit/news_html_generator.py`, `scripts/cockpit/news_alerts.py`, `scripts/cockpit/templates/newsletter.md.tmpl`, `cockpit/news/` |
 | `feat_gaming`        | Gaming utilities     | `scripts/cockpit/game_detector.py`, `scripts/cockpit/gaming-enum.ps1`                                                                       |
 | `feat_schedules`     | Schedules            | `scripts/cockpit/install-scheduler.ps1`                                                                                                     |
-| `feat_notifications` | Notifications        | `scripts/hooks/qdrant-notify.ps1`                                                                                                            |
+| `feat_notifications` | Notifications        | `scripts/qdrant/qdrant-notify.ps1`                                                                                                           |
 | `feat_usage`         | Usage tracking       | `scripts/cockpit/usage_report.py`, `scripts/cockpit/token_baseline.py`, `scripts/cockpit/token_budget.py`                                   |
 | `feat_sessions`      | Sessions archive     | `scripts/cockpit/session_compactor.py`, `scripts/cockpit/session_highlights.py`, `scripts/cockpit/session_replay.py`                        |
 | `feat_project`       | Project manager      | `scripts/cockpit/project_editor.py`, `scripts/cockpit/project_notes.py`, `scripts/cockpit/launch_project.py`, `scripts/cockpit/scan_projects.py` |
@@ -412,7 +412,7 @@ The bootstrap installer does **not** remove anything. To roll back:
 Get-Process qdrant -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # unregister the scheduled task that re-boots it on logon
-& $env:USERPROFILE\.ultron\scripts\hooks\install-qdrant-bootcheck.ps1 uninstall
+& $env:USERPROFILE\.ultron\scripts\qdrant\install-qdrant-bootcheck.ps1 uninstall
 
 # restore Claude settings backup
 Copy-Item $env:USERPROFILE\.claude\settings.json.bak-* `

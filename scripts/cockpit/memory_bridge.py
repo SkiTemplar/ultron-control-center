@@ -65,7 +65,7 @@ def _content_hash(content: str) -> str:
 def _project_slug(project_dir: Path) -> str:
     """Convert CC project dir name to a readable slug.
 
-    C--Users-<name>-CARRERA-PROYECTOS-PERSONALES-niajska -> niajska
+    C--Users-<name>-PROJECTS-my-project -> my-project
     C--Users-<name>--claude-skills-ultron -> claude-skills-ultron
     """
     name = project_dir.name

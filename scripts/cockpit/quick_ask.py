@@ -215,12 +215,12 @@ def ask(query: str, use_memory: bool, use_history: bool, verbose: bool) -> int:
         "Eres ULTRON quick-ask. Responde en 1-3 líneas máximo, sin rodeos. "
         "Usa tu conocimiento general (AI/LLM/dev/ciencia/etc) directamente — "
         "el contexto de cwd/INDEX/stale-notes/deadlines/history es solo POR SI "
-        "ACASO la pregunta se refiere al setup local de USER. NO preguntes "
+        "ACASO la pregunta se refiere al setup local del usuario. NO preguntes "
         "'dónde lo viste' para términos comunes (modelos LLM, tecnologías, "
         "conceptos). Solo escala con 'Esto merece HIGH' si requiere análisis "
         "multi-paso o tocar archivos."
     )
-    user_prompt = f"Contexto USER:\n{context}\n\nPregunta: {query}"
+    user_prompt = f"Contexto del usuario:\n{context}\n\nPregunta: {query}"
 
     if verbose:
         print(f"[ask] Model: {MODEL}", file=sys.stderr)

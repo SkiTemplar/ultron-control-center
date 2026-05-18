@@ -22,7 +22,7 @@ Tuning rubric:
 - **Routes with < 5 events in a month:** candidate for retirement (skill not pulling weight, or rule is too narrow).
 - **Source distribution:** rules should account for 60-70 %, ztmsi for 20-30 %, none for < 15 %. Higher `none` means voice / dictation patterns aren't covered.
 
-USER's voice traits (calibrate your patches accordingly):
+The user's voice traits (calibrate your patches accordingly):
 - Spanish + English code-switch ("haz un commit y push") — patterns must match both languages.
 - Dictated, no punctuation, run-on sentences — `\b` word boundaries fail when there's no whitespace; relax to `(?:^|\s|[¡¿,.;])`.
 - Keywords scattered across long prompts — use `.{0,30}` gaps instead of strict adjacency.

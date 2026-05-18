@@ -232,12 +232,40 @@ def prepend_section(changelog: Path, section: str) -> None:
     changelog.write_text(merged, encoding="utf-8")
 
 
+def _session_mode() -> str:
+    """Return the current session mode (LOW/MEDIUM/HIGH/ULTRA) or empty string.
+
+    Reads ``~/.ultron/.tmp/current-session-mode.json`` (written by the
+    ``mode-trigger`` UserPromptSubmit hook). Best-effort — any read/parse
+    failure is treated as "unknown" so the caller can fall back safely.
+    """
+    try:
+        path = Path.home() / ".ultron" / ".tmp" / "current-session-mode.json"
+        if not path.exists():
+            return ""
+        data = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        mode = data.get("mode")
+        if isinstance(mode, str):
+            return mode.upper()
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+    return ""
+
+
 def main() -> int:
     # Be tolerant of stdin shape — Stop hooks pass JSON but we don't use it.
     try:
         _ = sys.stdin.read()
     except Exception:
         pass
+
+    # v15.5.14 Task 4b: gate the (expensive) git-log scan + CHANGELOG rewrite
+    # behind HIGH/ULTRA modes. Every Stop on MEDIUM/LOW would otherwise fork a
+    # git process for the same lookback window. When mode is unknown (file
+    # missing on first run) we err on the side of running — it's idempotent.
+    mode = _session_mode()
+    if mode and mode not in ("HIGH", "ULTRA"):
+        return 0
 
     root = repo_root()
     if root is None:

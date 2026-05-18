@@ -78,7 +78,27 @@ fi
 run_py() {
     local script="$1"; shift
     [[ -f "$script" ]] || { log "skip: $(basename "$script") not found"; return 0; }
-    timeout 30 $PY "$script" "$@" >/dev/null 2>&1 || true
+    timeout 30 $PY "$script" "$@" >/dev/null 2>&1
+    local rc=$?
+    # v15.5.14 Task 4a: chronic Qdrant drift surfaces via alerts bus when an
+    # embed_* script times out (timeout(1) returns 124 on SIGTERM after deadline).
+    # Best-effort: never block Stop on alert publish failure.
+    if [[ $rc -eq 124 ]]; then
+        local name; name="$(basename "$script" .py)"
+        case "$name" in
+            embed_vault|embed_skills|embed_agents)
+                local alerts="${COCKPIT}/alerts.py"
+                if [[ -f "$alerts" ]]; then
+                    timeout 5 $PY "$alerts" publish \
+                        --source qdrant.health \
+                        --severity warn \
+                        --message "${name} TIMEOUT in stop-memory-sync" \
+                        >/dev/null 2>&1 || true
+                fi
+                ;;
+        esac
+    fi
+    return 0
 }
 
 # Phase A — always (cheap local ops). Linux runs sequentially with a 30s
@@ -96,6 +116,15 @@ PHASE_A=(
     "system_snapshot.py:refresh --quiet --skip-doctor"
     "memory_md_generator.py:generate"
 )
+
+# consistency_check.py lives at scripts/ root (NOT cockpit/) — call it
+# separately so the PHASE_A loop's ${COCKPIT}/ prefix doesn't mis-route it.
+# Parity with stop-memory-sync.ps1 (line 125).
+CONSISTENCY="${ULTRON_DIR}/scripts/consistency_check.py"
+if [[ -f "$CONSISTENCY" ]]; then
+    timeout 30 $PY "$CONSISTENCY" --quiet >/dev/null 2>&1 || true
+    log "phase-A consistency_check done"
+fi
 
 PHASE_A_START="$(date +%s)"
 for entry in "${PHASE_A[@]}"; do

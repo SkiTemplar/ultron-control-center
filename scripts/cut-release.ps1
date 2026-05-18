@@ -1,4 +1,8 @@
 #requires -Version 5.1
+# === maintainer-only (not user-facing) ===
+# Release tag automation invoked from `docs/RELEASE-PROCESS.md` step 1.
+# Never called by hooks, control-center, or any user command. See
+# docs/MAINTAINERS.md.
 <#
 .SYNOPSIS
     Cuts a new public release of ULTRON Control Center.

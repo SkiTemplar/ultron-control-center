@@ -23,7 +23,11 @@ param(
     [string]$Repo = "SkiTemplar/ultron",
     [string]$InstallDir = "$env:USERPROFILE\.ultron",
     [switch]$SkipInstaller,
-    [switch]$DryRun
+    [switch]$DryRun,
+    # v15.5.14: refuse to extract an unsigned ZIP unless the caller explicitly
+    # opts in. Default OFF preserves supply-chain integrity in the (rare) case
+    # where the release maintainer forgot to publish the .sha256 sidecar.
+    [switch]$AllowUnsignedZip
 )
 
 $ErrorActionPreference = "Stop"
@@ -110,7 +114,13 @@ if ($shaAsset -and -not $DryRun) {
     }
     Write-Step "SHA256 verified: $actualSha"
 } elseif (-not $shaAsset) {
-    Write-Warn "Release $tag does not include $expectedZip.sha256 — proceeding WITHOUT integrity check."
+    if ($AllowUnsignedZip) {
+        Write-Warn "Release $tag does not include $expectedZip.sha256 — proceeding WITHOUT integrity check (-AllowUnsignedZip)."
+    } else {
+        Write-Err "Release $tag does not include $expectedZip.sha256 and -AllowUnsignedZip was NOT passed."
+        Write-Err "Refusing to extract an unsigned ZIP. Re-run with -AllowUnsignedZip to bypass (NOT recommended)."
+        exit 5
+    }
 }
 
 # 3. Extract over $InstallDir

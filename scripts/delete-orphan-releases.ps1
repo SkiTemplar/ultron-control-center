@@ -1,3 +1,6 @@
+# === maintainer-only (not user-facing) ===
+# GitHub Releases admin tool. One-shot cleanup of orphaned release entries
+# after tag deletion. No hook or control-center caller. See docs/MAINTAINERS.md.
 # delete-orphan-releases.ps1 — clean up GitHub Releases whose tag was deleted.
 #
 # After deleting tags v15.4.17 → v15.4.21 with `git push --delete`, the

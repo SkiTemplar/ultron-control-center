@@ -59,19 +59,12 @@ pub struct AiRouterEntry {
 }
 
 impl AiRouterEntry {
-    fn new(provider: &str) -> Self {
-        AiRouterEntry {
-            provider: provider.to_string(),
-            model: None,
-            agent: None,
-            auto_mode: false,
-        }
-    }
-
     /// Full constructor — provider + pinned model + optional subagent.
     /// Used by `default_*` recommendations so a fresh install (or a
     /// `reset_ai_router_to_defaults` invocation) lands on the curated
     /// agent+model combo instead of bare "claude default".
+    /// (The bare `new(provider)` constructor was removed in v15.5.14 —
+    /// every caller now passes the full curated triple via `with_full`.)
     fn with_full(provider: &str, model: Option<&str>, agent: Option<&str>) -> Self {
         AiRouterEntry {
             provider: provider.to_string(),

@@ -300,7 +300,7 @@ def cite_notes(note_ids: list[int], session_id: str) -> int:
     into the synthesis prompt, the note is "fresh in the agent's mind" —
     so its decay score should reflect that. Increments verify_count and
     sets last_seen_in_session, but does NOT reset last_verified_at
-    (citation ≠ verification — USER only verifies via explicit
+    (citation ≠ verification — the user only verifies via explicit
     `ultron decay verify`).
 
     Returns the number of rows touched.
@@ -390,7 +390,7 @@ session into actionable knowledge for tomorrow's session. Strict, factual, terse
   "proposed_wikilinks": [
     {{"to_title": "<title from candidate notes>", "why": "<connection>"}}
   ],
-  "open_questions": ["<things unresolved that future USER should remember>"],
+  "open_questions": ["<things unresolved that future-you should remember>"],
   "next_session_seeds": ["<concrete ideas to pick up tomorrow>"]
 }}
 

@@ -1,54 +1,108 @@
-# ULTRON HOOKS — Recomendados (Opt-in)
+# ULTRON Hooks
 
-> Scripts de hook listos para usar. **No están instalados** por default — USER decide cuáles activar.
-> Última actualización: 2026-04-27 · v1.0
+Hooks under this directory are wired into `~/.claude/settings.json` automatically
+by the installer. The single source of truth is
+[`../../templates/settings-hooks.json`](../../templates/settings-hooks.json);
+`install.ps1` / `install.sh` `merge_hooks()` copies that template into the user
+settings non-destructively (with backup). The token `{USERPROFILE}` expands to
+the user's home (forward-slash form) at install time.
 
----
-
-## 📋 Hooks disponibles
-
-| Hook | Evento | Función |
-|---|---|---|
-| `auto-approve-readonly.py` | `PreToolUse` | Auto-aprueba Read/Glob/Grep/WebFetch/WebSearch sin prompt |
-| `block-dangerous-bash.py` | `PreToolUse` (Bash) | Bloquea `rm -rf /`, `git push --force main`, `DROP DATABASE`, etc. |
-| `session-log.py` | `Stop` | Append entry a `~/.ultron/sessions/YYYY-MM-DD.md` por sesión |
-| `routing-telemetry.py` (v8.1.2) | `PostToolUse` (Skill\|Agent) | Append JSONL a `~/.ultron/sessions/YYYY-MM-DD/routing.jsonl` con persona/plugin/subagente invocado — base para benchmark empírico de uso |
+To override or disable a hook for your account, edit `~/.claude/settings.json`
+directly — the merge step preserves user-added entries.
 
 ---
 
-## 🚀 Cómo activar uno
+## Lifecycle hooks (SessionStart / Stop / *Compact)
 
-Editar `~/.claude/settings.json` añadiendo el bloque `hooks`:
+| File | Event | Purpose | Default | Platform |
+|---|---|---|---|---|
+| `session-init.ps1` | SessionStart | Drains push-queue, primes decay cache, regenerates `context.md`, injects unacked alerts. | yes | win |
+| `session-init.sh` | SessionStart | POSIX sibling of the above. | yes (Linux) | linux |
+| `detect_gaps.py` | SessionStart | Surfaces open loops: skill drift, stale plans, quarantined items, un-acked criticals. | yes | both |
+| `stop-memory-sync.ps1` | Stop | `brain_index.update` + decay_queue + (HIGH/ULTRA only) vault commit / push / compactor. | yes | win |
+| `stop-memory-sync.sh` | Stop | POSIX sibling. | yes (Linux) | linux |
+| `session-cleanup.ps1` | Stop | Removes empty Claude plugin data dirs (mkdir EEXIST harness bug) + prunes stale `session-env/` >2d. | yes | win |
+| `session-cleanup.sh` | Stop | POSIX sibling. | yes (Linux) | linux |
+| `session-log.py` | Stop | Appends one line per session to `~/.ultron/sessions/YYYY-MM-DD.md`. | yes | both |
+| `auto-changelog.py` | Stop | If the last commit has a `feat(vX.Y.Z/...)` bump, append a CHANGELOG section idempotently. | yes | both |
+| `plan-detector.py` | Stop | Scans the transcript for deferred-work markers and appends to `~/.ultron/plans/_inbox.md`. | yes | both |
+| `pre_compact.py` | PreCompact | Dumps live state (context + plans + routing + alerts) so post-compact survives. | yes | both |
+| `post_compact.py` | PostCompact | Logs the compact event + emits a short recovery roadmap. | yes | both |
+
+## Prompt hooks (UserPromptSubmit)
+
+| File | Purpose | Default | Platform |
+|---|---|---|---|
+| `mode-trigger.py` | Detects `/high` / `/ultra` / `/learn` and registers the session mode (telemetry only, never blocks). | yes | both |
+| `intent-dispatcher.py` | 4-step intent pipeline (slash-shortcut → rules → ZTMSI/FTS5 → fallthrough); emits one routing line when confidence ≥ 0.70. | yes | both |
+| `auto-recall.py` | First-turn semantic recall via fastembed → Qdrant; injects top-3 vault notes as a system-reminder (`asyncRewake: true`). | yes | both |
+
+## Tool hooks (PreToolUse / PostToolUse)
+
+| File | Event / matcher | Purpose | Default | Platform |
+|---|---|---|---|---|
+| `auto-approve-readonly.py` | PreToolUse · `Read\|Glob\|Grep\|WebFetch\|WebSearch` | Auto-approves read-only tools; denies path-traversal into `.ssh`/`.aws`/`.env`/`*token*`. v2.0 SEC-02 hardening. | yes | both |
+| `block-dangerous-bash.py` | PreToolUse · `Bash` | bashlex AST walker — blocks `rm -rf`, base64-decode, `curl \| sh`, exfil patterns inside `$()` / `<()`. | yes | both |
+| `validate_push.py` | PreToolUse · `Bash` | Blocks force-push to protected branches (`main` / `master` / `release/*`). Exit 2 = hard refusal. | yes | both |
+| `mcp-resilience.py` | PreToolUse · `mcp__.*` | If the target MCP is degraded/missing in `mcp-health.json`, injects a one-line fallback note (never blocks). | yes | both |
+| `skill_integrity_check.py` | PreToolUse · `Skill` | SHA1 of `SKILL.md` vs provenance baseline; warns on drift (set `ULTRON_INTEGRITY=strict` to hard-block). | yes | both |
+| `routing-telemetry.py` | PostToolUse · `Skill\|Agent\|Task` | JSONL append per Skill/Agent/Task invocation → `~/.ultron/sessions/YYYY-MM-DD/routing.jsonl`. | yes | both |
+| `prompt-feedback-capture.py` | PostToolUse · `Skill` | Captures truncated + PII-filtered Skill outputs → `~/.ultron/.tmp/prompt-feedback.jsonl` (META-PROMPTER corpus). | yes | both |
+| `track-knowledge-reads.py` | PostToolUse · `Read` | Tracks reads under `~/.ultron/knowledge/**` so the same file is not re-read in the next turn. | yes | both |
+
+## Qdrant boot helpers (not Claude Code hooks)
+
+`ensure-qdrant.{ps1,sh}` stay in this directory because session-init wires
+them as a real Claude SessionStart hook (cold-start safety net). The other
+three bootcheck files — `qdrant-notify.ps1`, `qdrant-bootcheck-hidden.vbs`
+and `install-qdrant-bootcheck.ps1` — are NOT settings.json hooks; they back
+the `ULTRON-QdrantBoot` Windows scheduled task that runs at user logon. As
+of v15.5.14 they live under `scripts/qdrant/` so this hooks/ tree is a
+pure Claude-hooks surface.
+
+| File | Purpose | Default | Platform |
+|---|---|---|---|
+| `ensure-qdrant.ps1` | Probes `localhost:6333/healthz`; on KO launches `qdrant-native/qdrant.exe` hidden, waits 60s. | yes (scheduled task) | win |
+| `ensure-qdrant.sh` | POSIX sibling for native binary on Linux. | yes (scheduled task) | linux |
+| `../qdrant/qdrant-notify.ps1` | WinForm floating panel (bottom-right, persistent) shown when Qdrant is not OK. | yes | win |
+| `../qdrant/qdrant-bootcheck-hidden.vbs` | Windowless wrapper around the ensure + notify chain (avoids PowerShell console flash on fullscreen games). | yes | win |
+| `../qdrant/install-qdrant-bootcheck.ps1` | Registers / unregisters / queries the `ULTRON-QdrantBoot` scheduled task. | manual setup | win |
+
+---
+
+## Cross-platform compatibility
+
+Every PowerShell hook ships a POSIX sibling so the same behaviour runs on
+Linux from v15.5 onward:
+
+| Windows (`.ps1`) | Linux (`.sh`) |
+|---|---|
+| `session-init.ps1` | `session-init.sh` |
+| `session-cleanup.ps1` | `session-cleanup.sh` |
+| `stop-memory-sync.ps1` | `stop-memory-sync.sh` |
+| `ensure-qdrant.ps1` | `ensure-qdrant.sh` |
+
+`install.ps1` / `install.sh` pick the right family per OS; the Python hooks are
+platform-neutral and run unchanged on both.
+
+---
+
+## Override or add a hook
+
+The hook spec lives in `~/.ultron/templates/settings-hooks.json`. After editing
+it, re-run `install.ps1` (idempotent) or merge it manually into
+`~/.claude/settings.json`. A new hook follows the pattern:
 
 ```json
 {
   "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Read|Glob|Grep|WebFetch|WebSearch",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python {USERPROFILE}/.ultron/scripts/hooks/auto-approve-readonly.py"
-          }
-        ]
-      },
+    "<EventName>": [
       {
         "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
-            "command": "python {USERPROFILE}/.ultron/scripts/hooks/block-dangerous-bash.py"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python {USERPROFILE}/.ultron/scripts/hooks/session-log.py"
+            "command": "{USERPROFILE}/.ultron/.venv/Scripts/python.exe {USERPROFILE}/.ultron/scripts/hooks/<your-hook>.py"
           }
         ]
       }
@@ -57,53 +111,25 @@ Editar `~/.claude/settings.json` añadiendo el bloque `hooks`:
 }
 ```
 
-**Tip:** la skill `update-config` (sistema CC) puede aplicar estos cambios via Skill tool si quieres orquestarlo automáticamente.
+Hook scripts read JSON from stdin and exit 0 unless they intentionally block
+(exit 2 = hard refusal, surfaced to the model as stderr).
 
----
-
-## 🧪 Testar un hook localmente
-
-Cada script lee JSON por stdin y escribe JSON por stdout. Para probar:
+## Test a hook locally
 
 ```bash
-echo '{
-  "hook_event_name": "PreToolUse",
-  "tool_name": "Read",
-  "tool_input": {"file_path": "test.txt"}
-}' | python ~/.ultron/scripts/hooks/auto-approve-readonly.py
+echo '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"test.txt"}}' \
+  | uv run python ~/.ultron/scripts/hooks/auto-approve-readonly.py
 ```
 
-Salida esperada (auto-approve):
+Expected (auto-approve):
+
 ```json
 {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "allow", "permissionDecisionReason": "Read-only tool 'Read' auto-approved by ULTRON hook"}}
 ```
 
 ---
 
-## ⚠️ Caveats
-
-1. **`auto-approve-readonly`** quita prompts también para `WebFetch`/`WebSearch`. Si trabajas con sistemas sensibles donde quieres confirmar cada fetch externo, NO actives este hook (o quita esos tools del set).
-2. **`block-dangerous-bash`** es heurístico — no cubre todos los casos peligrosos posibles. Es complemento al sentido común, no sustituto.
-3. **`session-log`** crea el directorio `~/.ultron/sessions/` si no existe. Si quieres que viva en otra ruta, edita el script.
-4. **Path en Windows con backslash:** los scripts usan forward slashes en paths. CC en Windows acepta ambas; en JSON usar siempre `/`.
-5. **Permission prompt para el hook:** la primera vez que CC ejecute el comando, te pedirá permiso. Una vez aprobado, queda persistente.
-
----
-
-## 🔧 Crear hooks nuevos
-
-Patrón:
-1. Recibir JSON por `stdin`.
-2. Comprobar `hook_event_name` y `tool_name`.
-3. Hacer la lógica.
-4. Si quieres bloquear/permitir: imprimir JSON con `hookSpecificOutput.permissionDecision`.
-5. Si solo logging: salir sin imprimir nada (sys.exit 0).
-
-Para más patrones ver `~/.ultron/knowledge/claude-platform/subagents-and-hooks.md`.
-
----
-
-## 📚 Fuentes
+## References
 
 - [Hooks reference (Claude Code)](https://code.claude.com/docs/en/hooks)
 - [Hooks (Agent SDK)](https://code.claude.com/docs/en/agent-sdk/hooks)

@@ -70,9 +70,12 @@
   .\install.ps1 -NonInteractive -NoApp
 
 .NOTES
-  Pairs with scripts/install.ps1 (legacy/inner installer). This root
-  script delegates to that one for the Python + npm sync stages after
-  doing the heavier bootstrap. Both are safe to run independently.
+  v15.5.14: the former scripts/install.ps1 + scripts/install.sh inner
+  installers (552 + 484 lines, last touched for v15.2 / "v15.2.0" banner)
+  were retired to _legacy/install-pre-v15.4.{ps1,sh}. This root script now
+  handles the npm install inline (Build-ControlCenter), so there is exactly
+  ONE entry point per platform: install.ps1 (Windows) and install.sh
+  (Linux). The legacy copies are kept for archaeology only — do not invoke.
 #>
 
 [CmdletBinding()]
@@ -106,7 +109,7 @@ $ErrorActionPreference = "Stop"
 # ----------------------------------------------------------------------
 # Constants and state
 # ----------------------------------------------------------------------
-$Script:VersionFallback = "v15.5.14"
+$Script:VersionFallback = "v15.5.15"
 $Script:RepoRoot        = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location }
 $Script:Warnings        = New-Object System.Collections.Generic.List[string]
 $Script:Errors          = New-Object System.Collections.Generic.List[string]
@@ -422,7 +425,7 @@ function Test-Preflight {
             $isWin = $false
         }
         if (-not $isWin) {
-            Write-Fail "non-Windows host. Use scripts/install.sh on macOS/Linux."
+            Write-Fail "non-Windows host. Use install.sh on Linux."
             throw "Unsupported OS"
         }
         $caption = (Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue).Caption
@@ -1056,7 +1059,7 @@ function Install-Skills {
 # Agents tab + AI Router slot want them present at boot. Without this
 # step the repo's 16 ULTRON+stack-aligned agents stayed in the repo and
 # never reached fresh installs — which manifested as an empty Agents
-# tab post-install (USER bug 2026-05-17).
+# tab post-install (initial-report 2026-05-17).
 function Install-Agents {
     Write-Step "8a'. agents (copy repo/agents -> ~/.claude/agents)"
     $src = Join-Path $Script:RepoRoot "agents"
@@ -1333,7 +1336,7 @@ function Remove-OptOutFeatureFiles {
             "scripts\cockpit\install-scheduler.ps1"
         )
         feat_notifications = @(
-            "scripts\hooks\qdrant-notify.ps1"
+            "scripts\qdrant\qdrant-notify.ps1"
         )
         feat_usage = @(
             "scripts\cockpit\usage_report.py",
@@ -1500,7 +1503,7 @@ function Install-GitHooks {
 }
 
 # ----------------------------------------------------------------------
-# Step 10: control-center build (delegated to scripts/install.ps1)
+# Step 10: control-center build (npm install inline as of v15.5.14)
 # ----------------------------------------------------------------------
 # Sync Python venv via uv. Runs ALWAYS (even with -NoApp) because the
 # hooks under ~/.claude/settings.json depend on ~/.ultron/.venv/Scripts/python.exe.
@@ -1563,44 +1566,42 @@ function Build-ControlCenter {
         }
     }
 
-    $inner = Join-Path $Script:RepoRoot "scripts\install.ps1"
-    if (-not (Test-Path -LiteralPath $inner)) {
-        Write-Warn2 "scripts/install.ps1 not found - skipping"
+    # v15.5.14: inlined npm install (was a delegate call to scripts/install.ps1,
+    # a 552-line legacy duplicate moved to _legacy/install-pre-v15.4.ps1 in
+    # the same release — see ROUND2-POLISH report). The delegate only existed
+    # to wrap `npm install` in the control-center directory, which is two
+    # lines. Initialize-PythonVenv already provisioned the venv in step 6,
+    # so no -SkipUvSync gymnastics needed here.
+    $ccDir = Join-Path $Script:RepoRoot "control-center"
+    if (-not (Test-Path -LiteralPath $ccDir)) {
+        Write-Warn2 "control-center/ not found - skipping npm install"
         return
     }
-    # Native binaries (npm, cargo, tauri) write progress lines to stderr.
-    # With $ErrorActionPreference = "Stop" active at script scope, the
-    # inner installer's first stderr line gets converted into a terminating
-    # error and our catch fires before $LASTEXITCODE is ever checked.
-    # Relax EAP for the delegate call only.
+    if (-not (Get-Command "npm" -ErrorAction SilentlyContinue)) {
+        Write-Warn2 "npm not on PATH - skipping Control Center install"
+        return
+    }
+    # Native binaries (npm, cargo, tauri) write progress to stderr. With
+    # $ErrorActionPreference = "Stop" at script scope, the first stderr line
+    # converts into a terminating error before we ever read $LASTEXITCODE.
+    # Relax EAP for the npm call only.
     $prevEAP = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        # Delegate to the inner installer for npm install. Pass -SkipUvSync
-        # because Initialize-PythonVenv already provisioned the venv in
-        # step 6 — running uv sync twice tends to hit Windows file locks
-        # on the freshly populated site-packages (Acceso denegado on
-        # cffi / cryptography).
-        #
-        # IMPORTANT: splat as a HASHTABLE, not an array. Array-splatting
-        # strings like @("-SkipUvSync") makes PowerShell try positional
-        # binding, which fails for [switch] parameters ("No positional
-        # parameter accepts argument '-SkipUvSync'"). Hashtable-splat
-        # binds by name, which is what we actually want.
-        $innerArgs = @{
-            NonInteractive = $true
-            SkipUvSync     = $true
-        }
-        if ($Script:VerboseOn) { $innerArgs["Verbose"] = $true }
-        & $inner @innerArgs
+        Push-Location $ccDir
+        $npmOut = & npm install 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-OK "npm install completed"
+            Write-OK "npm install completed (control-center/)"
+            if ($Script:VerboseOn -and $npmOut) {
+                $npmOut | ForEach-Object { Write-V $_ }
+            }
         } else {
-            Write-Warn2 "inner installer exited $LASTEXITCODE"
+            Write-Warn2 ("npm install exited " + $LASTEXITCODE + ": " + ($npmOut -join '; '))
         }
     } catch {
-        Write-Warn2 ("inner installer failed: " + $_.Exception.Message)
+        Write-Warn2 ("npm install failed: " + $_.Exception.Message)
     } finally {
+        Pop-Location
         $ErrorActionPreference = $prevEAP
     }
 

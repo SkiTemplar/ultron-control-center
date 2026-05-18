@@ -212,7 +212,7 @@ def add_action(id_: str, severity: str, title: str, *,
     if not producer or not isinstance(producer, str) or len(producer) > 100:
         raise ValueError(
             "producer must be a non-empty string ≤100 chars "
-            "(e.g. 'repo-evaluator-audit', 'session-init.ps1', 'manual:USER')"
+            "(e.g. 'repo-evaluator-audit', 'session-init.ps1', 'manual:user')"
         )
     with _FileLock(LOCK_FILE):
         return _add_action_locked(id_, severity, title,
@@ -419,7 +419,7 @@ def main() -> int:
     sp.add_argument("--source", required=True, metavar="AUDIT")
     sp.add_argument("--producer", required=True, metavar="NAME",
                      help="Quien crea la entry (repo-evaluator-audit, session-init, "
-                          "manual:USER, ...). SI-P0-2 hardening.")
+                          "manual:user, ...). SI-P0-2 hardening.")
     sp.add_argument("--description", default="")
     sp.add_argument("--deadline", default=None, metavar="ISO")
     sp.add_argument("--blocking", action="store_true")

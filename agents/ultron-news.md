@@ -31,7 +31,7 @@ Dedup invariants:
 - Two articles count as duplicates when ANY of: `hash_url` matches (canonicalised URL), `hash_title` matches (normalised title), OR the summary first-80-chars hash matches a recent entry.
 - A new headline about an old story (e.g. "Anthropic adds feature X to Claude 4.7" when "Claude 4.7 released" shipped 2 weeks ago) is a NEW article — different hashes, different story arc.
 
-Priorisation explicit list for USER:
+Priorisation explicit list for the user:
 1. GitHub trending repos tagged `claude-code`, `mcp`, `agent`, `llm`.
 2. New model releases (Anthropic, OpenAI, Google, Meta, Mistral, DeepSeek).
 3. Claude Code official changelog / blog.

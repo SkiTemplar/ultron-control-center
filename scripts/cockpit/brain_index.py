@@ -365,8 +365,8 @@ def _extract_domain(path: Path, layer: str) -> str:
 
 # ── FTS5 query sanitization ────────────────────────────────────────────────────
 # FTS5 treats `-` as the NOT operator and `:` as a column qualifier, so a bare
-# token like `sparkling-luxury` is parsed as `sparkling NOT luxury` and fails
-# with `no such column: luxury`. Quoting the whole token forces FTS5 to treat
+# token like `my-project` is parsed as `my NOT project` and fails
+# with `no such column: project`. Quoting the whole token forces FTS5 to treat
 # it as a phrase literal and preserves the user's intent.
 _FTS_SPECIAL_CHARS = frozenset("-:/")
 _FTS_OPERATORS = frozenset({"AND", "OR", "NOT", "NEAR"})
@@ -375,7 +375,7 @@ _FTS_OPERATORS = frozenset({"AND", "OR", "NOT", "NEAR"})
 def _sanitize_fts_query(q: str) -> str:
     """Quote bare tokens with FTS5-special chars so they don't get misparsed.
 
-    - `sparkling-luxury cava`  →  `"sparkling-luxury" cava`
+    - `my-project cava`  →  `"my-project" cava`
     - Tokens already quoted, prefixed with `"`, or in `{AND,OR,NOT,NEAR}` pass through.
     - Internal `"` inside a token is stripped before requoting.
     """

@@ -192,6 +192,23 @@ if ($phaseAJobs.Count -gt 0) {
         } elseif ($j.State -eq 'Running') {
             Stop-Job -Job $j -ErrorAction SilentlyContinue
             Write-Log "phase-A $($entry.Name) TIMEOUT"
+            # v15.5.14 Task 4a: chronic Qdrant drift surfaces via alerts bus.
+            # Best-effort; never block Stop on alert publish failure.
+            if ($entry.Name -in $qdrantSensitive) {
+                try {
+                    $alertsScript = "$env:USERPROFILE\.ultron\scripts\cockpit\alerts.py"
+                    if (Test-Path $alertsScript) {
+                        $alertArgs = @(
+                            'publish',
+                            '--source', 'qdrant.health',
+                            '--severity', 'warn',
+                            '--message', "$($entry.Name) TIMEOUT in stop-memory-sync"
+                        )
+                        if ($useUv) { & uv run python $alertsScript @alertArgs 2>&1 | Out-Null }
+                        else        { & python $alertsScript @alertArgs 2>&1 | Out-Null }
+                    }
+                } catch { <# best-effort alert publish; ignore failures #> }
+            }
         } else {
             Write-Log "phase-A $($entry.Name) state=$($j.State)"
         }

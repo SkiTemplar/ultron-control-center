@@ -244,7 +244,7 @@ CORPUS: list[tuple[str, str | None, str]] = [
     ("nuevo skill para finanzas avanzadas",                    "skill-creator:skill-creator", "nuevo skill"),
 
     # ── memory recall (project-status) ───────────────────────────────────
-    ("cómo va el proyecto OrbitalDB",                          None,          "project-status emite ctx, no skill"),
+    ("cómo va el proyecto my-project",                         None,          "project-status emite ctx, no skill"),
 
     # ── ARCHITECT ────────────────────────────────────────────────────────
     ("diseña la arquitectura del sistema de pagos",            "agent-skills:plan", "diseña arquitectura"),

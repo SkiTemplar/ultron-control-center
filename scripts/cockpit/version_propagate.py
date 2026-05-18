@@ -1,3 +1,6 @@
+# === maintainer-only (not user-facing) ===
+# Sole caller: .github/workflows/ci.yml § version-drift job. Never invoked
+# by hooks, control-center, or any user-facing command. See docs/MAINTAINERS.md.
 """Version drift guard for ULTRON.
 
 The SSOT version lives in ``pyproject.toml`` (``[project].version``). Six other

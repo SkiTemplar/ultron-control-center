@@ -4,11 +4,12 @@ ULTRON v11.0 Cockpit - GitHub Trending Scraper.
 
 Scrapes GitHub Trending (daily/weekly) via the unofficial trending API
 and GitHub search, no auth required. Focuses on AI/ML/LLM repos plus
-USER's tech stack (C#, Python, TypeScript, Unreal Engine).
+a configurable set of boosted languages (default: C#, Python, TypeScript,
+C++, JavaScript, Lua, GDScript — tweak BOOSTED_LANGS to taste).
 
 Output:
   - ~/.ultron/cockpit/trending/YYYY-MM-DD.md  (today's digest)
-  - ~/.ultron/cockpit/trending/starred.json   (repos USER starred mentally)
+  - ~/.ultron/cockpit/trending/starred.json   (repos the user starred mentally)
   - ~/.ultron/cockpit/trending/seen.json      (dedup by full_name)
 
 Runs daily on laptop wake (via register_wake_triggers.ps1).
@@ -54,14 +55,14 @@ GH_API_BASE = "https://api.github.com"
 GH_SEARCH_QUERIES = [
     # AI/ML/LLM repos created in last 7 days
     "q=created:>{week_ago}+stars:>20+topic:llm+OR+topic:ai+OR+topic:machine-learning&sort=stars&order=desc&per_page=25",
-    # USER's stack: C#, Python, TypeScript, game dev
+    # Boosted stack: C#, Python, TypeScript, game dev
     "q=created:>{week_ago}+stars:>30+(language:python+OR+language:csharp+OR+language:typescript+OR+language:c%2B%2B)&sort=stars&order=desc&per_page=25",
     # Claude/AI tools - high signal
     "q=created:>{week_ago}+stars:>10+claude+OR+anthropic+OR+codex+OR+gemini-cli&sort=stars&order=desc&per_page=15",
 ]
 
-# USER's tech stack — boost score for these languages
-USER_LANGS = {"python", "c#", "typescript", "c++", "javascript", "lua", "gdscript"}
+# Languages whose repos receive a score boost in the digest.
+BOOSTED_LANGS = {"python", "c#", "typescript", "c++", "javascript", "lua", "gdscript"}
 
 # AI/ML keyword filter — only keep repos matching at least one
 AI_WHITELIST_RE = re.compile(
@@ -176,7 +177,7 @@ def save_seen(seen: set[str]) -> None:
 # ── Scoring ──────────────────────────────────────────────────────────────────
 
 def score(repo: dict) -> int:
-    """Higher = more interesting for USER."""
+    """Higher = more interesting for the user's digest."""
     s = 0
     text = f"{repo['full_name']} {repo['description']}"
 
@@ -187,7 +188,7 @@ def score(repo: dict) -> int:
         s += 10
 
     lang = repo.get("language", "")
-    if lang in USER_LANGS:
+    if lang in BOOSTED_LANGS:
         s += 5
 
     added = repo.get("added_stars", 0)
@@ -217,7 +218,7 @@ def write_digest(items: list[dict], today: str) -> Path:
     other: list[dict] = []
     for r in items:
         lang = r.get("language", "").capitalize() or "Unknown"
-        if r.get("language", "") in USER_LANGS:
+        if r.get("language", "") in BOOSTED_LANGS:
             by_lang.setdefault(lang, []).append(r)
         else:
             other.append(r)
@@ -295,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
         scored.append(r)
 
     if not args.no_filter:
-        # Keep only AI/ML relevant or USER's langs
+        # Keep only AI/ML relevant or boosted langs
         scored = [r for r in scored if r["_score"] > 0]
 
     scored.sort(key=lambda r: (r["_score"], r.get("added_stars", 0)), reverse=True)

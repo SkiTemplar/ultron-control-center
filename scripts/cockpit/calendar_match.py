@@ -19,8 +19,8 @@ Standalone usage (manual / testing):
 Input event JSON shape (one event per dict):
     {
       "id":         "<google_event_id>",
-      "title":      "Tortunabo demo entrega final",
-      "description": "Entrega del proyecto Tortunabo en clase de PROGRAM_A",
+      "title":      "my-project demo final delivery",
+      "description": "Final delivery of my-project for the team review",
       "start":      "2026-05-15",
       "end":        "2026-05-15"
     }
@@ -30,7 +30,7 @@ Output: ~/.ultron/cockpit/deadlines.json
       "version": "1.0",
       "last_match": "...",
       "matches": [
-        {"project_id": "tortunabo", "event_id": "...", "event_title": "...",
+        {"project_id": "my-project", "event_id": "...", "event_title": "...",
          "date": "2026-05-15", "score": 0.95, "reasons": ["name in title"]}
       ],
       "unmatched": [{"event_id": "...", "title": "...", "best_score": 0.42}]
@@ -169,24 +169,24 @@ def sample_events() -> list[dict]:
     today = datetime.now().date()
     return [
         {"id": "ev1",
-         "title": "Tortunabo demo entrega final",
-         "description": "Entrega del proyecto Tortunabo en clase de PROGRAM_A",
+         "title": "my-project demo final delivery",
+         "description": "Final delivery of my-project for the team review",
          "start": (today + timedelta(days=18)).isoformat()},
         {"id": "ev2",
-         "title": "Examen FIAV - Física e IA",
-         "description": "Examen final de la asignatura",
+         "title": "quarterly-review planning session",
+         "description": "Quarterly planning meeting",
          "start": (today + timedelta(days=10)).isoformat()},
         {"id": "ev3",
-         "title": "Practica entrega OrbitalDB",
-         "description": "Subir el APK final con la practica de OrbitalDB",
+         "title": "demo-app release milestone",
+         "description": "Ship the APK build for demo-app",
          "start": (today + timedelta(days=4)).isoformat()},
         {"id": "ev4",
-         "title": "Cita medico",
-         "description": "Revision rutina",
+         "title": "team-sync",
+         "description": "Weekly team sync",
          "start": (today + timedelta(days=2)).isoformat()},
         {"id": "ev5",
-         "title": "Demo Niajska deadline",
-         "description": "Mostrar landing page completa",
+         "title": "Demo my-project deadline",
+         "description": "Show the completed landing page",
          "start": (today + timedelta(days=21)).isoformat()},
     ]
 

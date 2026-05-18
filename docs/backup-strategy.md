@@ -19,10 +19,11 @@
      - `*/__pycache__/`, `*/.pytest_cache/`, `*/.mypy_cache/`
 - **Ejecución**: continua, automática.
 
-## Sistema 2 — `weekly-backup.ps1` → `D:\USER\BACKUP\` (manual)
+## Sistema 2 — `weekly-backup.ps1` → `$env:ULTRON_BACKUP_ROOT` (manual)
 
-- **Tipo**: robocopy `/MIR`. Mirror dated NO history.
-- **Comportamiento**: si borras local → en la próxima ejecución se borra en `D:\`. Idéntico a Drive.
+- **Tipo**: robocopy `/MIR`. Mirror, NO history.
+- **Destino**: configurable vía `$env:ULTRON_BACKUP_ROOT` (ej. `D:\BACKUP`). Fallback: `%USERPROFILE%\BACKUP`.
+- **Comportamiento**: si borras local → en la próxima ejecución se borra en el destino. Idéntico a Drive.
 - **Configurar exclusiones**: editar `~/.ultron/config/backup-exclusions.txt` (gitignore-style).
 - **Ejecución**: automática cada lunes 09:00 vía Task Scheduler (`UltronBackup-Weekly`, State: Ready). Reactivado 2026-05-11.
   ```powershell
@@ -54,5 +55,5 @@
 ## Recuperación si borras algo por accidente
 
 - **Drive web** → papelera (`drive.google.com/drive/trash`), 30 días.
-- **D:\USER\BACKUP\** → si todavía no has ejecutado weekly-backup desde el borrado, el archivo sigue ahí.
+- **`$env:ULTRON_BACKUP_ROOT`** (ej. `D:\BACKUP\`) → si todavía no has ejecutado weekly-backup desde el borrado, el archivo sigue ahí.
 - **Sin más copias** — esto es decisión consciente: ambos sistemas son mirrors, no archivos.

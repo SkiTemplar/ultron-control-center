@@ -3,6 +3,11 @@
 Got the Control Center open. Now what? This is the no-lore tour. Pick a
 tab, do the thing, move on. Total time: 5 minutes.
 
+> Paths use `~/.ultron/` form throughout. On Windows that resolves to
+> `%USERPROFILE%\.ultron\`; on Linux (supported from v15.5) to
+> `$HOME/.ultron/`. The Tauri sidebar exposes 17 sections (16 visible + the
+> Logs tab wired but currently disabled).
+
 ---
 
 ## 1. Dashboard — "is anything broken?"
@@ -113,16 +118,20 @@ The bottom-right of Settings has an **App lifecycle** tab:
 - **Rebuild** → opens a new terminal that runs
   `npm run tauri build` in `~/.ultron/control-center/`. Takes 3-5
   minutes the first time. Relaunch the app after the new binary lands
-  in `src-tauri/target/release/bundle/`.
+  in `src-tauri/target/release/bundle/` (NSIS / MSI on Windows; `.deb` /
+  `.AppImage` on Linux from v15.5+).
 - **Uninstall** → opens a new terminal that runs
-  `~/.ultron/uninstall.ps1`. Asks for confirmation before deleting.
-  Your Claude Code skills in `~/.claude/skills/` survive — only ULTRON
-  data gets removed.
+  `~/.ultron/uninstall.ps1` (Windows) or `~/.ultron/uninstall.sh` (Linux).
+  Asks for confirmation before deleting. Your Claude Code skills in
+  `~/.claude/skills/` survive — only ULTRON data gets removed.
 
-**Stuck?** The uninstaller has a `-DryRun` flag that previews the
-removal without touching disk:
+**Stuck?** The uninstaller has a `--dry-run` flag (`-DryRun` on PowerShell)
+that previews the removal without touching disk:
 ```powershell
 & $env:USERPROFILE\.ultron\uninstall.ps1 -DryRun
+```
+```bash
+~/.ultron/uninstall.sh --dry-run
 ```
 
 ---

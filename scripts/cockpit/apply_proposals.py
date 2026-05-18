@@ -527,7 +527,7 @@ def main():
     sp.add_argument("--check", action="store_true",
                     help="Run expected_tests after each apply")
     sp.add_argument("--signed", action="store_true",
-                    help="Mark manifest reviewer=USER (audit trail)")
+                    help="Mark manifest reviewer=<OS user> (audit trail)")
     sp.set_defaults(func=cmd_apply)
 
     sp = sub.add_parser("list", help="List pending proposal files")

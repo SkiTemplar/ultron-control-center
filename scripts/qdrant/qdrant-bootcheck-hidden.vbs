@@ -11,13 +11,16 @@
 
 Option Explicit
 
-Dim objShell, userProfile, hooksDir, ensure, notify, cmd, delaySec
+Dim objShell, userProfile, hooksDir, qdrantDir, ensure, notify, cmd, delaySec
 
 Set objShell = CreateObject("WScript.Shell")
 userProfile = objShell.ExpandEnvironmentStrings("%USERPROFILE%")
+' v15.5.14: ensure-qdrant lives in hooks (real Claude hook). notify + this
+' wrapper live in qdrant/ (scheduled-task only). Both dirs resolved separately.
 hooksDir    = userProfile & "\.ultron\scripts\hooks"
-ensure      = hooksDir & "\ensure-qdrant.ps1"
-notify      = hooksDir & "\qdrant-notify.ps1"
+qdrantDir   = userProfile & "\.ultron\scripts\qdrant"
+ensure      = hooksDir  & "\ensure-qdrant.ps1"
+notify      = qdrantDir & "\qdrant-notify.ps1"
 delaySec    = 12   ' let Docker Desktop autostart settle
 
 cmd = "powershell.exe -NoProfile -Sta -ExecutionPolicy Bypass -Command " & _

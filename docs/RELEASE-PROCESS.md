@@ -13,7 +13,7 @@
 > instead of bouncing through unverified intermediates.
 
 Step-by-step for cutting a public release of ULTRON Control Center. This is
-the operational counterpart to `docs/RELEASE-CHECKLIST-v15.2.md`. Run the
+the operational counterpart to `docs/RELEASE-CHECKLIST.md`. Run the
 checklist first, then follow this document to actually ship the bits.
 
 Every public release flows through GitHub Actions. There is no manual upload
@@ -89,7 +89,7 @@ never echoed in logs and are not exposed to forks.
 
 ### 1.1 Run the release checklist
 
-Walk through every item in `docs/RELEASE-CHECKLIST-v15.2.md`. Do not proceed
+Walk through every item in `docs/RELEASE-CHECKLIST.md`. Do not proceed
 until every box is ticked.
 
 ### 1.2 Bump version numbers

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# === maintainer-only (not user-facing) ===
+# Routing rules regression harness. Run manually after intent-rules.yaml
+# edits. No hook or control-center caller. See docs/MAINTAINERS.md.
 """
 ULTRON ROUTING TEST RUNNER · v1.0
 Verifica FAST PATH Layer 1 + tiebreaks contra routing-tests.md.

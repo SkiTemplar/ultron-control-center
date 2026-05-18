@@ -389,4 +389,57 @@ rules:
     skill: "ultron"
     confidence: 0.80
 
+  # ── v15.5.15: personal personas (5) — internal-review-note closure ────────────────────
+  # These 5 skills live in ~/.claude/skills/ but were absent from the
+  # dispatcher YAML; eval-4 (round 1) measured this as a structural cap on
+  # match-rate (~50% of prompts went to source=none). All five activate via
+  # Claude's skill auto-trigger from the SKILL.md description; adding regex
+  # rules here lets the dispatcher route them BEFORE Claude reads any skill,
+  # cutting latency and recovering the no-route bucket.
+
+  # Casual code-quality check ("mira si esto está bien", "está bien este código?")
+  # Distinct from pr-code-review (which requires the literal "PR" / "pull request").
+  - id: casual-code-review
+    match: "\\b(?:mira|revisa|chec(?:a|k)|qu[e\xe9] te parece)\\b(?:\\s+(?:si|este|esto|esa|esa))?\\s+(?:est[ae]?\\s+)?(?:c[o\xf3]digo|implementaci[o\xf3]n|funci[o\xf3]n|m[o\xf3]dulo|clase)(?:\\s+est[a\xe1]\\s+(?:bien|ok|correcto|mal))?"
+    skill: "superpowers:requesting-code-review"
+    confidence: 0.85
+
+  # Lost-where-to-start debug signal ("el sistema está roto y no sé por dónde
+  # empezar"). Distinct from systematic-debug (which keys on "llevo X horas").
+  - id: debug-lost
+    match: "\\b(?:(?:el\\s+)?sistema\\s+(?:est[a\xe1]\\s+)?(?:roto|fallando|broken)|todo\\s+(?:est[a\xe1]\\s+)?(?:roto|fallando))\\b.{0,40}\\b(?:no\\s+s[e\xe9]|no\\s+entiendo|d[o\xf3]nde\\s+empezar|por\\s+d[o\xf3]nde)\\b"
+    skill: "superpowers:systematic-debugging"
+    suggest_mode: "HIGH"
+    confidence: 0.92
+
+  # tio-gilito: personal finance (Scrooge McDuck-style budget assistant)
+  - id: tio-gilito
+    match: "\\b(?:t[ií]o\\s+gilito|gilito|cu[a\xe1]nto\\s+(?:he\\s+gastad[ao]|me\\s+queda)|mis\\s+(?:finanzas|ahorros|gastos)|presupuesto\\s+mensual|saldo\\s+actual|a[nñ]ade?\\s+(?:un\\s+)?(?:gasto|ingreso)|c[o\xf3]mo\\s+voy\\s+de\\s+dinero|an[a\xe1]lisis\\s+financiero|despilfarr|abre\\s+el\\s+dashboard\\s+(?:de\\s+)?(?:finanzas|gastos))\\b"
+    skill: "tio-gilito"
+    confidence: 0.92
+
+  # warren: investment advisor (long-term portfolio)
+  - id: warren
+    match: "\\b(?:warren|c[o\xf3]mo\\s+va\\s+mi\\s+cartera|qu[e\xe9]\\s+(?:compro|vendo)\\b|an[a\xe1]lisis\\s+fundamental|qu[e\xe9]\\s+(?:ETF|acci[o\xf3]n|fondo)|rentabilidad\\s+(?:anual|hist[o\xf3]rica)|dividendos|(?:mi|la)\\s+cartera|invertir\\s+en|m[a\xe1]cro\\s+(?:econ[o\xf3]mica|mercado))\\b"
+    skill: "warren"
+    confidence: 0.90
+
+  # tolkien: book/narrative writer ("Imperio de los Once Grandes" universe)
+  - id: tolkien
+    match: "\\b(?:tolkien|modo\\s+escritor|escribe\\s+el\\s+(?:libro|cap[ií]tulo|siguiente)|contin[u\xfa]a\\s+(?:el\\s+)?(?:libro|cap[ií]tulo)|escribe\\s+la\\s+escena|revisa\\s+el\\s+cap[ií]tulo|plot\\s+hole|consistencia\\s+narrativa|arco\\s+(?:del?\\s+)?(?:personaje|trama)|once\\s+grandes|imperio\\s+de\\s+los?\\s+once)\\b"
+    skill: "tolkien"
+    confidence: 0.90
+
+  # pana: J.A.R.V.I.S.-style personal OS coordinator (Gmail/Calendar/Notion/Spotify briefing)
+  - id: pana
+    match: "\\b(?:pana|modo\\s+ma[nñ]ana|cierra\\s+el\\s+d[ií]a|briefing\\s+(?:del\\s+d[ií]a|de\\s+ma[nñ]ana)|status\\s+matinal|qu[e\xe9]\\s+toca\\s+hoy|agenda\\s+de\\s+hoy|empieza\\s+el\\s+d[ií]a)\\b"
+    skill: "pana"
+    confidence: 0.90
+
+  # alfred: butler-style Windows OS / files / processes / hardware manager
+  - id: alfred
+    match: "\\b(?:alfred|modo\\s+alfred|(?:mata|kill|cierra)\\s+(?:el\\s+)?proceso\\b|monitoriza\\s+(?:el\\s+)?(?:sistema|CPU|RAM|disco)|(?:limpia|organiza)\\s+(?:el\\s+)?(?:PC|ordenador|disco)|registro\\s+de\\s+Windows|drivers?\\s+(?:de\\s+|del?\\s+)?(?:Windows|NVIDIA|gr[a\xe1]fica)|programa\\s+(?:una\\s+)?tarea\\s+(?:autom[a\xe1]tica|programada))\\b"
+    skill: "alfred"
+    confidence: 0.88
+
 

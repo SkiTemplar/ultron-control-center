@@ -316,7 +316,7 @@ def cmd_news_flags(_args) -> int:
 #   reason: not surfaced in TUI since v12.4 (repo-evaluator clipboard prompts replaced this pipeline)
 #   replaced-by: cockpit/tui/prompts/* clipboard prompts launched from the Skills tab
 #   remove-after: 2026-11-07
-#   owner: USER
+#   owner: maintainer
 def cmd_propose(args) -> int:
     """L2 AutoUpdater: read audit findings + source SKILL.md, generate patches.
     Output: proposals/<audit-stem>.json with list of suggested edits (NOT applied).
@@ -325,7 +325,7 @@ def cmd_propose(args) -> int:
     - false-positive filter prompt: Sonnet must mark suspect findings
       (e.g. knowledge-cutoff issues like TaskCreate)
     - never modifies files - dry-run by definition (Stage 2)
-    - all proposals reviewed by USER before any apply
+    - all proposals reviewed by the maintainer before any apply
     """
     audit_path = Path(args.audit_file).resolve()
     if not audit_path.exists():
@@ -544,7 +544,7 @@ def cmd_apply(args) -> int:
 #   reason: not surfaced in TUI since v12.4 (repo-evaluator clipboard prompts replaced this pipeline)
 #   replaced-by: cockpit/tui/prompts/* clipboard prompts launched from the Skills tab
 #   remove-after: 2026-11-07
-#   owner: USER
+#   owner: maintainer
 def cmd_full(args) -> int:
     """v10.4.10 — full L1+L2+L3 pipeline en un solo comando.
 

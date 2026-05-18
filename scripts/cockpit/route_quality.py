@@ -35,7 +35,7 @@ RECOVERY_STATES = [
     "retry_same_with_L3_target",
     "switch_to_fallback",
     "escalate_to_ultron",
-    "ask_USER",
+    "ask_user",
     "mark_route_degraded",
 ]
 

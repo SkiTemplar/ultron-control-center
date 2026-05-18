@@ -31,7 +31,7 @@ VALID_EVENT_TYPES = {
     "persona_invoked", "plugin_invoked",
     "tool_call", "memory_read", "memory_write",
     "dual_mode_start", "dual_mode_end",
-    "error", "escalation", "USER_signal",
+    "error", "escalation", "user_signal",
 }
 
 

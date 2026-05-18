@@ -159,7 +159,7 @@ function Show-Help {
     Write-Host "EXAMPLES:" -ForegroundColor Yellow
     Write-Host "  ultron status"
     Write-Host "  ultron ask que es Mythos"
-    Write-Host "  ultron open tortunabo"
+    Write-Host "  ultron open my-project"
     Write-Host "  ultron claude               # (otra ventana, sesion interactiva)"
     Write-Host "  ultron pause 2              # 2h sin que corran crons"
     Write-Host "  ultron schedule install"

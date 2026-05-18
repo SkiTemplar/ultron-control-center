@@ -9,7 +9,7 @@
 // Backup root resolution order (v15.2 F7):
 //   1. ~/.ultron/.tmp/backup-root.txt (user-configured via Settings UI)
 //   2. $ULTRON_BACKUP_ROOT (env override — matches weekly-backup.ps1)
-//   3. D:\BACKUP if the disk is mounted (USER's primary setup)
+//   3. D:\BACKUP if the disk is mounted (common secondary-drive convention)
 //   4. %USERPROFILE%\BACKUP (default for fresh installs)
 
 use std::fs;
@@ -63,7 +63,7 @@ fn backup_root() -> PathBuf {
             return PathBuf::from(v);
         }
     }
-    // 3. D:\BACKUP if available (USER's primary setup, v15.1.6)
+    // 3. D:\BACKUP if available (common secondary-drive convention, v15.1.6)
     let d_drive = PathBuf::from(r"D:\BACKUP");
     if d_drive.exists() {
         return d_drive;

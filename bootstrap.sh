@@ -32,6 +32,10 @@ REPO="SkiTemplar/ultron"
 INSTALL_DIR="${HOME}/.ultron"
 SKIP_INSTALLER=0
 DRY_RUN=0
+# v15.5.14: refuse to extract an unsigned ZIP unless the caller explicitly
+# opts in. Default OFF preserves supply-chain integrity in the (rare) case
+# where the release maintainer forgot to publish the .sha256 sidecar.
+ALLOW_UNSIGNED_ZIP=0
 
 usage() {
     cat <<EOF
@@ -41,17 +45,21 @@ Usage: bootstrap.sh [options]
   --install-dir <path>      Where to extract the system ZIP (default: ${INSTALL_DIR})
   --skip-installer          Don't download/install the Control Center desktop app
   --dry-run                 Print planned actions, don't touch the disk
+  --allow-unsigned-zip      Proceed even when the release has no .sha256 sidecar
+                            (NOT recommended; the integrity check is your only
+                            guard against a tampered/partial download)
   -h, --help                This message
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --repo)            REPO="$2"; shift 2 ;;
-        --install-dir)     INSTALL_DIR="$2"; shift 2 ;;
-        --skip-installer)  SKIP_INSTALLER=1; shift ;;
-        --dry-run)         DRY_RUN=1; shift ;;
-        -h|--help)         usage; exit 0 ;;
+        --repo)               REPO="$2"; shift 2 ;;
+        --install-dir)        INSTALL_DIR="$2"; shift 2 ;;
+        --skip-installer)     SKIP_INSTALLER=1; shift ;;
+        --dry-run)            DRY_RUN=1; shift ;;
+        --allow-unsigned-zip) ALLOW_UNSIGNED_ZIP=1; shift ;;
+        -h|--help)            usage; exit 0 ;;
         *) echo "Unknown flag: $1" >&2; usage; exit 64 ;;
     esac
 done
@@ -254,7 +262,13 @@ if [[ -n "${SHA_URL:-}" && "$DRY_RUN" -eq 0 ]]; then
         exit 5
     fi
 elif [[ -z "${SHA_URL:-}" ]]; then
-    warn "Release $TAG does not include ${EXPECTED_ZIP}.sha256 — proceeding WITHOUT integrity check."
+    if [[ "$ALLOW_UNSIGNED_ZIP" -eq 1 ]]; then
+        warn "Release $TAG does not include ${EXPECTED_ZIP}.sha256 — proceeding WITHOUT integrity check (--allow-unsigned-zip)."
+    else
+        err "Release $TAG does not include ${EXPECTED_ZIP}.sha256 and --allow-unsigned-zip was NOT passed."
+        err "Refusing to extract an unsigned ZIP. Re-run with --allow-unsigned-zip to bypass (NOT recommended)."
+        exit 5
+    fi
 fi
 
 # ─── 4. extract over INSTALL_DIR ────────────────────────────────────────────

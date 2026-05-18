@@ -9,7 +9,7 @@ window + native Google Search integration for rich AI news research.
 Usage:
     ultron research                # default: weekly digest, ~12 items
     ultron research --topic X      # focused research on specific topic
-    ultron research --priority     # only USER's priority keywords
+    ultron research --priority     # only user priority keywords
 
 Output: ~/.ultron/cockpit/news/research-YYYY-MM-DD.md
 
@@ -93,7 +93,7 @@ Output a STRUCTURED MARKDOWN digest with EXACTLY this format (no preamble, no af
 - **Date:** {{YYYY-MM-DD}}
 - **URL:** {{full URL}}
 - **What:** {{2-3 lines, factual, no fluff}}
-- **Impact for USER's stack:** {{1 line: how this affects Claude/Codex/Gemini setup, or "neutral" if no impact}}
+- **Impact for the user's stack:** {{1 line: how this affects Claude/Codex/Gemini setup, or "neutral" if no impact}}
 
 ### 2. ...
 

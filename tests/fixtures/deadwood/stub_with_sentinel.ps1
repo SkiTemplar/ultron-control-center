@@ -7,7 +7,7 @@
 #   reason: auth_vault.py removed in v12.5 cockpit reorg
 #   replaced-by: Windows Credential Manager (cmdkey)
 #   remove-after: 2099-01-01
-#   owner: USER
+#   owner: maintainer
 "auth" {
     Write-Host "ultron auth: removed in v12.5" -ForegroundColor Yellow
     exit 1

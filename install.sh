@@ -42,11 +42,18 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-readonly ULTRON_VERSION="v15.5.14"
+readonly ULTRON_VERSION="v15.5.15"
 readonly QDRANT_VERSION="v1.18.0"
 # Native Linux x86_64 tarball from the official qdrant/qdrant GitHub release.
 readonly QDRANT_TARBALL="qdrant-x86_64-unknown-linux-gnu.tar.gz"
 readonly QDRANT_URL="https://github.com/qdrant/qdrant/releases/download/${QDRANT_VERSION}/${QDRANT_TARBALL}"
+# TODO: pin Linux Qdrant SHA — fetch from
+#   https://github.com/qdrant/qdrant/releases/tag/v1.18.0
+# Override at runtime with:  ULTRON_QDRANT_SHA=<sha256> ./install.sh
+# When empty we warn + skip verification (current behaviour, matches the
+# zero-check baseline). The verification scaffolding below is wired in
+# install_qdrant() so the moment a SHA is supplied, integrity gating is on.
+QDRANT_SHA256="${ULTRON_QDRANT_SHA:-}"
 readonly NODE_MIN_MAJOR=22
 
 # Resolve the directory this script lives in (the repo root) without relying on
@@ -551,8 +558,8 @@ install_claude() {
 # ~/.ultron/qdrant-native/qdrant, chmod +x, and seed a minimal config.
 #
 # Unlike install.ps1 we don't pin a SHA256 — the Linux release zip is not yet
-# part of the install.ps1 hardening matrix and pinning one without USER's
-# explicit say-so risks breaking future Qdrant bumps. Flagged in the summary.
+# part of the install.ps1 hardening matrix and pinning one without the
+# maintainer's explicit say-so risks breaking future Qdrant bumps. Flagged in the summary.
 # ---------------------------------------------------------------------------
 install_qdrant() {
     step "5. Qdrant native (no Docker)"
@@ -573,6 +580,27 @@ install_qdrant() {
         local tmp_tar="/tmp/${QDRANT_TARBALL}"
         info "downloading ${QDRANT_URL}"
         curl -fSL --retry 3 -o "$tmp_tar" "$QDRANT_URL"
+        # Optional SHA256 verification — mirrors install.ps1's pinned check.
+        # When QDRANT_SHA256 is set (env or future hard-coded constant), the
+        # download is verified; mismatch aborts before we extract. When empty,
+        # we warn + continue so the installer keeps working before a maintainer
+        # pins the SHA — same end-state as pre-v15.5.14.
+        if [[ -n "$QDRANT_SHA256" ]]; then
+            local actual_sha
+            actual_sha="$(sha256sum "$tmp_tar" | awk '{print tolower($1)}')"
+            local expected_sha
+            expected_sha="$(printf '%s' "$QDRANT_SHA256" | tr '[:upper:]' '[:lower:]')"
+            if [[ "$actual_sha" != "$expected_sha" ]]; then
+                fail "Qdrant tarball SHA256 mismatch — refusing to extract"
+                fail "  expected: ${expected_sha}"
+                fail "  actual:   ${actual_sha}"
+                rm -f "$tmp_tar"
+                return 1
+            fi
+            ok "Qdrant SHA256 verified: ${actual_sha}"
+        else
+            warn "Qdrant SHA256 not pinned (set ULTRON_QDRANT_SHA=<sha> to gate)"
+        fi
         info "extracting to ${native_dir}"
         tar -xzf "$tmp_tar" -C "$native_dir"
         rm -f "$tmp_tar"
@@ -1158,6 +1186,7 @@ print_summary() {
     fi
     echo ""
     echo " next steps:"
+    echo "   cd ${INSTALL_ROOT} && uv sync                 # provision .venv for hooks"
     echo "   claude login                                  # authenticate Claude"
     echo "   ${INSTALL_ROOT}/qdrant-native/qdrant \\"
     echo "       --config-path ${INSTALL_ROOT}/qdrant-native/config/production.yaml"
