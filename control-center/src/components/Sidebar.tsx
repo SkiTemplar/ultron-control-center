@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import type { GlobalStatus } from "../types";
+import { invoke } from "@tauri-apps/api/core";
+import type { GapsReport, GlobalStatus } from "../types";
 import { statusColor, statusLabel } from "../lib/status";
 import { useFeatures, type Features } from "../lib/features";
 
@@ -155,16 +156,24 @@ type Props = {
 // v15.3 — extracted button so both the primary sections and the
 // collapsible "More" group render identical chrome. Disabled items
 // still render with the "soon" hint exactly like before.
+//
+// v15.5.16 internal-review-note: optional `badgeCount` renders a small notification
+// chip on the top-right (red when >0, hidden when 0). Used by the
+// Dashboard tab to surface the pending-items count without forcing the
+// user to open the tab first.
 function SidebarButton({
   item,
   active,
   onSelect,
+  badgeCount,
 }: {
   item: Item;
   active: boolean;
   onSelect: (t: Tab) => void;
+  badgeCount?: number;
 }) {
   const dim = false;
+  const showBadge = typeof badgeCount === "number" && badgeCount > 0;
   return (
     <button
       key={item.id}
@@ -190,9 +199,22 @@ function SidebarButton({
         if (!active)
           (e.currentTarget as HTMLButtonElement).style.background = "transparent";
       }}
+      title={showBadge ? `${badgeCount} pending item${badgeCount === 1 ? "" : "s"}` : undefined}
     >
       <span>{item.label}</span>
-      {dim && (
+      {showBadge && (
+        <span
+          className="ml-2 inline-flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums"
+          style={{
+            background: "var(--color-danger)",
+            color: "#fff",
+            lineHeight: 1,
+          }}
+        >
+          {badgeCount > 99 ? "99+" : badgeCount}
+        </span>
+      )}
+      {dim && !showBadge && (
         <span
           className="text-[10px]"
           style={{ color: "var(--color-text-faint)" }}
@@ -207,6 +229,30 @@ function SidebarButton({
 export function Sidebar({ active, onSelect, globalStatus }: Props) {
   const { features } = useFeatures();
   const [moreOpen, setMoreOpen] = useState<boolean>(loadMoreOpen());
+
+  // v15.5.16 internal-review-note: poll the same detect_gaps source the Dashboard
+  // PendingItemsPanel uses, then surface the count as a red chip on the
+  // Dashboard tab. Polled every 60s — light (one Rust invoke that re-runs
+  // a Python script that takes ~150 ms). Failures stay silent so a broken
+  // hook never breaks the sidebar.
+  const [pendingCount, setPendingCount] = useState<number>(0);
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const r = await invoke<GapsReport>("run_detect_gaps");
+        if (!cancelled) setPendingCount(r?.count ?? 0);
+      } catch {
+        if (!cancelled) setPendingCount(0);
+      }
+    }
+    void load();
+    const t = setInterval(load, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   // v15.3 — auto-expand "More" if the active tab lives inside it, otherwise
   // selecting a more-tier item via the command palette would visually flag
@@ -295,6 +341,7 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
                     item={item}
                     active={active === item.id}
                     onSelect={onSelect}
+                    badgeCount={item.id === "dashboard" ? pendingCount : undefined}
                   />
                 ))}
               </div>

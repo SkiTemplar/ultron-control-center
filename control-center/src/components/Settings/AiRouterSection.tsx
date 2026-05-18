@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { confirmDialog } from "../../lib/dialog";
 import type { AgentInfo } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -491,9 +492,10 @@ export function AiRouterSection() {
               type="button"
               onClick={async () => {
                 if (
-                  !window.confirm(
-                    "Reset every zone to ULTRON's recommended provider + model + agent? Your current overrides will be lost."
-                  )
+                  !(await confirmDialog(
+                    "Reset every zone to ULTRON's recommended provider + model + agent? Your current overrides will be lost.",
+                    { title: "Reset AI Router", kind: "warning" },
+                  ))
                 ) {
                   return;
                 }

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { confirmDialog } from "../lib/dialog";
 import type {
   QdrantHealth,
   AlertEntry,
@@ -645,8 +646,9 @@ export function Dashboard({
     if (fixSelected.size === 0) return;
     // Extra confirm for the destructive one.
     if (fixSelected.has("empty-recycle-bin")) {
-      const ok = window.confirm(
+      const ok = await confirmDialog(
         "This will permanently empty the Recycle Bin on all drives. Continue?",
+        { title: "Empty Recycle Bin", kind: "warning" },
       );
       if (!ok) return;
     }
@@ -782,10 +784,11 @@ export function Dashboard({
     // `app.exit(0)` on the Rust side so file locks are freed and the
     // global hotkey listener stops. Useful right before a Rebuild so
     // the new binary can overwrite the running .exe.
-    const ok = window.confirm(
+    const ok = await confirmDialog(
       "Close ULTRON Control Center?\n\n" +
         "This fully exits the app (not just minimize to tray). " +
         "Global hotkeys stop working until you relaunch.",
+      { title: "Close Control Center", kind: "warning" },
     );
     if (!ok) return;
     try {
@@ -859,6 +862,15 @@ export function Dashboard({
           statusDot={brainDot}
         />
       </div>
+
+      {/*
+        v15.5.16 internal-review-note: PendingItemsPanel relocated ABOVE Full diagnostic
+        so open loops (skill drift, idle plans, stale backups, quarantined
+        skills, un-acked critical alerts) are the first thing visible on
+        Dashboard load — owner reported never scrolling far enough to see
+        the original below-the-fold placement.
+      */}
+      <PendingItemsPanel />
 
       {/* Full diagnostic — replaces the old "ultron status" quick check */}
       <section className="mt-8">
@@ -971,8 +983,6 @@ export function Dashboard({
       </section>
 
       <MaintenancePanel />
-
-      <PendingItemsPanel />
 
       {/* PC Diagnostics (existing) + Auto-fix entry point */}
       <section className="mt-8">

@@ -44,6 +44,30 @@ if [[ ! -t 0 ]]; then
         | sed -E 's/.*"session_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 fi
 
+# Inlined session-log (v15.5.16 internal-review-note) — folded in from
+# scripts/hooks/session-log.py. Writes ONE human-readable line per session-end
+# to ~/.ultron/sessions/YYYY-MM-DD.md (top-level file, separate from
+# YYYY-MM-DD/replay.jsonl). Runs BEFORE debounce because the original
+# session-log.py was a separate hook process — debounce only applied to
+# the heavy memory-sync work, not to the per-day human log.
+{
+    SESSIONS_DIR="${HOME}/.ultron/sessions"
+    mkdir -p "$SESSIONS_DIR" 2>/dev/null || true
+    TODAY="$(date '+%Y-%m-%d')"
+    SESSION_MD="${SESSIONS_DIR}/${TODAY}.md"
+    if [[ ! -f "$SESSION_MD" ]]; then
+        printf '# Sessions log — %s\n\n' "$TODAY" > "$SESSION_MD" 2>/dev/null || true
+    fi
+    STAMP="$(date '+%H:%M:%S')"
+    if [[ -n "$STDIN_SID" ]]; then
+        SID_SHORT="${STDIN_SID:0:8}"
+    else
+        SID_SHORT="?"
+    fi
+    printf -- '- %s · session %s · cwd `%s`\n' "$STAMP" "$SID_SHORT" "$(pwd)" \
+        >> "$SESSION_MD" 2>/dev/null || true
+} || true
+
 # Debounce — same session_id within DEBOUNCE_WINDOW seconds = skip.
 if [[ -n "$STDIN_SID" && -r "$DEBOUNCE_PATH" ]]; then
     LAST_SID="$(grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]+"' "$DEBOUNCE_PATH" 2>/dev/null \
@@ -170,6 +194,20 @@ HIGHLIGHTS="${COCKPIT}/session_highlights.py"
 if [[ -f "$HIGHLIGHTS" ]]; then
     timeout 10 $PY "$HIGHLIGHTS" extract-recent --limit 3 >/dev/null 2>&1 || true
     timeout 10 $PY "$HIGHLIGHTS" prime --max 5 >/dev/null 2>&1 || true
+fi
+
+# Inlined session-cleanup (v15.5.16 internal-review-note) — folded in from
+# scripts/hooks/session-cleanup.sh. Trims ephemeral state under ~/.ultron/.tmp/
+# that should not survive past session end + truncates per-session rolling logs.
+# Best-effort, never blocks Stop.
+if [[ -d "$TMP_DIR" ]]; then
+    for f in current-session.json current-session-mode.json; do
+        rm -f "${TMP_DIR}/${f}" 2>/dev/null || true
+    done
+    for log in brain_update mcp_health generate_L0; do
+        : > "${TMP_DIR}/${log}.log" 2>/dev/null || true
+        : > "${TMP_DIR}/${log}_err.log" 2>/dev/null || true
+    done
 fi
 
 exit 0

@@ -17,7 +17,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.16-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.17-44cc11.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Built on Claude Code" src="https://img.shields.io/badge/built%20on-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Stage" src="https://img.shields.io/badge/stage-public%20beta-orange.svg" />
@@ -186,7 +186,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > The URL above resolves to whatever is on `main` *right now*. If you want a
 > reproducible install pinned to a specific release, point at the tag instead:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.16/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.17/bootstrap.ps1 | iex
 > ```
 > The release also ships an `ultron-system-<tag>.zip.sha256` you can use to
 > verify the system ZIP after download.
@@ -225,7 +225,7 @@ What `bootstrap.sh` does:
 Linux releases ship both `ultron-control-center_<ver>_amd64.deb` and `ULTRON Control Center_<ver>_amd64.AppImage` alongside the Windows installers. Pin to a specific release the same way as Windows:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.16/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.17/bootstrap.sh | bash
 ```
 
 `install.sh` may invoke `sudo` for the package-manager step; everything else is per-user. WSL is detected and warned against (use the native Windows path under WSL).
@@ -406,7 +406,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 ## Release notes
 
-Current stable: **[v15.5.16](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.16)** — ULTRA sweep Round 2: routing dispatcher hits 95% on the new 20-prompt macro-test (5 personal personas + 2 ambiguity rules added), `~50` files of personal-info leakage scrubbed, `docs/MAINTAINERS.md` + `docs/RELEASE-CHECKLIST.md` added, `scripts/qdrant/` split out from `scripts/hooks/`, `scripts/install.{ps1,sh}` legacy duplicates archived to `_legacy/`, SYSTEM-MAP lazy-load (~−1660 tok/session-start), and the em-dash routing-line leak fix. The Linux blockers from v15.5.13 (`((counter++))` under `set -e` + `$NONINTERACTIVE` typo) shipped fixed in v15.5.14; v15.5.15 polishes everything that pass uncovered. Ships `.deb` + `.AppImage` alongside the Windows NSIS / MSI; the CI matrix on `ubuntu-22.04` is green and `version_propagate.py --check` is enforced at PR time. Linux build remains **unverified end-to-end** by the author — testers wanted, please open an issue if you try it.
+Current stable: **[v15.5.17](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.17)** — ULTRA sweep Round 2: routing dispatcher hits 95% on the new 20-prompt macro-test (5 personal personas + 2 ambiguity rules added), `~50` files of personal-info leakage scrubbed, `docs/MAINTAINERS.md` + `docs/RELEASE-CHECKLIST.md` added, `scripts/qdrant/` split out from `scripts/hooks/`, `scripts/install.{ps1,sh}` legacy duplicates archived to `_legacy/`, SYSTEM-MAP lazy-load (~−1660 tok/session-start), and the em-dash routing-line leak fix. The Linux blockers from v15.5.13 (`((counter++))` under `set -e` + `$NONINTERACTIVE` typo) shipped fixed in v15.5.14; v15.5.15 polishes everything that pass uncovered. Ships `.deb` + `.AppImage` alongside the Windows NSIS / MSI; the CI matrix on `ubuntu-22.04` is green and `version_propagate.py --check` is enforced at PR time. Linux build remains **unverified end-to-end** by the author — testers wanted, please open an issue if you try it.
 
 Previous stable: **v15.5.14** — Linux install.sh blockers fixed (first reproducible end-to-end Linux install), version drift CI guard, `_section_USER()` → `_section_user()`, Projects.tsx placeholders neutralized.
 

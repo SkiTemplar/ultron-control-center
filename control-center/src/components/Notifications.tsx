@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { AlertEntry } from "../types";
 import { getUltronRoot } from "../lib/paths";
+import { confirmDialog } from "../lib/dialog";
 
 type Props = {
   alerts: AlertEntry[];
@@ -855,8 +856,9 @@ export function Notifications({ alerts, onDeleted }: Props) {
               type="button"
               onClick={async () => {
                 if (deleting || visibleGroups.length === 0) return;
-                const ok = window.confirm(
-                  `Eliminar permanentemente ${visibleGroups.length} notificacion${visibleGroups.length === 1 ? "" : "es"} (incluyendo critical y warn)?`
+                const ok = await confirmDialog(
+                  `Eliminar permanentemente ${visibleGroups.length} notificacion${visibleGroups.length === 1 ? "" : "es"} (incluyendo critical y warn)?`,
+                  { title: "Clear all notifications", kind: "warning" },
                 );
                 if (!ok) return;
                 const fps = visibleGroups.map((g) => groupKey(g));

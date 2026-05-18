@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
+# === maintainer-only as of v15.5.16 (folded into stop-memory-sync.{ps1,sh}) ===
 """
-ULTRON HOOK · session-log · v1.0
-Append una línea por sesión a `~/.ultron/sessions/YYYY-MM-DD.md` cuando termina (Stop event).
+ULTRON HOOK · session-log · v1.0  (DEPRECATED for live hook use)
 
-Uso en ~/.claude/settings.json:
+As of v15.5.16 (internal-review-note consolidation) this script is NO LONGER wired into
+the Stop hook chain. Its single behavior — appending one human-readable line
+per session-end to `~/.ultron/sessions/YYYY-MM-DD.md` — is now inlined at the
+top of `scripts/hooks/stop-memory-sync.{ps1,sh}` so the Stop chain spends one
+fewer Python process per session.
+
+The script is kept on disk so it can still be invoked manually by maintainers
+when backfilling a missing per-day log, and so any out-of-tree dotfile that
+references it does not break. See `docs/MAINTAINERS.md`.
+
+Original wiring (pre-v15.5.16):
 {
   "hooks": {
     "Stop": [{

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { confirmDialog } from "../lib/dialog";
 import { KnownSection } from "./personal/KnownSection";
 import { ProfileSection } from "./personal/ProfileSection";
 import { StyleSection } from "./personal/StyleSection";
@@ -105,8 +106,9 @@ export function Personal() {
   }
 
   async function generateAnalysis() {
-    const confirmed = window.confirm(
+    const confirmed = await confirmDialog(
       "Esto abrirá una sesión externa de Claude Code (terminal aparte) con permisos completos para leer ~/.claude/projects, MEMORY.md y git history. La sesión escribirá un análisis en ~/.ultron/personal/known.json.\n\n¿Continuar?",
+      { title: "Generar análisis personal", kind: "info" },
     );
     if (!confirmed) return;
     setAnalyzing(true);

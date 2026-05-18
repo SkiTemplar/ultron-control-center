@@ -2,6 +2,7 @@ import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { check as checkForUpdate, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { confirmDialog } from "../../lib/dialog";
 
 // ---------------------------------------------------------------------------
 // LifecyclePanel — Uninstall + Update buttons. Both spawn wt.exe in a new
@@ -68,7 +69,7 @@ export function LifecyclePanel() {
         : "Close ULTRON Control Center?\n\n" +
           "This fully exits the app (not just minimize to tray). " +
           "Global hotkeys stop working until you relaunch.";
-    const ok = window.confirm(msg);
+    const ok = await confirmDialog(msg, { title: "Close Control Center", kind: "warning" });
     if (!ok) return;
     try {
       await invoke("close_control_center");

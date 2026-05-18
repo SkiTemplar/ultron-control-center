@@ -287,6 +287,63 @@ def _last_recall_path() -> Path:
     return Path.home() / ".ultron" / ".tmp" / "last-recall.json"
 
 
+def _activity_log_path() -> Path:
+    """Permanent counter log so chronic silence becomes visible.
+
+    v15.5.16 eval-5 H4 fix: the hook used to be observable only via
+    `last-recall.json` (single-snapshot, overwritten each fire) and the
+    fired-sessions set (no fire reason, no per-fire detail). The eval flagged
+    that ``~/.ultron/telemetry/recall-events.jsonl`` was stale since
+    2026-05-10 — but that file is actually written by hybrid_retriever.py
+    (a different code path). Auto-recall itself had no append-only trail,
+    so a regression here was invisible.
+
+    One line per fire mirrors ~/.ultron/logs/stop-memory-sync.log:
+        [YYYY-MM-DD HH:MM:SS] fire reason=<...> hits=N skill=Y/N agents=K vault_skills=K vault_agents=K
+    """
+    return Path.home() / ".ultron" / "logs" / "auto-recall.log"
+
+
+def _log_fire(reason: str, hits: list[dict], skill_match: dict | None,
+              agent_matches: list[dict] | None, vault_skills: list[dict],
+              vault_agents: list[dict]) -> None:
+    """Append one line per fire. Failures stay silent — never block."""
+    try:
+        p = _activity_log_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        line = (
+            f"[{ts}] fire reason={reason} "
+            f"hits={len(hits)} "
+            f"skill={'Y' if skill_match else 'N'} "
+            f"agents={len(agent_matches or [])} "
+            f"vault_skills={len(vault_skills)} "
+            f"vault_agents={len(vault_agents)}\n"
+        )
+        with p.open("a", encoding="utf-8") as fh:
+            fh.write(line)
+    except Exception:
+        pass
+
+
+def _log_silent(reason: str) -> None:
+    """Same log, but for silent-exit paths. Lets us see WHY recall didn't fire.
+
+    Reasons are short tokens (kill_switch, invalid_stdin, slash_or_short,
+    already_fired, runtime_cap, no_matches, fastembed_missing, qdrant_down)
+    so `grep reason= ~/.ultron/logs/auto-recall.log | sort | uniq -c` is
+    enough to diagnose chronic regressions.
+    """
+    try:
+        p = _activity_log_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now(timezone.utc).astimezone().strftime("%Y-%m-%d %H:%M:%S")
+        with p.open("a", encoding="utf-8") as fh:
+            fh.write(f"[{ts}] silent reason={reason}\n")
+    except Exception:
+        pass
+
+
 def _load_fired() -> set[str]:
     p = _state_path()
     if not p.exists():
@@ -643,6 +700,9 @@ def main() -> int:
     _log("knob", knob)
     if knob in ("0", "false", "no", "off"):
         _log("exit", "kill_switch")
+        # v15.5.16: log kill-switch silently — diagnoses "why no recall?"
+        # without flooding the log on every prompt.
+        _log_silent("kill_switch")
         return EXIT_SILENT
 
     # Read stdin payload through the shared hook validator. Malformed JSON is
@@ -705,11 +765,28 @@ def main() -> int:
     # v15.3.5: agent matches alone are a valid reason to surface.
     # v15.4.14: vault hints alone are also a valid reason.
     if not hits and not skill_match and not agent_matches and not vault_skills and not vault_agents:
+        # v15.5.16: distinguish "ran but found nothing" from "didn't run".
+        # If _do_recall returned None (fastembed/Qdrant missing) hits is None,
+        # so use that to discriminate the root cause.
+        _log_silent("fastembed_or_qdrant_unavailable" if hits is None else "no_matches")
         return EXIT_SILENT
 
     # Persist for downstream introspection (TUI dashboard, future tools).
     _save_last_recall(prompt, hits or [], skill_match=skill_match)
     _save_last_skill_match(prompt, skill_match)
+
+    # v15.5.16: counter telemetry — one line per real fire. Lets future
+    # `grep '] fire ' ~/.ultron/logs/auto-recall.log | wc -l` answer
+    # "is auto-recall still alive?" without depending on the unrelated
+    # recall-events.jsonl produced by hybrid_retriever.py.
+    _log_fire(
+        reason="always" if knob == "always" else "first_turn",
+        hits=hits or [],
+        skill_match=skill_match,
+        agent_matches=agent_matches,
+        vault_skills=vault_skills,
+        vault_agents=vault_agents,
+    )
 
     # Inject as system-reminder via stderr + exit 2
     reminder = _format_reminder(

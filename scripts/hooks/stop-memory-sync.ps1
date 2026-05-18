@@ -35,6 +35,29 @@ function Write-Log {
     Add-Content -Path $logFile -Value "[$ts] $msg" -Encoding UTF8 -ErrorAction SilentlyContinue
 }
 
+# ── Inlined session-log (v15.5.16 internal-review-note) ─────────────────────────────────
+# Folded in from scripts/hooks/session-log.py. Writes ONE human-readable line per
+# session-end to ~/.ultron/sessions/YYYY-MM-DD.md (top-level file, separate from
+# the YYYY-MM-DD/replay.jsonl that session_replay.py owns). Runs BEFORE debounce
+# because the original session-log.py was a separate hook process — debounce
+# only applied to the heavy memory-sync work, not to the human-readable per-day log.
+try {
+    $today = Get-Date -Format "yyyy-MM-dd"
+    $sessionsDir = "$env:USERPROFILE\.ultron\sessions"
+    if (-not (Test-Path $sessionsDir)) {
+        New-Item -ItemType Directory -Force -Path $sessionsDir -ErrorAction SilentlyContinue | Out-Null
+    }
+    $sessionMd = Join-Path $sessionsDir "$today.md"
+    if (-not (Test-Path $sessionMd)) {
+        Set-Content -Path $sessionMd -Value "# Sessions log — $today`n" -Encoding UTF8 -ErrorAction SilentlyContinue
+    }
+    $stampHHMMSS = Get-Date -Format "HH:mm:ss"
+    $sidShort = if ($stdinSessionId) { $stdinSessionId.Substring(0, [Math]::Min(8, $stdinSessionId.Length)) } else { "?" }
+    $cwdHere = (Get-Location).Path
+    $line = "- $stampHHMMSS · session $sidShort · cwd ``$cwdHere``"
+    Add-Content -Path $sessionMd -Value $line -Encoding UTF8 -ErrorAction SilentlyContinue
+} catch { <# best-effort, never block Stop #> }
+
 # ── Debounce — prevent per-tool-call refire (Auditor 2 finding) ───────────────
 # Stop hook was firing 6× in 62 minutes for the same session → multiplied
 # brain_index updates, push-async spawns, and Codex compactor calls.
@@ -417,6 +440,25 @@ try {
 } catch {
     Write-Log "doctor weekly exception: $($_.Exception.Message)"
 }
+
+# ── Inlined session-cleanup (v15.5.16 internal-review-note) ─────────────────────────────
+# Folded in from scripts/hooks/session-cleanup.ps1. Removes empty plugin/data
+# dirs that the CC harness re-mkdirs on each hook fire (Windows-only EEXIST
+# bug), and prunes session-env dirs older than 2 days. Cheap, no Python spawn.
+try {
+    $pluginDataDir = "$env:USERPROFILE\.claude\plugins\data"
+    if (Test-Path $pluginDataDir) {
+        Get-ChildItem $pluginDataDir -Directory -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    $sessionEnvDir = "$env:USERPROFILE\.claude\session-env"
+    if (Test-Path $sessionEnvDir) {
+        $cutoff = (Get-Date).AddDays(-2)
+        Get-ChildItem $sessionEnvDir -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTime -lt $cutoff } |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+    }
+} catch { <# best-effort, never block Stop #> }
 
 # Always succeed — never block Stop event
 exit 0

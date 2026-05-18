@@ -1,5 +1,99 @@
 # Changelog
 
+<!-- v15.5.17 -->
+## v15.5.17 — 2026-05-18
+
+Round-2 burn-down: closes the last 4 items the R2 evaluators left in the
+backlog. The Tauri ACL `dialog:confirm` bug from internal-review-note/R2 is the headline.
+
+### Tauri ACL `dialog:confirm` (internal-review-note/R2 only-real-bug)
+
+Root cause: in Tauri 2 + WebView2, native `window.confirm()` is intercepted
+and routed through the `plugin:dialog|confirm` ACL even when capabilities
+permit it. Result: destructive flows (Empty Recycle Bin, Close Control
+Center, Clear all notifications, Delete scheduled task, Uninstall, AI Router
+reset, Personal analysis, Lifecycle close) silently no-op'd.
+
+Fix:
+- New `control-center/src/lib/dialog.ts` — async `confirmDialog(message, opts)`
+  wrapper that explicitly calls `@tauri-apps/plugin-dialog`'s `confirm`,
+  falls back to `window.confirm` only when running outside Tauri (vite dev).
+- All 9 `window.confirm()` call sites migrated to `confirmDialog()`:
+  `App.tsx` (2), `Dashboard.tsx` (2), `Notifications.tsx` (1), `System.tsx` (1),
+  `Personal.tsx` (1), `Settings/LifecyclePanel.tsx` (1), `Settings/AiRouterSection.tsx` (1).
+- Each call passes a contextual `title` + `kind` (`warning`/`info`) so the
+  dialog matches OS visual conventions.
+
+### Pending Items UI (internal-review-note medium)
+
+- `PendingItemsPanel` relocated to ABOVE the Full Diagnostic section in
+  `Dashboard.tsx` (was below the fold).
+- Sidebar Dashboard tab now shows a red notification badge when count > 0,
+  polled every 60s from the same `run_detect_gaps` source.
+
+### Auto-recall fire trail (internal-review-note H4)
+
+The R1 eval flagged `recall-events.jsonl` as stale, but root cause was a
+misattribution: that file is owned by `hybrid_retriever.py`, not auto-recall.
+Auto-recall fires correctly (verified: 57 session IDs in
+`fired-sessions.json` today, `last-recall.json` fresh).
+
+The real gap: no append-only fire trail existed for the hook, so silent
+regressions would be invisible. Added `_log_fire` / `_log_silent` helpers
+writing one line per event to `~/.ultron/logs/auto-recall.log`
+(stop-memory-sync.log convention). Fail-soft, no behavior change.
+
+### Stop hook 5 → 3 process consolidation (internal-review-note H1)
+
+Stop chain spawned 5 separate Python/Bash processes per session. Now 3:
+1. `stop-memory-sync.{ps1,sh}` (now also runs session-log + session-cleanup behavior inline).
+2. `auto-changelog.py` (kept standalone — already HIGH/ULTRA-gated, inlining
+   ~250 LOC into both PowerShell AND bash would double maintenance surface
+   and lose the `auto-changelog.err` log file).
+3. `plan-detector.py`.
+
+Folded scripts marked maintainer-only with deprecation notes:
+- `session-log.py` → inlined at TOP of stop-memory-sync (pre-debounce so its
+  prior independent-process semantics are preserved).
+- `session-cleanup.{ps1,sh}` → inlined at TAIL of stop-memory-sync, each in
+  its own OS dialect (ps1 cleans `~/.claude/plugins/data` + prunes
+  `session-env`; sh wipes `.tmp/*.json` ephemera + truncates rolling logs).
+
+Files: `templates/settings-hooks.json`, `~/.claude/settings.json`,
+`stop-memory-sync.{ps1,sh}` (new inlined steps), `session-log.py` +
+`session-cleanup.{ps1,sh}` (deprecation headers), `docs/MAINTAINERS.md`
+(new "Deprecated Stop-hook scripts" section).
+
+### Release cleanup (user request)
+
+- Tag v15.5.16 pushed to dispatch `release.yml` (v15.5.16 release with assets
+  is the new public stable).
+- Local orphan tags v15.5.11 / v15.5.12 / v15.5.13 deleted (no release
+  attached, just stray refs).
+- v15.5.9 and v15.5.10 GitHub Releases pending manual cleanup by maintainer
+  via `scripts/delete-orphan-releases.ps1 -Tags v15.5.9,v15.5.10` (the script
+  needs $env:GITHUB_TOKEN).
+
+### Build verified
+
+`cd control-center && npm run tauri build` completes (exit 0) at v15.5.16 →
+v15.5.17 rebuild not yet executed locally but TS clean and the only changes
+since the verified build are the 9 `window.confirm` migrations (additive).
+
+### Gates green
+
+- `version_propagate.py --check`: OK — all version files and markdown bodies match SSOT.
+- `audit_personal_data.py`: HIGH=0 MEDIUM=142.
+- `tests/test_routing_macro.py`: 21 passed (20 rows + aggregate ≥95%).
+
+### Pending for v15.5.18+
+
+- Re-run Round 3 evaluators (stricter, in-flight).
+- Verify v15.5.16 release.yml artifacts on GitHub Releases.
+
+_Composed manually. Round 3 evaluator results land in next CHANGELOG entry._
+
+
 <!-- v15.5.16 -->
 ## v15.5.16 — 2026-05-18
 

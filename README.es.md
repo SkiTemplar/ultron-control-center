@@ -18,7 +18,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.16-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.17-44cc11.svg" /></a>
   <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Construido sobre Claude Code" src="https://img.shields.io/badge/construido%20sobre-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Estado" src="https://img.shields.io/badge/estado-beta%20publica-orange.svg" />
@@ -187,7 +187,7 @@ iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/main/bootstrap.ps1
 > La URL de arriba apunta a lo que haya en `main` *ahora mismo*. Si quieres una
 > install reproducible fijada a una release concreta, usa el tag:
 > ```powershell
-> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.16/bootstrap.ps1 | iex
+> iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.17/bootstrap.ps1 | iex
 > ```
 > La release tambien adjunta `ultron-system-<tag>.zip.sha256` para verificar la
 > integridad del ZIP despues de descargarlo.
@@ -226,7 +226,7 @@ Qué hace `bootstrap.sh`:
 Las releases Linux adjuntan `ultron-control-center_<ver>_amd64.deb` y `ULTRON Control Center_<ver>_amd64.AppImage` junto a los instaladores Windows. Fija una release concreta igual que en Windows:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.16/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/refs/tags/v15.5.17/bootstrap.sh | bash
 ```
 
 `install.sh` puede invocar `sudo` para el paso del package manager; el resto es per-user. Si se detecta WSL, avisa y recomienda usar la ruta Windows nativa en su lugar.
@@ -396,7 +396,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ## Notas de release
 
-Stable actual: **[v15.5.16](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.16)** — ULTRA sweep Round 2: el dispatcher de routing alcanza 95% en el nuevo macro-test de 20 prompts (5 personas personales + 2 reglas de ambigüedad añadidas), ~50 ficheros de fugas de info personal scrubeados, `docs/MAINTAINERS.md` + `docs/RELEASE-CHECKLIST.md` añadidos, `scripts/qdrant/` separado de `scripts/hooks/`, los duplicados legacy de `scripts/install.{ps1,sh}` archivados en `_legacy/`, SYSTEM-MAP lazy-load (~−1660 tok/inicio de sesión) y fix del leak de em-dash en la routing-line. Los blockers de Linux de v15.5.13 (`((counter++))` bajo `set -e` + typo `$NONINTERACTIVE`) shippearon arreglados en v15.5.14; v15.5.15 puliza todo lo que la pasada destapó. Adjunta `.deb` + `.AppImage` junto al NSIS / MSI Windows; matriz CI en `ubuntu-22.04` en verde y `version_propagate.py --check` ya bloquea drift a nivel de PR. La build Linux sigue **sin verificar end-to-end** por el autor — buscamos testers, abre un issue si la pruebas.
+Stable actual: **[v15.5.17](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.17)** — ULTRA sweep Round 2: el dispatcher de routing alcanza 95% en el nuevo macro-test de 20 prompts (5 personas personales + 2 reglas de ambigüedad añadidas), ~50 ficheros de fugas de info personal scrubeados, `docs/MAINTAINERS.md` + `docs/RELEASE-CHECKLIST.md` añadidos, `scripts/qdrant/` separado de `scripts/hooks/`, los duplicados legacy de `scripts/install.{ps1,sh}` archivados en `_legacy/`, SYSTEM-MAP lazy-load (~−1660 tok/inicio de sesión) y fix del leak de em-dash en la routing-line. Los blockers de Linux de v15.5.13 (`((counter++))` bajo `set -e` + typo `$NONINTERACTIVE`) shippearon arreglados en v15.5.14; v15.5.15 puliza todo lo que la pasada destapó. Adjunta `.deb` + `.AppImage` junto al NSIS / MSI Windows; matriz CI en `ubuntu-22.04` en verde y `version_propagate.py --check` ya bloquea drift a nivel de PR. La build Linux sigue **sin verificar end-to-end** por el autor — buscamos testers, abre un issue si la pruebas.
 
 Stable anterior: **v15.5.14** — blockers de install.sh Linux arreglados (primera instalación reproducible end-to-end), CI guard de drift de versión, `_section_USER()` → `_section_user()`, placeholders LoL/Riot de Projects.tsx neutralizados.
 

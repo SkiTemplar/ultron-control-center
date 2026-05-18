@@ -31,11 +31,11 @@ behind the scenes.
 For reproducible installs pinned to a release tag, swap `main` for the tag:
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.16/bootstrap.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.17/bootstrap.ps1 | iex
 ```
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.16/bootstrap.sh | bash
+curl -fsSL https://raw.githubusercontent.com/SkiTemplar/ultron/v15.5.17/bootstrap.sh | bash
 ```
 
 ## Clone the repo (recommended for contributors)

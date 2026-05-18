@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { confirmDialog } from "../lib/dialog";
 import type {
   DeleteTaskResult,
   EditTaskResult,
@@ -458,8 +459,9 @@ function DetailPanel({
   }, [name]);
 
   async function handleDelete() {
-    const ok = window.confirm(
+    const ok = await confirmDialog(
       `Delete scheduled task "${name}"? This calls Unregister-ScheduledTask and cannot be undone.`,
+      { title: "Delete scheduled task", kind: "warning" },
     );
     if (!ok) return;
     setDeleteBusy(true);

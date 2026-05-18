@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { confirmDialog } from "./lib/dialog";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { Changelog } from "./components/Changelog";
@@ -346,9 +347,10 @@ export default function App() {
       label: "Close Control Center",
       description: "Fully exit the app (not minimize to tray). Frees file locks.",
       group: "Actions",
-      run: () => {
-        const ok = window.confirm(
+      run: async () => {
+        const ok = await confirmDialog(
           "Close ULTRON Control Center? Global hotkeys stop until you relaunch.",
+          { title: "Close Control Center", kind: "warning" },
         );
         if (ok) void runQuiet("Close Control Center", "close_control_center");
       },
@@ -486,9 +488,10 @@ export default function App() {
       label: "Uninstall ULTRON",
       description: "Run the uninstall script in a new window (asks for confirmation).",
       group: "System",
-      run: () => {
-        const ok = window.confirm(
+      run: async () => {
+        const ok = await confirmDialog(
           "Open the uninstaller? This walks you through removing ULTRON.",
+          { title: "Uninstall ULTRON", kind: "warning" },
         );
         if (ok)
           void runQuiet("Uninstall", "run_app_lifecycle", { kind: "uninstall" });
