@@ -221,6 +221,8 @@ pub fn run() {
             commands::settings::get_backup_root,
             commands::settings::set_backup_root,
             commands::settings::backup_status,
+            commands::settings::get_backup_sources,
+            commands::settings::set_backup_sources,
             // -- system / scheduled tasks --
             commands::system::list_scheduled_tasks,
             commands::system::run_scheduled_task,

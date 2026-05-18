@@ -8,7 +8,7 @@ import { AiRouterSection } from "./AiRouterSection";
 import { ButtonPromptsSection } from "./ButtonPromptsSection";
 import { FeaturesSection } from "./FeaturesSection";
 import { JsonEditor } from "./EditorSection";
-import { BackupRootEditor, DiskBackupStatus } from "./BackupsSection";
+import { BackupRootEditor, BackupSourcesEditor, DiskBackupStatus } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
 
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
@@ -223,6 +223,7 @@ export function Settings() {
         {section === "backups" && snapshot && (
           <div>
             <BackupRootEditor onChanged={() => { /* DiskBackupStatus refetches on mount */ }} />
+            <BackupSourcesEditor onChanged={() => { /* persisted to backup-config.json; scripts re-read on next run */ }} />
             <DiskBackupStatus />
             <p
               className="mb-3 mt-6 text-[12px]"

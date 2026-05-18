@@ -32,3 +32,15 @@ pub async fn set_backup_root(path: String) -> Result<backup_status::BackupRootIn
 pub async fn backup_status() -> Result<backup_status::BackupStatusReport, String> {
     backup_status::backup_status_inner()
 }
+
+#[tauri::command]
+pub async fn get_backup_sources() -> Result<backup_status::BackupSourcesInfo, String> {
+    backup_status::get_backup_sources_inner()
+}
+
+#[tauri::command]
+pub async fn set_backup_sources(
+    sources: Vec<String>,
+) -> Result<backup_status::BackupSourcesInfo, String> {
+    backup_status::set_backup_sources_inner(backup_status::SetBackupSourcesPayload { sources })
+}

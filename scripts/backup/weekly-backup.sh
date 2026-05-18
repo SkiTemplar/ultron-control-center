@@ -62,20 +62,43 @@ done
 
 # Mirror the order/contents of the .ps1's $Sources array.
 #
-# Default: only ULTRON-owned trees. Override via $ULTRON_BACKUP_SOURCES (space-
-# separated list of $HOME-relative dirs) to include personal trees like
-# `Documents` / `source` / your-folder. v15.5.17 dropped the prior CARRERA /
-# PERSONAL defaults (leaked the maintainer's personal layout into every install).
+# Resolution order (v15.5.20: backups-modular-ui added the JSON UI layer):
+#   1. ~/.ultron/cockpit/backup-config.json -> { "sources": ["..."] }
+#      (written by Settings -> Backups -> Sources panel)
+#   2. $ULTRON_BACKUP_SOURCES (comma-separated, fallback for CLI users)
+#   3. Defaults: .ultron, .ultron-vault, .claude
+# Personal trees like Documents / source / your-folder are opt-in via the UI.
 DEFAULT_SOURCES=(
     ".ultron"
     ".ultron-vault"
     ".claude"
 )
-if [[ -n "${ULTRON_BACKUP_SOURCES:-}" ]]; then
-    # shellcheck disable=SC2206 # intentional word split for env var
-    SOURCES=( ${ULTRON_BACKUP_SOURCES} )
-else
-    SOURCES=( "${DEFAULT_SOURCES[@]}" )
+SOURCES_CONFIG_PATH="${HOME}/.ultron/cockpit/backup-config.json"
+SOURCES=()
+if [[ -r "${SOURCES_CONFIG_PATH}" ]]; then
+    # Extract the "sources" array from JSON via Python (always present in installs);
+    # fall back to env/defaults if parsing fails.
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && SOURCES+=("$line")
+    done < <(python3 -c "
+import json, sys
+try:
+    with open('${SOURCES_CONFIG_PATH}', 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    for s in (data.get('sources') or []):
+        s = str(s).strip()
+        if s:
+            print(s)
+except Exception as e:
+    sys.stderr.write(f'warn: could not parse ${SOURCES_CONFIG_PATH}: {e}\n')
+" 2>/dev/null)
+fi
+if [[ ${#SOURCES[@]} -eq 0 ]]; then
+    if [[ -n "${ULTRON_BACKUP_SOURCES:-}" ]]; then
+        IFS=', ' read -r -a SOURCES <<< "${ULTRON_BACKUP_SOURCES}"
+    else
+        SOURCES=( "${DEFAULT_SOURCES[@]}" )
+    fi
 fi
 
 # Backup destination root. Override with $ULTRON_BACKUP_ROOT (e.g.

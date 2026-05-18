@@ -150,6 +150,207 @@ pub fn set_backup_root_inner(payload: SetBackupRootPayload) -> Result<BackupRoot
     get_backup_root_inner()
 }
 
+// ---------------------------------------------------------------------------
+// v15.5.20: backup sources picker (backups-modular-ui plan).
+// The Settings UI lists current sources + suggests other top-level $HOME
+// folders the user might want to add. Resolution order mirrors the
+// `weekly-backup.{ps1,sh}` scripts:
+//   1. ~/.ultron/cockpit/backup-config.json -> { "sources": ["..."] }
+//   2. $ULTRON_BACKUP_SOURCES env var (comma-separated)
+//   3. Defaults: [".ultron", ".ultron-vault", ".claude"]
+// All paths are $HOME-relative.
+// ---------------------------------------------------------------------------
+
+const DEFAULT_BACKUP_SOURCES: &[&str] = &[".ultron", ".ultron-vault", ".claude"];
+
+fn backup_sources_config_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".ultron/cockpit/backup-config.json"))
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+struct BackupSourcesConfig {
+    sources: Vec<String>,
+}
+
+fn read_configured_sources() -> Option<Vec<String>> {
+    let path = backup_sources_config_path()?;
+    let raw = fs::read_to_string(&path).ok()?;
+    let parsed: BackupSourcesConfig = serde_json::from_str(&raw).ok()?;
+    let cleaned: Vec<String> = parsed
+        .sources
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if cleaned.is_empty() {
+        None
+    } else {
+        Some(cleaned)
+    }
+}
+
+fn resolved_sources() -> Vec<String> {
+    if let Some(configured) = read_configured_sources() {
+        return configured;
+    }
+    if let Ok(env_val) = std::env::var("ULTRON_BACKUP_SOURCES") {
+        let from_env: Vec<String> = env_val
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect();
+        if !from_env.is_empty() {
+            return from_env;
+        }
+    }
+    DEFAULT_BACKUP_SOURCES.iter().map(|s| s.to_string()).collect()
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BackupSourceCandidate {
+    /// $HOME-relative folder name (e.g. "Documents", ".ultron").
+    pub name: String,
+    /// Absolute path used to display + verify existence.
+    pub absolute: String,
+    /// True when the folder currently exists on disk.
+    pub exists: bool,
+    /// True when this source is in the active list (config / env / defaults).
+    pub selected: bool,
+    /// True when this source is a default (`.ultron`, `.ultron-vault`, `.claude`).
+    pub is_default: bool,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BackupSourcesInfo {
+    pub configured: Vec<String>,
+    pub defaults: Vec<String>,
+    pub active: Vec<String>,
+    pub candidates: Vec<BackupSourceCandidate>,
+    pub config_path: String,
+    pub user_configured: bool,
+}
+
+fn list_home_top_level() -> Vec<String> {
+    let Some(home) = dirs::home_dir() else { return Vec::new(); };
+    let Ok(rd) = fs::read_dir(&home) else { return Vec::new(); };
+    let mut names: Vec<String> = rd
+        .flatten()
+        .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort_by(|a, b| a.to_lowercase().cmp(&b.to_lowercase()));
+    names
+}
+
+pub fn get_backup_sources_inner() -> Result<BackupSourcesInfo, String> {
+    let configured = read_configured_sources().unwrap_or_default();
+    let active = resolved_sources();
+    let defaults: Vec<String> = DEFAULT_BACKUP_SOURCES.iter().map(|s| s.to_string()).collect();
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+
+    let mut candidates: Vec<BackupSourceCandidate> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Active sources first (whether they live on disk or not — keep the row visible).
+    for name in active.iter() {
+        if seen.contains(name) { continue; }
+        seen.insert(name.clone());
+        let abs = home.join(name);
+        candidates.push(BackupSourceCandidate {
+            name: name.clone(),
+            absolute: abs.to_string_lossy().to_string(),
+            exists: abs.exists(),
+            selected: true,
+            is_default: defaults.iter().any(|d| d == name),
+        });
+    }
+    // Then any default that's not already in the active list.
+    for d in defaults.iter() {
+        if seen.contains(d) { continue; }
+        seen.insert(d.clone());
+        let abs = home.join(d);
+        candidates.push(BackupSourceCandidate {
+            name: d.clone(),
+            absolute: abs.to_string_lossy().to_string(),
+            exists: abs.exists(),
+            selected: false,
+            is_default: true,
+        });
+    }
+    // Finally, populate with $HOME top-level folders so the user can pick more.
+    for name in list_home_top_level() {
+        if seen.contains(&name) { continue; }
+        // Skip noisy system folders that nobody would back up.
+        if matches!(
+            name.as_str(),
+            "AppData" | "NTUSER.DAT" | "Application Data" | "Local Settings"
+                | "Cookies" | "Recent" | "SendTo" | "NetHood" | "PrintHood"
+                | "Templates" | "Datos de programa" | "Entorno de red"
+                | "Configuración local" | "Mis documentos" | "Menú Inicio"
+                | "Reciente"
+        ) {
+            continue;
+        }
+        seen.insert(name.clone());
+        let abs = home.join(&name);
+        candidates.push(BackupSourceCandidate {
+            name: name.clone(),
+            absolute: abs.to_string_lossy().to_string(),
+            exists: abs.exists(),
+            selected: false,
+            is_default: false,
+        });
+    }
+
+    Ok(BackupSourcesInfo {
+        configured,
+        defaults,
+        active,
+        candidates,
+        config_path: backup_sources_config_path()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default(),
+        user_configured: read_configured_sources().is_some(),
+    })
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetBackupSourcesPayload {
+    pub sources: Vec<String>,
+}
+
+pub fn set_backup_sources_inner(
+    payload: SetBackupSourcesPayload,
+) -> Result<BackupSourcesInfo, String> {
+    let cleaned: Vec<String> = payload
+        .sources
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let cfg = backup_sources_config_path().ok_or_else(|| "no HOME".to_string())?;
+    if let Some(parent) = cfg.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir cockpit: {}", e))?;
+        }
+    }
+    if cleaned.is_empty() {
+        if cfg.exists() {
+            fs::remove_file(&cfg).map_err(|e| format!("rm config: {}", e))?;
+        }
+        std::env::remove_var("ULTRON_BACKUP_SOURCES");
+    } else {
+        let payload_out = BackupSourcesConfig { sources: cleaned.clone() };
+        let json = serde_json::to_string_pretty(&payload_out)
+            .map_err(|e| format!("serialize config: {}", e))?;
+        fs::write(&cfg, json).map_err(|e| format!("write config: {}", e))?;
+        // Mirror into the env var so any in-process script reads it without
+        // re-reading the JSON.
+        std::env::set_var("ULTRON_BACKUP_SOURCES", cleaned.join(","));
+    }
+    get_backup_sources_inner()
+}
+
 fn iso_from_systime(t: SystemTime) -> Option<String> {
     let secs = t.duration_since(UNIX_EPOCH).ok()?.as_secs();
     let mut days = (secs / 86_400) as i64;

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 
@@ -218,6 +218,317 @@ export function BackupRootEditor({ onChanged }: { onChanged: () => void }) {
             : "Path does not exist yet — create it before the next weekly backup runs."}
         </div>
       )}
+      {error && (
+        <div
+          className="mt-2 rounded p-2 text-[11px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {success && (
+        <div
+          className="mt-2 rounded p-2 text-[11px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.08)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {success}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v15.5.20: backup sources picker (backups-modular-ui plan).
+// Lets the user choose which $HOME-relative folders the weekly-backup
+// scripts mirror. Persists to ~/.ultron/cockpit/backup-config.json; the
+// scripts read that file before falling back to the env var or defaults.
+// ---------------------------------------------------------------------------
+
+type BackupSourceCandidate = {
+  name: string;
+  absolute: string;
+  exists: boolean;
+  selected: boolean;
+  is_default: boolean;
+};
+
+type BackupSourcesInfo = {
+  configured: string[];
+  defaults: string[];
+  active: string[];
+  candidates: BackupSourceCandidate[];
+  config_path: string;
+  user_configured: boolean;
+};
+
+export function BackupSourcesEditor({ onChanged }: { onChanged: () => void }) {
+  const [info, setInfo] = useState<BackupSourcesInfo | null>(null);
+  const [draft, setDraft] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  async function load() {
+    try {
+      const r = (await invoke("get_backup_sources")) as BackupSourcesInfo;
+      setInfo(r);
+      setDraft(new Set(r.active));
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+  useEffect(() => {
+    load();
+  }, []);
+
+  const dirty = useMemo(() => {
+    if (!info) return false;
+    if (draft.size !== info.active.length) return true;
+    return info.active.some((s) => !draft.has(s));
+  }, [info, draft]);
+
+  function toggle(name: string) {
+    setDraft((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  }
+
+  async function addCustom() {
+    setError(null);
+    try {
+      const picked = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "Pick a folder to back up",
+        defaultPath: undefined,
+      });
+      if (typeof picked !== "string" || !picked.trim()) return;
+      // Convert absolute path → $HOME-relative if it sits inside HOME.
+      // The backend stores HOME-relative names so the scripts work the
+      // same on any user account.
+      const cur = info?.candidates[0]?.absolute ?? "";
+      const home = cur.replace(/[\\/][^\\/]+$/, ""); // strip last segment
+      let rel = picked.trim();
+      if (home && rel.toLowerCase().startsWith(home.toLowerCase())) {
+        rel = rel.slice(home.length).replace(/^[\\/]+/, "");
+      } else {
+        setError(
+          "Custom paths must live inside your home folder (USERPROFILE / $HOME). Pick a subfolder of " +
+            (home || "your home directory") +
+            ".",
+        );
+        return;
+      }
+      if (!rel) return;
+      setDraft((prev) => new Set(prev).add(rel));
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  async function save() {
+    if (!info) return;
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const sources = Array.from(draft);
+      const r = (await invoke("set_backup_sources", { sources })) as BackupSourcesInfo;
+      setInfo(r);
+      setDraft(new Set(r.active));
+      setSuccess(
+        sources.length === 0
+          ? "Cleared override — falling back to defaults (.ultron, .ultron-vault, .claude)."
+          : `Saved ${sources.length} source${sources.length === 1 ? "" : "s"}.`,
+      );
+      window.setTimeout(() => setSuccess(null), 3500);
+      onChanged();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resetDefaults() {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = (await invoke("set_backup_sources", { sources: [] })) as BackupSourcesInfo;
+      setInfo(r);
+      setDraft(new Set(r.active));
+      setSuccess("Reset to defaults (.ultron, .ultron-vault, .claude).");
+      window.setTimeout(() => setSuccess(null), 3500);
+      onChanged();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div
+      className="mb-5 rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-[13px] font-semibold">Backup sources</h3>
+        {info?.user_configured && (
+          <span
+            className="text-[10.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            user-configured
+          </span>
+        )}
+      </div>
+      <p
+        className="mt-1 text-[11.5px] leading-relaxed"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        Which $HOME-relative folders the weekly mirror covers. Defaults:{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>
+          .ultron, .ultron-vault, .claude
+        </span>
+        . Persisted to{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>
+          {info?.config_path ?? "~/.ultron/cockpit/backup-config.json"}
+        </span>
+        . The scripts also honour{" "}
+        <span style={{ fontFamily: "var(--font-mono)" }}>$ULTRON_BACKUP_SOURCES</span> as a fallback.
+      </p>
+      <div
+        className="mt-3 overflow-hidden rounded"
+        style={{ border: "1px solid var(--color-border)" }}
+      >
+        {info?.candidates.map((c) => (
+          <label
+            key={c.name}
+            className="flex cursor-pointer items-center gap-3 px-3 py-2"
+            style={{
+              borderTop: "1px solid var(--color-border)",
+              background: draft.has(c.name)
+                ? "rgba(63, 185, 80, 0.05)"
+                : "var(--color-surface-1)",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={draft.has(c.name)}
+              onChange={() => toggle(c.name)}
+              disabled={busy}
+            />
+            <div className="min-w-0 flex-1">
+              <div
+                className="text-[12.5px] font-medium"
+                style={{
+                  color: c.exists ? "var(--color-text)" : "var(--color-text-tertiary)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {c.name}
+                {c.is_default && (
+                  <span
+                    className="ml-2 rounded px-1.5 py-px text-[9.5px] uppercase"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      color: "var(--color-text-tertiary)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                  >
+                    default
+                  </span>
+                )}
+              </div>
+              <div
+                className="truncate text-[10.5px]"
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--color-text-faint)",
+                }}
+                title={c.absolute}
+              >
+                {c.absolute}
+              </div>
+            </div>
+            {!c.exists && (
+              <span
+                className="shrink-0 text-[10px] uppercase"
+                style={{ color: "var(--color-warn)" }}
+              >
+                missing
+              </span>
+            )}
+          </label>
+        ))}
+        {!info && (
+          <div
+            className="px-3 py-3 text-[11.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Loading sources…
+          </div>
+        )}
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={save}
+          disabled={busy || !dirty}
+          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+          style={{
+            background: dirty ? "var(--color-accent)" : "var(--color-surface-1)",
+            color: dirty ? "var(--color-accent-text)" : "var(--color-text-tertiary)",
+            border: dirty ? "none" : "1px solid var(--color-border)",
+          }}
+        >
+          {busy ? "Saving…" : dirty ? `Save (${draft.size})` : "Saved"}
+        </button>
+        <button
+          type="button"
+          onClick={addCustom}
+          disabled={busy}
+          className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-40"
+          style={{
+            background: "var(--color-surface-1)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          Add custom…
+        </button>
+        <button
+          type="button"
+          onClick={resetDefaults}
+          disabled={busy || !info?.user_configured}
+          className="rounded px-2.5 py-1.5 text-[11.5px] transition-colors disabled:opacity-40"
+          style={{
+            background: "transparent",
+            color: "var(--color-text-tertiary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          Reset to defaults
+        </button>
+      </div>
       {error && (
         <div
           className="mt-2 rounded p-2 text-[11px]"

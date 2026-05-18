@@ -35,16 +35,31 @@ $ErrorActionPreference = "Stop"
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-# Default: only ULTRON-owned trees. Override via $env:ULTRON_BACKUP_SOURCES
-# (comma-separated list of $env:USERPROFILE-relative dirs) to include personal
-# trees like `Documents` / `source` / your-folder. v15.5.17 dropped the prior
-# CARRERA / PERSONAL defaults (leaked the maintainer's personal layout into
-# every install).
-$DefaultSources = @(".ultron", ".ultron-vault", ".claude")
-$Sources = if ($env:ULTRON_BACKUP_SOURCES) {
-    $env:ULTRON_BACKUP_SOURCES.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-} else {
-    $DefaultSources
+# Resolution order (v15.5.20: backups-modular-ui added the JSON UI layer):
+#   1. ~/.ultron/cockpit/backup-config.json -> { "sources": ["..."] }
+#      (written by Settings -> Backups -> Sources panel)
+#   2. $env:ULTRON_BACKUP_SOURCES (comma-separated, fallback for CLI users)
+#   3. Defaults: .ultron, .ultron-vault, .claude
+# Personal trees like Documents / source / your-folder are opt-in via the UI.
+$DefaultSources    = @(".ultron", ".ultron-vault", ".claude")
+$SourcesConfigPath = Join-Path $env:USERPROFILE ".ultron\cockpit\backup-config.json"
+$Sources = $null
+if (Test-Path $SourcesConfigPath) {
+    try {
+        $cfg = Get-Content -Raw -Path $SourcesConfigPath -Encoding UTF8 | ConvertFrom-Json
+        if ($cfg.sources -and $cfg.sources.Count -gt 0) {
+            $Sources = @($cfg.sources | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+        }
+    } catch {
+        Write-Warning "Could not parse $SourcesConfigPath ($_) - falling back to env/defaults."
+    }
+}
+if (-not $Sources) {
+    $Sources = if ($env:ULTRON_BACKUP_SOURCES) {
+        @($env:ULTRON_BACKUP_SOURCES.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    } else {
+        $DefaultSources
+    }
 }
 
 # Backup destination root. Override with $env:ULTRON_BACKUP_ROOT (e.g. set it
