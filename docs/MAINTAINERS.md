@@ -51,7 +51,7 @@ the cheap, reversible step that makes the future move safe.
 | `scripts/persona-benchmark-runner.py` | Parses `references/persona-benchmarks.md`, reports coverage + structural validation. Run before any persona-set release. Stage 2 (LLM-as-judge) is future work. | `uv run python scripts/persona-benchmark-runner.py [--persona <slug>] [--validate-only]` |
 | `scripts/routing-test-runner.py` | Regression harness for FAST PATH Layer 1 + tiebreaks (T-01..T-16, T-34, T-35). Run after every `config/intent-rules.yaml` edit. | `uv run python scripts/routing-test-runner.py [--verbose]` |
 
-## Deprecated Stop-hook scripts (v15.5.16 internal-review-note)
+## Deprecated Stop-hook scripts (v15.5.16 consolidation sweep)
 
 These scripts used to be wired directly into the Stop hook chain. As of v15.5.16
 their bodies are inlined inside `scripts/hooks/stop-memory-sync.{ps1,sh}` so the

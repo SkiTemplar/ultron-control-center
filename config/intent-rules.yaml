@@ -292,7 +292,11 @@ rules:
 
   - id: project-status
     match: "(c[o\xf3]mo.va|como.va|status|estado).*\\bproyecto\\b"
-    ctx: "~/.ultron-vault/00_INDEX/_packets/projects-active.md"
+    # Optional context packet — file is loaded only if present, so users can
+    # set their own vault layout. See docs/INSTALL-ADVANCED.md for the
+    # convention. v15.5.20: path generalised from a hardcoded subdir to a
+    # documented opt-in path.
+    ctx: "~/.ultron-vault/projects-active.md"
     confidence: 0.90
 
   - id: decision-recall
@@ -424,9 +428,9 @@ rules:
     skill: "warren"
     confidence: 0.90
 
-  # tolkien: book/narrative writer ("Imperio de los Once Grandes" universe)
+  # tolkien: book / narrative writer persona (long-form fiction projects)
   - id: tolkien
-    match: "\\b(?:tolkien|modo\\s+escritor|escribe\\s+el\\s+(?:libro|cap[ií]tulo|siguiente)|contin[u\xfa]a\\s+(?:el\\s+)?(?:libro|cap[ií]tulo)|escribe\\s+la\\s+escena|revisa\\s+el\\s+cap[ií]tulo|plot\\s+hole|consistencia\\s+narrativa|arco\\s+(?:del?\\s+)?(?:personaje|trama)|once\\s+grandes|imperio\\s+de\\s+los?\\s+once)\\b"
+    match: "\\b(?:tolkien|modo\\s+escritor|escribe\\s+el\\s+(?:libro|cap[ií]tulo|siguiente)|contin[u\xfa]a\\s+(?:el\\s+)?(?:libro|cap[ií]tulo)|escribe\\s+la\\s+escena|revisa\\s+el\\s+cap[ií]tulo|plot\\s+hole|consistencia\\s+narrativa|arco\\s+(?:del?\\s+)?(?:personaje|trama))\\b"
     skill: "tolkien"
     confidence: 0.90
 
