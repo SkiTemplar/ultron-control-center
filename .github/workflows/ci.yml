@@ -21,7 +21,7 @@ on:
 # macOS / Linux runners. Sticking to windows-latest keeps minutes cheap.
 jobs:
   version-drift:
-    name: Version drift guard (7 files must match pyproject SSOT)
+    name: Version drift guard (7 files + markdown bodies must match pyproject SSOT)
     runs-on: ubuntu-latest
     timeout-minutes: 3
     steps:
@@ -33,9 +33,30 @@ jobs:
           python-version: '3.12'
       - name: Run version_propagate.py --check
         # Fails the whole CI run on the first version drift. Reopened 6 times
-        # this session (PLANS#ci-version-drift-guard); the deterministic guard
-        # is cheaper than another release post-mortem.
+        # in v15.5.x (PLANS#ci-version-drift-guard). v15.5.15 extended the
+        # check to scan markdown bodies (badges + bootstrap URLs + legacy-doc
+        # preambles) — internal-review-note caught README drift the file-level check missed.
         run: python scripts/cockpit/version_propagate.py --check
+
+  personal-info-leak:
+    name: Personal-info leakage gate (audit_personal_data.py — fail on HIGH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0   # audit reads git ls-files; needs the tree
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run audit_personal_data.py
+        # v15.5.15 (internal-review-note): wired as a hard gate after the comment sweep
+        # brought HIGH findings to 0. MEDIUM findings (persona names like
+        # alfred/einstein/etc.) are allowed — they're intentional skill IDs.
+        # The scanner exits 1 if ANY HIGH finding exists.
+        run: python scripts/cockpit/audit_personal_data.py
 
   cargo:
     name: Rust (cargo check + clippy)

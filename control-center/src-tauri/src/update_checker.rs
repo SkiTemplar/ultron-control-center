@@ -117,7 +117,7 @@ pub fn check_for_updates_inner() -> UpdateInfo {
 
     match fetch_latest() {
         Ok(rel) => {
-            // Ignore drafts and prereleases — USER's release flow goes
+            // Ignore drafts and prereleases — the maintainer's release flow goes
             // straight to stable, but if that ever changes we still won't
             // notify on a draft tag.
             if rel.draft || rel.prerelease {

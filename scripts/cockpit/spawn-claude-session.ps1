@@ -245,7 +245,7 @@ if ($clipboardSeeded) {
 # tabs — first one tries to launch `Set-Location` as a program (which is
 # a PowerShell cmdlet, not an exe → ERROR_FILE_NOT_FOUND), and the
 # second tab launches `claude` without our cwd. This is exactly the
-# "doble terminal" / "no encuentra Set-Location" symptoms USER saw.
+# "doble terminal" / "no encuentra Set-Location" symptoms the user saw.
 #
 # Fix: write the inner-command to a temp .ps1 file and invoke PowerShell
 # with -File. The script body is opaque to wt.exe's argv parser.

@@ -302,7 +302,7 @@ rules:
 
   # ── v15.4.16: clusters derived from real telemetry (history.jsonl) ──────────
   # Added after analyzing 409 unmatched prompts in dispatcher-events.jsonl.
-  # Each rule covers a recurring pattern USER dictates frequently.
+  # Each rule covers a recurring pattern the user dictates frequently.
 
   # Full Kirkardo audit (academic + repo polish bundle) -- highest priority
   - id: kirkardo-audit

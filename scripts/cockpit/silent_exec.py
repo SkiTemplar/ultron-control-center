@@ -17,7 +17,7 @@ WHEN TO USE
 USE this wrapper in:
 - New cockpit scripts (S2-S5 deliverables)
 - New hook scripts that shell out
-- Any code path USER will invoke during a Claude Code session
+- Any code path the user will invoke during a Claude Code session
 
 DO NOT use this wrapper for (existing patterns are fine, do not migrate):
 - `shared-duet.ps1::Start-Hidden` — PowerShell-side helper for Codex/Gemini calls

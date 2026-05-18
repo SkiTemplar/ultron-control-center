@@ -257,7 +257,7 @@ function initParticles(nodes: GraphNode[]): Particle[] {
   const categories = Array.from(bucket.keys()).sort();
   const G = categories.length;
 
-  // 2. Hex grid for cluster centres. v15.4.10 — USER lo quería al
+  // 2. Hex grid for cluster centres. v15.4.10 — user wanted it al
   // revés: clusters MÁS JUNTOS entre sí y bolitas MÁS COMPACTAS dentro
   // de cada cluster. v15.4.9 sobre-esparció todo. Vuelta a densidad:
   //   - usable: 2.4 → 1.2 (mitad de canvas virtual; los clusters se

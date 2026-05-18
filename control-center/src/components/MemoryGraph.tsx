@@ -1,7 +1,7 @@
 // Backward-compatibility shim.
 //
 // The original MemoryGraph was a deterministic-hash pseudo-UMAP scatter
-// — USER flagged it as visually noisy and not useful ("muy
+// — user flagged it as visually noisy and not useful ("muy
 // desordenado, no aporta tanto"). It's been replaced by MemoryGraphForce,
 // an Obsidian-style force-directed graph driven by wikilinks (with a
 // tag-similarity fallback when the vault has zero wikilinks).

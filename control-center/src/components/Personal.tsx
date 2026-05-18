@@ -197,7 +197,7 @@ export function Personal() {
       </header>
 
       {/*
-        v15.4.7 — Personal layout reorganizado a 2x2 según petición USER:
+        v15.4.7 — Personal layout reorganizado a 2x2 según user request:
         antes era Known (izq, 1 cosa) + columna derecha apilada (2 cosas)
         que dejaba la izquierda vacía y la derecha aplastada. Ahora:
           fila superior: Known (TL) | Profile (TR)  -> 50 / 50

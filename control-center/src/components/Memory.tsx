@@ -1026,7 +1026,7 @@ export function Memory() {
           style={{ borderColor: "var(--color-border)" }}
         >
           {/* v15.4.11 — MemoryGraphForce retired from the Memory tab by
-              USER's call: el grafo agrupado-por-categorías no aportaba
+              the user's call: el grafo agrupado-por-categorías no aportaba
               el insight visual que esperaba (mejor sería agrupado por
               vínculos, pero el ROI es bajo). Sidebar promoted a 100%
               width: stats + highlights + recent notes son el contenido

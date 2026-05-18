@@ -156,7 +156,7 @@ impl Iterator for WalkIter {
                         let name = child.file_name();
                         let s = name.to_string_lossy();
                         // Skip hidden dirs (.obsidian, .git, etc.) and
-                        // the _archive folder USER uses for retired
+                        // the _archive folder the user uses for retired
                         // notes — orphans would otherwise be polluted
                         // with archived files we already chose to drop.
                         if s.starts_with('.') || s == "_archive" || s == "archive" {

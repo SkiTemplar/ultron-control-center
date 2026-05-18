@@ -2,7 +2,7 @@
 
 Runs live smoke checks across all major subsystems and emits a verdict per
 subsystem (pass / warn / fail) plus a global PASS/FAIL summary. The aim is
-to give USER (and the TUI Dashboard) ONE button that answers "is the
+to give the user (and the TUI Dashboard) ONE button that answers "is the
 whole system healthy right now?"
 
 Subsystems exercised:

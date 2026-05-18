@@ -138,7 +138,7 @@ class TestPhase2FeedbackHook:
             "_fb3", HOOKS / "prompt-feedback-capture.py")
         m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
         out = m.pii_filter(r"/tmp/ultron-test\.claude\file.json")
-        assert "USER" not in out
+        assert "the user" not in out
         assert "<user>" in out
 
     def test_flatten_response_handles_dict_and_list(self):

@@ -57,14 +57,28 @@ NEWS_ALERTS_ARCHIVE = NEWS_DIR / "ALERTS.archive.md"
 NEWS_ALERTS_TTL_DAYS = 7
 NEWS_SEEN = NEWS_DIR / "seen.json"
 
-# Scan roots (where scanner looks for projects)
-CARRERA_ROOT = USER_HOME / "CARRERA"
-SCAN_ROOTS = [
-    CARRERA_ROOT / "ASIGNATURAS",
-    CARRERA_ROOT / "PROYECTOS_PERSONALES",
-    CARRERA_ROOT / "proyectos",
-    USER_HOME / ".claude" / "skills",  # ULTRON workspace
-]
+# Scan roots (where scanner looks for projects).
+#
+# Defaults to standard developer dirs. The user can override via
+# ~/.ultron/cockpit/scan-roots.json — a JSON array of absolute paths or
+# `~/foo` shortcuts. If the override file exists, the defaults below are
+# IGNORED. Empty array = no scan.
+import json as _json
+
+_SCAN_ROOTS_OVERRIDE = USER_HOME / ".ultron" / "cockpit" / "scan-roots.json"
+if _SCAN_ROOTS_OVERRIDE.exists():
+    try:
+        _raw = _json.loads(_SCAN_ROOTS_OVERRIDE.read_text(encoding="utf-8"))
+        SCAN_ROOTS = [Path(str(p)).expanduser() for p in _raw if isinstance(p, (str, Path))]
+    except Exception:
+        SCAN_ROOTS = []
+else:
+    SCAN_ROOTS = [
+        USER_HOME / "Documents",
+        USER_HOME / "source",
+        USER_HOME / "Desktop",
+        USER_HOME / ".claude" / "skills",  # ULTRON workspace
+    ]
 
 # Skills under ~/.claude/skills/ are NOT projects by default — they're skills.
 # Only these whitelisted skill-IDs survive scanning as project entries (because

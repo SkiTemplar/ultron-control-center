@@ -5,7 +5,7 @@ ULTRON v12 BRAIN — central config loader.
 Single source of truth for tunables that were previously hardcoded across
 multiple scripts. Reads ~/.ultron/cockpit/brain-config.json. If absent,
 returns built-in defaults and (optionally) writes the defaults file so
-USER can edit it.
+the user can edit it.
 
 Tunables (with defaults):
     mode_ttl_hours              24      memory_sync.cmd_should_push
@@ -184,7 +184,7 @@ def get_value(key: str):
 
 def _coerce(default, raw: str):
     """Coerce raw string to the default's type. Raises ValueError with a
-    USER-readable message instead of crashing the consumer at runtime."""
+    user-readable message instead of crashing the consumer at runtime."""
     if isinstance(default, bool):
         return raw.lower() in ("1", "true", "yes", "on")
     if isinstance(default, int):

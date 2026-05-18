@@ -1,5 +1,79 @@
 # Changelog
 
+<!-- v15.5.16 -->
+## v15.5.16 — 2026-05-18
+
+ULTRA sweep Round 2 polish (post-eval). Round-2 evaluators (8 fresh subagents,
+contexto-cero) caught residual issues; v15.5.16 closes them and wires the two
+CI gates that were promised but never enforced.
+
+### Routing / Memory (internal-review-note → 9.0/10)
+
+- `scripts/cockpit/version_propagate.py` now also scans MARKDOWN BODIES (badges,
+  bootstrap URLs, "Current stable" prose, legacy-doc preambles) with 5
+  context-anchored regexes. internal-review-note caught README+SYSTEM-MAP still pinning
+  v15.5.13 after the v15.5.15 bump because the file-level check only validated
+  the 6 mirror files. Forward versions (newer than SSOT) and historical
+  references (Qdrant v1.18.0, "v15.0.2 removed Docker") are correctly ignored.
+- CI guard `version-drift` now blocks on markdown drift too.
+
+### Personal-info leakage (internal-review-note → 7.8/10)
+
+- `scripts/cockpit/cockpit_base.py:SCAN_ROOTS` no longer hardcodes the
+  maintainer's university folder layout (CARRERA/ASIGNATURAS/PROYECTOS_PERSONALES).
+  Defaults to generic developer dirs (`~/Documents`, `~/source`, `~/Desktop`)
+  with an override hook at `~/.ultron/cockpit/scan-roots.json` (JSON array of
+  absolute paths or `~/foo` shortcuts; empty array = no scan).
+- `scripts/cockpit/audit_personal_data.py` self-exclusion: the scanner is
+  no longer found by its own scan (was producing 74 HIGH on a clean tree).
+  Also excludes its own report files (eval markdowns, leakage-sweep, MAINTAINERS.md).
+  `SkiTemplar` removed from HIGH patterns (it's the public GitHub org, not a
+  personal handle — appears legitimately in every installer URL).
+- **Comment sweep**: 25+ "USER's call / USER flagged / petición USER /
+  para USER" code comments rewritten to "the user's call / user flagged"
+  etc., across cockpit Python + control-center Rust/TS. `agents.rs` + `skills.rs`
+  comments documenting the v15.4 fix that REMOVED `USER@local` are kept (they
+  document audit trail).
+- **CI gate WIRED**: `.github/workflows/ci.yml` now runs
+  `audit_personal_data.py` as a HARD fail on HIGH (was advisory-only / never
+  enforced). v15.5.16 ships with `HIGH=0 MEDIUM=142` — MEDIUM hits are
+  intentional persona name references (alfred, einstein, etc.).
+
+### Docs (internal-review-note → 7.4/10)
+
+- README.md, README.es.md, SYSTEM-MAP.md, docs/INSTALL.md, docs/QUICKSTART.md,
+  docs/memory-layers.md, docs/skills-manifest-schema.md — all v-pin references
+  forward-rolled v15.5.13 → v15.5.16. EN/ES "Previous stable" parity aligned
+  (was v15.5.12 EN vs v15.4.21 ES).
+- README tab count: "16 tabs" → "17 sections (16 visible + Logs wired but
+  disabled)". Matches QUICKSTART and control-center/README.
+- "Current stable" prose paragraphs in both READMEs describe what v15.5.16
+  actually shipped (Round 2 polish + CI gates) instead of v15.5.13 boilerplate.
+
+### Version bump
+
+v15.5.15 → v15.5.16 across all 6 mirror files + 5 markdown pins (all caught
+by the extended version_propagate.py — proving the new gate works).
+
+### Tests
+
+193 passed, 9 skipped on the routing surface. Macro-test 21/21 (20 prompts +
+aggregate ≥95%). `version_propagate.py --check`: **OK — all version files and
+markdown bodies match SSOT**. `audit_personal_data.py`: **HIGH=0 MEDIUM=142**.
+
+### Pending for v15.5.17+
+
+- Tauri ACL `dialog:confirm` — replace 9 `window.confirm()` call sites with
+  `@tauri-apps/plugin-dialog`. Capabilities ALCL correctly permits it but
+  `window.confirm` interception under Tauri 2 / WebView2 fails. Real fix
+  pending.
+- GitHub release publication catch-up (currently 5 patches behind code).
+- Pending Items relocate above-fold + sidebar badge.
+
+_Composed manually. The two new CI gates (version-drift + personal-info-leak)
+ensure these don't regress without owner-driven decisions._
+
+
 <!-- v15.5.15 -->
 ## v15.5.15 — 2026-05-18
 

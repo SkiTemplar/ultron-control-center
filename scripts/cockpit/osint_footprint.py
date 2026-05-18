@@ -3,7 +3,7 @@
 ULTRON · osint_footprint — auditoría de huella digital propia.
 
 Envuelve Sherlock (sherlock-project) para localizar en qué redes/sitios
-existe un username dado. Pensado para que USER audite SU PROPIA presencia
+existe un username dado. Pensado para que el usuario audite SU PROPIA presencia
 online (privacidad / OPSEC), no para terceros.
 
   uv run python osint_footprint.py scan <username> [<username2> ...]   # Sherlock (~400 sitios por username)
@@ -17,7 +17,7 @@ mete una skill al contexto (0 tokens). Ambas son gratuitas, sin API key.
 
 NOTA: `scan` (Sherlock) = cuentas por username. `email` (holehe) = sitios donde
 ese email tiene cuenta. Para brechas/leaks de datos haría falta HaveIBeenPwned
-(API de pago) — USER prefiere no pagar, así que holehe es el sustituto gratis.
+(API de pago) — the user prefers no-cost tools, así que holehe es el sustituto gratis.
 """
 from __future__ import annotations
 

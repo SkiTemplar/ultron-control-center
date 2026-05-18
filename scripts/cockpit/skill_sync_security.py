@@ -464,7 +464,7 @@ _PI005_SHELL_TOKEN = re.compile(
 # Genesis update 2026-05-06: expanded with fields that show up in legitimate
 # third-party skills (Anthropic claude-plugins-official, addyosmani/agent-skills,
 # Apifox/aliyun marketplaces). Each addition was observed firing PI006 on
-# skills USER intentionally installed; expanding the whitelist cuts ~200
+# skills the user intentionally installed; expanding the whitelist cuts ~200
 # noise warnings without weakening the rule's purpose (catching novel keys
 # that smell like prompt-injection vectors).
 _PI006_WHITELIST = frozenset({

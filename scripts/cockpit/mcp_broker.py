@@ -22,7 +22,7 @@ process. It enforces:
                          `~/.ultron/cockpit/mcp-audit.jsonl` for every call
   6. Rate limit       — per-server per-minute call cap (default 60)
 
-Anti-laundering: this broker is itself a process USER runs. It does NOT
+Anti-laundering: this broker is itself a process the user runs. It does NOT
 talk to LLMs. Pure subprocess dispatch + JSON-RPC validation.
 
 Usage:

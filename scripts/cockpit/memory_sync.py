@@ -176,7 +176,7 @@ def cmd_push_async(_args) -> int:
         flags = 0x00000008 | 0x00000200 | 0x08000000
         # SW_HIDE via STARTUPINFO — guarantees no console flash even when
         # python.exe (console subsystem) bootstraps the wrapper. Without
-        # this, the focus-steal pulls USER out of fullscreen games.
+        # this, the focus-steal pulls the user out of fullscreen games.
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
         startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -340,7 +340,7 @@ def cmd_should_push(_args) -> int:
 
     # Stale fallback: if vault has been silent for >12h AND has dirty content,
     # push anyway so the L3 remote does not drift more than half a day.
-    # This is what USER expects: vault syncs at least daily regardless of mode.
+    # Expected behavior: vault syncs at least daily regardless of mode.
     try:
         import subprocess
         vault = Path.home() / ".ultron-vault"

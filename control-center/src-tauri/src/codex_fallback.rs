@@ -97,7 +97,7 @@ fn ultron_tmp() -> Result<PathBuf, String> {
 
 fn claude_projects_dir() -> Result<PathBuf, String> {
     // Hard-coded project slug — this is the Claude CLI's well-known mangling
-    // of `C:\Users\USER\.ultron`. If the user reorganises the ULTRON root
+    // of `~/.ultron` (the install root). If the user reorganises the ULTRON root
     // we'll need to compute this dynamically, but for now this matches the
     // path the rest of the cockpit assumes (see SYSTEM-MAP.md).
     dirs::home_dir()

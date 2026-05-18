@@ -644,7 +644,7 @@ fn probe_backup() -> DiagItem {
             elapsed_ms: now_epoch_ms() - t0,
         },
         Ok(rep) => {
-            // v15.4.8 — USER's call: `stale` (8–30 days) is operational
+            // v15.4.8 — the user's call: `stale` (8–30 days) is operational
             // info, not a guard. The Doctor only flags `cold` (>30 d) and
             // hard errors. Rationale: with no source-side changes a
             // backup that hasn't run in 12 days is still semantically

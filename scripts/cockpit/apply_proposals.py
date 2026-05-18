@@ -14,7 +14,7 @@ v10.6 — Typed ApplyManifest (Codex/Gemini Triple Max recommendation):
   - Preconditions: file exists, is readable, contains expected substring
   - Expected tests: optional test commands listed per proposal (run if --check)
   - Rollback plan: backup path + reverse-apply script auto-generated
-  - Reviewer signature: --signed flag records USER's confirmation
+  - Reviewer signature: --signed flag records the user's confirmation
 
 Output formats:
   - proposals/<stem>.applied.json     summary log per run

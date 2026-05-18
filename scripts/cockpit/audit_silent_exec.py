@@ -7,7 +7,7 @@
 Sprint 1 Pilar A. Walks ULTRON's Python and PowerShell sources and flags any
 subprocess invocation that could leak a console window on Windows.
 
-Output: JSON to ``~/.ultron/.tmp/silent-audit.json``. USER decides which
+Output: JSON to ``~/.ultron/.tmp/silent-audit.json``. the maintainer decides which
 hits warrant migration to ``silent_exec.silent_run/popen``; this tool never
 edits files.
 

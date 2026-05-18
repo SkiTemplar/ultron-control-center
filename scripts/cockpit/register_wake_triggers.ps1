@@ -1,7 +1,7 @@
 # ULTRON v11.0 - Register wake-based Task Scheduler triggers
 # Replaces fixed-time 8:00/8:15 tasks with on-logon + on-resume-from-sleep.
 #
-# Run once as admin (or as USER - tasks are per-user if -RunLevel Limited):
+# Run once as admin (or as the user - tasks are per-user if -RunLevel Limited):
 #   powershell -ExecutionPolicy Bypass -File register_wake_triggers.ps1
 #
 # What this does:

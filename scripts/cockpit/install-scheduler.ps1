@@ -6,7 +6,7 @@
 # once per period - safe to fire on every login.
 #
 # Why: PC may be off at scheduled times (night, weekends). AtLogOn ensures
-# tasks catch up when USER turns on the PC.
+# tasks catch up when the user turns on the PC.
 #
 # Frequency types from config:
 #   on_login             -> AtLogOn, runs every login

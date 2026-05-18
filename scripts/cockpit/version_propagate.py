@@ -52,6 +52,35 @@ TARGETS: list[tuple[str, str, bool]] = [
 SSOT_FILE = "pyproject.toml"
 SSOT_PATTERN = re.compile(r'^version\s*=\s*"(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"', re.MULTILINE)
 
+# v15.5.15: also scan markdown bodies for stale version pins (badges,
+# bootstrap one-liners, "Current stable" prose, legacy-doc preambles).
+# internal-review-note caught README/SYSTEM-MAP/docs/INSTALL pinning v15.5.13 after
+# the v15.5.15 bump because mirrors were narrowly file-level, not body-level.
+# Pattern: any literal `v15.5.13` / `v15.5.14` / older-style `version-vX.Y.Z-*.svg`
+# in the listed docs is a drift signal (forward versions are fine — newer than SSOT).
+MD_TARGETS: list[str] = [
+    "README.md",
+    "README.es.md",
+    "SYSTEM-MAP.md",
+    "INSTALL.md",
+    "docs/INSTALL.md",
+    "docs/QUICKSTART.md",
+    "docs/memory-layers.md",
+    "docs/skills-manifest-schema.md",
+]
+# Only matches version pins in contexts that MUST track SSOT (badge URLs,
+# bootstrap one-liners, "Current stable" prose links, legacy-doc preambles).
+# Historical references like "v15.0.2 removed Docker" or "Qdrant v1.18.0" are
+# intentionally excluded — they document past decisions and must NOT bump.
+# CHANGELOG.md is never scanned (historical entries are supposed to be stale).
+MD_PIN_PATTERNS: list[re.Pattern[str]] = [
+    re.compile(r'version-v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)-[0-9a-f]{6,8}\.svg'),         # badge
+    re.compile(r'(?:tags|tag)/v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)(?:/|\))'),               # release link / bootstrap URL
+    re.compile(r'/v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)/bootstrap\.(?:ps1|sh)'),             # raw bootstrap URL
+    re.compile(r'Architecture unchanged through v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)'),     # legacy doc preamble
+    re.compile(r'(?:Current|Stable actual)[^v]{0,30}\*\*\[v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)\]'),  # release-notes header
+]
+
 
 def read_ssot() -> str:
     """Return the version string from pyproject.toml [project].version."""
@@ -77,6 +106,45 @@ def collect() -> list[tuple[str, str | None]]:
     return out
 
 
+def collect_md_drift(ssot: str) -> list[tuple[str, int, str]]:
+    """Scan markdown bodies for stale version pins.
+
+    Returns ``(file, line_number, version_found)`` for every match that does
+    not equal the SSOT. Forward-version mentions (newer than SSOT) are ignored
+    because they may be intentional placeholders. CHANGELOG.md is intentionally
+    not scanned — its historical entries are supposed to reference old tags.
+    """
+    drift: list[tuple[str, int, str]] = []
+    for rel in MD_TARGETS:
+        path = ROOT / rel
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            for pattern in MD_PIN_PATTERNS:
+                for match in pattern.finditer(line):
+                    ver = match.group("ver")
+                    if ver == ssot:
+                        continue
+                    if _is_forward(ver, ssot):
+                        continue
+                    drift.append((rel, lineno, ver))
+    return drift
+
+
+def _is_forward(candidate: str, ssot: str) -> bool:
+    """Return True if candidate is strictly newer than ssot (semver tuple)."""
+    try:
+        ct = tuple(int(p) for p in candidate.split("."))
+        st = tuple(int(p) for p in ssot.split("."))
+        return ct > st
+    except ValueError:
+        return False
+
+
 def check() -> int:
     ssot = read_ssot()
     rows = collect()
@@ -91,6 +159,11 @@ def check() -> int:
     for rel, ver in rows:
         marker = "OK" if ver == ssot else ("MISS" if ver is None else "DRIFT")
         print(f"  [{marker}] {rel}: {ver}")
+    md_drift = collect_md_drift(ssot)
+    if md_drift:
+        print(f"\n{len(md_drift)} markdown body drift(s):")
+        for rel, lineno, ver in md_drift:
+            print(f"  - {rel}:{lineno}: v{ver} (expected v{ssot})")
     if missing:
         print(f"\n{len(missing)} file(s) missing or unparsable:")
         for rel in missing:
@@ -99,9 +172,9 @@ def check() -> int:
         print(f"\n{len(drift)} version drift(s):")
         for line in drift:
             print(f"  - {line}")
-    if drift or missing:
+    if drift or missing or md_drift:
         return 1
-    print("\nOK — all version files match SSOT.")
+    print("\nOK — all version files and markdown bodies match SSOT.")
     return 0
 
 

@@ -308,7 +308,7 @@ def cmd_tag(args) -> int:
 def cmd_rename(args) -> int:
     """v10.6.1: rename a project's id (deterministic, no LLM).
 
-    Why: scanner inferred id from folder name, but USER prefers a different
+    Why: scanner inferred id from folder name, but the user prefers a different
     slug (e.g. id 't11' with name 'Web2' on path \\Web2 → rename to 'web2').
     Updates only the id field; path/name preserved. Detects collisions with
     existing ids. Refreshes ide-mappings.json by_project_id keys if present.
