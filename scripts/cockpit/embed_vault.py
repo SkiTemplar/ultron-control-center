@@ -365,6 +365,26 @@ def index_vault(*, full_rebuild: bool = False) -> IndexReport:
     if to_upsert:
         upserted = upsert_files(to_upsert)
         indexed = upserted
+
+    # v15.5.20: self-heal orphan Qdrant points. When `walk_vault` starts
+    # skipping a path (file deleted from vault or now under _EXCLUDED_VAULT_DIRS),
+    # the SHA1 cache drops it but the Qdrant point survives forever — surfacing
+    # in semantic recall as ghost results. Diff prior `state` against the new
+    # walk and delete the orphan IDs in one batched call. Best-effort: a
+    # delete failure never blocks indexing.
+    orphan_paths = set(state.keys()) - set(new_state.keys())
+    if orphan_paths:
+        try:
+            from qdrant_client import models as _qmodels  # noqa: PLC0415
+            client = _get_qdrant()
+            orphan_ids = [_stable_point_id(p) for p in orphan_paths]
+            client.delete(
+                collection_name=COLLECTION,
+                points_selector=_qmodels.PointIdsList(points=orphan_ids),
+            )
+        except Exception:  # noqa: BLE001 — best-effort cleanup, never blocks indexing
+            pass
+
     save_state(new_state)
 
     duration = time.perf_counter() - start
