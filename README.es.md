@@ -350,11 +350,9 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ## Notas de release
 
-Stable actual: **[v15.5.20](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.20)** — Sweep Round-5 con 7 evaluadores. **`PopupHost` in-app** (esquina inferior izquierda, no invasivo) reemplaza tanto el toast nativo de Windows como el modal central `confirmDialog`; nueva API `showToast` / `showConfirm` preserva el contrato de los call-sites. **UI de Backups**: checklist por carpeta + "Add custom…" persistido a `~/.ultron/cockpit/backup-config.json` (reemplaza el flujo solo-env-var). **Hooks**: debounce de Stop subido 90s→300s (refire por turno bajado de ~25× a ~2× por sesión); `plan-detector` dedupea contra las últimas 200 líneas del inbox; `embed_vault` ignora `_archive/.git/.obsidian/.trash` y auto-cura puntos huérfanos en Qdrant. **Gate de leakage**: 5 patrones HIGH nuevos, regex endurecida para matches adyacentes a underscore, 21 anotaciones internas limpiadas. **Purga de docs**: CHANGELOG colapsado de 939→384 líneas (51→13 entries) según `CHANGELOG-POLICY.md`; `.env.example` añadido (sin API keys — los CLIs de suscripción cubren todo).
+Stable actual: **[v15.5.20](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.20)** — pulido de UX, hooks y gate de leakage.
 
-Stable anterior: **v15.5.18** — primer release Linux (`.deb` + `.AppImage`), wrapper Tauri ACL para los 9 flujos destructivos que fallaban silenciosamente, macro-test de routing (95%/20), CI guard de drift de versión en markdown bodies, gate `audit_personal_data.py` HIGH=0.
-
-Notas completas en [`CHANGELOG.md`](CHANGELOG.md). El [release mas reciente en GitHub](https://github.com/SkiTemplar/ultron/releases/latest) trae NSIS `.exe` + MSI para Windows, `.deb` + `.AppImage` para Linux, y el `ultron-system-<tag>.zip` + `.sha256` que consumen los bootstrap one-liners.
+Notas completas: [`CHANGELOG.md`](CHANGELOG.md). Assets más recientes: [GitHub Releases](https://github.com/SkiTemplar/ultron/releases/latest).
 
 ---
 

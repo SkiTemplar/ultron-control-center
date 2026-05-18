@@ -349,11 +349,9 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 ## Release notes
 
-Current stable: **[v15.5.20](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.20)** — Round-5 evaluator sweep. **In-app `PopupHost`** (bottom-left, non-invasive) replaces both the Windows-native toast path and the central-modal `confirmDialog`; new API `showToast` / `showConfirm` keeps the existing call-site contract. **Backups Settings UI**: per-folder checklist + "Add custom…" picker persisted to `~/.ultron/cockpit/backup-config.json` (replaces the env-var-only flow). **Hooks**: Stop debounce raised 90s→300s (per-turn refire cut from ~25× to ~2× per session); `plan-detector` dedupes against the last 200 inbox lines; `embed_vault` skips `_archive/.git/.obsidian/.trash` and self-heals orphan Qdrant points. **Leakage gate**: 5 new HIGH patterns, regex hardened for underscore-adjacent matches, 21 internal annotations scrubbed. **Docs purge**: CHANGELOG collapsed from 939→384 lines (51→13 entries) per `CHANGELOG-POLICY.md`; `.env.example` added (no API keys — subscription CLIs cover everything).
+Current stable: **[v15.5.20](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.20)** — UX, hooks and leakage-gate polish.
 
-Previous stable: **v15.5.18** — first Linux release (`.deb` + `.AppImage`), Tauri ACL dialog wrapper for the 9 destructive flows that silently no-op'd, routing macro-test (95%/20), version drift markdown-body CI guard, `audit_personal_data.py` HIGH=0 gate.
-
-Full release notes in [`CHANGELOG.md`](CHANGELOG.md). Latest release on [GitHub Releases](https://github.com/SkiTemplar/ultron/releases/latest) ships the NSIS `.exe` + MSI for Windows, `.deb` + `.AppImage` for Linux, and the `ultron-system-<tag>.zip` + `.sha256` consumed by the bootstrap one-liners.
+Full notes: [`CHANGELOG.md`](CHANGELOG.md). Latest assets: [GitHub Releases](https://github.com/SkiTemplar/ultron/releases/latest).
 
 ---
 
