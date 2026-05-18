@@ -14,7 +14,7 @@
 # Usage:
 #   weekly-backup.sh                    # run real backup
 #   weekly-backup.sh --dry-run           # log what would happen, no copy
-#   weekly-backup.sh --source CARRERA    # restrict to a single source
+#   weekly-backup.sh --source .ultron    # restrict to a single source
 #   weekly-backup.sh --status            # print last-run summary, exit
 #
 # --keep-weeks is accepted but ignored (kept for backward compat with
@@ -61,13 +61,22 @@ done
 # ── Configuration ────────────────────────────────────────────────────────
 
 # Mirror the order/contents of the .ps1's $Sources array.
-SOURCES=(
-    "CARRERA"
-    "PERSONAL"
+#
+# Default: only ULTRON-owned trees. Override via $ULTRON_BACKUP_SOURCES (space-
+# separated list of $HOME-relative dirs) to include personal trees like
+# `Documents` / `source` / your-folder. v15.5.17 dropped the prior CARRERA /
+# PERSONAL defaults (leaked the maintainer's personal layout into every install).
+DEFAULT_SOURCES=(
     ".ultron"
     ".ultron-vault"
     ".claude"
 )
+if [[ -n "${ULTRON_BACKUP_SOURCES:-}" ]]; then
+    # shellcheck disable=SC2206 # intentional word split for env var
+    SOURCES=( ${ULTRON_BACKUP_SOURCES} )
+else
+    SOURCES=( "${DEFAULT_SOURCES[@]}" )
+fi
 
 # Backup destination root. Override with $ULTRON_BACKUP_ROOT (e.g.
 # /mnt/backup). Falls back to "$HOME/BACKUP" so the script still works

@@ -90,6 +90,7 @@ cockpit/bridge-index.json
 cockpit/features.json
 cockpit/features.example.json
 cockpit/apps.json
+cockpit/scan-roots.json
 cockpit/mcp-audit.jsonl
 cockpit/auto_updater.jsonl
 cockpit/pending_actions.json

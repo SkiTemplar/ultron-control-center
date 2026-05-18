@@ -103,7 +103,7 @@ ULTRON es un **centro de mando local** que se monta encima del CLI oficial de [C
 | **Personas y skills** | Un dispatcher activa al especialista correcto segun la intención: `debugger`, `code-reviewer`, `ui-designer`, etc. |
 | **Agents** | 12 ULTRON + 7 community curados = 19 subagentes autónomos pre-instalados, mas un catalogo de 69 adicionales (88 totales), todos pasados por el mismo ruleset PI que las skills. |
 | **Hooks endurecidos** | Anti-prompt-injection, recall automático de notas, log de sesion y sync con el vault — todo enchufado a `settings.json`. |
-| **Panel desktop** | Tauri 2 + React 19 con 16 pestañas para memoria, skills, agents, hooks, planes, sesiones, costes y MCPs. |
+| **Panel desktop** | Tauri 2 + React 19 con 17 secciones (16 visibles + Logs cableado pero deshabilitado) para memoria, skills, agents, hooks, planes, sesiones, costes y MCPs. |
 
 **Filosofía.** Archivos de texto plano. Todo opt-in. Cero SaaS. Cero telemetría externa. No hay backend en la nube. Arranca piezas, forkealas o edita el JSON a mano — el sistema esta pensado para desmontarse.
 
@@ -292,7 +292,7 @@ Para desinstalar todo lo que ULTRON metió en tu máquina (sin tocar tus skills 
 | **Personas** | 12 skills core, dispatch por intención, ruleset anti-PI PI001-PI013 |
 | **Agents** | Instalación limpia: 19 pre-instalados (12 ULTRON + 7 community curados). Catalogo: 69 mas en `cockpit/agent-catalog.json`, instalables on-demand (88 total posibles). Pestaña Agents dedicada con el mismo scanner de seguridad que Skills, slot de Agent en el AI Router, embeddings en Qdrant para descubrimiento semántico. |
 | **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop` — todos auditables |
-| **Control Center** | 16 pestañas: Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings. La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks. (La pestaña Logs está cableada pero deshabilitada hoy.) |
+| **Control Center** | 17 secciones (16 visibles): Dashboard, Usage, Notifications, Changelog, News, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings + Logs (cableada, deshabilitada). La pestaña System incluye sub-pestañas: Overview, Schedules, Hooks. |
 | **Dual-mode** | Peer review opcional con Codex CLI + delegación long-context con Gemini CLI, ambos via suscripcion |
 | **Seguridad** | Scanner anti-prompt-injection, carpeta de cuarentena, allow-list IPC en Tauri |
 | **Privacidad** | Sin telemetría, sin llamadas externas sin accion del usuario, el vault es tuyo |
@@ -396,9 +396,9 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ## Notas de release
 
-Stable actual: **[v15.5.17](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.17)** — ULTRA sweep Round 2: el dispatcher de routing alcanza 95% en el nuevo macro-test de 20 prompts (5 personas personales + 2 reglas de ambigüedad añadidas), ~50 ficheros de fugas de info personal scrubeados, `docs/MAINTAINERS.md` + `docs/RELEASE-CHECKLIST.md` añadidos, `scripts/qdrant/` separado de `scripts/hooks/`, los duplicados legacy de `scripts/install.{ps1,sh}` archivados en `_legacy/`, SYSTEM-MAP lazy-load (~−1660 tok/inicio de sesión) y fix del leak de em-dash en la routing-line. Los blockers de Linux de v15.5.13 (`((counter++))` bajo `set -e` + typo `$NONINTERACTIVE`) shippearon arreglados en v15.5.14; v15.5.15 puliza todo lo que la pasada destapó. Adjunta `.deb` + `.AppImage` junto al NSIS / MSI Windows; matriz CI en `ubuntu-22.04` en verde y `version_propagate.py --check` ya bloquea drift a nivel de PR. La build Linux sigue **sin verificar end-to-end** por el autor — buscamos testers, abre un issue si la pruebas.
+Stable actual: **[v15.5.17](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.17)** — Round-2 burn-down + pulido R3: **bug de ACL Tauri `dialog:confirm` arreglado** (9 flujos destructivos que fallaban silenciosamente ahora usan un wrapper `confirmDialog()` sobre `@tauri-apps/plugin-dialog`), **cadena de hooks Stop reducida 5→3** (session-log + session-cleanup inlined en stop-memory-sync; auto-changelog y plan-detector standalone), Pending Items relocalizado por encima del pliegue con badge lateral cada 60s, nuevo rastro de fires de auto-recall en `~/.ultron/logs/auto-recall.log`. Sobre v15.5.16 (sweep Round 2) que añadió el macro-test de routing (95%/20), el CI guard de drift de versión en markdown bodies, y el gate de leak personal (`audit_personal_data.py` HIGH=0). Adjunta `.deb` + `.AppImage` + .rpm junto al NSIS / MSI Windows; matriz CI verde en `ubuntu-22.04`. Install end-to-end Linux sigue **sin verificar** por el autor — buscamos testers, abre un issue si la pruebas.
 
-Stable anterior: **v15.5.14** — blockers de install.sh Linux arreglados (primera instalación reproducible end-to-end), CI guard de drift de versión, `_section_USER()` → `_section_user()`, placeholders LoL/Riot de Projects.tsx neutralizados.
+Stable anterior: **v15.5.16** — Sweep ULTRA Round-2 (routing 95% verificado, 5 personas personales añadidas, leak HIGH=0, docs MAINTAINERS+CHECKLIST, scripts qdrant movidos, installers legacy archivados, SYSTEM-MAP lazy-load).
 
 Notas completas en [`CHANGELOG.md`](CHANGELOG.md). El [release mas reciente en GitHub](https://github.com/SkiTemplar/ultron/releases/latest) trae NSIS `.exe` + MSI para Windows, `.deb` + `.AppImage` para Linux, y el `ultron-system-<tag>.zip` + `.sha256` que consumen los bootstrap one-liners.
 

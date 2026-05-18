@@ -278,7 +278,7 @@ Hook list ULTRON registers:
 | PostToolUse      | `Skill\|Agent`                | `scripts/hooks/routing-telemetry.py`  |
 | PostToolUse      | `Skill`                       | `scripts/hooks/prompt-feedback-capture.py` |
 | PostToolUse      | `Read`                        | `scripts/hooks/track-knowledge-reads.py` |
-| Stop             | (all)                         | `session-log.py` + `stop-memory-sync.ps1` + `session-cleanup.ps1` |
+| Stop             | (all)                         | `stop-memory-sync.ps1` + `auto-changelog.py` + `plan-detector.py` (session-log + session-cleanup inlined into stop-memory-sync since v15.5.17) |
 | UserPromptSubmit | (all)                         | `mode-trigger.py` + `intent-dispatcher.py` + `auto-recall.py` |
 
 ### 8. Skills

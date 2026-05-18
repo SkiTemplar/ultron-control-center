@@ -10,7 +10,7 @@
 # Usage:
 #   weekly-backup.ps1                     # run real backup
 #   weekly-backup.ps1 -DryRun              # log what would happen, no copy
-#   weekly-backup.ps1 -Source CARRERA      # restrict to a single source
+#   weekly-backup.ps1 -Source .ultron      # restrict to a single source
 #   weekly-backup.ps1 -Status              # print last-run summary, exit
 #
 # -KeepWeeks is accepted but ignored (kept for backward compat). Mirror mode
@@ -35,13 +35,17 @@ $ErrorActionPreference = "Stop"
 
 # ── Configuration ──────────────────────────────────────────────────────────────
 
-$Sources = @(
-    "CARRERA",
-    "PERSONAL",
-    ".ultron",
-    ".ultron-vault",
-    ".claude"
-)
+# Default: only ULTRON-owned trees. Override via $env:ULTRON_BACKUP_SOURCES
+# (comma-separated list of $env:USERPROFILE-relative dirs) to include personal
+# trees like `Documents` / `source` / your-folder. v15.5.17 dropped the prior
+# CARRERA / PERSONAL defaults (leaked the maintainer's personal layout into
+# every install).
+$DefaultSources = @(".ultron", ".ultron-vault", ".claude")
+$Sources = if ($env:ULTRON_BACKUP_SOURCES) {
+    $env:ULTRON_BACKUP_SOURCES.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
+} else {
+    $DefaultSources
+}
 
 # Backup destination root. Override with $env:ULTRON_BACKUP_ROOT (e.g. set it
 # to "D:\BACKUP" in your environment). Falls back to "$env:USERPROFILE\BACKUP"
