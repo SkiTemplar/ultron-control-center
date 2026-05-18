@@ -1946,7 +1946,7 @@ wheels = [
 
 [[package]]
 name = "ultron"
-version = "15.5.18"
+version = "15.5.20"
 source = { editable = "." }
 dependencies = [
     { name = "bashlex" },

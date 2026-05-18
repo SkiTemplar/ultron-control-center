@@ -17,7 +17,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.18-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.20-44cc11.svg" /></a>
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Built on Claude Code" src="https://img.shields.io/badge/built%20on-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Stage" src="https://img.shields.io/badge/stage-public%20beta-orange.svg" />
@@ -166,10 +166,10 @@ Three local layers, one optional remote, plus a semantic search engine on top of
 | **L0** hot context | `~/.ultron/.tmp/context.md` | Pre-computed primer, ≤400 tokens, loaded at every SessionStart | Sticky note on your monitor |
 | **L1** keyword index | `~/.ultron/brain_index/index.db` | SQLite FTS5 over the chunked vault, BM25 retrieval | Card catalog at a library |
 | **L2** vault | `~/.ultron-vault/*.md` | Curated markdown notes with wikilinks — the source of truth | The shelves the library indexes |
-| **L3** remote *(planned)* | `github.com/<you>/ultron-memory` | Off-machine mirror of L2, drained by the `Stop` hook in HIGH+ mode | Off-site archive box |
+| **L3** remote *(opt-in)* | `github.com/<you>/ultron-memory` | Off-machine mirror of L2, drained by the `Stop` hook in HIGH+ mode | Off-site archive box |
 
 > [!NOTE]
-> **L3 status.** The Stop hook code path is wired (see `memory_sync.py push-async`), but the `github.com/SkiTemplar/ultron-memory` reference repo does **not** exist yet — L3 is opt-in and currently only fires if **you** create your own `~/.ultron-vault` git remote. There is no shared mirror.
+> **L3 status.** The Stop hook code path is wired (see `memory_sync.py push-async`). The reference repo at `github.com/SkiTemplar/ultron-memory` is an **empty scaffold** (README + .gitignore + LICENSE) you can fork or clone as your private mirror; ULTRON only pushes once **you** wire `~/.ultron-vault` to your own remote.
 
 On top of L1+L2 lives a local **Qdrant** instance (a native platform binary on Windows or Linux, no daemon) that runs semantic recall over the same corpus — so "find that note about Tauri permissions" works even when you don't remember the exact words. A decay system bubbles stale notes back to the surface every time you start a session, so old context resurfaces instead of rotting forever.
 
@@ -253,7 +253,7 @@ ULTRON stitches four memory layers so Claude resumes on the same page after ever
 - **L0 — hot context.** `~/.ultron/.tmp/context.md` (≤ 400 tokens). Pinned summary of recent sessions, projects, pending alerts. Loaded automatically at SessionStart. *Sticky note.*
 - **L1 — keyword index.** SQLite + FTS5 at `~/.ultron/brain_index/index.db`. Fast BM25 lookup over every vault note. Rebuilt incrementally by the Stop hook. *Card catalog.*
 - **L2 — vault.** Plain-text Obsidian-style notes under `~/.ultron-vault/` (your curated long-term knowledge). Plus `~/.ultron/archive/` for older indexed material. *The shelves.*
-- **L3 — remote mirror** *(planned, opt-in).* The Stop hook can push to `github.com/<you>/ultron-memory` for cross-machine sync (HIGH+ mode), but the code path only runs if **you** create the remote in `~/.ultron-vault`. There is no shared `SkiTemplar/ultron-memory` repo. *Off-site archive.*
+- **L3 — remote mirror** *(opt-in).* The Stop hook can push to `github.com/<you>/ultron-memory` for cross-machine sync (HIGH+ mode). The code path only runs once **you** wire your own remote in `~/.ultron-vault`; the upstream `SkiTemplar/ultron-memory` repo is a scaffold to fork. *Off-site archive.*
 
 On top of those, a native Qdrant binary (`~/.ultron/qdrant-native/qdrant.exe`) provides semantic recall via dense embeddings for skills + agents + vault notes. Recall is hybrid: FTS5 + Qdrant, both surface results through the `ultron recall` CLI and the Memory tab. The whole system is plain text — no SaaS lock-in, you can grep, diff, fork, archive.
 
@@ -349,7 +349,7 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 ## Release notes
 
-Current stable: **[v15.5.18](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.18)** — Round-2 burn-down + R3 polish: **Tauri `dialog:confirm` ACL bug fixed** (9 destructive flows that silently no-op'd now route through a `confirmDialog()` wrapper using `@tauri-apps/plugin-dialog`), **Stop hook chain 5→3 processes** (session-log + session-cleanup inlined into stop-memory-sync; auto-changelog and plan-detector standalone), Pending Items panel relocated above-fold with sidebar badge polling every 60s, new auto-recall fire trail at `~/.ultron/logs/auto-recall.log`. Builds on v15.5.16 (Round 2 sweep) which added the routing macro-test (95%/20), the version drift markdown-body CI guard, and the `personal-info-leak` CI gate (`audit_personal_data.py` HIGH=0). Ships `.deb` + `.AppImage` alongside the Windows NSIS / MSI; CI matrix green on `ubuntu-22.04`. Linux end-to-end install still **unverified by the author** — testers wanted, open an issue if you try it.
+Current stable: **[v15.5.20](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.20)** — Round-2 burn-down + R3 polish: **Tauri `dialog:confirm` ACL bug fixed** (9 destructive flows that silently no-op'd now route through a `confirmDialog()` wrapper using `@tauri-apps/plugin-dialog`), **Stop hook chain 5→3 processes** (session-log + session-cleanup inlined into stop-memory-sync; auto-changelog and plan-detector standalone), Pending Items panel relocated above-fold with sidebar badge polling every 60s, new auto-recall fire trail at `~/.ultron/logs/auto-recall.log`. Builds on v15.5.16 (Round 2 sweep) which added the routing macro-test (95%/20), the version drift markdown-body CI guard, and the `personal-info-leak` CI gate (`audit_personal_data.py` HIGH=0). Ships `.deb` + `.AppImage` alongside the Windows NSIS / MSI; CI matrix green on `ubuntu-22.04`. Linux end-to-end install still **unverified by the author** — testers wanted, open an issue if you try it.
 
 Previous stable: **v15.5.16** — Round-2 ULTRA sweep (routing 95% verified, 5 personal skills slots added, leakage HIGH=0, MAINTAINERS+CHECKLIST docs, qdrant scripts moved, legacy installers archived, SYSTEM-MAP lazy-load).
 

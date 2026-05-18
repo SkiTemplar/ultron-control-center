@@ -864,7 +864,7 @@ export function Dashboard({
       </div>
 
       {/*
-        v15.5.16 internal-review-note: PendingItemsPanel relocated ABOVE Full diagnostic
+        v15.5.16PendingItemsPanel relocated ABOVE Full diagnostic
         so open loops (skill drift, idle plans, stale backups, quarantined
         skills, un-acked critical alerts) are the first thing visible on
         Dashboard load — owner reported never scrolling far enough to see

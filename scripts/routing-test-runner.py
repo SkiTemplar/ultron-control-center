@@ -32,7 +32,7 @@ VERBOSE = "--verbose" in sys.argv or "-v" in sys.argv
 FAST_PATH = [
     ("gamedev-engineer", [
         "ue5", "unreal", "blueprint", "enhanced input", "netcode",
-        "game dev", "PROGRAM_A", "game ability system", "game ability",
+        "game dev", "game ability system", "game ability",
         "shader de juego", "shader de material", "material pbr",
     ]),
     ("business-strategist", [

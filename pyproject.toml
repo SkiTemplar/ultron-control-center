@@ -1,6 +1,6 @@
 [project]
 name = "ultron"
-version = "15.5.18"
+version = "15.5.20"
 requires-python = ">=3.12"
 dependencies = [
     "bashlex>=0.18",
@@ -27,7 +27,7 @@ build-backend = "hatchling.build"
 [tool.pytest.ini_options]
 markers = [
     "routing: tests for the prompt → persona/skill router (intent-dispatcher, fast-path, fallbacks)",
-    "layer1: smoke tests for L1 personas (terry-davis, don-claudio, mike-tyson, etc.) — keep fast",
+    "layer1: smoke tests for L1 personas (community + opt-in skills) — keep fast",
     "tiebreak: routing tiebreaker rules (domain beats platform, more-specific wins)",
     "plugins: routes for plugin-namespaced skills (codex:*, superpowers:*, etc.)",
     "combos: combined-signal routing (file ext + verb + persona)",

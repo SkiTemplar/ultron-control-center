@@ -334,7 +334,7 @@ def _emit_route(
 ) -> None:
     """Write the routing line to stdout (exactly one line).
 
-    v15.5.15 (internal-review-note): suppress the line entirely when skill_id is None.
+    v15.5.15suppress the line entirely when skill_id is None.
     Previous behaviour emitted ``skill=— | ctx=— | via=none`` which polluted
     grep-based telemetry analysis with ~15% "matched-looking" no-route events.
     Telemetry still records the no-route via _write_telemetry — the user just
@@ -578,7 +578,7 @@ def _build_context_packet(prompt: str, budget_left_ms_fn) -> str:
         if budget_left_ms_fn() < 10:
             return ""
         import context_packet_builder  # noqa: PLC0415 — lazy import intentional
-        # v15.5.15 (internal-review-note): cap reduced from 600 → 300 tok. Dispatcher rarely
+        # v15.5.15cap reduced from 600 → 300 tok. Dispatcher rarely
         # consumes the full 600; reducing the cap halves steady-state token cost
         # per turn (~150 → ~75 tok avg) without affecting precision in the
         # macro-test suite.

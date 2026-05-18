@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { confirmDialog } from "../lib/dialog";
 
 // ---------------------------------------------------------------------------
 // Types (mirror src-tauri/src/hooks_admin.rs)
@@ -119,7 +120,6 @@ export function Hooks() {
 
   const [editTarget, setEditTarget] = useState<HookRecord | null>(null);
   const [testTarget, setTestTarget] = useState<HookRecord | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<HookRecord | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [fires, setFires] = useState<HookFiresReport | null>(null);
@@ -180,7 +180,6 @@ export function Hooks() {
     try {
       const res = (await invoke("delete_hook", { id: hook.id })) as HookMutationResult;
       showFlash(`Deleted hook. Backup: ${res.backup_path ?? "n/a"}`);
-      setDeleteTarget(null);
       if (selectedId === hook.id) setSelectedId(null);
       await fetchList();
     } catch (e) {
@@ -484,7 +483,13 @@ export function Hooks() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => setDeleteTarget(h)}
+                            onClick={async () => {
+                              const ok = await confirmDialog(
+                                `Delete hook?\n\nEvent: ${h.event}\nMatcher: ${h.matcher ?? "(none)"}\nCommand: ${truncate(h.command, 200)}`,
+                                { title: "Delete hook", kind: "error" }
+                              );
+                              if (ok) handleDelete(h);
+                            }}
                             className="rounded px-2 py-0.5 text-[11px]"
                             style={{
                               background: "var(--color-surface-3)",
@@ -543,15 +548,6 @@ export function Hooks() {
 
       {testTarget && (
         <TestModal hook={testTarget} onClose={() => setTestTarget(null)} />
-      )}
-
-      {deleteTarget && (
-        <ConfirmModal
-          title="Delete hook?"
-          body={`Event: ${deleteTarget.event}\nMatcher: ${deleteTarget.matcher ?? "(none)"}\nCommand: ${truncate(deleteTarget.command, 200)}`}
-          onConfirm={() => handleDelete(deleteTarget)}
-          onCancel={() => setDeleteTarget(null)}
-        />
       )}
 
       {aiOpen && (
@@ -1206,77 +1202,6 @@ function AiModal({
             }}
           >
             {busy ? "Opening..." : "Open Claude"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Confirm modal (delete)
-// ---------------------------------------------------------------------------
-
-function ConfirmModal({
-  title,
-  body,
-  onConfirm,
-  onCancel,
-}: {
-  title: string;
-  body: string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ background: "rgba(0,0,0,0.5)" }}
-      onClick={onCancel}
-    >
-      <div
-        className="w-[440px] rounded-md border p-5 shadow-xl"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "var(--color-surface-1)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="mb-3 text-[15px] font-semibold">{title}</div>
-        <pre
-          className="mb-4 overflow-auto rounded border p-2 text-[11px]"
-          style={{
-            borderColor: "var(--color-border)",
-            background: "var(--color-surface-2)",
-            color: "var(--color-text-secondary)",
-            whiteSpace: "pre-wrap",
-            wordBreak: "break-all",
-          }}
-        >
-          {body}
-        </pre>
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            className="rounded px-3 py-1.5 text-[12px]"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text-secondary)",
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            className="rounded px-3 py-1.5 text-[12px] font-medium"
-            style={{
-              background: "var(--color-danger, #f88)",
-              color: "var(--color-surface-1)",
-            }}
-          >
-            Delete
           </button>
         </div>
       </div>

@@ -140,7 +140,7 @@
 
     "Stop": [
       {
-        "_comment": "v15.5.16 (internal-review-note): Stop chain consolidated 5→3 processes. session-log.py was folded into stop-memory-sync.{ps1,sh} (single-line per-day .md log), session-cleanup.{ps1,sh} was inlined as the final tail block of stop-memory-sync (plugin/data + .tmp cleanup). auto-changelog.py stays standalone: it's gated to HIGH/ULTRA so the duplicate-process cost is bounded, and inlining its ~250 lines of git+regex+ndjson logic into both PowerShell AND bash would double maintenance surface.",
+        "_comment": "v15.5.16Stop chain consolidated 5→3 processes. session-log.py was folded into stop-memory-sync.{ps1,sh} (single-line per-day .md log), session-cleanup.{ps1,sh} was inlined as the final tail block of stop-memory-sync (plugin/data + .tmp cleanup). auto-changelog.py stays standalone: it's gated to HIGH/ULTRA so the duplicate-process cost is bounded, and inlining its ~250 lines of git+regex+ndjson logic into both PowerShell AND bash would double maintenance surface.",
         "hooks": [
           {
             "type": "command",

@@ -41,14 +41,40 @@ PLAN_MARKERS = [
 ]
 
 
+_DEDUP_TAIL_LINES = 200  # scan last N inbox lines for duplicates
+
+
+def _existing_snippets() -> set[str]:
+    """Return the trimmed inbox bullet bodies already recorded (last _DEDUP_TAIL_LINES)."""
+    if not INBOX_PATH.exists():
+        return set()
+    try:
+        tail = INBOX_PATH.read_text(encoding="utf-8", errors="replace").splitlines()[-_DEDUP_TAIL_LINES:]
+    except OSError:
+        return set()
+    seen: set[str] = set()
+    for line in tail:
+        stripped = line.lstrip("- ").strip()
+        if stripped:
+            seen.add(stripped[:240])
+    return seen
+
+
 def append_inbox(items: list[str]) -> None:
     INBOX_PATH.parent.mkdir(parents=True, exist_ok=True)
+    existing = _existing_snippets()
+    fresh: list[str] = []
+    for item in items:
+        snippet = " ".join(item.split())[:240]
+        if snippet and snippet not in existing:
+            fresh.append(snippet)
+            existing.add(snippet)
+    if not fresh:
+        return
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     with INBOX_PATH.open("a", encoding="utf-8") as f:
         f.write(f"\n## {ts}\n\n")
-        for item in items:
-            # one-line trimmed snippet
-            snippet = " ".join(item.split())[:240]
+        for snippet in fresh:
             f.write(f"- {snippet}\n")
 
 

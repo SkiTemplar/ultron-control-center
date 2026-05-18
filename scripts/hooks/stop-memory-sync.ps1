@@ -35,7 +35,7 @@ function Write-Log {
     Add-Content -Path $logFile -Value "[$ts] $msg" -Encoding UTF8 -ErrorAction SilentlyContinue
 }
 
-# ── Inlined session-log (v15.5.16 internal-review-note) ─────────────────────────────────
+# ── Inlined session-log (v15.5.16─────────────────────────────────
 # Folded in from scripts/hooks/session-log.py. Writes ONE human-readable line per
 # session-end to ~/.ultron/sessions/YYYY-MM-DD.md (top-level file, separate from
 # the YYYY-MM-DD/replay.jsonl that session_replay.py owns). Runs BEFORE debounce
@@ -61,9 +61,10 @@ try {
 # ── Debounce — prevent per-tool-call refire (Auditor 2 finding) ───────────────
 # Stop hook was firing 6× in 62 minutes for the same session → multiplied
 # brain_index updates, push-async spawns, and Codex compactor calls.
-# Skip Phase A entirely if the same session_id ran <90s ago.
+# v15.5.20: window 90s -> 300s (Claude harness fires Stop per assistant turn,
+# not per session close). Target fires/distinct_sessions ratio ≤2.0.
 $debouncePath = "$env:USERPROFILE\.ultron\.tmp\last-stop-sync.json"
-$debounceWindow = 90  # seconds
+$debounceWindow = 300  # seconds
 try {
     if ($stdinSessionId -and (Test-Path $debouncePath)) {
         $last = Get-Content $debouncePath -Raw | ConvertFrom-Json
@@ -441,7 +442,7 @@ try {
     Write-Log "doctor weekly exception: $($_.Exception.Message)"
 }
 
-# ── Inlined session-cleanup (v15.5.16 internal-review-note) ─────────────────────────────
+# ── Inlined session-cleanup (v15.5.16─────────────────────────────
 # Folded in from scripts/hooks/session-cleanup.ps1. Removes empty plugin/data
 # dirs that the CC harness re-mkdirs on each hook fire (Windows-only EEXIST
 # bug), and prunes session-env dirs older than 2 days. Cheap, no Python spawn.

@@ -88,7 +88,7 @@ def _compute_score(edge: dict, mode: str = "MEDIUM",
     # Recency: penalise if last_outcome was failure
     recency_fit = 0.5 if edge.get("last_outcome") == "failed" else 1.0
 
-    # USER_signal removed in v12.5 (Auditor 3): field was 100% "unknown"
+    # legacy_signal removed in v12.5 (Auditor 3): field was 100% "unknown"
     # because no caller ever set it — pure dead weight in the formula.
     # Reweighted: domain_fit kept at 0.30, observed_success bumped to 0.30
     # (was the most-loadbearing real signal), other weights unchanged.
@@ -124,7 +124,7 @@ def record_outcome(from_skill: str, to_skill: str,
                    duration_sec: float = 0.0) -> None:
     """Update route quality metrics after a skill handoff completes.
 
-    USER_signal parameter removed in v12.5 — was never set by any caller
+    legacy_signal parameter removed in v12.5 — was never set by any caller
     (Auditor 3 finding); the scoring branch using it has been deleted.
     """
     data = load_quality()

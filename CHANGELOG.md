@@ -1,5 +1,36 @@
 # Changelog
 
+<!-- v15.5.20 -->
+## v15.5.20 — 2026-05-18 (patch sweep: Round 5 evaluator fixes)
+
+UX overhaul + leakage gate hardening based on seven parallel Round 5
+audits. Per `docs/CHANGELOG-POLICY.md` this minor entry collapses the
+v15.5.19 in-flight patches.
+
+Errores corregidos:
+- Stop hook debounce window 90s→300s; per-turn refire cut from ~25× to ~2× session ratio (`scripts/hooks/stop-memory-sync.{ps1,sh}`).
+- `plan-detector.py` now dedupes against the last 200 inbox lines before appending — kills 5×-duplicate spam in `plans/_inbox.md`.
+- Leakage scanner: word-boundary regex tightened to also catch underscore-adjacent matches (`USER_signal`-style); five new HIGH patterns added (`UNIVERSITY`, `PROGRAM_A`, `REDACTED_TEAM`, `REDACTED_COMMIT_LABEL`, `eval-N RX`); 21 internal `eval-N RX` annotations scrubbed from runtime files.
+- `news_html_generator.py`: dead `SKILL_PATH` + `load_base_template()` removed (referenced a `newsletter-publisher` skill that was never shipped).
+- CHANGELOG v15.4.x: 21 individual patch entries (~270 lines) collapsed into a single brief v15.4.1..v15.4.21 sweep block per `CHANGELOG-POLICY.md`.
+
+Anadido:
+- **In-app popup system (`PopupHost`)** — bottom-left, non-invasive. Replaces both the Windows-native `tauri_plugin_notification` toast and the central-modal `confirmDialog`. New API: `src/lib/popups.ts` (`showToast`, `showConfirm` returning `Promise<boolean>`). Backend emits Tauri event `ultron-toast` instead of OS-level notifications.
+- L3 memory mirror scaffold at `github.com/SkiTemplar/ultron-memory` (README + `.gitignore` + MIT LICENSE). L3 status in README upgraded from *(planned)* to *(opt-in)*; users fork the scaffold and wire `~/.ultron-vault` to their own remote.
+
+Eliminado:
+- `Logs` tab dead route (Sidebar + App.tsx) — was `available: false` since v15.2 F7 (Hooks moved inside System).
+- `Hooks.tsx::ConfirmModal` (central overlay) replaced by inline popup confirm.
+- Deadwood scripts: `scripts/consistency-check.py` (duplicate of underscore variant), `cockpit/projects.json.bak`, branches `backup-pre-history-rewrite-*` / `backup-pre-purge-*`.
+
+Movido:
+- `scripts/hooks/ensure-qdrant.{ps1,sh}` → `scripts/qdrant/` (catch-up with the v15.5.17 reorganisation that left two siblings behind).
+
+Sanitizado:
+- `intent-rules.yaml:267` regex no longer hardcodes a personal sports team.
+- `routing-test-runner.py` dropped `PROGRAM_A` keyword (covered by `ue5`/`unreal`).
+- `validate_push.py` + `route_quality.py` + `pyproject.toml` + CHANGELOG entries scrubbed of internal evaluator/persona vocabulary.
+
 <!-- v15.5.0 -->
 ## v15.5.0 - 2026-05-17 (acumula v15.5.1..v15.5.18)
 
@@ -79,237 +110,28 @@ Non-goals (explicit):
 > CHANGELOG policy documented in `docs/CHANGELOG-POLICY.md`.
 
 
-<!-- v15.4.21 -->
-## v15.4.21 — 2026-05-17
-
-- feat(v15.4.21): hide dev-only doctor + test flake fix + release cadence policy
-- Update CHANGELOG.md
-
-_Auto-generated from 1aaea559 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.20 -->
-## v15.4.20 — 2026-05-17
-
-- fix(v15.4.20): kill running app before any build — no more "Acceso denegado"
-
-_Auto-generated from de30c846 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.19 -->
-## v15.4.19 — 2026-05-17
-
-- feat(v15.4.19): final polish — session icon fix + GitHub project files
-
-_Auto-generated from 7460f9d1 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.18 -->
-## v15.4.18 — 2026-05-17
-
-- chore(v15.4.18): bump after codex-r2 fixes for clean release tag
-
-_Auto-generated from 8e7d3888 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.17 -->
-## v15.4.17 — 2026-05-17
-
-- feat(v15.4.17): release pipeline via bootstrap.ps1 + system ZIP
-
-_Auto-generated from 2797db6e by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.16 -->
-## v15.4.16 — 2026-05-17
-
-- feat(v15.4.16): 8 new intent-dispatcher rules from real telemetry
-
-_Auto-generated from d92caa9d by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.15 -->
-## v15.4.15 — 2026-05-17
-
-- feat(v15.4.15): Vault panel UI + news dedup + auto-recall vault layer + hooks search
-
-_Auto-generated from eb5d8a8f by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.14 -->
-## v15.4.14 — 2026-05-17
-
-- feat(v15.4.14): Send to Vault + 3 new ULTRON agents
-
-_Auto-generated from 796c24c0 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.13 -->
-## v15.4.13 — 2026-05-17
-
-- feat(v15.4.13): publish 332 skills + Install-SkillSets + top_intent fix + apps path UTF-16 decode
-
-_Auto-generated from fa456c6f by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.12 -->
-## v15.4.12 — 2026-05-17
-
-- feat(v15.4.12): publica 16 agents al repo + install.ps1 paso Install-Agents + docs/COMMANDS.md + README polish
-- fix(v15.4.11b): agent model versioning + README counts clarified
-
-_Auto-generated from f419eb2b by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.11 -->
-## v15.4.11 — 2026-05-17
-
-- feat(v15.4.11): MemoryGraph retirado del Memory tab + Projects items consolidados a 3 kinds
-
-_Auto-generated from 4ac6aec0 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.10 -->
-## v15.4.10 — 2026-05-17
-
-- fix(v15.4.10): MemoryGraph - clusters mas juntos + bolitas mas densas (USER lo queria al reves)
-
-_Auto-generated from efb18ede by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.9 -->
-## v15.4.9 — 2026-05-17
-
-- feat(v15.4.9): MemoryGraph spacing + AI Router agents en todas zones + Mode persistence + toggle UI redesign + 42 catalog agents installed
-- docs(v15.4.8c): README real catalog count + roadmap removed + Personal profile generated
-- fix(v15.4.8b): Skills always-rich + mojibake sweep in skills/agents/docs
-
-_Auto-generated from 55adba85 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.8 -->
-## v15.4.8 — 2026-05-17
-
-- fix(v15.4.8): MemoryGraph galaxy clusters + backup stale silencioso + PLANS empty
-
-_Auto-generated from 05dce858 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.7 -->
-## v15.4.7 — 2026-05-17
-
-- fix(v15.4.7): full army audit follow-up - 7 bugs reales corregidos
-- docs: agent catalog count refresh to 31 pre-installed (~90 available)
-
-_Auto-generated from 7ec157f8 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.6 -->
-## v15.4.6 — 2026-05-17
-
-Kirkardo audit follow-up. Code is healthy (TS green, cargo 54/54, pytest 863
-collected); only README drift to clean up.
-
-### Docs
-
-- fix(README): Control Center sidebar lists **16 tabs**, not 17 — the Logs tab is wired in `Sidebar.tsx` but `available: false` today. Same fix in `README.es.md`.
-- fix(README): IDE selector now exposes **13 editors** (CLion landed in v15.4.4) — the v15.4 roadmap row said 12. Same fix in `README.es.md`.
-- fix(README): v15.4 roadmap row updated to include the v15.4.2-v15.4.5 features Kirkardo flagged as missing: boot-time update detector, 1-click rebuild, Settings → Features panel, AI Router smart defaults per zone. Same fix in `README.es.md`.
-
-### Cleanup (user-local, not in git)
-
-- chore(plans): drop the orphan `spec_path` on the `v15.3-mobile-app` wontfix entry — the file never existed in `plans/specs/`. `PLANS.json` is gitignored, so this is local-only.
-
-### Verification
-
-- Audit pass: `npx tsc --noEmit` green, `cargo test --release --lib` green (54/54), `pytest --collect-only` clean (863).
-- AI Router agent references all resolve: debugger, mcp-developer, context-manager, ultron-context, ultron-arch, powershell-7-expert all present in `~/.claude/agents/`.
-- Update flow integrity verified: `update_checker.rs` → SkiTemplar/ultron, `run_app_lifecycle("update")` does pull→install→build→kill→relaunch, `UpdateBanner` early-returns on auto-rebuild ON.
-
-
-<!-- v15.4.5 -->
-## v15.4.5 — 2026-05-17
-
-- fix(v15.4.5): MemoryGraph nodos colapsados + 7 agents nuevos + ftfy sweep
-
-_Auto-generated from 6900ddfd by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.4 -->
-## v15.4.4 — 2026-05-17
-
-- feat(v15.4.4): AI Router smart defaults per zone + Reset to recommended button
-
-_Auto-generated from c8e4f219 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.3 -->
-## v15.4.3 — 2026-05-17
-
-- feat(v15.4.3): rebuild auto-relaunches the Control Center
-
-_Auto-generated from ef59a2a3 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.4.2 -->
-## v15.4.2 — 2026-05-17
-
-### Features
-
-- feat(update-checker): pragmatic auto-update path that doesn't require the still-unimplemented Ed25519 signing / release workflow. New `update_checker.rs` Rust module hits `api.github.com/repos/SkiTemplar/ultron/releases/latest` 6 s after startup and emits an `update-available` event when the local `CARGO_PKG_VERSION` is older than the latest stable tag. Frontend `<UpdateBanner/>` (mounted once in `App.tsx`) listens for the event, surfaces a non-blocking card at the top of the active tab with a "Update now" button that runs `git pull + npm install + npm run tauri build` in a visible PowerShell (same path Settings → App lifecycle → Rebuild already uses). Release-notes link + per-version dismiss preserved across sessions in `localStorage`.
-- feat(settings/features): new "Update behaviour" sub-section in `Settings → Features` exposes the `Auto-rebuild on update` toggle (stored locally, `ultron.auto_rebuild_on_update`). When ON, the boot-time check skips the banner and fires the rebuild directly — for the "I never remember to rebuild" workflow.
-
-### Verification
-
-- `npx tsc --noEmit` green.
-- `cargo test --release --lib` green (54/54 — 51 existing + 3 new semver-comparator units).
-- Manual: simulated startup with a forced `latest_version = 99.99.99` payload — banner mounts, dismiss + per-version cache work, "Update now" invokes `run_app_lifecycle("update")`.
-
-### Out of scope (deferred to a future release)
-
-- Tauri-native auto-updater plugin (Ed25519 signing, release workflow with `latest.json`, silent in-place binary swap). Tracked as a separate plan; this lightweight check covers 95 % of the "I rebuilt main yesterday and forgot to bump the desktop" case without that infra.
-
-
-<!-- v15.4.1 -->
-## v15.4.1 — 2026-05-17
-
-Triple-review follow-up (Codex `gpt-5.3-codex` + Gemini `gemini-3.1-pro-preview`
-+ repo-evaluator pass on top of `0ccb6bb`).
-
-### Fixes (Codex / Gemini blockers)
-
-- fix(features): wizard wrote `project` (singular) to `features.json`; Rust struct + sidebar gate use `projects` (plural). Renamed both branches of `Set-FeatureFlags` so the toggle finally reaches the sidebar.
-- fix(features): extend `Features` struct + `lib/features.ts` with `notifications`, `usage`, `sessions` so the installer toggles persist end-to-end (previously dropped on read).
-- fix(installer): remove non-existent `scripts/cockpit/pending_panel.py` from the `feat_notifications` opt-out manifest.
-- fix(System.tsx): the Hooks-disabled empty state was pointing at a sidebar "Features" panel that was removed — points to `Settings → Features` now.
-- fix(README.es.md): version badge / "tested" line / roadmap table all stale on v15.2 — bumped to v15.4 in parity with the English README.
-- fix(docs/INSTALL.md): title pinned to v15.2 + feature-toggles section only listed the old 5 modules + sample `features.json` missing the new keys. Rebuilt to match the v15.4 wizard.
-- fix(INSTALL.md): opt-out narrative said "News, Gaming, Schedules" while the table below already listed 8 modules — paragraph rewritten to match the table.
-
-### Features
-
-- feat(Settings/Features): new tab inside Settings exposes 14 runtime toggles (news, gaming, personal, schedules, self_improve, memory, plans, projects, mcps, skills, hooks, notifications, usage, sessions) with per-feature descriptions. Writes to `features.json` via `save_features` so the sidebar reacts immediately.
-- feat(sidebar): `usage`, `notifications`, `sessions` items now honour their feature gate (`featureKey="..."`). Disabling them from Settings hides the tab.
-- feat(button-prompts): add `logs.summarize_recent` so the Logs tab now has a default AI prompt (was the only tab without one).
-- feat(IDE selector): CLion added to the dropdown + Rust mapping (`clion` / `c-lion` / `c lion` aliases → CLI `clion`).
-
-### Cleanup
-
-- chore(sidebar): remove `FeaturesModal` + `showFeaturesModal` state — deduplicated by the new Settings → Features panel. Drops ~95 LOC.
-- chore(Settings/index.tsx): drop two stale comments referencing v15.2 F7 / F8 MCP migration work that already shipped.
-
-### Verification
-
-- `npx tsc --noEmit` green.
-- `cargo check` + `cargo test` green (51/51 unit tests).
-- Manual: 4 Codex blockers re-verified resolved end-to-end (`feat_project` → `projects` → sidebar gate, `feat_notifications/usage/sessions` → struct fields → sidebar visibility, `pending_panel.py` no longer referenced, System.tsx message updated).
+<!-- v15.4.1..v15.4.21 — patch sweep -->
+## v15.4.1..v15.4.21 — patch sweep (2026-05-17)
+
+Per `docs/CHANGELOG-POLICY.md` patches collapse into the next minor entry.
+Twenty-one patches landed on the same day after v15.4.0; grouped briefly:
+
+- **Update / rebuild loop:** boot-time `update_checker.rs` + `<UpdateBanner/>`, Settings → Features "Auto-rebuild on update", rebuild auto-relaunches the app, kill-running-app-before-build.
+- **AI Router + features wizard:** smart defaults per zone + reset button, 14 runtime toggles (`news, gaming, personal, schedules, self_improve, memory, plans, projects, mcps, skills, hooks, notifications, usage, sessions`), sidebar honours `featureKey`.
+- **Skills + agents:** publica 332 skills + Install-SkillSets, 16 agents + Install-Agents installer step, MemoryGraph spacing iterations, Send to Vault, ftfy mojibake sweep, agent versioning.
+- **Routing + telemetry:** 8 new intent-dispatcher rules from telemetry, Vault panel UI + news dedup + auto-recall vault layer + hooks search.
+- **IDE selector:** CLion added (13 editors total).
+- **Docs / hygiene:** README parity (EN + ES) for badges/roadmap/tab count, COMMANDS.md, top_intent fix, apps path UTF-16 decode, dev-only doctor hidden, release cadence policy.
+- **Cleanup:** sidebar `FeaturesModal` removed (~95 LOC), stale comments scrubbed.
+
+_See `git log v15.3.6..v15.4.21` for the full per-patch history._
 
 
 <!-- v15.4.0 -->
 ## v15.4.0 — 2026-05-17
 
-Post-overnight polish sweep. Fixes the regressions USER surfaced after the
-`REDACTED_COMMIT_LABEL` (2e9a773) and closes every gap raised in the
+Post-overnight polish sweep. Fixes the regressions surfaced after the
+overnight mega-commit (2e9a773) and closes every gap raised in the
 2026-05-17 audit.
 
 ### Fixes
@@ -901,7 +723,7 @@ clone-and-install-able by third parties.
   `don-claudio` → `gamedev-engineer`. Persona names preserved as optional
   aliases.
 - `control-center` crate and package bumped to `15.2.0`.
-- Sanitised personal references (UNIVERSITY credentials, Notion IDs, project
+- Sanitised personal references (uni credentials, Notion IDs, project
   names) from cockpit configs and example files.
 
 ### Removed

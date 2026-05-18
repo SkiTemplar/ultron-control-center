@@ -1,54 +1,47 @@
 /**
- * Dialog wrappers using @tauri-apps/plugin-dialog instead of native `window.confirm`.
+ * Confirm dialogs — routed to the in-app PopupHost (bottom-left), NOT a
+ * central modal.
  *
- * v15.5.16 (internal-review-note root cause): In Tauri 2 + WebView2, native `window.confirm`
- * gets routed through the `plugin:dialog|confirm` ACL check at runtime even
- * though `capabilities/default.json` permits it. The interception fails with
- * `"Command plugin:dialog|confirm not allowed by ACL"` and destructive flows
- * (Clear all notifications, Empty Recycle Bin, Close Control Center, uninstall,
- * Delete scheduled task, etc.) silently no-op.
- *
- * The fix is to call the plugin explicitly. `@tauri-apps/plugin-dialog`'s
- * `confirm()` returns a Promise<boolean> — async signature, drop-in replacement
- * for the few call sites that were already inside async handlers.
- *
- * For dev / browser preview (no Tauri runtime), we fall back to native
- * `window.confirm` so the React tree still works under `vite dev`.
+ * v15.5.20: Central modal confirms (Tauri `plugin:dialog|confirm`) were
+ * removed per user directive — they jumped to the middle of the screen
+ * and felt invasive. The new flow uses `showConfirm` from `popups.ts`,
+ * which renders an inline popup card in the bottom-left corner with
+ * [Cancel] [Confirm] buttons. Same `Promise<boolean>` contract, so call
+ * sites do not change.
  */
-import { confirm as tauriConfirm } from "@tauri-apps/plugin-dialog";
-
-const IN_TAURI = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+import { showConfirm } from "./popups";
 
 export interface ConfirmOptions {
-    /** Window title (Tauri only — `window.confirm` ignores it). */
+    /** Source label rendered as a small uppercase tag at the top of the card. */
     title?: string;
-    /** "warning" | "error" | "info" — Tauri only. */
+    /** Severity tint — defaults to "warn". */
     kind?: "info" | "warning" | "error";
-    /** Custom label for the OK button (Tauri only). */
+    /** Custom label for the OK button (default "Confirm"). */
     okLabel?: string;
-    /** Custom label for the Cancel button (Tauri only). */
+    /** Custom label for the Cancel button (default "Cancel"). */
     cancelLabel?: string;
 }
 
+function mapKind(k?: ConfirmOptions["kind"]): "info" | "warn" | "critical" {
+    if (k === "error") return "critical";
+    if (k === "info") return "info";
+    return "warn";
+}
+
 /**
- * Show a confirm dialog. Resolves to true if the user clicked OK, false otherwise.
- *
- * Use this instead of `window.confirm()` — see file header for the why.
+ * Show an inline confirm popup (bottom-left). Resolves true if the user
+ * clicked OK, false otherwise. Use this instead of `window.confirm()` or
+ * any native modal — never blocks the UI thread.
  */
 export async function confirmDialog(
     message: string,
     options: ConfirmOptions = {}
 ): Promise<boolean> {
-    if (IN_TAURI) {
-        try {
-            return await tauriConfirm(message, options);
-        } catch (err) {
-            // Plugin failed (very unusual — ACL, network, etc.) — fall through
-            // to native confirm so the user is still able to answer rather than
-            // silently no-op'ing.
-            console.warn("[confirmDialog] tauri plugin failed; falling back to window.confirm", err);
-            return window.confirm(message);
-        }
-    }
-    return window.confirm(message);
+    return showConfirm({
+        message,
+        source: options.title,
+        severity: mapKind(options.kind),
+        okLabel: options.okLabel,
+        cancelLabel: options.cancelLabel,
+    });
 }

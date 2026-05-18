@@ -5,9 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  # v15.5.19 (internal-review-note): paths-ignore on `docs/**` + `**/*.md` was a
+  # v15.5.19paths-ignore on `docs/**` + `**/*.md` was a
   # loophole — markdown-only PRs bypassed the personal-info leakage gate
-  # (internal-review-note caught HIGH=1 in docs/CHANGELOG-POLICY.md after exactly
+  #caught HIGH=1 in docs/CHANGELOG-POLICY.md after exactly
   # that loophole let it merge). Now every push/PR runs the full gate
   # matrix. The 3 jobs (cargo, typescript, python) gate themselves
   # internally on changed-files via `paths` filters where it matters.
@@ -31,7 +31,7 @@ jobs:
         # Fails the whole CI run on the first version drift. Reopened 6 times
         # in v15.5.x (PLANS#ci-version-drift-guard). v15.5.15 extended the
         # check to scan markdown bodies (badges + bootstrap URLs + legacy-doc
-        # preambles) — internal-review-note caught README drift the file-level check missed.
+        # preambles) —caught README drift the file-level check missed.
         run: python scripts/cockpit/version_propagate.py --check
 
   personal-info-leak:
@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Run audit_personal_data.py
-        # v15.5.15 (internal-review-note): wired as a hard gate after the comment sweep
+        # v15.5.15wired as a hard gate after the comment sweep
         # brought HIGH findings to 0. MEDIUM findings (persona names like
         # alfred/einstein/etc.) are allowed — they're intentional skill IDs.
         # The scanner exits 1 if ANY HIGH finding exists.

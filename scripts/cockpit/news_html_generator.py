@@ -73,7 +73,6 @@ _WIN_HIDDEN = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 sys.path.insert(0, str(Path(__file__).parent))
 from cockpit_base import COCKPIT_DIR, NEWS_DIR  # noqa: E402
 
-SKILL_PATH = Path.home() / ".claude" / "skills" / "newsletter-publisher" / "SKILL.md"
 NEWS_CATEGORIES_FILE = NEWS_DIR.parent / "news_categories.json"
 
 # User-editable topic personalisation (v15.5.18). Gitignored. Hot-loaded
@@ -554,18 +553,6 @@ def build_nav_instruction(existing: dict[str, Path], current_label: str) -> str:
 
 
 # ── Prompt building ────────────────────────────────────────────────────────────
-
-def load_base_template() -> str:
-    """Extract PROMPT TEMPLATE block from the local newsletter SKILL.md."""
-    if not SKILL_PATH.exists():
-        return ""
-    text = SKILL_PATH.read_text(encoding="utf-8")
-    m = re.search(
-        r"##\s*📝\s*PROMPT\s*TEMPLATE.*?\n```\s*\n(.+?)\n```",
-        text, re.DOTALL,
-    )
-    return m.group(1).strip() if m else ""
-
 
 def build_section_prompt(
     cfg: dict,

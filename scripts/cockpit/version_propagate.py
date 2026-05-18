@@ -54,7 +54,7 @@ SSOT_PATTERN = re.compile(r'^version\s*=\s*"(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"', r
 
 # v15.5.15: also scan markdown bodies for stale version pins (badges,
 # bootstrap one-liners, "Current stable" prose, legacy-doc preambles).
-# internal-review-note caught README/SYSTEM-MAP/docs/INSTALL pinning v15.5.13 after
+#caught README/SYSTEM-MAP/docs/INSTALL pinning v15.5.13 after
 # the v15.5.15 bump because mirrors were narrowly file-level, not body-level.
 # Pattern: any literal `v15.5.13` / `v15.5.14` / older-style `version-vX.Y.Z-*.svg`
 # in the listed docs is a drift signal (forward versions are fine — newer than SSOT).
@@ -79,7 +79,7 @@ MD_PIN_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r'/v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)/bootstrap\.(?:ps1|sh)'),             # raw bootstrap URL
     re.compile(r'Architecture unchanged through v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)'),     # legacy doc preamble
     re.compile(r'(?:Current|Stable actual)[^v]{0,30}\*\*\[v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)\]'),  # release-notes header
-    # v15.5.17 (internal-review-note + internal-review-note): SYSTEM-MAP.md plain-prose pins.
+    # v15.5.17+SYSTEM-MAP.md plain-prose pins.
     re.compile(r'SSOT version:\s*v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)'),                    # SSOT prose
     re.compile(r'Control Center \(v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)\):'),                # CC header in SYSTEM-MAP
     re.compile(r'2026-05-\d{2}\s*\(v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)'),                  # "Última actualización: 2026-05-18 (v15.5.X..."

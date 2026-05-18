@@ -1,7 +1,7 @@
 # === maintainer-only as of v15.5.16 (folded into stop-memory-sync.ps1) ===
 # session-cleanup.ps1  (DEPRECATED for live hook use)
 #
-# As of v15.5.16 (internal-review-note consolidation) this script is NO LONGER wired into
+# As of v15.5.16consolidation) this script is NO LONGER wired into
 # the Stop hook chain. Its behavior is inlined at the TAIL of
 # scripts/hooks/stop-memory-sync.ps1 so the Stop chain spends one fewer
 # PowerShell launch per session.

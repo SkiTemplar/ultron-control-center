@@ -16,10 +16,10 @@ import { Settings } from "./components/Settings";
 import { Projects } from "./components/Projects";
 import { System } from "./components/System";
 import { Gaming } from "./components/Gaming";
-import { Logs } from "./components/Logs";
 import { News } from "./components/News";
 import { Personal } from "./components/Personal";
 import { Plans } from "./components/Plans";
+import { PopupHost } from "./components/PopupHost";
 import { SelfImprove } from "./components/SelfImprove";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
@@ -561,7 +561,6 @@ export default function App() {
         {tab === "gaming" && <Gaming />}
         {tab === "news" && <News />}
         {tab === "plans" && <Plans />}
-        {tab === "logs" && <Logs />}
         {tab === "personal" && <Personal />}
         {/* "hooks" tab removed — Hooks now lives inside the System tab as
             an inner sub-tab. The Tab union no longer includes "hooks". */}
@@ -585,6 +584,7 @@ export default function App() {
         onNavigate={(t) => setTab(t)}
         extraActions={extraPaletteActions}
       />
+      <PopupHost />
     </div>
   );
 }

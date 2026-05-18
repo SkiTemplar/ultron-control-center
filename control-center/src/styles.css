@@ -206,3 +206,10 @@ main.flex-1 > div.px-8.py-6 > header,
     gap: 0.5rem;
   }
 }
+
+/* ULTRON in-app popups (PopupHost) — bottom-left slide-in animation.
+   v15.5.20: replaces native Windows toasts + central modal confirms. */
+@keyframes ultron-popup-in {
+  from { transform: translateX(-1rem); opacity: 0; }
+  to   { transform: translateX(0);     opacity: 1; }
+}

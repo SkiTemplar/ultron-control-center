@@ -86,7 +86,6 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
       { id: "gaming", label: "Gaming", available: true, featureKey: "gaming", tier: "more" },
       { id: "plans", label: "Plans", available: true, featureKey: "plans" },
-      { id: "logs", label: "Logs", available: false },
     ],
   },
   {
@@ -157,7 +156,7 @@ type Props = {
 // collapsible "More" group render identical chrome. Disabled items
 // still render with the "soon" hint exactly like before.
 //
-// v15.5.16 internal-review-note: optional `badgeCount` renders a small notification
+// v15.5.16optional `badgeCount` renders a small notification
 // chip on the top-right (red when >0, hidden when 0). Used by the
 // Dashboard tab to surface the pending-items count without forcing the
 // user to open the tab first.
@@ -230,7 +229,7 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
   const { features } = useFeatures();
   const [moreOpen, setMoreOpen] = useState<boolean>(loadMoreOpen());
 
-  // v15.5.16 internal-review-note: poll the same detect_gaps source the Dashboard
+  // v15.5.16poll the same detect_gaps source the Dashboard
   // PendingItemsPanel uses, then surface the count as a red chip on the
   // Dashboard tab. Polled every 60s — light (one Rust invoke that re-runs
   // a Python script that takes ~150 ms). Failures stay silent so a broken

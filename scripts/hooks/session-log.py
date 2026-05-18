@@ -3,7 +3,7 @@
 """
 ULTRON HOOK · session-log · v1.0  (DEPRECATED for live hook use)
 
-As of v15.5.16 (internal-review-note consolidation) this script is NO LONGER wired into
+As of v15.5.16consolidation) this script is NO LONGER wired into
 the Stop hook chain. Its single behavior — appending one human-readable line
 per session-end to `~/.ultron/sessions/YYYY-MM-DD.md` — is now inlined at the
 top of `scripts/hooks/stop-memory-sync.{ps1,sh}` so the Stop chain spends one

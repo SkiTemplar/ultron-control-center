@@ -122,9 +122,9 @@ def main() -> int:
     # v15.4: scrub heredocs and quoted strings before the *protected-
     # branch* check. Without this, a multi-line commit message written
     # via `$(cat <<'EOF' ... EOF)` or a quoted `-m "..."` that mentions
-    # `git push -f origin main` in prose triggers a false positive —
-    # which happened during the v15.4 REDACTED_COMMIT_LABEL
-    # (alerts validate_push_force at 2026-05-17 01:44–01:51).
+    # `git push -f origin main` in prose triggers a false positive — a
+    # real edge case caught in early v15.4 alerts where multi-line commit
+    # bodies that mentioned protected-branch syntax were misclassified.
     #
     # The laundering check, by contrast, MUST run against the original
     # `cmd` — scrubbing replaces the quoted string body with `"QSTR"`,

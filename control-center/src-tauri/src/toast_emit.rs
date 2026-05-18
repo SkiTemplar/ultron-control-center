@@ -20,8 +20,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use once_cell::sync::Lazy;
-use tauri::AppHandle;
-use tauri_plugin_notification::NotificationExt;
+use tauri::{AppHandle, Emitter};
 
 // ---------------------------------------------------------------------------
 // Rate limiter
@@ -187,31 +186,38 @@ fn sanitize(msg: &str) -> String {
     out.trim().to_string()
 }
 
-/// Best-effort toast fire. Honours the user toggle. Failures (e.g. user
-/// denied notification permission on Windows) are logged to stderr and
-/// swallowed.
-pub fn try_emit_toast(app: &AppHandle, source: &str, message: &str) {
+/// Emit an in-app toast event consumed by `PopupHost` in the frontend.
+/// v15.5.20: replaces the Windows-native `tauri_plugin_notification` path
+/// per user directive ("no quiero notificaciones tipo Windows — popups
+/// abajo a la izquierda mientras ULTRON está activo"). Honours the user
+/// toggle; failures are logged to stderr and swallowed. Severity drives
+/// the accent colour rendered in the popup card.
+pub fn try_emit_toast_with_severity(
+    app: &AppHandle,
+    source: &str,
+    severity: &str,
+    message: &str,
+) {
     if !read_toast_enabled() {
         return;
     }
     let body_full = sanitize(message);
-    // Toast bodies should be terse — 150 chars is plenty for the
-    // notification center preview line.
-    let body: String = if body_full.chars().count() > 150 {
-        let truncated: String = body_full.chars().take(150).collect();
+    let body: String = if body_full.chars().count() > 280 {
+        let truncated: String = body_full.chars().take(280).collect();
         format!("{}…", truncated)
     } else {
         body_full
     };
-    let title = format!("ULTRON · {}", source);
-    let res = app
-        .notification()
-        .builder()
-        .title(title)
-        .body(body)
-        .show();
-    if let Err(e) = res {
-        eprintln!("[toast_emit] notification failed for source={}: {}", source, e);
+    let payload = serde_json::json!({
+        "source": source,
+        "severity": severity,
+        "message": body,
+    });
+    if let Err(e) = app.emit("ultron-toast", payload) {
+        eprintln!(
+            "[toast_emit] emit ultron-toast failed for source={}: {}",
+            source, e
+        );
     }
 }
 
@@ -248,7 +254,7 @@ pub fn record_alert_and_maybe_toast(
     }
     // Toast only on user-visible severities.
     if matches!(sev, "critical" | "blocking") {
-        try_emit_toast(app, &src, &msg);
+        try_emit_toast_with_severity(app, &src, sev, &msg);
     }
 }
 

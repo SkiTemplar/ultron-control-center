@@ -18,7 +18,7 @@
 <p>
   <a href="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/SkiTemplar/ultron/actions/workflows/ci.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="Licencia: MIT" src="https://img.shields.io/badge/licencia-MIT-blue.svg" /></a>
-  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.18-44cc11.svg" /></a>
+  <a href="CHANGELOG.md"><img alt="Version" src="https://img.shields.io/badge/version-v15.5.20-44cc11.svg" /></a>
   <img alt="Plataforma" src="https://img.shields.io/badge/plataforma-Windows%2011%20%7C%20Linux-lightgrey.svg" />
   <a href="https://claude.com/claude-code"><img alt="Construido sobre Claude Code" src="https://img.shields.io/badge/construido%20sobre-Claude%20Code-blueviolet.svg" /></a>
   <img alt="Estado" src="https://img.shields.io/badge/estado-beta%20publica-orange.svg" />
@@ -167,10 +167,10 @@ Tres capas locales, una remota opcional, mas un motor de búsqueda semántica en
 | **L0** hot context | `~/.ultron/.tmp/context.md` | Primer pre-computado, ≤400 tokens, cargado en cada SessionStart | Post-it pegado al monitor |
 | **L1** índice keyword | `~/.ultron/brain_index/index.db` | SQLite FTS5 sobre el vault troceado, recall BM25 | Fichero de una biblioteca |
 | **L2** vault | `~/.ultron-vault/*.md` | Notas markdown curadas con wikilinks — fuente de verdad | Las estanterías que el fichero indexa |
-| **L3** remote *(planeado)* | `github.com/<tu>/ultron-memory` | Mirror externo de L2, drenado por el hook `Stop` en modo HIGH+ | Caja en almacenamiento offsite |
+| **L3** remote *(opt-in)* | `github.com/<tu>/ultron-memory` | Mirror externo de L2, drenado por el hook `Stop` en modo HIGH+ | Caja en almacenamiento offsite |
 
 > [!NOTE]
-> **Estado de L3.** El path en el Stop hook esta cableado (ver `memory_sync.py push-async`), pero el repo de referencia `github.com/SkiTemplar/ultron-memory` **no existe** todavia — L3 es opt-in y solo se dispara si **tu** creas un git remote propio para `~/.ultron-vault`. No hay mirror compartido.
+> **Estado de L3.** El path en el Stop hook esta cableado (ver `memory_sync.py push-async`). El repo de referencia `github.com/SkiTemplar/ultron-memory` es un **scaffold vacio** (README + .gitignore + LICENSE) que puedes forkear o clonar como tu mirror privado; ULTRON solo pushea cuando **tu** cableas `~/.ultron-vault` a tu propio remote.
 
 Encima de L1+L2 vive una instancia local de **Qdrant** (binario nativo de la plataforma en Windows o Linux, sin daemon) que corre recall semántico sobre el mismo corpus — asi que "encuentra esa nota sobre permisos de Tauri" funciona aunque no recuerdes las palabras exactas. Un sistema de decay devuelve notas estancadas a la superficie cada vez que arrancas sesion, asi que el contexto viejo resurge en lugar de pudrirse.
 
@@ -254,7 +254,7 @@ ULTRON encadena cuatro capas de memoria para que Claude retome donde lo dejaste 
 - **L0 — hot context.** `~/.ultron/.tmp/context.md` (≤ 400 tokens). Resumen pineado de sesiones recientes, proyectos, alertas pendientes. Cargado automáticamente en SessionStart. *Post-it.*
 - **L1 — índice keyword.** SQLite + FTS5 en `~/.ultron/brain_index/index.db`. Lookup BM25 rápido sobre cada nota del vault. Reconstruido incrementalmente por el hook Stop. *Fichero.*
 - **L2 — vault.** Notas markdown plano estilo Obsidian en `~/.ultron-vault/` (tu conocimiento curado a largo plazo). Mas `~/.ultron/archive/` para material indexado mas antiguo. *Las estanterías.*
-- **L3 — mirror remoto** *(planeado, opt-in).* El hook Stop puede pushear a `github.com/<tu>/ultron-memory` para sync cross-machine (modo HIGH+), pero el path solo corre si **tu** creas el remote en `~/.ultron-vault`. No hay repo `SkiTemplar/ultron-memory` compartido. *Caja offsite.*
+- **L3 — mirror remoto** *(opt-in).* El hook Stop puede pushear a `github.com/<tu>/ultron-memory` para sync cross-machine (modo HIGH+). El path solo corre cuando **tu** cableas tu propio remote en `~/.ultron-vault`; el repo upstream `SkiTemplar/ultron-memory` es un scaffold para forkear. *Caja offsite.*
 
 Encima de esas, un binario Qdrant nativo (`~/.ultron/qdrant-native/qdrant.exe`) provee recall semántico via dense embeddings para skills + agents + notas del vault. El recall es híbrido: FTS5 + Qdrant, ambos surgen resultados via el CLI `ultron recall` y la pestaña Memory. Todo el sistema es texto plano — sin SaaS lock-in, puedes grepear, diffear, forkear, archivar.
 
@@ -350,7 +350,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 ## Notas de release
 
-Stable actual: **[v15.5.18](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.18)** — Round-2 burn-down + pulido R3: **bug de ACL Tauri `dialog:confirm` arreglado** (9 flujos destructivos que fallaban silenciosamente ahora usan un wrapper `confirmDialog()` sobre `@tauri-apps/plugin-dialog`), **cadena de hooks Stop reducida 5→3** (session-log + session-cleanup inlined en stop-memory-sync; auto-changelog y plan-detector standalone), Pending Items relocalizado por encima del pliegue con badge lateral cada 60s, nuevo rastro de fires de auto-recall en `~/.ultron/logs/auto-recall.log`. Sobre v15.5.16 (sweep Round 2) que añadió el macro-test de routing (95%/20), el CI guard de drift de versión en markdown bodies, y el gate de leak personal (`audit_personal_data.py` HIGH=0). Adjunta `.deb` + `.AppImage` + .rpm junto al NSIS / MSI Windows; matriz CI verde en `ubuntu-22.04`. Install end-to-end Linux sigue **sin verificar** por el autor — buscamos testers, abre un issue si la pruebas.
+Stable actual: **[v15.5.20](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.20)** — Round-2 burn-down + pulido R3: **bug de ACL Tauri `dialog:confirm` arreglado** (9 flujos destructivos que fallaban silenciosamente ahora usan un wrapper `confirmDialog()` sobre `@tauri-apps/plugin-dialog`), **cadena de hooks Stop reducida 5→3** (session-log + session-cleanup inlined en stop-memory-sync; auto-changelog y plan-detector standalone), Pending Items relocalizado por encima del pliegue con badge lateral cada 60s, nuevo rastro de fires de auto-recall en `~/.ultron/logs/auto-recall.log`. Sobre v15.5.16 (sweep Round 2) que añadió el macro-test de routing (95%/20), el CI guard de drift de versión en markdown bodies, y el gate de leak personal (`audit_personal_data.py` HIGH=0). Adjunta `.deb` + `.AppImage` + .rpm junto al NSIS / MSI Windows; matriz CI verde en `ubuntu-22.04`. Install end-to-end Linux sigue **sin verificar** por el autor — buscamos testers, abre un issue si la pruebas.
 
 Stable anterior: **v15.5.16** — Sweep ULTRA Round-2 (routing 95% verificado, 5 slots de skills personales añadidos, leak HIGH=0, docs MAINTAINERS+CHECKLIST, scripts qdrant movidos, installers legacy archivados, SYSTEM-MAP lazy-load).
 

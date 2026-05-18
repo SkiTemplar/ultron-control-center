@@ -264,7 +264,7 @@ rules:
     confidence: 0.90
 
   - id: news-today
-    match: "(noticias|newsletter|digest|qu[e\xe9].pas[o\xf3]|novedades).*(hoy|hoy|tech|ia|ai|f[u\xfa]tbol|REDACTED_TEAM)"
+    match: "(noticias|newsletter|digest|qu[e\xe9].pas[o\xf3]|novedades).*(hoy|tech|ia|ai|f[u\xfa]tbol|deportes|sports)"
     skill: "ultron"
     confidence: 0.85
 
@@ -389,13 +389,13 @@ rules:
     skill: "ultron"
     confidence: 0.80
 
-  # ── v15.5.15: personal personas (5) — internal-review-note closure ────────────────────
+  # ── v15.5.15: opt-in personal personas (5) ─────────────────────────────────
   # These 5 skills live in ~/.claude/skills/ but were absent from the
-  # dispatcher YAML; eval-4 (round 1) measured this as a structural cap on
-  # match-rate (~50% of prompts went to source=none). All five activate via
-  # Claude's skill auto-trigger from the SKILL.md description; adding regex
-  # rules here lets the dispatcher route them BEFORE Claude reads any skill,
-  # cutting latency and recovering the no-route bucket.
+  # dispatcher YAML; measured as a structural cap on match-rate (~50% of
+  # prompts went to source=none). All five activate via Claude's skill
+  # auto-trigger from the SKILL.md description; adding regex rules here
+  # lets the dispatcher route them BEFORE Claude reads any skill, cutting
+  # latency and recovering the no-route bucket.
 
   # Casual code-quality check ("mira si esto está bien", "está bien este código?")
   # Distinct from pr-code-review (which requires the literal "PR" / "pull request").

@@ -49,7 +49,7 @@
 [CmdletBinding()]
 param(
     [hashtable]$PreviousProfile = @{},
-    [string]$Version = "v15.5.18",
+    [string]$Version = "v15.5.20",
     [switch]$DryRun
 )
 

@@ -3,7 +3,7 @@
 # =============================================================================
 # ULTRON SessionEnd hook  (DEPRECATED for live hook use)
 #
-# As of v15.5.16 (internal-review-note consolidation) this script is NO LONGER wired into
+# As of v15.5.16consolidation) this script is NO LONGER wired into
 # the Stop hook chain. Its behavior is inlined at the TAIL of
 # scripts/hooks/stop-memory-sync.sh so the Stop chain spends one fewer
 # bash launch per session.

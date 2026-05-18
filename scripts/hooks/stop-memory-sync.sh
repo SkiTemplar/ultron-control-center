@@ -25,7 +25,7 @@ LOG_FILE="${ULTRON_DIR}/logs/stop-memory-sync.log"
 COCKPIT="${ULTRON_DIR}/scripts/cockpit"
 SYNC_SCRIPT="${COCKPIT}/memory_sync.py"
 DEBOUNCE_PATH="${TMP_DIR}/last-stop-sync.json"
-DEBOUNCE_WINDOW=90
+DEBOUNCE_WINDOW=300  # v15.5.20: 90s→300s, Claude harness fires Stop per turn (target ratio ≤2×)
 
 mkdir -p "${TMP_DIR}" "$(dirname "${LOG_FILE}")"
 
@@ -44,7 +44,7 @@ if [[ ! -t 0 ]]; then
         | sed -E 's/.*"session_id"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 fi
 
-# Inlined session-log (v15.5.16 internal-review-note) — folded in from
+# Inlined session-log (v15.5.16— folded in from
 # scripts/hooks/session-log.py. Writes ONE human-readable line per session-end
 # to ~/.ultron/sessions/YYYY-MM-DD.md (top-level file, separate from
 # YYYY-MM-DD/replay.jsonl). Runs BEFORE debounce because the original
@@ -196,7 +196,7 @@ if [[ -f "$HIGHLIGHTS" ]]; then
     timeout 10 $PY "$HIGHLIGHTS" prime --max 5 >/dev/null 2>&1 || true
 fi
 
-# Inlined session-cleanup (v15.5.16 internal-review-note) — folded in from
+# Inlined session-cleanup (v15.5.16— folded in from
 # scripts/hooks/session-cleanup.sh. Trims ephemeral state under ~/.ultron/.tmp/
 # that should not survive past session end + truncates per-session rolling logs.
 # Best-effort, never blocks Stop.
