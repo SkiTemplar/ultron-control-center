@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ULTRON Times — News HTML Generator (v14.3 "SQLite Dedup Edition").
+ULTRON Times — News HTML Generator (v15.5.18 "Topics + Date-Novelty Edition").
 
 Flow:
 1. Build prompt from a local newsletter SKILL.md template + section config
@@ -11,12 +11,32 @@ Flow:
 Sections: tech (default, the only built-in) + any registered custom section
 in ~/.ultron/news_categories.json.
 
-SQLite dedup (v14.3):
+Topic personalisation (v15.5.18):
+- File: ~/.ultron/cockpit/news-topics.json (user-editable, gitignored)
+- Defaults: ["AI", "Claude Code", "GitHub Claude tooling repos"]
+- If the file is missing, defaults are used and a one-time hint is logged.
+- Topics are injected into the prompt as PRIORIDAD TEMÁTICA and steer the
+  HERO / first-sections / THE BRIEF picks.
+
+Date-novelty (v15.5.18):
+- Only articles published today or yesterday (UTC date or local — we accept
+  either; the model receives an explicit "TODAY=YYYY-MM-DD, YESTERDAY=..." block).
+- Older items are allowed ONLY when they were not covered before (DB miss) —
+  the prompt instructs the model to skip stale items, and the DB filter
+  enforces this post-hoc against `published_at` when the model returns it.
+- The "titulares ya publicados" block was removed from the prompt entirely
+  (per user feedback): we no longer feed historical headlines back to the LLM;
+  novelty is decided by date + DB hash filter instead.
+
+SQLite dedup history:
 - DB: ~/.ultron/cockpit/news_history.db
-- Articles are recorded AFTER a successful HTML render (atomicity: retry on failure).
-- seen_recently() checks hash_url, hash_title, hash_summary within a rolling window.
-- The model is asked to emit a JSON article array before the HTML; that array feeds
-  the DB insert and is also used to log dropped duplicates.
+  Schema (single table news_history):
+    id, hash_url, hash_title, hash_summary, title, url, source, summary,
+    priority_score, section, published_at, inserted_at
+  Indexes: idx_news_hash_url, idx_news_hash_title
+- Articles are recorded AFTER a successful HTML render. Cleanup is automatic
+  on every run (rows older than DEDUP_WINDOW_DAYS=7 are deleted before the
+  fresh-articles filter runs). A manual --cleanup flag is also provided.
 
 Usage:
     python news_html_generator.py                              # tech, 3 days
@@ -27,6 +47,7 @@ Usage:
     python news_html_generator.py --model gemini-2.5-flash
     python news_html_generator.py --no-open
     python news_html_generator.py --no-dedup                  # skip deduplication
+    python news_html_generator.py --cleanup                   # delete rows >7d, then exit
 """
 from __future__ import annotations
 
@@ -55,14 +76,52 @@ from cockpit_base import COCKPIT_DIR, NEWS_DIR  # noqa: E402
 SKILL_PATH = Path.home() / ".claude" / "skills" / "newsletter-publisher" / "SKILL.md"
 NEWS_CATEGORIES_FILE = NEWS_DIR.parent / "news_categories.json"
 
+# User-editable topic personalisation (v15.5.18). Gitignored. Hot-loaded
+# at every run; missing file → defaults.
+NEWS_TOPICS_FILE = COCKPIT_DIR / "news-topics.json"
+DEFAULT_TOPICS = ["AI", "Claude Code", "GitHub Claude tooling repos"]
+
 DEFAULT_MODEL = "gemini-3.1-pro"
 GEMINI_TIMEOUT_SEC = 600
+# Date-novelty: only accept items at most NOVELTY_MAX_AGE_DAYS old
+# (today + yesterday by default; the value is exposed via --days but
+# capped at 2 unless the user explicitly overrides it).
+NOVELTY_MAX_AGE_DAYS = 2
+# DB coverage retention: the dedup history is wiped of rows older than this
+# on every run AND by --cleanup. Aligns with the user spec: "Cada semana se
+# elimina ese archivo para que no tenga noticias ilimitadas."
+DEDUP_WINDOW_DAYS = 7
+# Legacy file-based dedup window (kept for backward-compat helper functions
+# even though the prompt no longer surfaces "titulares ya publicados").
 DEDUP_DAYS = 7
 DEDUP_MAX_URLS = 80
 DEDUP_MIN_NEWS = 25
 
 # SQLite DB lives alongside the other cockpit data files.
 NEWS_HISTORY_DB = COCKPIT_DIR / "news_history.db"
+
+
+def load_topics() -> tuple[list[str], bool]:
+    """Return (topics, from_file).
+
+    Reads the user-editable ~/.ultron/cockpit/news-topics.json. Falls back to
+    DEFAULT_TOPICS when the file is missing, empty, or malformed (the second
+    return value tells the caller whether the load came from disk so we can
+    print a one-time hint in the default case).
+    """
+    if not NEWS_TOPICS_FILE.exists():
+        return list(DEFAULT_TOPICS), False
+    try:
+        data = json.loads(NEWS_TOPICS_FILE.read_text(encoding="utf-8-sig"))
+    except (json.JSONDecodeError, OSError):
+        return list(DEFAULT_TOPICS), False
+    topics = data.get("topics") if isinstance(data, dict) else None
+    if not isinstance(topics, list):
+        return list(DEFAULT_TOPICS), False
+    cleaned = [str(t).strip() for t in topics if str(t).strip()]
+    if not cleaned:
+        return list(DEFAULT_TOPICS), False
+    return cleaned, True
 
 # ── Built-in section configs ───────────────────────────────────────────────────
 
@@ -358,6 +417,20 @@ def seen_recently(
     return False
 
 
+def cleanup_old_rows(conn: sqlite3.Connection, days: int = DEDUP_WINDOW_DAYS) -> int:
+    """Delete news_history rows older than *days* days. Returns rows removed.
+
+    Called automatically at the start of every generator run (so the user
+    never has to schedule a cron job) and also invocable via --cleanup for
+    one-shot housekeeping. The schema retention spec is documented in the
+    module docstring.
+    """
+    cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    cur = conn.execute("DELETE FROM news_history WHERE inserted_at < ?", (cutoff,))
+    conn.commit()
+    return cur.rowcount or 0
+
+
 def record_article(conn: sqlite3.Connection, article: dict) -> None:
     """Insert one article into news_history after a successful newsletter render.
 
@@ -503,6 +576,7 @@ def build_section_prompt(
     nav_instruction: str,
     dedup_titles: list[str] | None = None,
     db_dedup_hashes: tuple[list[str], list[str]] | None = None,
+    topics: list[str] | None = None,
 ) -> str:
     """Build the full Gemini prompt for one newsletter section.
 
@@ -511,16 +585,23 @@ def build_section_prompt(
         days: Coverage window in days.
         theme: Optional special theme override.
         notes: Optional free-form editor notes.
-        dedup_urls: Canonicalized URLs from recent HTML files (file-based dedup).
+        dedup_urls: Canonicalized URLs from recent HTML files (legacy, no longer
+                    surfaced verbatim — kept for the URL count signal only).
         nav_instruction: HTML nav bar injection block, or empty string.
-        dedup_titles: Normalized titles from recent HTML files (file-based dedup).
+        dedup_titles: Kept for API compat; no longer rendered into the prompt
+                      (per user spec: "que en el prompt no incluya lo de
+                      titulares ya publicados"). Novelty is now date+DB driven.
         db_dedup_hashes: Optional (url_hashes, title_hashes) already in DB — shown
-                         to the model as an additional exclusion signal.
+                         to the model as an aggregate count signal only.
+        topics: User-personalised priority topics (defaults to DEFAULT_TOPICS).
     """
     date_str = datetime.now().strftime("%-d de %B de %Y") if sys.platform != "win32" \
         else datetime.now().strftime("%d de %B de %Y").lstrip("0")
+    today_iso = datetime.now().strftime("%Y-%m-%d")
+    yesterday_iso = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     timeframe = f"últimas {days * 24}h / {days} días"
     min_news = cfg.get("min_news", DEDUP_MIN_NEWS)
+    active_topics = topics or list(DEFAULT_TOPICS)
 
     prompt = f"""Eres el redactor del ULTRON Times — edición {cfg['label']}.
 Genera un newsletter HTML5 con la profundidad de un periódico digital profesional.
@@ -547,6 +628,21 @@ HEADER:
 - Fecha: {date_str}
 
 {cfg['priority_note']}
+
+PRIORIDAD TEMÁTICA (personalización del usuario — sobrescribe defaults):
+{chr(10).join(f"  · {t}" for t in active_topics)}
+→ HERO y primera mitad del newsletter deben estar dominadas por estas temáticas.
+→ Si algo es claramente de estas áreas, súbele 0.10 al priority_score.
+→ Edit en ~/.ultron/cockpit/news-topics.json para reordenar / personalizar.
+
+VENTANA DE NOVEDAD (estricta — solo noticias frescas):
+  · TODAY     = {today_iso}
+  · YESTERDAY = {yesterday_iso}
+→ Solo incluye items con published_at ∈ {{TODAY, YESTERDAY}}.
+→ Si una noticia tiene >2 días, OMÍTELA salvo que sea un breakthrough sin
+   cobertura previa (en ese caso, márcala explícitamente en el summary).
+→ Si no encuentras {min_news} items frescos, ENVÍA MENOS — nunca rellenes
+   con noticias viejas (mejor 12 frescas que 25 recicladas).
 
 FUENTES (busca activamente en internet):
 {cfg['sources']}
@@ -584,31 +680,28 @@ CALIDAD:
     if nav_instruction:
         prompt += nav_instruction
 
-    # Deduplication (file-based)
-    if dedup_urls or dedup_titles:
-        prompt += (
-            f"\n\nDEDUPLICACIÓN — No incluyas artículos ya cubiertos en ediciones de los "
-            f"últimos {DEDUP_DAYS} días. Evita por URL canónica Y por título "
-            "(misma noticia con titular ligeramente distinto cuenta como duplicado).\n"
-        )
-        if dedup_urls:
-            prompt += f"\nURLs ya publicadas ({len(dedup_urls)}):\n"
-            prompt += "\n".join(f"- {u}" for u in dedup_urls[:60])
-            prompt += "\n"
-        if dedup_titles:
-            prompt += f"\nTitulares ya publicados ({len(dedup_titles)}):\n"
-            prompt += "\n".join(f"- {t[:160]}" for t in dedup_titles[:60])
-            prompt += "\n"
-
-    # SQLite-based dedup signal (hash counts only — hashes are internal identifiers)
+    # NO "titulares ya publicados" block (v15.5.18 — user feedback):
+    # listing 60 past headlines inside the prompt was both noisy and useless,
+    # because the section is static and we want each newsletter to contain
+    # genuinely new items rather than items the model is told to avoid by
+    # title. Novelty is enforced two other ways:
+    #   1. The TODAY/YESTERDAY block above (the model is told to skip
+    #      anything older than 2 days unless explicitly novel).
+    #   2. The DB-level filter after generation drops any article whose
+    #      hash already appears in news_history within DEDUP_WINDOW_DAYS.
+    # We still tell the model that a persistent history exists so it knows
+    # the pipeline will drop duplicates that slip through — just as a count
+    # signal, no headlines or URLs are leaked back into the prompt.
     if db_dedup_hashes:
         url_hashes, title_hashes = db_dedup_hashes
         if url_hashes or title_hashes:
             prompt += (
-                f"\nHISTORIAL SQLITE — Adicionalmente, {len(url_hashes)} URLs y "
-                f"{len(title_hashes)} titulares están registrados en el historial "
-                f"persistente (últimos 30 días). El pipeline filtrará duplicados "
-                f"automáticamente — evita repetir historias ya publicadas.\n"
+                f"\n\nHISTORIAL DE COBERTURA — El pipeline mantiene un historial "
+                f"persistente con {len(url_hashes)} URLs y {len(title_hashes)} "
+                f"titulares cubiertos en los últimos {DEDUP_WINDOW_DAYS} días. "
+                "Cualquier artículo que coincida por hash se descartará "
+                "automáticamente tras la generación — prioriza novedad real "
+                "para evitar que el HTML se vacíe.\n"
             )
 
     # Theme override
@@ -803,12 +896,38 @@ def call_gemini(prompt: str, out_path: Path, model: str) -> tuple[bool, str, str
 
 # ── SQLite post-render: filter candidates + record published articles ──────────
 
+def _is_stale_published_at(value: str | None,
+                            max_age_days: int = NOVELTY_MAX_AGE_DAYS) -> bool:
+    """Return True if *value* is a parseable ISO date older than *max_age_days*.
+
+    Unparseable / missing values return False — we never drop an item just
+    because the model omitted the date (the DB hash filter is the safety net
+    in that case). Accepts plain YYYY-MM-DD as well as full ISO 8601 stamps.
+    """
+    if not value:
+        return False
+    try:
+        # Take only the date portion to be tolerant of "+00:00" / "Z" suffixes.
+        date_part = str(value).strip()[:10]
+        dt = datetime.strptime(date_part, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return False
+    age = datetime.now() - dt
+    return age > timedelta(days=max_age_days)
+
+
 def filter_candidates_with_db(
     conn: sqlite3.Connection,
     articles: list[dict],
-    days: int = 30,
+    days: int = DEDUP_WINDOW_DAYS,
 ) -> tuple[list[dict], int]:
     """Remove articles already seen in news_history within *days* days.
+
+    Also enforces the date-novelty rule: any article whose `published_at`
+    parses as older than NOVELTY_MAX_AGE_DAYS (default 2) is dropped UNLESS
+    its hash is genuinely new to the DB — that's the "no se ha cubierto"
+    exception from the user spec. Items without a `published_at` field are
+    treated as unknown-date and not dropped on novelty alone.
 
     Args:
         conn: Open DB connection.
@@ -829,7 +948,16 @@ def filter_candidates_with_db(
         h_url = _hash_url(url)
         h_title = _hash_title(title)
         h_summary = _hash_summary(art.get("summary"))
-        if seen_recently(conn, h_url, h_title, h_summary, days=days):
+        already_seen = seen_recently(conn, h_url, h_title, h_summary, days=days)
+        stale_date = _is_stale_published_at(art.get("published_at"))
+        # User spec: "se han cubierto, una noticia sí se ha cubierto, se
+        # guarda en el archivo". So:
+        #  - already_seen (in DB)         → drop (dup)
+        #  - stale + not already_seen     → drop (old AND already covered
+        #                                          OR old-but-untracked
+        #                                          either way: not "today/yesterday")
+        # Result: we drop on either condition.
+        if already_seen or stale_date:
             dropped += 1
         else:
             fresh.append(art)
@@ -909,14 +1037,36 @@ def main() -> int:
                    help="No abrir en navegador tras generar")
     p.add_argument("--no-dedup", action="store_true",
                    help="Desactivar deduplicación de artículos anteriores")
+    p.add_argument("--cleanup", action="store_true",
+                   help=(f"Borrar filas de news_history.db más antiguas que "
+                         f"{DEDUP_WINDOW_DAYS} días y salir."))
     args = p.parse_args()
+
+    # Cleanup-only mode: housekeeping shortcut. Useful from a Stop hook or
+    # from cron; the same cleanup also runs implicitly at the top of every
+    # full generation below.
+    if args.cleanup:
+        with open_db() as conn:
+            removed = cleanup_old_rows(conn, days=DEDUP_WINDOW_DAYS)
+        print(f"[cleanup] news_history.db → {removed} filas eliminadas "
+              f"(>{DEDUP_WINDOW_DAYS} días)")
+        return 0
 
     cfg = sections[args.section]
     date_str = datetime.now().strftime("%Y-%m-%d")
 
     print("=" * 80)
-    print(f"ULTRON Times — {cfg['label']} (v14.3)")
+    print(f"ULTRON Times — {cfg['label']} (v15.5.18)")
     print("=" * 80)
+
+    # Load user-personalised topics (or defaults).
+    active_topics, from_file = load_topics()
+    if from_file:
+        print(f"[topics] {len(active_topics)} from news-topics.json: "
+              f"{', '.join(active_topics)}")
+    else:
+        print(f"[topics] defaults: {', '.join(active_topics)} "
+              f"(edit {NEWS_TOPICS_FILE} to personalise)")
 
     # Check which other editions exist today (for nav bar)
     existing = today_existing_editions(sections, date_str)
@@ -934,18 +1084,28 @@ def main() -> int:
                   f"{len(dedup_urls)} URLs + {len(dedup_titles)} titulares se excluyen")
 
     # ── SQLite-based dedup (persistent, feeds both prompt + post-filter) ───────
+    # Implicit weekly housekeeping: every run wipes rows older than
+    # DEDUP_WINDOW_DAYS (=7) BEFORE we count hashes for the prompt and
+    # before we filter the candidates. This guarantees the DB never grows
+    # unbounded even without an external cron job. The user can also run
+    # `news_html_generator.py --cleanup` for a manual sweep.
     db_dedup_hashes: tuple[list[str], list[str]] | None = None
     if not args.no_dedup:
         with open_db() as conn:
-            db_dedup_hashes = _load_db_dedup_hashes(conn, days=30)
+            removed = cleanup_old_rows(conn, days=DEDUP_WINDOW_DAYS)
+            if removed:
+                print(f"[dedup-db]    housekeeping → {removed} filas "
+                      f"eliminadas (>{DEDUP_WINDOW_DAYS}d)")
+            db_dedup_hashes = _load_db_dedup_hashes(conn, days=DEDUP_WINDOW_DAYS)
         url_h_count, title_h_count = db_dedup_hashes
         print(f"[dedup-db]    history DB → {len(url_h_count)} URL hashes + "
-              f"{len(title_h_count)} title hashes (30d window)")
+              f"{len(title_h_count)} title hashes ({DEDUP_WINDOW_DAYS}d window)")
 
     prompt = build_section_prompt(
         cfg, args.days, args.theme, args.notes, dedup_urls, nav_instruction,
         dedup_titles=dedup_titles,
         db_dedup_hashes=db_dedup_hashes,
+        topics=active_topics,
     )
     print(f"[prompt] sección={args.section} días={args.days}" +
           (f" · tema='{args.theme}'" if args.theme else "") +
@@ -1026,7 +1186,7 @@ def main() -> int:
     if not args.no_dedup and articles_from_model:
         with open_db() as conn:
             fresh_articles, dropped_count = filter_candidates_with_db(
-                conn, articles_from_model, days=30
+                conn, articles_from_model, days=DEDUP_WINDOW_DAYS
             )
             print(f"[dedup-db]    {dropped_count} artículos descartados como duplicados "
                   f"({len(fresh_articles)} frescos registrados en DB)")

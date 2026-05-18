@@ -149,12 +149,34 @@ pub async fn open_project_in_ide(
     // Map the per-project IDE slug ("vscode" / "cursor" / "code-insiders")
     // to the CLI binary name that ships with that editor. `vscode` is the
     // canonical slug we expose to the UI; the CLI itself is called `code`.
+    // v15.5.18 fix: extend slug → CLI map to cover the JetBrains family + the
+    // frontend dropdown (Rider, WebStorm, PyCharm, CLion, IDEA, GoLand, PhpStorm).
+    // Prior to this fix only VS Code / Cursor / Code-Insiders were mapped, so any
+    // JetBrains preference fell back through slug_to_cli=None → candidates list
+    // skipped the user's choice → first available CLI (code) was used → user
+    // reported "siempre abre Visual Studio". JetBrains CLIs install per-IDE
+    // (`rider`, `webstorm`, etc.) when "Generate shell scripts" is enabled in
+    // the JetBrains Toolbox settings; if not, the `where` check fails and we
+    // fall through to the next candidate as before.
     let slug_to_cli = |s: &str| match s.to_ascii_lowercase().as_str() {
         "vscode" | "vs code" | "code" => Some("code"),
         "cursor" => Some("cursor"),
         "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => {
             Some("code-insiders")
         }
+        "rider" => Some("rider"),
+        "webstorm" => Some("webstorm"),
+        "pycharm" => Some("pycharm"),
+        "clion" => Some("clion"),
+        "idea" | "intellij" | "intellij idea" => Some("idea"),
+        "goland" => Some("goland"),
+        "phpstorm" => Some("phpstorm"),
+        "rustrover" => Some("rustrover"),
+        "datagrip" => Some("datagrip"),
+        "fleet" => Some("fleet"),
+        "sublime" | "subl" => Some("subl"),
+        "nvim" | "neovim" | "vim" => Some("nvim"),
+        "zed" => Some("zed"),
         _ => None,
     };
 

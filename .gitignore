@@ -93,6 +93,7 @@ cockpit/apps.json
 cockpit/scan-roots.json
 cockpit/news_history.db
 cockpit/news_history.db-journal
+cockpit/news-topics.json
 cockpit/mcp-audit.jsonl
 cockpit/auto_updater.jsonl
 cockpit/pending_actions.json

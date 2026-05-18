@@ -232,7 +232,7 @@ pub async fn generate_news_session_inner(
         )
         .unwrap_or_else(|_| {
             format!(
-                "[BANNER — no es el prompt real] El prompt real lo genera news_html_generator.py y se copia a tu portapapeles. Pulsa Ctrl+V dentro de Gemini para usarlo. Output HTML → ~/.ultron/cockpit/news/newsletter-{}.html. Modelo: {}.",
+                "[BANNER — no es el prompt real] El prompt real lo genera news_html_generator.py y se copia a tu portapapeles. Pulsa Ctrl+V dentro de Gemini para usarlo. Output HTML → ~/.ultron/cockpit/news/newsletter-{}.html. Modelo: {}. Personaliza temas en ~/.ultron/cockpit/news-topics.json (defaults: AI · Claude Code · GitHub Claude tooling). Novedad por fecha (hoy/ayer); duplicados se filtran post-render contra news_history.db (retención 7d).",
                 today, effective_model
             )
         })

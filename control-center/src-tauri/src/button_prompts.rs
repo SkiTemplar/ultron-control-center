@@ -231,11 +231,15 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Banner seed shown in the wt.exe Gemini tab opened by the \
              'Open Gemini session' button. The real prompt is built by \
              news_html_generator.py and copied to the clipboard. The seed \
-             text reminds Gemini where to save the output HTML and which \
-             model to use.",
+             text reminds Gemini where to save the output HTML, which model \
+             to use, and points the user at the personalisation hook \
+             (~/.ultron/cockpit/news-topics.json). As of v15.5.18 the prompt \
+             no longer enumerates 'titulares ya publicados' — novelty is \
+             enforced by date (today/yesterday only) and by the SQLite \
+             history filter post-generation.",
             "news_generate",
             &["today", "model"],
-            "[BANNER — no es el prompt real] El prompt real lo genera news_html_generator.py y se copia a tu portapapeles. Pulsa Ctrl+V dentro de Gemini para usarlo. Output HTML → ~/.ultron/cockpit/news/newsletter-{today}.html. Modelo: {model}.",
+            "[BANNER — no es el prompt real] El prompt real lo genera news_html_generator.py y se copia a tu portapapeles. Pulsa Ctrl+V dentro de Gemini para usarlo. Output HTML → ~/.ultron/cockpit/news/newsletter-{today}.html. Modelo: {model}. Personaliza temas en ~/.ultron/cockpit/news-topics.json (defaults: AI, Claude Code, GitHub Claude tooling). Novedad por fecha (hoy/ayer); duplicados se filtran post-render contra news_history.db (retención 7d).",
         ),
         default_button(
             "mcps.add_with_ai",

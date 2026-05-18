@@ -112,23 +112,31 @@ Pass `-DryRun` to see what the script would do without writing or pushing.
 
 ### 1.3 Update CHANGELOG.md
 
-Add a new section at the top of `CHANGELOG.md`:
+**Policy (v15.5.18+):** Only **minor** (`X.Y.0`) and **major** (`X.0.0`)
+releases get a CHANGELOG entry. **Patch** releases (`X.Y.Z` with `Z > 0`)
+do NOT - they accumulate silently in `~/.ultron/.tmp/pending-patches.jsonl`
+and are folded into the next minor entry by `scripts/hooks/auto-changelog.py`.
+See `docs/CHANGELOG-POLICY.md` for the full rationale and format.
+
+If this release is a patch bump, **skip this section entirely** - the hook
+will buffer it. If it is a minor or major bump, the hook will write the
+section automatically on the next session Stop. To compose by hand instead,
+use this format:
 
 ```markdown
-## v15.2.1 - 2026-MM-DD
+<!-- vX.Y.0 -->
+## vX.Y.0 - 2026-MM-DD (acumula vX.Y.1..vX.Y.N)
 
-### Added
-- ...
+Errores corregidos:
+- short one-liner per fix
 
-### Fixed
-- ...
-
-### Changed
-- ...
+Anadido:
+- short one-liner per addition
 ```
 
-Keep the entries short and user-facing. Reference plan specs by path where
-relevant (e.g. `plans/specs/2026-05-13-entrega-memoria-design.md`).
+Rules: one line per item (≤120 chars), no author names, no commit SHAs,
+no internal-implementation chatter. Reference plan specs by path where
+truly relevant (e.g. `plans/specs/2026-05-13-entrega-memoria-design.md`).
 
 ### 1.4 Commit and tag
 

@@ -127,11 +127,15 @@ export function ButtonPromptsSection() {
     if (!catalog) return [] as ButtonPrompt[];
     const q = filter.trim().toLowerCase();
     if (!q) return catalog.buttons;
+    // v15.5.18 (user request): also search the PROMPT body so a user looking
+    // for "rebuild" / "qdrant" / specific Spanish phrasing finds the right
+    // entry without scrolling. Prior filter only matched key/label/location.
     return catalog.buttons.filter(
       (b) =>
         b.key.toLowerCase().includes(q) ||
         b.label.toLowerCase().includes(q) ||
-        b.location.toLowerCase().includes(q),
+        b.location.toLowerCase().includes(q) ||
+        (b.prompt ?? "").toLowerCase().includes(q),
     );
   }, [catalog, filter]);
 
@@ -165,7 +169,7 @@ export function ButtonPromptsSection() {
       <div className="mt-3 flex items-center gap-2">
         <input
           type="text"
-          placeholder="Filter by key, label or location…"
+          placeholder="Filter by key, label, location or prompt text…"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           className="flex-1 rounded px-2 py-1.5 text-[12px]"
@@ -176,6 +180,12 @@ export function ButtonPromptsSection() {
             outline: "none",
           }}
         />
+        <span
+          className="tabular-nums text-[11px]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          {filter ? `${filtered.length} / ${catalog?.buttons.length ?? 0}` : `${catalog?.buttons.length ?? 0}`}
+        </span>
         <button
           type="button"
           onClick={() => void load()}

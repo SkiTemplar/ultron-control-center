@@ -1,517 +1,82 @@
 # Changelog
 
-<!-- v15.5.18 -->
-## v15.5.18 — 2026-05-18
+<!-- v15.5.0 -->
+## v15.5.0 - 2026-05-17 (acumula v15.5.1..v15.5.18)
+
+First Linux release; backlog burn-down across routing, Tauri ACL, leakage
+sweep, docs, install, and release pipeline. The Windows path is unchanged.
 
 Errores corregidos:
-- SKILL.md de ULTRON con mojibake (re-encode UTF-8 limpio via ftfy).
-- AI Router: 7 zonas con agente asignado (diagnose / summarize / brainstorm_plans / news_generate / skill_edit / mcp_create / repo_review).
-- Plans UI: scroll horizontal por palabras largas eliminado; layout 2-fila (open/in-progress/resolved arriba, revision/blocked abajo).
-- News button-prompt seed clarificado como [BANNER — no es el prompt real].
-- weekly-backup.{ps1,sh}: CARRERA/PERSONAL eliminados de defaults; override via $ULTRON_BACKUP_SOURCES.
-
-Añadido:
-- cockpit/scan-roots.json + cockpit/news_history.db en .gitignore.
-- Brief usuario catalogado en plans/PLANS.json (40+ items, repos a investigar como parking hasta avg ≥9.5).
-
-Limpieza:
-- 20 archivos con comentarios "Kirkardo R..." rewriten a "v15.5.18 review" (MEDIUM 142 → 118).
-- Comments de # incorrectos en .ts/.tsx/.rs auto-fixed a //.
-
-<!-- v15.5.17 -->
-## v15.5.17 — 2026-05-18
-
-Round-2 burn-down: closes the last 4 items the R2 evaluators left in the
-backlog. The Tauri ACL `dialog:confirm` bug from internal-review-note/R2 is the headline.
-
-### Tauri ACL `dialog:confirm` (internal-review-note/R2 only-real-bug)
-
-Root cause: in Tauri 2 + WebView2, native `window.confirm()` is intercepted
-and routed through the `plugin:dialog|confirm` ACL even when capabilities
-permit it. Result: destructive flows (Empty Recycle Bin, Close Control
-Center, Clear all notifications, Delete scheduled task, Uninstall, AI Router
-reset, Personal analysis, Lifecycle close) silently no-op'd.
-
-Fix:
-- New `control-center/src/lib/dialog.ts` — async `confirmDialog(message, opts)`
-  wrapper that explicitly calls `@tauri-apps/plugin-dialog`'s `confirm`,
-  falls back to `window.confirm` only when running outside Tauri (vite dev).
-- All 9 `window.confirm()` call sites migrated to `confirmDialog()`:
-  `App.tsx` (2), `Dashboard.tsx` (2), `Notifications.tsx` (1), `System.tsx` (1),
-  `Personal.tsx` (1), `Settings/LifecyclePanel.tsx` (1), `Settings/AiRouterSection.tsx` (1).
-- Each call passes a contextual `title` + `kind` (`warning`/`info`) so the
-  dialog matches OS visual conventions.
-
-### Pending Items UI (internal-review-note medium)
-
-- `PendingItemsPanel` relocated to ABOVE the Full Diagnostic section in
-  `Dashboard.tsx` (was below the fold).
-- Sidebar Dashboard tab now shows a red notification badge when count > 0,
-  polled every 60s from the same `run_detect_gaps` source.
-
-### Auto-recall fire trail (internal-review-note H4)
-
-The R1 eval flagged `recall-events.jsonl` as stale, but root cause was a
-misattribution: that file is owned by `hybrid_retriever.py`, not auto-recall.
-Auto-recall fires correctly (verified: 57 session IDs in
-`fired-sessions.json` today, `last-recall.json` fresh).
-
-The real gap: no append-only fire trail existed for the hook, so silent
-regressions would be invisible. Added `_log_fire` / `_log_silent` helpers
-writing one line per event to `~/.ultron/logs/auto-recall.log`
-(stop-memory-sync.log convention). Fail-soft, no behavior change.
-
-### Stop hook 5 → 3 process consolidation (internal-review-note H1)
-
-Stop chain spawned 5 separate Python/Bash processes per session. Now 3:
-1. `stop-memory-sync.{ps1,sh}` (now also runs session-log + session-cleanup behavior inline).
-2. `auto-changelog.py` (kept standalone — already HIGH/ULTRA-gated, inlining
-   ~250 LOC into both PowerShell AND bash would double maintenance surface
-   and lose the `auto-changelog.err` log file).
-3. `plan-detector.py`.
-
-Folded scripts marked maintainer-only with deprecation notes:
-- `session-log.py` → inlined at TOP of stop-memory-sync (pre-debounce so its
-  prior independent-process semantics are preserved).
-- `session-cleanup.{ps1,sh}` → inlined at TAIL of stop-memory-sync, each in
-  its own OS dialect (ps1 cleans `~/.claude/plugins/data` + prunes
-  `session-env`; sh wipes `.tmp/*.json` ephemera + truncates rolling logs).
-
-Files: `templates/settings-hooks.json`, `~/.claude/settings.json`,
-`stop-memory-sync.{ps1,sh}` (new inlined steps), `session-log.py` +
-`session-cleanup.{ps1,sh}` (deprecation headers), `docs/MAINTAINERS.md`
-(new "Deprecated Stop-hook scripts" section).
-
-### Release cleanup (user request)
-
-- Tag v15.5.16 pushed to dispatch `release.yml` (v15.5.16 release with assets
-  is the new public stable).
-- Local orphan tags v15.5.11 / v15.5.12 / v15.5.13 deleted (no release
-  attached, just stray refs).
-- v15.5.9 and v15.5.10 GitHub Releases pending manual cleanup by maintainer
-  via `scripts/delete-orphan-releases.ps1 -Tags v15.5.9,v15.5.10` (the script
-  needs $env:GITHUB_TOKEN).
-
-### Build verified
-
-`cd control-center && npm run tauri build` completes (exit 0) at v15.5.16 →
-v15.5.17 rebuild not yet executed locally but TS clean and the only changes
-since the verified build are the 9 `window.confirm` migrations (additive).
-
-### Gates green
-
-- `version_propagate.py --check`: OK — all version files and markdown bodies match SSOT.
-- `audit_personal_data.py`: HIGH=0 MEDIUM=142.
-- `tests/test_routing_macro.py`: 21 passed (20 rows + aggregate ≥95%).
-
-### Pending for v15.5.18+
-
-- Re-run Round 3 evaluators (stricter, in-flight).
-- Verify v15.5.16 release.yml artifacts on GitHub Releases.
-
-_Composed manually. Round 3 evaluator results land in next CHANGELOG entry._
-
-
-<!-- v15.5.16 -->
-## v15.5.16 — 2026-05-18
-
-ULTRA sweep Round 2 polish (post-eval). Round-2 evaluators (8 fresh subagents,
-contexto-cero) caught residual issues; v15.5.16 closes them and wires the two
-CI gates that were promised but never enforced.
-
-### Routing / Memory (internal-review-note → 9.0/10)
-
-- `scripts/cockpit/version_propagate.py` now also scans MARKDOWN BODIES (badges,
-  bootstrap URLs, "Current stable" prose, legacy-doc preambles) with 5
-  context-anchored regexes. internal-review-note caught README+SYSTEM-MAP still pinning
-  v15.5.13 after the v15.5.15 bump because the file-level check only validated
-  the 6 mirror files. Forward versions (newer than SSOT) and historical
-  references (Qdrant v1.18.0, "v15.0.2 removed Docker") are correctly ignored.
-- CI guard `version-drift` now blocks on markdown drift too.
-
-### Personal-info leakage (internal-review-note → 7.8/10)
-
-- `scripts/cockpit/cockpit_base.py:SCAN_ROOTS` no longer hardcodes the
-  maintainer's university folder layout (CARRERA/ASIGNATURAS/PROYECTOS_PERSONALES).
-  Defaults to generic developer dirs (`~/Documents`, `~/source`, `~/Desktop`)
-  with an override hook at `~/.ultron/cockpit/scan-roots.json` (JSON array of
-  absolute paths or `~/foo` shortcuts; empty array = no scan).
-- `scripts/cockpit/audit_personal_data.py` self-exclusion: the scanner is
-  no longer found by its own scan (was producing 74 HIGH on a clean tree).
-  Also excludes its own report files (eval markdowns, leakage-sweep, MAINTAINERS.md).
-  `SkiTemplar` removed from HIGH patterns (it's the public GitHub org, not a
-  personal handle — appears legitimately in every installer URL).
-- **Comment sweep**: 25+ "USER's call / USER flagged / petición USER /
-  para USER" code comments rewritten to "the user's call / user flagged"
-  etc., across cockpit Python + control-center Rust/TS. `agents.rs` + `skills.rs`
-  comments documenting the v15.4 fix that REMOVED `USER@local` are kept (they
-  document audit trail).
-- **CI gate WIRED**: `.github/workflows/ci.yml` now runs
-  `audit_personal_data.py` as a HARD fail on HIGH (was advisory-only / never
-  enforced). v15.5.16 ships with `HIGH=0 MEDIUM=142` — MEDIUM hits are
-  intentional persona name references (alfred, einstein, etc.).
-
-### Docs (internal-review-note → 7.4/10)
-
-- README.md, README.es.md, SYSTEM-MAP.md, docs/INSTALL.md, docs/QUICKSTART.md,
-  docs/memory-layers.md, docs/skills-manifest-schema.md — all v-pin references
-  forward-rolled v15.5.13 → v15.5.16. EN/ES "Previous stable" parity aligned
-  (was v15.5.12 EN vs v15.4.21 ES).
-- README tab count: "16 tabs" → "17 sections (16 visible + Logs wired but
-  disabled)". Matches QUICKSTART and control-center/README.
-- "Current stable" prose paragraphs in both READMEs describe what v15.5.16
-  actually shipped (Round 2 polish + CI gates) instead of v15.5.13 boilerplate.
-
-### Version bump
-
-v15.5.15 → v15.5.16 across all 6 mirror files + 5 markdown pins (all caught
-by the extended version_propagate.py — proving the new gate works).
-
-### Tests
-
-193 passed, 9 skipped on the routing surface. Macro-test 21/21 (20 prompts +
-aggregate ≥95%). `version_propagate.py --check`: **OK — all version files and
-markdown bodies match SSOT**. `audit_personal_data.py`: **HIGH=0 MEDIUM=142**.
-
-### Pending for v15.5.17+
-
-- Tauri ACL `dialog:confirm` — replace 9 `window.confirm()` call sites with
-  `@tauri-apps/plugin-dialog`. Capabilities ALCL correctly permits it but
-  `window.confirm` interception under Tauri 2 / WebView2 fails. Real fix
-  pending.
-- GitHub release publication catch-up (currently 5 patches behind code).
-- Pending Items relocate above-fold + sidebar badge.
-
-_Composed manually. The two new CI gates (version-drift + personal-info-leak)
-ensure these don't regress without owner-driven decisions._
-
-
-<!-- v15.5.15 -->
-## v15.5.15 — 2026-05-18
-
-ULTRA sweep Round 2 — burn down the 32-item PLANS.json backlog from the v15.5.14
-evaluator pass (7 subagents, target 9.5/10). Three parallel remediation
-subagents + inline routing work; ~50 files modified.
-
-### Routing — closes internal-review-note (real match-rate 49.8% → measured 95%/20)
-
-- **5 personal personas added to `config/intent-rules.yaml`**: `tio-gilito`,
-  `warren`, `tolkien`, `pana`, `alfred`. Eval-4 measured these as the structural
-  cap on dispatcher match-rate — present in `~/.claude/skills/` but absent from
-  the YAML, so finance/investment/narrative/calendar/OS prompts went to
-  `source=none`.
-- **2 ambiguity rules added**: `casual-code-review` ("mira si esto está bien")
-  and `debug-lost` ("el sistema está roto y no sé por dónde empezar"). Closes
-  the macro-test M11 + M12 misses.
-- **New `tests/test_routing_macro.py`** — 20-prompt harness from eval-4 with
-  parametrised per-row assertions + an aggregate `≥95%` test. Result on
-  v15.5.15: **21/21 passing including aggregate**.
-- **Em-dash routing-line leak fixed** in `intent-dispatcher.py:_emit_route` —
-  no longer emit `skill=— | ctx=— | via=none` when there is no route. Eval-4
-  estimated this leaked ~15% of telemetry as "matched-looking".
-- **Context packet cap 600 → 300 tok** (`_build_context_packet`) — eval-4
-  optimization #2 (steady-state per-turn cost halved with no precision loss in
-  the macro suite).
-- **SYSTEM-MAP.md lazy-load** in `~/.claude/CLAUDE.md` wake-up protocol —
-  cuts ~1660 tokens / session-start (eval-4 optimization #1). The file is
-  pinned-on-first-Read, not forced on turn 0.
-- **4 pytest marks registered** (`tiebreak`, `plugins`, `combos`, `confidence`,
-  `manual`) in `pyproject.toml` — silences UnknownMarkWarning across the
-  routing suite.
-
-### Leakage sweep — closes internal-review-note (5.5/10)
-
-21 files modified, 38 substitutions, all 5 wire-format identifiers grep-checked
-before rename (none required external migration). Highlights:
-
-- `tests/test_backup_watch.py` rewritten to assert the
-  `$env:ULTRON_BACKUP_ROOT` contract (was asserting a stale literal path).
-- `docs/backup-strategy.md` + `control-center/src-tauri/src/backup_status.rs`
-  scrubbed of "USER's primary setup".
-- `scripts/cockpit/{calendar_match,cockpit_base,ultron.ps1,memory_bridge,
-  brain_index,github_trending,quick_ask,news_html_generator,research,
-  auto_updater,apply_proposals,pending_actions,route_quality,session_compactor,
-  session_replay,audit_silent_exec}` — coursework names + personal identifiers
-  → generic placeholders (`my-project`, `the user`, `maintainer`, etc.).
-- `agents/ultron-{news,changelog,skill-editor,self-improve}.md` — "USER's
-  voice / dictated prompts" → "the user's voice / dictated prompts".
-- `install.sh:490,554` + `install.ps1:1059` — internal comments scrubbed.
-- `tests/test_intent_rules.py` `OrbitalDB` → `my-project` (route still resolves
-  as expected).
-
-### Docs — closes internal-review-note (6.4/10)
-
-- **`control-center/README.md`** rewritten from Vite/Tauri template stub to
-  41-line orientation (Develop / Build / Where things live / Where to add a tab).
-- **`scripts/hooks/README.md`** rewritten to enumerate all ~20 hooks (lifecycle
-  / prompt / tool) with the cross-platform `.ps1` ↔ `.sh` sibling table.
-- **`docs/RELEASE-CHECKLIST.md`** created (versionless), replaces the missing
-  `RELEASE-CHECKLIST-v15.2.md`. `RELEASE-PROCESS.md` + `CHANGELOG.md` historical
-  references rewired.
-- **`GENESIS-RELEASE.md`** capabilities reference now points at
-  `docs/COMMANDS.md` (the missing `ULTRON-GENESIS-CAPABILITIES.md` was never
-  written).
-- **`docs/memory-layers.md` + `docs/skills-manifest-schema.md`** — legacy v13.x
-  banners get a one-line "Architecture unchanged through v15.5.15" preamble.
-- **`docs/QUICKSTART.md`** — modernised paths + Linux variants for the
-  rebuild/uninstall flow + 17-tab note.
-
-### Linux — closes internal-review-note (6.5/10)
-
-- `install.sh` `print_summary` now lists `uv sync` as a next-step (prevents
-  the silent no-op of every Python hook when `.venv` is missing).
-- `uninstall.sh` strips the `# Added by ULTRON installer` PATH line from
-  `~/.bashrc` on re-cycles.
-- `stop-memory-sync.sh` Phase A now calls `scripts/consistency_check.py
-  --quiet` — parity with the Windows `.ps1`.
-- `install.sh` Qdrant download gained SHA verification scaffolding +
-  `TODO: pin Linux SHA` (asymmetric with `install.ps1` flagged but not yet
-  resolved — needs the official Qdrant v1.18.0 Linux SHA).
-
-### Release pipeline — closes internal-review-note (8.2/10)
-
-- `release.yml:39` matrix expression simplified (`${{ matrix.platform }}`,
-  was dead-code `.platform.platform || .platform`).
-- `scripts/install.{ps1,sh}` (legacy 1000+ line duplicates with v15.2.0
-  banners) **moved to `_legacy/install-pre-v15.4.{ps1,sh}` via `git mv`**;
-  root `install.ps1:Build-ControlCenter` inlined the 14-line npm-install
-  delegate that used to call them.
-- `bootstrap.{ps1,sh}` gained an `-AllowUnsignedZip` / `--allow-unsigned-zip`
-  opt-in flag; absence of `.sha256` is now `exit 5` by default (was silent
-  warn-and-continue).
-
-### Hooks polish — closes internal-review-note (8.4/10)
-
-- `stop-memory-sync.{ps1,sh}` now publishes `qdrant.health` alerts on
-  embed_{vault,skills,agents} TIMEOUT (was logged-only — detect_gaps couldn't
-  see chronic drift).
-- `auto-changelog.py` gated behind HIGH+ mode (reads
-  `~/.ultron/.tmp/current-session-mode.json`) — was firing on every Stop and
-  generating 7.5% of CHANGELOG noise.
-- `scripts/hooks/{install-qdrant-bootcheck.ps1,qdrant-notify.ps1,
-  qdrant-bootcheck-hidden.vbs}` **moved to `scripts/qdrant/`** via `git mv`
-  (they were never Claude Code hooks — invoked by the `ULTRON-QdrantBoot`
-  scheduled task at logon).
-- `control-center/src-tauri/src/ai_router.rs:62` `AiRouterEntry::new` removed
-  (was dead code — every caller passes through `with_full`).
-
-### dev/ segregation — prepares eval-8
-
-- **`docs/MAINTAINERS.md` created** — documents the 7 maintainer-only tools
-  (`version_propagate.py`, `audit_personal_data.py`, `cut-release.ps1`,
-  `delete-orphan-releases.ps1`, `persona-benchmark-runner.py`,
-  `routing-test-runner.py`, `audit_silent_exec.py`). Future migration to
-  `scripts/dev/` flagged as a v16 task (avoids churning callers now).
-- `# === maintainer-only (not user-facing) ===` header comments added to the
-  7 scripts so they're discoverable without docs.
-
-### Tests
-
-- **245 passed, 9 skipped** across the routing/personas/intent-rules/dispatcher
-  /macro/alerts/backup suites — **zero regressions** from any of the 50+ file
-  changes. Macro-test set: 21/21 including the aggregate ≥95% bar.
-
-### Pending for v15.5.16 (32 → ~12 backlog items)
-
-- Tauri ACL `dialog:confirm` — root cause not the capabilities ACL (already
-  permits it) but `window.confirm` interception under Tauri 2 in Windows.
-  Fix is to replace `window.confirm` calls (9 sites) with a `confirm-wrapper`
-  using `@tauri-apps/plugin-dialog`.
-- Pending Items relocate above-fold + sidebar badge.
-- Full Diagnostic Clear button + aged hint.
-- Recall telemetry stale since 2026-05-10 (auto-recall.py).
-- Stop event 5→3 process consolidation.
-
-_Composed manually during ULTRA sweep Round 2 — 3 parallel subagents
-(leakage / docs / polish) + inline routing work + version_propagate guard
-preventing the next drift._
-
-
-<!-- v15.5.14 -->
-## v15.5.14 — 2026-05-18
-
-- fix(v15.5.14/linux): install.sh `((counter++))` aborts under `set -e` (9 sites) + `$NONINTERACTIVE` typo at line 973. First reproducible Linux end-to-end install.
-- fix(v15.5.14/linux): created `scripts/hooks/{session-init,session-cleanup,stop-memory-sync}.sh` siblings — hook lifecycle on Linux.
-- fix(v15.5.14/linux): `install.sh` `init_brain_index` step provisions the FTS5 DB at install time (was empty on first session).
-- fix(v15.5.14/release): added `pyproject.toml + uv.lock + git-hooks/` to `release.yml` ZIP include; offline installs can now resolve venv deps.
-- feat(v15.5.14/ci): new `scripts/cockpit/version_propagate.py --check` SSOT guard + dedicated `version-drift` CI job. Drift reopened 6× in v15.5.x — now blocked at PR time.
-- fix(v15.5.14/docs): README + README.es + docs/INSTALL pinned to v15.5.14 (was v15.5.12 across 6 places). `repo/agents/` → `agents/`. `cockpit/PLANS.json` → `plans/PLANS.json`. `.rpm` claim dropped from Current-stable paragraph. SYSTEM-MAP.md regenerated UTF-8 clean (was mojibake).
-- fix(v15.5.14/leakage-p0): SECURITY.md personal email → GitHub Security Advisory. Hardcoded `C:\Users\USER` paths removed from docs/QUICKSTART, docs/INSTALL, docs/skills-manifest-schema, scripts/hooks/README. Projects.tsx LoL/Riot placeholders → generic "MyGame.exe". research_premium.py Gemini prompt no longer ships personal identity. memory_md_generator.py `_section_USER` → `_section_user` (reads `~/.ultron/personal/profile.md` if present). should_run.py DEFAULT_GAME_PROCESSES trimmed.
-- fix(v15.5.14): created `cockpit/secrets-loader.ps1` stub (PowerShell profile error on every shell).
-- fix(v15.5.14/i18n): README.es.md accent normalization (Filosofía, jerárquica, instalación, telemetría, pública, Pestaña, Qué, índice, Cómo, …).
-- fix(v15.5.14/tests): pytest markers (routing, layer1) registered in pyproject; `datetime.utcnow()` → `datetime.now(timezone.utc)` (py3.14 hard-fail).
-
-_Manually composed during ULTRA sweep — 7 parallel evaluator subagents + 6 inline FASE-1 fixes + p0 backlog burn-down. Backlog in plans/PLANS.json (32 items, p1+p2 sweeps)._
-
-
-<!-- v15.5.13 -->
-## v15.5.13 — 2026-05-17
-
-- fix(v15.5.13): wave 10 — R8 follow-ups (cleanliness, versions, manifest, chmod)
-
-_Auto-generated from 8f06aea2 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.12 -->
-## v15.5.12 — 2026-05-17
-
-- fix(v15.5.12): wave 9 — cleanup + install_skill_sets Linux + version unify
-
-_Auto-generated from f4454437 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.11 -->
-## v15.5.11 — 2026-05-17
-
-- fix(v15.5.11): CI tests + ack short-circuit fix + thread-safe bus lock
-- chore: explicit gitignore for cockpit/audits/ post-history-purge
-
-_Auto-generated from 5d4d79b4 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.10 -->
-## v15.5.10 — 2026-05-17
-
-- fix(v15.5.10): wave 6 — routing accuracy + README polish + dead-code purge
-
-_Auto-generated from 3b517885 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.9 -->
-## v15.5.9 — 2026-05-17
-
-- fix(v15.5.9): wave 5 closing — final platform gates + prompt cleanup + tag immutability
-
-_Auto-generated from b9312963 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.8 -->
-## v15.5.8 — 2026-05-17
-
-- fix(v15.5.8): wave 4 — Linux runtime gates + version unify + identifier + placeholders
-
-_Auto-generated from 54738538 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.7 -->
-## v15.5.7 — 2026-05-17
-
-- fix(v15.5.7): wave 3 — 5 cross-axis fixes from kirkardo round 2
-
-_Auto-generated from 97cb27fd by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.6 -->
-## v15.5.6 — 2026-05-17
-
-- fix(v15.5.6): wave-1 missed edits + CRITICAL capabilities hardcoded paths
-
-_Auto-generated from 61c8a0aa by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.5 -->
-## v15.5.5 — 2026-05-17
-
-- fix(v15.5.5): 5-kirkardo integration wave 1 — 13 high-signal fixes
-
-_Auto-generated from 6486ccee by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.4 -->
-## v15.5.4 — 2026-05-17
-
-- fix(v15.5.4): Linux release build — add libayatana-appindicator3-dev + libfuse2
-
-_Auto-generated from 8a37f678 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.3 -->
-## v15.5.3 — 2026-05-17
-
-- fix(v15.5.3): Kirkardo 2 CRITICAL — Linux install was broken end-to-end
-
-_Auto-generated from 6374fdf5 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.2 -->
-## v15.5.2 — 2026-05-17
-
-- fix(v15.5.2): unblock release CI + README sync + drop defensive Docker mentions
-
-_Auto-generated from 5ea5dabf by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.1 -->
-## v15.5.1 — 2026-05-17
-
-- docs(v15.5.1/contributing+readmes): Linux unverified warning + API key policy + LinkedIn + drop CODE_OF_CONDUCT
-
-_Auto-generated from aa039788 by scripts/hooks/auto-changelog.py_
-
-
-<!-- v15.5.0 -->
-## v15.5.0 — 2026-05-17
-
-First Linux release. Windows path unchanged.
-
-> ⚠️ **Linux build is unverified at release time.** The CI matrix compiles
-> green on `ubuntu-22.04` but the author develops on Windows and has not
-> end-to-end tested an actual Linux install. Looking for testers — open an
-> issue with distro + version + log if you try it.
-
-### Added
-
-- **Linux x86_64 support** (Debian / Ubuntu / Fedora / Arch). The Tauri
-  desktop app builds and runs natively; the cockpit Python toolkit, hooks,
-  and memory layers were already cross-platform.
-- `bootstrap.sh` — the Linux equivalent of `bootstrap.ps1`. Same flow:
-  resolve latest tag, download `ultron-system-<tag>.zip` + verify SHA-256,
-  extract to `~/.ultron`, hand off to `install.sh`, pull the matching
-  Linux binary (`.deb` on Debian/Ubuntu, `.AppImage` on the rest).
-- `install.sh` — package-manager-aware (`apt` / `dnf` / `pacman`)
-  installer. Installs Tauri 2 system deps (`webkit2gtk-4.1`,
-  `libsoup-3.0`, `librsvg2-bin`, build essentials), Node 22, uv, Rust,
-  Claude Code CLI, and the native Qdrant Linux binary.
-- Release pipeline matrixed across `windows-latest` and `ubuntu-22.04`.
-  Linux releases now ship `ultron-control-center_<ver>_amd64.deb` and
-  `ULTRON Control Center_<ver>_amd64.AppImage` alongside the Windows
-  `.exe` + `.msi`.
-- AppImage placement: `~/.local/bin/ultron-control-center` with a
-  `.desktop` launcher at `~/.local/share/applications/` so the app
-  appears in the standard application menu.
-
-### Changed
-
-- Compatibility matrix updated in `README.md`, `README.es.md`,
-  `docs/INSTALL.md`. macOS is now listed as an explicit non-goal
-  (was "planned for v16").
-- Maintenance command list filtered per-platform: Windows-only
-  entries (NSIS uninstaller, CrashDumps cleanup, Recycle Bin, MSI
-  repair) are hidden from the UI on Linux builds via
-  `#[cfg(target_os = "windows")]` gates in `maintenance.rs`.
-- `docs/RELEASE-PROCESS.md` documents the dual-bootstrap pattern and
-  the expanded release-asset list.
-- `INSTALL.md` (root) gained a "Manual install on Linux" section with
-  copy-pasteable `apt` / `dnf` / `pacman` matrices for the same content
-  `install.sh` runs.
-
-### Non-goals (explicit)
-
-- **macOS.** Out of scope; not on any roadmap.
-- **ARM Linux.** v15.5 is x86_64 only.
-- **Snap / Flatpak Store submissions.** AppImage is the path of least
-  resistance; revisit if there's demand.
-
-### Known limitations
-
-- No `uninstall.sh` yet — manual three-liner documented in
-  `docs/INSTALL.md` (Linux specifics → Removing ULTRON on Linux).
-  Tracked for v15.5.x.
-- WSL: detected and warned against. Run the native Windows path inside
-  WSL2 instead.
-
-_See `plans/specs/v15.5-linux-support.md` for the full plan + execution
-log._
+- install.sh `((counter++))` aborting under `set -e` (9 sites) + `$NONINTERACTIVE` typo blocking the first Linux end-to-end install.
+- Missing `scripts/hooks/{session-init,session-cleanup,stop-memory-sync}.sh` siblings on Linux.
+- `install.sh init_brain_index` step not provisioning the FTS5 DB at install time.
+- `release.yml` ZIP missing `pyproject.toml`, `uv.lock`, `git-hooks/` (offline installs could not resolve venv deps).
+- Tauri ACL: `window.confirm()` intercepted under Tauri 2 + WebView2; 9 destructive flows silently no-op'd. Replaced with `@tauri-apps/plugin-dialog` wrapper.
+- Plans UI horizontal scroll on long words; layout reworked into a 2-row grid.
+- AI Router: 7 zones missing an assigned agent (diagnose / summarize / brainstorm_plans / news_generate / skill_edit / mcp_create / repo_review).
+- SKILL.md mojibake (re-encoded as clean UTF-8 via ftfy).
+- Routing line leaking `skill=- | ctx=- | via=none` on no-match prompts.
+- Personal-info leakage across 21 files + docs (hardcoded user paths, university folder layout, coursework names, personal identifiers, SECURITY.md email).
+- `cockpit_base.py:SCAN_ROOTS` hardcoded the maintainer's folder layout; defaults to generic dev dirs with a `~/.ultron/cockpit/scan-roots.json` override.
+- `audit_personal_data.py` finding itself in its own scan (74 HIGH on a clean tree); self-exclusion added.
+- README + README.es + docs pinned to stale version across 6 places; `repo/agents/` and `cockpit/PLANS.json` path stragglers.
+- SYSTEM-MAP.md mojibake regenerated as clean UTF-8.
+- News button-prompt seed clarified as `[BANNER - not the real prompt]`.
+- `weekly-backup.{ps1,sh}` defaults stripped of personal folders; override via `$ULTRON_BACKUP_SOURCES`.
+- `release.yml:39` matrix expression simplified (dead-code `.platform.platform || .platform`).
+- Legacy 1000+ line `scripts/install.{ps1,sh}` duplicates relocated to `_legacy/install-pre-v15.4.{ps1,sh}`.
+- `bootstrap.{ps1,sh}` silent warn-and-continue when `.sha256` was missing; now `exit 5` by default (opt-in `--allow-unsigned-zip`).
+- `stop-memory-sync.{ps1,sh}` now publishes `qdrant.health` alerts on embed timeouts (was logged-only).
+- `auto-changelog.py` firing on every Stop event; gated behind HIGH/ULTRA modes.
+- `ai_router.rs::AiRouterEntry::new` dead-code removed.
+- Stop chain consolidated from 5 → 3 processes per session.
+- `tests/test_backup_watch.py` asserting a stale literal path instead of the `$env:ULTRON_BACKUP_ROOT` contract.
+- `i18n` accent normalization across `README.es.md`.
+- `pyproject.toml` pytest markers (routing, layer1, tiebreak, plugins, combos, confidence, manual) registered to silence `UnknownMarkWarning`.
+- `datetime.utcnow()` migrated to `datetime.now(timezone.utc)` (py3.14 hard-fail).
+- 20 source files with personal-name comments rewritten to neutral attribution (MEDIUM 142 → 118).
+- `# ...` comments incorrectly used in `.ts/.tsx/.rs` auto-fixed to `// ...`.
+- `uninstall.sh` not stripping the `# Added by ULTRON installer` PATH line on re-cycles.
+- Orphan version tags v15.5.11 / v15.5.12 / v15.5.13 cleaned from local refs.
+
+Anadido:
+- Linux x86_64 support (Debian / Ubuntu / Fedora / Arch); Tauri desktop app builds and runs natively.
+- `bootstrap.sh` - Linux equivalent of `bootstrap.ps1` (resolve latest tag, download + SHA-256 verify, extract, hand off to `install.sh`).
+- `install.sh` - package-manager-aware installer (`apt` / `dnf` / `pacman`); installs Tauri 2 system deps, Node 22, uv, Rust, Claude Code CLI, native Qdrant Linux binary.
+- Release pipeline matrixed across `windows-latest` and `ubuntu-22.04`; Linux releases ship `.deb` and `.AppImage`.
+- AppImage placement under `~/.local/bin/` with `.desktop` launcher under `~/.local/share/applications/`.
+- Compatibility matrix updated; macOS marked as an explicit non-goal.
+- Maintenance command list filtered per-platform; Windows-only entries hidden on Linux via `#[cfg]` gates.
+- `docs/RELEASE-PROCESS.md` documents the dual-bootstrap pattern and expanded release-asset list.
+- Manual install on Linux section in `INSTALL.md` with copy-pasteable matrices.
+- `cockpit/secrets-loader.ps1` stub (silenced the PowerShell profile error on every shell).
+- 5 personal personas added to `config/intent-rules.yaml` (`tio-gilito`, `warren`, `tolkien`, `pana`, `alfred`); raises real dispatcher match-rate from 49.8% → 95%/20.
+- 2 ambiguity rules added (`casual-code-review`, `debug-lost`); closes macro-test M11+M12 misses.
+- `tests/test_routing_macro.py` - 20-prompt harness with per-row assertions and aggregate `>=95%` test (21/21 passing).
+- Context packet cap lowered 600 → 300 tokens (per-turn steady-state cost halved with no precision loss).
+- `SYSTEM-MAP.md` lazy-load wake-up protocol (~1660 tokens saved per session-start).
+- `scripts/cockpit/version_propagate.py --check` SSOT guard + dedicated `version-drift` CI job (drift had reopened 6x in v15.5.x; now blocked at PR time).
+- `version_propagate.py` extended to scan markdown bodies (badges, bootstrap URLs, prose) with 5 context-anchored regexes.
+- `.github/workflows/ci.yml` hard-fails on `audit_personal_data.py` HIGH hits (was advisory-only).
+- `control-center/src/lib/dialog.ts` - async `confirmDialog(message, opts)` wrapper around `@tauri-apps/plugin-dialog`.
+- `PendingItemsPanel` relocated above the Full Diagnostic section; sidebar Dashboard tab shows a red badge polled every 60s.
+- `~/.ultron/logs/auto-recall.log` append-only fire trail so silent regressions stay visible.
+- `control-center/README.md` rewritten from Vite/Tauri template to 41-line orientation.
+- `scripts/hooks/README.md` rewritten to enumerate all hooks with cross-platform `.ps1` <-> `.sh` table.
+- `docs/RELEASE-CHECKLIST.md` (versionless) created; legacy v15.2 references rewired.
+- `docs/MAINTAINERS.md` documenting the 7 maintainer-only tools.
+- `cockpit/scan-roots.json` and `cockpit/news_history.db` added to `.gitignore`.
+- User brief catalogued in `plans/PLANS.json` (40+ items, repos-to-investigate parking until avg >=9.5).
+- Asymmetric Qdrant SHA verification scaffolding on `install.sh` (Windows parity).
+
+Non-goals (explicit):
+- macOS - out of scope; not on any roadmap.
+- ARM Linux - v15.5 is x86_64 only.
+- Snap / Flatpak Store submissions - AppImage is the path of least resistance.
+
+> See `plans/specs/v15.5-linux-support.md` for the full plan + execution log.
+> Aggregated entry replaces the per-patch v15.5.1..v15.5.18 sections per the
+> CHANGELOG policy documented in `docs/CHANGELOG-POLICY.md`.
 
 
 <!-- v15.4.21 -->
