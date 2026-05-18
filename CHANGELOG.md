@@ -16,7 +16,7 @@ Errores corregidos:
 
 Anadido:
 - **In-app popup system (`PopupHost`)** — bottom-left, non-invasive. Replaces both the Windows-native `tauri_plugin_notification` toast and the central-modal `confirmDialog`. New API: `src/lib/popups.ts` (`showToast`, `showConfirm` returning `Promise<boolean>`). Backend emits Tauri event `ultron-toast` instead of OS-level notifications.
-- L3 memory mirror scaffold at `github.com/SkiTemplar/ultron-memory` (README + `.gitignore` + MIT LICENSE). L3 status in README upgraded from *(planned)* to *(opt-in)*; users fork the scaffold and wire `~/.ultron-vault` to their own remote.
+- L3 status in README + README.es upgraded from *(planned)* to *(opt-in)*. Documented that L3 is per-user: each user creates their own **private** `<user>/ultron-memory` repo (vault contents are personal), not a shared mirror.
 
 Eliminado:
 - `Logs` tab dead route (Sidebar + App.tsx) — was `available: false` since v15.2 F7 (Hooks moved inside System).

@@ -169,7 +169,7 @@ Three local layers, one optional remote, plus a semantic search engine on top of
 | **L3** remote *(opt-in)* | `github.com/<you>/ultron-memory` | Off-machine mirror of L2, drained by the `Stop` hook in HIGH+ mode | Off-site archive box |
 
 > [!NOTE]
-> **L3 status.** The Stop hook code path is wired (see `memory_sync.py push-async`). The reference repo at `github.com/SkiTemplar/ultron-memory` is an **empty scaffold** (README + .gitignore + LICENSE) you can fork or clone as your private mirror; ULTRON only pushes once **you** wire `~/.ultron-vault` to your own remote.
+> **L3 status.** The Stop hook code path is wired (see `memory_sync.py push-async`). L3 is **fully opt-in and per-user**: there is no shared mirror — each user creates their own **private** repo named `ultron-memory` under their account, wires it as the `~/.ultron-vault` remote, and ULTRON pushes deltas in HIGH+ mode. See `docs/memory-layers.md` for the one-time setup.
 
 On top of L1+L2 lives a local **Qdrant** instance (a native platform binary on Windows or Linux, no daemon) that runs semantic recall over the same corpus — so "find that note about Tauri permissions" works even when you don't remember the exact words. A decay system bubbles stale notes back to the surface every time you start a session, so old context resurfaces instead of rotting forever.
 
@@ -253,7 +253,7 @@ ULTRON stitches four memory layers so Claude resumes on the same page after ever
 - **L0 — hot context.** `~/.ultron/.tmp/context.md` (≤ 400 tokens). Pinned summary of recent sessions, projects, pending alerts. Loaded automatically at SessionStart. *Sticky note.*
 - **L1 — keyword index.** SQLite + FTS5 at `~/.ultron/brain_index/index.db`. Fast BM25 lookup over every vault note. Rebuilt incrementally by the Stop hook. *Card catalog.*
 - **L2 — vault.** Plain-text Obsidian-style notes under `~/.ultron-vault/` (your curated long-term knowledge). Plus `~/.ultron/archive/` for older indexed material. *The shelves.*
-- **L3 — remote mirror** *(opt-in).* The Stop hook can push to `github.com/<you>/ultron-memory` for cross-machine sync (HIGH+ mode). The code path only runs once **you** wire your own remote in `~/.ultron-vault`; the upstream `SkiTemplar/ultron-memory` repo is a scaffold to fork. *Off-site archive.*
+- **L3 — remote mirror** *(opt-in).* The Stop hook can push to `github.com/<you>/ultron-memory` for cross-machine sync (HIGH+ mode). Each user creates their own **private** repo (vault contents are personal); the code path only runs once **you** wire your own remote in `~/.ultron-vault`. *Off-site archive.*
 
 On top of those, a native Qdrant binary (`~/.ultron/qdrant-native/qdrant.exe`) provides semantic recall via dense embeddings for skills + agents + vault notes. Recall is hybrid: FTS5 + Qdrant, both surface results through the `ultron recall` CLI and the Memory tab. The whole system is plain text — no SaaS lock-in, you can grep, diff, fork, archive.
 
