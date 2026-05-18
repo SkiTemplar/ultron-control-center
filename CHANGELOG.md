@@ -1,5 +1,22 @@
 # Changelog
 
+<!-- v15.5.14 -->
+## v15.5.14 — 2026-05-18
+
+- fix(v15.5.14/linux): install.sh `((counter++))` aborts under `set -e` (9 sites) + `$NONINTERACTIVE` typo at line 973. First reproducible Linux end-to-end install.
+- fix(v15.5.14/linux): created `scripts/hooks/{session-init,session-cleanup,stop-memory-sync}.sh` siblings — hook lifecycle on Linux.
+- fix(v15.5.14/linux): `install.sh` `init_brain_index` step provisions the FTS5 DB at install time (was empty on first session).
+- fix(v15.5.14/release): added `pyproject.toml + uv.lock + git-hooks/` to `release.yml` ZIP include; offline installs can now resolve venv deps.
+- feat(v15.5.14/ci): new `scripts/cockpit/version_propagate.py --check` SSOT guard + dedicated `version-drift` CI job. Drift reopened 6× in v15.5.x — now blocked at PR time.
+- fix(v15.5.14/docs): README + README.es + docs/INSTALL pinned to v15.5.14 (was v15.5.12 across 6 places). `repo/agents/` → `agents/`. `cockpit/PLANS.json` → `plans/PLANS.json`. `.rpm` claim dropped from Current-stable paragraph. SYSTEM-MAP.md regenerated UTF-8 clean (was mojibake).
+- fix(v15.5.14/leakage-p0): SECURITY.md personal email → GitHub Security Advisory. Hardcoded `C:\Users\USER` paths removed from docs/QUICKSTART, docs/INSTALL, docs/skills-manifest-schema, scripts/hooks/README. Projects.tsx LoL/Riot placeholders → generic "MyGame.exe". research_premium.py Gemini prompt no longer ships personal identity. memory_md_generator.py `_section_USER` → `_section_user` (reads `~/.ultron/personal/profile.md` if present). should_run.py DEFAULT_GAME_PROCESSES trimmed.
+- fix(v15.5.14): created `cockpit/secrets-loader.ps1` stub (PowerShell profile error on every shell).
+- fix(v15.5.14/i18n): README.es.md accent normalization (Filosofía, jerárquica, instalación, telemetría, pública, Pestaña, Qué, índice, Cómo, …).
+- fix(v15.5.14/tests): pytest markers (routing, layer1) registered in pyproject; `datetime.utcnow()` → `datetime.now(timezone.utc)` (py3.14 hard-fail).
+
+_Manually composed during ULTRA sweep — 7 parallel evaluator subagents + 6 inline FASE-1 fixes + p0 backlog burn-down. Backlog in plans/PLANS.json (32 items, p1+p2 sweeps)._
+
+
 <!-- v15.5.13 -->
 ## v15.5.13 — 2026-05-17
 
