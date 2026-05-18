@@ -16,7 +16,6 @@ export type Tab =
   | "notifications"
   | "sessions"
   | "usage"
-  | "logs"
   | "system"
   | "gaming"
   | "news"

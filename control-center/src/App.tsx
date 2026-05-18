@@ -256,7 +256,6 @@ export default function App() {
         ["tab.plans", "plans"],
         ["tab.memory", "memory"],
         ["tab.skills", "skills"],
-        ["tab.logs", "logs"],
         ["tab.settings", "settings"],
       ];
       for (const [actionKey, tabKey] of TAB_ACTIONS) {

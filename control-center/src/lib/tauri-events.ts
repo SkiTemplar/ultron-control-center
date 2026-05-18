@@ -23,7 +23,6 @@ type TabKey =
   | "memory"
   | "plans"
   | "settings"
-  | "logs"
   | "news"
   | "system";
 

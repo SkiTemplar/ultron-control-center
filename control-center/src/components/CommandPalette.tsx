@@ -54,7 +54,6 @@ const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
   { id: "gaming", label: "Go to Gaming", group: "Navigate (More)" },
   { id: "self-improve", label: "Go to Stats", group: "Navigate (More)" },
   { id: "personal", label: "Go to Personal", group: "Navigate (More)" },
-  { id: "logs", label: "Go to Logs", group: "Navigate (More)" },
 ];
 
 // Tiny in-order fuzzy scorer. Returns a positive score when every char of
