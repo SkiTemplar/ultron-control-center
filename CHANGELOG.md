@@ -291,7 +291,7 @@ Triple-review follow-up (Codex `gpt-5.3-codex` + Gemini `gemini-3.1-pro-preview`
 - feat(Settings/Features): new tab inside Settings exposes 14 runtime toggles (news, gaming, personal, schedules, self_improve, memory, plans, projects, mcps, skills, hooks, notifications, usage, sessions) with per-feature descriptions. Writes to `features.json` via `save_features` so the sidebar reacts immediately.
 - feat(sidebar): `usage`, `notifications`, `sessions` items now honour their feature gate (`featureKey="..."`). Disabling them from Settings hides the tab.
 - feat(button-prompts): add `logs.summarize_recent` so the Logs tab now has a default AI prompt (was the only tab without one).
-- feat(IDE selector): CLion added to the dropdown + Rust mapping (`clion` / `c-lion` / `c lion` aliases → CLI `clion`). Asked specifically by USER for ProgGrafica.
+- feat(IDE selector): CLion added to the dropdown + Rust mapping (`clion` / `c-lion` / `c lion` aliases → CLI `clion`).
 
 ### Cleanup
 

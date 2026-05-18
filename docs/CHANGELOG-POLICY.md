@@ -57,7 +57,7 @@ Anadido:
 Rules:
 
 - One line per item, ≤120 characters.
-- No author names (USER, contributor handles).
+- No author names (the maintainer, contributor handles).
 - No commit SHAs, branch names, or PR numbers.
 - No internal-implementation chatter ("inlined the helper", "renamed
   the var") - users don't read those.

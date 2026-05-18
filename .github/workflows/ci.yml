@@ -3,18 +3,14 @@ name: CI
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'AUTHORS.md'
-      - 'NOTICE'
   pull_request:
     branches: [main]
-    paths-ignore:
-      - '**/*.md'
-      - 'docs/**'
-      - 'AUTHORS.md'
-      - 'NOTICE'
+  # v15.5.19 (internal-review-note): paths-ignore on `docs/**` + `**/*.md` was a
+  # loophole — markdown-only PRs bypassed the personal-info leakage gate
+  # (internal-review-note caught HIGH=1 in docs/CHANGELOG-POLICY.md after exactly
+  # that loophole let it merge). Now every push/PR runs the full gate
+  # matrix. The 3 jobs (cargo, typescript, python) gate themselves
+  # internally on changed-files via `paths` filters where it matters.
 
 # Windows-only project. The cockpit hooks, installer and the Tauri build
 # all assume PowerShell + Windows APIs, so there's no point matrixing

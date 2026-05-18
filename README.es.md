@@ -321,15 +321,16 @@ flowchart LR
 ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es texto plano debajo de tu home:
 
 - **`~/.claude/CLAUDE.md`** — tus instrucciones globales para cada sesion de Claude Code. Edita directamente o usa la pestaña `Personal` del Control Center.
-- **`~/.claude/settings.json`** — hooks y permisos. La pestaña `Hooks` es un editor tipado sobre este archivo.
-- **`~/.claude/skills/<name>/SKILL.md`** — activar / desactivar / editar personas. Borra una carpeta para desinstalar la skill.
+- **`~/.claude/settings.json`** — hooks y permisos. La pestaña `Hooks` (dentro de System) es un editor tipado sobre este archivo.
+- **`~/.claude/skills/<name>/SKILL.md`** — activar / desactivar / editar una skill. Borra una carpeta para desinstalarla.
 - **`~/.claude/agents/<name>.md`** — misma idea para subagentes autónomos. La pestaña Agents muestra estado de instalación, findings de seguridad y el catalogo de community agents desde `cockpit/agent-catalog.json`.
 - **`~/.ultron-vault/`** — tu vault L2. Markdown plano con wikilinks. Lo que escribas aqui se indexa en la proxima ejecución de `brain_index.py update`.
 - **`~/.ultron/plans/PLANS.json`** — tus planes en curso. La pestaña `Plans` es un frontend sobre este archivo.
 - **`~/.ultron/personal/profile.md`** — tu perfil personal (intereses, contexto, preferencias).
+- **El propio código fuente.** ULTRON es open source bajo MIT: cada hook Python, cada comando Tauri en Rust, cada componente React esta en este repo. Clona, branchea, edita, manda PRs — o forkealo y corre un sabor privado. Ver [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
 > [!TIP]
-> Esto es **tu** sistema. Forkealo. Modificalo. La filosofía es texto plano mas Git, asi que todo es revisable con un diff.
+> Esto es **tu** sistema. Forkealo. Modificalo. Cambia el código. La filosofía es texto plano mas Git, asi que todo es revisable con un diff.
 
 ---
 
@@ -351,7 +352,7 @@ ULTRON esta construido para que lo desmontes y lo recables a tu gusto. Todo es t
 
 Stable actual: **[v15.5.18](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.18)** — Round-2 burn-down + pulido R3: **bug de ACL Tauri `dialog:confirm` arreglado** (9 flujos destructivos que fallaban silenciosamente ahora usan un wrapper `confirmDialog()` sobre `@tauri-apps/plugin-dialog`), **cadena de hooks Stop reducida 5→3** (session-log + session-cleanup inlined en stop-memory-sync; auto-changelog y plan-detector standalone), Pending Items relocalizado por encima del pliegue con badge lateral cada 60s, nuevo rastro de fires de auto-recall en `~/.ultron/logs/auto-recall.log`. Sobre v15.5.16 (sweep Round 2) que añadió el macro-test de routing (95%/20), el CI guard de drift de versión en markdown bodies, y el gate de leak personal (`audit_personal_data.py` HIGH=0). Adjunta `.deb` + `.AppImage` + .rpm junto al NSIS / MSI Windows; matriz CI verde en `ubuntu-22.04`. Install end-to-end Linux sigue **sin verificar** por el autor — buscamos testers, abre un issue si la pruebas.
 
-Stable anterior: **v15.5.16** — Sweep ULTRA Round-2 (routing 95% verificado, 5 personas personales añadidas, leak HIGH=0, docs MAINTAINERS+CHECKLIST, scripts qdrant movidos, installers legacy archivados, SYSTEM-MAP lazy-load).
+Stable anterior: **v15.5.16** — Sweep ULTRA Round-2 (routing 95% verificado, 5 slots de skills personales añadidos, leak HIGH=0, docs MAINTAINERS+CHECKLIST, scripts qdrant movidos, installers legacy archivados, SYSTEM-MAP lazy-load).
 
 Notas completas en [`CHANGELOG.md`](CHANGELOG.md). El [release mas reciente en GitHub](https://github.com/SkiTemplar/ultron/releases/latest) trae NSIS `.exe` + MSI para Windows, `.deb` + `.AppImage` para Linux, y el `ultron-system-<tag>.zip` + `.sha256` que consumen los bootstrap one-liners.
 
