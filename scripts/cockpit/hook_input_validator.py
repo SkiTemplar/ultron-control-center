@@ -288,7 +288,10 @@ def validate(event_name: str, payload: Any) -> ValidationResult:
     # to drop the prompt entirely. Surfacing the tag in alerts is enough
     # — losing the user's prompt because of a metadata typo is worse UX
     # than handling a slightly-misnamed payload.
-    soft_tags = {"hook_event_name_mismatch"}
+    # v15.5.15: ``session_id_invalid`` also downgraded — same rationale.
+    # Claude Code may omit the field on certain builds; blocking the whole
+    # hook (and skipping mode-trigger) is worse UX than silently noting it.
+    soft_tags = {"hook_event_name_mismatch", "session_id_invalid"}
     errs = [e for e in raw_errs if e not in soft_tags]
     telemetry_tags: list[str] = []
     if "null_byte_in_string" in sanitize_errs:

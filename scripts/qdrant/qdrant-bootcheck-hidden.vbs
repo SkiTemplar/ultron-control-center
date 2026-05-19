@@ -15,11 +15,11 @@ Dim objShell, userProfile, hooksDir, qdrantDir, ensure, notify, cmd, delaySec
 
 Set objShell = CreateObject("WScript.Shell")
 userProfile = objShell.ExpandEnvironmentStrings("%USERPROFILE%")
-' v15.5.14: ensure-qdrant lives in hooks (real Claude hook). notify + this
-' wrapper live in qdrant/ (scheduled-task only). Both dirs resolved separately.
+' v15.5.15: ensure-qdrant relocated to qdrant/ (fix for incomplete v15.5.14 move).
+' All three callers (session-init, vbs, install-bootcheck) now use qdrant/.
 hooksDir    = userProfile & "\.ultron\scripts\hooks"
 qdrantDir   = userProfile & "\.ultron\scripts\qdrant"
-ensure      = hooksDir  & "\ensure-qdrant.ps1"
+ensure      = qdrantDir & "\ensure-qdrant.ps1"
 notify      = qdrantDir & "\qdrant-notify.ps1"
 delaySec    = 12   ' let Docker Desktop autostart settle
 

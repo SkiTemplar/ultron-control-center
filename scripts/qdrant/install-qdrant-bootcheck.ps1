@@ -23,13 +23,12 @@
 $ErrorActionPreference = 'Stop'
 
 $taskName = 'ULTRON-QdrantBoot'
-# v15.5.14: bootcheck files relocated from scripts/hooks/ (settings.json-wired)
-# to scripts/qdrant/ (scheduled-task-wired) so the hooks dir stays a clean
-# Claude-hooks surface. ensure-qdrant.ps1 stays in scripts/hooks/ because
-# session-init.ps1 still calls it as a real Claude Code hook.
+# v15.5.15: all Qdrant scripts now live in scripts/qdrant/ (fix for incomplete
+# v15.5.14 move that left ensure-qdrant.ps1 only in qdrant/ while 3 callers
+# still referenced the hooks/ path). session-init.ps1 also updated.
 $hooksDir  = "$env:USERPROFILE\.ultron\scripts\hooks"
 $qdrantDir = "$env:USERPROFILE\.ultron\scripts\qdrant"
-$ensure    = Join-Path $hooksDir  'ensure-qdrant.ps1'
+$ensure    = Join-Path $qdrantDir 'ensure-qdrant.ps1'
 $notify    = Join-Path $qdrantDir 'qdrant-notify.ps1'
 $vbsWrap   = Join-Path $qdrantDir 'qdrant-bootcheck-hidden.vbs'
 

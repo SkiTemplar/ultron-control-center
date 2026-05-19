@@ -286,7 +286,7 @@ try {
 # scheduled task (LogonTrigger). SessionStart only refreshes health.json
 # so context_primer has current state — no panel here (would be noisy).
 try {
-    $qdrantScript = "$env:USERPROFILE\.ultron\scripts\hooks\ensure-qdrant.ps1"
+    $qdrantScript = "$env:USERPROFILE\.ultron\scripts\qdrant\ensure-qdrant.ps1"
     if (Test-Path $qdrantScript) {
         Start-Process -FilePath "powershell.exe" -ArgumentList @(
             "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden",
