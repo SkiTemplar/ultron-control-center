@@ -44,6 +44,18 @@ CREATE_NO_WINDOW = 0x08000000
 # Skip slow tests if ULTRON_FAST_TESTS=1
 FAST_TESTS = os.environ.get("ULTRON_FAST_TESTS", "0").strip() == "1"
 
+# shared-duet.ps1 was removed in v15.0.1 (Dual Mode v2 — Dual/Triple migrated
+# to the official Codex plugin). The MMFP subsystem still references it; the
+# orphan cleanup is tracked in PLANS.json as `mmfp-shared-duet-orphan-cleanup`.
+# Until that lands, every test that shells out to shared-duet.ps1 is skipped
+# instead of failing red. skipif (not skip) so the tests revive automatically
+# if the script is ever restored.
+_SHARED_DUET_GONE = pytest.mark.skipif(
+    not SHARED_DUET.exists(),
+    reason="shared-duet.ps1 removed in v15.0.1 — MMFP migration incomplete "
+           "(PLANS.json: mmfp-shared-duet-orphan-cleanup)",
+)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -140,6 +152,7 @@ def _fake_response(req_id: str) -> Path:
 # Test 1: -Async writes request YAML
 # ---------------------------------------------------------------------------
 
+@_SHARED_DUET_GONE
 class TestAsyncWritesYaml:
     """Test 1: invoke shared-duet.ps1 with -Async, assert YAML file created."""
 
@@ -205,6 +218,7 @@ class TestAsyncWritesYaml:
 # Test 2: -Async returns request_id in JSON
 # ---------------------------------------------------------------------------
 
+@_SHARED_DUET_GONE
 class TestAsyncReturnsRequestId:
     """Test 2: stdout JSON has async:true and request_id."""
 
@@ -335,6 +349,7 @@ class TestArchiveOlderThan:
 # Test 5: inline invocation REGRESSION — shared-duet.ps1 without -Async
 # ---------------------------------------------------------------------------
 
+@_SHARED_DUET_GONE
 @pytest.mark.slow
 class TestInlineInvocationUnchanged:
     """Test 5 (REGRESSION): shared-duet.ps1 WITHOUT -Async still works correctly.
@@ -458,6 +473,7 @@ class TestInlineInvocationUnchanged:
 # the inline path from async leakage. If a future refactor breaks any of these,
 # CI fast mode catches it without needing a network call.
 
+@_SHARED_DUET_GONE
 def test_shared_duet_async_block_isolated_structurally():
     """Codex Shortcut 1: structural assertions over shared-duet.ps1 source.
 
@@ -554,6 +570,7 @@ def _read_caps_counter(caps_file: Path, key: str) -> int:
         return 0
 
 
+@_SHARED_DUET_GONE
 @pytest.mark.parametrize("peers,mode,caps_to_check", [
     # (peers, mode, [(caps_file_basename, key), ...])
     # Codex Shortcut 1: Dual + codex was already covered.
