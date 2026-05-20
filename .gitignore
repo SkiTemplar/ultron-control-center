@@ -152,6 +152,7 @@ cockpit/cleanup-report-*.md
 cockpit/deadlines.json
 cockpit/DASHBOARD.md
 cockpit/ide-mappings.json
+cockpit/project-hotkeys.json
 cockpit/schedule-config.json
 cockpit/skill_graph.json
 cockpit/tui/
