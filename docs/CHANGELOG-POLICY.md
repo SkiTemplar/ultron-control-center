@@ -24,6 +24,29 @@ the next minor entry.
   `tauri.conf.json` / `Cargo.toml`. They just don't show up as their own
   CHANGELOG section.
 
+## Bump criteria — choosing patch / minor / major
+
+`auto-changelog.py` *classifies* a bump from the version token, but a
+human picks the number first. ULTRON is a tool, not a library with a
+public API contract, so the criteria measure the **size and impact** of
+the change, not API compatibility.
+
+| Bump                        | When                                                                                                                                            | Examples                                                                                  |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| **Patch** (`X.Y.Z`, `Z++`)  | One micro change: a single bug fix, a small adjustment, a doc tweak, a config correction. Self-contained, low risk.                              | Fix a failing test · correct a hook typo · adjust one threshold · repair a broken link    |
+| **Minor** (`X.Y.0`, `Y++`)  | A larger change, or an accumulated series of micro changes that together form something coherent for the user. Stays backward-usable.            | Add a Control Center panel · ship a new skill or agent · close a burn-down of 10+ patches |
+| **Major** (`X.0.0`, `X++`)  | A large change or overhaul: architectural rework, a breaking change to the install/config layout, a milestone that redefines how the system works. | New memory architecture · cross-platform support · a release that forces a reinstall      |
+
+Tie-breakers:
+
+- Patch vs minor: if the work accumulated since the last `X.Y.0` already
+  tells a coherent user-facing story, cut a minor. A lone fix stays a patch.
+- Minor vs major: ask "does an existing user have to *do* something
+  (reinstall, migrate, relearn)?" If yes, it is major.
+- The version-number bump lands in the commit; pushing the **tag** is a
+  separate, deliberate act gated on a stable milestone — see
+  `docs/RELEASE-PROCESS.md` for the cadence rule.
+
 ## Bump matrix
 
 | Bump kind | Example                     | CHANGELOG action                                                         |
