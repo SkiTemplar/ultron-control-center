@@ -137,9 +137,13 @@ class TestPhase2FeedbackHook:
         spec = importlib.util.spec_from_file_location(
             "_fb3", HOOKS / "prompt-feedback-capture.py")
         m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-        out = m.pii_filter(r"/tmp/ultron-test\.claude\file.json")
+        # pii_filter strips the username segment of a path (Users\<name>
+        # or home/<name>) — that is the only path PII it claims to cover.
+        # A generic name keeps the test itself free of real PII.
+        out = m.pii_filter(r"C:\Users\alice\.claude\file.json")
         assert "the user" not in out
         assert "<user>" in out
+        assert "alice" not in out
 
     def test_flatten_response_handles_dict_and_list(self):
         import importlib.util
