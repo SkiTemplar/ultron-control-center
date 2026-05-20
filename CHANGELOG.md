@@ -3,6 +3,12 @@
 > Per `docs/CHANGELOG-POLICY.md`: only MAJOR / MINOR get detailed entries.
 > Patches collapse into the next minor entry as a brief sweep.
 
+<!-- v15.5.22 — Sprint AI button + backlog dedup -->
+## v15.5.22 — patch (2026-05-20)
+
+- **Plans:** nuevo botón "Sprint AI" en la columna Open del kanban — inyecta la lista de planes open ordenada por prioridad (P0→P3) en el AI Router y genera una propuesta de sprint accionable. Mismo patrón `pasteOnly` que AI Brainstorm.
+- **Backlog:** 6 items de PLANS.json mergeados en 2 sprints consolidados (`dashboard-sprint-wave-2`, `pending-items-sprint`). 0 P0 abiertos.
+
 <!-- v15.5.21 — sprint de estabilización -->
 ## v15.5.21 — sprint de estabilización (2026-05-20)
 
