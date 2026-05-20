@@ -470,6 +470,8 @@ function ColumnActions(props: {
   onNew: () => void;
   onBrainstorm: () => void;
   brainstormBusy: boolean;
+  onSprintAi: () => void;
+  sprintAiBusy: boolean;
   onExecute: () => void;
   onReview: () => void;
   onResolveBlock: () => void;
@@ -513,6 +515,17 @@ function ColumnActions(props: {
           title="Abre una sesión Claude en wt.exe (paste_only) para brainstorming guiado del próximo plan."
         >
           {props.brainstormBusy ? "Opening..." : "AI Brainstorm"}
+        </button>,
+        <button
+          key="sprint"
+          type="button"
+          onClick={props.onSprintAi}
+          disabled={props.sprintAiBusy}
+          className={baseBtn}
+          style={subtle}
+          title="Genera una propuesta de sprint accionable basada en los planes open actuales, prioridad y sesiones anteriores."
+        >
+          {props.sprintAiBusy ? "Opening..." : "Sprint AI"}
         </button>,
       ];
       break;
@@ -770,6 +783,38 @@ export function Plans() {
       });
       setInfo(
         `${resolved.entry.provider} brainstorm abierto en wt.exe. El prompt está en el portapapeles — pega con Ctrl+V y dale Enter.`,
+      );
+      window.setTimeout(() => setInfo(null), 5000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function aiSprintPlan() {
+    setAiBusy(true);
+    setError(null);
+    try {
+      const opens = (report?.items ?? [])
+        .filter((it) => it.status === "open")
+        .sort((a, b) => a.priority.localeCompare(b.priority));
+      const open_plans_block = opens
+        .map((it) => {
+          const effort = it.effort_hours ? ` (~${it.effort_hours[0]}-${it.effort_hours[1]}h)` : "";
+          const desc = it.description ? `\n  ${it.description.slice(0, 150)}` : "";
+          return `[${it.priority.toUpperCase()}] ${it.title}${effort}${desc}`;
+        })
+        .join("\n");
+      const { resolveAndSpawn } = await import("../lib/button-prompts");
+      const { resolved } = await resolveAndSpawn({
+        key: "plans.sprint_ai",
+        vars: { open_plans_block: open_plans_block || "(sin planes open)" },
+        cwd: null,
+        extraFlags: { pasteOnly: true },
+      });
+      setInfo(
+        `Sprint AI abierto con ${resolved.entry.provider}. Prompt en portapapeles — pega con Ctrl+V y dale Enter.`,
       );
       window.setTimeout(() => setInfo(null), 5000);
     } catch (e) {
@@ -1112,6 +1157,8 @@ export function Plans() {
               onNew={startNew}
               onBrainstorm={aiBrainstorm}
               brainstormBusy={aiBusy}
+              onSprintAi={aiSprintPlan}
+              sprintAiBusy={aiBusy}
               onExecute={() => spawnClaudePlanFlow("execute")}
               onReview={() => spawnClaudePlanFlow("review")}
               onResolveBlock={() => spawnClaudePlanFlow("resolve")}
@@ -1175,6 +1222,8 @@ export function Plans() {
                 onNew={startNew}
                 onBrainstorm={aiBrainstorm}
                 brainstormBusy={aiBusy}
+                onSprintAi={aiSprintPlan}
+                sprintAiBusy={aiBusy}
                 onExecute={() => spawnClaudePlanFlow("execute")}
                 onReview={() => spawnClaudePlanFlow("review")}
                 onResolveBlock={() => spawnClaudePlanFlow("resolve")}

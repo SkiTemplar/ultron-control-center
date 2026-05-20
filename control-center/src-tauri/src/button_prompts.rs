@@ -184,6 +184,16 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Vamos a hacer brainstorming de un nuevo plan para ULTRON.\n\nPregúntame qué quiero conseguir, refina alcance iterando conmigo, propón sub-tareas concretas, y al final genera el JSON de `ultron plans add` listo para ejecutar (o varios bloques si salen varios planes). Esquema:\n\n{\n  \"title\": \"imperativo, <80 chars\",\n  \"priority\": \"p0..p4\",\n  \"kind\": \"task|sprint|patch|bug|research|audit\",\n  \"status\": \"open\",\n  \"description\": \"1-2 párrafos\",\n  \"tags\": [\"...\"]\n}\n\nLee ~/.ultron/instructions/plans/GUIDE.md antes de empezar para no inventar campos.",
         ),
         default_button(
+            "plans.sprint_ai",
+            "Plans · Sprint AI",
+            "Plans / Open column Sprint AI button",
+            "Spawns a Claude session preloaded with all open plans and their \
+             priorities, generating an actionable sprint proposal ordered P0→P3.",
+            "brainstorm_plans",
+            &["open_plans_block"],
+            "Eres el orquestador de ULTRON. Analiza los planes open actuales y propón un sprint accionable para esta sesión.\n\n## Planes open (ordenados por prioridad)\n{open_plans_block}\n\nPropón un sprint de máximo 3-4 items. Para cada item:\n- Por qué es prioritario ahora\n- Estimación realista (30min / 1h / 2h / 3h)\n- Criterio de DONE concreto y verificable\n- Qué NO tocar\n\nFormato: lista numerada, sin inflación. Lee ~/.ultron/instructions/plans/GUIDE.md primero.",
+        ),
+        default_button(
             "plans.resolve_one",
             "Plans · Open resolution session",
             "Plans / row → resolve",
