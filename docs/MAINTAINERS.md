@@ -51,6 +51,17 @@ the cheap, reversible step that makes the future move safe.
 | `scripts/persona-benchmark-runner.py` | Parses `references/persona-benchmarks.md`, reports coverage + structural validation. Run before any persona-set release. Stage 2 (LLM-as-judge) is future work. | `uv run python scripts/persona-benchmark-runner.py [--persona <slug>] [--validate-only]` |
 | `scripts/routing-test-runner.py` | Regression harness for FAST PATH Layer 1 + tiebreaks (T-01..T-16, T-34, T-35). Run after every `config/intent-rules.yaml` edit. | `uv run python scripts/routing-test-runner.py [--verbose]` |
 
+## Standalone bootstrap / scaffolders
+
+These scripts have **no runtime caller** — they exist for manual one-off invocations during fresh-machine bootstrap, vault setup, or skill-catalog rebuilds. All four carry the `# === maintainer-only ===` marker.
+
+| Tool | Purpose | Invocation |
+|---|---|---|
+| `scripts/skill-discovery.py` | One-off scan over `~/.claude/skills/` to detect skills not mapped in FAST PATH Layer 1/2. Run when rebuilding the routing catalog. | `python scripts/skill-discovery.py [--verbose]` |
+| `scripts/new-project.ps1` | Scaffolds a new project under `~/.ultron/projects/<name>/`. Not wired to Control Center — manual PowerShell invocation. | `powershell -File scripts/new-project.ps1 -Name "myproj" -Type "PERSONAL"` |
+| `scripts/init-memory.ps1` | Bootstraps the vault layout on a fresh machine. `install.ps1` + `brain_index.py` do this automatically for end users; this is the manual maintainer/debug path. | `powershell -File scripts/init-memory.ps1` |
+| `scripts/ultron-paths.ps1` | Dot-sourced path resolver SSOT (PowerShell sibling of `ultron_paths.py`). Not invoked directly — dot-sourced by hooks/scripts. | `. scripts/ultron-paths.ps1; $UltronPaths.brain_index_db` |
+
 ## Deprecated Stop-hook scripts (v15.5.16 consolidation sweep)
 
 These scripts used to be wired directly into the Stop hook chain. As of v15.5.16
