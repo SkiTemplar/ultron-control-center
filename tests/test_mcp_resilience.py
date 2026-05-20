@@ -245,7 +245,7 @@ def test_emit_alerts_dedupes_within_4h(mhc, isolated_home):
     fallbacks = {
         "gemini": {
             "mcp_name": "gemini",
-            "fallback_message": "Use shared-duet.ps1 -Provider gemini.",
+            "fallback_message": "Fall back to manual peer review.",
             "alert_severity": "warn",
         }
     }
@@ -352,7 +352,7 @@ def test_hook_injects_when_mcp_degraded(tmp_path):
     cfg_dir.mkdir(parents=True, exist_ok=True)
     (cfg_dir / "mcp-fallbacks.yaml").write_text(
         "- mcp_name: gemini\n"
-        "  fallback_message: \"Use shared-duet.ps1 -Provider gemini directly.\"\n"
+        "  fallback_message: \"Fall back to manual peer review.\"\n"
         "  alert_severity: warn\n"
         "  fallback_skill: second-opinion\n",
         encoding="utf-8",
@@ -372,7 +372,7 @@ def test_hook_injects_when_mcp_degraded(tmp_path):
     msg = parsed["hookSpecificOutput"]["additionalContext"]
     assert "MCP-DEGRADED" in msg
     assert "gemini" in msg
-    assert "shared-duet.ps1" in msg
+    assert "manual peer review" in msg
 
 
 def test_hook_silent_when_mcp_ok(tmp_path):

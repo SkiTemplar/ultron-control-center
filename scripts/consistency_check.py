@@ -7,10 +7,11 @@ consistency-check.py → consistency_check.py (Python convention), KNOWN_PERSONA
 derived from personas_ssot, --quiet mode for hook invocation that writes
 findings to pending_actions queue.
 
-v15.5.21: dropped the Dual Mode v1 checks (shared-duet.ps1, duet JSON
-schemas, Pester suites, live duet runner) — that subsystem was deleted in
-v15.0.1 when Dual/Triple Mode migrated to the official Codex plugin. The
-Codex MCP registration check (section 11) covers the v2 wiring.
+v15.5.21: dropped the Dual Mode v1 checks (the deprecated PowerShell duet
+helper, duet JSON schemas, Pester suites, live duet runner) — that
+subsystem was deleted in v15.0.1 when Dual/Triple Mode migrated to the
+official Codex plugin. The Codex MCP registration check (section 11)
+covers the v2 wiring.
 
 Uso:
     python scripts/consistency_check.py             # static checks
