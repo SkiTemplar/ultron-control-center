@@ -142,17 +142,17 @@ jobs:
           Write-Host "Linked $target -> $env:GITHUB_WORKSPACE"
 
       - name: Run tests
-        # Excluded files assume a fully-provisioned local user environment
-        # (an installed weekly-backup scheduled task, populated shared-duet
-        # history, real PII paths in alerts.jsonl, kill-switch state).
-        # These cannot run against a fresh runner even with the junction
-        # above. The other 900+ tests run unchanged.
-        # TODO: add @pytest.mark.requires_local_env to each affected test
-        # and switch to that marker instead of file-level ignores.
+        # v15.5.21: test_multimodel.py, test_meta_prompter.py and
+        # test_telemetry_written were un-ignored once their underlying bugs
+        # were fixed — the CI now runs them for real.
+        # test_auto_recall.py and test_backup_watch.py still assume a
+        # fully-provisioned local environment (installed weekly-backup
+        # scheduled task, kill-switch state) that a fresh runner cannot
+        # offer even with the junction above. The other 900+ tests run
+        # unchanged.
+        # TODO: add @pytest.mark.requires_local_env to the 2 remaining
+        # files and switch to that marker instead of file-level ignores.
         run: >
           uv run pytest tests/ -q --tb=short
-          --ignore=tests/test_multimodel.py
           --ignore=tests/test_auto_recall.py
           --ignore=tests/test_backup_watch.py
-          --ignore=tests/test_meta_prompter.py
-          --deselect=tests/test_intent_dispatcher.py::test_telemetry_written
