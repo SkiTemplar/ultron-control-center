@@ -31,10 +31,11 @@ const COLUMNS: { key: string; label: string; tint: string }[] = [
   { key: "revision", label: "Revision", tint: "#a875ff" },
   { key: "blocked", label: "Blocked", tint: "var(--color-danger)" },
   { key: "resolved", label: "Resolved", tint: "var(--color-success)" },
+  { key: "rejected", label: "Rejected", tint: "var(--color-text-tertiary)" },
 ];
 
 const PRIORITY_OPTIONS = ["p0", "p1", "p2", "p3", "p4"];
-const KIND_OPTIONS = ["task", "sprint", "patch", "bug", "research", "audit"];
+const KIND_OPTIONS = ["task", "sprint", "patch", "bug", "feature", "refactor", "polish", "research", "audit"];
 
 function priorityWeight(p: string): number {
   const m = p.match(/p(\d+)/i);
@@ -827,7 +828,7 @@ export function Plans() {
     if (!report) return [];
     const q = query.trim().toLowerCase();
     return report.items
-      .filter((it) => it.status !== "archived") // kanban hides archived
+      .filter((it) => it.status !== "archived" && it.status !== "merged") // kanban hides archived + merged
       .filter((it) => {
         if (priorityFilter.size === 0) return true;
         return priorityFilter.has(it.priority);
@@ -875,7 +876,7 @@ export function Plans() {
     const validStatuses = new Set(COLUMNS.map((c) => c.key));
     let total = 0;
     for (const it of report.items) {
-      if (it.status === "archived") continue; // excluded from totals + buckets
+      if (it.status === "archived" || it.status === "merged") continue; // excluded from totals + buckets
       // Match the kanban column-bucket logic so the stat cards agree with the columns
       const bucket = validStatuses.has(it.status) ? it.status : "open";
       byStatus[bucket] = (byStatus[bucket] ?? 0) + 1;
@@ -957,19 +958,40 @@ export function Plans() {
         </div>
       </header>
 
-      {/* Stats strip */}
-      <div className="mb-3 grid grid-cols-5 gap-2 md:grid-cols-9">
+      {/* Stats strip: total + priorities + archived (clickable -> drawer) */}
+      <div className="mb-3 grid grid-cols-4 gap-2 md:grid-cols-7">
         <StatBox label="Total" value={stats.total} />
-        {COLUMNS.map((c) => (
-          <StatBox key={c.key} label={c.label} value={stats.byStatus[c.key] ?? 0} />
-        ))}
-        {PRIORITY_OPTIONS.slice(0, 3).map((p) => (
+        {PRIORITY_OPTIONS.map((p) => (
           <StatBox
             key={p}
-            label={`Priority ${p}`}
+            label={p.toUpperCase()}
             value={stats.byPriority[p] ?? 0}
           />
         ))}
+        <button
+          type="button"
+          onClick={() => setArchivedOpen(true)}
+          className="rounded p-2 text-left transition-colors hover:opacity-80"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            cursor: "pointer",
+          }}
+          title="Abre el drawer de archivados (resolved > N días). Cada item tiene botón Restore para volver al kanban."
+        >
+          <div
+            className="text-[10px] uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Archived
+          </div>
+          <div
+            className="mt-0.5 text-[18px] font-semibold tabular-nums"
+            style={{ color: "var(--color-text)" }}
+          >
+            {archivedItems.length}
+          </div>
+        </button>
       </div>
 
       <div className="mb-3 flex flex-wrap items-center gap-2">

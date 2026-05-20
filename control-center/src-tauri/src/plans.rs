@@ -209,7 +209,7 @@ pub fn patch_plan_status_inner(id: String, new_status: String) -> Result<bool, S
     if id.trim().is_empty() {
         return Err("id is empty".into());
     }
-    let allowed = ["open", "in_progress", "revision", "blocked", "resolved", "wontfix", "archived"];
+    let allowed = ["open", "in_progress", "revision", "blocked", "resolved", "rejected", "wontfix", "archived", "merged"];
     if !allowed.contains(&new_status.as_str()) {
         return Err(format!("invalid status '{}'", new_status));
     }
