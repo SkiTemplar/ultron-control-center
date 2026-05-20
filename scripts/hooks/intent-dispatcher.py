@@ -327,34 +327,6 @@ def _sanitize(value: Any) -> str:
     return str(value).replace("\n", " ").replace("\r", " ").strip()
 
 
-def _emit_route(
-    confidence: float,
-    skill_id: str | None,
-    ctx_path: str | None,
-    tokens: int,
-    source: str,
-) -> None:
-    """Write the routing line to stdout (exactly one line).
-
-    v15.5.15suppress the line entirely when skill_id is None.
-    Previous behaviour emitted ``skill=— | ctx=— | via=none`` which polluted
-    grep-based telemetry analysis with ~15% "matched-looking" no-route events.
-    Telemetry still records the no-route via _write_telemetry — the user just
-    doesn't see a misleading line in the prompt-submit area.
-    """
-    if skill_id is None:
-        return
-    pct = int(confidence * 100)
-    skill_str = _sanitize(skill_id)
-    ctx_str = _sanitize(ctx_path) if ctx_path else "—"
-    tok_str = str(int(tokens)) if tokens else "0"
-    line = f"[ULTRON·{pct}%] skill={skill_str} | ctx={ctx_str} ({tok_str}tok) | via={source}"
-    if 0.70 <= confidence < 0.85:
-        line += " (señal parcial)"
-    sys.stdout.write(line + "\n")
-    sys.stdout.flush()
-
-
 # ── Telemetry ──────────────────────────────────────────────────────────────────
 
 def _write_telemetry(
@@ -390,23 +362,40 @@ def _write_telemetry(
 
 # ── Main pipeline ──────────────────────────────────────────────────────────────
 
-def dispatch(prompt: str, budget_left_ms_fn=None) -> str:
-    """Pure dispatch function — returns the routing line string or empty string.
+def _no_route() -> dict:
+    """Structured result for a no-route outcome."""
+    return {"line": "", "skill_id": None, "confidence": 0.0,
+            "source": "none", "rule_id": None}
 
-    Exposed for in-process testing (test_fallback_graceful etc.).
-    Does NOT write telemetry (telemetry is side-effect of main()).
-    Any exception inside the pipeline is caught and returns empty string —
-    this mirrors the safety guarantee of main()'s BaseException catch.
 
-    Each invocation gets its own budget closure unless caller provides one
-    (Codex M3 fix: per-call t0, no module-level state leakage).
+def _dispatch_result(prompt: str, budget_left_ms_fn=None) -> dict:
+    """Structured dispatch — {line, skill_id, confidence, source, rule_id}.
+
+    `line` is the string for stdout (or "" for no-route). The other fields
+    carry the real routing data so main() writes telemetry straight from
+    the dict instead of regex-parsing the display line — that parse was
+    where the v15.4.13 em-dash leak crept in (`skill=—` became the logged
+    `route`). Never raises; any exception yields a no-route result.
+
+    Each invocation gets its own budget closure unless the caller provides
+    one (Codex M3 fix: per-call t0, no module-level state leakage).
     """
     if budget_left_ms_fn is None:
         budget_left_ms_fn = _make_budget()
     try:
-        return _dispatch_unsafe(prompt, budget_left_ms_fn)
+        return _dispatch_result_unsafe(prompt, budget_left_ms_fn)
     except BaseException:
-        return ""
+        return _no_route()
+
+
+def dispatch(prompt: str, budget_left_ms_fn=None) -> str:
+    """Back-compat string API — the routing line, or "".
+
+    Kept for the cockpit `intent_dispatcher` shim and the in-process tests
+    (test_fallback_graceful, test_slash_command_internal_latency, …).
+    main() uses _dispatch_result() for the structured form.
+    """
+    return _dispatch_result(prompt, budget_left_ms_fn)["line"]
 
 
 _SHORT_ACK_RE = re.compile(
@@ -415,27 +404,21 @@ _SHORT_ACK_RE = re.compile(
 )
 
 
-def _dispatch_unsafe(prompt: str, budget_left_ms_fn) -> str:
-    """Inner dispatch implementation — may raise. Callers must catch."""
+def _dispatch_result_unsafe(prompt: str, budget_left_ms_fn) -> dict:
+    """Inner dispatch — returns the structured result dict. May raise."""
     # Step 1 — Slash command short-circuit
     if prompt.lstrip().startswith("/"):
-        return ""
+        return _no_route()
     # v15.5.18 review: ack short-circuit. Acknowledgements ("si", "ok",
     # "continua", "sigue") don't carry routing intent — skip them so
-    # they stop bloating the source=none bucket.
-    #
-    # v15.5.11 (review R7 followup): the previous `len < 8` length
-    # gate was too aggressive — it swallowed single-token technical
-    # nouns like "CUDA" / "UE5" / "GPU" that legitimately route to
-    # gamedev / senior-engineer rules. Now we ONLY skip ack patterns,
-    # not arbitrarily short prompts. The dispatcher runs in <40ms even
-    # on short prompts so the perf cost is negligible.
-    stripped = prompt.strip()
-    if _SHORT_ACK_RE.match(stripped):
-        return ""
+    # they stop bloating the source=none bucket. (v15.5.11: only ack
+    # patterns are skipped, not arbitrarily short prompts — single-token
+    # technical nouns like "CUDA"/"UE5" must still route.)
+    if _SHORT_ACK_RE.match(prompt.strip()):
+        return _no_route()
 
     if budget_left_ms_fn() < 5:
-        return ""
+        return _no_route()
 
     # Step 2 — Rules exact-match
     rule = _match_rules(prompt)
@@ -447,21 +430,15 @@ def _dispatch_unsafe(prompt: str, budget_left_ms_fn) -> str:
         if ctx_path:
             ctx_path = str(Path(ctx_path.replace("~", str(Path.home()))).as_posix())
         # ztmsi_query rules: use ZTMSI to find context
-        if rule.get("ztmsi_query"):
-            if budget_left_ms_fn() < 10:
-                # No time for DB query, emit partial with rule ctx
-                pass
-            else:
-                results = _query_chunks_fts(prompt, top=3,
-                                              budget_left_ms_fn=budget_left_ms_fn)
-                if results:
-                    ctx_path = results[0]["note_path"]
-                    tokens = results[0]["token_est"]
-                    skill_id = skill_id or None
+        if rule.get("ztmsi_query") and budget_left_ms_fn() >= 10:
+            results = _query_chunks_fts(prompt, top=3,
+                                          budget_left_ms_fn=budget_left_ms_fn)
+            if results:
+                ctx_path = results[0]["note_path"]
+                tokens = results[0]["token_est"]
 
-        # Build routing line components — Codex M2 fix: include suggest_mode
-        # and suggest_tool so canonical prompts (architect → ULTRA, web-research
-        # → WebSearch) are fully represented in the emitted line.
+        # Build routing line — Codex M2 fix: include suggest_mode and
+        # suggest_tool so canonical prompts are fully represented.
         pct = int(confidence * 100)
         skill_str = _sanitize(skill_id) if skill_id else "—"
         ctx_str = _sanitize(ctx_path) if ctx_path else "—"
@@ -471,15 +448,16 @@ def _dispatch_unsafe(prompt: str, budget_left_ms_fn) -> str:
         if suggest_mode:
             line += f" | mode={_sanitize(suggest_mode)}"
         suggest_tool = rule.get("suggest_tool")
-        # If skill_id was already drawn from suggest_tool above, don't double-print it.
+        # If skill_id was already drawn from suggest_tool, don't double-print it.
         if suggest_tool and suggest_tool != skill_id:
             line += f" | tool={_sanitize(suggest_tool)}"
         if 0.70 <= confidence < 0.85:
             line += " (señal parcial)"
-        return line
+        return {"line": line, "skill_id": skill_id, "confidence": confidence,
+                "source": "rules", "rule_id": rule.get("id")}
 
     if budget_left_ms_fn() < 10:
-        return ""
+        return _no_route()
 
     # Step 3 — ZTMSI query + manifest lookup
     results = _query_chunks_fts(prompt, top=5,
@@ -489,24 +467,23 @@ def _dispatch_unsafe(prompt: str, budget_left_ms_fn) -> str:
         routes = _score_against_manifest(results, manifest_skills)
         if routes:
             best = max(routes, key=lambda r: r["confidence"])
-            # Threshold subido 0.70 → 0.85 (2026-05-09 sprint intent-rules-precision):
+            # Threshold subido 0.70 → 0.85 (2026-05-09 intent-rules-precision):
             # ZTMSI con BM25 sobre vault notes da matches incidentales por
-            # palabras comunes ("concepto", "código") que no son skill triggers
-            # legítimos. Con 0.85 cortamos el ruido sin perder los matches útiles.
+            # palabras comunes que no son skill triggers legítimos.
             if best["confidence"] >= 0.85:
                 pct = int(best["confidence"] * 100)
                 skill_str = _sanitize(best["skill_id"]) if best["skill_id"] else "—"
                 ctx_str = _sanitize(best["ctx_path"]) if best["ctx_path"] else "—"
                 tok_str = str(int(best["tokens"]))
                 line = f"[ULTRON·{pct}%] skill={skill_str} | ctx={ctx_str} ({tok_str}tok) | via={best['source']}"
-                # Ya nunca cae en 0.70-0.85, pero mantenemos la marca por si
-                # subimos más casos al alza.
                 if 0.85 <= best["confidence"] < 0.90:
                     line += " (señal parcial)"
-                return line
+                return {"line": line, "skill_id": best["skill_id"],
+                        "confidence": best["confidence"],
+                        "source": best["source"], "rule_id": None}
 
     # Step 4 — Fallthrough
-    return ""
+    return _no_route()
 
 
 # ── v15.3.5: agent auto-suggest (additive, budget-gated) ──────────────────────
@@ -702,68 +679,43 @@ def main() -> None:
 
         # Pass our budget closure so dispatch shares the same deadline as the
         # whole hook (stdin read already consumed some of it).
-        result = dispatch(prompt, budget_left_ms_fn=budget)
+        # v15.5.21 em-dash refactor: structured dispatch. Telemetry is
+        # written straight from the dict — no regex parse of the display
+        # line, so `skill=—` can no longer leak into the logged `route`.
+        # rule_id is now the real matched-rule id (the old `rule=` regex
+        # never matched — the emitted line carries no `rule=` token).
+        result = _dispatch_result(prompt, budget_left_ms_fn=budget)
 
         latency_ms = int(DEADLINE_MS - budget())
+        line = result["line"]
 
-        if result:
-            # Telemetry: extract skill from result line
-            skill_match = re.search(r"skill=([^\s|]+)", result)
-            route_str = skill_match.group(1) if skill_match else None
-            # v15.4.13 — the display line uses "—" (em-dash) as a visual
-            # placeholder when skill_id is None (ztmsi pure context, no
-            # manifest match). That em-dash leaked into the telemetry
-            # `route` field and self_improve.rs::read_routing then
-            # surfaced it as "top intent: —" — confusing and useless.
-            # Normalise it back to None so the field stays semantically
-            # accurate.
-            if route_str in ("—", "-", "--"):
-                route_str = None
-            source_match = re.search(r"via=(\w+)", result)
-            source_str = source_match.group(1) if source_match else "unknown"
-            conf_match = re.search(r"ULTRON·(\d+)%", result)
-            conf_val = int(conf_match.group(1)) / 100.0 if conf_match else 0.0
-            # v15.5.20: surface rule_id when present in the dispatch line so
-            # dead-rule cleanup over the telemetry corpus becomes possible.
-            rule_match = re.search(r"rule=([A-Za-z0-9_.\-]+)", result)
-            rule_id_val = rule_match.group(1) if rule_match else None
-            sys.stdout.write(result + "\n")
+        if line:
+            sys.stdout.write(line + "\n")
             sys.stdout.flush()
-            # v15.5.21: telemetry is written UNCONDITIONALLY. The previous
-            # `if budget() > 2` guard dropped the write on a cold start —
-            # rules-YAML load + regex compile + dispatch can consume the
-            # whole 40ms budget, so routed events went unlogged and
-            # test_telemetry_written failed non-deterministically. The
-            # routing line already reached stdout above; a sub-millisecond
-            # JSONL append after the deadline is an acceptable trade for the
-            # "every routed event is logged" invariant. _write_telemetry
-            # swallows all I/O errors, so a locked disk still can't break us.
-            _write_telemetry(prompt, route_str, conf_val, latency_ms, source_str, rule_id_val)
-            # S3-B: Context packet injection. Emitted as a second line AFTER the
-            # routing line. Budget-gated (≥10ms required). Lazy import keeps
-            # module load time unchanged. Any failure is silently skipped so the
-            # routing line contract is never affected.
-            if budget() >= 10:
-                ctx_packet = _build_context_packet(prompt, budget)
-                if ctx_packet:
-                    sys.stdout.write(ctx_packet + "\n")
-                    sys.stdout.flush()
-            # v15.3.5: agent auto-suggest line. Additive — emitted after the
-            # routing line + context packet so it never displaces them.
-            agent_line = _build_agent_suggestion(prompt, budget)
-            if agent_line:
-                sys.stdout.write(agent_line + "\n")
+
+        # v15.5.21: telemetry written UNCONDITIONALLY, from the structured
+        # fields. The cold-start budget can be exhausted by the rules-YAML
+        # load + dispatch; the routing line (if any) already reached stdout,
+        # so a sub-millisecond JSONL append past the deadline is an
+        # acceptable trade for the "every routed event is logged" invariant.
+        # _write_telemetry swallows all I/O errors.
+        _write_telemetry(prompt, result["skill_id"], result["confidence"],
+                         latency_ms, result["source"], result["rule_id"])
+
+        # S3-B: context packet — second line AFTER the routing line.
+        # Budget-gated (≥10ms), only when there is a line to pair with.
+        if line and budget() >= 10:
+            ctx_packet = _build_context_packet(prompt, budget)
+            if ctx_packet:
+                sys.stdout.write(ctx_packet + "\n")
                 sys.stdout.flush()
-        else:
-            # No-route path: still surface an agent suggestion if any matches —
-            # this is the whole point of v15.3.5 wiring (agents auto-suggest
-            # even when no skill route fires).
-            agent_line = _build_agent_suggestion(prompt, budget)
-            if agent_line:
-                sys.stdout.write(agent_line + "\n")
-                sys.stdout.flush()
-            # v15.5.21: unconditional write — see the routed-path note above.
-            _write_telemetry(prompt, None, 0.0, latency_ms, "none")
+
+        # v15.3.5: agent auto-suggest line. Additive — fires even on a
+        # no-route so agents are surfaced regardless of skill routing.
+        agent_line = _build_agent_suggestion(prompt, budget)
+        if agent_line:
+            sys.stdout.write(agent_line + "\n")
+            sys.stdout.flush()
 
     except BaseException:
         # NEVER write traceback to stdout — it pollutes Claude's injected context
