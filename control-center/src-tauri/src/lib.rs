@@ -312,7 +312,6 @@ pub fn run() {
             codex_fallback::build_fallback_context,
             codex_fallback::build_fallback_prompt,
             codex_fallback::launch_codex_fallback,
-            project_hotkeys::project_at_slot,
             project_hotkeys::get_project_hotkeys,
             project_hotkeys::set_project_at_slot,
             project_hotkeys::clear_project_at_slot,
@@ -341,14 +340,10 @@ pub fn run() {
                 eprintln!("[ultron] inbox hotkey register failed: {}", e);
             }
 
-            // Project slot hotkeys (Ctrl+Alt+1..9).
-            if let Err(e) = project_hotkeys::register_project_hotkeys(app.handle()) {
-                eprintln!("[ultron] project hotkeys init failed: {}", e);
-            }
-
-            // Custom per-project hotkeys defined in Settings →
-            // Project hotkeys, persisted at
-            // ~/.ultron/cockpit/project-hotkeys.json.
+            // Per-project hotkeys — user-defined in Settings → Project
+            // hotkeys, persisted at ~/.ultron/cockpit/project-hotkeys.json.
+            // (The legacy auto-registered Ctrl+Alt+1..9 set was removed in
+            // v15.5.21 — it collided with AltGr on international keyboards.)
             if let Err(e) = project_hotkeys::register_custom_hotkeys(app.handle()) {
                 eprintln!("[ultron] custom project hotkeys init failed: {}", e);
             }
