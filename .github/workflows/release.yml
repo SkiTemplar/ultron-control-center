@@ -230,7 +230,12 @@ jobs:
 
             See `docs/INSTALL.md` for full notes and `docs/RELEASE-PROCESS.md` for
             how releases are produced.
-          releaseDraft: false
+          # v15.5.21: created as a DRAFT. The finalize-release job flips it
+          # to published only after every matrix leg has uploaded its assets,
+          # closing the mid-publish 404 window (in v15.5.18 the Linux leg
+          # finished first, exposing .zip + .exe URLs as 404 while Windows
+          # was still building).
+          releaseDraft: true
           prerelease: false
           # Tauri config lives inside control-center/src-tauri/tauri.conf.json.
           projectPath: ./control-center
@@ -247,8 +252,59 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
+          # Keep the release in draft — finalize-release publishes it once
+          # every matrix leg has uploaded. Without this, action-gh-release
+          # would flip the draft to published on upload (draft defaults false).
+          draft: true
           files: |
             ${{ env.ULTRON_SYSTEM_ZIP }}
             ${{ env.ULTRON_SYSTEM_SHA }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Post-matrix gate. Runs only after BOTH matrix legs finish. Verifies every
+  # expected asset is attached to the draft release, then flips it to
+  # published in a single step. If any asset is missing the release stays a
+  # draft (invisible, no /releases/latest redirect) and the workflow fails —
+  # closing the mid-publish 404 window that hit v15.5.18.
+  # ───────────────────────────────────────────────────────────────────────────
+  finalize-release:
+    needs: publish-tauri
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Verify all assets present, then publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${{ github.ref_name }}"
+          repo="${{ github.repository }}"
+          assets=$(gh release view "$tag" --repo "$repo" --json assets --jq '.assets[].name')
+          echo "Assets attached to draft release $tag:"
+          echo "$assets" | sed 's/^/  /'
+
+          missing=0
+          require() {
+            if echo "$assets" | grep -qE "$1"; then
+              echo "  ok   — $2"
+            else
+              echo "::error::missing release asset — $2 (pattern: $1)"
+              missing=1
+            fi
+          }
+          require '\.exe$'                         'Windows NSIS setup.exe'
+          require '\.msi$'                         'Windows MSI installer'
+          require '\.deb$'                         'Linux .deb package'
+          require '\.AppImage$'                    'Linux .AppImage'
+          require '^latest\.json$'                 'auto-updater manifest latest.json'
+          require 'ultron-system-.*\.zip$'         'cross-platform system ZIP'
+          require 'ultron-system-.*\.zip\.sha256$' 'system ZIP SHA-256'
+
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Release $tag left as DRAFT — not all assets are live. Fix the build and re-run."
+            exit 1
+          fi
+          gh release edit "$tag" --repo "$repo" --draft=false
+          echo "Release $tag published — all 7 expected assets verified live."
