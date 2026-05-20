@@ -727,13 +727,16 @@ def main() -> None:
             rule_id_val = rule_match.group(1) if rule_match else None
             sys.stdout.write(result + "\n")
             sys.stdout.flush()
-            # v15.3.5: telemetry BEFORE the context packet + agent suggestion
-            # so a tight budget never starves the telemetry write. The agent
-            # path adds ~5-10ms of FTS5 work and was empirically consuming
-            # the remaining budget — moving the write up keeps the original
-            # invariant ("every successful route is logged") intact.
-            if budget() > 2:
-                _write_telemetry(prompt, route_str, conf_val, latency_ms, source_str, rule_id_val)
+            # v15.5.21: telemetry is written UNCONDITIONALLY. The previous
+            # `if budget() > 2` guard dropped the write on a cold start —
+            # rules-YAML load + regex compile + dispatch can consume the
+            # whole 40ms budget, so routed events went unlogged and
+            # test_telemetry_written failed non-deterministically. The
+            # routing line already reached stdout above; a sub-millisecond
+            # JSONL append after the deadline is an acceptable trade for the
+            # "every routed event is logged" invariant. _write_telemetry
+            # swallows all I/O errors, so a locked disk still can't break us.
+            _write_telemetry(prompt, route_str, conf_val, latency_ms, source_str, rule_id_val)
             # S3-B: Context packet injection. Emitted as a second line AFTER the
             # routing line. Budget-gated (≥10ms required). Lazy import keeps
             # module load time unchanged. Any failure is silently skipped so the
@@ -757,10 +760,8 @@ def main() -> None:
             if agent_line:
                 sys.stdout.write(agent_line + "\n")
                 sys.stdout.flush()
-            # Only write telemetry if we still have time. Drop rather than
-            # risk a slow append on a locked/AV-scanned disk.
-            if budget() > 2:
-                _write_telemetry(prompt, None, 0.0, latency_ms, "none")
+            # v15.5.21: unconditional write — see the routed-path note above.
+            _write_telemetry(prompt, None, 0.0, latency_ms, "none")
 
     except BaseException:
         # NEVER write traceback to stdout — it pollutes Claude's injected context
