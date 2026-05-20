@@ -74,11 +74,18 @@ def test_hook_validator_rejects_deep_nesting():
     assert "nesting_too_deep" in r.errors
 
 
-def test_hook_validator_rejects_invalid_session_id():
+def test_hook_validator_invalid_session_id_is_soft_tag():
+    """v15.5.15: an invalid/missing session_id is downgraded to a
+    non-fatal telemetry tag (commit 4a1b897). Some Claude Code builds
+    omit the field; dropping the whole hook — and the prompt
+    side-effect — is worse UX than logging the absence. Same pattern
+    as null_byte_in_string (see test above).
+    """
     payload = {"hook_event_name": "UserPromptSubmit",
                "prompt": "hi", "session_id": "x" * 200 + "@invalid"}
     r = hv.validate("UserPromptSubmit", payload)
-    assert not r.ok
+    assert r.ok, f"expected ok=True (soft tag), got errors={r.errors}"
+    assert "session_id_invalid" in r.errors
 
 
 def test_validate_pre_tool_use_accepts_mcp_tool_name():
@@ -115,10 +122,24 @@ def test_safe_load_stdin_returns_none_on_invalid_json(monkeypatch):
 
 
 def test_safe_load_stdin_returns_none_on_validation_failure(monkeypatch):
+    # A non-string prompt is a fatal validation error. (session_id is
+    # only a soft tag since v15.5.15, so it can no longer force a hard
+    # failure here.)
     payload = json.dumps({"hook_event_name": "UserPromptSubmit",
-                          "prompt": "x", "session_id": "BAD@"})
+                          "prompt": 12345, "session_id": _VALID_SESSION})
     monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
     assert hv.safe_load_stdin("UserPromptSubmit") is None
+
+
+def test_safe_load_stdin_passes_soft_session_id(monkeypatch):
+    """v15.5.15: a bad session_id is a soft telemetry tag, not a fatal
+    error — safe_load_stdin still returns the payload instead of None."""
+    payload = json.dumps({"hook_event_name": "UserPromptSubmit",
+                          "prompt": "hi", "session_id": "BAD@"})
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    out = hv.safe_load_stdin("UserPromptSubmit")
+    assert out is not None
+    assert out["prompt"] == "hi"
 
 
 def test_safe_load_stdin_passes_clean_payload(monkeypatch):
@@ -183,7 +204,7 @@ def test_safe_load_stdin_emits_alert_on_validation_error(monkeypatch):
 
     monkeypatch.setattr(hv, "_alerts", _MockAlerts)
     payload = json.dumps({"hook_event_name": "UserPromptSubmit",
-                          "prompt": "x", "session_id": "BAD@"})
+                          "prompt": 12345, "session_id": _VALID_SESSION})
     monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
     assert hv.safe_load_stdin("UserPromptSubmit") is None
     assert captured.get("dedupe_tag") == "hookval:UserPromptSubmit"

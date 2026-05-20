@@ -296,8 +296,12 @@ def validate(event_name: str, payload: Any) -> ValidationResult:
     telemetry_tags: list[str] = []
     if "null_byte_in_string" in sanitize_errs:
         telemetry_tags.append("null_byte_in_string")
-    if any(e in soft_tags for e in raw_errs):
-        telemetry_tags.append("hook_event_name_mismatch")
+    # v15.5.21: surface whichever soft tag(s) actually fired. Pre-fix this
+    # hard-coded ``hook_event_name_mismatch``, so a ``session_id_invalid``
+    # failure was mislabelled in the alerts telemetry (4a1b897 regression).
+    for tag in raw_errs:
+        if tag in soft_tags and tag not in telemetry_tags:
+            telemetry_tags.append(tag)
     if errs:
         return ValidationResult(False, sanitized, errs + telemetry_tags)
     # Success path: still surface the telemetry tags to the caller
