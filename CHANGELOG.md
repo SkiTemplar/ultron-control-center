@@ -3,6 +3,18 @@
 > Per `docs/CHANGELOG-POLICY.md`: only MAJOR / MINOR get detailed entries.
 > Patches collapse into the next minor entry as a brief sweep.
 
+<!-- v15.5.21 — sprint de estabilización -->
+## v15.5.21 — sprint de estabilización (2026-05-20)
+
+- **Errores corregidos:** 5 tests en rojo — `hook_input_validator` etiquetaba mal el telemetry tag de `session_id_invalid`; el dispatcher descartaba telemetría bajo presupuesto agotado (ahora se escribe siempre); `test_pii_filter` usaba un input que el filtro no cubría; 8 tests de `test_multimodel` invocaban un script borrado en v15.0.1.
+- **AltGr:** el sistema legacy `Ctrl+Alt+1..9` de project hotkeys secuestraba `@ | #` en teclados internacionales (AltGr = Ctrl+Alt) — eliminado; solo quedan los hotkeys que el usuario define.
+- **Seguridad:** nuevo hook `PreToolUse` `deny-secrets` — bloquea acceso a `.env`, claves, `~/.ssh/`, `~/.aws/credentials` y `secrets.json`. Crítico con `--dangerously-skip-permissions`.
+- **Routing:** `dispatch()` refactorizado a resultado estructurado — la telemetría deja de parsear la línea con regex y el em-dash `—` ya no se filtra al campo `route`.
+- **Cleanup:** purgado el subsistema MMFP/`shared-duet.ps1`, huérfano desde v15.0.1 (−1503 líneas) — `multimodel.py` y sus referencias en `health`/`doctor`/`consistency_check`/`ultron.ps1` eliminadas.
+- **CI/release:** `release.yml` con gate `finalize-release` (draft hasta que los 7 assets estén live — cierra la ventana de 404 de v15.5.18); `ci.yml` deja de ocultar tests rojos con `--ignore`; criterio patch/minor/major documentado.
+- **Modos:** restaurados los sub-archivos `mode-*.md`/`protocols.md` de la skill ultron (perdidos en la curación de v15.2.7) + guardia anti-regresión en la suite.
+- **Windows:** shim `python3` → `python.exe` (evita el diálogo "Elegir aplicación" que disparaban hooks de plugins de terceros).
+
 <!-- v15.5.19..v15.5.20 — patch sweep -->
 ## v15.5.19..v15.5.20 — patch sweep (2026-05-18)
 
