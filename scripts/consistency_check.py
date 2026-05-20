@@ -7,10 +7,14 @@ consistency-check.py → consistency_check.py (Python convention), KNOWN_PERSONA
 derived from personas_ssot, --quiet mode for hook invocation that writes
 findings to pending_actions queue.
 
+v15.5.21: dropped the Dual Mode v1 checks (shared-duet.ps1, duet JSON
+schemas, Pester suites, live duet runner) — that subsystem was deleted in
+v15.0.1 when Dual/Triple Mode migrated to the official Codex plugin. The
+Codex MCP registration check (section 11) covers the v2 wiring.
+
 Uso:
-    python scripts/consistency_check.py             # static checks (~17)
+    python scripts/consistency_check.py             # static checks
     python scripts/consistency_check.py --quiet     # only output if issues; logs to pending_actions
-    python scripts/consistency_check.py --with-codex  # + live Dual Mode tests
 """
 import argparse
 import re
@@ -321,71 +325,6 @@ def check_agents_modernized() -> list[str]:
     return issues
 
 
-def check_triple_mode_artifacts() -> list[str]:
-    """v9.0 Triple Mode: Gemini helper + schemas + Pester tests + knowledge file deben existir."""
-    issues = []
-    required = {
-        "scripts/shared-duet.ps1":                "helper PowerShell unificado (reemplaza gemini-duet.ps1 + codex-duet.ps1)",
-        "references/gemini-duet-schema.json":     "JSON Schema para output Gemini",
-        "references/triple-debate-schema.json":   "JSON Schema para síntesis Triple",
-        "tests/shared-duet.Tests.ps1":            "Pester unit tests shared helper (reemplaza gemini-duet.Tests.ps1)",
-    }
-    for rel, desc in required.items():
-        p = ULTRON_DIR / rel
-        if not p.exists():
-            issues.append(f"{rel} no existe ({desc})")
-        else:
-            print(f"  ✅ {rel} ({desc})")
-
-    # Knowledge file in ~/.ultron (cross-repo dependency)
-    gemini_kb = KNOWLEDGE_DIR / "claude-platform" / "gemini-cli.md"
-    if not gemini_kb.exists():
-        issues.append(f"~/.ultron/knowledge/claude-platform/gemini-cli.md no existe")
-    else:
-        size = gemini_kb.stat().st_size
-        print(f"  ✅ knowledge gemini-cli.md ({size} bytes)")
-
-    # Validate JSON schemas parse correctly
-    import json
-    for schema_rel in ("references/gemini-duet-schema.json", "references/triple-debate-schema.json"):
-        try:
-            json.loads((ULTRON_DIR / schema_rel).read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, FileNotFoundError) as e:
-            issues.append(f"{schema_rel}: JSON inválido o no existe ({e})")
-
-    if not issues:
-        print("  ✅ Triple Mode artifacts presentes (helper + 2 schemas + Pester + knowledge)")
-    return issues
-
-
-def check_pester_gemini_tests(timeout_sec: int = 60) -> list[str]:
-    """v9.0 / v12.2.2: shared-duet.Tests.ps1 covers Gemini + Codex helper (gemini-duet.Tests.ps1 removed)."""
-    issues = []
-    tests_file = ULTRON_DIR / "tests" / "shared-duet.Tests.ps1"
-    if not tests_file.exists():
-        return [f"tests/shared-duet.Tests.ps1 not found at {tests_file}"]
-
-    print(f"  Running: Invoke-Pester {tests_file.name} (no Gemini calls, ~1s)")
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             f"Invoke-Pester -Script '{tests_file}' -Quiet -EnableExit"],
-            capture_output=True, text=True, timeout=timeout_sec,
-        )
-        for line in result.stdout.splitlines():
-            if "Passed:" in line or "Failed:" in line:
-                print(f"    {line.strip()}")
-        if result.returncode != 0:
-            issues.append(f"Pester Gemini unit tests failed (exit {result.returncode})")
-        else:
-            print("  ✅ Pester Gemini unit tests passed")
-    except subprocess.TimeoutExpired:
-        issues.append(f"Pester Gemini tests timed out after {timeout_sec}s")
-    except FileNotFoundError:
-        issues.append("powershell not found in PATH")
-    return issues
-
-
 def check_pester_vault_tests(timeout_sec: int = 60) -> list[str]:
     """v10.0 → v12.2.2: auth-vault.ps1 and its tests removed (Auth Vault deprecated).
     This check is now a no-op — returns [] so health stays green."""
@@ -462,76 +401,12 @@ def check_cockpit_artifacts() -> list[str]:
     return issues
 
 
-def check_dual_mode_artifacts() -> list[str]:
-    """v8.0 Dual Mode: protocol spec + JSON schema + shared helper PS1 deben existir.
-    v12.2.2: codex-duet.ps1 + gemini-duet.ps1 merged into shared-duet.ps1."""
-    issues = []
-    required = {
-        "references/dual-mode-protocol.md": "spec del protocolo Dual Mode",
-        "references/codex-duet-schema.json": "JSON Schema para output Codex",
-        "scripts/shared-duet.ps1":           "helper PowerShell unificado (reemplaza codex-duet + gemini-duet)",
-    }
-
-    for rel_path, desc in required.items():
-        path = ULTRON_DIR / rel_path
-        if not path.exists():
-            issues.append(f"{rel_path} no encontrado ({desc})")
-        elif path.stat().st_size < 200:
-            issues.append(f"{rel_path} parece vacío o truncado ({path.stat().st_size} bytes)")
-
-    # Verificar que dual-mode-protocol.md menciona los 3 sub-modos
-    dmp = ULTRON_DIR / "references" / "dual-mode-protocol.md"
-    if dmp.exists():
-        text = dmp.read_text(encoding="utf-8")
-        for submode in ("MiniDual", "Dual", "MaxDual"):
-            if submode not in text:
-                issues.append(f"dual-mode-protocol.md no menciona '{submode}'")
-
-    # Verificar que SKILL.md tiene la sección DUAL MODE OVERLAY
-    skill_md = (ULTRON_DIR / "SKILL.md").read_text(encoding="utf-8")
-    if "DUAL MODE OVERLAY" not in skill_md:
-        issues.append("SKILL.md no contiene sección 'DUAL MODE OVERLAY'")
-
-    if not issues:
-        print("  ✅ Dual Mode artifacts presentes y referenciados (3 sub-modos detectados)")
-
-    return issues
-
-
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def section(title: str):
     print(f"\n{'─'*60}")
     print(f"  {title}")
     print(f"{'─'*60}")
-
-
-def check_pester_unit_tests(timeout_sec: int = 60) -> list[str]:
-    """v8.1.0 / v12.2.2: Pester tests for shared-duet.ps1 (codex-duet.Tests.ps1 removed)."""
-    issues = []
-    tests_file = ULTRON_DIR / "tests" / "shared-duet.Tests.ps1"
-    if not tests_file.exists():
-        return [f"tests/shared-duet.Tests.ps1 not found at {tests_file}"]
-
-    print(f"  Running: Invoke-Pester {tests_file.name} (no Codex calls, ~1s)")
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             f"Invoke-Pester -Script '{tests_file}' -Quiet -EnableExit"],
-            capture_output=True, text=True, timeout=timeout_sec,
-        )
-        for line in result.stdout.splitlines():
-            if "Passed:" in line or "Failed:" in line:
-                print(f"    {line.strip()}")
-        if result.returncode != 0:
-            issues.append(f"Pester unit tests failed (exit {result.returncode})")
-        else:
-            print("  ✅ Pester unit tests passed")
-    except subprocess.TimeoutExpired:
-        issues.append(f"Pester tests timed out after {timeout_sec}s")
-    except FileNotFoundError:
-        issues.append("powershell not found in PATH")
-    return issues
 
 
 def check_codex_mcp_server_registered() -> list[str]:
@@ -595,41 +470,8 @@ def check_codex_mcp_server_registered() -> list[str]:
     return issues
 
 
-def check_dual_mode_live(timeout_sec: int = 300) -> list[str]:
-    """v8.0.1: optional live test against Codex CLI via dual-mode-test-runner.ps1."""
-    issues = []
-    runner = ULTRON_DIR / "scripts" / "dual-mode-test-runner.ps1"
-    if not runner.exists():
-        return [f"dual-mode-test-runner.ps1 not found at {runner}"]
-
-    print(f"  Running: powershell {runner.name} -Test All")
-    print(f"  (consumes ~3-5K Codex tokens, may take up to {timeout_sec}s)")
-    try:
-        result = subprocess.run(
-            ["powershell", "-NoProfile", "-File", str(runner), "-Test", "All"],
-            capture_output=True, text=True, timeout=timeout_sec,
-        )
-        # Extract just the SUMMARY line for brevity
-        for line in result.stdout.splitlines():
-            if "Passed:" in line or "[PASS]" in line or "[FAIL]" in line:
-                print(f"    {line.strip()}")
-        if result.returncode != 0:
-            issues.append(f"Dual Mode live tests failed (exit {result.returncode}). "
-                          f"Run manually for full output: powershell {runner} -Test All")
-        else:
-            print("  ✅ All Dual Mode live tests passed")
-    except subprocess.TimeoutExpired:
-        issues.append(f"Dual Mode live tests timed out after {timeout_sec}s")
-    except FileNotFoundError:
-        issues.append("powershell not found in PATH (cannot run live tests)")
-    return issues
-
-
 def main():
     parser = argparse.ArgumentParser(description="ULTRON consistency check")
-    parser.add_argument("--with-codex", action="store_true",
-                        help="Also run Dual Mode live tests against Codex CLI "
-                             "(consumes ~3-5K tokens, ~30s)")
     parser.add_argument("--quiet", action="store_true",
                         help="Only print if issues found (Stop hook mode); "
                              "writes findings to pending_actions on failure.")
@@ -642,8 +484,6 @@ def main():
 
     print(f"\n{'='*60}")
     print("ULTRON CONSISTENCY CHECK · v4.0")
-    if args.with_codex:
-        print("  (with --with-codex: live Dual Mode tests enabled)")
     print(f"{'='*60}")
 
     all_issues: list[str] = []
@@ -678,30 +518,14 @@ def main():
     section("10. AGENTS/ MODERNIZADO")
     all_issues.extend(check_agents_modernized())
 
-    section("11. DUAL MODE ARTIFACTS (v8.0)")
-    all_issues.extend(check_dual_mode_artifacts())
-
-    section("12. CODEX MCP SERVER REGISTRATION (v8.1)")
+    section("11. CODEX MCP SERVER REGISTRATION (v8.1)")
     all_issues.extend(check_codex_mcp_server_registered())
 
-    section("13. PESTER UNIT TESTS (v8.1) — Codex")
-    all_issues.extend(check_pester_unit_tests())
-
-    section("14. TRIPLE MODE ARTIFACTS (v9.0) — Gemini helper + schemas + knowledge")
-    all_issues.extend(check_triple_mode_artifacts())
-
-    section("15. PESTER UNIT TESTS (v9.0) — Gemini")
-    all_issues.extend(check_pester_gemini_tests())
-
-    section("16. COCKPIT ARTIFACTS (v10.0) — scanner + base + scheduler + IDE map + vault")
+    section("12. COCKPIT ARTIFACTS (v10.0) — scanner + base + scheduler + IDE map + vault")
     all_issues.extend(check_cockpit_artifacts())
 
-    section("17. PESTER UNIT TESTS (v10.0) — Auth Vault DPAPI lifecycle")
+    section("13. PESTER UNIT TESTS (v10.0) — Auth Vault DPAPI lifecycle")
     all_issues.extend(check_pester_vault_tests())
-
-    if args.with_codex:
-        section("18. DUAL MODE LIVE TESTS (Codex)")
-        all_issues.extend(check_dual_mode_live())
 
     print(f"\n{'='*60}")
     if all_issues:

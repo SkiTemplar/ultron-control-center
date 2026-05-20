@@ -138,7 +138,6 @@ _WELLKNOWN_ULTRON_DIRS = frozenset({
     ".tmp",
     "alerts.jsonl",
     "alerts",            # archive subdir
-    "multimodel",
     "backups",
     "config",
     "knowledge",

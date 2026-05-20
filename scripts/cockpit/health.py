@@ -76,7 +76,7 @@ EXPECTED_SCRIPTS = [
     "decay_queue.py",
     # v14 GENESIS doctor v2 + brain
     "doctor.py", "brain_index.py", "generate_L0.py",
-    "frontmatter_backfill.py", "multimodel.py", "token_budget.py",
+    "frontmatter_backfill.py", "token_budget.py",
     # v14.4 TOKEN HUNTER (Phase 0 + 1 + 2 + 3)
     "token_baseline.py",
     "skill_lazy_loader.py",
@@ -115,7 +115,6 @@ EXPECTED_SCRIPTS = [
     "vault_migrator.py", "usage_report.py", "research.py",
     "research_premium.py", "game_detector.py",
 ]
-EXPECTED_PEER_HELPERS = ["shared-duet.ps1"]
 EXPECTED_CONFIGS = ["projects.json", "apps.json", "schedule-config.json",
                     "ide-mappings.json", "mcp-catalog.json"]
 
@@ -149,12 +148,6 @@ def check_scripts() -> list[Check]:
             out.append(Check(f"script: {name}", "ok", f"{p.stat().st_size}b"))
         else:
             out.append(Check(f"script: {name}", "fail", "missing"))
-    for name in EXPECTED_PEER_HELPERS:
-        p = PEER_SCRIPTS / name
-        if p.exists():
-            out.append(Check(f"helper: {name}", "ok", f"{p.stat().st_size}b"))
-        else:
-            out.append(Check(f"helper: {name}", "fail", "missing"))
     return out
 
 

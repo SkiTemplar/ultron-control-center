@@ -20,7 +20,6 @@ USE this wrapper in:
 - Any code path the user will invoke during a Claude Code session
 
 DO NOT use this wrapper for (existing patterns are fine, do not migrate):
-- `shared-duet.ps1::Start-Hidden` — PowerShell-side helper for Codex/Gemini calls
 - `background_tasks.py` — already uses `_WIN_HIDDEN = subprocess.CREATE_NO_WINDOW`
 - `job_supervisor.py` — has its own DETACHED_PROCESS / async pattern
 

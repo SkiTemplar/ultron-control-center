@@ -733,16 +733,6 @@ switch ($Command.ToLower()) {
         }
     }
 
-    "multimodel" {
-        # S2-C MMFP: list/show/process/archive async peer-review requests
-        # ultron multimodel list [--all]
-        # ultron multimodel show <id>
-        # ultron multimodel process <id>
-        # ultron multimodel archive [--older-than Nd]
-        # ultron multimodel clean [--dry-run]
-        Invoke-Py "multimodel.py" $Rest
-    }
-
     "notes" {
         # ultron notes <id> [save "text"|list|export]
         if (-not $Rest -or $Rest.Count -eq 0) {
