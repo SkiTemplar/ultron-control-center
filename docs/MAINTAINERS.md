@@ -57,7 +57,7 @@ These scripts have **no runtime caller** — they exist for manual one-off invoc
 
 | Tool | Purpose | Invocation |
 |---|---|---|
-| `scripts/skill-discovery.py` | One-off scan over `~/.claude/skills/` to detect skills not mapped in FAST PATH Layer 1/2. Run when rebuilding the routing catalog. | `python scripts/skill-discovery.py [--verbose]` |
+| `scripts/skill-discovery.py` | One-off scan over `~/.claude/skills/` to detect skills not mapped in FAST PATH Layer 1/2. Run when rebuilding the routing catalog. | `uv run python scripts/skill-discovery.py [--verbose]` |
 | `scripts/new-project.ps1` | Scaffolds a new project under `~/.ultron/projects/<name>/`. Not wired to Control Center — manual PowerShell invocation. | `powershell -File scripts/new-project.ps1 -Name "myproj" -Type "PERSONAL"` |
 | `scripts/init-memory.ps1` | Bootstraps the vault layout on a fresh machine. `install.ps1` + `brain_index.py` do this automatically for end users; this is the manual maintainer/debug path. | `powershell -File scripts/init-memory.ps1` |
 | `scripts/ultron-paths.ps1` | Dot-sourced path resolver SSOT (PowerShell sibling of `ultron_paths.py`). Not invoked directly — dot-sourced by hooks/scripts. | `. scripts/ultron-paths.ps1; $UltronPaths.brain_index_db` |

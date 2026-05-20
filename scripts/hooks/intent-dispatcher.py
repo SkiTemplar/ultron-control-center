@@ -17,7 +17,9 @@ Side-effects:
   - Telemetry JSONL appended to ~/.ultron/telemetry/dispatcher-events.jsonl
   - NEVER modifies the user's prompt
   - NEVER writes tracebacks to stdout (pollutes Claude context)
-  - NEVER blocks > 40ms internal budget
+  - Routing pipeline honours a 40ms internal budget; the trailing
+    telemetry append may run just past it (the routing line is already
+    flushed to stdout, so the user perceives no delay)
   - NEVER opens any window (PILAR I)
 """
 from __future__ import annotations

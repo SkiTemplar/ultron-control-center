@@ -849,7 +849,12 @@ export function Plans() {
 
   const archivedItems = useMemo(() => {
     if (!report) return [] as PlanItem[];
-    return report.items.filter((it) => it.status === "archived");
+    // merged is a terminal state too — like archived, it's hidden from the
+    // kanban + totals. Surface it in the drawer so a merged plan stays
+    // visible and restorable instead of vanishing from the whole UI.
+    return report.items.filter(
+      (it) => it.status === "archived" || it.status === "merged",
+    );
   }, [report]);
 
   const grouped = useMemo(() => {
