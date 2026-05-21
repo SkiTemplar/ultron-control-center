@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirmDialog } from "./lib/dialog";
+import { notify } from "./lib/notify";
 import { Sidebar, type Tab } from "./components/Sidebar";
 import { Dashboard } from "./components/Dashboard";
 import { Changelog } from "./components/Changelog";
@@ -65,10 +66,11 @@ export default function App() {
     return () => clearInterval(t);
   }, []);
 
-  // Capture frontend errors and pipe them into alerts.jsonl so the
-  // Notifications tab surfaces them alongside backend issues. Without
-  // this, JS exceptions / unhandled rejections die silently in the
-  // webview and the user has no idea something broke.
+  // Capture frontend errors and surface them app-wide. Without this, JS
+  // exceptions / unhandled rejections die silently in the webview and the
+  // user has no idea something broke. `notify()` both pops an immediate
+  // in-app toast and records the error to alerts.jsonl so the
+  // Notifications tab keeps a durable copy.
   useEffect(() => {
     let lastFingerprint = "";
     let lastTs = 0;
@@ -81,7 +83,7 @@ export default function App() {
       if (fingerprint === lastFingerprint && now - lastTs < 5000) return;
       lastFingerprint = fingerprint;
       lastTs = now;
-      invoke("record_ui_alert", { severity, source, message: trimmed }).catch(() => {});
+      notify({ severity, source, message: trimmed });
     }
     const onError = (e: ErrorEvent) => {
       const msg = e.message || (e.error && String(e.error)) || "unknown error";
@@ -306,19 +308,21 @@ export default function App() {
     };
   }, []);
 
-  // Helper: fire-and-forget invoke that logs failures into alerts so the
-  // user finds out about a broken script via the Notifications tab
-  // instead of by wondering why nothing happened.
+  // Helper: fire-and-forget invoke that surfaces failures via notify() —
+  // an immediate in-app toast (so the user knows the command broke right
+  // away, on any tab) plus a durable row in the Notifications tab. Before
+  // notify(), a failed palette command only landed in alerts.jsonl and
+  // the user just saw "nothing happened".
   async function runQuiet(label: string, cmd: string, args?: Record<string, unknown>) {
     try {
       await invoke(cmd, args);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      void invoke("record_ui_alert", {
+      notify({
         severity: "warn",
         source: "palette",
         message: `${label} failed: ${msg}`.slice(0, 600),
-      }).catch(() => {});
+      });
     }
   }
 

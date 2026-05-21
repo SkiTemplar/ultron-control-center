@@ -89,7 +89,7 @@ export function Settings() {
         <div>
           <h1 className="text-[20px] font-semibold leading-tight">Settings</h1>
           <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-            Edit ~/.claude/settings.json · backups automáticos a ~/.ultron/backups/control-center-settings
+            Edit ~/.claude/settings.json · automatic backups to ~/.ultron/backups/control-center-settings
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -133,7 +133,7 @@ export function Settings() {
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Reload
+            Refresh
           </button>
         </div>
       </header>

@@ -92,10 +92,10 @@ function HotkeyEditor() {
         className="mt-1 text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Pulsa esta combinación en cualquier app de Windows para mostrar/ocultar
-        el Control Center. Formato: <span style={{ fontFamily: "var(--font-mono)" }}>
+        Press this combination in any Windows app to show/hide the Control
+        Center. Format: <span style={{ fontFamily: "var(--font-mono)" }}>
         Ctrl+Alt+U</span>, <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Shift+F12</span>,
-        etc. Necesita al menos un modificador (Ctrl/Alt/Shift/Meta).
+        etc. Needs at least one modifier (Ctrl/Alt/Shift/Meta).
       </p>
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -125,9 +125,9 @@ function HotkeyEditor() {
             color: capturing ? "var(--color-text)" : "var(--color-text-tertiary)",
             border: `1px solid ${capturing ? "var(--color-border-strong)" : "var(--color-border)"}`,
           }}
-          title="Activa la captura de teclas para grabar la combinación"
+          title="Enable key capture to record the combination"
         >
-          {capturing ? "Cancelar captura" : "Capturar tecla"}
+          {capturing ? "Cancel capture" : "Capture key"}
         </button>
         <button
           type="button"
@@ -139,10 +139,10 @@ function HotkeyEditor() {
             color: "var(--color-accent-text)",
           }}
         >
-          {busy ? "Aplicando…" : "Aplicar"}
+          {busy ? "Applying…" : "Apply"}
         </button>
         <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-          activo: <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}>{spec || "—"}</span>
+          active: <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}>{spec || "—"}</span>
         </span>
       </div>
 
@@ -197,7 +197,6 @@ const IN_APP_ROWS: { key: string; label: string }[] = [
   { key: "tab.plans", label: "Plans" },
   { key: "tab.memory", label: "Memory" },
   { key: "tab.skills", label: "Skills" },
-  { key: "tab.logs", label: "Logs" },
   { key: "tab.settings", label: "Settings (tab)" },
 ];
 
@@ -305,8 +304,8 @@ function InAppShortcutsEditor() {
         className="mt-1 text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Atajos dentro del Control Center. Edita el combo o pulsa "Capturar"
-        y aprieta la combinación. Tab-jumps no roban teclas si estás en un input.
+        Shortcuts inside the Control Center. Edit the combo or click "Capture"
+        and press the combination. Tab-jumps don't steal keys while you're in an input.
       </p>
 
       <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
@@ -351,9 +350,9 @@ function InAppShortcutsEditor() {
                   color: isCap ? "var(--color-text)" : "var(--color-text-tertiary)",
                   border: `1px solid ${isCap ? "var(--color-border-strong)" : "var(--color-border)"}`,
                 }}
-                title="Pulsa para capturar la siguiente combinación"
+                title="Click to capture the next combination"
               >
-                {isCap ? "…" : "Capturar"}
+                {isCap ? "…" : "Capture"}
               </button>
             </div>
           );
@@ -371,7 +370,7 @@ function InAppShortcutsEditor() {
             color: "var(--color-accent-text)",
           }}
         >
-          {busy ? "Guardando…" : "Guardar atajos"}
+          {busy ? "Saving…" : "Save shortcuts"}
         </button>
         {success && (
           <span className="text-[11px]" style={{ color: "var(--color-success)" }}>
@@ -531,9 +530,9 @@ function ProjectHotkeysEditor() {
         className="mt-1 text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Asigna un hotkey global (al estilo Ctrl+Alt+P) para abrir un proyecto
-        concreto desde cualquier app de Windows. Distinto del set legacy
-        Ctrl+Alt+1..9 (que sigue los pinned). Necesita ≥1 modificador.
+        Assign a global hotkey (Ctrl+Alt+P style) to open a specific project
+        from any Windows app. Distinct from the legacy Ctrl+Alt+1..9 set
+        (which follows the pinned projects). Needs ≥1 modifier.
       </p>
 
       <div className="mt-3 space-y-2">
@@ -587,7 +586,7 @@ function ProjectHotkeysEditor() {
                   border: `1px solid ${isCap ? "var(--color-border-strong)" : "var(--color-border)"}`,
                 }}
               >
-                {isCap ? "…" : "Capturar"}
+                {isCap ? "…" : "Capture"}
               </button>
               <select
                 value={entry.projectId}
@@ -624,7 +623,7 @@ function ProjectHotkeysEditor() {
                   color: "var(--color-accent-text)",
                 }}
               >
-                {isBusy ? "…" : "Guardar"}
+                {isBusy ? "…" : "Save"}
               </button>
               <button
                 type="button"
@@ -636,9 +635,9 @@ function ProjectHotkeysEditor() {
                   color: "var(--color-text-tertiary)",
                   border: "1px solid var(--color-border)",
                 }}
-                title="Borra el slot y desregistra el hotkey"
+                title="Clear the slot and unregister the hotkey"
               >
-                Borrar
+                Clear
               </button>
             </div>
           );

@@ -14,6 +14,7 @@ import { SkillRichView } from "./SkillRichView";
 import { SecurityPanel } from "./SecurityPanel";
 import { HeaderBtn, KindBadge, Pill, SkillAgentRow } from "./SkillAgentShared";
 import { getHomeDir, joinPath } from "../lib/paths";
+import { useRoutingTitle } from "../lib/button-prompts";
 
 // Default body when creating a new skill. Keeps the user oriented without
 // overwhelming the textarea.
@@ -130,6 +131,10 @@ function Preview({
   const [secLoading, setSecLoading] = useState(false);
   const [secError, setSecError] = useState<string | null>(null);
   const [allowBusy, setAllowBusy] = useState(false);
+  const aiEditTitle = useRoutingTitle(
+    "skills.edit_with_ai",
+    "Apply this natural-language edit to the SKILL.md in a new AI session.",
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -224,7 +229,7 @@ function Preview({
       });
       setMode("view");
       setAiInstruction("");
-      flash("AI session abierta en wt.exe para editar este skill.");
+      flash("AI session opened in wt.exe to edit this skill.");
     } catch (e) {
       setError(String(e));
     } finally {
@@ -516,20 +521,20 @@ function Preview({
               className="text-[10px] font-medium uppercase tracking-[0.06em]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Edit con Claude
+              Edit with Claude
             </div>
             <p
               className="mt-1 text-[11.5px] leading-relaxed"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Spawnea una sesion Claude en la carpeta del skill con SKILL.md
-              precargada. Claude proposa un diff antes de escribir, tu lo
-              aceptas/rechazas en wt.exe.
+              Spawns a Claude session in the skill's folder with SKILL.md
+              preloaded. Claude proposes a diff before writing — you
+              accept or reject it in wt.exe.
             </p>
             <textarea
               value={aiInstruction}
               onChange={(e) => setAiInstruction(e.target.value)}
-              placeholder="Ej: anade un bloque triggers para 'modo nocturno', mantiene el resto intacto"
+              placeholder="e.g. add a triggers block for 'night mode', keep the rest intact"
               className="mt-2 w-full rounded p-2 text-[12px] leading-relaxed"
               style={{
                 fontFamily: "var(--font-mono)",
@@ -546,6 +551,7 @@ function Preview({
                 label={aiBusy ? "Spawning..." : "Open Claude session"}
                 onClick={handleAiEdit}
                 disabled={aiBusy || !aiInstruction.trim()}
+                title={aiEditTitle}
               />
             </div>
           </div>
@@ -814,6 +820,10 @@ export function Skills() {
   const [tagFilter, setTagFilter] = useState<Set<string>>(() => new Set());
   const [showAllTags, setShowAllTags] = useState(false);
   const [showNewModal, setShowNewModal] = useState(false);
+  const aiCreateTitle = useRoutingTitle(
+    "skills.create_with_ai",
+    "Create a new skill with AI. cwd=instructions/skills/ with GUIDE.md auto-loaded.",
+  );
 
   function reload(): Promise<SkillInfo[]> {
     return invoke<SkillInfo[]>("list_skills")
@@ -954,7 +964,7 @@ export function Skills() {
                   background: "var(--color-accent)",
                   color: "var(--color-accent-text)",
                 }}
-                title="Provider / model / agent vienen de Settings → AI Router (zona: skill_create). cwd=instructions/skills/ con GUIDE.md auto-cargado."
+                title={aiCreateTitle}
               >
                 AI
               </button>

@@ -45,11 +45,11 @@ type Item = {
    *
    * Tiering rationale (~/.ultron/sessions/<date>/routing.jsonl, 21 days):
    *   primary  — Dashboard, Usage, Notifications, System, MCPs, Skills,
-   *              Agents, Memory, Sessions, Projects, Plans, Settings.
+   *              Agents, Memory, Sessions, Projects, Plans, Personal,
+   *              Settings.
    *   more     — Changelog (drawer-style, only opened on releases),
    *              News (off by default in features.example), Gaming
-   *              (gated), Stats/SelfImprove (≤1.2% of invocations),
-   *              Personal (≤1.2% of invocations).
+   *              (gated), Stats/SelfImprove (≤1.2% of invocations).
    *   hidden   — Logs (available=false, lives inside System now).
    *
    * Default omitted = "primary" so we don't break unrelated callers.
@@ -102,7 +102,6 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
         label: "Personal",
         available: true,
         featureKey: "personal",
-        tier: "more",
       },
     ],
   },

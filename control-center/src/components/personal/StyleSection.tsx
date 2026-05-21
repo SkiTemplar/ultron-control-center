@@ -85,19 +85,19 @@ function TrainBlock({
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-[14px] font-semibold leading-tight">
-          Entrenar estilo
+          Train style
         </h2>
         <span
           className="text-[10.5px]"
           style={{ color: "var(--color-text-faint)" }}
         >
-          Pega un texto tuyo, Codex actualiza known.json
+          Paste some of your text, Codex updates known.json
         </span>
       </div>
       <textarea
         value={trainText}
         onChange={(e) => setTrainText(e.target.value)}
-        placeholder="Pega aquí un párrafo o varios de tu escritura real — un mensaje largo, un email, una nota técnica. Codex lo cruza con known.json y refina el fingerprint."
+        placeholder="Paste one or more paragraphs of your real writing here — a long message, an email, a technical note. Codex cross-references it with known.json and refines the fingerprint."
         spellCheck={false}
         className="flex-1 rounded p-3 text-[12px] leading-relaxed"
         style={{
@@ -139,7 +139,7 @@ function TrainBlock({
             color: "var(--color-accent-text)",
           }}
         >
-          {training ? "Abriendo sesión..." : "Train style with Codex"}
+          {training ? "Opening session..." : "Train style with Codex"}
         </button>
       </div>
     </div>
@@ -170,15 +170,15 @@ function SampleBlock({
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-[14px] font-semibold leading-tight">
-          Ejemplo en tu estilo
+          Sample in your style
         </h2>
         <span
           className="text-[10.5px]"
           style={{ color: "var(--color-text-faint)" }}
         >
           {sample?.last_modified
-            ? `generado ${formatRel(sample.last_modified)}`
-            : "sin ejemplo aún"}
+            ? `generated ${formatRel(sample.last_modified)}`
+            : "no sample yet"}
         </span>
       </div>
       <div
@@ -193,7 +193,7 @@ function SampleBlock({
             className="text-[12px]"
             style={{ color: "var(--color-text-faint)" }}
           >
-            Cargando...
+            Loading...
           </p>
         ) : !hasSample ? (
           <SampleEmptyState />
@@ -226,10 +226,10 @@ function SampleBlock({
           }}
         >
           {generating
-            ? "Abriendo sesión..."
+            ? "Opening session..."
             : hasSample
-              ? "Regenerar ejemplo"
-              : "Generar ejemplo"}
+              ? "Regenerate sample"
+              : "Generate sample"}
         </button>
       </div>
     </div>
@@ -243,15 +243,15 @@ function SampleEmptyState() {
         className="text-[12.5px] font-medium"
         style={{ color: "var(--color-text)" }}
       >
-        Aún no hay ejemplo.
+        No sample yet.
       </div>
       <p
         className="text-[12px] leading-relaxed"
         style={{ color: "var(--color-text-secondary)" }}
       >
-        Pulsa <span style={{ color: "var(--color-text)" }}>Generar ejemplo</span>{" "}
-        para que Claude escriba ~300 palabras en tu voz usando el fingerprint
-        actual. Sirve para comprobar si <code
+        Press <span style={{ color: "var(--color-text)" }}>Generate sample</span>{" "}
+        to have Claude write ~300 words in your voice using the current
+        fingerprint. It helps you check whether <code
           style={{
             fontFamily: "var(--font-mono)",
             background: "var(--color-surface-3)",
@@ -260,7 +260,7 @@ function SampleEmptyState() {
             borderRadius: 3,
           }}
         >known.json</code>{" "}
-        suena realmente como tú.
+        really sounds like you.
       </p>
     </div>
   );

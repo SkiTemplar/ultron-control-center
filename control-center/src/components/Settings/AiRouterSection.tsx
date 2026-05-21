@@ -71,72 +71,72 @@ const AI_ROUTER_ZONES: { key: keyof AiRouterConfig; label: string; help: string 
   {
     key: "diagnose",
     label: "Diagnose PC",
-    help: "Análisis del informe de diagnóstico del sistema (Dashboard / Doctor).",
+    help: "Analysis of the system diagnostic report (Dashboard / Doctor).",
   },
   {
     key: "summarize",
     label: "Summarize newsletter",
-    help: "Resumen rápido de un newsletter HTML desde la pestaña News.",
+    help: "Quick summary of an HTML newsletter from the News tab.",
   },
   {
     key: "brainstorm_plans",
-    label: "Brainstorm de plans",
-    help: "Generar borradores/refinar specs de planes desde la pestaña Plans.",
+    label: "Brainstorm plans",
+    help: "Generate drafts / refine plan specs from the Plans tab.",
   },
   {
     key: "news_generate",
     label: "Generate newsletter",
-    help: "Generación del cuerpo del newsletter (ULTRON Times).",
+    help: "Generation of the newsletter body (ULTRON Times).",
   },
   {
     key: "skill_edit",
     label: "Skill editor",
-    help: "Asistencia AI al editar SKILL.md desde la pestaña Skills.",
+    help: "AI assistance when editing SKILL.md from the Skills tab.",
   },
   {
     key: "mcp_create",
     label: "MCP generator",
-    help: "Generar plantillas de servidores MCP a partir de descripción.",
+    help: "Generate MCP server templates from a description.",
   },
   {
     key: "repo_review",
     label: "Repo review",
-    help: "Revisión adversarial de repos / cambios uncommitted.",
+    help: "Adversarial review of repos / uncommitted changes.",
   },
   {
     key: "personal_analyse",
     label: "Personal analyse",
-    help: "Analizar perfil / known.json / style fingerprint desde la pestaña Personal.",
+    help: "Analyze profile / known.json / style fingerprint from the Personal tab.",
   },
   {
     key: "memory_analyse",
     label: "Memory analyse",
-    help: "Asistencia AI al explorar la pestaña Memory (vault, graph, búsquedas).",
+    help: "AI assistance when exploring the Memory tab (vault, graph, searches).",
   },
   {
     key: "notif_fix",
     label: "Notification fix",
-    help: "Resolver una notificación con Claude/Codex desde la pestaña Notifications.",
+    help: "Resolve a notification with Claude/Codex from the Notifications tab.",
   },
   {
     key: "self_improve",
     label: "Self-improve",
-    help: "Análisis de routing telemetry para mejorar el dispatcher.",
+    help: "Analysis of routing telemetry to improve the dispatcher.",
   },
   {
     key: "system_analyse",
     label: "System analyse",
-    help: "Análisis de procesos / hooks / scheduled tasks desde la pestaña System.",
+    help: "Analysis of processes / hooks / scheduled tasks from the System tab.",
   },
   {
     key: "usage_analyse",
     label: "Usage analyse",
-    help: "Análisis de coste / tokens / actividad desde la pestaña Usage.",
+    help: "Analysis of cost / tokens / activity from the Usage tab.",
   },
   {
     key: "skill_create",
     label: "Skill creator",
-    help: "Crear una nueva skill desde cero con asistencia AI (botón AI en Skills).",
+    help: "Create a new skill from scratch with AI assistance (AI button in Skills).",
   },
 ];
 
@@ -197,7 +197,7 @@ export function AiRouterSection() {
       const r = (await invoke("save_ai_router", { config: draft })) as AiRouterConfig;
       setConfig(r);
       setDraft({ ...r });
-      setSuccess("AI Router actualizado.");
+      setSuccess("AI Router updated.");
       window.setTimeout(() => setSuccess(null), 2500);
     } catch (e) {
       setError(String(e));
@@ -279,16 +279,16 @@ export function AiRouterSection() {
           className="mt-1 text-[11.5px] leading-relaxed"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Selecciona qué provider y qué modelo dispara cada acción del Control
-          Center: Diagnose PC, summarize newsletter, AI brainstorm de plans,
-          generación de newsletter, skill editor, MCP generator y repo review.
-          El segundo dropdown (modelo) es opcional — déjalo en{" "}
-          <span style={{ fontFamily: "var(--font-mono)" }}>default</span> para
-          usar el modelo por defecto del provider. El config se persiste en{" "}
+          Pick which provider and model fires each Control Center action:
+          Diagnose PC, summarize newsletter, AI plan brainstorm, newsletter
+          generation, skill editor, MCP generator and repo review. The second
+          dropdown (model) is optional — leave it on{" "}
+          <span style={{ fontFamily: "var(--font-mono)" }}>default</span> to use
+          the provider's default model. The config is persisted to{" "}
           <span style={{ fontFamily: "var(--font-mono)" }}>
             ~/.ultron/.tmp/ai-router.json
           </span>{" "}
-          para que cualquier script de ULTRON pueda leerlo.
+          so any ULTRON script can read it.
         </p>
       </header>
 
@@ -378,14 +378,14 @@ export function AiRouterSection() {
                         fontFamily: "var(--font-mono)",
                       }}
                       title={
-                        "Auto-mode: ignora los selectores de la derecha y deja " +
-                        "que ULTRON elija el subagent automáticamente según el " +
-                        "contenido del prompt. Usa embed_agents.py query " +
-                        "(Qdrant) y exige score ≥ 0.50; si falla o el match " +
-                        "es flojo, vuelve al provider/model/agent manual sin " +
-                        "error visible. Provider efectivo = claude cuando " +
-                        "auto-mode acierta (necesario para la directiva " +
-                        "[USE AGENT: <slug>])."
+                        "Auto-mode: ignores the selectors on the right and lets " +
+                        "ULTRON pick the subagent automatically based on the " +
+                        "prompt content. Uses embed_agents.py query " +
+                        "(Qdrant) and requires score ≥ 0.50; if it fails or the " +
+                        "match is weak, it falls back to the manual " +
+                        "provider/model/agent with no visible error. Effective " +
+                        "provider = claude when auto-mode hits (required for the " +
+                        "[USE AGENT: <slug>] directive)."
                       }
                     >
                       <input
@@ -415,8 +415,8 @@ export function AiRouterSection() {
                       }}
                       title={
                         autoMode
-                          ? "Auto-mode activo — esta selección se ignora y se vuelve a usar solo como fallback."
-                          : `Provider para ${z.label}`
+                          ? "Auto-mode active — this selection is ignored and only used as a fallback."
+                          : `Provider for ${z.label}`
                       }
                     >
                       {AI_PROVIDERS.map((p) => (
@@ -441,8 +441,8 @@ export function AiRouterSection() {
                       }}
                       title={
                         autoMode
-                          ? "Auto-mode usa el modelo preferido del agent elegido (frontmatter `model`)."
-                          : `Modelo para ${z.label} (vacío = default del provider)`
+                          ? "Auto-mode uses the preferred model of the chosen agent (frontmatter `model`)."
+                          : `Model for ${z.label} (empty = provider default)`
                       }
                     >
                       <option value="">default</option>
@@ -468,10 +468,10 @@ export function AiRouterSection() {
                       }}
                       title={
                         autoMode
-                          ? "Auto-mode elige el agent vía embed_agents.py query."
+                          ? "Auto-mode picks the agent via embed_agents.py query."
                           : draft[z.key].provider === "claude"
-                          ? `Subagent para ${z.label} ((none) = ninguno). Solo se aplica a sesiones Claude.`
-                          : `Subagent para ${z.label} — ${draft[z.key].provider} ignora la directiva, solo Claude la interpreta.`
+                          ? `Subagent for ${z.label} ((none) = no subagent). Only applies to Claude sessions.`
+                          : `Subagent for ${z.label} — ${draft[z.key].provider} ignores the directive, only Claude interprets it.`
                       }
                     >
                       <option value="">(none)</option>
@@ -550,7 +550,7 @@ export function AiRouterSection() {
                   color: "var(--color-accent-text)",
                 }}
               >
-                {saving ? "Guardando…" : "Save"}
+                {saving ? "Saving…" : "Save"}
               </button>
             </div>
           </div>

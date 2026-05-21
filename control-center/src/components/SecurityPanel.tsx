@@ -213,7 +213,7 @@ export function SecurityPanel({
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder={`Por qué confío en este ${targetLabel} (proveniencia, revisión, etc.)`}
+            placeholder={`Why I trust this ${targetLabel} (provenance, review, etc.)`}
             className="w-full rounded p-2 text-[11.5px] leading-relaxed"
             style={{
               fontFamily: "var(--font-mono)",

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { ActivityTimeline } from "./ActivityTimeline";
+import { useRoutingTitle } from "../lib/button-prompts";
 // v15.1.6: CostWatchdog import retained for future use (e.g., metered API
 // providers) but unmounted by default — user runs on subscriptions only,
 // so daily-cost projection doesn't apply. Re-enable by uncommenting below.
@@ -477,6 +478,10 @@ function RepoEvaluatorCard() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const repoEvalTitle = useRoutingTitle(
+    "selfimprove.repo_evaluator",
+    "Run the repo-evaluator skill for a strict professor-style review of the ULTRON repo.",
+  );
 
   async function runRepoEvaluator() {
     setBusy(true);
@@ -493,7 +498,7 @@ function RepoEvaluatorCard() {
         key: "selfimprove.repo_evaluator",
         cwd: null,
       });
-      setInfo("repo-evaluator session abierta en wt.exe. Continua la evaluacion alli.");
+      setInfo("repo-evaluator session opened in wt.exe. Continue the evaluation there.");
       window.setTimeout(() => setInfo(null), 4000);
     } catch (e) {
       setError(String(e));
@@ -519,10 +524,10 @@ function RepoEvaluatorCard() {
             className="mt-1 text-[11px] leading-relaxed"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            Abre una sesion Claude que activa la skill repo-evaluator: corrige
-            la entrega como un profesor estricto, arquitectura + tests + docs +
-            riesgos + nota final. La sesion se abre en wt.exe para que sigas la
-            conversacion alli.
+            Opens a Claude session that activates the repo-evaluator skill: it
+            grades the submission like a strict professor — architecture + tests
+            + docs + risks + final mark. The session opens in wt.exe so you can
+            follow the conversation there.
           </p>
         </div>
         <button
@@ -535,8 +540,9 @@ function RepoEvaluatorCard() {
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
+          title={repoEvalTitle}
         >
-          {busy ? "Abriendo..." : "Run repo-evaluator"}
+          {busy ? "Opening..." : "Run repo-evaluator"}
         </button>
       </div>
       {error && (

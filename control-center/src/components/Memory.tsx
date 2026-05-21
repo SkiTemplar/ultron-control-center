@@ -6,6 +6,7 @@ import type {
   MemoryActionResult,
   MemoryStatusInfo,
 } from "../types";
+import { useRoutingTitle } from "../lib/button-prompts";
 // v15.4.11 — MemoryGraphForce removed from this view. Component file
 // kept for future re-introduction (link-based layout).
 // import { MemoryGraphForce } from "./MemoryGraphForce";
@@ -629,22 +630,22 @@ const ACTIONS: ActionDef[] = [
   {
     key: "vault-sync",
     label: "Sync vault",
-    hint: "Git stage + commit + push de ~/.ultron-vault. Lo que el Stop hook hace al cerrar Claude.",
+    hint: "Git stage + commit + push of ~/.ultron-vault. What the Stop hook does when Claude closes.",
   },
   {
     key: "brain-update",
     label: "Update brain",
-    hint: "FTS5 incremental: indexa cambios sin tocar lo ya indexado.",
+    hint: "Incremental FTS5: indexes changes without touching what's already indexed.",
   },
   {
     key: "qdrant-reembed",
     label: "Re-embed Qdrant",
-    hint: "Vuelve a calcular embeddings del vault y los empuja a la colección ultron_vault.",
+    hint: "Recomputes the vault embeddings and pushes them to the ultron_vault collection.",
   },
   {
     key: "skills-reembed",
     label: "Re-embed skills",
-    hint: "Re-genera embeddings de las skills (active + plugin + vault).",
+    hint: "Regenerates the skill embeddings (active + plugin + vault).",
   },
 ];
 
@@ -681,6 +682,10 @@ export function Memory() {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
 
   const [runningAction, setRunningAction] = useState<MemoryActionKey | null>(null);
+  const newNoteTitle = useRoutingTitle(
+    "memory.new_note_ai",
+    "Draft a new vault note with AI. cwd=instructions/memory/ with GUIDE.md auto-loaded.",
+  );
   const [actionOutput, setActionOutput] = useState<MemoryActionResult | null>(null);
 
   const [recent, setRecent] = useState<RecentNote[]>([]);
@@ -806,7 +811,7 @@ export function Memory() {
                 color: "var(--color-text)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Provider / model / agent vienen de Settings → AI Router (zona: memory_analyse). cwd=instructions/memory/ con GUIDE.md auto-cargado."
+              title={newNoteTitle}
             >
               New note with AI
             </button>
@@ -1160,7 +1165,7 @@ export function Memory() {
                   color: "var(--color-text-tertiary)",
                 }}
               >
-                Vault vacío o no encontrado.
+                Vault empty or not found.
               </div>
             ) : (
               <div

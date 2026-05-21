@@ -8,6 +8,7 @@ import type {
   AllowAgentResult,
 } from "../types";
 import { getHomeDir, joinPath } from "../lib/paths";
+import { useRoutingTitle } from "../lib/button-prompts";
 import { SecurityPanel } from "./SecurityPanel";
 import { HeaderBtn, KindBadge, Pill, SkillAgentRow } from "./SkillAgentShared";
 import { SkillRichView } from "./SkillRichView";
@@ -107,6 +108,10 @@ function Preview({
   const [secLoading, setSecLoading] = useState(false);
   const [secError, setSecError] = useState<string | null>(null);
   const [allowBusy, setAllowBusy] = useState(false);
+  const aiEditTitle = useRoutingTitle(
+    "agents.edit_with_ai",
+    "Open a Claude session to refine this agent with AI assistance.",
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -263,7 +268,7 @@ function Preview({
         cwd: agentsDir,
         flags: { dangerouslySkipPermissions: false },
       });
-      flash("Claude session abierta en ~/.claude/agents/");
+      flash("Claude session opened in ~/.claude/agents/");
     } catch (e) {
       setError(String(e));
     }
@@ -314,7 +319,7 @@ function Preview({
                   label="AI"
                   onClick={() => void openInClaude()}
                   disabled={busy || loading}
-                  title="Abre una sesión Claude para refinar este agent con asistencia AI"
+                  title={aiEditTitle}
                 />
                 {agent.security && agent.security.decision !== "allow" && (
                   <HeaderBtn

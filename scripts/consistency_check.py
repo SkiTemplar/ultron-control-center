@@ -30,6 +30,28 @@ if hasattr(sys.stdout, 'reconfigure'):
 ULTRON_DIR = Path(__file__).parent.parent
 KNOWLEDGE_DIR = Path.home() / ".ultron" / "knowledge"
 
+
+def _resolve_skill_dir() -> Path:
+    """Resolve the ULTRON skill directory.
+
+    SKILL.md and the mode-*.md / references/ live in the Claude skills tree
+    (~/.claude/skills/ultron/), NOT in the ~/.ultron/ repo. Try the canonical
+    location first, then a couple of fallbacks. Callers must tolerate a
+    non-existent path (checks skip clean instead of crashing)."""
+    candidates = [
+        Path.home() / ".claude" / "skills" / "ultron",
+        ULTRON_DIR / ".claude" / "skills" / "ultron",
+        ULTRON_DIR,  # last resort: legacy assumption (repo == skill)
+    ]
+    for c in candidates:
+        if (c / "SKILL.md").exists():
+            return c
+    return candidates[0]  # canonical path even if missing — checks handle absence
+
+
+SKILL_DIR = _resolve_skill_dir()
+SKILL_INSTALLED = (SKILL_DIR / "SKILL.md").exists()
+
 # v4.0 (Sprint 3 F14): personas derived from personas_ssot — NOT hardcoded.
 def _load_known_personas():
     try:
@@ -61,10 +83,14 @@ def check_mode_headers() -> list[str]:
     """Todos los mode-*.md deben declarar una versión en su primer header
     Y esa versión debe coincidir con la de SKILL.md (auditor sin blind spot)."""
     issues = []
-    skill_md = (ULTRON_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill_md_path = SKILL_DIR / "SKILL.md"
+    if not skill_md_path.exists():
+        print(f"  ⚠️  SKILL.md no encontrado en {SKILL_DIR} — check saltado")
+        return []
+    skill_md = skill_md_path.read_text(encoding="utf-8")
     skill_ver = _extract_skill_version(skill_md)
     print(f"  SKILL.md version (referencia): {skill_ver or '(no encontrado)'}")
-    for f in sorted(ULTRON_DIR.glob("mode-*.md")):
+    for f in sorted(SKILL_DIR.glob("mode-*.md")):
         text = f.read_text(encoding="utf-8")
         m = re.search(r"^#\s+ULTRON[^·\n]*·\s+(v[\d.]+)", text, re.MULTILINE)
         if not m:
@@ -82,7 +108,11 @@ def check_mode_headers() -> list[str]:
 def check_persona_count() -> list[str]:
     """Count de personas debe ser consistente entre frontmatter, Layer 1 y JERARQUÍA."""
     issues = []
-    skill_md = (ULTRON_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill_md_path = SKILL_DIR / "SKILL.md"
+    if not skill_md_path.exists():
+        print(f"  ⚠️  SKILL.md no encontrado en {SKILL_DIR} — check saltado")
+        return []
+    skill_md = skill_md_path.read_text(encoding="utf-8")
 
     fm_m = re.search(r"enruta a (\d+) personas", skill_md)
     fm_count = int(fm_m.group(1)) if fm_m else None
@@ -123,8 +153,12 @@ def _extract_skill_version(text: str) -> str | None:
 def check_version_policy() -> list[str]:
     """SKILL.md frontmatter y version-policy.md tabla deben coincidir."""
     issues = []
-    skill_md = (ULTRON_DIR / "SKILL.md").read_text(encoding="utf-8")
-    vp_path = ULTRON_DIR / "references" / "version-policy.md"
+    skill_md_path = SKILL_DIR / "SKILL.md"
+    if not skill_md_path.exists():
+        print(f"  ⚠️  SKILL.md no encontrado en {SKILL_DIR} — check saltado")
+        return []
+    skill_md = skill_md_path.read_text(encoding="utf-8")
+    vp_path = SKILL_DIR / "references" / "version-policy.md"
 
     if not vp_path.exists():
         return ["version-policy.md no encontrado"]
@@ -150,11 +184,22 @@ def check_version_policy() -> list[str]:
 def check_claude_md_version() -> list[str]:
     """CLAUDE.md debe declarar la misma major version que SKILL.md."""
     issues = []
-    claude_md_path = ULTRON_DIR / "CLAUDE.md"
-    skill_md_path = ULTRON_DIR / "SKILL.md"
+    # CLAUDE.md puede vivir en el repo (~/.ultron/) o en el árbol de Claude
+    # (~/.claude/). SKILL.md vive en el árbol de skills.
+    claude_md_candidates = [
+        ULTRON_DIR / "CLAUDE.md",
+        SKILL_DIR / "CLAUDE.md",
+        Path.home() / ".claude" / "CLAUDE.md",
+    ]
+    claude_md_path = next((c for c in claude_md_candidates if c.exists()), None)
+    skill_md_path = SKILL_DIR / "SKILL.md"
 
-    if not claude_md_path.exists():
-        return ["CLAUDE.md no encontrado"]
+    if claude_md_path is None:
+        print(f"  ⚠️  CLAUDE.md no encontrado en {[str(c) for c in claude_md_candidates]} — check saltado")
+        return []
+    if not skill_md_path.exists():
+        print(f"  ⚠️  SKILL.md no encontrado en {SKILL_DIR} — check saltado")
+        return []
 
     claude_md = claude_md_path.read_text(encoding="utf-8")
     skill_md = skill_md_path.read_text(encoding="utf-8")
@@ -189,9 +234,12 @@ def check_claude_md_version() -> list[str]:
 def check_routing_matrix_personas() -> list[str]:
     """routing-matrix.md INSTANT ROUTING debe tener las mismas personas que SKILL.md Layer 1."""
     issues = []
-    rm_path = ULTRON_DIR / "references" / "routing-matrix.md"
+    rm_path = SKILL_DIR / "references" / "routing-matrix.md"
 
     if not rm_path.exists():
+        if not SKILL_INSTALLED:
+            print("  ⚠️  skill ULTRON no instalada — check saltado")
+            return []
         return ["routing-matrix.md no encontrado"]
 
     rm = rm_path.read_text(encoding="utf-8")
@@ -215,8 +263,11 @@ def check_routing_matrix_personas() -> list[str]:
 def check_mode_high_routing_matrix() -> list[str]:
     """mode-high.md ROUTING MATRIX debe listar las mismas personas que SKILL.md Layer 1."""
     issues = []
-    mh_path = ULTRON_DIR / "mode-high.md"
+    mh_path = SKILL_DIR / "mode-high.md"
     if not mh_path.exists():
+        if not SKILL_INSTALLED:
+            print("  ⚠️  skill ULTRON no instalada — check saltado")
+            return []
         return ["mode-high.md no encontrado"]
 
     mh = mh_path.read_text(encoding="utf-8")
@@ -240,7 +291,11 @@ def check_mode_high_routing_matrix() -> list[str]:
 def check_no_learn_in_fast_path() -> list[str]:
     """/learn no debe aparecer como señal de dominio en Layer 1 (es overlay de modo)."""
     issues = []
-    skill_md = (ULTRON_DIR / "SKILL.md").read_text(encoding="utf-8")
+    skill_md_path = SKILL_DIR / "SKILL.md"
+    if not skill_md_path.exists():
+        print(f"  ⚠️  SKILL.md no encontrado en {SKILL_DIR} — check saltado")
+        return []
+    skill_md = skill_md_path.read_text(encoding="utf-8")
 
     l1_start = skill_md.find("### Layer 1 — Personas")
     l1_end = skill_md.find("### Confidence reporting")
@@ -297,7 +352,7 @@ def check_no_legacy_refs() -> list[str]:
     legacy = ["memory-system.md", "project-lifecycle.md", "dispatch-protocols.md"]
 
     for f in legacy:
-        path = ULTRON_DIR / "references" / f
+        path = SKILL_DIR / "references" / f
         if path.exists():
             issues.append(f"references/{f} existe — debería estar archivado en ~/.ultron/archive/v6.x-legacy/")
 
@@ -310,7 +365,11 @@ def check_no_legacy_refs() -> list[str]:
 def check_agents_modernized() -> list[str]:
     """agents/ debe tener subagent-routing.md y NO los templates legacy."""
     issues = []
-    agents_dir = ULTRON_DIR / "agents"
+    if not SKILL_INSTALLED:
+        print("  ⚠️  skill ULTRON no instalada — check saltado")
+        return []
+    # subagent-routing.md y los templates legacy viven en el árbol de skills.
+    agents_dir = SKILL_DIR / "agents"
 
     legacy_files = ["analyst.md", "dispatcher.md", "researcher.md"]
     for f in legacy_files:
@@ -420,9 +479,12 @@ def check_codex_mcp_server_registered() -> list[str]:
     issues = []
     import json
     settings_path = Path.home() / ".claude" / "settings.json"
-    snapshot_path = ULTRON_DIR / "references" / "settings-snapshot.json"
+    snapshot_path = SKILL_DIR / "references" / "settings-snapshot.json"
 
     if not snapshot_path.exists():
+        if not SKILL_INSTALLED:
+            print("  ⚠️  skill ULTRON no instalada — check saltado")
+            return []
         return [f"settings-snapshot.json not found at {snapshot_path} — cannot verify"]
     try:
         snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))

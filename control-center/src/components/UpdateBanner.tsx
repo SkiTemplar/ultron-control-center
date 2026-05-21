@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { notify } from "../lib/notify";
 
 // v15.4.2 — surfaces the "new version available" hint that
 // `update_checker.rs` fires on startup. Reusable; mount once at the top
@@ -113,12 +114,12 @@ export function UpdateBanner() {
       // npm run tauri build`.
       await invoke("run_app_lifecycle", { kind: "update" });
     } catch (err) {
-      // Surface to alerts so it doesn't fail silently.
-      void invoke("record_ui_alert", {
+      // Surface app-wide: immediate toast + durable Notifications row.
+      notify({
         severity: "warn",
         source: "update-banner",
         message: `update failed: ${err instanceof Error ? err.message : String(err)}`.slice(0, 600),
-      }).catch(() => {});
+      });
     } finally {
       setBusy(false);
     }

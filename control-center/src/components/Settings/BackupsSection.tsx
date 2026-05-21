@@ -599,9 +599,9 @@ export function DiskBackupStatus() {
         className="mb-3 text-[11.5px]"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Estado del mirror semanal (robocopy /MIR vía
+        Weekly mirror status (robocopy /MIR via
         <span style={{ fontFamily: "var(--font-mono)" }}> weekly-backup.ps1</span>).
-        Mtime del top-level subdir = última pasada efectiva.
+        Top-level subdir mtime = last effective pass.
       </p>
 
       {error && (
@@ -626,8 +626,8 @@ export function DiskBackupStatus() {
             color: "var(--color-danger)",
           }}
         >
-          Root no encontrado: {report.root}. El disco no está montado o nunca
-          se ejecutó el primer backup.
+          Root not found: {report.root}. The disk is not mounted or the
+          first backup has never run.
         </div>
       )}
 
@@ -640,8 +640,8 @@ export function DiskBackupStatus() {
             color: "var(--color-text-tertiary)",
           }}
         >
-          El root existe pero no hay subcarpetas — primer backup aún no
-          se completó.
+          The root exists but has no subfolders — the first backup has not
+          completed yet.
         </div>
       )}
 

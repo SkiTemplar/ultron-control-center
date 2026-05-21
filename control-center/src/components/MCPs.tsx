@@ -8,6 +8,7 @@ import type {
   SettingsSnapshot,
   SettingsSaveResult,
 } from "../types";
+import { useRoutingTitle } from "../lib/button-prompts";
 
 // ---------------------------------------------------------------------------
 // Status visuals
@@ -396,18 +397,16 @@ function Modal({
 // MCP card
 // ---------------------------------------------------------------------------
 
-type Action = "retry" | "hide" | "edit" | "delete";
+type Action = "hide" | "edit" | "delete";
 
 function Card({
   mcp,
   hidden,
   onAction,
-  busy,
 }: {
   mcp: McpInfo;
   hidden: boolean;
   onAction: (a: Action) => void;
-  busy: boolean;
 }) {
   const color = statusColor(mcp.status, mcp.expected_offline);
   const label = statusLabel(mcp.status, mcp.expected_offline);
@@ -476,20 +475,11 @@ function Card({
           )}
         </div>
 
+        {/* No per-card "Retry": the health probe is global (it rewrites the
+            whole mcp-health.json in one pass), so a per-card button would lie
+            about its scope. The "Run health check" button in the tab header
+            owns that action. */}
         <div className="flex shrink-0 flex-col gap-1.5">
-          <button
-            type="button"
-            onClick={() => onAction("retry")}
-            disabled={busy}
-            className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-            title="Re-run health check for all MCPs"
-          >
-            {busy ? "Probing…" : "Retry"}
-          </button>
           <button
             type="button"
             onClick={() => onAction("edit")}
@@ -619,7 +609,7 @@ function EnableDisableSection({ onChanged }: { onChanged: () => void }) {
           >
             {enabledCount} of {entries.length} enabled · writes the{" "}
             <span style={{ fontFamily: "var(--font-mono)" }}>disabled</span> flag in
-            settings.json (backup automático). Restart Claude Code to apply.
+            settings.json (automatic backup). Restart Claude Code to apply.
           </p>
         </div>
         <span
@@ -704,6 +694,10 @@ export function MCPs() {
   const [showHidden, setShowHidden] = useState(false);
   const [probing, setProbing] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  const addWithAiTitle = useRoutingTitle(
+    "mcps.add_with_ai",
+    "Register a new MCP server with AI. cwd=instructions/mcps/ with GUIDE.md auto-loaded.",
+  );
 
   // Modal state
   const [addOpen, setAddOpen] = useState(false);
@@ -990,7 +984,7 @@ export function MCPs() {
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-            title="Sesión Claude con cwd=instructions/mcps/ y GUIDE.md auto-cargado"
+            title={addWithAiTitle}
           >
             Add with AI
           </button>
@@ -1077,10 +1071,8 @@ export function MCPs() {
             key={m.name}
             mcp={m}
             hidden={hidden.has(m.name)}
-            busy={probing}
             onAction={(a) => {
-              if (a === "retry") runProbe();
-              else if (a === "hide") toggleHidden(m.name);
+              if (a === "hide") toggleHidden(m.name);
               else if (a === "edit") openEdit(m.name);
               else if (a === "delete") setDeleteTarget(m.name);
             }}

@@ -14,6 +14,7 @@ import type {
   MemoryStatusInfo,
 } from "../types";
 import { statusColor } from "../lib/status";
+import { useRoutingTitle } from "../lib/button-prompts";
 import packageJson from "../../package.json";
 
 // v15.4.7 — read version from package.json (single source of truth, no
@@ -574,6 +575,11 @@ export function Dashboard({
   const [pcLoading, setPcLoading] = useState(false);
   const [pcError, setPcError] = useState<string | null>(null);
 
+  const diagnoseTitle = useRoutingTitle(
+    "dashboard.pc_diagnose_analyse",
+    "Open an AI session preloaded with this PC diagnostic report.",
+  );
+
   // Auto-fix modal state
   const [fixOpen, setFixOpen] = useState(false);
   const [fixSelected, setFixSelected] = useState<Set<string>>(new Set());
@@ -776,52 +782,17 @@ export function Dashboard({
 
   const lastChange = changelog[0];
 
-  async function closeControlCenter() {
-    // The X button on the window only hides the app into the tray
-    // (see tray.rs CloseRequested handler) — good default, but means
-    // the only way to fully exit is the tray menu's Quit item. This
-    // button is the explicit opt-out: confirms, then calls
-    // `app.exit(0)` on the Rust side so file locks are freed and the
-    // global hotkey listener stops. Useful right before a Rebuild so
-    // the new binary can overwrite the running .exe.
-    const ok = await confirmDialog(
-      "Close ULTRON Control Center?\n\n" +
-        "This fully exits the app (not just minimize to tray). " +
-        "Global hotkeys stop working until you relaunch.",
-      { title: "Close Control Center", kind: "warning" },
-    );
-    if (!ok) return;
-    try {
-      await invoke("close_control_center");
-    } catch (e) {
-      // If exit fails for some reason, surface it — though in practice
-      // the process is already terminating before this await resolves.
-      console.error("close_control_center failed", e);
-    }
-  }
+  // The "Close Control Center" action lives in Settings → App lifecycle
+  // (LifecyclePanel). It was removed from the Dashboard header so a
+  // destructive full-exit isn't one stray click away from the landing tab.
 
   return (
     <div className="px-10 py-8">
-      <header className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-[20px] font-semibold leading-tight">Dashboard</h1>
-          <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-            System overview · Control Center v{APP_VERSION}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => void closeControlCenter()}
-          className="shrink-0 rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
-          style={{
-            background: "var(--color-surface-2)",
-            color: "var(--color-danger)",
-            border: "1px solid rgba(248, 81, 73, 0.32)",
-          }}
-          title="Fully exit the app (the window X only minimizes to tray)"
-        >
-          Close Control Center
-        </button>
+      <header className="mb-8">
+        <h1 className="text-[20px] font-semibold leading-tight">Dashboard</h1>
+        <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
+          System overview · Control Center v{APP_VERSION}
+        </p>
       </header>
 
       <div className="grid grid-cols-4 gap-3">
@@ -1055,7 +1026,7 @@ export function Dashboard({
                 color: "var(--color-text)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Open an AI session preloaded with this report. Provider / model / agent come from Settings → AI Router (zone: diagnose)."
+              title={diagnoseTitle}
             >
               Analyse with AI
             </button>

@@ -93,19 +93,19 @@ export function ButtonPromptsSection() {
     try {
       const current = drafts[entry.key] ?? entry.prompt;
       const refinePrompt = [
-        `Quiero mejorar el prompt asociado al botón "${entry.label}" del ULTRON Control Center.`,
-        `Ubicación: ${entry.location}`,
-        `Propósito: ${entry.description || "(sin descripción)"}`,
+        `I want to improve the prompt tied to the "${entry.label}" button in the ULTRON Control Center.`,
+        `Location: ${entry.location}`,
+        `Purpose: ${entry.description || "(no description)"}`,
         entry.vars.length > 0
-          ? `Variables disponibles (se sustituyen con valores en runtime): ${entry.vars.map((v) => `{${v}}`).join(", ")}.`
-          : "Este prompt no usa variables.",
+          ? `Available variables (replaced with values at runtime): ${entry.vars.map((v) => `{${v}}`).join(", ")}.`
+          : "This prompt uses no variables.",
         "",
-        "Prompt actual:",
+        "Current prompt:",
         "```",
         current,
         "```",
         "",
-        "Hazme 1-2 preguntas concretas si necesitas contexto y luego propón una versión mejorada. Mantén las variables {var} intactas. Devuelve sólo el prompt nuevo entre triples backticks para que lo pueda pegar en el Control Center.",
+        "Ask me 1-2 concrete questions if you need context, then propose an improved version. Keep the {var} variables intact. Return only the new prompt between triple backticks so I can paste it into the Control Center.",
       ].join("\n");
       const { getHomeDir, joinPath } = await import("../../lib/paths");
       const cwd = joinPath(await getHomeDir(), ".ultron");
@@ -196,7 +196,7 @@ export function ButtonPromptsSection() {
             border: "1px solid var(--color-border-strong)",
           }}
         >
-          Reload
+          Refresh
         </button>
       </div>
 

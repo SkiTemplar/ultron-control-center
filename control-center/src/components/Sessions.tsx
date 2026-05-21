@@ -535,9 +535,9 @@ export function Sessions() {
       <header className="mb-6">
         <h1 className="text-[20px] font-semibold leading-tight">Sessions</h1>
         <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-          Abre una sesión Claude/Gemini/Codex en el workspace activo, o reanuda
-          una anterior. Los botones primarios están abajo, dentro del bloque
-          de presets.
+          Open a Claude/Gemini/Codex session in the active workspace, or resume
+          a previous one. The primary buttons are below, inside the presets
+          block.
         </p>
       </header>
 
@@ -620,7 +620,7 @@ export function Sessions() {
               className="text-[10px] font-medium uppercase tracking-[0.06em]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Presets · se aplican al lanzar y se recuerdan entre sesiones
+              Presets · applied on launch and remembered across sessions
             </div>
             <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
               <label
@@ -663,8 +663,8 @@ export function Sessions() {
                     className="mt-0.5 text-[11px]"
                     style={{ color: "var(--color-text-tertiary)" }}
                   >
-                    Saltar todas las confirmaciones de herramientas. Solo en
-                    entornos de confianza.
+                    Skip every tool confirmation. Only in trusted
+                    environments.
                   </div>
                 </div>
               </label>
@@ -715,7 +715,7 @@ export function Sessions() {
                   background: "var(--color-accent)",
                   color: "var(--color-accent-text)",
                 }}
-                title={`Lanza una sesión Claude limpia en ${cwd || "(no workspace)"}`}
+                title={`Launch a clean Claude session in ${cwd || "(no workspace)"}`}
               >
                 New Session
               </button>
@@ -732,7 +732,7 @@ export function Sessions() {
                   color: "var(--color-text)",
                   border: "1px solid var(--color-border-strong)",
                 }}
-                title="Salta a la lista de sesiones existentes en este workspace"
+                title="Jump to the list of existing sessions in this workspace"
               >
                 Resume Session
               </button>
@@ -752,7 +752,7 @@ export function Sessions() {
             onClick={() => setShowInline(!showInline)}
             className="text-[11px] transition-colors"
             style={{ color: "var(--color-text-tertiary)" }}
-            title="Modo inline: ejecuta un prompt batch sin abrir terminal — útil para queries one-shot"
+            title="Inline mode: run a batch prompt without opening a terminal — useful for one-shot queries"
           >
             {showInline ? "Hide quick prompt" : "Show quick prompt"}
           </button>
@@ -850,7 +850,7 @@ export function Sessions() {
                 className="mt-0.5 text-[11.5px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                {filteredHistory.length} / {history.length} listadas · click Resume para reanudar (claude -r &lt;id&gt;)
+                {filteredHistory.length} / {history.length} listed · click Resume to continue (claude -r &lt;id&gt;)
               </p>
             </div>
             {historyLoading && (
@@ -870,8 +870,8 @@ export function Sessions() {
               }}
             >
               {normalisedCwd
-                ? "No hay sesiones registradas para este workspace. Pulsa New Session para abrir una."
-                : "Aún no hay sesiones registradas. Abre una con Claude y volverá a listarse aquí."}
+                ? "No sessions recorded for this workspace. Click New Session to open one."
+                : "No sessions recorded yet. Open one with Claude and it will show up here."}
             </div>
           )}
 

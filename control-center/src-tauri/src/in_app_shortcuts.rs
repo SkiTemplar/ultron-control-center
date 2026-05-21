@@ -50,7 +50,6 @@ fn default_bindings() -> HashMap<String, String> {
         ("tab.plans", "Alt+6"),
         ("tab.memory", "Alt+7"),
         ("tab.skills", "Alt+8"),
-        ("tab.logs", "Alt+9"),
         ("tab.settings", "Alt+0"),
     ];
     pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect()

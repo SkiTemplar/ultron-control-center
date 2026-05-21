@@ -96,7 +96,7 @@ export function Personal() {
       })) as PersonalProfile;
       setProfile(r);
       setDraft(r.content);
-      setInfo("Guardado.");
+      setInfo("Saved.");
       window.setTimeout(() => setInfo(null), 2000);
     } catch (e) {
       setError(String(e));
@@ -107,8 +107,8 @@ export function Personal() {
 
   async function generateAnalysis() {
     const confirmed = await confirmDialog(
-      "Esto abrirá una sesión externa de Claude Code (terminal aparte) con permisos completos para leer ~/.claude/projects, MEMORY.md y git history. La sesión escribirá un análisis en ~/.ultron/personal/known.json.\n\n¿Continuar?",
-      { title: "Generar análisis personal", kind: "info" },
+      "This will open an external Claude Code session (separate terminal) with full permissions to read ~/.claude/projects, MEMORY.md and git history. The session will write an analysis to ~/.ultron/personal/known.json.\n\nContinue?",
+      { title: "Generate personal analysis", kind: "info" },
     );
     if (!confirmed) return;
     setAnalyzing(true);
@@ -117,7 +117,7 @@ export function Personal() {
     try {
       const msg = (await invoke("request_personal_analysis")) as string;
       setAnalysisMsg(
-        `${msg} — vuelve cuando termine el análisis y pulsa Refresh.`,
+        `${msg} — come back when the analysis finishes and press Refresh.`,
       );
     } catch (e) {
       setKnownError(String(e));
@@ -135,7 +135,7 @@ export function Personal() {
         sampleText: trainText,
       })) as string;
       setTrainMsg(
-        `${msg} — al terminar, pulsa Refresh para recargar known.json`,
+        `${msg} — when it finishes, press Refresh to reload known.json`,
       );
     } catch (e) {
       setTrainMsg(`Error: ${e}`);
@@ -149,7 +149,7 @@ export function Personal() {
     setSampleMsg(null);
     try {
       const msg = (await invoke("generate_style_sample")) as string;
-      setSampleMsg(`${msg} — pulsa Refresh al terminar para ver el sample.`);
+      setSampleMsg(`${msg} — press Refresh when it finishes to see the sample.`);
     } catch (e) {
       setSampleMsg(`Error: ${e}`);
     } finally {
@@ -174,9 +174,9 @@ export function Personal() {
             className="mt-1 text-[12.5px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            A la izquierda, lo que ULTRON ha aprendido de ti analizando
-            transcripts, commits y memoria. A la derecha, tu perfil libre y la
-            herramienta para entrenar tu estilo.
+            On the left, what ULTRON has learned about you by analyzing
+            transcripts, commits and memory. On the right, your free-form
+            profile and the tool to train your style.
           </p>
         </div>
         <button

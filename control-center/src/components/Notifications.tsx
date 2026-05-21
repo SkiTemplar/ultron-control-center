@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import type { AlertEntry } from "../types";
 import { getUltronRoot } from "../lib/paths";
 import { confirmDialog } from "../lib/dialog";
+import { useRoutingTitle } from "../lib/button-prompts";
 
 type Props = {
   alerts: AlertEntry[];
@@ -330,6 +331,16 @@ function Row({ g }: { g: Grouped }) {
   // independently — two simultaneous Fix clicks on different cards should
   // both work without one stomping the other's status.
   const [fixBusy, setFixBusy] = useState<FixProvider | null>(null);
+  // The zone (notif_fix) only lends model/agent here — the provider is
+  // forced by which Fix button the user clicks (Claude vs Codex).
+  const fixClaudeTitle = useRoutingTitle(
+    "notif.fix_one",
+    "Spawn an interactive Claude session with this error pre-loaded on the clipboard. Paste with Ctrl+V to start the fix.",
+  );
+  const fixCodexTitle = useRoutingTitle(
+    "notif.fix_one",
+    "Spawn a Codex session with this error pre-loaded. Provider forced to Codex; model/agent borrowed from the zone below.",
+  );
   const [fixError, setFixError] = useState<string | null>(null);
   const [fixToast, setFixToast] = useState<string | null>(null);
 
@@ -460,7 +471,7 @@ function Row({ g }: { g: Grouped }) {
               type="button"
               onClick={() => openFixSession("claude")}
               disabled={fixBusy !== null}
-              title="Spawn an interactive Claude session with this error pre-loaded on the clipboard. Paste with Ctrl+V to start the fix."
+              title={fixClaudeTitle}
               className="rounded px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
               style={{
                 background: "var(--color-surface-3)",
@@ -474,7 +485,7 @@ function Row({ g }: { g: Grouped }) {
               type="button"
               onClick={() => openFixSession("codex")}
               disabled={fixBusy !== null}
-              title="Same flow, but spawn a Codex session instead. Useful when you want a second opinion or Claude is rate-limited."
+              title={fixCodexTitle}
               className="rounded px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
               style={{
                 background: "var(--color-surface-3)",
@@ -581,6 +592,9 @@ export function Notifications({ alerts, onDeleted }: Props) {
   const [bulkFixBusy, setBulkFixBusy] = useState<FixProvider | null>(null);
   const [bulkFixToast, setBulkFixToast] = useState<string | null>(null);
   const [bulkFixError, setBulkFixError] = useState<string | null>(null);
+  // Routing fragment for the bulk Fix-all buttons (zone notif_fix). Provider
+  // is forced by the button; the zone lends model/agent only.
+  const bulkRouting = useRoutingTitle("notif.fix_all", "");
 
   useEffect(() => saveMutes(mutes), [mutes]);
   useEffect(() => saveSevFilters(sevFilters), [sevFilters]);
@@ -839,7 +853,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
                   }
                 }}
                 disabled={infoVisible.length === 0 || deleting}
-                title="Elimina permanentemente las notificaciones info visibles de ~/.ultron/alerts.jsonl"
+                title="Permanently delete the visible info notifications from ~/.ultron/alerts.jsonl"
                 className="text-[11px] transition-colors disabled:opacity-30"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
@@ -857,7 +871,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
               onClick={async () => {
                 if (deleting || visibleGroups.length === 0) return;
                 const ok = await confirmDialog(
-                  `Eliminar permanentemente ${visibleGroups.length} notificacion${visibleGroups.length === 1 ? "" : "es"} (incluyendo critical y warn)?`,
+                  `Permanently delete ${visibleGroups.length} notification${visibleGroups.length === 1 ? "" : "s"} (including critical and warn)?`,
                   { title: "Clear all notifications", kind: "warning" },
                 );
                 if (!ok) return;
@@ -881,22 +895,11 @@ export function Notifications({ alerts, onDeleted }: Props) {
                 }
               }}
               disabled={deleting}
-              title="Borra TODAS las notificaciones visibles (info + warn + critical) del archivo alerts.jsonl. Pide confirmación primero."
+              title="Delete ALL visible notifications (info + warn + critical) from the alerts.jsonl file. Asks for confirmation first."
               className="text-[11px] transition-colors disabled:opacity-30"
               style={{ color: "var(--color-danger)" }}
             >
               {deleting ? "Deleting…" : `Clear all (${visibleGroups.length})`}
-            </button>
-          )}
-          {dismissed.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setDismissed(new Set())}
-              title="Restaura todas las notificaciones descartadas"
-              className="text-[11px] transition-colors"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              Undo ({dismissed.size})
             </button>
           )}
           <label
@@ -930,7 +933,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
                 type="button"
                 onClick={() => openBulkFixSession("claude")}
                 disabled={bulkFixBusy !== null}
-                title={`Spawn a Claude session pre-loaded with ALL ${actionableGroups.length} actionable notification${actionableGroups.length === 1 ? "" : "s"}. The mega-prompt lands on the clipboard — paste with Ctrl+V.`}
+                title={`Spawn a Claude session pre-loaded with ALL ${actionableGroups.length} actionable notification${actionableGroups.length === 1 ? "" : "s"}. The mega-prompt lands on the clipboard — paste with Ctrl+V.${bulkRouting ? ` · ${bulkRouting}` : ""}`}
                 className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                 style={{
                   background: "var(--color-surface-3)",
@@ -946,7 +949,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
                 type="button"
                 onClick={() => openBulkFixSession("codex")}
                 disabled={bulkFixBusy !== null}
-                title={`Same flow, Codex instead of Claude. Useful for a second opinion across all ${actionableGroups.length} notification${actionableGroups.length === 1 ? "" : "s"}.`}
+                title={`Same flow, Codex instead of Claude. Useful for a second opinion across all ${actionableGroups.length} notification${actionableGroups.length === 1 ? "" : "s"}.${bulkRouting ? ` · ${bulkRouting}` : ""}`}
                 className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                 style={{
                   background: "var(--color-surface-3)",

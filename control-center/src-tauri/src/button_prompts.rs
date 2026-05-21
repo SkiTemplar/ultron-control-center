@@ -174,24 +174,16 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "I'm getting multiple ULTRON notifications. Please investigate ALL of them and propose fixes. Group related ones if applicable, prioritize critical over warn.\n\n{bulk_block}\n\nPlease:\n1. Identify the root cause(s) — are these symptoms of one underlying issue?\n2. Propose a coordinated fix sequence.\n3. Start by reading scripts/cockpit/skill_sync_security.py if security warns are involved, and ~/.ultron/alerts.jsonl for the full context.",
         ),
         default_button(
-            "plans.brainstorm",
-            "Plans · AI brainstorm",
-            "Plans / header AI Brainstorm button",
-            "Seeds an interactive Claude/Codex session with a brainstorming \
-             prompt that converges on a plans JSON ready for `ultron plans add`.",
-            "brainstorm_plans",
-            &[],
-            "Vamos a hacer brainstorming de un nuevo plan para ULTRON.\n\nPregúntame qué quiero conseguir, refina alcance iterando conmigo, propón sub-tareas concretas, y al final genera el JSON de `ultron plans add` listo para ejecutar (o varios bloques si salen varios planes). Esquema:\n\n{\n  \"title\": \"imperativo, <80 chars\",\n  \"priority\": \"p0..p4\",\n  \"kind\": \"task|sprint|patch|bug|research|audit\",\n  \"status\": \"open\",\n  \"description\": \"1-2 párrafos\",\n  \"tags\": [\"...\"]\n}\n\nLee ~/.ultron/instructions/plans/GUIDE.md antes de empezar para no inventar campos.",
-        ),
-        default_button(
             "plans.sprint_ai",
             "Plans · Sprint AI",
             "Plans / Open column Sprint AI button",
             "Spawns a Claude session preloaded with all open plans and their \
-             priorities, generating an actionable sprint proposal ordered P0→P3.",
+             priorities. Proposes an actionable sprint ordered P0→P3 AND \
+             rewrites/sharpens any plan that was hand-written (vague title, \
+             thin description, missing DONE criteria).",
             "brainstorm_plans",
             &["open_plans_block"],
-            "Eres el orquestador de ULTRON. Analiza los planes open actuales y propón un sprint accionable para esta sesión.\n\n## Planes open (ordenados por prioridad)\n{open_plans_block}\n\nPropón un sprint de máximo 3-4 items. Para cada item:\n- Por qué es prioritario ahora\n- Estimación realista (30min / 1h / 2h / 3h)\n- Criterio de DONE concreto y verificable\n- Qué NO tocar\n\nFormato: lista numerada, sin inflación. Lee ~/.ultron/instructions/plans/GUIDE.md primero.",
+            "Eres el orquestador de ULTRON. Tienes dos trabajos sobre los planes open.\n\n## Planes open (ordenados por prioridad)\n{open_plans_block}\n\n### 1. Reescribir los planes puestos a mano\nVarios de estos planes los escribió el usuario a mano y pueden estar flojos: título vago, descripción pobre o ausente, sin criterio de DONE, prioridad o kind dudosos. Para cada plan que lo necesite:\n- Reescribe el título a algo imperativo y concreto (<80 chars)\n- Mejora la descripción: 1-2 párrafos con contexto, alcance y un criterio de DONE verificable\n- Corrige priority (p0-p4) y kind si están mal\n- Aplica el cambio con `update_plan` (id, title, priority, kind, description, tags)\nNo inventes alcance que el usuario no pidió — solo aclara y estructura lo que ya está. Si un plan ya está bien escrito, déjalo.\n\n### 2. Proponer el sprint\nDespués, propón un sprint accionable de máximo 3-4 items. Para cada item:\n- Por qué es prioritario ahora\n- Estimación realista (30min / 1h / 2h / 3h)\n- Criterio de DONE concreto y verificable\n- Qué NO tocar\n\nFormato: lista numerada, sin inflación. Lee ~/.ultron/instructions/plans/GUIDE.md primero para no inventar campos del schema.",
         ),
         default_button(
             "plans.resolve_one",

@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import { Hooks } from "./Hooks";
 import { useFeatures } from "../lib/features";
+import { useRoutingTitle } from "../lib/button-prompts";
 
 // v15.2 F8 UX: System now hosts four inner sub-tabs (Processes/Tweaks removed):
 //   - Overview  : RAM / CPU / disk health + read-only top procs (informational)
@@ -1631,6 +1632,10 @@ export function System() {
   const [runningName, setRunningName] = useState<string | null>(null);
   const [lastRun, setLastRun] = useState<RunTaskResult | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const scheduleTaskTitle = useRoutingTitle(
+    "system.schedule_task_ai",
+    "Register a new Windows scheduled task with AI. cwd=instructions/tasks/ with GUIDE.md auto-loaded.",
+  );
 
   async function load() {
     setLoading(true);
@@ -1787,7 +1792,7 @@ export function System() {
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-            title="Provider / model / agent vienen de Settings → AI Router (zona: system_analyse). cwd=instructions/tasks/ con GUIDE.md auto-cargado."
+            title={scheduleTaskTitle}
           >
             Create with AI
           </button>

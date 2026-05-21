@@ -3,6 +3,20 @@
 > Per `docs/CHANGELOG-POLICY.md`: only MAJOR / MINOR get detailed entries.
 > Patches collapse into the next minor entry as a brief sweep.
 
+## [Unreleased] — fase de correcciones hacia 1.0
+
+> Trabajo de la fase de correcciones del Control Center previa a ULTRON 1.0.
+> No se publica release hasta confirmar la 1.0 (tras el gate de calidad). Se acumula aquí.
+
+- **Idioma:** Control Center unificado a **inglés único** — barrido de ~49 componentes; vocabulario de UI consistente (un verbo por concepto).
+- **Plans tab:** drag-and-drop entre columnas del kanban; fila inferior (Revision/Blocked/Rejected) alineada con la superior; columna `merged` retirada (los items merged van al drawer de archivados); botón "AI Brainstorm" eliminado y "Sprint AI" rediseñado (también reescribe planes manuales).
+- **Notificaciones:** el Delete deja de mostrar un "Undo" engañoso; sistema de notificaciones globalizado — `notify.ts` unifica el popup app-level con la persistencia en `alerts.jsonl`.
+- **Dashboard:** retirado el botón rojo "Close Control Center" de la pantalla inicial (sigue en Settings → Lifecycle).
+- **Sidebar:** pestaña Personal promovida al tier primary.
+- **MCPs:** retirado el botón "Retry" por-card que en realidad re-chequeaba todos los MCP.
+- **AI Router:** los botones de IA muestran en el tooltip la zona destino → provider/modelo.
+- **Higiene:** purgado código muerto (`Logs.tsx`, superficie `tab.logs`); arreglado el bug de ruta de `consistency_check.py`.
+
 <!-- v15.5.22 — Sprint AI button + backlog dedup -->
 ## v15.5.22 — patch (2026-05-20)
 

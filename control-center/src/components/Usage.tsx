@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { DailyPoint, ModelStat, UsageReport, WindowStats } from "../types";
+import { useRoutingTitle } from "../lib/button-prompts";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -134,7 +135,7 @@ function WeeklyResetCard() {
         <div
           className="text-[12.5px] font-semibold tabular-nums"
           style={{ color: "var(--color-text-secondary)" }}
-          title="Porcentaje de la ventana semanal ya consumido"
+          title="Percentage of the weekly window already consumed"
         >
           {pctElapsed.toFixed(1)}%
         </div>
@@ -491,6 +492,10 @@ export function Usage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [usageBusy, setUsageBusy] = useState(false);
+  const refreshUsageTitle = useRoutingTitle(
+    "usage.refresh_with_claude",
+    "Open a Claude session with /usage to see live limits and refresh the cache.",
+  );
 
   async function load() {
     setLoading(true);
@@ -567,7 +572,7 @@ export function Usage() {
             type="button"
             onClick={openClaudeUsage}
             disabled={usageBusy}
-            title="Abre una sesión Claude con /usage para ver los límites en vivo y refrescar la cache"
+            title={refreshUsageTitle}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
             style={{
               background: "var(--color-surface-2)",
@@ -575,7 +580,7 @@ export function Usage() {
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            {usageBusy ? "Abriendo…" : "Claude /usage"}
+            {usageBusy ? "Opening…" : "Claude /usage"}
           </button>
           <button
             type="button"

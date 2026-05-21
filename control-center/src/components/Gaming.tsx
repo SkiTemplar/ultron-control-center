@@ -61,8 +61,8 @@ function WindowsTweaksSection() {
         className="mb-3 text-[11px]"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Cambios reversibles user-level (registro HKCU + powercfg). Sin admin.
-        Cada toggle aplica el cambio en el momento y guarda el estado.
+        Reversible user-level changes (HKCU registry + powercfg). No admin
+        required. Each toggle applies the change instantly and saves the state.
       </p>
       {error && (
         <div

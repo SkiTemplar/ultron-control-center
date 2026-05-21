@@ -1,5 +1,13 @@
-import { type CSSProperties, type ReactElement, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type DragEvent as ReactDragEvent,
+  type ReactElement,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useRoutingTitle } from "../lib/button-prompts";
 
 // Plans tab — read/write PLANS.json. Kanban (Open / In progress / Blocked /
 // Resolved) + create/edit/delete + clean-resolved bulk + "Open resolution
@@ -33,6 +41,18 @@ const COLUMNS: { key: string; label: string; tint: string }[] = [
   { key: "resolved", label: "Resolved", tint: "var(--color-success)" },
   { key: "rejected", label: "Rejected", tint: "var(--color-text-tertiary)" },
 ];
+
+// Bottom-row kanban lanes — exception / terminal states
+// (revision / blocked / rejected). `merged` is intentionally NOT a column:
+// merged plans shipped already, so they route to the "Archived" drawer
+// (see `archivedItems`) where they stay findable without inflating the
+// open/total counts on the board.
+const BOTTOM_COLUMNS = ["revision", "blocked", "rejected"];
+
+// Terminal statuses that drop off the kanban and surface in the "Archived"
+// drawer instead. `archived` is the auto-archive target for stale resolved
+// plans; `merged` is a plan that already shipped via merge.
+const ARCHIVED_STATUSES = new Set(["archived", "merged"]);
 
 const PRIORITY_OPTIONS = ["p0", "p1", "p2", "p3", "p4"];
 const KIND_OPTIONS = ["task", "sprint", "patch", "bug", "feature", "refactor", "polish", "research", "audit"];
@@ -76,6 +96,9 @@ function PlanCard({
   onEdit,
   onDelete,
   onOpenSession,
+  onDragStart,
+  onDragEnd,
+  dragging,
 }: {
   item: PlanItem;
   onMove: (target: string) => void;
@@ -84,13 +107,33 @@ function PlanCard({
   onEdit: () => void;
   onDelete: () => void;
   onOpenSession: () => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  dragging: boolean;
 }) {
+  const openSessionTitle = useRoutingTitle(
+    "plans.resolve_one",
+    "Open an AI session in ULTRON with this plan as the initial prompt.",
+  );
   return (
     <div
+      // Native HTML5 drag-and-drop: the whole card is the drag handle. The
+      // payload (plan id) travels via dataTransfer, set in onDragStart.
+      // Dropping onto a column calls `move(id, target)` — same path as the
+      // expand+button flow, which stays in place (DnD is additive).
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.setData("text/plain", item.id);
+        e.dataTransfer.effectAllowed = "move";
+        onDragStart();
+      }}
+      onDragEnd={onDragEnd}
       className="rounded p-3 transition-colors"
       style={{
         background: "var(--color-surface-2)",
         border: "1px solid var(--color-border)",
+        cursor: "grab",
+        opacity: dragging ? 0.45 : 1,
       }}
     >
       <div className="flex items-start gap-2">
@@ -159,7 +202,7 @@ function PlanCard({
                   color: "var(--color-text-secondary)",
                   border: "1px solid var(--color-border)",
                 }}
-                title={`Mover a ${c.label}`}
+                title={`Move to ${c.label}`}
               >
                 {c.label.toLowerCase()}
               </button>
@@ -174,7 +217,7 @@ function PlanCard({
                 background: "var(--color-accent)",
                 color: "var(--color-accent-text)",
               }}
-              title="Abre una sesión Claude en ULTRON con este plan como prompt inicial"
+              title={openSessionTitle}
             >
               Open session
             </button>
@@ -468,8 +511,6 @@ function StatBox({ label, value }: { label: string; value: string | number }) {
 function ColumnActions(props: {
   column: string;
   onNew: () => void;
-  onBrainstorm: () => void;
-  brainstormBusy: boolean;
   onSprintAi: () => void;
   sprintAiBusy: boolean;
   onExecute: () => void;
@@ -491,6 +532,25 @@ function ColumnActions(props: {
     border: "1px solid var(--color-border)",
   };
 
+  // Routing destination per AI button — each catalog key resolves through
+  // the AI Router so the user can see provider/model before clicking.
+  const sprintTitle = useRoutingTitle(
+    "plans.sprint_ai",
+    "Generate an actionable sprint proposal from the current open plans and rewrite/improve the ones added by hand.",
+  );
+  const executeTitle = useRoutingTitle(
+    "plans.execute",
+    "Launch an AI session to execute the open plans in priority order.",
+  );
+  const reviewTitle = useRoutingTitle(
+    "plans.review",
+    "Launch an AI session for an adversarial review of the plans in revision.",
+  );
+  const resolveBlockTitle = useRoutingTitle(
+    "plans.resolve_in_progress",
+    "Launch an AI session to unblock the plan: reads description + spec, proposes an unstuck path.",
+  );
+
   let buttons: ReactElement[] = [];
   switch (props.column) {
     case "open":
@@ -501,20 +561,9 @@ function ColumnActions(props: {
           onClick={props.onNew}
           className={baseBtn}
           style={subtle}
-          title="Crea un plan vacío manualmente (modal con title / priority / kind / tags / description)."
+          title="Create an empty plan manually (modal with title / priority / kind / tags / description)."
         >
           New Plan
-        </button>,
-        <button
-          key="brain"
-          type="button"
-          onClick={props.onBrainstorm}
-          disabled={props.brainstormBusy}
-          className={baseBtn}
-          style={accent}
-          title="Abre una sesión Claude en wt.exe (paste_only) para brainstorming guiado del próximo plan."
-        >
-          {props.brainstormBusy ? "Opening..." : "AI Brainstorm"}
         </button>,
         <button
           key="sprint"
@@ -522,8 +571,8 @@ function ColumnActions(props: {
           onClick={props.onSprintAi}
           disabled={props.sprintAiBusy}
           className={baseBtn}
-          style={subtle}
-          title="Genera una propuesta de sprint accionable basada en los planes open actuales, prioridad y sesiones anteriores."
+          style={accent}
+          title={sprintTitle}
         >
           {props.sprintAiBusy ? "Opening..." : "Sprint AI"}
         </button>,
@@ -537,7 +586,7 @@ function ColumnActions(props: {
           onClick={props.onExecute}
           className={baseBtn}
           style={accent}
-          title="Lanza Claude para ejecutar el plan in_progress (o el siguiente open p0/p1)."
+          title={executeTitle}
         >
           Execute
         </button>,
@@ -551,7 +600,7 @@ function ColumnActions(props: {
           onClick={props.onReview}
           className={baseBtn}
           style={accent}
-          title="Lanza Claude para revisión adversarial de los planes en revision."
+          title={reviewTitle}
         >
           AI Review
         </button>,
@@ -565,7 +614,7 @@ function ColumnActions(props: {
           onClick={props.onResolveBlock}
           className={baseBtn}
           style={subtle}
-          title="Lanza Claude para desbloquear el plan: lee descripción + spec, propone unstuck."
+          title={resolveBlockTitle}
         >
           Resolve block
         </button>,
@@ -580,7 +629,7 @@ function ColumnActions(props: {
           disabled={props.archiveDisabled}
           className={baseBtn}
           style={subtle}
-          title="Mueve todos los resolved a plans/_archive/resolved-YYYY-MM.json (atómico, no destructivo)."
+          title="Move all resolved plans to plans/_archive/resolved-YYYY-MM.json (atomic, non-destructive)."
         >
           Archive selected ({props.archiveCount})
         </button>,
@@ -617,6 +666,11 @@ export function Plans() {
   const [aiBusy, setAiBusy] = useState(false);
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [archivedDays, setArchivedDays] = useState<number>(30);
+  // Drag-and-drop state for the kanban. `draggingId` is the plan being
+  // dragged (used to dim its card); `dragOverColumn` is the lane currently
+  // hovered (used to highlight the drop target). Both reset on drop/end.
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
@@ -670,6 +724,20 @@ export function Plans() {
     }
   }
 
+  // Drop handler for kanban columns. Reads the plan id from dataTransfer
+  // and routes through `move` — the same `patch_plan_status` call the
+  // expand+button flow uses. No-op if dropped on the card's own column.
+  function handleColumnDrop(e: ReactDragEvent, target: string) {
+    e.preventDefault();
+    setDragOverColumn(null);
+    setDraggingId(null);
+    const id = e.dataTransfer.getData("text/plain");
+    if (!id) return;
+    const current = report?.items.find((it) => it.id === id);
+    if (current && current.status === target) return;
+    void move(id, target);
+  }
+
   async function submitPlan() {
     if (!modalState) return;
     setModalBusy(true);
@@ -721,9 +789,6 @@ export function Plans() {
     }
   }
 
-  // AI brainstorm: send the goal to Codex, parse the structured response
-  // and bulk-add plans. We use Codex (not Claude) by default to conserve
-  // Claude tokens for interactive sessions.
   // Spawn a Claude session targeted at one of four plan workflows.
   // cwd = ~/.ultron/instructions/plans/ so Claude auto-reads the GUIDE.md
   // and knows the schema, status names, atomic-write rules, etc. — saves
@@ -754,41 +819,10 @@ export function Plans() {
         cwd: instrPath,
         flags: { dangerouslySkipPermissions: false },
       });
-      setInfo(`Claude session abierta (${kind}). Continúa en wt.exe.`);
+      setInfo(`Claude session opened (${kind}). Continue in wt.exe.`);
       window.setTimeout(() => setInfo(null), 3500);
     } catch (e) {
       setError(String(e));
-    }
-  }
-
-  // AI Brainstorm: spawn an INTERACTIVE Claude session in wt.exe with the
-  // seed prompt copied to the clipboard (paste_only). User pastes with
-  // Ctrl+V, Claude pregunta qué quiere conseguir, refina alcance, propone
-  // sub-tareas y al final genera el JSON de `ultron plans add` listo para
-  // ejecutar. Mismo patrón que F1.9 / Diagnose con Claude — no quema tokens
-  // de Codex y mantiene la conversación en una terminal real.
-  async function aiBrainstorm() {
-    setAiBusy(true);
-    setError(null);
-    try {
-      // v15.2.40: prompt + provider/model/agent come from the central
-      // catalog (key "plans.brainstorm") and the brainstorm_plans AI
-      // Router zone. Auto-mode picks the best subagent via
-      // embed_agents.py query when enabled.
-      const { resolveAndSpawn } = await import("../lib/button-prompts");
-      const { resolved } = await resolveAndSpawn({
-        key: "plans.brainstorm",
-        cwd: null,
-        extraFlags: { pasteOnly: true },
-      });
-      setInfo(
-        `${resolved.entry.provider} brainstorm abierto en wt.exe. El prompt está en el portapapeles — pega con Ctrl+V y dale Enter.`,
-      );
-      window.setTimeout(() => setInfo(null), 5000);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setAiBusy(false);
     }
   }
 
@@ -809,12 +843,12 @@ export function Plans() {
       const { resolveAndSpawn } = await import("../lib/button-prompts");
       const { resolved } = await resolveAndSpawn({
         key: "plans.sprint_ai",
-        vars: { open_plans_block: open_plans_block || "(sin planes open)" },
+        vars: { open_plans_block: open_plans_block || "(no open plans)" },
         cwd: null,
         extraFlags: { pasteOnly: true },
       });
       setInfo(
-        `Sprint AI abierto con ${resolved.entry.provider}. Prompt en portapapeles — pega con Ctrl+V y dale Enter.`,
+        `Sprint AI opened with ${resolved.entry.provider}. Prompt on the clipboard — paste with Ctrl+V and hit Enter.`,
       );
       window.setTimeout(() => setInfo(null), 5000);
     } catch (e) {
@@ -873,7 +907,7 @@ export function Plans() {
     if (!report) return [];
     const q = query.trim().toLowerCase();
     return report.items
-      .filter((it) => it.status !== "archived" && it.status !== "merged") // kanban hides archived + merged
+      .filter((it) => !ARCHIVED_STATUSES.has(it.status)) // kanban hides archived + merged (both in the drawer)
       .filter((it) => {
         if (priorityFilter.size === 0) return true;
         return priorityFilter.has(it.priority);
@@ -894,12 +928,11 @@ export function Plans() {
 
   const archivedItems = useMemo(() => {
     if (!report) return [] as PlanItem[];
-    // merged is a terminal state too — like archived, it's hidden from the
-    // kanban + totals. Surface it in the drawer so a merged plan stays
-    // visible and restorable instead of vanishing from the whole UI.
-    return report.items.filter(
-      (it) => it.status === "archived" || it.status === "merged",
-    );
+    // The drawer holds terminal plans that left the kanban: `archived`
+    // (stale resolved, auto-archived) and `merged` (shipped via merge).
+    // Routing `merged` here keeps those items findable without letting
+    // them inflate the open/total counts on the board.
+    return report.items.filter((it) => ARCHIVED_STATUSES.has(it.status));
   }, [report]);
 
   const grouped = useMemo(() => {
@@ -926,7 +959,10 @@ export function Plans() {
     const validStatuses = new Set(COLUMNS.map((c) => c.key));
     let total = 0;
     for (const it of report.items) {
-      if (it.status === "archived" || it.status === "merged") continue; // excluded from totals + buckets
+      // `archived` + `merged` leave the kanban for the drawer, so they're
+      // excluded from totals + buckets. Without this, `merged` (no longer a
+      // valid column) would fall through to the `open` bucket and inflate it.
+      if (ARCHIVED_STATUSES.has(it.status)) continue;
       // Match the kanban column-bucket logic so the stat cards agree with the columns
       const bucket = validStatuses.has(it.status) ? it.status : "open";
       byStatus[bucket] = (byStatus[bucket] ?? 0) + 1;
@@ -988,7 +1024,7 @@ export function Plans() {
               color: "var(--color-text-tertiary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title={`Mostrar planes archivados (resolved > ${archivedDays} días). Auto-archive corre cada 5 min.`}
+            title={`Show archived plans (resolved > ${archivedDays} days). Auto-archive runs every 5 min.`}
           >
             Show archived
           </button>
@@ -1027,7 +1063,7 @@ export function Plans() {
             border: "1px solid var(--color-border)",
             cursor: "pointer",
           }}
-          title="Abre el drawer de archivados (resolved > N días). Cada item tiene botón Restore para volver al kanban."
+          title="Open the archived drawer (resolved > N days). Each item has a Restore button to bring it back to the kanban."
         >
           <div
             className="text-[10px] uppercase tracking-wide"
@@ -1049,7 +1085,7 @@ export function Plans() {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar id, titulo, tag o descripcion..."
+          placeholder="Search by id, title, tag or description..."
           className="rounded px-3 py-1.5 text-[12.5px]"
           style={{
             background: "var(--color-surface-2)",
@@ -1111,18 +1147,23 @@ export function Plans() {
       )}
 
       {/* v15.5.18 (user request): 2-row layout. Top row = active states
-          (open / in_progress / resolved). Bottom row = exception states
-          (revision / blocked). Stops the 5-column horizontal scroll caused by
-          long titles in `open` and gives the eye the natural reading order. */}
+          (open / in_progress / resolved). Bottom row = exception + terminal
+          states (revision / blocked / rejected). Stops the horizontal scroll
+          caused by long titles in `open` and gives the eye the natural
+          reading order. `merged` plans live in the Archived drawer. */}
       <div className="flex flex-1 flex-col gap-3 overflow-hidden">
         <div className="grid flex-1 grid-cols-3 gap-3 overflow-hidden">
           {COLUMNS.filter((c) => ["open", "in_progress", "resolved"].includes(c.key)).map((c) => (
           <div
             key={c.key}
-            className="flex flex-col overflow-hidden rounded"
+            className="flex flex-col overflow-hidden rounded transition-colors"
             style={{
               background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border)",
+              border: `1px solid ${
+                dragOverColumn === c.key
+                  ? "var(--color-accent)"
+                  : "var(--color-border)"
+              }`,
             }}
           >
             <div
@@ -1155,8 +1196,6 @@ export function Plans() {
             <ColumnActions
               column={c.key}
               onNew={startNew}
-              onBrainstorm={aiBrainstorm}
-              brainstormBusy={aiBusy}
               onSprintAi={aiSprintPlan}
               sprintAiBusy={aiBusy}
               onExecute={() => spawnClaudePlanFlow("execute")}
@@ -1166,7 +1205,28 @@ export function Plans() {
               archiveDisabled={resolvedCount === 0}
               archiveCount={resolvedCount}
             />
-            <div className="flex-1 space-y-2 overflow-auto p-2">
+            <div
+              className="flex-1 space-y-2 overflow-auto p-2 transition-colors"
+              style={{
+                background:
+                  dragOverColumn === c.key
+                    ? "var(--color-surface-2)"
+                    : "transparent",
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (dragOverColumn !== c.key) setDragOverColumn(c.key);
+              }}
+              onDragLeave={(e) => {
+                // Only clear when the pointer actually leaves the lane, not
+                // when it crosses a child card boundary.
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                  setDragOverColumn((prev) => (prev === c.key ? null : prev));
+                }
+              }}
+              onDrop={(e) => handleColumnDrop(e, c.key)}
+            >
               {(grouped[c.key] ?? []).map((it) => (
                 <PlanCard
                   key={it.id}
@@ -1177,21 +1237,35 @@ export function Plans() {
                   onEdit={() => startEdit(it)}
                   onDelete={() => setPendingDelete(it)}
                   onOpenSession={() => openResolutionSession(it)}
+                  dragging={draggingId === it.id}
+                  onDragStart={() => setDraggingId(it.id)}
+                  onDragEnd={() => {
+                    setDraggingId(null);
+                    setDragOverColumn(null);
+                  }}
                 />
               ))}
             </div>
           </div>
         ))}
         </div>
-        {/* Bottom row — exception states (revision / blocked). */}
-        <div className="grid grid-cols-2 gap-3 overflow-hidden" style={{ maxHeight: "45%" }}>
-          {COLUMNS.filter((c) => ["revision", "blocked"].includes(c.key)).map((c) => (
+        {/* Bottom row — exception + terminal states
+            (revision / blocked / rejected). grid-cols-3 mirrors the top
+            row so the 3 lanes line up vertically with open / in_progress
+            / resolved (was md:grid-cols-4, a leftover from when `merged`
+            was a 4th column — it left a dead slot and broke alignment). */}
+        <div className="grid grid-cols-3 gap-3 overflow-hidden" style={{ maxHeight: "45%" }}>
+          {COLUMNS.filter((c) => BOTTOM_COLUMNS.includes(c.key)).map((c) => (
             <div
               key={c.key}
-              className="flex flex-col overflow-hidden rounded"
+              className="flex flex-col overflow-hidden rounded transition-colors"
               style={{
                 background: "var(--color-surface-1)",
-                border: "1px solid var(--color-border)",
+                border: `1px solid ${
+                  dragOverColumn === c.key
+                    ? "var(--color-accent)"
+                    : "var(--color-border)"
+                }`,
               }}
             >
               <div
@@ -1220,8 +1294,6 @@ export function Plans() {
               <ColumnActions
                 column={c.key}
                 onNew={startNew}
-                onBrainstorm={aiBrainstorm}
-                brainstormBusy={aiBusy}
                 onSprintAi={aiSprintPlan}
                 sprintAiBusy={aiBusy}
                 onExecute={() => spawnClaudePlanFlow("execute")}
@@ -1231,7 +1303,26 @@ export function Plans() {
                 archiveDisabled={resolvedCount === 0}
                 archiveCount={resolvedCount}
               />
-              <div className="flex-1 space-y-2 overflow-auto p-2">
+              <div
+                className="flex-1 space-y-2 overflow-auto p-2 transition-colors"
+                style={{
+                  background:
+                    dragOverColumn === c.key
+                      ? "var(--color-surface-2)"
+                      : "transparent",
+                }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (dragOverColumn !== c.key) setDragOverColumn(c.key);
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    setDragOverColumn((prev) => (prev === c.key ? null : prev));
+                  }
+                }}
+                onDrop={(e) => handleColumnDrop(e, c.key)}
+              >
                 {(grouped[c.key] ?? []).map((it) => (
                   <PlanCard
                     key={it.id}
@@ -1242,6 +1333,12 @@ export function Plans() {
                     onEdit={() => startEdit(it)}
                     onDelete={() => setPendingDelete(it)}
                     onOpenSession={() => openResolutionSession(it)}
+                    dragging={draggingId === it.id}
+                    onDragStart={() => setDraggingId(it.id)}
+                    onDragEnd={() => {
+                      setDraggingId(null);
+                      setDragOverColumn(null);
+                    }}
                   />
                 ))}
               </div>
@@ -1274,8 +1371,8 @@ export function Plans() {
                   className="mt-0.5 text-[11px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  Resolved hace más de {archivedDays} días — fuera del kanban
-                  pero todavía en PLANS.json ({archivedItems.length} items).
+                  Resolved more than {archivedDays} days ago — off the kanban
+                  but still in PLANS.json ({archivedItems.length} items).
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -1299,7 +1396,7 @@ export function Plans() {
                     color: "var(--color-text)",
                     border: "1px solid var(--color-border-strong)",
                   }}
-                  title="Threshold en días para auto-archivar resolved (default 30, persiste sólo en sesión)."
+                  title="Threshold in days for auto-archiving resolved plans (default 30, persists for the session only)."
                 />
                 <button
                   type="button"
@@ -1318,7 +1415,7 @@ export function Plans() {
                   className="px-1 py-4 text-center text-[12px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  No hay planes archivados todavía.
+                  No archived plans yet.
                 </p>
               )}
               {archivedItems.map((it) => (
@@ -1358,7 +1455,7 @@ export function Plans() {
                         color: "var(--color-text-secondary)",
                         border: "1px solid var(--color-border)",
                       }}
-                      title="Devuelve este plan al kanban (status=resolved) para volver a verlo."
+                      title="Return this plan to the kanban (status=resolved) so it shows up again."
                     >
                       Restore
                     </button>
@@ -1401,8 +1498,8 @@ export function Plans() {
               style={{ color: "var(--color-text-secondary)" }}
             >
               Drop <b>{pendingDelete.title || pendingDelete.id}</b> from
-              PLANS.json? El cambio es atómico (tmp+rename). El spec en
-              disco no se toca.
+              PLANS.json? The change is atomic (tmp+rename). The spec on
+              disk is left untouched.
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
@@ -1454,9 +1551,9 @@ export function Plans() {
               className="mt-2 text-[12.5px] leading-relaxed"
               style={{ color: "var(--color-text-secondary)" }}
             >
-              Mueve los {resolvedCount} planes con status="resolved" a
-              plans/_archive/resolved-YYYY-MM.json y los quita de PLANS.json.
-              Se conservan en disco — no se borran. Atómico (tmp+rename).
+              Moves the {resolvedCount} plans with status="resolved" to
+              plans/_archive/resolved-YYYY-MM.json and removes them from PLANS.json.
+              They are kept on disk — not deleted. Atomic (tmp+rename).
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button

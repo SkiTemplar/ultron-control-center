@@ -115,8 +115,8 @@ export function CodexFallbackButton({ cwd, onToast }: Props) {
               className="mt-0.5 text-[11.5px]"
               style={{ color: "var(--color-text-secondary)" }}
             >
-              Empaqueta skill activa, tarea, contexto L0, señales y últimas
-              interacciones, y abre una sesión Codex con ese prompt.
+              Bundles the active skill, task, L0 context, signals and recent
+              interactions, then opens a Codex session with that prompt.
             </div>
           </div>
           <button
@@ -160,8 +160,8 @@ export function CodexFallbackButton({ cwd, onToast }: Props) {
                   className="mt-0.5 text-[11.5px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  Revisa lo que Codex va a recibir. Si todo cuadra, lanza la
-                  sesión.
+                  Review what Codex will receive. If everything checks out,
+                  launch the session.
                 </p>
               </div>
               <button
@@ -184,7 +184,7 @@ export function CodexFallbackButton({ cwd, onToast }: Props) {
                   color: "var(--color-text-tertiary)",
                 }}
               >
-                Cargando contexto...
+                Loading context...
               </div>
             )}
 
@@ -211,7 +211,7 @@ export function CodexFallbackButton({ cwd, onToast }: Props) {
                   fontFamily: "var(--font-mono)",
                 }}
               >
-                {prompt || "(prompt vacío — no se encontró contexto)"}
+                {prompt || "(empty prompt — no context found)"}
               </pre>
             )}
 

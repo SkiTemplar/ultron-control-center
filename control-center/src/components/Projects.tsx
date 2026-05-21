@@ -708,10 +708,10 @@ function lastActiveScore(p: ProjectInfo): number {
 // v15.4.11 — 3 kinds primarios + exe como advanced. Sesión consolida
 // claude/codex/gemini detrás de un sub-selector provider.
 const ITEM_KINDS: { value: LauncherItemKind; label: string; hint: string }[] = [
-  { value: "folder", label: "Folder", hint: "Abrir la carpeta en Windows Explorer" },
-  { value: "ide", label: "IDE", hint: "Abrir el proyecto en el IDE preferido (VS Code / Cursor / Rider / CLion / etc.)" },
-  { value: "session", label: "Sesión AI", hint: "Lanzar nueva sesión de Claude / Codex / Gemini (selector debajo)" },
-  { value: "exe", label: "Executable (advanced)", hint: "Spawn de .exe / .lnk / .bat con argumentos opcionales" },
+  { value: "folder", label: "Folder", hint: "Open the folder in Windows Explorer" },
+  { value: "ide", label: "IDE", hint: "Open the project in the preferred IDE (VS Code / Cursor / Rider / CLion / etc.)" },
+  { value: "session", label: "AI session", hint: "Start a new Claude / Codex / Gemini session (selector below)" },
+  { value: "exe", label: "Executable (advanced)", hint: "Spawn an .exe / .lnk / .bat with optional arguments" },
 ];
 
 export function Projects() {
@@ -1246,7 +1246,7 @@ export function Projects() {
               color: "var(--color-text)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Walk del filesystem en busca de proyectos nuevos (uv run scan_projects.py + rewrite de projects.json). Tarda más; ejecuta sólo cuando hayas añadido carpetas en disco."
+            title="Walks the filesystem looking for new projects (uv run scan_projects.py + projects.json rewrite). Slower; run it only after you have added folders on disk."
           >
             {scanning ? "Scanning…" : "Rescan disk"}
           </button>
@@ -1260,7 +1260,7 @@ export function Projects() {
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Re-lee projects.json sin tocar disco. Útil si has editado proyectos en otra herramienta."
+            title="Re-reads projects.json without touching the disk. Useful if you have edited projects in another tool."
           >
             {loading ? "Loading…" : "Refresh list"}
           </button>
@@ -1852,9 +1852,9 @@ export function Projects() {
                     className="mt-1 text-[10.5px]"
                     style={{ color: "var(--color-text-faint)" }}
                   >
-                    Abre el directorio en el IDE preferido del proyecto
-                    (configurable en Edit project). Auto-detecta si no hay
-                    uno explícito.
+                    Opens the directory in the project's preferred IDE
+                    (configurable under Edit project). Auto-detects if none
+                    is set explicitly.
                   </p>
                 </div>
               )}
@@ -1971,14 +1971,14 @@ export function Projects() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-[14px] font-semibold">Borrar del registro</h3>
+            <h3 className="text-[14px] font-semibold">Delete from registry</h3>
             <p
               className="mt-2 text-[12.5px] leading-relaxed"
               style={{ color: "var(--color-text-secondary)" }}
             >
-              ¿Quitar <b>{pendingDelete.name ?? pendingDelete.id}</b> de
-              projects.json? No se tocan archivos en disco — solo se
-              elimina la entrada del registro.
+              Remove <b>{pendingDelete.name ?? pendingDelete.id}</b> from
+              projects.json? No files on disk are touched — only the registry
+              entry is removed.
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button
@@ -1992,7 +1992,7 @@ export function Projects() {
                   border: "1px solid var(--color-border-strong)",
                 }}
               >
-                Cancelar
+                Cancel
               </button>
               <button
                 type="button"
@@ -2004,7 +2004,7 @@ export function Projects() {
                   color: "#fff",
                 }}
               >
-                {deleteBusy ? "Borrando…" : "Borrar"}
+                {deleteBusy ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>

@@ -11,6 +11,7 @@
 // `refreshButtonPrompts()` after saving so consumers see the new prompt
 // without a hard reload.
 
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 export type ButtonPrompt = {
@@ -241,4 +242,126 @@ export async function resolveAndSpawn(
     },
   });
   return { prompt, resolved };
+}
+
+// ---------------------------------------------------------------------------
+// ai-router-visibility — surface where an AI button routes
+//
+// Kirkardo P2: from the button itself the user can't see which provider /
+// model an "AI" action will use. Every AI button funnels through a
+// catalog entry that carries a `zone` (fixed, part of the catalog) which
+// the AI Router maps to a provider/model (user-overridable in Settings →
+// AI Router, persisted to ~/.ultron/.tmp/ai-router.json).
+//
+// `useRoutingTitle(key, baseTitle)` returns a `title=` string that always
+// names the destination, e.g.:
+//
+//   "<baseTitle> · routing: diagnose → claude/opus-4-7 (debugger)"
+//
+// The zone is always resolvable statically from the catalog. The
+// provider/model come from the live AI Router config; if that read fails
+// the hook degrades gracefully to just the zone (still useful — the zone
+// is fixed) plus a "(see Settings → AI Router)" hint.
+// ---------------------------------------------------------------------------
+
+type AiRouterZoneEntry = {
+  provider?: string;
+  model?: string | null;
+  agent?: string | null;
+  auto_mode?: boolean;
+};
+
+let routerCache: Record<string, AiRouterZoneEntry> | null = null;
+let routerInflight: Promise<Record<string, AiRouterZoneEntry> | null> | null =
+  null;
+
+/** Cached read of the AI Router config. `null` on any failure. */
+async function loadAiRouter(): Promise<Record<
+  string,
+  AiRouterZoneEntry
+> | null> {
+  if (routerCache) return routerCache;
+  if (routerInflight) return routerInflight;
+  routerInflight = (async () => {
+    try {
+      const cfg = (await invoke("read_ai_router")) as Record<
+        string,
+        AiRouterZoneEntry
+      >;
+      routerCache = cfg;
+      return cfg;
+    } catch {
+      return null;
+    } finally {
+      routerInflight = null;
+    }
+  })();
+  return routerInflight;
+}
+
+/** Drop a versioned model id to a compact form for the tooltip. */
+function shortModel(model: string): string {
+  // "claude-opus-4-7" → "opus-4-7"; "gpt-5.5" → "gpt-5.5";
+  // "gemini-3.1-flash-preview" → "3.1-flash-preview".
+  return model
+    .replace(/^claude-/, "")
+    .replace(/^gemini-/, "");
+}
+
+/**
+ * Build the routing fragment for a button-prompt `key`. Always returns a
+ * non-empty string. Shape:
+ *   - zoned button:  "routing: <zone> → <provider>/<model> (<agent>)"
+ *   - empty zone:    "routing: direct → claude (no AI Router zone)"
+ *   - router unread: "routing: <zone> → see Settings → AI Router"
+ */
+export async function routingLabelFor(key: string): Promise<string> {
+  const catalog = await loadCatalog();
+  const entry = catalog.buttons.find((b) => b.key === key);
+  if (!entry) return "routing: unknown button";
+  const zone = entry.zone;
+  if (!zone) {
+    // Buttons whose catalog entry has no zone bypass the AI Router and
+    // always spawn a plain Claude session (historical hardcoded provider).
+    return "routing: direct → claude (no AI Router zone)";
+  }
+  const cfg = await loadAiRouter();
+  const z = cfg?.[zone];
+  if (!z || !z.provider) {
+    return `routing: ${zone} → see Settings → AI Router`;
+  }
+  if (z.auto_mode) {
+    // Auto-mode ignores the manual pick at dispatch time and lets the
+    // agents index choose the subagent; the model is whatever that agent
+    // prefers. We can't resolve that statically, so we say so.
+    return `routing: ${zone} → auto (agent picked at dispatch)`;
+  }
+  const model = z.model ? `/${shortModel(z.model)}` : "/default";
+  const agent = z.agent ? ` (${z.agent})` : "";
+  return `routing: ${zone} → ${z.provider}${model}${agent}`;
+}
+
+/**
+ * React hook: returns a `title=` string for an AI button. Starts as the
+ * `baseTitle` (or the routing fragment alone if no base is given) and is
+ * upgraded once the catalog + AI Router config resolve. Safe to use as
+ * `title={useRoutingTitle("plans.sprint_ai", "Generate a sprint…")}`.
+ */
+export function useRoutingTitle(key: string, baseTitle = ""): string {
+  const [routing, setRouting] = useState<string>("");
+  useEffect(() => {
+    let alive = true;
+    routingLabelFor(key)
+      .then((label) => {
+        if (alive) setRouting(label);
+      })
+      .catch(() => {
+        /* keep baseTitle only */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [key]);
+  if (!routing) return baseTitle;
+  return baseTitle ? `${baseTitle} · ${routing}` : routing;
 }

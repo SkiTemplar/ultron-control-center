@@ -38,12 +38,12 @@ export function KnownSection({
     >
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="text-[14px] font-semibold leading-tight">
-          Lo que ULTRON sabe de ti
+          What ULTRON knows about you
         </h2>
         <span className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
           {known?.last_updated
-            ? `actualizado ${formatRel(known.last_updated)}`
-            : "sin análisis"}
+            ? `updated ${formatRel(known.last_updated)}`
+            : "no analysis"}
         </span>
       </div>
 
@@ -76,7 +76,7 @@ export function KnownSection({
       <div className="flex-1 overflow-y-auto pr-1">
         {loading ? (
           <p className="text-[12px]" style={{ color: "var(--color-text-faint)" }}>
-            Cargando...
+            Loading...
           </p>
         ) : empty ? (
           <KnownEmptyState />
@@ -109,7 +109,7 @@ export function KnownSection({
             border: "1px solid var(--color-border-strong)",
           }}
         >
-          {analyzing ? "Abriendo sesión..." : "Generate analysis with Claude"}
+          {analyzing ? "Opening session..." : "Generate analysis with Claude"}
         </button>
       </div>
     </section>
@@ -123,23 +123,24 @@ function KnownEmptyState() {
         className="text-[12.5px] font-medium"
         style={{ color: "var(--color-text)" }}
       >
-        Aún no hay análisis.
+        No analysis yet.
       </div>
       <p
         className="text-[12px] leading-relaxed"
         style={{ color: "var(--color-text-secondary)" }}
       >
-        Pulsa <span style={{ color: "var(--color-text)" }}>Generate analysis</span>{" "}
-        para abrir una sesión de Claude que leerá tus transcripts y memoria, y
-        compondrá un fingerprint con tono, idioma, frases típicas y rutinas.
+        Press <span style={{ color: "var(--color-text)" }}>Generate analysis</span>{" "}
+        to open a Claude session that reads your transcripts and memory, and
+        composes a fingerprint with tone, language, characteristic phrases and
+        routines.
       </p>
       <ul
         className="ml-4 mt-1 list-disc space-y-1 text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        <li>Estilo de escritura (tono, idioma, code-switching)</li>
-        <li>Frases y typos típicos</li>
-        <li>Temas recientes y rutinas detectadas</li>
+        <li>Writing style (tone, language, code-switching)</li>
+        <li>Characteristic phrases and typos</li>
+        <li>Recent topics and detected routines</li>
       </ul>
     </div>
   );
@@ -151,7 +152,7 @@ function KnownContent({ known }: { known: PersonalKnown }) {
     <div className="flex flex-col gap-4">
       {known.style_fingerprint.trim() && (
         <div>
-          <SectionLabel>Estilo de escritura</SectionLabel>
+          <SectionLabel>Writing style</SectionLabel>
           <p
             className="text-[12.5px] leading-relaxed"
             style={{ color: "var(--color-text)" }}
@@ -163,42 +164,42 @@ function KnownContent({ known }: { known: PersonalKnown }) {
 
       {!isWritingStyleEmpty(ws) && (
         <div>
-          <SectionLabel>Cómo escribes</SectionLabel>
+          <SectionLabel>How you write</SectionLabel>
           <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-[12px] leading-relaxed">
             {ws.tone.trim() && (
-              <Row k="Tono" v={ws.tone} />
+              <Row k="Tone" v={ws.tone} />
             )}
             {ws.primary_language.trim() && (
-              <Row k="Idioma principal" v={ws.primary_language} />
+              <Row k="Primary language" v={ws.primary_language} />
             )}
             {ws.code_switching.trim() && (
               <Row k="Code-switching" v={ws.code_switching} />
             )}
             {ws.characteristic_phrases.length > 0 && (
               <ChipRow
-                k="Frases típicas"
+                k="Characteristic phrases"
                 items={ws.characteristic_phrases}
                 tone="text"
               />
             )}
             {ws.typo_patterns.length > 0 && (
               <ChipRow
-                k="Typos típicos"
+                k="Typical typos"
                 items={ws.typo_patterns}
                 tone="secondary"
               />
             )}
             {ws.formatting_habits.trim() && (
-              <Row k="Formato" v={ws.formatting_habits} />
+              <Row k="Formatting" v={ws.formatting_habits} />
             )}
             {ws.average_message_length_chars > 0 && (
               <Row
-                k="Longitud media"
+                k="Average length"
                 v={`${ws.average_message_length_chars.toLocaleString()} chars`}
               />
             )}
             {ws.punctuation_quirks.trim() && (
-              <Row k="Puntuación" v={ws.punctuation_quirks} />
+              <Row k="Punctuation" v={ws.punctuation_quirks} />
             )}
           </dl>
         </div>
@@ -206,7 +207,7 @@ function KnownContent({ known }: { known: PersonalKnown }) {
 
       {known.recent_topics.length > 0 && (
         <div>
-          <SectionLabel>Temas recientes</SectionLabel>
+          <SectionLabel>Recent topics</SectionLabel>
           <div className="flex flex-wrap gap-1.5">
             {known.recent_topics.map((t, i) => (
               <span
@@ -227,7 +228,7 @@ function KnownContent({ known }: { known: PersonalKnown }) {
 
       {known.routines.length > 0 && (
         <div>
-          <SectionLabel>Rutinas</SectionLabel>
+          <SectionLabel>Routines</SectionLabel>
           <ul className="flex flex-col gap-1">
             {known.routines.map((r, i) => (
               <li
@@ -248,7 +249,7 @@ function KnownContent({ known }: { known: PersonalKnown }) {
           className="text-[10.5px]"
           style={{ color: "var(--color-text-faint)" }}
         >
-          Fuente: {known.source}
+          Source: {known.source}
         </div>
       )}
     </div>

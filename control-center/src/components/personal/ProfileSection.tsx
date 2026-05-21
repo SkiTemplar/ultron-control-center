@@ -73,12 +73,12 @@ export function ProfileSection({
     >
       <div className="flex items-baseline justify-between gap-3">
         <div>
-          <h2 className="text-[14px] font-semibold leading-tight">Tu perfil</h2>
+          <h2 className="text-[14px] font-semibold leading-tight">Your profile</h2>
           <p
             className="mt-0.5 text-[10.5px]"
             style={{ color: "var(--color-text-faint)" }}
           >
-            Texto libre que los skills cargan como contexto persistente.
+            Free-form text that skills load as persistent context.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -151,7 +151,7 @@ export function ProfileSection({
             className="text-[12px]"
             style={{ color: "var(--color-text-faint)" }}
           >
-            Cargando...
+            Loading...
           </p>
         ) : looksEmpty ? (
           <ProfileEmptyState onAdd={() => setEditorOpen(true)} />
@@ -191,8 +191,8 @@ function ProfileEmptyState({ onAdd }: { onAdd: () => void }) {
         className="text-[12.5px] leading-relaxed"
         style={{ color: "var(--color-text-secondary)" }}
       >
-        Añade aquí lo que ULTRON debe saber de ti entre sesiones — los skills
-        lo cargan automáticamente desde{" "}
+        Add here what ULTRON should know about you between sessions — skills
+        load it automatically from{" "}
         <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text)" }}>
           ~/.ultron/personal/profile.md
         </span>
@@ -210,17 +210,17 @@ function ProfileEmptyState({ onAdd }: { onAdd: () => void }) {
           className="mb-1.5 text-[10.5px] uppercase tracking-wide"
           style={{ color: "var(--color-text-faint)" }}
         >
-          Ejemplos de qué incluir
+          Examples of what to include
         </div>
         <ul
           className="ml-4 list-disc space-y-1 text-[11.5px] leading-relaxed"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          <li>Rol / oficio actual y dominios donde pasas más tiempo.</li>
-          <li>Stack favorito y herramientas que evitas.</li>
-          <li>Proyectos en curso y plazos relevantes.</li>
-          <li>Hobbies, intereses, contexto personal útil.</li>
-          <li>Cómo prefieres que ULTRON te hable (tono, idioma, longitud).</li>
+          <li>Current role / occupation and the domains you spend most time in.</li>
+          <li>Favorite stack and tools you avoid.</li>
+          <li>Ongoing projects and relevant deadlines.</li>
+          <li>Hobbies, interests, useful personal context.</li>
+          <li>How you prefer ULTRON to talk to you (tone, language, length).</li>
         </ul>
       </div>
 
@@ -274,7 +274,7 @@ function ProfileEditorModal({
         <div className="flex items-baseline justify-between gap-3">
           <div>
             <h3 className="text-[14px] font-semibold leading-tight">
-              Editar profile.md
+              Edit profile.md
             </h3>
             <p
               className="mt-0.5 text-[10.5px]"
@@ -309,8 +309,8 @@ function ProfileEditorModal({
               color: "var(--color-warn)",
             }}
           >
-            Estás viendo una plantilla. Edita y pulsa <strong>Save</strong>{" "}
-            para crear tu profile real.
+            You're viewing a template. Edit and press <strong>Save</strong>{" "}
+            to create your real profile.
           </div>
         )}
 
@@ -339,7 +339,7 @@ function ProfileEditorModal({
             style={{ color: "var(--color-text-faint)" }}
           >
             {draft.length.toLocaleString()} chars · {draft.split("\n").length}{" "}
-            líneas
+            lines
           </span>
           <div className="flex items-center gap-2">
             <button

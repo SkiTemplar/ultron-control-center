@@ -21,7 +21,7 @@ export function JsonEditor({
         className="text-[11px]"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Editable copy of <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span> · cualquier cambio se hace efectivo al pulsar Save (backup automático)
+        Editable copy of <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span> · any change takes effect when you click Save (automatic backup)
       </div>
       <JsonVisualEditor obj={obj} onChange={onChange} />
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
+import { useRoutingTitle } from "../lib/button-prompts";
 
 // News tab — lists the HTML newsletters generated in
 // ~/.ultron/cockpit/news/. Each newsletter is a full-page artifact, so
@@ -40,6 +41,10 @@ export function News() {
   const [info, setInfo] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<NewsEntry | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const genSessionTitle = useRoutingTitle(
+    "news.generate_with_ai",
+    "Copies the prompt to the clipboard + opens a Gemini session in wt.exe (paste there with Ctrl+V).",
+  );
 
   // Summary cache lives in localStorage so we don't burn LLM turns each
   // time the user revisits a newsletter. Keyed by absolute path.
@@ -141,7 +146,7 @@ export function News() {
       if (!r.success) {
         setError(r.stderr || "news_html_generator failed");
       } else {
-        setInfo(r.path ? `Newsletter generada: ${r.path}` : "Newsletter generada.");
+        setInfo(r.path ? `Newsletter generated: ${r.path}` : "Newsletter generated.");
         setShowGen(false);
         await load();
         if (r.path) setSelected(r.path);
@@ -199,7 +204,7 @@ export function News() {
                 color: showGen ? "var(--color-text)" : "var(--color-accent-text)",
                 border: showGen ? "1px solid var(--color-border-strong)" : "none",
               }}
-              title="Genera una newsletter nueva con Gemini"
+              title="Generate a new newsletter with Gemini"
             >
               {showGen ? "Close" : "Generate"}
             </button>
@@ -251,7 +256,7 @@ export function News() {
                       if (!r.success) {
                         setError(r.stderr || "session generator failed");
                       } else {
-                        setInfo("Gemini session abierta en wt.exe. El prompt está en tu clipboard — pulsa Ctrl+V allí.");
+                        setInfo("Gemini session opened in wt.exe. The prompt is on your clipboard — press Ctrl+V there.");
                         setShowGen(false);
                       }
                     } catch (e) {
@@ -266,7 +271,7 @@ export function News() {
                     background: "var(--color-accent)",
                     color: "var(--color-accent-text)",
                   }}
-                  title="Copia prompt al clipboard + abre sesión Gemini en wt.exe (pega allí con Ctrl+V)"
+                  title={genSessionTitle}
                 >
                   {generating ? "Spawning Gemini..." : "Open Gemini session"}
                 </button>
@@ -275,9 +280,9 @@ export function News() {
                 className="mt-2 text-[10.5px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                Llama a news_html_generator.py via uv. Lee el template + skill
-                de newsletter local y manda el prompt a Gemini CLI; la respuesta
-                aterriza en cockpit/news/. Puede tardar 30s-2min.
+                Calls news_html_generator.py via uv. Reads the local newsletter
+                template + skill and sends the prompt to the Gemini CLI; the
+                response lands in cockpit/news/. May take 30s-2min.
               </p>
             </div>
           )}
@@ -438,7 +443,7 @@ export function News() {
                         : "var(--color-text-tertiary)",
                     border: `1px solid ${viewMode === "inline" ? "var(--color-border-strong)" : "transparent"}`,
                   }}
-                  title="Renderiza el HTML completo dentro de la app (sin scripts)"
+                  title="Render the full HTML inside the app (no scripts)"
                 >
                   Inline render
                 </button>
@@ -457,7 +462,7 @@ export function News() {
                         : "var(--color-text-tertiary)",
                     border: `1px solid ${viewMode === "summary" ? "var(--color-border-strong)" : "transparent"}`,
                   }}
-                  title="Resumen AI + excerpt (texto plano)"
+                  title="AI summary + excerpt (plain text)"
                 >
                   Summary
                 </button>
@@ -554,7 +559,7 @@ export function News() {
                       title={
                         summaries[sel.path]
                           ? "Already summarised (cached)"
-                          : "Resume con Claude (6 bullets + conclusion)"
+                          : "Summarise with Claude (6 bullets + conclusion)"
                       }
                     >
                       {summarizing
@@ -580,9 +585,9 @@ export function News() {
                       className="mt-2 text-[11.5px]"
                       style={{ color: "var(--color-text-faint)" }}
                     >
-                      Pulsa Summarise para que Claude resuma esta newsletter
-                      en 6 bullets. El resumen se cachea local para no gastar
-                      turnos al revisitarla.
+                      Click Summarise to have Claude summarise this newsletter
+                      in 6 bullets. The summary is cached locally so revisiting
+                      it doesn't burn turns.
                     </p>
                   )}
                 </div>
@@ -618,9 +623,9 @@ export function News() {
               className="mt-2 text-[12.5px] leading-relaxed"
               style={{ color: "var(--color-text-secondary)" }}
             >
-              Borrar el archivo HTML <b>{pendingDelete.filename}</b>? El
-              borrado es permanente — usa git para recuperar si lo
-              necesitas.
+              Delete the HTML file <b>{pendingDelete.filename}</b>? The
+              deletion is permanent — use git to recover it if you need
+              to.
             </p>
             <div className="mt-4 flex items-center justify-end gap-2">
               <button

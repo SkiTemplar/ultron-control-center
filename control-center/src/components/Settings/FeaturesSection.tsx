@@ -189,7 +189,7 @@ export function FeaturesSection() {
               border: "1px solid var(--color-border-strong)",
             }}
           >
-            Reload
+            Refresh
           </button>
         </div>
       </header>
