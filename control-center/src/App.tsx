@@ -21,6 +21,7 @@ import { News } from "./components/News";
 import { Personal } from "./components/Personal";
 import { Plans } from "./components/Plans";
 import { PopupHost } from "./components/PopupHost";
+import { Onboarding } from "./components/Onboarding";
 import { SelfImprove } from "./components/SelfImprove";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
@@ -588,6 +589,7 @@ export default function App() {
         extraActions={extraPaletteActions}
       />
       <PopupHost />
+      <Onboarding />
     </div>
   );
 }

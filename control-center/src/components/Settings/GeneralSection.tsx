@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
+import { OPEN_ONBOARDING_EVENT } from "../Onboarding";
 
 // ---------------------------------------------------------------------------
 // HotkeyEditor — single global hotkey (shows/hides the Control Center).
@@ -795,6 +796,43 @@ export function GeneralSection() {
           these let the user pick (slot, combo, project_id) tuples. */}
       <ProjectHotkeysEditor />
 
+      {/* Re-open the first-run welcome overlay. The Onboarding component
+          listens for OPEN_ONBOARDING_EVENT on the window. */}
+      <div
+        className="flex items-start gap-3 rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <div className="min-w-0 flex-1">
+          <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
+            Welcome screen
+          </div>
+          <p
+            className="mt-1 text-[12px] leading-relaxed"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Re-open the first-run overlay that explains what ULTRON is and
+            defines the core terms (Skill, Agent, MCP, Vault, Plan, Session,
+            Hook).
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() =>
+            window.dispatchEvent(new Event(OPEN_ONBOARDING_EVENT))
+          }
+          className="mt-0.5 shrink-0 rounded px-3 py-1.5 text-[12px] font-medium"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+        >
+          Show welcome screen
+        </button>
+      </div>
 
       {error && (
         <div

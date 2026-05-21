@@ -8,6 +8,7 @@
 > Trabajo de la fase de correcciones del Control Center previa a ULTRON 1.0.
 > No se publica release hasta confirmar la 1.0 (tras el gate de calidad). Se acumula aquí.
 
+- **Onboarding:** overlay de bienvenida en el primer arranque — explica qué es ULTRON + mini-glosario de términos núcleo (Skill/Agent/MCP/Vault/Plan/Session/Hook); re-abrible desde Settings → General.
 - **Idioma:** Control Center unificado a **inglés único** — barrido de ~49 componentes; vocabulario de UI consistente (un verbo por concepto).
 - **Plans tab:** drag-and-drop entre columnas del kanban; fila inferior (Revision/Blocked/Rejected) alineada con la superior; columna `merged` retirada (los items merged van al drawer de archivados); botón "AI Brainstorm" eliminado y "Sprint AI" rediseñado (también reescribe planes manuales).
 - **Notificaciones:** el Delete deja de mostrar un "Undo" engañoso; sistema de notificaciones globalizado — `notify.ts` unifica el popup app-level con la persistencia en `alerts.jsonl`.
