@@ -183,7 +183,10 @@ fn read_routing(root: &PathBuf) -> (u64, u64, Vec<IntentCount>) {
             matched += 1;
         }
         if let Some(route) = row.route {
-            if !route.is_empty() {
+            // Skip empty + legacy-corrupt routes: the U+FFFD replacement char
+            // and the em-dash placeholder, both from the pre-structured-dispatch
+            // em-dash leak (route written corrupt before commit ba83628).
+            if !route.is_empty() && route != "\u{FFFD}" && route != "\u{2014}" {
                 *by_intent.entry(route).or_insert(0) += 1;
             }
         }

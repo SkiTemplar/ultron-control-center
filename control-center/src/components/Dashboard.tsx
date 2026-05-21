@@ -622,6 +622,13 @@ export function Dashboard({
     }
   }
 
+  // Full diagnostic auto-runs on mount so the diagnostic cards are populated
+  // without a manual click (cards should always be active).
+  useEffect(() => {
+    void runFullDiagnostic();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function runPcDiagnose() {
     setPcLoading(true);
     setPcError(null);

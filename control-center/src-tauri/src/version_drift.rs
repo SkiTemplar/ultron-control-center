@@ -72,8 +72,15 @@ fn parse_changelog_latest(text: &str) -> Option<String> {
             return Some(format!("v{}", ver));
         }
         if let Some(rest) = trimmed.strip_prefix("## [") {
-            let end = rest.find(']')?;
-            return Some(format!("v{}", &rest[..end]));
+            // Accept "## [15.3.4]" but skip placeholders like "## [Unreleased]":
+            // the bracket content must start with a digit to be a real version.
+            if let Some(end) = rest.find(']') {
+                let inner = &rest[..end];
+                if inner.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+                    return Some(format!("v{}", inner));
+                }
+            }
+            continue;
         }
     }
     None

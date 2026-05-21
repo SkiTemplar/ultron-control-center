@@ -17,6 +17,7 @@
 - **MCPs:** retirado el botón "Retry" por-card que en realidad re-chequeaba todos los MCP.
 - **AI Router:** los botones de IA muestran en el tooltip la zona destino → provider/modelo.
 - **Higiene:** purgado código muerto (`Logs.tsx`, superficie `tab.logs`); arreglado el bug de ruta de `consistency_check.py`.
+- **Diagnóstico/Stats:** Full Diagnostic se auto-ejecuta al abrir el Dashboard (casillas siempre activas); arreglado el parser de `version_drift` que confundía `## [Unreleased]` con una versión; el "Top intent" de Stats filtra rutas corruptas heredadas (`U+FFFD` del em-dash leak).
 
 <!-- v15.5.22 — Sprint AI button + backlog dedup -->
 ## v15.5.22 — patch (2026-05-20)
