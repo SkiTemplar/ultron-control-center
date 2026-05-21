@@ -22,7 +22,8 @@
         "decorations": true,
         "visible": true,
         "skipTaskbar": false,
-        "center": true
+        "center": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {
