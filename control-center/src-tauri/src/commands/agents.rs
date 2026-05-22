@@ -34,32 +34,3 @@ pub async fn update_agent_md(
 pub async fn delete_agent(name: String) -> Result<agents::AgentMutationResult, String> {
     agents::delete_agent_inner(name)
 }
-
-#[tauri::command]
-pub async fn send_agent_to_vault(name: String) -> Result<agents::AgentMutationResult, String> {
-    agents::send_agent_to_vault_inner(name)
-}
-
-#[tauri::command]
-pub async fn restore_agent_from_vault(name: String) -> Result<agents::AgentMutationResult, String> {
-    agents::restore_agent_from_vault_inner(name)
-}
-
-#[tauri::command]
-pub async fn list_vaulted_agents() -> Result<Vec<agents::VaultedAgent>, String> {
-    agents::list_vaulted_agents_inner()
-}
-
-#[tauri::command]
-pub async fn get_agent_findings(name: String) -> Result<agents::AgentSecurityReport, String> {
-    agents::get_agent_findings_inner(name)
-}
-
-#[tauri::command]
-pub async fn allow_agent_manually(
-    name: String,
-    rules: Vec<String>,
-    reason: String,
-) -> Result<agents::AllowAgentResult, String> {
-    agents::allow_agent_manually_inner(name, rules, reason)
-}

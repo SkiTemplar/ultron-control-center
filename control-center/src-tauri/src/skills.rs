@@ -406,87 +406,6 @@ pub fn delete_skill_inner(name: String, soft: bool) -> Result<SkillDeleteResult,
     })
 }
 
-/// v15.4.14 — restore a vaulted skill back to ~/.claude/skills/<name>/.
-/// Inverse of delete_skill_inner(soft=true). Refuses if a non-vault copy
-/// already exists, since silently overwriting an installed skill would
-/// erase user-local edits.
-pub fn restore_skill_from_vault_inner(name: String) -> Result<SkillDeleteResult, String> {
-    validate_slug(&name)?;
-    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
-    let from = home.join(format!(".ultron/skill-vault/{}", name));
-    if !from.is_dir() {
-        return Err(format!("skill not in vault: {}", from.display()));
-    }
-    let to = home.join(format!(".claude/skills/{}", name));
-    if to.exists() {
-        return Err(format!(
-            "skill already installed at {}; remove it first if you want the vaulted copy back",
-            to.display()
-        ));
-    }
-    fs::create_dir_all(to.parent().unwrap())
-        .map_err(|e| format!("mkdir {}: {}", to.display(), e))?;
-    if let Err(_e) = fs::rename(&from, &to) {
-        copy_dir_recursive(&from, &to)
-            .map_err(|e| format!("copy fallback {}→{}: {}", from.display(), to.display(), e))?;
-        fs::remove_dir_all(&from)
-            .map_err(|e| format!("remove src {}: {}", from.display(), e))?;
-    }
-    Ok(SkillDeleteResult {
-        success: true,
-        name,
-        from_path: from.to_string_lossy().to_string(),
-        to_path: to.to_string_lossy().to_string(),
-        soft: true,
-    })
-}
-
-#[derive(Debug, Serialize)]
-pub struct VaultedSkill {
-    pub name: String,
-    pub description: String,
-}
-
-pub fn list_vaulted_skills_inner() -> Result<Vec<VaultedSkill>, String> {
-    let home = match dirs::home_dir() {
-        Some(h) => h,
-        None => return Ok(Vec::new()),
-    };
-    let vault = home.join(".ultron/skill-vault");
-    if !vault.is_dir() {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    for entry in fs::read_dir(&vault).map_err(|e| format!("read vault: {}", e))? {
-        let entry = match entry {
-            Ok(e) => e,
-            Err(_) => continue,
-        };
-        if !entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().to_string();
-        let skill_md = entry.path().join("SKILL.md");
-        let description = if skill_md.is_file() {
-            fs::read_to_string(&skill_md)
-                .unwrap_or_default()
-                .lines()
-                .find_map(|l| l.strip_prefix("description:"))
-                .unwrap_or("")
-                .trim()
-                .trim_matches('"')
-                .chars()
-                .take(200)
-                .collect::<String>()
-        } else {
-            String::new()
-        };
-        out.push(VaultedSkill { name, description });
-    }
-    out.sort_by(|a, b| a.name.cmp(&b.name));
-    Ok(out)
-}
-
 fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
@@ -504,39 +423,13 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Security — findings + manual allow ("Allow anyway")
+// Hashing + date helpers (reused by agents.rs for waiver YAML)
 // ---------------------------------------------------------------------------
-
-#[derive(Debug, Serialize)]
-pub struct SkillFinding {
-    pub rule_id: String,
-    pub severity: String,
-    pub pattern_name: String,
-    pub excerpt: String,
-    pub line_number: Option<u64>,
-    pub waived: bool,
-}
-
-#[derive(Debug, Serialize)]
-pub struct SkillSecurityReport {
-    pub name: String,
-    pub decision: String,
-    pub sha1: Option<String>,
-    pub findings: Vec<SkillFinding>,
-    pub stderr: String,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AllowSkillResult {
-    pub success: bool,
-    pub name: String,
-    pub sha1: String,
-    pub waiver_path: String,
-}
 
 /// Convert a unix timestamp (UTC seconds) into a `YYYY-MM-DD` string.
 /// Howard Hinnant's civil-from-days algorithm — pure stdlib, no deps.
 /// Made `pub(crate)` so the agents module can reuse it for waiver YAML.
+#[allow(dead_code)]
 pub(crate) fn format_ymd_local(ts: u64) -> String {
     let days = (ts / 86400) as i64;
     let z = days + 719468;
@@ -557,133 +450,12 @@ pub(crate) fn format_ymd_local(ts: u64) -> String {
 /// SHA1 hash of an on-disk file as a 40-char hex string. `pub(crate)` so
 /// the agents module reuses the same hashing engine without dragging in
 /// a new crate dep.
+#[allow(dead_code)]
 pub(crate) fn sha1_of_file(p: &Path) -> Result<String, String> {
     let data = fs::read(p).map_err(|e| format!("read {}: {}", p.display(), e))?;
     let mut hasher = Sha1Engine::new();
     hasher.update(&data);
     Ok(hasher.hex())
-}
-
-/// Run the Python security scanner against the skill and return its findings
-/// as parsed JSON. Falls back to "scanner unavailable" if the scanner errors.
-pub fn get_skill_findings_inner(name: String) -> Result<SkillSecurityReport, String> {
-    validate_slug(&name)?;
-    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
-    let skill_dir = locate_skill_dir(&home, &name)?;
-    let scanner = home.join(".ultron/scripts/cockpit/skill_sync_security.py");
-    if !scanner.is_file() {
-        return Err(format!("scanner missing: {}", scanner.display()));
-    }
-    // Use uv run to honour the cockpit's lockfile (PI rule set lives there).
-    let mut cmd = std::process::Command::new("uv");
-    cmd.arg("run")
-        .arg("python")
-        .arg(&scanner)
-        .arg("scan")
-        .arg(&skill_dir)
-        .arg("--json")
-        .current_dir(home.join(".ultron"));
-    // CREATE_NO_WINDOW — no console flash when the Security drawer opens
-    // for a skill. Mirrors the fix in agents.rs.
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000);
-    }
-    let output = cmd
-        .output()
-        .map_err(|e| format!("spawn uv: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    let parsed: serde_json::Value =
-        serde_json::from_str(&stdout).map_err(|e| format!("parse scanner json: {} — raw: {}", e, stdout.chars().take(200).collect::<String>()))?;
-    let decision = parsed.get("decision").and_then(|v| v.as_str()).unwrap_or("allow").to_string();
-    let sha1 = parsed.get("sha1").and_then(|v| v.as_str()).map(String::from);
-    let mut findings: Vec<SkillFinding> = Vec::new();
-    if let Some(arr) = parsed.get("findings").and_then(|v| v.as_array()) {
-        for f in arr {
-            findings.push(SkillFinding {
-                rule_id: f.get("rule_id").and_then(|v| v.as_str()).unwrap_or("?").to_string(),
-                severity: f.get("severity").and_then(|v| v.as_str()).unwrap_or("low").to_string(),
-                pattern_name: f.get("pattern_name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                excerpt: f.get("excerpt").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                line_number: f.get("line_number").and_then(|v| v.as_u64()),
-                waived: f.get("waived").and_then(|v| v.as_bool()).unwrap_or(false),
-            });
-        }
-    }
-    Ok(SkillSecurityReport { name, decision, sha1, findings, stderr })
-}
-
-/// Write a per-skill waiver to ~/.ultron/config/skill-trust.yaml so the
-/// scanner downgrades the listed rules on the *current* SKILL.md sha1.
-/// Editing the file invalidates the waiver — that is by design.
-pub fn allow_skill_manually_inner(
-    name: String,
-    rules: Vec<String>,
-    reason: String,
-) -> Result<AllowSkillResult, String> {
-    validate_slug(&name)?;
-    if rules.is_empty() {
-        return Err("waived rules cannot be empty".to_string());
-    }
-    if reason.trim().is_empty() {
-        return Err("reason is required (audit trail)".to_string());
-    }
-    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
-    let skill_dir = locate_skill_dir(&home, &name)?;
-    let md_path = skill_dir.join("SKILL.md");
-    let sha1 = sha1_of_file(&md_path)?;
-
-    let trust_path = home.join(".ultron/config/skill-trust.yaml");
-    if !trust_path.is_file() {
-        return Err(format!("trust config missing: {}", trust_path.display()));
-    }
-    let mut yaml = fs::read_to_string(&trust_path)
-        .map_err(|e| format!("read {}: {}", trust_path.display(), e))?;
-
-    // We don't pull a full YAML library to avoid the dep churn — the file
-    // is hand-authored append-only. Validate that we won't double-add the
-    // exact same waiver for this sha1, then append a new block.
-    let marker = format!("skill_md_sha1: \"{}\"", sha1);
-    let name_marker = format!("skill_name: \"{}\"", name);
-    if yaml.contains(&marker) && yaml.contains(&name_marker) {
-        return Err(format!(
-            "waiver already present for {} @ sha1 {}",
-            name, sha1
-        ));
-    }
-    if !yaml.ends_with('\n') {
-        yaml.push('\n');
-    }
-
-    let today = format_ymd_local(unix_ts());
-    let rules_yaml: String = rules
-        .iter()
-        .map(|r| format!("\"{}\"", r.replace('"', "")))
-        .collect::<Vec<_>>()
-        .join(", ");
-    let reason_one_line = reason.replace('\n', " ").replace('"', "'");
-    // v15.5.18 review: the OS user, not a hardcoded "USER@local".
-    let approver = std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "unknown".to_string());
-    let entry = format!(
-        "\n  - skill_name: \"{}\"\n    skill_md_sha1: \"{}\"\n    waived_rules: [{}]\n    reason: \"{}\"\n    approved_by: \"{}@local\"\n    approved_at: \"{}\"\n",
-        name, sha1, rules_yaml, reason_one_line, approver, today
-    );
-    yaml.push_str(&entry);
-    fs::write(&trust_path, yaml)
-        .map_err(|e| format!("write {}: {}", trust_path.display(), e))?;
-
-    Ok(AllowSkillResult {
-        success: true,
-        name,
-        sha1,
-        waiver_path: trust_path.to_string_lossy().to_string(),
-    })
 }
 
 // Minimal in-tree SHA1 to avoid a new crate dep just for this command.

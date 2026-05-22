@@ -3,7 +3,6 @@ import { invoke } from "@tauri-apps/api/core";
 import type { SettingsSaveResult, SettingsSnapshot } from "../../types";
 import { AuthStatus } from "../AuthStatus";
 import { GeneralSection } from "./GeneralSection";
-import { ModeSection } from "./ModeSection";
 import { ButtonPromptsSection } from "./ButtonPromptsSection";
 import { FeaturesSection } from "./FeaturesSection";
 import { JsonEditor } from "./EditorSection";
@@ -16,7 +15,6 @@ import { LifecyclePanel } from "./LifecyclePanel";
 type Section =
   | "general"
   | "auth"
-  | "mode"
   | "button-prompts"
   | "features"
   | "raw"
@@ -147,7 +145,6 @@ export function Settings() {
         {[
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
-          { id: "mode" as Section, label: "Mode" },
           { id: "button-prompts" as Section, label: "Button prompts" },
           { id: "features" as Section, label: "Features" },
           // v15.2 F7: "MCPs" sub-tab removed — moved to top-level MCPs tab.
@@ -202,7 +199,6 @@ export function Settings() {
       <div className="mt-5">
         {section === "general" && <GeneralSection />}
         {section === "auth" && <AuthStatus />}
-        {section === "mode" && <ModeSection />}
         {section === "button-prompts" && <ButtonPromptsSection />}
         {section === "features" && <FeaturesSection />}
 

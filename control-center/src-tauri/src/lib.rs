@@ -39,7 +39,6 @@ mod mcps;
 mod memory;
 mod memory_graph;
 mod memory_highlights;
-mod mode;
 mod personal;
 mod plans;
 mod project_hotkeys;
@@ -53,7 +52,6 @@ mod toast_emit;
 mod tray;
 mod update_checker;
 mod usage;
-mod version_drift;
 
 mod commands;
 
@@ -137,7 +135,6 @@ pub fn run() {
             // -- misc / system status --
             commands::misc::ultron_root_str,
             commands::misc::home_dir_str,
-            commands::misc::ultron_status,
             commands::misc::qdrant_health,
             commands::misc::list_logs,
             commands::misc::tail_log,
@@ -164,25 +161,15 @@ pub fn run() {
             commands::skills::create_skill,
             commands::skills::update_skill_md,
             commands::skills::delete_skill,
-            commands::skills::restore_skill_from_vault,
-            commands::skills::list_vaulted_skills,
-            commands::skills::get_skill_findings,
-            commands::skills::allow_skill_manually,
             // -- agents --
             commands::agents::list_agents,
             commands::agents::read_agent_md,
             commands::agents::create_agent,
             commands::agents::update_agent_md,
             commands::agents::delete_agent,
-            commands::agents::send_agent_to_vault,
-            commands::agents::restore_agent_from_vault,
-            commands::agents::list_vaulted_agents,
-            commands::agents::get_agent_findings,
-            commands::agents::allow_agent_manually,
             // -- maintenance / lifecycle --
             commands::maintenance::list_maintenance_commands,
             commands::maintenance::run_maintenance_command,
-            commands::maintenance::run_detect_gaps,
             commands::maintenance::run_app_lifecycle,
             commands::maintenance::is_developer_install,
             update_checker::check_for_updates,
@@ -237,11 +224,8 @@ pub fn run() {
             commands::gaming::kill_processes,
             commands::gaming::windows_tweaks_status,
             commands::gaming::windows_tweak_set,
-            // -- auth + ULTRON mode --
+            // -- auth + lifecycle --
             commands::lifecycle::auth_status,
-            commands::lifecycle::get_ultron_mode,
-            commands::lifecycle::set_ultron_mode,
-            commands::lifecycle::reset_mode_to_autodetect,
             commands::lifecycle::close_control_center,
             // -- diagnostics + doctor --
             commands::diagnostics::run_diagnose,

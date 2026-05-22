@@ -24,22 +24,6 @@ pub struct MaintenanceResult {
     pub elapsed_ms: u128,
 }
 
-#[derive(Debug, serde::Deserialize, Serialize)]
-pub struct DetectedGap {
-    pub severity: String,
-    pub category: String,
-    pub title: String,
-    pub detail: String,
-    pub suggestion: Option<String>,
-}
-
-#[derive(Debug, serde::Deserialize, Serialize)]
-pub struct GapsReport {
-    pub generated_at: String,
-    pub count: u32,
-    pub gaps: Vec<DetectedGap>,
-}
-
 /// Spawn wt.exe in a new window running either the uninstaller or
 /// `npm run tauri build`. The Control Center keeps running; the spawned
 /// terminal shows progress / asks for confirmation. Fire-and-forget —
@@ -198,39 +182,6 @@ pub fn run_app_lifecycle_inner(_kind: String) -> Result<(), String> {
     Err("app lifecycle commands are Windows-only".to_string())
 }
 
-pub fn run_detect_gaps_inner() -> Result<GapsReport, String> {
-    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
-    let script = home
-        .join(".ultron")
-        .join("scripts")
-        .join("hooks")
-        .join("detect_gaps.py");
-    if !script.is_file() {
-        return Err(format!("detect_gaps.py missing: {}", script.display()));
-    }
-    let mut command = Command::new("uv");
-    command
-        .arg("run")
-        .arg("python")
-        .arg(&script)
-        .arg("--json")
-        .current_dir(home.join(".ultron"));
-    #[cfg(windows)]
-    {
-        command.creation_flags(0x08000000);
-    }
-    let output = command
-        .output()
-        .map_err(|e| format!("spawn uv: {}", e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("detect_gaps exit {:?}: {}", output.status.code(), stderr));
-    }
-    serde_json::from_str::<GapsReport>(&stdout)
-        .map_err(|e| format!("parse detect_gaps json: {} — raw: {}", e, stdout.chars().take(200).collect::<String>()))
-}
-
 #[derive(Debug, Serialize, Clone)]
 pub struct MaintenanceCommand {
     pub kind: String,
@@ -242,12 +193,6 @@ pub struct MaintenanceCommand {
 /// The set the UI lists in the Dashboard. Order matters — preserved.
 pub fn list_maintenance_commands_inner() -> Vec<MaintenanceCommand> {
     vec![
-        MaintenanceCommand {
-            kind: "skill-registry-rebuild".into(),
-            label: "Skill registry rebuild".into(),
-            description: "Re-scan ~/.claude/skills, refresh ~/.ultron/skills/registry.json with security verdicts.".into(),
-            group: "skills".into(),
-        },
         MaintenanceCommand {
             kind: "skill-security-audit".into(),
             label: "Skill security audit".into(),
@@ -261,18 +206,6 @@ pub fn list_maintenance_commands_inner() -> Vec<MaintenanceCommand> {
             group: "skills".into(),
         },
         MaintenanceCommand {
-            kind: "memory-vault-sync".into(),
-            label: "Vault sync".into(),
-            description: "Refresh ~/.ultron-vault highlights + brain_index incremental update.".into(),
-            group: "memory".into(),
-        },
-        MaintenanceCommand {
-            kind: "brain-index-update".into(),
-            label: "Brain index update".into(),
-            description: "Incrementally re-index changed notes into ~/.ultron/brain_index.".into(),
-            group: "memory".into(),
-        },
-        MaintenanceCommand {
             kind: "mcp-health".into(),
             label: "MCP health check".into(),
             description: "Probe configured MCP servers and write the latest status snapshot.".into(),
@@ -283,12 +216,6 @@ pub fn list_maintenance_commands_inner() -> Vec<MaintenanceCommand> {
             label: "Weekly backup".into(),
             description: "Run the weekly mirror backup script. Updates the Doctor backup status.".into(),
             group: "system".into(),
-        },
-        MaintenanceCommand {
-            kind: "agents-reembed".into(),
-            label: "Agents re-embed".into(),
-            description: "Re-vectorize ~/.claude/agents into Qdrant for semantic discovery.".into(),
-            group: "skills".into(),
         },
         MaintenanceCommand {
             kind: "deadwood-scan".into(),
@@ -328,15 +255,6 @@ fn backup_script(home: &PathBuf) -> PathBuf {
 fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String> {
     let cock = cockpit(home);
     Ok(match kind {
-        "skill-registry-rebuild" => (
-            "uv".into(),
-            vec![
-                "run".into(),
-                "python".into(),
-                cock.join("skill_vault.py").to_string_lossy().into_owned(),
-                "registry".into(),
-            ],
-        ),
         "skill-security-audit" => (
             "uv".into(),
             vec![
@@ -354,24 +272,6 @@ fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String
                 "python".into(),
                 cock.join("registry_sync.py").to_string_lossy().into_owned(),
                 "update-manifest".into(),
-            ],
-        ),
-        "memory-vault-sync" => (
-            "uv".into(),
-            vec![
-                "run".into(),
-                "python".into(),
-                cock.join("memory_sync.py").to_string_lossy().into_owned(),
-                "sync".into(),
-            ],
-        ),
-        "brain-index-update" => (
-            "uv".into(),
-            vec![
-                "run".into(),
-                "python".into(),
-                cock.join("brain_index.py").to_string_lossy().into_owned(),
-                "update".into(),
             ],
         ),
         "mcp-health" => (
@@ -407,14 +307,6 @@ fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String
                 ("bash".into(), vec![script.to_string_lossy().into_owned()])
             }
         }
-        "agents-reembed" => (
-            "uv".into(),
-            vec![
-                "run".into(),
-                "python".into(),
-                cock.join("embed_agents.py").to_string_lossy().into_owned(),
-            ],
-        ),
         "deadwood-scan" => (
             "uv".into(),
             vec![

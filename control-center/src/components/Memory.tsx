@@ -637,16 +637,6 @@ const ACTIONS: ActionDef[] = [
     label: "Update brain",
     hint: "Incremental FTS5: indexes changes without touching what's already indexed.",
   },
-  {
-    key: "qdrant-reembed",
-    label: "Re-embed Qdrant",
-    hint: "Recomputes the vault embeddings and pushes them to the ultron_vault collection.",
-  },
-  {
-    key: "skills-reembed",
-    label: "Re-embed skills",
-    hint: "Regenerates the skill embeddings (active + plugin + vault).",
-  },
 ];
 
 type RecentNote = {

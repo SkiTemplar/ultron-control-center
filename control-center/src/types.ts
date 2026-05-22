@@ -103,9 +103,7 @@ export type MemoryActionResult = {
 
 export type MemoryActionKey =
   | "vault-sync"
-  | "brain-update"
-  | "qdrant-reembed"
-  | "skills-reembed";
+  | "brain-update";
 
 // Usage (Claude Code stats-cache.json)
 
@@ -626,19 +624,6 @@ export type AuthStatusEntry = {
 
 export type AuthStatusReport = {
   entries: AuthStatusEntry[];
-};
-
-export type UltronMode = "LOW" | "MEDIUM" | "HIGH" | "ULTRA";
-
-export type ModeInfo = {
-  mode: string | null;
-  raw: Record<string, unknown>;
-};
-
-export type ModeSetResult = {
-  success: boolean;
-  mode: string;
-  path: string;
 };
 
 export type ReviewResult = {

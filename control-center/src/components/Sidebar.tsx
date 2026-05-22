@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import type { GapsReport, GlobalStatus } from "../types";
+import type { GlobalStatus } from "../types";
 import { statusColor, statusLabel } from "../lib/status";
 import { useFeatures, type Features } from "../lib/features";
 
@@ -217,27 +216,9 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
 
   // v15.5.16poll the same detect_gaps source the Dashboard
   // PendingItemsPanel uses, then surface the count as a red chip on the
-  // Dashboard tab. Polled every 60s — light (one Rust invoke that re-runs
-  // a Python script that takes ~150 ms). Failures stay silent so a broken
-  // hook never breaks the sidebar.
-  const [pendingCount, setPendingCount] = useState<number>(0);
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      try {
-        const r = await invoke<GapsReport>("run_detect_gaps");
-        if (!cancelled) setPendingCount(r?.count ?? 0);
-      } catch {
-        if (!cancelled) setPendingCount(0);
-      }
-    }
-    void load();
-    const t = setInterval(load, 60_000);
-    return () => {
-      cancelled = true;
-      clearInterval(t);
-    };
-  }, []);
+  // v2.0: detect_gaps removed. Placeholder until P4 wires this to the
+  // Kanban Backlog column count for the active project.
+  const pendingCount = 0;
 
   // v15.3 — auto-expand "More" if the active tab lives inside it, otherwise
   // selecting a more-tier item via the command palette would visually flag

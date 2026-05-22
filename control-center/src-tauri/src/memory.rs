@@ -555,8 +555,6 @@ pub async fn memory_action_inner(
     let (script_name, args): (&str, Vec<&str>) = match action.as_str() {
         "vault-sync" => ("memory_sync.py", vec!["sync"]),
         "brain-update" => ("brain_index.py", vec!["update"]),
-        "qdrant-reembed" => ("embed_vault.py", vec!["index"]),
-        "skills-reembed" => ("embed_skills.py", vec![]),
         _ => return Err(format!("unknown memory action '{}'", action)),
     };
 

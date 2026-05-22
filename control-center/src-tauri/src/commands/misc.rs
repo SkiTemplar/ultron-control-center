@@ -1,10 +1,9 @@
 // Miscellaneous commands that don't fit into any of the other domain groups.
-// Path helpers exposed to the frontend, ULTRON status shell-out, qdrant
-// health probe, logs tailing, instruction folders, usage report, activity
-// timeline, and the cost watchdog.
+// Path helpers exposed to the frontend, qdrant health probe, logs tailing,
+// instruction folders, usage report, activity timeline, and the cost
+// watchdog.
 
 use crate::{activity_timeline, cost_watchdog, instructions, logs, usage};
-use tauri_plugin_shell::ShellExt;
 
 /// Frontend-facing helper: returns the absolute path to the ULTRON root
 /// (`~/.ultron`) as a UTF-8 string. The TS helper `getUltronRoot()` in
@@ -24,35 +23,6 @@ pub fn home_dir_str() -> Result<String, String> {
     dirs::home_dir()
         .map(|h| h.to_string_lossy().to_string())
         .ok_or_else(|| "No HOME dir".to_string())
-}
-
-#[tauri::command]
-pub async fn ultron_status(app: tauri::AppHandle) -> Result<super::CmdResult, String> {
-    let script_path = crate::ultron_root()?.join("scripts/cockpit/ultron.ps1");
-    let script_str = script_path.to_string_lossy().to_string();
-
-    let output = app
-        .shell()
-        .command("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            &script_str,
-            "status",
-        ])
-        .output()
-        .await
-        .map_err(|e| format!("spawn failed: {}", e))?;
-
-    Ok(super::CmdResult {
-        success: output.status.success(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-        exit_code: output.status.code(),
-    })
 }
 
 #[tauri::command]

@@ -360,13 +360,6 @@ export default function App() {
 
     // -- Diagnostics --------------------------------------------------
     list.push({
-      id: "diag.pending",
-      label: "Detect Pending Items",
-      description: "Run detect_gaps.py — surfaces stale TODOs, missing files, drift.",
-      group: "Diagnostics",
-      run: () => void runQuiet("Detect Pending", "run_detect_gaps"),
-    });
-    list.push({
       id: "diag.doctor",
       label: "Run Doctor",
       description: "Enhanced doctor script — read-only system health report.",
@@ -430,29 +423,6 @@ export default function App() {
       });
     }
 
-    // -- Memory actions (separate from maintenance because they call a
-    //    different backend command — memory_action, not run_maintenance_command)
-    list.push({
-      id: "mem.qdrant-reembed",
-      label: "Qdrant re-embed vault",
-      description: "Re-vectorize ~/.ultron-vault notes into Qdrant.",
-      group: "Memory",
-      run: () =>
-        void runQuiet("Qdrant re-embed", "memory_action", {
-          action: "qdrant-reembed",
-        }),
-    });
-    list.push({
-      id: "mem.skills-reembed",
-      label: "Embed skills index",
-      description: "Re-embed installed skills metadata for semantic recall.",
-      group: "Memory",
-      run: () =>
-        void runQuiet("Skills re-embed", "memory_action", {
-          action: "skills-reembed",
-        }),
-    });
-
     // -- System / lifecycle ------------------------------------------
     list.push({
       id: "sys.rebuild",
@@ -475,13 +445,6 @@ export default function App() {
         if (ok)
           void runQuiet("Uninstall", "run_app_lifecycle", { kind: "uninstall" });
       },
-    });
-    list.push({
-      id: "sys.reset-mode",
-      label: "Reset ULTRON mode to autodetect",
-      description: "Forget the pinned LOW/MEDIUM/HIGH/ULTRA override.",
-      group: "System",
-      run: () => void runQuiet("Reset mode", "reset_mode_to_autodetect"),
     });
     list.push({
       id: "sys.purge-autostart",
