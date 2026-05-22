@@ -1,10 +1,10 @@
 // ULTRON Control Center — Feature toggles
 //
 // The installer writes `~/.ultron/cockpit/features.json` with a flat map of
-// booleans (one per togglable area: news, gaming, personal, schedules,
-// self_improve, memory, plans, projects, mcps, skills, hooks, notifications,
-// usage, sessions). When a flag is false, the corresponding sidebar entry
-// is hidden on the frontend.
+// booleans (one per togglable area: gaming, personal, schedules, memory,
+// plans, projects, mcps, skills, hooks, notifications, usage, sessions).
+// When a flag is false, the corresponding sidebar entry is hidden on the
+// frontend.
 //
 // Defaults: all true. If the file is missing or malformed we return the
 // default (everything enabled) so a fresh install never surfaces an empty
@@ -22,15 +22,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Features {
     #[serde(default = "default_true")]
-    pub news: bool,
-    #[serde(default = "default_true")]
     pub gaming: bool,
     #[serde(default = "default_true")]
     pub personal: bool,
     #[serde(default = "default_true")]
     pub schedules: bool,
-    #[serde(default = "default_true")]
-    pub self_improve: bool,
     #[serde(default = "default_true")]
     pub memory: bool,
     #[serde(default = "default_true")]
@@ -59,11 +55,9 @@ fn default_true() -> bool {
 impl Default for Features {
     fn default() -> Self {
         Self {
-            news: true,
             gaming: true,
             personal: true,
             schedules: true,
-            self_improve: true,
             memory: true,
             plans: true,
             projects: true,

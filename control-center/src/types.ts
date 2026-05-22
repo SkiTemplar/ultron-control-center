@@ -621,7 +621,7 @@ export type McpGenerationResult = {
   raw_output: string;
 };
 
-// Auth / Mode / News / Self-improve types.
+// Auth / Mode types.
 
 export type AuthStatusEntry = {
   provider: string;
@@ -649,23 +649,6 @@ export type ModeSetResult = {
   success: boolean;
   mode: string;
   path: string;
-};
-
-export type NewsItem = {
-  filename: string;
-  path: string;
-  generated_at: string | null;
-  size_bytes: number;
-  title: string | null;
-  excerpt: string | null;
-};
-
-export type SelfImproveReport = {
-  total_routes: number;
-  matched_routes: number;
-  top_intents: { intent: string; count: number }[];
-  top_skills: { skill: string; count: number }[];
-  recent_errors: { source: string; message: string; ts: string }[];
 };
 
 export type ReviewResult = {

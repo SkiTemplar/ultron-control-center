@@ -13,11 +13,9 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 export type Features = {
-  news: boolean;
   gaming: boolean;
   personal: boolean;
   schedules: boolean;
-  self_improve: boolean;
   memory: boolean;
   plans: boolean;
   projects: boolean;
@@ -32,11 +30,9 @@ export type Features = {
 
 /** All toggles enabled — the safe default for a fresh install. */
 export const ALL_ENABLED: Features = {
-  news: true,
   gaming: true,
   personal: true,
   schedules: true,
-  self_improve: true,
   memory: true,
   plans: true,
   projects: true,
@@ -130,11 +126,9 @@ export async function saveFeatures(next: Features): Promise<void> {
 
 /** Keys that map 1:1 to a sidebar item. Used by Sidebar.tsx for filtering. */
 export const FEATURE_KEYS: ReadonlyArray<keyof Features> = [
-  "news",
   "gaming",
   "personal",
   "schedules",
-  "self_improve",
   "memory",
   "plans",
   "projects",

@@ -18,9 +18,7 @@ export type Tab =
   | "usage"
   | "system"
   | "gaming"
-  | "news"
   | "personal"
-  | "self-improve"
   | "settings";
 
 type Item = {
@@ -65,7 +63,6 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "usage", label: "Usage", available: true, featureKey: "usage" },
       { id: "notifications", label: "Notifications", available: true, featureKey: "notifications" },
       { id: "changelog", label: "Changelog", available: true, tier: "more" },
-      { id: "news", label: "News", available: true, featureKey: "news", tier: "more" },
     ],
   },
   {
@@ -90,13 +87,6 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   {
     heading: "Meta",
     items: [
-      {
-        id: "self-improve",
-        label: "Stats",
-        available: true,
-        featureKey: "self_improve",
-        tier: "more",
-      },
       {
         id: "personal",
         label: "Personal",
@@ -132,14 +122,12 @@ function saveMoreOpen(open: boolean) {
 
 /** Tabs that should redirect to dashboard if disabled while active. */
 const FEATURE_TAB_TO_KEY: Partial<Record<Tab, keyof Features>> = {
-  news: "news",
   mcps: "mcps",
   skills: "skills",
   memory: "memory",
   projects: "projects",
   gaming: "gaming",
   plans: "plans",
-  "self-improve": "self_improve",
   personal: "personal",
   // hooks: gating moved inside System tab — no top-level redirect needed.
 };

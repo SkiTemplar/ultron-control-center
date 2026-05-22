@@ -21,10 +21,6 @@ const META: Record<
   keyof Features,
   { label: string; description: string }
 > = {
-  news: {
-    label: "News digest",
-    description: "Gemini-generated daily newsletter (costs tokens).",
-  },
   gaming: {
     label: "Gaming utilities",
     description: "Game detector + Windows tweaks panel.",
@@ -36,10 +32,6 @@ const META: Record<
   schedules: {
     label: "Schedules tab",
     description: "Windows scheduled-task management UI.",
-  },
-  self_improve: {
-    label: "Self-Improve tab",
-    description: "Route telemetry + repo-evaluator card.",
   },
   memory: {
     label: "Memory tab",

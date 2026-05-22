@@ -27,7 +27,6 @@ mod claude_sessions;
 mod codex_fallback;
 mod cost_watchdog;
 mod features;
-mod full_diagnostic;
 mod gaming;
 mod hooks_admin;
 mod hotkeys;
@@ -42,12 +41,10 @@ mod memory;
 mod memory_graph;
 mod memory_highlights;
 mod mode;
-mod news;
 mod personal;
 mod plans;
 mod project_hotkeys;
 mod projects;
-mod self_improve;
 mod sessions;
 mod settings;
 mod skills;
@@ -252,20 +249,9 @@ pub fn run() {
             commands::ai_router::save_ai_router,
             commands::ai_router::reset_ai_router_to_defaults,
             commands::ai_router::resolve_zone_for_prompt,
-            // -- news --
-            commands::news::list_news,
-            commands::news::generate_news,
-            commands::news::generate_news_session,
-            commands::news::delete_news,
-            commands::news::read_news_html,
-            commands::news::summarize_news,
             // -- diagnostics + doctor --
-            commands::diagnostics::run_full_diagnostic,
-            commands::diagnostics::apply_auto_fix,
             commands::diagnostics::run_diagnose,
             commands::diagnostics::diagnose_with_ai,
-            commands::diagnostics::self_improve_report,
-            commands::diagnostics::run_codex_adversarial_review,
             commands::diagnostics::run_doctor,
             // -- personal profile --
             commands::personal::read_personal_profile,

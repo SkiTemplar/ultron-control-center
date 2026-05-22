@@ -50,9 +50,7 @@ const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
   { id: "settings", label: "Go to Settings", group: "Navigate" },
   // Secondary tabs (now collapsed under "More" in the sidebar).
   { id: "changelog", label: "Go to Changelog", group: "Navigate (More)" },
-  { id: "news", label: "Go to News", group: "Navigate (More)" },
   { id: "gaming", label: "Go to Gaming", group: "Navigate (More)" },
-  { id: "self-improve", label: "Go to Stats", group: "Navigate (More)" },
   { id: "personal", label: "Go to Personal", group: "Navigate (More)" },
 ];
 

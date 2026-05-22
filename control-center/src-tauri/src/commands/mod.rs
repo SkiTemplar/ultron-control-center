@@ -32,7 +32,6 @@ pub mod maintenance;
 pub mod mcps;
 pub mod memory;
 pub mod misc;
-pub mod news;
 pub mod personal;
 pub mod plans;
 pub mod projects;

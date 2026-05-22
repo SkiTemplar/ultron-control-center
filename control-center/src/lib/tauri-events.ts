@@ -25,7 +25,6 @@ type TabKey =
   | "memory"
   | "plans"
   | "settings"
-  | "news"
   | "system";
 
 /** Provider keys accepted by the spawn_session backend command. */

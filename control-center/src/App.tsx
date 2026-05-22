@@ -17,12 +17,10 @@ import { Settings } from "./components/Settings";
 import { Projects } from "./components/Projects";
 import { System } from "./components/System";
 import { Gaming } from "./components/Gaming";
-import { News } from "./components/News";
 import { Personal } from "./components/Personal";
 import { Plans } from "./components/Plans";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";
-import { SelfImprove } from "./components/SelfImprove";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { UpdateBanner } from "./components/UpdateBanner";
@@ -362,13 +360,6 @@ export default function App() {
 
     // -- Diagnostics --------------------------------------------------
     list.push({
-      id: "diag.full",
-      label: "Run Full Diagnostic",
-      description: "All-systems sweep — Qdrant, MCPs, skills, agents, backups.",
-      group: "Diagnostics",
-      run: () => void runQuiet("Full Diagnostic", "run_full_diagnostic"),
-    });
-    list.push({
       id: "diag.pending",
       label: "Detect Pending Items",
       description: "Run detect_gaps.py — surfaces stale TODOs, missing files, drift.",
@@ -389,22 +380,6 @@ export default function App() {
       group: "Diagnostics",
       run: () => void runQuiet("Diagnose", "run_diagnose", { hours: 24 }),
     });
-    list.push({
-      id: "diag.adversarial",
-      label: "Codex Adversarial Review",
-      description: "Run /codex:adversarial-review against the current session.",
-      group: "Diagnostics",
-      run: () =>
-        void runQuiet("Codex Adversarial Review", "run_codex_adversarial_review"),
-    });
-    list.push({
-      id: "diag.self-improve",
-      label: "Self-Improve Report",
-      description: "Routing telemetry · skill usage · recent errors snapshot.",
-      group: "Diagnostics",
-      run: () => void runQuiet("Self-Improve Report", "self_improve_report"),
-    });
-
     // -- AI sessions --------------------------------------------------
     list.push({
       id: "ai.spawn.claude",
@@ -523,15 +498,6 @@ export default function App() {
       run: () => void runQuiet("Scan projects", "scan_projects"),
     });
 
-    // -- News --------------------------------------------------------
-    list.push({
-      id: "news.generate",
-      label: "Generate news brief",
-      description: "Kick off the ULTRON Times generator (HTML newsletter).",
-      group: "News",
-      run: () => void runQuiet("Generate news", "generate_news"),
-    });
-
     return list;
   }, [maintenanceCommands]);
 
@@ -563,23 +529,10 @@ export default function App() {
         {tab === "projects" && <Projects />}
         {tab === "system" && <System />}
         {tab === "gaming" && <Gaming />}
-        {tab === "news" && <News />}
         {tab === "plans" && <Plans />}
         {tab === "personal" && <Personal />}
         {/* "hooks" tab removed — Hooks now lives inside the System tab as
             an inner sub-tab. The Tab union no longer includes "hooks". */}
-        {tab === "self-improve" && (
-          <div className="px-10 py-8">
-            <header className="mb-6">
-              <h1 className="text-[20px] font-semibold leading-tight">Stats</h1>
-              <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-                Routing telemetry, skill usage, recent errors, adversarial review,
-                repo evaluation.
-              </p>
-            </header>
-            <SelfImprove />
-          </div>
-        )}
       </main>
 
       <CommandPalette
