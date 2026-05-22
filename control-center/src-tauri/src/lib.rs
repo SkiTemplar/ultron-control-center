@@ -36,6 +36,7 @@ mod instructions;
 mod logs;
 mod maintenance;
 mod mcps;
+mod mem0;
 mod personal;
 mod plans;
 mod project_hotkeys;
@@ -183,6 +184,11 @@ pub fn run() {
             commands::projects::reorder_launcher_items,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
+            // -- mem0 --
+            commands::mem0::mem0_status,
+            commands::mem0::mem0_search,
+            commands::mem0::mem0_add,
+            commands::mem0::mem0_delete,
             // -- sessions --
             commands::sessions::spawn_session,
             commands::sessions::run_inline,

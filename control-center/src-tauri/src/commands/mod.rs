@@ -29,6 +29,7 @@ pub mod inbox;
 pub mod lifecycle;
 pub mod maintenance;
 pub mod mcps;
+pub mod mem0;
 pub mod misc;
 pub mod personal;
 pub mod plans;
