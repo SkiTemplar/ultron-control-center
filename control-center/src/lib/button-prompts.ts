@@ -6,10 +6,9 @@
 // override stored in `~/.ultron/cockpit/button-prompts.json`) becomes the
 // single source of truth.
 //
-// Caching strategy: we keep a module-level catalog snapshot + a Set of
-// subscribers. `getPrompt(...)` reuses the cache; the Settings panel calls
-// `refreshButtonPrompts()` after saving so consumers see the new prompt
-// without a hard reload.
+// v2.0: AI Router integration removed. `resolveAndSpawn` spawns `claude`
+// directly (no router resolution). `useRoutingTitle` is a no-op kept for
+// backward-compat with components that import it.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -25,8 +24,6 @@ export type ButtonPrompt = {
   default_prompt: string;
   /** True when `prompt !== default_prompt`. */
   overridden: boolean;
-  /** AI Router zone hint, empty when not applicable. */
-  zone: string;
   /** Names of `{vars}` the consumer should pass to `getPrompt`. */
   vars: string[];
 };
@@ -62,11 +59,6 @@ async function loadCatalog(force = false): Promise<ButtonPromptsCatalog> {
   return inflight;
 }
 
-/**
- * Subscribe to catalog changes. Returns an unsubscribe fn. The callback is
- * fired immediately when the cache is already populated so callers don't
- * have to special-case the first render.
- */
 export function subscribeButtonPrompts(
   cb: (c: ButtonPromptsCatalog) => void,
 ): () => void {
@@ -78,16 +70,10 @@ export function subscribeButtonPrompts(
   };
 }
 
-/** Force a reload — the Settings tab calls this after every save. */
 export async function refreshButtonPrompts(): Promise<ButtonPromptsCatalog> {
   return loadCatalog(true);
 }
 
-/**
- * Return the effective prompt for `key`, interpolating any `{var}` placeholders
- * with values from `vars`. Throws if the key is unknown so consumers fail loud
- * rather than spawning a Claude session with an empty prompt.
- */
 export async function getPrompt(
   key: string,
   vars: Record<string, string> = {},
@@ -104,7 +90,6 @@ export async function getPrompt(
   return out;
 }
 
-/** Persist an override (or empty string to reset). Refreshes the cache. */
 export async function updateButtonPrompt(
   key: string,
   prompt: string,
@@ -117,34 +102,18 @@ export async function updateButtonPrompt(
   return updated;
 }
 
-/** Drop the override for a button (back to canonical default). */
 export async function resetButtonPrompt(key: string): Promise<ButtonPrompt> {
   const updated = (await invoke("reset_button_prompt", { key })) as ButtonPrompt;
   await refreshButtonPrompts();
   return updated;
 }
 
-/** Synchronous accessor for components that already have a cached catalog. */
 export function cachedCatalog(): ButtonPromptsCatalog | null {
   return cache;
 }
 
 // ---------------------------------------------------------------------------
-// v15.2.40 — AI Router integration helper
-//
-// Every Control Center button that opens an AI session funnels through the
-// `resolveAndSpawn` helper below. It:
-//   1. resolves the prompt from the central catalog (with {var} substitution)
-//   2. calls `resolve_zone_for_prompt` on the backend — which honours the
-//      zone's `auto_mode` flag and falls back to the manual provider/model/
-//      agent picks if auto-mode is off or the agents index fails
-//   3. invokes `spawn_session` with the resolved provider/model/agent
-//
-// Components don't need to know about the AI Router internals; they just
-// call `resolveAndSpawn({ key, vars, cwd, extraFlags })`. The helper never
-// throws on resolver/router errors — it surfaces the failure and uses the
-// historical hardcoded provider (claude) so the button keeps working even
-// when `ai-router.json` is missing or `embed_agents.py` is broken.
+// Spawn helper (no AI Router)
 // ---------------------------------------------------------------------------
 
 export type ResolvedRoute = {
@@ -161,20 +130,11 @@ export type ResolvedRoute = {
 };
 
 export type ResolveAndSpawnOptions = {
-  /** Button-prompts catalog key, e.g. `notif.fix_one`. */
   key: string;
-  /** `{var}` substitutions for the prompt template. */
   vars?: Record<string, string>;
-  /** Working directory for the spawned session. `null` = ULTRON cwd. */
   cwd?: string | null;
-  /** Extra flags merged into `spawn_session` flags (model/agent are filled by us). */
   extraFlags?: Record<string, unknown>;
-  /**
-   * When the prompt is the same regardless of `vars` (no template), the
-   * router uses the resolved prompt as input to the agents index. Set
-   * this to `false` to deliberately route on a different prompt (e.g.
-   * use a routing hint instead of the full prompt). Default `true`.
-   */
+  /** Deprecated in v2.0 (no AI router). Kept for back-compat at call sites. */
   routeOnPrompt?: boolean;
 };
 
@@ -183,53 +143,34 @@ export type ResolveAndSpawnResult = {
   resolved: ResolvedRoute;
 };
 
-/** Default route returned when the backend resolver fails. */
-function fallbackRoute(): ResolvedRoute {
+function staticRoute(): ResolvedRoute {
   return {
     entry: { provider: "claude", model: null, agent: null, auto_mode: false },
     auto_resolved: false,
     matched_agent: null,
     matched_score: null,
-    fallback_reason: "resolver call failed",
+    fallback_reason: null,
   };
 }
 
 /**
- * Resolve `{key}` against the prompt catalog AND the AI Router zone the
- * catalog entry points at, then invoke `spawn_session`. Returns the
- * prompt + resolved route so the caller can display useful toast info
- * ("opened with agent X via auto-mode", etc.) — but errors raised by
- * `spawn_session` itself are propagated so the caller can show a real
- * error message.
+ * Resolve `{key}` against the prompt catalog and spawn a Claude session.
+ * v2.0: no AI router — always spawns `claude` with provider defaults.
  */
 export async function resolveAndSpawn(
   opts: ResolveAndSpawnOptions,
 ): Promise<ResolveAndSpawnResult> {
-  const { key, vars = {}, cwd = null, extraFlags = {}, routeOnPrompt = true } = opts;
+  const { key, vars = {}, cwd = null, extraFlags = {} } = opts;
   const catalog = await loadCatalog();
   const entry = catalog.buttons.find((b) => b.key === key);
   if (!entry) {
     throw new Error(`unknown button prompt key: ${key}`);
   }
-  // Materialise prompt with {var} substitutions.
   let prompt = entry.prompt;
   for (const [k, v] of Object.entries(vars)) {
     prompt = prompt.split(`{${k}}`).join(v);
   }
-  // Resolve the zone. Empty zone (entry.zone === "") means the button
-  // intentionally bypasses the AI Router — keep historical claude default.
-  let resolved: ResolvedRoute = fallbackRoute();
-  if (entry.zone) {
-    try {
-      resolved = (await invoke("resolve_zone_for_prompt", {
-        zoneKey: entry.zone,
-        prompt: routeOnPrompt ? prompt : entry.label,
-      })) as ResolvedRoute;
-    } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn(`[button-prompts] resolve_zone_for_prompt failed for ${key}:`, err);
-    }
-  }
+  const resolved = staticRoute();
   await invoke("spawn_session", {
     provider: resolved.entry.provider,
     prompt,
@@ -237,131 +178,20 @@ export async function resolveAndSpawn(
     flags: {
       dangerouslySkipPermissions: false,
       ...extraFlags,
-      model: resolved.entry.model ?? undefined,
-      agent: resolved.entry.agent ?? undefined,
     },
   });
   return { prompt, resolved };
 }
 
-// ---------------------------------------------------------------------------
-// ai-router-visibility — surface where an AI button routes
-//
-// Kirkardo P2: from the button itself the user can't see which provider /
-// model an "AI" action will use. Every AI button funnels through a
-// catalog entry that carries a `zone` (fixed, part of the catalog) which
-// the AI Router maps to a provider/model (user-overridable in Settings →
-// AI Router, persisted to ~/.ultron/.tmp/ai-router.json).
-//
-// `useRoutingTitle(key, baseTitle)` returns a `title=` string that always
-// names the destination, e.g.:
-//
-//   "<baseTitle> · routing: diagnose → claude/opus-4-7 (debugger)"
-//
-// The zone is always resolvable statically from the catalog. The
-// provider/model come from the live AI Router config; if that read fails
-// the hook degrades gracefully to just the zone (still useful — the zone
-// is fixed) plus a "(see Settings → AI Router)" hint.
-// ---------------------------------------------------------------------------
-
-type AiRouterZoneEntry = {
-  provider?: string;
-  model?: string | null;
-  agent?: string | null;
-  auto_mode?: boolean;
-};
-
-let routerCache: Record<string, AiRouterZoneEntry> | null = null;
-let routerInflight: Promise<Record<string, AiRouterZoneEntry> | null> | null =
-  null;
-
-/** Cached read of the AI Router config. `null` on any failure. */
-async function loadAiRouter(): Promise<Record<
-  string,
-  AiRouterZoneEntry
-> | null> {
-  if (routerCache) return routerCache;
-  if (routerInflight) return routerInflight;
-  routerInflight = (async () => {
-    try {
-      const cfg = (await invoke("read_ai_router")) as Record<
-        string,
-        AiRouterZoneEntry
-      >;
-      routerCache = cfg;
-      return cfg;
-    } catch {
-      return null;
-    } finally {
-      routerInflight = null;
-    }
-  })();
-  return routerInflight;
-}
-
-/** Drop a versioned model id to a compact form for the tooltip. */
-function shortModel(model: string): string {
-  // "claude-opus-4-7" → "opus-4-7"; "gpt-5.5" → "gpt-5.5";
-  // "gemini-3.1-flash-preview" → "3.1-flash-preview".
-  return model
-    .replace(/^claude-/, "")
-    .replace(/^gemini-/, "");
-}
-
 /**
- * Build the routing fragment for a button-prompt `key`. Always returns a
- * non-empty string. Shape:
- *   - zoned button:  "routing: <zone> → <provider>/<model> (<agent>)"
- *   - empty zone:    "routing: direct → claude (no AI Router zone)"
- *   - router unread: "routing: <zone> → see Settings → AI Router"
+ * Back-compat hook: returns `baseTitle` unchanged. Originally appended an AI
+ * Router routing hint; the router is gone in v2.0 so this is a no-op.
  */
-export async function routingLabelFor(key: string): Promise<string> {
-  const catalog = await loadCatalog();
-  const entry = catalog.buttons.find((b) => b.key === key);
-  if (!entry) return "routing: unknown button";
-  const zone = entry.zone;
-  if (!zone) {
-    // Buttons whose catalog entry has no zone bypass the AI Router and
-    // always spawn a plain Claude session (historical hardcoded provider).
-    return "routing: direct → claude (no AI Router zone)";
-  }
-  const cfg = await loadAiRouter();
-  const z = cfg?.[zone];
-  if (!z || !z.provider) {
-    return `routing: ${zone} → see Settings → AI Router`;
-  }
-  if (z.auto_mode) {
-    // Auto-mode ignores the manual pick at dispatch time and lets the
-    // agents index choose the subagent; the model is whatever that agent
-    // prefers. We can't resolve that statically, so we say so.
-    return `routing: ${zone} → auto (agent picked at dispatch)`;
-  }
-  const model = z.model ? `/${shortModel(z.model)}` : "/default";
-  const agent = z.agent ? ` (${z.agent})` : "";
-  return `routing: ${zone} → ${z.provider}${model}${agent}`;
-}
-
-/**
- * React hook: returns a `title=` string for an AI button. Starts as the
- * `baseTitle` (or the routing fragment alone if no base is given) and is
- * upgraded once the catalog + AI Router config resolve. Safe to use as
- * `title={useRoutingTitle("plans.sprint_ai", "Generate a sprint…")}`.
- */
-export function useRoutingTitle(key: string, baseTitle = ""): string {
-  const [routing, setRouting] = useState<string>("");
+export function useRoutingTitle(_key: string, baseTitle = ""): string {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_state] = useState<string>("");
   useEffect(() => {
-    let alive = true;
-    routingLabelFor(key)
-      .then((label) => {
-        if (alive) setRouting(label);
-      })
-      .catch(() => {
-        /* keep baseTitle only */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [key]);
-  if (!routing) return baseTitle;
-  return baseTitle ? `${baseTitle} · ${routing}` : routing;
+    /* no-op */
+  }, []);
+  return baseTitle;
 }

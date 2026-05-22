@@ -18,7 +18,6 @@
 // `frontend/src/lib/bindings.ts` from these signatures.
 
 pub mod agents;
-pub mod ai_router;
 pub mod alerts;
 pub mod apps;
 pub mod button_prompts;

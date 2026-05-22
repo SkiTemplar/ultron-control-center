@@ -45,9 +45,6 @@ pub struct ButtonPrompt {
     pub default_prompt: String,
     /// Whether the entry currently differs from `default_prompt`.
     pub overridden: bool,
-    /// AI Router zone this button uses (informational only — the consumer
-    /// decides whether to honour it). Empty string when unknown.
-    pub zone: String,
     /// Names of variables interpolated by the consumer when materialising
     /// the prompt (e.g. ["report_json"]). Informational so the Settings UI
     /// can warn the user "this prompt expects {report_json}".
@@ -72,7 +69,6 @@ fn default_button(
     label: &str,
     location: &str,
     description: &str,
-    zone: &str,
     vars: &[&str],
     prompt: &str,
 ) -> ButtonPrompt {
@@ -84,7 +80,6 @@ fn default_button(
         prompt: prompt.to_string(),
         default_prompt: prompt.to_string(),
         overridden: false,
-        zone: zone.to_string(),
         vars: vars.iter().map(|s| s.to_string()).collect(),
     }
 }
@@ -99,7 +94,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Dashboard / PC diagnostics",
             "Opens a Claude session preloaded with the PC diagnostic report and \
              asks for a prioritised list of fixes.",
-            "diagnose",
             &["report_json"],
             "Analiza este reporte de diagnostico PC y dime exactamente que esta mal, por orden de gravedad. Para cada problema, propon un fix concreto (comando o accion). Si todo esta bien, dilo en una linea.\n\nReporte (JSON):\n```json\n{report_json}\n```",
         ),
@@ -109,7 +103,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Skills / list header",
             "Spawns a Claude session in the skills GUIDE folder so Claude can \
              walk the user through creating a new SKILL.md.",
-            "skill_create",
             &[],
             "Vamos a crear un nuevo skill para Claude Code. Lee el GUIDE.md de esta carpeta para conocer el schema YAML, allowed-tools, layers (active/vault) y post-creation. Después pregúntame slug, descripción y triggers, y genera el SKILL.md completo en ~/.claude/skills/<slug>/ o ~/.ultron/skill-vault/<slug>/ según indique.",
         ),
@@ -119,7 +112,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Skills / detail · Preview · AI Edit",
             "Used inside the skill preview to apply a natural-language edit to \
              an existing SKILL.md.",
-            "skill_edit",
             &["skill_name", "ai_instruction"],
             "Quiero editar este skill (~/.claude/skills/{skill_name}/SKILL.md).\n\nInstrucción:\n{ai_instruction}\n\nLee primero el SKILL.md actual y los archivos hermanos si son relevantes. Propon el cambio como diff antes de escribir. Mantén el frontmatter YAML válido.",
         ),
@@ -128,7 +120,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Agents · AI edit",
             "Agents / detail header",
             "Opens a Claude session in ~/.claude/agents to edit the selected agent.",
-            "",
             &["agent_name"],
             "Quiero editar este agent (~/.claude/agents/{agent_name}.md).\n\nLee primero el archivo y proponme cambios concretos. Mantén el frontmatter YAML válido.",
         ),
@@ -138,7 +129,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Agents / list header",
             "Asks Claude to scout GitHub for useful Claude Code agents and \
              offer to download them locally.",
-            "",
             &[],
             "Busca agentes Claude Code útiles publicados en GitHub (anthropics/claude-code-templates, voltagent/awesome-claude-code-subagents, addyosmani/agent-skills, anthropic-cookbook). Lista 8-12 agentes con:\n- nombre (slug kebab-case)\n- una línea de descripción\n- URL del archivo .md raw en GitHub\n- por qué es útil\n\nDespués pregúntame cuáles quiero instalar y los descargas a ~/.claude/agents/<name>.md. Mantén el formato YAML frontmatter intacto.",
         ),
@@ -149,7 +139,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Memory / list header",
             "Spawns a Claude session in ~/.ultron/instructions/memory so the \
              user can draft a new vault note guided by GUIDE.md.",
-            "memory_analyse",
             &[],
             "Vamos a escribir una nueva nota para el vault Obsidian (~/.ultron-vault). Lee el GUIDE.md de esta carpeta para conocer la estructura PARA (10_KNOWLEDGE, 20_PROJECTS...), frontmatter requerido y convenciones. Pregúntame el tema, propon ubicación y título, escribe la nota y luego corre brain_index.py update + embed_vault.py index.",
         ),
@@ -159,7 +148,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Notifications / per-row button",
             "Opens a session preloaded with a single alert's metadata so the \
              user can investigate the root cause and propose a fix.",
-            "notif_fix",
             &["alert_block"],
             "I just got a CRITICAL ULTRON notification:\n\n{alert_block}\n\nPlease investigate the root cause and propose a fix. The relevant files are likely under ~/.ultron/scripts/ or ~/.ultron/control-center/. If this is a security scan blocking a skill, check the skill's SKILL.md frontmatter and the security ruleset at ~/.ultron/scripts/cockpit/skill_sync_security.py.",
         ),
@@ -169,7 +157,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Notifications / header bulk button",
             "Opens a single session preloaded with every actionable alert \
              (critical + warn) for a coordinated fix.",
-            "notif_fix",
             &["bulk_block"],
             "I'm getting multiple ULTRON notifications. Please investigate ALL of them and propose fixes. Group related ones if applicable, prioritize critical over warn.\n\n{bulk_block}\n\nPlease:\n1. Identify the root cause(s) — are these symptoms of one underlying issue?\n2. Propose a coordinated fix sequence.\n3. Start by reading scripts/cockpit/skill_sync_security.py if security warns are involved, and ~/.ultron/alerts.jsonl for the full context.",
         ),
@@ -181,7 +168,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
              priorities. Proposes an actionable sprint ordered P0→P3 AND \
              rewrites/sharpens any plan that was hand-written (vague title, \
              thin description, missing DONE criteria).",
-            "brainstorm_plans",
             &["open_plans_block"],
             "Eres el orquestador de ULTRON. Tienes dos trabajos sobre los planes open.\n\n## Planes open (ordenados por prioridad)\n{open_plans_block}\n\n### 1. Reescribir los planes puestos a mano\nVarios de estos planes los escribió el usuario a mano y pueden estar flojos: título vago, descripción pobre o ausente, sin criterio de DONE, prioridad o kind dudosos. Para cada plan que lo necesite:\n- Reescribe el título a algo imperativo y concreto (<80 chars)\n- Mejora la descripción: 1-2 párrafos con contexto, alcance y un criterio de DONE verificable\n- Corrige priority (p0-p4) y kind si están mal\n- Aplica el cambio con `update_plan` (id, title, priority, kind, description, tags)\nNo inventes alcance que el usuario no pidió — solo aclara y estructura lo que ya está. Si un plan ya está bien escrito, déjalo.\n\n### 2. Proponer el sprint\nDespués, propón un sprint accionable de máximo 3-4 items. Para cada item:\n- Por qué es prioritario ahora\n- Estimación realista (30min / 1h / 2h / 3h)\n- Criterio de DONE concreto y verificable\n- Qué NO tocar\n\nFormato: lista numerada, sin inflación. Lee ~/.ultron/instructions/plans/GUIDE.md primero para no inventar campos del schema.",
         ),
@@ -191,7 +177,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Plans / row → resolve",
             "Preloads a Claude session with one plan's metadata so the user \
              can refine the spec or push it to in_progress / resolved.",
-            "brainstorm_plans",
             &["plan_id", "plan_title", "plan_status", "plan_priority", "plan_description"],
             "Plan ID: {plan_id}\nTitle: {plan_title}\nStatus: {plan_status}\nPriority: {plan_priority}\n\nDescription:\n{plan_description}\n\nQuiero trabajar en este plan. Lee primero el spec si existe en plans/specs/, después propon el plan de ejecución dividido en tareas pequeñas y empieza por la primera.",
         ),
@@ -201,7 +186,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "SelfImprove / RepoEvaluatorCard",
             "Spawns a Claude session that activates the repo-evaluator skill \
              for a strict professor-style review of the ULTRON repo.",
-            "self_improve",
             &[],
             "repo-evaluator, evalua este repo (~/.ultron) al estilo de un profesor estricto: arquitectura, tests, docs, riesgos, dependencias, y dame nota final con justificacion. Empieza por la fase 0 de inventario.",
         ),
@@ -211,7 +195,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "System / scheduled-tasks header",
             "Opens a Claude session in instructions/tasks so the user can \
              register a new Windows scheduled task following the ULTRON convention.",
-            "system_analyse",
             &[],
             "Vamos a registrar una nueva scheduled task de Windows. Lee el GUIDE.md de esta carpeta para conocer la convención (prefix ULTRON-, wrapper PowerShell, exit-swallow, log en cockpit/scheduler-logs/). Después pregúntame qué quiero programar y prepara el New-ScheduledTaskAction completo, lo registramos y validamos con Get-ScheduledTaskInfo.",
         ),
@@ -221,7 +204,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Usage / header refresh-with-AI",
             "Spawns a Claude session that runs the `/usage` slash command \
              so the local cache is refreshed against the Anthropic API.",
-            "usage_analyse",
             &[],
             "/usage",
         ),
@@ -239,7 +221,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
              no longer enumerates 'titulares ya publicados' — novelty is \
              enforced by date (today/yesterday only) and by the SQLite \
              history filter post-generation.",
-            "news_generate",
             &["today", "model"],
             "[BANNER — no es el prompt real] El prompt real lo genera news_html_generator.py y se copia a tu portapapeles. Pulsa Ctrl+V dentro de Gemini para usarlo. Output HTML → ~/.ultron/cockpit/news/newsletter-{today}.html. Modelo: {model}. Personaliza temas en ~/.ultron/cockpit/news-topics.json (defaults: AI, Claude Code, GitHub Claude tooling). Novedad por fecha (hoy/ayer); duplicados se filtran post-render contra news_history.db (retención 7d).",
         ),
@@ -250,7 +231,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Spawns a Claude session in ~/.ultron/instructions/mcps so the \
              user can register a new MCP server following the GUIDE's \
              allowlist and validation rules.",
-            "",
             &[],
             "Vamos a añadir un MCP server a ~/.claude/settings.json. Lee el GUIDE.md de esta carpeta para conocer la allowlist de commands, fragmentos prohibidos en args y el shape esperado. Después pregúntame nombre, comando, args y env, valida con la allowlist y registra el MCP (espera mi OK antes de escribir). Tras añadir, ejecuta mcp_health_check.py.",
         ),
@@ -260,7 +240,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Plans / header Execute button",
             "Opens a Claude session in instructions/plans to walk through \
              every open plan in priority order and run them.",
-            "brainstorm_plans",
             &[],
             "Claude, ejecuta lo que tenemos pendiente en PLANS.json. Lee primero el GUIDE.md de esta carpeta y los items con status=open en orden de priority (p0→p4). Para cada uno: márcalo in_progress con patch_plan_status, propon plan de ejecución corto, y si lo terminas, márcalo resolved o revision según corresponda.",
         ),
@@ -270,7 +249,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Plans / header Review button",
             "Opens a Claude session that audits plans in status=revision (or \
              top-priority open ones) for staleness and proposes wontfix moves.",
-            "brainstorm_plans",
             &[],
             "Claude, revisa los planes con status=revision (y los open p0/p1 si no hay revision). Verifica que todavía sean accionables, sigan vigentes, y que el spec_path exista. Sugiere mover a wontfix los que dejaron de tener sentido. Resume hallazgos antes de tocar nada.",
         ),
@@ -280,7 +258,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Plans / header Add-from-goal button",
             "Spawns a Claude session that turns a natural-language goal into \
              1-5 actionable plans via add_plan.",
-            "brainstorm_plans",
             &[],
             "Claude, voy a darte un goal en lenguaje natural. Crea 1-5 planes accionables vía add_plan siguiendo el GUIDE.md (priority p0-p4, kind apropiado, tags útiles, description 1-2 párrafos). Si necesitas más contexto del repo, lee ~/.ultron/MEMORY.md primero. Goal: <ESCRIBE-AQUÍ>",
         ),
@@ -290,7 +267,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Plans / header Resolve button",
             "Opens a Claude session that picks up the current in_progress \
              plan (or the top open p0/p1) and drives it to resolved.",
-            "brainstorm_plans",
             &[],
             "Claude, ayúdame a resolver el plan que tenga in_progress (o el primero open p0/p1). Lee su description + spec_path si existe, ejecuta los pasos, y cuando termines márcalo resolved. Si te bloquea algo, márcalo blocked con una nota explicando.",
         ),
@@ -302,7 +278,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Personal · Refresh profile with AI",
             "Personal / profile section header",
             "Claude session that re-reads recent transcripts to update profile.md.",
-            "memory_analyse",
             &[],
             "Lee ~/.ultron/personal/profile.md y mis últimas 10 sesiones (~/.claude/projects/*/conversations/*.jsonl, los más recientes). Propón una versión actualizada del perfil: tono, lenguaje principal, code-switching, frases características, formato preferido. Muestra un diff antes de escribir. NO inventes — solo agrega lo que se vea respaldado por evidencia en las transcripciones.",
         ),
@@ -311,7 +286,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Personal · Re-synthesize known.json",
             "Personal / known section header",
             "Spawns a session that regenerates known.json from recent activity.",
-            "memory_analyse",
             &[],
             "Regenera ~/.ultron/personal/known.json desde mis últimas 20 sesiones. Schema: writing_style, recent_topics (5-10), routines (3-5), source: 'auto-2026-xx-xx'. No borres lo que ya esté curado a mano salvo que esté claramente desactualizado. Diff antes de escribir.",
         ),
@@ -320,7 +294,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Projects · Suggest refactors",
             "Projects / row context menu",
             "Reads the project tree and proposes prioritized refactor opportunities.",
-            "",
             &["project_path", "project_name"],
             "Estoy en {project_name} ({project_path}). Lee el árbol de archivos a 2 niveles y los top-10 archivos por tamaño. Propón 3-5 refactors prioritizados por impacto: qué cambiar, por qué, y un esbozo del approach. NO toques nada, solo propón.",
         ),
@@ -329,7 +302,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Projects · Generate / update README",
             "Projects / row context menu",
             "Claude reads the project and drafts a README from scratch (or updates the existing one).",
-            "",
             &["project_path", "project_name"],
             "Lee {project_path}. Si existe README.md, propón una versión refrescada que refleje el estado actual del código (no inventes features que no estén). Si no existe, genera uno completo: descripción, install, uso básico, estructura de carpetas, contribución. Diff antes de escribir.",
         ),
@@ -338,7 +310,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Sessions · Summarize session",
             "Sessions / row context menu",
             "Compress a Claude Code transcript into a 5-line summary + open TODOs.",
-            "session_analyse",
             &["session_id"],
             "Lee la sesión {session_id} (TRANSCRIPT.md + memory/* si existe). Devuelve:\n1. Objetivo principal (1 línea)\n2. 3-5 decisiones clave\n3. Problemas encontrados\n4. TODOs pendientes (con ruta del archivo si aplica)\n5. Una métrica de éxito (¿se cumplió el objetivo? sí/parcial/no)\n\nMáximo 200 palabras total.",
         ),
@@ -347,7 +318,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Sessions · Extract decisions to vault",
             "Sessions / row context menu",
             "Pulls architectural decisions out of a session and writes them as 20_DECISIONS notes.",
-            "session_analyse",
             &["session_id"],
             "Lee la sesión {session_id}. Identifica decisiones arquitectónicas o de diseño que merezcan persistirse en ~/.ultron-vault/20_DECISIONS/. Para cada una, propón un fichero con frontmatter ADR-style (title, date, status, context, decision, consequences). Espera mi OK antes de escribir.",
         ),
@@ -356,7 +326,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Memory · Consolidate duplicates",
             "Memory / list header",
             "Spawns a session that calls the consolidate-memory skill across the vault.",
-            "memory_analyse",
             &[],
             "Activa la skill consolidate-memory. Recorre ~/.ultron-vault buscando notas duplicadas, fusionables o claramente obsoletas. Propón un plan de consolidación (no mergees nada sin mi OK). Prioriza 10_KNOWLEDGE y 30_PATTERNS.",
         ),
@@ -365,7 +334,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Memory · Rebuild brain_index",
             "Memory / list header",
             "Re-runs brain_index.py rebuild for a clean FTS5 index.",
-            "memory_analyse",
             &[],
             "Ejecuta `uv run python ~/.ultron/scripts/cockpit/brain_index.py rebuild` y luego `embed_vault.py` para re-vectorizar Qdrant. Reporta el conteo antes/después y cualquier nota que fallara al indexar.",
         ),
@@ -374,7 +342,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "System · Audit a hook",
             "System / hooks panel",
             "Claude reads a hook file and audits it for safety + side-effects.",
-            "system_analyse",
             &["hook_path"],
             "Audita el hook {hook_path}. Reporta: (a) qué eventos consume, (b) qué side-effects tiene, (c) si puede bloquear (exit 2), (d) si tiene timeouts, (e) riesgos de prompt-injection o command-injection. Sugiere fixes concretos solo si encuentras algo.",
         ),
@@ -383,7 +350,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "System · Diagnose runtime issue",
             "System / diagnostics panel",
             "Free-form Claude session preloaded with system context for ad-hoc troubleshooting.",
-            "diagnose",
             &["symptom"],
             "Tengo este síntoma: {symptom}\n\nLee ~/.ultron/SYSTEM-MAP.md primero, después haz `ultron doctor`, y propón hipótesis + verificación. NO toques configuración sin mi OK.",
         ),
@@ -392,7 +358,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "MCPs · Debug failing server",
             "MCPs / per-row debug button",
             "Loads a session focused on debugging one MCP server that won't connect.",
-            "",
             &["mcp_name", "mcp_config"],
             "El MCP `{mcp_name}` no conecta. Config actual:\n```json\n{mcp_config}\n```\n\nEjecuta `claude mcp list`, busca el error en logs si está disponible, y propón hipótesis: (a) binario no encontrado, (b) auth fallida, (c) timeout, (d) args mal formados, (e) capability mismatch. Verifica una hipótesis a la vez antes de cambiar config.",
         ),
@@ -401,7 +366,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Agents · Batch migrate schema",
             "Agents / list header",
             "Walks every agent .md and proposes schema updates (model id, tools list, etc.).",
-            "",
             &["target_change"],
             "Recorre ~/.claude/agents/*.md. Para cada uno, propón los cambios necesarios para aplicar: {target_change}\n\nDevuelve un plan tabular (agent | cambio sugerido | diff line) ANTES de tocar nada. Espera mi OK por lotes de 5 agents.",
         ),
@@ -410,7 +374,6 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Logs · Summarize recent log file",
             "Logs / per-row context menu",
             "Compress the tail of a log file into a 5-line summary + flagged issues.",
-            "diagnose",
             &["log_path"],
             "Lee la cola (últimas 500 líneas) de {log_path} y devuelve:\n1. Qué proceso lo escribe\n2. Eventos relevantes (errores, warnings, transiciones)\n3. ¿Hay un patrón anómalo?\n4. Sugerencia de siguiente paso (investigar/silenciar/ignorar)\n\nMáximo 150 palabras.",
         ),

@@ -272,9 +272,8 @@ export type SpawnFlags = {
   resumeId?: string | null;
   /** Optional subagent slug (filename stem under `~/.claude/agents/`).
    *  When set, the Rust backend prepends `[USE AGENT: <slug>]` to the
-   *  prompt before the Claude session starts. Driven by the AI Router
-   *  (Settings → AI Router) — call sites normally don't set it manually,
-   *  they read `AiRouterEntry.agent` for the zone and pass it through. */
+   *  prompt before the Claude session starts. v2.0: pass it explicitly
+   *  per call-site (no AI Router). */
   agent?: string | null;
   /** When true, the wrapper script copies the prompt to the clipboard
    *  and opens the CLI without auto-submitting. Mirrors the Rust
@@ -283,15 +282,6 @@ export type SpawnFlags = {
   /** When true, the wrapper script will NOT overwrite the clipboard.
    *  Used by callers that primed the clipboard themselves (news pipeline). */
   respectClipboard?: boolean;
-};
-
-/** A single AI Router zone entry. Mirrors the Rust `AiRouterEntry`.
- *  `model` and `agent` are both optional — `null` means "use the
- *  provider default" / "no subagent" respectively. */
-export type AiRouterEntry = {
-  provider: "claude" | "codex" | "gemini" | string;
-  model: string | null;
-  agent: string | null;
 };
 
 export type ClaudeSession = {

@@ -18,7 +18,6 @@
 
 mod activity_timeline;
 mod agents;
-mod ai_router;
 mod alerts_admin;
 mod auth;
 mod backup_status;
@@ -244,11 +243,6 @@ pub fn run() {
             commands::lifecycle::set_ultron_mode,
             commands::lifecycle::reset_mode_to_autodetect,
             commands::lifecycle::close_control_center,
-            // -- AI router --
-            commands::ai_router::read_ai_router,
-            commands::ai_router::save_ai_router,
-            commands::ai_router::reset_ai_router_to_defaults,
-            commands::ai_router::resolve_zone_for_prompt,
             // -- diagnostics + doctor --
             commands::diagnostics::run_diagnose,
             commands::diagnostics::diagnose_with_ai,

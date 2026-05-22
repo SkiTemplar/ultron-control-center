@@ -502,26 +502,12 @@ pub async fn generate_mcp_from_prompt_inner(
     }
     let full_prompt = MCP_PROMPT_TEMPLATE.replace("{DESCRIPTION}", &description);
 
-    // v15.2 AI Router: the "mcp_create" zone decides which provider/model
-    // generates the scaffold. Default is claude (best at JSON shape under
-    // tight constraints), but if the user has reassigned it the router
-    // value wins. Fall back to claude on any router read failure so the
-    // generator never breaks silently.
-    let (provider, model) = match crate::ai_router::read_ai_router_inner() {
-        Ok(cfg) => cfg
-            .zone("mcp_create")
-            .map(|z| (z.provider.clone(), z.model.clone().filter(|m| !m.is_empty())))
-            .unwrap_or_else(|| ("claude".to_string(), None)),
-        Err(_) => ("claude".to_string(), None),
-    };
-
-    // Run the chosen provider via the same inline pattern as
-    // sessions::run_inline_inner. The inline path supports passing a model
-    // explicitly, which is exactly what the router gives us.
+    // Control Center 2.0: no internal AI router. MCP scaffold generation
+    // defaults to Claude (best at JSON shape under tight constraints).
     let inline = crate::sessions::run_inline_inner(
         app,
-        provider,
-        model,
+        "claude".to_string(),
+        None,
         full_prompt,
     )
     .await?;

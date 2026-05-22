@@ -363,36 +363,15 @@ function Row({ g }: { g: Grouped }) {
       // scripts, hooks, alerts.jsonl and logs live — diagnosing a system
       // alert from C:\Users\<user>\ has zero context.
       const cwd = await getUltronRoot().catch(() => null);
-      // Pull model/agent from the router zone without forcing the
-      // provider. resolve_zone_for_prompt also honours auto-mode.
-      type Resolved = {
-        entry: { provider: string; model: string | null; agent: string | null };
-      };
-      let model: string | undefined;
-      let agent: string | undefined;
-      try {
-        const r = (await invoke("resolve_zone_for_prompt", {
-          zoneKey: "notif_fix",
-          prompt,
-        })) as Resolved;
-        // Only borrow model/agent when the resolved provider matches the
-        // CLI the user picked. Cross-provider model strings (e.g. a
-        // claude model on codex) would just confuse the CLI.
-        if (r.entry.provider === provider) {
-          model = r.entry.model ?? undefined;
-          agent = r.entry.agent ?? undefined;
-        }
-      } catch {
-        // router unavailable — fall back to provider defaults.
-      }
+      // v2.0: no AI Router. The provider is whatever the user picked
+      // on the per-row Fix toggle; model/agent are the provider's defaults.
       await invoke("spawn_session", {
         provider,
         prompt,
         cwd,
         // paste_only = true → wrapper copies the prompt to the clipboard and
         // opens the terminal. The user pastes with Ctrl+V and hits Enter.
-        // Mirrors the F1.9 Diagnose flow so behaviour is consistent.
-        flags: { dangerouslySkipPermissions: false, pasteOnly: true, model, agent },
+        flags: { dangerouslySkipPermissions: false, pasteOnly: true },
       });
       const label = provider === "claude" ? "Claude" : "Codex";
       setFixToast(`${label} session opened — paste prompt with Ctrl+V`);
@@ -708,35 +687,16 @@ export function Notifications({ alerts, onDeleted }: Props) {
       // scripts, hooks, alerts.jsonl and logs live — diagnosing a system
       // alert from C:\Users\<user>\ has zero context.
       const cwd = await getUltronRoot().catch(() => null);
-      // Pull model/agent from the router zone (auto-mode honoured) but
-      // keep the provider the user clicked: the bulk Fix buttons are an
-      // explicit override of the router's provider.
-      type Resolved = {
-        entry: { provider: string; model: string | null; agent: string | null };
-      };
-      let model: string | undefined;
-      let agent: string | undefined;
-      try {
-        const r = (await invoke("resolve_zone_for_prompt", {
-          zoneKey: "notif_fix",
-          prompt,
-        })) as Resolved;
-        if (r.entry.provider === provider) {
-          model = r.entry.model ?? undefined;
-          agent = r.entry.agent ?? undefined;
-        }
-      } catch {
-        // router unavailable — fall back to provider defaults.
-      }
+      // v2.0: no AI Router. Provider is the bulk Fix toggle's pick;
+      // model/agent are the provider's defaults.
       await invoke("spawn_session", {
         provider,
         prompt,
         cwd,
         // paste_only mirrors the per-row Fix flow: the prompt lands on
         // the clipboard so the user controls when the session actually
-        // starts answering (avoids accidental autoruns of multi-issue
-        // fixes).
-        flags: { dangerouslySkipPermissions: false, pasteOnly: true, model, agent },
+        // starts answering.
+        flags: { dangerouslySkipPermissions: false, pasteOnly: true },
       });
       const label = provider === "claude" ? "Claude" : "Codex";
       setBulkFixToast(

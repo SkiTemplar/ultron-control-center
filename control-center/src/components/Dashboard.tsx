@@ -995,32 +995,13 @@ export function Dashboard({
                   });
                   const { getHomeDir, joinPath } = await import("../lib/paths");
                   const cwd = joinPath(await getHomeDir(), ".ultron");
-                  // v15.2.39 AI Router: route through the `diagnose` zone so
-                  // the user's Settings → AI Router pick (provider + model +
-                  // agent) wins. Default provider stays claude (historical
-                  // hardcoded value) on any router error so the button keeps
-                  // working even if `ai-router.json` is missing/broken.
-                  type Zone = {
-                    provider: string;
-                    model: string | null;
-                    agent: string | null;
-                  };
-                  let zone: Zone = { provider: "claude", model: null, agent: null };
-                  try {
-                    const cfg = (await invoke("read_ai_router")) as Record<string, Zone>;
-                    if (cfg && cfg.diagnose) zone = cfg.diagnose;
-                  } catch {
-                    // keep default
-                  }
+                  // v2.0: no AI Router. Hardcoded provider; model/agent are
+                  // provider defaults.
                   await invoke("spawn_session", {
-                    provider: zone.provider,
+                    provider: "claude",
                     prompt,
                     cwd,
-                    flags: {
-                      dangerouslySkipPermissions: false,
-                      model: zone.model ?? undefined,
-                      agent: zone.agent ?? undefined,
-                    },
+                    flags: { dangerouslySkipPermissions: false },
                   });
                 } catch (e) {
                   console.error("PC diagnostic AI session failed", e);
