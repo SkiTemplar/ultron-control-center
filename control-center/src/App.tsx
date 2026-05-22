@@ -26,25 +26,15 @@ import { CommandPalette, type PaletteAction } from "./components/CommandPalette"
 import { UpdateBanner } from "./components/UpdateBanner";
 import { computeGlobalStatus } from "./lib/status";
 import { setupTrayEventListeners } from "./lib/tauri-events";
-import type { QdrantHealth, AlertEntry, ChangelogEntry } from "./types";
+import type { AlertEntry, ChangelogEntry } from "./types";
 
 export default function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
-  const [qdrant, setQdrant] = useState<QdrantHealth | null>(null);
-  const [qdrantErr, setQdrantErr] = useState<string | null>(null);
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   async function refreshAll() {
-    try {
-      const h = (await invoke("qdrant_health")) as QdrantHealth;
-      setQdrant(h);
-      setQdrantErr(null);
-    } catch (e) {
-      setQdrantErr(String(e));
-      setQdrant(null);
-    }
     try {
       const al = (await invoke("read_alerts", { limit: 200 })) as AlertEntry[];
       setAlerts(al);
@@ -273,7 +263,7 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const globalStatus = computeGlobalStatus(qdrant, qdrantErr, alerts);
+  const globalStatus = computeGlobalStatus(alerts);
 
   // v15.3.7 — Command palette gets the full ULTRON system surface.
   // Maintenance commands are pulled dynamically from the backend so the
@@ -332,7 +322,7 @@ export default function App() {
     list.push({
       id: "refresh",
       label: "Refresh dashboard data",
-      description: "Re-pull Qdrant health, alerts, and changelog.",
+      description: "Re-pull alerts and changelog.",
       group: "Actions",
       shortcut: "Ctrl+R",
       run: () => void refreshAll(),
@@ -471,8 +461,6 @@ export default function App() {
         <UpdateBanner />
         {tab === "dashboard" && (
           <Dashboard
-            qdrant={qdrant}
-            qdrantErr={qdrantErr}
             alerts={alerts}
             changelog={changelog}
             globalStatus={globalStatus}

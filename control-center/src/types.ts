@@ -7,13 +7,6 @@ export type CmdResult = {
   exit_code: number | null;
 };
 
-export type QdrantHealth = {
-  status: string;
-  message: string;
-  elapsed_sec: number;
-  timestamp: string;
-};
-
 export type AlertEntry = {
   id?: string;
   ts?: string;
@@ -36,74 +29,9 @@ export type ChangelogEntry = {
   applied_by?: string;
 };
 
-export type Health = {
-  qdrant: QdrantHealth | null;
-  qdrant_error: string | null;
-  alerts_count: number;
-  alerts_critical: number;
-};
-
 export type GlobalStatus = "ok" | "warn" | "down" | "loading";
 
 export type McpStatus = "ok" | "degraded" | "missing" | "unknown" | string;
-
-export type VaultStatus = {
-  exists: boolean;
-  path: string | null;
-  note_count: number;
-  size_bytes: number;
-  last_modified: string | null;
-};
-
-export type BrainStatus = {
-  exists: boolean;
-  path: string | null;
-  size_bytes: number;
-  last_modified: string | null;
-  age_hours: number | null;
-};
-
-export type QdrantCollection = {
-  name: string;
-  points_count: number | null;
-  vectors_count: number | null;
-  status: string | null;
-};
-
-export type QdrantMemoryStatus = {
-  up: boolean;
-  error: string | null;
-  collections: QdrantCollection[];
-};
-
-export type MemoryStatusInfo = {
-  vault: VaultStatus;
-  brain: BrainStatus;
-  qdrant: QdrantMemoryStatus;
-};
-
-export type BrainResult = {
-  id: number;
-  path: string;
-  layer: string;
-  category: string;
-  domain: string;
-  title: string;
-  snippet: string;
-  rank: number;
-};
-
-export type MemoryActionResult = {
-  success: boolean;
-  stdout: string;
-  stderr: string;
-  exit_code: number | null;
-  action: string;
-};
-
-export type MemoryActionKey =
-  | "vault-sync"
-  | "brain-update";
 
 // Usage (Claude Code stats-cache.json)
 

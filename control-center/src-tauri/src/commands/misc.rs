@@ -1,7 +1,6 @@
 // Miscellaneous commands that don't fit into any of the other domain groups.
-// Path helpers exposed to the frontend, qdrant health probe, logs tailing,
-// instruction folders, usage report, activity timeline, and the cost
-// watchdog.
+// Path helpers exposed to the frontend, logs tailing, instruction folders,
+// usage report, activity timeline, and the cost watchdog.
 
 use crate::{activity_timeline, cost_watchdog, instructions, logs, usage};
 
@@ -23,13 +22,6 @@ pub fn home_dir_str() -> Result<String, String> {
     dirs::home_dir()
         .map(|h| h.to_string_lossy().to_string())
         .ok_or_else(|| "No HOME dir".to_string())
-}
-
-#[tauri::command]
-pub async fn qdrant_health() -> Result<serde_json::Value, String> {
-    let path = crate::ultron_root()?.join(".tmp/qdrant-health.json");
-    let content = std::fs::read_to_string(&path).map_err(|e| format!("read failed: {}", e))?;
-    serde_json::from_str(&content).map_err(|e| format!("parse failed: {}", e))
 }
 
 #[tauri::command]

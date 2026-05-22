@@ -1,19 +1,9 @@
-import type { GlobalStatus, QdrantHealth, AlertEntry } from "../types";
+import type { GlobalStatus, AlertEntry } from "../types";
 
-export function computeGlobalStatus(
-  qdrant: QdrantHealth | null,
-  qdrantErr: string | null,
-  alerts: AlertEntry[],
-): GlobalStatus {
-  if (!qdrant && !qdrantErr) return "loading";
-
+export function computeGlobalStatus(alerts: AlertEntry[]): GlobalStatus {
   // Critical alerts present → down
   const criticalSeverities = new Set(["critical", "blocking"]);
   if (alerts.some((a) => criticalSeverities.has(a.severity))) return "down";
-
-  // Qdrant explicitly down
-  if (qdrant && qdrant.status !== "up") return "down";
-  if (qdrantErr) return "down";
 
   // Warn-level alerts unacked → warn
   if (alerts.some((a) => a.severity === "warn" && !a.ack)) return "warn";

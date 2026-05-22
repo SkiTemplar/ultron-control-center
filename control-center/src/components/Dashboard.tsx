@@ -2,14 +2,12 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { confirmDialog } from "../lib/dialog";
 import type {
-  QdrantHealth,
   AlertEntry,
   ChangelogEntry,
   GlobalStatus,
   MaintenanceCommand,
   MaintenanceResult,
   McpInfo,
-  MemoryStatusInfo,
 } from "../types";
 import { statusColor } from "../lib/status";
 import { useRoutingTitle } from "../lib/button-prompts";
@@ -206,8 +204,7 @@ function MaintenancePanel() {
 }
 
 type Props = {
-  qdrant: QdrantHealth | null;
-  qdrantErr: string | null;
+  // qdrant / qdrantErr removed in v2.0 (Mem0 replaces Qdrant).
   alerts: AlertEntry[];
   changelog: ChangelogEntry[];
   globalStatus: GlobalStatus;
@@ -408,8 +405,6 @@ function colorToken(color: "green" | "orange" | "red") {
 }
 
 export function Dashboard({
-  qdrant,
-  qdrantErr,
   alerts,
   changelog,
   globalStatus,
@@ -418,7 +413,6 @@ export function Dashboard({
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagErr, setDiagErr] = useState<string | null>(null);
   const [mcps, setMcps] = useState<McpInfo[] | null>(null);
-  const [memory, setMemory] = useState<MemoryStatusInfo | null>(null);
 
   // PC diagnostics (existing flow) — kept as-is.
   const [pcReport, setPcReport] = useState<DiagnoseResult | null>(null);
@@ -575,12 +569,6 @@ export function Dashboard({
       } catch {
         if (!cancelled) setMcps([]);
       }
-      try {
-        const mem = (await invoke("memory_status")) as MemoryStatusInfo;
-        if (!cancelled) setMemory(mem);
-      } catch {
-        if (!cancelled) setMemory(null);
-      }
     }
     loadWidgets();
     const t = setInterval(loadWidgets, 30_000);
@@ -590,7 +578,6 @@ export function Dashboard({
     };
   }, []);
 
-  const qdrantDot: GlobalStatus = !qdrant && !qdrantErr ? "loading" : qdrant?.status === "up" ? "ok" : "down";
   const alertsCritical = alerts.filter((a) => a.severity === "critical" || a.severity === "blocking").length;
   const alertsWarn = alerts.filter((a) => a.severity === "warn").length;
   const alertsActionable = alertsCritical + alertsWarn;
@@ -609,34 +596,6 @@ export function Dashboard({
   const mcpsEmphasis: "normal" | "warn" | "critical" =
     mcpIssues > 0 ? "warn" : "normal";
 
-  const brainPoints = memory?.qdrant.collections.reduce(
-    (acc, c) => acc + (c.points_count ?? 0),
-    0,
-  );
-  const brainAge = memory?.brain.age_hours ?? null;
-  const brainDot: GlobalStatus =
-    memory === null
-      ? "loading"
-      : !memory.brain.exists
-        ? "down"
-        : brainAge !== null && brainAge > 24
-          ? "warn"
-          : "ok";
-  const brainLabel =
-    memory === null
-      ? "—"
-      : memory.brain.exists
-        ? `${brainPoints?.toLocaleString() ?? 0}`
-        : "missing";
-  const brainDetail =
-    memory === null
-      ? "loading…"
-      : memory.brain.exists
-        ? brainAge !== null
-          ? `${memory.vault.note_count} notes · ${Math.floor(brainAge)}h old`
-          : `${memory.vault.note_count} notes`
-        : "brain_index.db not found";
-
   const lastChange = changelog[0];
 
   // The "Close Control Center" action lives in Settings → App lifecycle
@@ -652,13 +611,7 @@ export function Dashboard({
         </p>
       </header>
 
-      <div className="grid grid-cols-4 gap-3">
-        <MetricCard
-          label="Qdrant"
-          value={qdrant?.status ?? (qdrantErr ? "no signal" : "—")}
-          detail={qdrant ? `${qdrant.elapsed_sec}s startup` : qdrantErr ?? "checking…"}
-          statusDot={qdrantDot}
-        />
+      <div className="grid grid-cols-2 gap-3">
         <MetricCard
           label="Alerts"
           value={String(alerts.length)}
@@ -682,12 +635,6 @@ export function Dashboard({
           }
           statusDot={mcpsDot}
           emphasis={mcpsEmphasis}
-        />
-        <MetricCard
-          label="Brain · Qdrant"
-          value={brainLabel}
-          detail={brainDetail}
-          statusDot={brainDot}
         />
       </div>
 

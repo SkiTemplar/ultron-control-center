@@ -36,9 +36,6 @@ mod instructions;
 mod logs;
 mod maintenance;
 mod mcps;
-mod memory;
-mod memory_graph;
-mod memory_highlights;
 mod personal;
 mod plans;
 mod project_hotkeys;
@@ -135,7 +132,6 @@ pub fn run() {
             // -- misc / system status --
             commands::misc::ultron_root_str,
             commands::misc::home_dir_str,
-            commands::misc::qdrant_health,
             commands::misc::list_logs,
             commands::misc::tail_log,
             commands::misc::list_instruction_folders,
@@ -187,12 +183,6 @@ pub fn run() {
             commands::projects::reorder_launcher_items,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
-            // -- memory --
-            commands::memory::memory_status,
-            commands::memory::brain_query,
-            commands::memory::read_vault_note,
-            commands::memory::memory_action,
-            commands::memory::list_recent_vault_notes,
             // -- sessions --
             commands::sessions::spawn_session,
             commands::sessions::run_inline,
@@ -272,7 +262,6 @@ pub fn run() {
             // -- commands defined directly in their domain modules --
             toast_emit::get_toast_enabled,
             toast_emit::set_toast_enabled,
-            memory_graph::compute_memory_graph,
             codex_fallback::build_fallback_context,
             codex_fallback::build_fallback_prompt,
             codex_fallback::launch_codex_fallback,
@@ -283,9 +272,6 @@ pub fn run() {
             in_app_shortcuts::set_in_app_shortcuts,
             features::read_features,
             features::save_features,
-            memory_highlights::compute_memory_highlights,
-            memory_highlights::compute_memory_link_graph,
-            memory_highlights::mark_orphan_for_review,
         ])
         .setup(|app| {
             // Persisted main toggle hotkey (Ctrl+Alt+U by default).
