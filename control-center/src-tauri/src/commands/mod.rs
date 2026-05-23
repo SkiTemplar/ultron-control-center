@@ -27,6 +27,7 @@ pub mod hooks;
 pub mod hotkeys;
 pub mod inbox;
 pub mod kanban;
+pub mod library;
 pub mod lifecycle;
 pub mod maintenance;
 pub mod mcps;

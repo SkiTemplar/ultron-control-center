@@ -730,3 +730,53 @@ export type OpenTab = {
 };
 
 export type ProjectSubTab = "board" | "terminal" | "agents" | "context" | "sessions";
+
+// ---------------------------------------------------------------------------
+// Library (P5): agent/skill discovery + install + pinning.
+// ---------------------------------------------------------------------------
+
+export type LibraryKind = "agent" | "skill";
+
+export type TargetScope = "global" | "project";
+
+export type RemoteItem = {
+  owner: string;
+  repo: string;
+  path: string;
+  name: string;
+  html_url: string | null;
+  preview: string | null;
+};
+
+export type PinnedAgents = {
+  pinned: string[];
+};
+
+export type AgentCreateInput = {
+  name: string;
+  description: string;
+  tools: string[];
+  model: string | null;
+  body: string;
+  target_scope: TargetScope;
+  target_project_id: string | null;
+};
+
+export type SkillCreateInput = {
+  name: string;
+  description: string;
+  body: string;
+  target_scope: TargetScope;
+  target_project_id: string | null;
+};
+
+export type InstallInput = {
+  owner: string;
+  repo: string;
+  path: string;
+  kind: LibraryKind;
+  target_scope: TargetScope;
+  target_project_id: string | null;
+  target_name: string | null;
+  overwrite: boolean;
+};

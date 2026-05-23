@@ -34,6 +34,7 @@ mod inbox;
 mod installed_apps;
 mod instructions;
 mod kanban;
+mod library;
 mod logs;
 mod maintenance;
 mod mcps;
@@ -273,6 +274,14 @@ pub fn run() {
             commands::pty::pty_resize,
             commands::pty::pty_kill,
             commands::pty::pty_list,
+            // -- library (P5 — GitHub search + install + per-project pin) --
+            commands::library::library_search_github,
+            commands::library::library_install_from_github,
+            commands::library::agent_create,
+            commands::library::skill_create,
+            commands::library::library_pin_agent,
+            commands::library::library_unpin_agent,
+            commands::library::library_list_pinned,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
             commands::kanban::kanban_save,

@@ -6,7 +6,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import type { AgentEntry, SkillOrigin } from "../types";
+import type { AgentEntry, RemoteItem, SkillOrigin } from "../types";
+import { SearchGitHubModal } from "./library/SearchGitHubModal";
+import { InstallConfirmModal } from "./library/InstallConfirmModal";
+import { CreateAgentModal } from "./library/CreateAgentModal";
+
+type ProjectLite = { id: string; name: string };
 
 type ScopeFilter = "all" | SkillOrigin;
 
@@ -34,6 +39,18 @@ export function Agents() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [installItem, setInstallItem] = useState<RemoteItem | null>(null);
+  const [projects, setProjects] = useState<ProjectLite[]>([]);
+
+  useEffect(() => {
+    invoke<ProjectLite[]>("list_projects")
+      .then((list) =>
+        setProjects(list.map((p) => ({ id: p.id, name: p.name }))),
+      )
+      .catch(() => setProjects([]));
+  }, []);
 
   const reload = async () => {
     setLoading(true);
@@ -76,14 +93,28 @@ export function Agents() {
 
   return (
     <div className="flex h-full flex-col gap-4 p-6">
-      <header className="flex items-center justify-between">
+      <header className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-semibold">Agents</h2>
-        <button
-          onClick={reload}
-          className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)]"
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setSearchOpen(true)}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)]"
+          >
+            Search GitHub
+          </button>
+          <button
+            onClick={() => setCreateOpen(true)}
+            className="rounded-md bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white"
+          >
+            + New agent
+          </button>
+          <button
+            onClick={reload}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)]"
+          >
+            Refresh
+          </button>
+        </div>
       </header>
 
       <div className="flex items-center gap-2">
@@ -152,6 +183,38 @@ export function Agents() {
           </ul>
         )}
       </div>
+
+      {searchOpen && (
+        <SearchGitHubModal
+          kind="agent"
+          onClose={() => setSearchOpen(false)}
+          onInstall={(it) => {
+            setSearchOpen(false);
+            setInstallItem(it);
+          }}
+        />
+      )}
+      {installItem && (
+        <InstallConfirmModal
+          item={installItem}
+          kind="agent"
+          onClose={() => setInstallItem(null)}
+          onInstalled={() => {
+            setInstallItem(null);
+            void reload();
+          }}
+        />
+      )}
+      {createOpen && (
+        <CreateAgentModal
+          projects={projects}
+          onClose={() => setCreateOpen(false)}
+          onCreated={() => {
+            setCreateOpen(false);
+            void reload();
+          }}
+        />
+      )}
     </div>
   );
 }
