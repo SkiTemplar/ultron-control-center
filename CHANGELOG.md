@@ -1,5 +1,15 @@
 # Changelog
 
+<!-- v2.3.0 -->
+## v2.3.0 - 2026-05-23
+
+Errores corregidos:
+- (sin cambios)
+
+Anadido:
+- (sin cambios)
+
+
 <!-- v2.2.0 -->
 ## v2.2.0 - 2026-05-23
 
