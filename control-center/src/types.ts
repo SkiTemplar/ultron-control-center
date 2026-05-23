@@ -548,6 +548,10 @@ export type McpInfo = {
   fallback_message: string | null;
   alert_severity: string | null;
   expected_offline: boolean;
+  /** v2.2 — origin tag: "user" | "project:<slug>" | "plugin:<slug>". */
+  origin?: string;
+  /** v2.2 — plugin or project slug when origin starts with plugin:/project:. */
+  plugin?: string | null;
 };
 
 export type McpMutationResult = {

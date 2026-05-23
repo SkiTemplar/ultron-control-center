@@ -272,8 +272,10 @@ pub fn run() {
             commands::hooks::recent_hook_fires,
             commands::hooks::request_hook_via_ai,
             commands::hooks::hooks_last_fired,
-            // -- plugin info (P7) --
+            // -- plugin info (P7 + v2.2 multi-plugin) --
             commands::plugins_info::read_plugin_info,
+            commands::plugins_info::list_all_plugins,
+            commands::plugins_info::uninstall_plugin_cache,
             // -- pty (embedded terminal, P3) --
             commands::pty::pty_spawn,
             commands::pty::pty_write,
@@ -281,10 +283,11 @@ pub fn run() {
             commands::pty::pty_kill,
             commands::pty::pty_list,
             // -- library (P5 — GitHub search + install + per-project pin) --
-            // v2.1: curated catalog feed.
+            // v2.1: curated catalog feed. v2.2: live preview refresh.
             commands::library::library_search_github,
             commands::library::library_install_from_github,
             commands::library::read_curated_catalog,
+            commands::library::catalog_fetch_previews,
             commands::library::agent_create,
             commands::library::skill_create,
             commands::library::library_pin_agent,
