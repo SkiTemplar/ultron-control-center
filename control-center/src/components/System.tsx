@@ -14,6 +14,7 @@ import type {
   UninstallAppResult,
 } from "../types";
 import { Hooks } from "./Hooks";
+import { Diagnostics } from "./system/Diagnostics";
 import { useFeatures } from "../lib/features";
 import { useRoutingTitle } from "../lib/button-prompts";
 
@@ -22,7 +23,7 @@ import { useRoutingTitle } from "../lib/button-prompts";
 //   - Apps      : inventory of installed apps with open-folder + uninstall
 //   - Schedules : scheduled task list (formerly the whole pane)
 //   - Hooks     : embedded Hooks admin (moved from sidebar)
-type SystemSubTab = "overview" | "apps" | "schedules" | "hooks";
+type SystemSubTab = "overview" | "apps" | "schedules" | "hooks" | "diagnostics";
 
 // ---------------------------------------------------------------------------
 // Formatters
@@ -1743,6 +1744,9 @@ export function System() {
       {/* Sub-tab: Apps — inventory of installed apps with open-folder + uninstall. */}
       {subTab === "apps" && <AppsPanel />}
 
+      {/* Sub-tab: Diagnostics — P6 native PC diagnostic + AI analysis + history + schedule. */}
+      {subTab === "diagnostics" && <Diagnostics />}
+
       {/* Sub-tab: Overview — RAM/CPU/disk + read-only top processes. */}
       {subTab === "overview" && (
         <section className="mb-6">
@@ -1852,6 +1856,7 @@ function SystemHeader({
   // followed by Hooks, then Overview, then Apps last.
   const TABS: { id: SystemSubTab; label: string; hidden?: boolean }[] = [
     { id: "schedules", label: "Schedules" },
+    { id: "diagnostics", label: "Diagnostics" },
     { id: "hooks", label: "Hooks", hidden: !hooksEnabled },
     { id: "overview", label: "Overview" },
     { id: "apps", label: "Apps" },
@@ -1889,7 +1894,7 @@ function SystemHeader({
           ))}
         </div>
       </div>
-      {subTab !== "hooks" && subTab !== "apps" && (
+      {subTab !== "hooks" && subTab !== "apps" && subTab !== "diagnostics" && (
         <button
           type="button"
           onClick={onRefresh}

@@ -45,11 +45,11 @@ mod project_hotkeys;
 mod projects;
 mod pty;
 mod rules;
+mod diagnostics_native;
 mod sessions;
 mod settings;
 mod skills;
 mod system;
-mod system_diagnose;
 mod tabs;
 mod toast_emit;
 mod tray;
@@ -100,6 +100,20 @@ fn toggle_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Headless mode: when invoked with --run-diagnostic, run all checks,
+    // persist to ~/.ultron/cockpit/diagnostics/<ts>.json, emit alert if
+    // severity >= error, and exit without UI. Used by the daily
+    // ULTRON-Daily-Diagnostic scheduled task (see commands/diagnostics_native).
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--run-diagnostic") {
+        let report = diagnostics_native::run_full_diagnostic_native();
+        let _ = persist_headless(&report);
+        if matches!(report.max_severity, diagnostics_native::Severity::Error) {
+            let _ = emit_alert_headless(&report);
+        }
+        std::process::exit(0);
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
@@ -239,10 +253,13 @@ pub fn run() {
             // -- auth + lifecycle --
             commands::lifecycle::auth_status,
             commands::lifecycle::close_control_center,
-            // -- diagnostics + doctor --
-            commands::diagnostics::run_diagnose,
-            commands::diagnostics::diagnose_with_ai,
-            commands::diagnostics::run_doctor,
+            // -- diagnostics (native, P6) --
+            commands::diagnostics_native::run_diagnostic_native,
+            commands::diagnostics_native::analyze_diagnostic_with_ai,
+            commands::diagnostics_native::diagnostic_history_list,
+            commands::diagnostics_native::diagnostic_history_read,
+            commands::diagnostics_native::diagnostic_schedule_get,
+            commands::diagnostics_native::diagnostic_schedule_set,
             // -- personal profile --
             commands::personal::read_personal_profile,
             commands::personal::save_personal_profile,
@@ -381,4 +398,41 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ---------------------------------------------------------------------------
+// Headless --run-diagnostic helpers (P6).
+// ---------------------------------------------------------------------------
+
+fn persist_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::Result<()> {
+    let dir = ultron_root()
+        .map(|p| p.join("cockpit").join("diagnostics"))
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("{}.json", report.timestamp));
+    let body = serde_json::to_vec_pretty(report)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    std::fs::write(path, body)
+}
+
+fn emit_alert_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::Result<()> {
+    let path = ultron_root()
+        .map(|p| p.join("cockpit").join("alerts.jsonl"))
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    let line = serde_json::json!({
+        "kind": "diagnostic",
+        "severity": "error",
+        "timestamp": report.timestamp,
+        "summary": "Diagnostic flagged error severity",
+    });
+    writeln!(f, "{}", line)?;
+    Ok(())
 }

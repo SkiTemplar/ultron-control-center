@@ -361,19 +361,15 @@ function AppInner() {
     });
 
     // -- Diagnostics --------------------------------------------------
+    // P6: legacy run_doctor / run_diagnose entries were removed when the
+    // native diagnostic UI shipped under System -> Diagnostics. A single
+    // navigation shortcut keeps the palette discoverable.
     list.push({
-      id: "diag.doctor",
-      label: "Run Doctor",
-      description: "Enhanced doctor script — read-only system health report.",
+      id: "diag.native",
+      label: "Open System Diagnostics",
+      description: "Native PC diagnostic (sysinfo + wmi) with AI analysis.",
       group: "Diagnostics",
-      run: () => void runQuiet("Doctor", "run_doctor"),
-    });
-    list.push({
-      id: "diag.diagnose",
-      label: "Run PC Diagnose (last 24h)",
-      description: "system_diagnose — Windows event log + process snapshot.",
-      group: "Diagnostics",
-      run: () => void runQuiet("Diagnose", "run_diagnose", { hours: 24 }),
+      run: () => setTab("system"),
     });
     // -- AI sessions --------------------------------------------------
     list.push({
@@ -476,6 +472,7 @@ function AppInner() {
             alerts={alerts}
             changelog={changelog}
             globalStatus={globalStatus}
+            onNavigate={setTab}
           />
         )}
         {tab === "notifications" && (

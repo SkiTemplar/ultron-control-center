@@ -21,7 +21,7 @@ pub mod agents;
 pub mod alerts;
 pub mod apps;
 pub mod button_prompts;
-pub mod diagnostics;
+pub mod diagnostics_native;
 pub mod gaming;
 pub mod hooks;
 pub mod hotkeys;

@@ -10,7 +10,6 @@ import type {
   McpInfo,
 } from "../types";
 import { statusColor } from "../lib/status";
-import { useRoutingTitle } from "../lib/button-prompts";
 import packageJson from "../../package.json";
 
 // v15.4.7 — read version from package.json (single source of truth, no
@@ -208,6 +207,9 @@ type Props = {
   alerts: AlertEntry[];
   changelog: ChangelogEntry[];
   globalStatus: GlobalStatus;
+  // P6: optional callback so the Dashboard can deep-link the user to
+  // System -> Diagnostics now that the legacy run_diagnose flow is gone.
+  onNavigate?: (tab: "system") => void;
 };
 
 function formatRelative(iso?: string): string {
@@ -222,45 +224,6 @@ function formatRelative(iso?: string): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.floor(h / 24);
   return `${d}d ago`;
-}
-
-function MiniStat({
-  label,
-  value,
-  emphasis = "normal",
-}: {
-  label: string;
-  value: string;
-  emphasis?: "normal" | "warn" | "critical";
-}) {
-  const color =
-    emphasis === "critical"
-      ? "var(--color-danger)"
-      : emphasis === "warn"
-        ? "var(--color-warn)"
-        : "var(--color-text)";
-  return (
-    <div
-      className="rounded px-3 py-2"
-      style={{
-        background: "var(--color-surface-2)",
-        border: "1px solid var(--color-border)",
-      }}
-    >
-      <div
-        className="text-[10px] font-medium uppercase tracking-wide"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        {label}
-      </div>
-      <div
-        className="mt-0.5 text-[14px] font-semibold tabular-nums leading-tight"
-        style={{ color }}
-      >
-        {value}
-      </div>
-    </div>
-  );
 }
 
 function MetricCard({
@@ -328,12 +291,6 @@ function MetricCard({
     </div>
   );
 }
-
-type DiagnoseResult = {
-  success: boolean;
-  report_json: string;
-  stderr: string;
-};
 
 // Full diagnostic (Phase 6) shape — must mirror Rust FullDiagnostic.
 type DiagItem = {
@@ -408,21 +365,15 @@ export function Dashboard({
   alerts,
   changelog,
   globalStatus,
+  onNavigate,
 }: Props) {
   const [diag, setDiag] = useState<FullDiagnostic | null>(null);
   const [diagLoading, setDiagLoading] = useState(false);
   const [diagErr, setDiagErr] = useState<string | null>(null);
   const [mcps, setMcps] = useState<McpInfo[] | null>(null);
 
-  // PC diagnostics (existing flow) — kept as-is.
-  const [pcReport, setPcReport] = useState<DiagnoseResult | null>(null);
-  const [pcLoading, setPcLoading] = useState(false);
-  const [pcError, setPcError] = useState<string | null>(null);
-
-  const diagnoseTitle = useRoutingTitle(
-    "dashboard.pc_diagnose_analyse",
-    "Open an AI session preloaded with this PC diagnostic report.",
-  );
+  // P6: legacy pcReport / runPcDiagnose / diagnoseTitle state removed —
+  // the native diagnostic + AI analysis now lives in System → Diagnostics.
 
   // Auto-fix modal state
   const [fixOpen, setFixOpen] = useState(false);
@@ -473,20 +424,6 @@ export function Dashboard({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function runPcDiagnose() {
-    setPcLoading(true);
-    setPcError(null);
-    try {
-      const r = (await invoke("run_diagnose", { hours: 24 })) as DiagnoseResult;
-      setPcReport(r);
-      if (!r.success) setPcError(r.stderr || "Diagnose returned no output");
-    } catch (e) {
-      setPcError(String(e));
-    } finally {
-      setPcLoading(false);
-    }
-  }
-
   function toggleFix(name: string) {
     setFixSelected((prev) => {
       const next = new Set(prev);
@@ -530,34 +467,6 @@ export function Dashboard({
     setFixRunning(false);
     // Refresh the diagnostic so the user sees the impact.
     runFullDiagnostic();
-  }
-
-  function parsedPcReport(): {
-    appCrashes?: number;
-    unexpectedReboots?: number;
-    sysErr?: number;
-    appErr?: number;
-    ramPct?: number;
-    uptimeHours?: number;
-  } {
-    if (!pcReport?.report_json) return {};
-    try {
-      const r = JSON.parse(pcReport.report_json);
-      return {
-        appCrashes: r.appCrashes?.length ?? 0,
-        unexpectedReboots: r.unexpectedReboots?.length ?? 0,
-        sysErr: (r.systemEvents ?? []).filter(
-          (e: { levelNum?: number }) => (e.levelNum ?? 9) <= 2,
-        ).length,
-        appErr: (r.appEvents ?? []).filter(
-          (e: { levelNum?: number }) => (e.levelNum ?? 9) <= 2,
-        ).length,
-        ramPct: r.memory?.usedPct,
-        uptimeHours: r.host?.uptimeHours,
-      };
-    } catch {
-      return {};
-    }
   }
 
   useEffect(() => {
@@ -750,61 +659,26 @@ export function Dashboard({
 
       <MaintenancePanel />
 
-      {/* PC Diagnostics (existing) + Auto-fix entry point */}
+      {/* P6: legacy run_diagnose flow removed — the native PC diagnostic
+          (sysinfo + wmi + AI analysis + history + scheduled run) lives
+          under System -> Diagnostics. We keep the Auto-fix checklist
+          here because it's an orthogonal maintenance surface. */}
       <section className="mt-8">
         <div className="flex items-baseline justify-between">
           <h2 className="text-[14px] font-semibold">PC diagnostics</h2>
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={runPcDiagnose}
-              disabled={pcLoading}
-              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+              onClick={() => onNavigate?.("system")}
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
               style={{
                 background: "var(--color-surface-2)",
                 color: "var(--color-text)",
                 border: "1px solid var(--color-border-strong)",
               }}
+              title="Open System → Diagnostics for the full report + AI analysis."
             >
-              {pcLoading ? "Collecting…" : "Collect 24h"}
-            </button>
-            <button
-              type="button"
-              onClick={async () => {
-                if (!pcReport?.report_json) return;
-                try {
-                  // v15.2: prompt now lives in the central catalog
-                  // (~/.ultron/cockpit/button-prompts.json, key
-                  // "dashboard.pc_diagnose_analyse") so it can be tuned from
-                  // Settings → Button prompts without recompiling.
-                  const { getPrompt } = await import("../lib/button-prompts");
-                  const prompt = await getPrompt("dashboard.pc_diagnose_analyse", {
-                    report_json: pcReport.report_json,
-                  });
-                  const { getHomeDir, joinPath } = await import("../lib/paths");
-                  const cwd = joinPath(await getHomeDir(), ".ultron");
-                  // v2.0: no AI Router. Hardcoded provider; model/agent are
-                  // provider defaults.
-                  await invoke("spawn_session", {
-                    provider: "claude",
-                    prompt,
-                    cwd,
-                    flags: { dangerouslySkipPermissions: false },
-                  });
-                } catch (e) {
-                  console.error("PC diagnostic AI session failed", e);
-                }
-              }}
-              disabled={!pcReport}
-              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-              }}
-              title={diagnoseTitle}
-            >
-              Analyse with AI
+              Open Diagnostics
             </button>
             <button
               type="button"
@@ -813,8 +687,7 @@ export function Dashboard({
                 setFixResults([]);
                 setFixOpen(true);
               }}
-              disabled={!pcReport}
-              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+              className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
               style={{
                 background: "var(--color-accent)",
                 color: "var(--color-accent-text)",
@@ -829,59 +702,10 @@ export function Dashboard({
           className="mt-1 text-[12px]"
           style={{ color: "var(--color-text-secondary)" }}
         >
-          Collects Event Viewer (System + Application critical/errors), top RAM
-          processes, disk usage, crashes and unexpected reboots.
+          Native PC diagnostic, AI analysis, history and daily scheduled run
+          moved to System → Diagnostics. This section keeps the one-click
+          auto-fix checklist.
         </p>
-
-        {pcError && (
-          <div
-            className="mt-3 rounded p-3 text-[12px]"
-            style={{
-              background: "rgba(248, 81, 73, 0.06)",
-              border: "1px solid rgba(248, 81, 73, 0.22)",
-              color: "var(--color-danger)",
-            }}
-          >
-            {pcError}
-          </div>
-        )}
-
-        {pcReport && (() => {
-          const s = parsedPcReport();
-          return (
-            <div className="mt-3 grid grid-cols-3 gap-2 md:grid-cols-6">
-              <MiniStat
-                label="Sys err"
-                value={String(s.sysErr ?? "—")}
-                emphasis={(s.sysErr ?? 0) > 5 ? "warn" : "normal"}
-              />
-              <MiniStat
-                label="App err"
-                value={String(s.appErr ?? "—")}
-                emphasis={(s.appErr ?? 0) > 5 ? "warn" : "normal"}
-              />
-              <MiniStat
-                label="Crashes"
-                value={String(s.appCrashes ?? "—")}
-                emphasis={(s.appCrashes ?? 0) > 0 ? "critical" : "normal"}
-              />
-              <MiniStat
-                label="Hard reboots"
-                value={String(s.unexpectedReboots ?? "—")}
-                emphasis={(s.unexpectedReboots ?? 0) > 0 ? "critical" : "normal"}
-              />
-              <MiniStat
-                label="RAM %"
-                value={s.ramPct != null ? `${s.ramPct}%` : "—"}
-                emphasis={(s.ramPct ?? 0) > 85 ? "warn" : "normal"}
-              />
-              <MiniStat
-                label="Uptime"
-                value={s.uptimeHours != null ? `${s.uptimeHours}h` : "—"}
-              />
-            </div>
-          );
-        })()}
       </section>
 
       {/* Recent changelog summary */}
