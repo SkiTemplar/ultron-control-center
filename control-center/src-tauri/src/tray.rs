@@ -111,7 +111,10 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
             let id = event.id.as_ref();
             match id {
                 "open" => focus_main_window(app),
-                "quit" => app.exit(0),
+                "quit" => {
+                    crate::pty::kill_all_inner();
+                    app.exit(0);
+                }
                 "new_claude" | "new_codex" | "new_gemini" | "open_plans" | "open_memory" => {
                     // Surface the window first so the user sees the
                     // response, then emit. Frontend listens on

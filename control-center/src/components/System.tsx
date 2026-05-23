@@ -14,6 +14,7 @@ import type {
   UninstallAppResult,
 } from "../types";
 import { Hooks } from "./Hooks";
+import EmbeddedTerminal from "./EmbeddedTerminal";
 import { useFeatures } from "../lib/features";
 import { useRoutingTitle } from "../lib/button-prompts";
 
@@ -1825,6 +1826,9 @@ export function System() {
 
       </section>
       )}
+
+      {/* TODO(P4): remove this debug panel once Projects workspace integrates EmbeddedTerminal natively. */}
+      <DebugPtyPanel />
       </div>
     </div>
   );
@@ -1903,5 +1907,150 @@ function SystemHeader({
         </button>
       )}
     </header>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// P3: PTY debug panel — temporary verification UI for the embedded terminal.
+// TODO(P4): remove once Projects workspace integrates EmbeddedTerminal natively.
+// ---------------------------------------------------------------------------
+function DebugPtyPanel() {
+  const [provider, setProvider] = useState("claude");
+  const [cwd, setCwd] = useState("");
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const spawn = async () => {
+    setError(null);
+    try {
+      const id = (await invoke("pty_spawn", {
+        projectId: "_debug",
+        cardId: null,
+        provider,
+        agent: null,
+        cwd: cwd || ".",
+        prompt: null,
+      })) as string;
+      setSessionId(id);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const kill = async () => {
+    if (!sessionId) return;
+    try {
+      await invoke("pty_kill", { sessionId });
+      setSessionId(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  return (
+    <section
+      className="mt-6 rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-[13px] font-semibold">
+          PTY debug{" "}
+          <span
+            className="text-[11px] font-normal"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            (temp · P4 lo retira)
+          </span>
+        </h3>
+        {sessionId && (
+          <button
+            type="button"
+            onClick={kill}
+            className="rounded px-2 py-0.5 text-[11px]"
+            style={{
+              background: "var(--color-surface-3)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text)",
+            }}
+          >
+            Kill
+          </button>
+        )}
+      </div>
+      <div className="mb-2 flex items-center gap-2">
+        <select
+          value={provider}
+          onChange={(e) => setProvider(e.target.value)}
+          disabled={!!sessionId}
+          className="rounded px-2 py-1 text-[12px]"
+          style={{
+            background: "var(--color-surface-3)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text)",
+          }}
+        >
+          <option value="claude">claude</option>
+          <option value="codex">codex</option>
+          <option value="gemini">gemini</option>
+        </select>
+        <input
+          value={cwd}
+          onChange={(e) => setCwd(e.target.value)}
+          placeholder="cwd (default: .)"
+          disabled={!!sessionId}
+          className="flex-1 rounded px-2 py-1 text-[12px]"
+          style={{
+            background: "var(--color-surface-3)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text)",
+          }}
+        />
+        <button
+          type="button"
+          onClick={spawn}
+          disabled={!!sessionId}
+          className="rounded px-3 py-1 text-[12px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+        >
+          Spawn
+        </button>
+      </div>
+      {error && (
+        <div
+          className="mb-2 rounded p-2 text-[11.5px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      <div
+        className="h-64 overflow-hidden rounded"
+        style={{ border: "1px solid var(--color-border)" }}
+      >
+        {sessionId ? (
+          <EmbeddedTerminal
+            sessionId={sessionId}
+            onExit={() => setSessionId(null)}
+          />
+        ) : (
+          <div
+            className="flex h-full items-center justify-center text-[12px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            No PTY active. Click "Spawn" to start one.
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

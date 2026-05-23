@@ -636,3 +636,24 @@ export type UninstallAppResult = {
   exit_code: number | null;
   command: string;
 };
+
+// ---------------------------------------------------------------------------
+// Control Center 2.0 (P3): embedded PTY (portable-pty + xterm.js).
+// ---------------------------------------------------------------------------
+
+export type PtyStatus =
+  | { kind: "running" }
+  | { kind: "exited"; value: number }
+  | { kind: "killed" };
+
+export type PtySessionSummary = {
+  id: string;
+  project_id: string;
+  card_id: string | null;
+  provider: string;
+  started_at: string;
+  status: PtyStatus;
+};
+
+export type PtyDataEvent = { data: string };
+export type PtyExitEvent = { exit_code: number };

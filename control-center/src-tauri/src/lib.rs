@@ -41,6 +41,7 @@ mod personal;
 mod plans;
 mod project_hotkeys;
 mod projects;
+mod pty;
 mod rules;
 mod sessions;
 mod settings;
@@ -259,6 +260,12 @@ pub fn run() {
             commands::hooks::test_hook,
             commands::hooks::recent_hook_fires,
             commands::hooks::request_hook_via_ai,
+            // -- pty (embedded terminal, P3) --
+            commands::pty::pty_spawn,
+            commands::pty::pty_write,
+            commands::pty::pty_resize,
+            commands::pty::pty_kill,
+            commands::pty::pty_list,
             // -- inbox quick-capture --
             commands::inbox::append_inbox,
             commands::inbox::list_inbox,
