@@ -7,6 +7,7 @@
 // Step 4: Target scope + final summary.
 
 import { useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { TargetScope } from "../../types";
 import { agentCreate } from "../../lib/library-client";
 import {
@@ -144,6 +145,16 @@ export function CreateAgentModal({
       await navigator.clipboard.writeText(prompt);
       setAiCopied(true);
       setTimeout(() => setAiCopied(false), 2000);
+      // v2.4: spawn a Claude session ready to receive the prompt.
+      try {
+        await invoke("spawn_session", {
+          provider: "claude",
+          prompt: null,
+          flags: { pasteOnly: true, respectClipboard: true },
+        });
+      } catch {
+        // Non-fatal — clipboard already has the prompt.
+      }
     } catch {
       setErr("Could not copy to clipboard.");
     }
@@ -456,7 +467,7 @@ function StepTemplates(props: {
           style={{ borderColor: "var(--color-border)" }}
           onClick={onCopyAiPrompt}
         >
-          <Clipboard size={12} /> {aiCopied ? "Copied" : "Copy AI prompt"}
+          <Clipboard size={12} /> {aiCopied ? "Copied + session opened" : "Generate with AI"}
         </button>
       </div>
     </div>

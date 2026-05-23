@@ -232,3 +232,6 @@ control-center/releases.json
 control-center/run*.json
 control-center/tags.json
 control-center/workflows.json
+
+# v2.4: archived vault dirs
+skill-vault-archived-*/

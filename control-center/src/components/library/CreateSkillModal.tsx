@@ -18,6 +18,7 @@
 //     existing backend signature does not change.
 
 import { useMemo, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { TargetScope } from "../../types";
 import { skillCreate } from "../../lib/library-client";
 import {
@@ -164,6 +165,19 @@ export function CreateSkillModal({
       await navigator.clipboard.writeText(prompt);
       setAiCopied(true);
       setTimeout(() => setAiCopied(false), 2000);
+      // v2.4: also spawn a Claude session ready to receive the prompt.
+      // `respectClipboard` keeps the text we just copied; `pasteOnly`
+      // opens the CLI without auto-submitting so the user pastes on
+      // their own. Spawn failure is non-fatal — clipboard already won.
+      try {
+        await invoke("spawn_session", {
+          provider: "claude",
+          prompt: null,
+          flags: { pasteOnly: true, respectClipboard: true },
+        });
+      } catch {
+        // Spawn failed — user can open Claude Code manually.
+      }
     } catch {
       // Clipboard rejected (rare in Tauri webview). Fall back to a
       // user-visible error so they can copy manually from the textarea.
@@ -473,7 +487,7 @@ function StepTemplates(props: {
           style={{ borderColor: "var(--color-border)" }}
           onClick={onCopyAiPrompt}
         >
-          <Clipboard size={12} /> {aiCopied ? "Copied" : "Copy AI prompt"}
+          <Clipboard size={12} /> {aiCopied ? "Copied + session opened" : "Generate with AI"}
         </button>
       </div>
     </div>
