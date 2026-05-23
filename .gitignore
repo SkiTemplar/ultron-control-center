@@ -205,6 +205,9 @@ cockpit/icons/
 docs/brain-index-chunks.md
 docs/memory-layers.md
 
+# === v2.0.0: superpowers research/walkthrough logs (ephemeral) ===
+docs/superpowers/research/
+
 # === v15.2.18: scripts/cockpit/ one-shot legacy ===
 scripts/cockpit/audit_plans.py
 scripts/cockpit/audit_plans_pass2.py

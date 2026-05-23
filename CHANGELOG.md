@@ -3,6 +3,53 @@
 > Per `docs/CHANGELOG-POLICY.md`: only MAJOR / MINOR get detailed entries.
 > Patches collapse into the next minor entry as a brief sweep.
 
+## v2.0.0 — Control Center rewrite (ECC + Mem0)
+
+**Fecha:** 2026-05-23
+
+**BREAKING:** Reescritura completa del Control Center. ULTRON backend reemplazado por ECC (plugin Claude Code) + Mem0 (memoria cross-session). Nuevo Projects workspace con Kanban dispatch-a-agente y terminal embebida.
+
+### Removed (mass cleanup desde v15.5.20)
+- News pipeline (`news.rs`, `News.tsx`).
+- Self-Improve / Stats (`self_improve.rs`, `SelfImprove.tsx`).
+- AI Router interno (`ai_router.rs`, `commands/ai_router.rs`, `AiRouterSection.tsx`).
+- Modos LOW/MED/HIGH/ULTRA (`mode.rs`, `ModeSection.tsx`, `ModeSwitcher.tsx`).
+- Memory Qdrant + vault (`memory_graph.rs`, `memory_highlights.rs`, embedder, brain_index).
+- Version drift / ultron_status / detect_gaps (scripts Python shell-out).
+- Skill/Agent vault y findings (`commands/skills.rs::vault*`).
+- Maintenance Qdrant kinds.
+- Doctor Python script (`run_doctor` shell-out).
+
+### Added
+- **P1** Mem0 client REST nativo (Rust `reqwest` + `serde`): add/search/list/update/delete con filtros `metadata.project_id`. Nueva tab global Memory.
+- **P2** Skills + Agents + Rules viewers con 3 origenes (global / per-project / plugin). Toggle on/off + abrir en editor externo.
+- **P3** Embedded terminal (`portable-pty` + `xterm.js` + addons fit/webgl). Adios `wt.exe` popups.
+- **P4** Projects re-arquitectura: pestanas por proyecto (browser-style), sub-tabs Board/Terminal/Agents/Context/Sessions, Kanban data model (kanban.json atomico), dispatch de cards a PTYs reales.
+- **P5** Library de agents/skills: search GitHub via `gh search code`, install desde `gh api contents` (base64 decode), create in-app con frontmatter form, per-project pinning.
+- **P6** PC Diagnostic nativo: `sysinfo` + `wmi` (Windows), checks rust 100%, analisis AI inline via `claude --print`, historial JSON con prune a 30, scheduled diario via `schtasks.exe` + modo headless `--run-diagnostic`.
+- **P7** Settings cleanup: editor `settings.json` como default tab, panel Plugins (ECC introspection), MCP ping con latency + Test button, Hooks last-fired + toggle visual.
+- **P8** Kirkardo UX rubric (>=9.5/10 target, 9.27 code-level alcanzado, walkthrough manual documentado como follow-up post-tag).
+
+### Changed
+- Sidebar default tab: Dashboard -> Projects.
+- Storage root: `~/.ultron/` (sin cambios — branding ULTRON Control Center se queda).
+- Auth Claude Code: OAuth de suscripcion, sin tocar.
+
+### Migrated
+- `~/.ultron/cockpit/projects.json` -> mantenido tal cual.
+- Cada proyecto gana `~/.ultron/cockpit/projects/<id>/kanban.json` (auto-creado con 4 columnas vacias al primer open, idempotente).
+
+### Risks
+- Linux/macOS no testeados — la app solo se ha verificado en Windows 11.
+- `gh` CLI requerido para la library (P5).
+- Mem0 requiere API key en `~/.claude/settings.json`.
+
+---
+
+## Pre-2.0 history
+
+Las entradas de v15.x y anteriores se conservan abajo por referencia.
+
 ## [Unreleased] — fase de correcciones hacia 1.0
 
 > Trabajo de la fase de correcciones del Control Center previa a ULTRON 1.0.
