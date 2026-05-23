@@ -33,6 +33,7 @@ mod in_app_shortcuts;
 mod inbox;
 mod installed_apps;
 mod instructions;
+mod kanban;
 mod logs;
 mod maintenance;
 mod mcps;
@@ -48,6 +49,7 @@ mod settings;
 mod skills;
 mod system;
 mod system_diagnose;
+mod tabs;
 mod toast_emit;
 mod tray;
 mod update_checker;
@@ -266,6 +268,18 @@ pub fn run() {
             commands::pty::pty_resize,
             commands::pty::pty_kill,
             commands::pty::pty_list,
+            // -- kanban (P4) --
+            commands::kanban::kanban_load,
+            commands::kanban::kanban_save,
+            commands::kanban::kanban_create_card,
+            commands::kanban::kanban_update_card,
+            commands::kanban::kanban_move_card,
+            commands::kanban::kanban_delete_card,
+            commands::kanban::kanban_dispatch_card,
+            commands::kanban::kanban_migrate_existing,
+            // -- tabs (P4) --
+            commands::tabs::tabs_load,
+            commands::tabs::tabs_save,
             // -- inbox quick-capture --
             commands::inbox::append_inbox,
             commands::inbox::list_inbox,

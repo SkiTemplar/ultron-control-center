@@ -26,6 +26,7 @@ pub mod gaming;
 pub mod hooks;
 pub mod hotkeys;
 pub mod inbox;
+pub mod kanban;
 pub mod lifecycle;
 pub mod maintenance;
 pub mod mcps;
@@ -40,6 +41,7 @@ pub mod sessions;
 pub mod settings;
 pub mod skills;
 pub mod system;
+pub mod tabs;
 
 // ---------------------------------------------------------------------------
 // Shared command-level types and helpers
