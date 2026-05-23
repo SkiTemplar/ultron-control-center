@@ -4,6 +4,12 @@
 // default-agent picker. Heavy lifting (search, install, edit) is delegated to
 // the global Agents component built in P2 — here we only wrap with project
 // context.
+//
+// TODO(next-session): full Orchestrator panel — multi-agent dispatch queue,
+// per-agent live status (idle/running/blocked), parallel-launch matrix
+// ("run agent A on cards 1,3,5 while agent B handles 2,4"), and a kill-all
+// switch wired to pty_list + pty_kill. The current view is read-only browse
+// + pin only; orchestration UI ships next pass.
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";

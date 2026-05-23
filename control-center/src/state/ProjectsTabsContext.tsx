@@ -15,16 +15,25 @@ import {
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { OpenTab } from "../types";
+import type { OpenTab, ProjectSubTab } from "../types";
 
 type TabsState = {
   tabs: OpenTab[];
   currentId: string;
-  open: (tab: { id: string; title: string }) => void;
+  /**
+   * Open a project tab. `initialSubTab` (optional) is a transient hint the
+   * `ProjectWorkspace` reads ONCE on mount and then clears, so that callers
+   * like the home-grid "Open terminal" button can deep-link straight into the
+   * Terminal sub-tab without polluting persisted `OpenTab` state (which lives
+   * in `types.ts` and is off-limits to this redesign pass).
+   */
+  open: (tab: { id: string; title: string; initialSubTab?: ProjectSubTab }) => void;
   close: (id: string) => void;
   select: (id: string) => void;
   reorder: (id: string, beforeId: string | null) => void;
   rename: (id: string, title: string) => void;
+  /** Read-and-clear the deep-link sub-tab hint for a project. */
+  consumeInitialSubTab: (id: string) => ProjectSubTab | null;
 };
 
 const Ctx = createContext<TabsState | null>(null);
@@ -41,6 +50,9 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
   const [currentId, setCurrentId] = useState<string>("home");
   const persistTimer = useRef<number | null>(null);
   const hydrated = useRef(false);
+  // Transient deep-link hints. Keyed by project id, consumed-and-cleared on
+  // ProjectWorkspace mount. Never persisted.
+  const initialSubTabsRef = useRef<Map<string, ProjectSubTab>>(new Map());
 
   // Hydrate from disk on mount.
   useEffect(() => {
@@ -80,13 +92,33 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
     };
   }, [tabs]);
 
-  const open = useCallback(({ id, title }: { id: string; title: string }) => {
-    setTabs((prev) => {
-      if (prev.some((t) => t.id === id)) return prev;
-      const order = prev.length;
-      return [...prev, { id, kind: "project", title, order }];
-    });
-    setCurrentId(id);
+  const open = useCallback(
+    ({
+      id,
+      title,
+      initialSubTab,
+    }: {
+      id: string;
+      title: string;
+      initialSubTab?: ProjectSubTab;
+    }) => {
+      setTabs((prev) => {
+        if (prev.some((t) => t.id === id)) return prev;
+        const order = prev.length;
+        return [...prev, { id, kind: "project", title, order }];
+      });
+      if (initialSubTab) {
+        initialSubTabsRef.current.set(id, initialSubTab);
+      }
+      setCurrentId(id);
+    },
+    [],
+  );
+
+  const consumeInitialSubTab = useCallback((id: string): ProjectSubTab | null => {
+    const v = initialSubTabsRef.current.get(id) ?? null;
+    if (v) initialSubTabsRef.current.delete(id);
+    return v;
   }, []);
 
   const close = useCallback(
@@ -153,8 +185,17 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<TabsState>(
-    () => ({ tabs, currentId, open, close, select, reorder, rename }),
-    [tabs, currentId, open, close, select, reorder, rename],
+    () => ({
+      tabs,
+      currentId,
+      open,
+      close,
+      select,
+      reorder,
+      rename,
+      consumeInitialSubTab,
+    }),
+    [tabs, currentId, open, close, select, reorder, rename, consumeInitialSubTab],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

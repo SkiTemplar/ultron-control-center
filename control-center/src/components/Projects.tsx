@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type {
@@ -7,8 +7,12 @@ import type {
   LauncherItemKind,
   ProjectActionResult,
   ProjectInfo,
+  ProjectSubTab,
   SessionProvider,
+  KanbanBoard,
+  PtySessionSummary,
 } from "../types";
+import { useProjectsTabs } from "../state/ProjectsTabsContext";
 
 // ---------------------------------------------------------------------------
 // Launcher item rendering helpers
@@ -246,7 +250,371 @@ function statusBadge(s: string | null): { color: string; bg: string; label: stri
 }
 
 // ---------------------------------------------------------------------------
-// Row
+// Card (new in this redesign — the home grid renders these by default)
+// ---------------------------------------------------------------------------
+
+/** Compact stats line for the new card layout. `pending` is the count of
+ *  kanban cards NOT in any column whose name starts with "done"; `sessions`
+ *  is the count of running PTY sessions for the project. */
+type CardStats = {
+  pending: number | null;
+  sessions: number | null;
+};
+
+/** SVG icon set for the new card actions — kept inline for bundle size, same
+ *  convention as the legacy FolderIcon/PlayIcon helpers above. */
+function CardIconFolder() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M20 19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2z" />
+    </svg>
+  );
+}
+function CardIconIde() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+    </svg>
+  );
+}
+function CardIconSpark() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 3v3" />
+      <path d="M12 18v3" />
+      <path d="M5.6 5.6l2.1 2.1" />
+      <path d="M16.3 16.3l2.1 2.1" />
+      <path d="M3 12h3" />
+      <path d="M18 12h3" />
+      <path d="M5.6 18.4l2.1-2.1" />
+      <path d="M16.3 7.7l2.1-2.1" />
+    </svg>
+  );
+}
+function CardIconTerminal() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  );
+}
+
+/** Pretty provider name + accent for the per-card "AI" button. */
+function providerBadge(p: SessionProvider): { label: string; tint: string } {
+  switch (p) {
+    case "codex":
+      return { label: "Codex", tint: "#10a37f" };
+    case "gemini":
+      return { label: "Gemini", tint: "#4285f4" };
+    case "claude":
+    default:
+      return { label: "Claude", tint: "#cc785c" };
+  }
+}
+
+/** New home-grid card. Click anywhere outside the four action buttons (and
+ *  the status row) opens the project workspace. Each action button is a
+ *  proper click target with its own stopPropagation. */
+function ProjectCard({
+  p,
+  stats,
+  onOpenWorkspace,
+  onOpenFolder,
+  onOpenIde,
+  onOpenAi,
+  onOpenTerminal,
+  onEdit,
+  onDelete,
+}: {
+  p: ProjectInfo;
+  stats: CardStats | null;
+  onOpenWorkspace: () => void;
+  onOpenFolder: () => void;
+  onOpenIde: () => void;
+  onOpenAi: () => void;
+  onOpenTerminal: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  const b = statusBadge(p.status);
+  const provider: SessionProvider =
+    (p.default_provider as SessionProvider | null | undefined) ?? "claude";
+  const badge = providerBadge(provider);
+
+  // Action button: 36px tall, icon + label, tooltip from `title`. Stops
+  // propagation so the card-level click doesn't fire.
+  const ActionButton = ({
+    onClick,
+    title,
+    label,
+    Icon,
+    accent,
+    disabled,
+  }: {
+    onClick: () => void;
+    title: string;
+    label: string;
+    Icon: () => ReactElement;
+    accent?: string;
+    disabled?: boolean;
+  }) => (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (!disabled) onClick();
+      }}
+      title={title}
+      className="group/btn flex h-9 flex-1 items-center justify-center gap-1.5 rounded text-[11.5px] font-medium transition-colors disabled:opacity-40"
+      style={{
+        background: "var(--color-surface-1)",
+        color: accent ?? "var(--color-text)",
+        border: "1px solid var(--color-border-strong)",
+      }}
+      onMouseEnter={(e) => {
+        if (disabled) return;
+        e.currentTarget.style.background = "var(--color-surface-3)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.background = "var(--color-surface-1)";
+      }}
+    >
+      <Icon />
+      <span className="hidden md:inline">{label}</span>
+    </button>
+  );
+
+  // Stop nested clicks on the badge area too so editing/removing doesn't
+  // accidentally open the workspace.
+  const stop = (e: React.MouseEvent) => e.stopPropagation();
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onOpenWorkspace}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpenWorkspace();
+        }
+      }}
+      className="proj-card group relative flex cursor-pointer flex-col gap-3 rounded-lg p-4 transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+        minHeight: 168,
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "var(--color-border-strong)";
+        e.currentTarget.style.transform = "translateY(-1px)";
+        e.currentTarget.style.boxShadow =
+          "0 4px 12px rgba(0,0,0,0.18)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = "var(--color-border)";
+        e.currentTarget.style.transform = "translateY(0)";
+        e.currentTarget.style.boxShadow = "none";
+      }}
+    >
+      {/* Header row: status pill + name + edit/delete (top-right) */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span
+              className="rounded px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wide"
+              style={{ background: b.bg, color: b.color }}
+            >
+              {b.label}
+            </span>
+            {p.language && (
+              <span className="text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
+                {p.language}
+              </span>
+            )}
+            <span
+              className="ml-auto inline-flex items-center gap-1 rounded px-1.5 py-px text-[9.5px] font-medium"
+              style={{
+                background: "var(--color-surface-1)",
+                color: badge.tint,
+                border: `1px solid ${badge.tint}33`,
+              }}
+              title={`Default AI provider: ${badge.label}`}
+            >
+              <span
+                aria-hidden
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ background: badge.tint }}
+              />
+              {badge.label}
+            </span>
+          </div>
+          <div
+            className="mt-2 truncate text-[14px] font-semibold leading-tight"
+            style={{ color: "var(--color-text)" }}
+            title={p.name ?? p.id}
+          >
+            {p.name ?? p.id}
+          </div>
+          {p.path && (
+            <div
+              className="mt-0.5 truncate text-[10.5px]"
+              style={{
+                fontFamily: "var(--font-mono)",
+                color: "var(--color-text-tertiary)",
+              }}
+              title={p.path}
+            >
+              {p.path}
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-1" onClick={stop}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEdit();
+            }}
+            className="rounded px-1.5 py-0.5 text-[10px] transition-colors"
+            style={{
+              background: "transparent",
+              color: "var(--color-text-tertiary)",
+              border: "1px solid var(--color-border)",
+            }}
+            title="Edit project metadata"
+          >
+            Edit
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="rounded px-1.5 py-0.5 text-[10px] transition-colors"
+            style={{
+              background: "transparent",
+              color: "var(--color-danger)",
+              border: "1px solid rgba(248, 81, 73, 0.32)",
+            }}
+            title="Remove from registry (no files touched)"
+          >
+            ×
+          </button>
+        </div>
+      </div>
+
+      {/* Tag chips */}
+      {p.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1" onClick={stop}>
+          {p.tags.slice(0, 6).map((t) => (
+            <span
+              key={t}
+              className="rounded px-1.5 py-px text-[9.5px]"
+              style={{
+                background: "var(--color-surface-1)",
+                color: "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {t}
+            </span>
+          ))}
+          {p.tags.length > 6 && (
+            <span className="text-[9.5px]" style={{ color: "var(--color-text-faint)" }}>
+              +{p.tags.length - 6}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Action buttons — 4 prominent targets */}
+      <div className="mt-auto flex items-center gap-1.5">
+        <ActionButton
+          onClick={onOpenFolder}
+          disabled={!p.path}
+          title={p.path ? `Open ${p.path} in Explorer` : "No path configured"}
+          label="Folder"
+          Icon={CardIconFolder}
+        />
+        <ActionButton
+          onClick={onOpenIde}
+          disabled={!p.path}
+          title={
+            p.path
+              ? `Open in ${p.ide ?? "preferred IDE"}`
+              : "No path configured"
+          }
+          label="IDE"
+          Icon={CardIconIde}
+        />
+        <ActionButton
+          onClick={onOpenAi}
+          title={`Spawn ${badge.label} session in CC terminal`}
+          label={badge.label}
+          accent={badge.tint}
+          Icon={CardIconSpark}
+        />
+        <ActionButton
+          onClick={onOpenTerminal}
+          title="Open project workspace on the Terminal tab"
+          label="Terminal"
+          Icon={CardIconTerminal}
+        />
+      </div>
+
+      {/* Status row */}
+      <div
+        className="flex items-center justify-between border-t pt-2 text-[10.5px]"
+        style={{
+          borderColor: "var(--color-border)",
+          color: "var(--color-text-tertiary)",
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <span
+            title="Pending kanban cards (everything outside Done / Complete)"
+          >
+            <span className="tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
+              {stats?.pending ?? "—"}
+            </span>{" "}
+            pending
+          </span>
+          <span title="Active terminals running for this project right now">
+            <span
+              className="tabular-nums"
+              style={{
+                color:
+                  stats && stats.sessions && stats.sessions > 0
+                    ? "var(--color-success)"
+                    : "var(--color-text-secondary)",
+              }}
+            >
+              {stats?.sessions ?? "—"}
+            </span>{" "}
+            live
+          </span>
+        </div>
+        {p.last_active && (
+          <span className="tabular-nums" style={{ color: "var(--color-text-faint)" }}>
+            {p.last_active}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Row (legacy list mode — kept for the "List" view toggle)
 // ---------------------------------------------------------------------------
 
 function Row({
@@ -718,7 +1086,43 @@ type ProjectsProps = {
   onOpenProject?: (project: { id: string; name: string }) => void;
 };
 
+type ViewMode = "cards" | "list";
+
 export function Projects({ onOpenProject }: ProjectsProps = {}) {
+  // The new card grid is the default; the legacy list view stays available
+  // behind a toggle for users with very dense screens or muscle memory.
+  const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    try {
+      const v = localStorage.getItem("projects.viewMode");
+      return v === "list" ? "list" : "cards";
+    } catch {
+      return "cards";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("projects.viewMode", viewMode);
+    } catch {
+      /* ignore quota errors */
+    }
+  }, [viewMode]);
+
+  // Subscribe to the per-project tabs context so the card action buttons can
+  // deep-link into the workspace and force the right sub-tab on first mount.
+  // ProjectsPane (App.tsx) wraps us in ProjectsTabsProvider so this is safe.
+  const tabsCtx = useProjectsTabs();
+  const openInWorkspace = (
+    id: string,
+    name: string,
+    subTab?: ProjectSubTab,
+  ) => {
+    if (onOpenProject && !subTab) {
+      onOpenProject({ id, name });
+      return;
+    }
+    tabsCtx.open({ id, title: name, initialSubTab: subTab });
+  };
+
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -770,17 +1174,60 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [itemSaving, setItemSaving] = useState(false);
   const [itemError, setItemError] = useState<string | null>(null);
 
+  // Per-project stats for the card status row. Loaded lazily after the main
+  // projects list resolves; failures are silent (cards just show "—").
+  const [stats, setStats] = useState<Record<string, CardStats>>({});
+
   async function load() {
     setLoading(true);
     try {
       const r = (await invoke("list_projects")) as ProjectInfo[];
       setProjects(r);
       setError(null);
+      // Kick off background stats fetch — don't block the list render.
+      void refreshStats(r);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
+  }
+
+  /** Fan-out kanban_load + pty_list per project. Tolerant of individual
+   *  failures: any project whose backend call errors out is left with
+   *  `null` stats so the UI degrades to "—" instead of breaking the grid. */
+  async function refreshStats(list: ProjectInfo[]) {
+    const next: Record<string, CardStats> = {};
+    await Promise.all(
+      list.map(async (p) => {
+        const entry: CardStats = { pending: null, sessions: null };
+        try {
+          const b = (await invoke("kanban_load", {
+            projectId: p.id,
+          })) as KanbanBoard;
+          const doneColIds = new Set(
+            b.columns
+              .filter((c) => /done|complete/i.test(c.name))
+              .map((c) => c.id),
+          );
+          entry.pending = b.cards.filter(
+            (c) => !doneColIds.has(c.column_id),
+          ).length;
+        } catch {
+          /* leave null */
+        }
+        try {
+          const s = (await invoke("pty_list", {
+            projectId: p.id,
+          })) as PtySessionSummary[];
+          entry.sessions = s.filter((x) => x.status.kind === "running").length;
+        } catch {
+          /* leave null */
+        }
+        next[p.id] = entry;
+      }),
+    );
+    setStats(next);
   }
 
   async function scan() {
@@ -817,6 +1264,94 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     } finally {
       setOpening(null);
     }
+  }
+
+  /** Card action: open the project's folder in Explorer. Uses launch_item if
+   *  a `folder` chip exists (preserves the user's chosen path), else falls
+   *  back to spawning explorer.exe on `p.path` directly. */
+  async function cardOpenFolder(p: ProjectInfo) {
+    setLastAction(null);
+    try {
+      const items = p.items ?? [];
+      const folderIdx = items.findIndex((it) => it.kind === "folder");
+      if (folderIdx !== -1) {
+        await invoke("launch_item", { projectId: p.id, index: folderIdx });
+        return;
+      }
+      if (!p.path) {
+        setLastAction({
+          success: false,
+          stdout: "",
+          stderr: "No path configured for this project",
+          exit_code: null,
+        });
+        return;
+      }
+      // No folder chip and no synthesis happened → just open the project
+      // via the legacy openLegacy hook, which reveals the path in Explorer.
+      await openLegacy(p.id);
+    } catch (e) {
+      setLastAction({
+        success: false,
+        stdout: "",
+        stderr: `open folder: ${String(e)}`,
+        exit_code: null,
+      });
+    }
+  }
+
+  /** Card action: open the project path in the user's preferred IDE. */
+  async function cardOpenIde(p: ProjectInfo) {
+    if (!p.path) return;
+    try {
+      await invoke("open_project_in_ide", {
+        path: p.path,
+        preferredIde: p.ide ?? null,
+      });
+    } catch (e) {
+      setLastAction({
+        success: false,
+        stdout: "",
+        stderr: `open IDE: ${String(e)}`,
+        exit_code: null,
+      });
+    }
+  }
+
+  /** Card action: spawn an AI PTY session inside the Control Center and
+   *  switch to the project workspace on the Terminal sub-tab. The PTY is
+   *  created with the project's default_provider; cwd defaults to the
+   *  project path (or "." if the project has no path). */
+  async function cardOpenAi(p: ProjectInfo) {
+    const provider: SessionProvider =
+      (p.default_provider as SessionProvider | null | undefined) ?? "claude";
+    try {
+      await invoke("pty_spawn", {
+        projectId: p.id,
+        cardId: null,
+        provider,
+        agent: null,
+        cwd: p.path ?? ".",
+        prompt: null,
+      });
+    } catch (e) {
+      setLastAction({
+        success: false,
+        stdout: "",
+        stderr: `spawn ${provider}: ${String(e)}`,
+        exit_code: null,
+      });
+    }
+    // Refresh the live-session counter on the home grid before navigating.
+    void refreshStats(projects);
+    openInWorkspace(p.id, p.name ?? p.id, "terminal");
+  }
+
+  /** Card action: open the project workspace with the Terminal sub-tab
+   *  pre-selected. Does NOT spawn a PTY — the user gets the empty-state
+   *  prompt with "+ New session" buttons if no PTY exists yet. */
+  function cardOpenTerminal(p: ProjectInfo) {
+    openInWorkspace(p.id, p.name ?? p.id, "terminal");
   }
 
   async function launchItem(projectId: string, index: number) {
@@ -1490,6 +2025,39 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
             <option value="type">By type</option>
           </select>
         </label>
+        {/* View-mode segmented toggle — cards (default) vs legacy list */}
+        <div
+          className="flex items-center gap-px overflow-hidden rounded"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Layout: cards (default) or legacy dense list"
+          aria-label="View mode"
+        >
+          {(["cards", "list"] as ViewMode[]).map((m) => {
+            const active = viewMode === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setViewMode(m)}
+                className="px-2 py-1 text-[11px] font-medium capitalize transition-colors"
+                style={{
+                  background: active
+                    ? "var(--color-accent)"
+                    : "transparent",
+                  color: active
+                    ? "var(--color-accent-text)"
+                    : "var(--color-text-secondary)",
+                }}
+                aria-pressed={active}
+              >
+                {m}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {statusKeys.length > 1 && (
@@ -1626,27 +2194,56 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 </span>
               </div>
             )}
-            <div className="space-y-2">
-              {items.map((p) => (
-                <Row
-                  key={p.id}
-                  p={p}
-                  selected={selected === p.id}
-                  onClick={() => setSelected(p.id)}
-                  onOpen={() => openLegacy(p.id)}
-                  opening={opening === p.id}
-                  onEdit={() => startEdit(p)}
-                  onDelete={() => setPendingDelete(p)}
-                  onLaunchAll={() => launchAll(p.id)}
-                  onLaunchItem={(i) => launchItem(p.id, i)}
-                  onAddItem={() => openAddItem(p)}
-                  onRemoveItem={(i) => removeItem(p.id, i)}
-                  onSetDefaultProvider={(prov) => setDefaultProvider(p.id, prov)}
-                  busyItem={busyItem[p.id] ?? null}
-                  launchingAll={!!launchingAll[p.id]}
-                />
-              ))}
-            </div>
+            {viewMode === "cards" ? (
+              <div
+                className="grid gap-3"
+                style={{
+                  gridTemplateColumns:
+                    "repeat(auto-fill, minmax(320px, 1fr))",
+                }}
+              >
+                {items.map((p) => (
+                  <ProjectCard
+                    key={p.id}
+                    p={p}
+                    stats={stats[p.id] ?? null}
+                    onOpenWorkspace={() =>
+                      openInWorkspace(p.id, p.name ?? p.id)
+                    }
+                    onOpenFolder={() => void cardOpenFolder(p)}
+                    onOpenIde={() => void cardOpenIde(p)}
+                    onOpenAi={() => void cardOpenAi(p)}
+                    onOpenTerminal={() => cardOpenTerminal(p)}
+                    onEdit={() => startEdit(p)}
+                    onDelete={() => setPendingDelete(p)}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {items.map((p) => (
+                  <Row
+                    key={p.id}
+                    p={p}
+                    selected={selected === p.id}
+                    onClick={() => setSelected(p.id)}
+                    onOpen={() => openLegacy(p.id)}
+                    opening={opening === p.id}
+                    onEdit={() => startEdit(p)}
+                    onDelete={() => setPendingDelete(p)}
+                    onLaunchAll={() => launchAll(p.id)}
+                    onLaunchItem={(i) => launchItem(p.id, i)}
+                    onAddItem={() => openAddItem(p)}
+                    onRemoveItem={(i) => removeItem(p.id, i)}
+                    onSetDefaultProvider={(prov) =>
+                      setDefaultProvider(p.id, prov)
+                    }
+                    busyItem={busyItem[p.id] ?? null}
+                    launchingAll={!!launchingAll[p.id]}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         ))}
       </div>

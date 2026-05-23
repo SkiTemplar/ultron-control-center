@@ -23,6 +23,7 @@ import ProjectTerminal from "./ProjectTerminal";
 import ProjectAgents from "./ProjectAgents";
 import ProjectContext from "./ProjectContext";
 import ProjectSessions from "./ProjectSessions";
+import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 
 type Props = {
   projectId: string;
@@ -46,10 +47,19 @@ const TABS: { id: ProjectSubTab; label: string; Icon: ComponentType<{ size?: num
   { id: "agents", label: "Agents", Icon: Bot },
   { id: "context", label: "Context", Icon: Notebook },
   { id: "sessions", label: "Sessions", Icon: History },
+  // TODO(next-session): add "notes" and "timeline" sub-tabs. Notes = freeform
+  // markdown editor scoped to the project (file: cockpit/projects/<id>/notes.md);
+  // Timeline = unified feed of kanban moves + PTY spawns + commits. Both require
+  // new ProjectSubTab values in types.ts (off-limits to this redesign pass).
 ];
 
 export default function ProjectWorkspace({ projectId }: Props) {
-  const [subTab, setSubTab] = useState<ProjectSubTab>("board");
+  const { consumeInitialSubTab } = useProjectsTabs();
+  // Read deep-link hint from the home grid's "Open terminal" / "Open AI"
+  // shortcuts ONCE on mount. After that, the user drives the sub-tab.
+  const [subTab, setSubTab] = useState<ProjectSubTab>(
+    () => consumeInitialSubTab(projectId) ?? "board",
+  );
   const [meta, setMeta] = useState<ProjectMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
 
