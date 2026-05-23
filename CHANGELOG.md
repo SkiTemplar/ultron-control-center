@@ -1,5 +1,49 @@
 # Changelog
 
+<!-- v2.1.0 -->
+## v2.1.0 - 2026-05-23
+
+Errores corregidos:
+- Mem0 panel: corregido path lookup de la API key en settings.json
+  (mcpServers.mem0.headers.Authorization en lugar del nested mcp.servers.*
+  inexistente). La pestana Memory ahora conecta correctamente cuando la
+  key esta puesta como MCP server.
+
+Eliminado:
+- Pestana Gaming (game-killer + Windows tweaks, legado del overlay ULTRON).
+- Pestana Personal (profile.md / known.json / writing-style trainer del
+  stack Tio Gilito).
+- Modulos backend asociados: gaming.rs, personal.rs, commands/gaming.rs,
+  commands/personal.rs.
+- ACL scopes gaming-enum + gaming-kill de capabilities/default.json.
+- Cockpit stale dirs: news, standup, trending, audits, scheduler-logs,
+  tui, last-run.
+- PLANS.json reseteado a sprint v2.1 (backlog ULTRON antiguo archivado en
+  plans/_archived-2026-05-22-ultron-backlog.json, gitignored).
+
+Anadido:
+- Pestana Library unificada: Skills + Agents + Rules colapsados en una
+  unica entrada de sidebar con sub-tabs internos. Deep links via command
+  palette ("Library - Skills" / "Library - Agents" / "Library - Rules")
+  abren la sub-pestana correspondiente. localStorage recuerda la ultima
+  sub-tab abierta.
+- Sub-tab Catalog dentro de Library: catalogo curado por dominio
+  (Graphics Programming, Unreal Engine 5, AI / ML, MCP Development) con
+  install de un clic via library_install_from_github al global scope.
+  Filtros All / Skills / Agents y estado por item (idle / installing /
+  done / error). Editable desde cockpit/curated-catalog.json.
+- Backend command read_curated_catalog que sirve el JSON crudo (el
+  schema puede evolucionar sin recompilar).
+- 9 nuevos iconos SVG inline (Sparkle, Bot, BookOpen, Compass, Folder,
+  Globe, ExternalLink, Check, AlertTriangle) en library/icons.tsx.
+
+Polish:
+- Sidebar reducido (12 -> 10 items primarios + "More" sigue intacto).
+- CommandPalette navega a Library + mantiene deep links a sub-tabs.
+- FeaturesSection META map reducido a los toggles que quedan vivos.
+- types.ts limpio: GameProcessInfo / KillResult / KillFailure eliminados.
+
+
 <!-- v2.0.0 -->
 ## v2.0.0 - 2026-05-23
 
