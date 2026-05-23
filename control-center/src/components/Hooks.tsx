@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { confirmDialog } from "../lib/dialog";
+import type { HookLastFired } from "../types";
 
 // ---------------------------------------------------------------------------
 // Types (mirror src-tauri/src/hooks_admin.rs)
@@ -123,6 +124,8 @@ export function Hooks() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [fires, setFires] = useState<HookFiresReport | null>(null);
+  // P7: last-fired entry per hook id (timestamp + project slug).
+  const [lastFired, setLastFired] = useState<Record<string, HookLastFired>>({});
 
   // -------------------------------------------------------------------------
   // Data loading
@@ -154,6 +157,31 @@ export function Hooks() {
     fetchList();
     fetchFires();
   }, []);
+
+  // P7: refresh per-hook last fired whenever the list changes.
+  useEffect(() => {
+    const hooks = list?.hooks ?? [];
+    if (hooks.length === 0) {
+      setLastFired({});
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const map: Record<string, HookLastFired> = {};
+      for (const h of hooks) {
+        try {
+          const r = (await invoke("hooks_last_fired", { id: h.id })) as HookLastFired;
+          map[h.id] = r;
+        } catch {
+          /* skip — hook may have never fired */
+        }
+      }
+      if (!cancelled) setLastFired(map);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [list]);
 
   function showFlash(msg: string) {
     setFlash(msg);
@@ -426,17 +454,32 @@ export function Hooks() {
                           opacity: h.enabled ? 1 : 0.55,
                         }}
                       >
-                        <label
-                          className="flex items-center"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleToggle(h);
+                          }}
+                          aria-label={h.enabled ? `Disable ${h.id}` : `Enable ${h.id}`}
                           title={h.enabled ? "Click to disable" : "Click to enable"}
+                          className="relative h-4 w-7 shrink-0 rounded-full transition-colors"
+                          style={{
+                            background: h.enabled
+                              ? "var(--color-success)"
+                              : "var(--color-surface-3)",
+                            border: "1px solid var(--color-border-strong)",
+                          }}
                         >
-                          <input
-                            type="checkbox"
-                            checked={h.enabled}
-                            onChange={() => handleToggle(h)}
+                          <span
+                            className="absolute top-[1px] h-3 w-3 rounded-full transition-transform"
+                            style={{
+                              background: "var(--color-text)",
+                              transform: h.enabled
+                                ? "translateX(13px)"
+                                : "translateX(1px)",
+                            }}
                           />
-                        </label>
+                        </button>
                         <span
                           className="rounded px-1.5 py-0.5 text-[10px] font-medium"
                           style={{
@@ -453,6 +496,18 @@ export function Hooks() {
                         >
                           {truncate(h.command, 110)}
                         </code>
+                        {lastFired[h.id]?.timestamp && (
+                          <span
+                            className="shrink-0 text-[10.5px]"
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              color: "var(--color-text-faint)",
+                            }}
+                            title={`Last fired ${lastFired[h.id].timestamp ?? ""} in ${lastFired[h.id].project ?? "?"}`}
+                          >
+                            {(lastFired[h.id].timestamp ?? "").slice(0, 16).replace("T", " ")}
+                          </span>
+                        )}
                         <div
                           className="flex items-center gap-1"
                           onClick={(e) => e.stopPropagation()}

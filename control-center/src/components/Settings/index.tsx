@@ -8,24 +8,31 @@ import { FeaturesSection } from "./FeaturesSection";
 import { JsonEditor } from "./EditorSection";
 import { BackupRootEditor, BackupSourcesEditor, DiskBackupStatus } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
+import { PluginsSection } from "./PluginsSection";
 
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
-// top-level tab now. Kept the union without it so stale state references
-// surface as compile errors.
+// top-level tab now. P7 (2.0): "raw" (settings.json) is the default tab and
+// the Section union is reordered so the JSON editor leads. "plugins" added
+// as a new sub-tab for ECC component counts with jump-links.
 type Section =
+  | "raw"
   | "general"
   | "auth"
-  | "button-prompts"
   | "features"
-  | "raw"
+  | "button-prompts"
   | "backups"
-  | "lifecycle";
+  | "lifecycle"
+  | "plugins";
 
-export function Settings() {
+type SettingsProps = {
+  onNavigate?: (tab: string) => void;
+};
+
+export function Settings({ onNavigate }: SettingsProps = {}) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("general");
+  const [section, setSection] = useState<Section>("raw");
   const [dirty, setDirty] = useState(false);
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -143,14 +150,14 @@ export function Settings() {
         }}
       >
         {[
+          { id: "raw" as Section, label: "settings.json" },
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
-          { id: "button-prompts" as Section, label: "Button prompts" },
           { id: "features" as Section, label: "Features" },
-          // v15.2 F7: "MCPs" sub-tab removed — moved to top-level MCPs tab.
-          { id: "raw" as Section, label: "Editor" },
+          { id: "button-prompts" as Section, label: "Button prompts" },
           { id: "backups" as Section, label: "Backups" },
           { id: "lifecycle" as Section, label: "App lifecycle" },
+          { id: "plugins" as Section, label: "Plugins" },
         ].map((t) => (
           <button
             key={t.id}
@@ -271,6 +278,7 @@ export function Settings() {
         )}
 
         {section === "lifecycle" && <LifecyclePanel />}
+        {section === "plugins" && <PluginsSection onNavigate={onNavigate} />}
       </div>
     </div>
   );

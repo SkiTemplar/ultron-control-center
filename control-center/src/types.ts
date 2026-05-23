@@ -863,3 +863,32 @@ export type DiagScheduleConfig = {
   enabled: boolean;
   time_hhmm: string;
 };
+
+// ---------------------------------------------------------------------------
+// Settings (P7): plugin info + MCP ping + hooks last fired.
+// ---------------------------------------------------------------------------
+
+export type PluginInfo = {
+  installed: boolean;
+  version: string | null;
+  root: string | null;
+  last_update_iso: string | null;
+  skills_count: number;
+  agents_count: number;
+  hooks_count: number;
+  mcp_servers_count: number;
+};
+
+export type McpPingResult = {
+  name: string;
+  ok: boolean;
+  latency_ms: number | null;
+  error: string | null;
+};
+
+export type HookLastFired = {
+  id: string;
+  timestamp: string | null;
+  project: string | null;
+  exit_code: number | null;
+};

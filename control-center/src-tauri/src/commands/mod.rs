@@ -35,6 +35,7 @@ pub mod mem0;
 pub mod misc;
 pub mod personal;
 pub mod plans;
+pub mod plugins_info;
 pub mod projects;
 pub mod pty;
 pub mod rules;

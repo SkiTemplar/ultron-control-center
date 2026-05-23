@@ -5,6 +5,7 @@ import type {
   McpStatus,
   McpMutationResult,
   McpGenerationResult,
+  McpPingResult,
   SettingsSnapshot,
   SettingsSaveResult,
 } from "../types";
@@ -397,15 +398,19 @@ function Modal({
 // MCP card
 // ---------------------------------------------------------------------------
 
-type Action = "hide" | "edit" | "delete";
+type Action = "hide" | "edit" | "delete" | "test";
 
 function Card({
   mcp,
   hidden,
+  ping,
+  pingBusy,
   onAction,
 }: {
   mcp: McpInfo;
   hidden: boolean;
+  ping?: McpPingResult;
+  pingBusy?: boolean;
   onAction: (a: Action) => void;
 }) {
   const color = statusColor(mcp.status, mcp.expected_offline);
@@ -457,6 +462,31 @@ function Card({
                 {mcp.last_checked.slice(0, 16).replace("T", " ")}
               </span>
             )}
+            {ping && (
+              <span>
+                <span style={{ color: "var(--color-text-faint)" }}>ping</span>{" "}
+                <span
+                  style={{
+                    color: ping.ok
+                      ? "var(--color-success)"
+                      : "var(--color-danger)",
+                  }}
+                >
+                  {ping.ok ? "running" : "stopped"}
+                </span>
+                {ping.latency_ms != null && (
+                  <span
+                    className="ml-1"
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--color-text-faint)",
+                    }}
+                  >
+                    {ping.latency_ms} ms
+                  </span>
+                )}
+              </span>
+            )}
           </div>
 
           {/* command / url preview */}
@@ -480,6 +510,20 @@ function Card({
             about its scope. The "Run health check" button in the tab header
             owns that action. */}
         <div className="flex shrink-0 flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={() => onAction("test")}
+            disabled={!!pingBusy}
+            className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Spawn the MCP command and wait for an initialize response (2s budget)"
+          >
+            {pingBusy ? "Testing…" : "Test"}
+          </button>
           <button
             type="button"
             onClick={() => onAction("edit")}
@@ -694,6 +738,39 @@ export function MCPs() {
   const [showHidden, setShowHidden] = useState(false);
   const [probing, setProbing] = useState(false);
   const [flash, setFlash] = useState<string | null>(null);
+  // P7: per-server ping results (Test button). Independent of the global
+  // health check JSON because the spawn-and-initialize handshake is
+  // far more reliable than reading mcp-health.json.
+  const [pings, setPings] = useState<Record<string, McpPingResult>>({});
+  const [pingBusy, setPingBusy] = useState<Set<string>>(new Set());
+
+  async function testMcp(name: string) {
+    setPingBusy((s) => {
+      const next = new Set(s);
+      next.add(name);
+      return next;
+    });
+    try {
+      const r = (await invoke("mcp_ping", { name })) as McpPingResult;
+      setPings((p) => ({ ...p, [name]: r }));
+    } catch (e) {
+      setPings((p) => ({
+        ...p,
+        [name]: {
+          name,
+          ok: false,
+          latency_ms: null,
+          error: String(e),
+        },
+      }));
+    } finally {
+      setPingBusy((s) => {
+        const next = new Set(s);
+        next.delete(name);
+        return next;
+      });
+    }
+  }
   const addWithAiTitle = useRoutingTitle(
     "mcps.add_with_ai",
     "Register a new MCP server with AI. cwd=instructions/mcps/ with GUIDE.md auto-loaded.",
@@ -1071,10 +1148,13 @@ export function MCPs() {
             key={m.name}
             mcp={m}
             hidden={hidden.has(m.name)}
+            ping={pings[m.name]}
+            pingBusy={pingBusy.has(m.name)}
             onAction={(a) => {
               if (a === "hide") toggleHidden(m.name);
               else if (a === "edit") openEdit(m.name);
               else if (a === "delete") setDeleteTarget(m.name);
+              else if (a === "test") void testMcp(m.name);
             }}
           />
         ))}

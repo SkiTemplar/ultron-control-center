@@ -1080,3 +1080,75 @@ pub async fn request_hook_via_ai_inner(
     .await?;
     Ok("Claude session abierta — pega el JSON resultante en Add hook".to_string())
 }
+
+// ---------------------------------------------------------------------------
+// P7: last fired entry (tail of ~/.claude/projects/*/hook-fires.jsonl).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HookLastFired {
+    pub id: String,
+    pub timestamp: Option<String>,
+    pub project: Option<String>,
+    pub exit_code: Option<i32>,
+}
+
+pub fn hooks_last_fired_inner(id: String) -> HookLastFired {
+    let Some(home) = dirs::home_dir() else {
+        return HookLastFired { id, timestamp: None, project: None, exit_code: None };
+    };
+    let base = home.join(".claude").join("projects");
+    if !base.exists() {
+        return HookLastFired { id, timestamp: None, project: None, exit_code: None };
+    }
+    let mut latest: Option<(String, String, Option<i32>)> = None;
+    if let Ok(rd) = std::fs::read_dir(&base) {
+        for entry in rd.filter_map(|e| e.ok()) {
+            let p = entry.path().join("hook-fires.jsonl");
+            if !p.exists() {
+                continue;
+            }
+            let project_slug = entry.file_name().to_string_lossy().to_string();
+            let Ok(txt) = std::fs::read_to_string(&p) else { continue };
+            // Look at the most recent 50 lines for this hook's id.
+            for line in txt.lines().rev().take(50) {
+                let Ok(json): Result<serde_json::Value, _> = serde_json::from_str(line) else {
+                    continue;
+                };
+                // Match on either explicit hook_id field or fallback to "hook".
+                let entry_id = json
+                    .get("hook_id")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| json.get("hook").and_then(|v| v.as_str()))
+                    .unwrap_or("");
+                if entry_id != id {
+                    continue;
+                }
+                let ts = json
+                    .get("timestamp")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let ec = json
+                    .get("exit_code")
+                    .and_then(|v| v.as_i64())
+                    .map(|n| n as i32);
+                let candidate = (ts.clone(), project_slug.clone(), ec);
+                match &latest {
+                    Some((existing_ts, _, _)) if existing_ts >= &ts => {}
+                    _ => latest = Some(candidate),
+                }
+                break;
+            }
+        }
+    }
+    match latest {
+        Some((ts, proj, ec)) => HookLastFired {
+            id,
+            timestamp: Some(ts),
+            project: Some(proj),
+            exit_code: ec,
+        },
+        None => HookLastFired { id, timestamp: None, project: None, exit_code: None },
+    }
+}

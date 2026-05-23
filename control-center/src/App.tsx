@@ -486,7 +486,7 @@ function AppInner() {
         {tab === "memory" && <Memory />}
         {tab === "sessions" && <Sessions />}
         {tab === "usage" && <Usage />}
-        {tab === "settings" && <Settings />}
+        {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}
         {tab === "projects" && <ProjectsPane />}
         {tab === "system" && <System />}
         {tab === "gaming" && <Gaming />}

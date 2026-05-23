@@ -58,3 +58,8 @@ pub async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::Mcp
     }
     mcps::list_mcps_inner()
 }
+
+#[tauri::command]
+pub async fn mcp_ping(name: String) -> mcps::McpPingResult {
+    mcps::mcp_ping_inner(name)
+}

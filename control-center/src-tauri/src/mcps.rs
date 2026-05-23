@@ -576,3 +576,122 @@ pub async fn generate_mcp_from_prompt_inner(
         raw_output,
     })
 }
+
+// ---------------------------------------------------------------------------
+// P7: ping a server (spawn command + send JSON-RPC initialize, timeout 2s).
+// ---------------------------------------------------------------------------
+
+use std::io::{Read, Write};
+use std::process::Stdio;
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct McpPingResult {
+    pub name: String,
+    pub ok: bool,
+    pub latency_ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+pub fn mcp_ping_inner(name: String) -> McpPingResult {
+    let settings = match parse_settings() {
+        Ok(s) => s,
+        Err(e) => {
+            return McpPingResult {
+                name,
+                ok: false,
+                latency_ms: None,
+                error: Some(format!("read settings: {e}")),
+            }
+        }
+    };
+    let Some(cfg) = settings.mcp_servers.get(&name) else {
+        return McpPingResult {
+            name,
+            ok: false,
+            latency_ms: None,
+            error: Some("server not found in settings.json".to_string()),
+        };
+    };
+
+    // HTTP/SSE servers are best-effort: skip the JSON-RPC handshake and
+    // report ok=true / latency=None to signal "no probe".
+    let is_http = cfg.url.is_some()
+        || cfg.transport.as_deref().map(|t| t.eq_ignore_ascii_case("http") || t.eq_ignore_ascii_case("sse")).unwrap_or(false);
+    if is_http {
+        return McpPingResult {
+            name: name.clone(),
+            ok: true,
+            latency_ms: None,
+            error: None,
+        };
+    }
+
+    let Some(command) = cfg.command.clone() else {
+        return McpPingResult {
+            name,
+            ok: false,
+            latency_ms: None,
+            error: Some("stdio server has no command".to_string()),
+        };
+    };
+
+    let start = Instant::now();
+    let mut cmd = std::process::Command::new(&command);
+    cmd.args(&cfg.args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null());
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) => {
+            return McpPingResult {
+                name,
+                ok: false,
+                latency_ms: None,
+                error: Some(format!("spawn: {e}")),
+            }
+        }
+    };
+    let init = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "initialize",
+        "params": {
+            "protocolVersion": "2024-11-05",
+            "clientInfo": {"name": "ultron-control-center", "version": "2.0.0"},
+            "capabilities": {}
+        }
+    });
+    let line = format!("{}\n", init);
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(line.as_bytes());
+    }
+
+    // Read one chunk of stdout with a 2s budget.
+    let stdout = child.stdout.take();
+    let (tx, rx) = std::sync::mpsc::channel::<bool>();
+    if let Some(mut out) = stdout {
+        std::thread::spawn(move || {
+            let mut buf = [0u8; 4096];
+            let r = out.read(&mut buf);
+            let ok = matches!(r, Ok(n) if n > 0);
+            let _ = tx.send(ok);
+        });
+    }
+    let ok = rx.recv_timeout(Duration::from_secs(2)).unwrap_or(false);
+    let elapsed = start.elapsed().as_millis() as u64;
+    let _ = child.kill();
+    let _ = child.wait();
+
+    McpPingResult {
+        name,
+        ok,
+        latency_ms: Some(elapsed),
+        error: if ok {
+            None
+        } else {
+            Some("no initialize response within 2s".to_string())
+        },
+    }
+}

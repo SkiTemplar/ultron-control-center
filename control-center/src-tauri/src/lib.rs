@@ -41,6 +41,7 @@ mod mcps;
 mod mem0;
 mod personal;
 mod plans;
+mod plugins_info;
 mod project_hotkeys;
 mod projects;
 mod pty;
@@ -171,6 +172,7 @@ pub fn run() {
             commands::mcps::update_mcp,
             commands::mcps::delete_mcp,
             commands::mcps::generate_mcp_from_prompt,
+            commands::mcps::mcp_ping,
             // -- skills --
             commands::skills::list_skills,
             commands::skills::list_skills_legacy,
@@ -285,6 +287,9 @@ pub fn run() {
             commands::hooks::test_hook,
             commands::hooks::recent_hook_fires,
             commands::hooks::request_hook_via_ai,
+            commands::hooks::hooks_last_fired,
+            // -- plugin info (P7) --
+            commands::plugins_info::read_plugin_info,
             // -- pty (embedded terminal, P3) --
             commands::pty::pty_spawn,
             commands::pty::pty_write,

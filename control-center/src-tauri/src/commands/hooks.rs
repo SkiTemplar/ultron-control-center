@@ -57,3 +57,8 @@ pub async fn request_hook_via_ai(
 ) -> Result<String, String> {
     hooks_admin::request_hook_via_ai_inner(&app, description).await
 }
+
+#[tauri::command]
+pub async fn hooks_last_fired(id: String) -> hooks_admin::HookLastFired {
+    hooks_admin::hooks_last_fired_inner(id)
+}
