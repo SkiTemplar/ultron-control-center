@@ -297,6 +297,34 @@ export type UsageReport = {
 
 export type SkillState = "active" | "plugin" | "vaulted" | "quarantined" | string;
 
+// ---------------------------------------------------------------------------
+// Control Center 2.0 (P2): origin-aware Skills/Agents + Rules viewer.
+// ---------------------------------------------------------------------------
+
+export type SkillOrigin = "global" | "project" | "plugin";
+
+export type SkillEntry = {
+  name: string;
+  path: string;
+  description: string;
+  origin: SkillOrigin;
+  enabled: boolean;
+};
+
+export type AgentEntry = {
+  name: string;
+  path: string;
+  description: string;
+  origin: SkillOrigin;
+};
+
+export type RuleFile = {
+  name: string;
+  path: string;
+  relative: string;
+  preview: string;
+};
+
 export type SecurityDecision = "allow" | "warn" | "quarantine" | "block";
 
 export type SecurityInfo = {

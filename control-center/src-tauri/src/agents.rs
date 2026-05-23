@@ -30,7 +30,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 
 #[derive(Debug, Serialize, Clone)]
@@ -388,6 +388,156 @@ fn unix_ts() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// Origin-aware listing (Control Center 2.0 / P2)
+//
+// New `AgentEntry` shape that surfaces the *origin* of every agent
+// (global / project / plugin) so Agents.tsx can paint scope chips. Lives
+// alongside the registry-style `AgentInfo` (still used by the CRUD path).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub enum AgentOrigin {
+    #[serde(rename = "global")]
+    Global,
+    #[serde(rename = "project")]
+    Project,
+    #[serde(rename = "plugin")]
+    Plugin,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AgentEntry {
+    pub name: String,
+    pub path: String,
+    pub description: String,
+    pub origin: AgentOrigin,
+}
+
+fn global_agents_dir() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    Ok(home.join(".claude").join("agents"))
+}
+
+fn project_agents_dir(project_path: &str) -> PathBuf {
+    PathBuf::from(project_path).join(".claude").join("agents")
+}
+
+/// Plugin agents live three levels deep:
+/// `~/.claude/plugins/cache/<plugin-id>/<plugin-name>/<version>/agents/`.
+/// For each `<plugin-id>/<plugin-name>` pair we keep only the latest
+/// version dir (sorted lex desc).
+fn plugin_agents_dirs() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let cache = home.join(".claude").join("plugins").join("cache");
+    let mut out = Vec::new();
+    let Ok(plugin_ids) = std::fs::read_dir(&cache) else {
+        return out;
+    };
+    for pid_entry in plugin_ids.flatten() {
+        let pid_path = pid_entry.path();
+        if !pid_path.is_dir() {
+            continue;
+        }
+        let Ok(plugin_names) = std::fs::read_dir(&pid_path) else {
+            continue;
+        };
+        for pname_entry in plugin_names.flatten() {
+            let pname_path = pname_entry.path();
+            if !pname_path.is_dir() {
+                continue;
+            }
+            let mut versions: Vec<PathBuf> = match std::fs::read_dir(&pname_path) {
+                Ok(rd) => rd
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir())
+                    .collect(),
+                Err(_) => continue,
+            };
+            versions.sort_by(|a, b| {
+                let an = a.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                let bn = b.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                bn.cmp(an)
+            });
+            if let Some(latest) = versions.first() {
+                let agents = latest.join("agents");
+                if agents.is_dir() {
+                    out.push(agents);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn read_agent_meta(path: &Path) -> (String, String) {
+    let name = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("(unnamed)")
+        .to_string();
+    let description = fs::read_to_string(path)
+        .ok()
+        .and_then(|s| {
+            for line in s.lines() {
+                let t = line.trim();
+                if let Some(rest) = t.strip_prefix("description:") {
+                    return Some(rest.trim().trim_matches('"').to_string());
+                }
+            }
+            None
+        })
+        .unwrap_or_default();
+    (name, description)
+}
+
+fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
+    let mut out = Vec::new();
+    if !root.exists() {
+        return out;
+    }
+    if let Ok(entries) = fs::read_dir(root) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if !p.is_file() {
+                continue;
+            }
+            if p.extension().and_then(|s| s.to_str()) != Some("md") {
+                continue;
+            }
+            let (name, description) = read_agent_meta(&p);
+            out.push(AgentEntry {
+                name,
+                path: p.to_string_lossy().to_string(),
+                description,
+                origin: origin.clone(),
+            });
+        }
+    }
+    out
+}
+
+pub fn list_agents_with_origin_inner(
+    project_path: Option<String>,
+) -> Result<Vec<AgentEntry>, String> {
+    let mut out = Vec::new();
+    if let Ok(g) = global_agents_dir() {
+        out.extend(collect_agents_from(&g, AgentOrigin::Global));
+    }
+    if let Some(p) = project_path.as_deref() {
+        let pdir = project_agents_dir(p);
+        out.extend(collect_agents_from(&pdir, AgentOrigin::Project));
+    }
+    for plugin_dir in plugin_agents_dirs() {
+        out.extend(collect_agents_from(&plugin_dir, AgentOrigin::Plugin));
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
 }
 
 #[cfg(test)]

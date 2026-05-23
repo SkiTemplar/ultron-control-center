@@ -10,6 +10,7 @@ import { Notifications } from "./components/Notifications";
 import { MCPs } from "./components/MCPs";
 import { Skills } from "./components/Skills";
 import { Agents } from "./components/Agents";
+import { Rules } from "./components/Rules";
 import { Memory } from "./components/Memory";
 import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
@@ -473,6 +474,7 @@ export default function App() {
         {tab === "mcps" && <MCPs />}
         {tab === "skills" && <Skills />}
         {tab === "agents" && <Agents />}
+        {tab === "rules" && <Rules />}
         {tab === "memory" && <Memory />}
         {tab === "sessions" && <Sessions />}
         {tab === "usage" && <Usage />}

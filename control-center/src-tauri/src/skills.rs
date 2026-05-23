@@ -539,6 +539,238 @@ impl Sha1Engine {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Origin-aware listing (Control Center 2.0 / P2)
+//
+// New `SkillEntry` type that surfaces the *origin* of every skill (global /
+// project / plugin) so the Skills.tsx viewer can paint scope chips and let
+// the user toggle global skills on/off via a rename to `_disabled/`. Lives
+// next to the registry-driven `SkillInfo` (still used by the older preview
+// + CRUD path) — both coexist until the frontend is fully migrated.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub enum SkillOrigin {
+    #[serde(rename = "global")]
+    Global,
+    #[serde(rename = "project")]
+    Project,
+    #[serde(rename = "plugin")]
+    Plugin,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SkillEntry {
+    pub name: String,
+    pub path: String,
+    pub description: String,
+    pub origin: SkillOrigin,
+    pub enabled: bool,
+}
+
+fn global_skills_dir() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    Ok(home.join(".claude").join("skills"))
+}
+
+fn project_skills_dir(project_path: &str) -> PathBuf {
+    PathBuf::from(project_path).join(".claude").join("skills")
+}
+
+/// Plugin skills live three levels deep:
+/// `~/.claude/plugins/cache/<plugin-id>/<plugin-name>/<version>/skills/`.
+/// For each `<plugin-id>/<plugin-name>` pair we keep only the latest
+/// version dir (sorted lexicographically descending — works for stable
+/// semver tags; `-rc`/`-alpha` suffixes fall back to a sane lex order).
+fn plugin_skills_dirs() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let cache = home.join(".claude").join("plugins").join("cache");
+    let mut out = Vec::new();
+    let Ok(plugin_ids) = std::fs::read_dir(&cache) else {
+        return out;
+    };
+    for pid_entry in plugin_ids.flatten() {
+        let pid_path = pid_entry.path();
+        if !pid_path.is_dir() {
+            continue;
+        }
+        let Ok(plugin_names) = std::fs::read_dir(&pid_path) else {
+            continue;
+        };
+        for pname_entry in plugin_names.flatten() {
+            let pname_path = pname_entry.path();
+            if !pname_path.is_dir() {
+                continue;
+            }
+            // Collect version dirs, keep the lex-desc latest.
+            let mut versions: Vec<PathBuf> = match std::fs::read_dir(&pname_path) {
+                Ok(rd) => rd
+                    .flatten()
+                    .map(|e| e.path())
+                    .filter(|p| p.is_dir())
+                    .collect(),
+                Err(_) => continue,
+            };
+            versions.sort_by(|a, b| {
+                let an = a.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                let bn = b.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                bn.cmp(an)
+            });
+            if let Some(latest) = versions.first() {
+                let skills = latest.join("skills");
+                if skills.is_dir() {
+                    out.push(skills);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn read_skill_meta(dir: &Path) -> (String, String, bool) {
+    // (name, description, enabled). `enabled` = !under `_disabled/`.
+    let name = dir
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("(unnamed)")
+        .to_string();
+    let enabled = !dir
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .map(|s| s == "_disabled")
+        .unwrap_or(false);
+    let skill_md = dir.join("SKILL.md");
+    let description = std::fs::read_to_string(&skill_md)
+        .ok()
+        .and_then(|s| {
+            for line in s.lines() {
+                let t = line.trim();
+                if let Some(rest) = t.strip_prefix("description:") {
+                    return Some(rest.trim().trim_matches('"').to_string());
+                }
+            }
+            s.lines()
+                .find(|l| !l.trim().is_empty() && !l.starts_with("---"))
+                .map(|l| l.trim().trim_start_matches('#').trim().to_string())
+        })
+        .unwrap_or_default();
+    (name, description, enabled)
+}
+
+fn collect_skills_from(
+    root: &Path,
+    origin: SkillOrigin,
+    include_disabled: bool,
+) -> Vec<SkillEntry> {
+    let mut out = Vec::new();
+    if !root.exists() {
+        return out;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return out;
+    };
+    for e in entries.flatten() {
+        let path = e.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let dir_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        if dir_name == "_disabled" {
+            if include_disabled {
+                if let Ok(disabled) = std::fs::read_dir(&path) {
+                    for d in disabled.flatten() {
+                        let dp = d.path();
+                        if dp.is_dir() {
+                            let (n, desc, _) = read_skill_meta(&dp);
+                            out.push(SkillEntry {
+                                name: n,
+                                path: dp.to_string_lossy().to_string(),
+                                description: desc,
+                                origin: origin.clone(),
+                                enabled: false,
+                            });
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+        let (n, desc, enabled) = read_skill_meta(&path);
+        out.push(SkillEntry {
+            name: n,
+            path: path.to_string_lossy().to_string(),
+            description: desc,
+            origin: origin.clone(),
+            enabled,
+        });
+    }
+    out
+}
+
+pub fn list_skills_with_origin_inner(
+    project_path: Option<String>,
+) -> Result<Vec<SkillEntry>, String> {
+    let mut out = Vec::new();
+    if let Ok(g) = global_skills_dir() {
+        out.extend(collect_skills_from(&g, SkillOrigin::Global, true));
+    }
+    if let Some(p) = project_path.as_deref() {
+        let pdir = project_skills_dir(p);
+        out.extend(collect_skills_from(&pdir, SkillOrigin::Project, true));
+    }
+    for plugin_dir in plugin_skills_dirs() {
+        out.extend(collect_skills_from(&plugin_dir, SkillOrigin::Plugin, false));
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+pub fn skill_toggle_inner(name: String, enabled: bool) -> Result<SkillEntry, String> {
+    let root = global_skills_dir()?;
+    let target_enabled_dir = root.join(&name);
+    let disabled_root = root.join("_disabled");
+    let target_disabled_dir = disabled_root.join(&name);
+    if enabled {
+        if !target_disabled_dir.exists() {
+            return Err(format!("skill {name} not found under _disabled"));
+        }
+        if target_enabled_dir.exists() {
+            return Err(format!("skill {name} already enabled"));
+        }
+        std::fs::rename(&target_disabled_dir, &target_enabled_dir)
+            .map_err(|e| format!("rename: {e}"))?;
+    } else {
+        if !target_enabled_dir.exists() {
+            return Err(format!("skill {name} not found"));
+        }
+        if !disabled_root.exists() {
+            std::fs::create_dir_all(&disabled_root)
+                .map_err(|e| format!("create _disabled: {e}"))?;
+        }
+        std::fs::rename(&target_enabled_dir, &target_disabled_dir)
+            .map_err(|e| format!("rename: {e}"))?;
+    }
+    let final_path = if enabled {
+        target_enabled_dir
+    } else {
+        target_disabled_dir
+    };
+    let (n, desc, e) = read_skill_meta(&final_path);
+    Ok(SkillEntry {
+        name: n,
+        path: final_path.to_string_lossy().to_string(),
+        description: desc,
+        origin: SkillOrigin::Global,
+        enabled: e,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

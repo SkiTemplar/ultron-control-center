@@ -537,6 +537,7 @@ dependencies = [
  "tauri-plugin-updater",
  "tempfile",
  "ureq",
+ "walkdir",
 ]
 
 [[package]]

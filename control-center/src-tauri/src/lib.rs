@@ -41,6 +41,7 @@ mod personal;
 mod plans;
 mod project_hotkeys;
 mod projects;
+mod rules;
 mod sessions;
 mod settings;
 mod skills;
@@ -154,16 +155,22 @@ pub fn run() {
             commands::mcps::generate_mcp_from_prompt,
             // -- skills --
             commands::skills::list_skills,
+            commands::skills::list_skills_legacy,
+            commands::skills::skill_toggle,
             commands::skills::read_skill_md,
             commands::skills::create_skill,
             commands::skills::update_skill_md,
             commands::skills::delete_skill,
             // -- agents --
             commands::agents::list_agents,
+            commands::agents::list_agents_legacy,
             commands::agents::read_agent_md,
             commands::agents::create_agent,
             commands::agents::update_agent_md,
             commands::agents::delete_agent,
+            // -- rules --
+            commands::rules::rules_list,
+            commands::rules::rules_read,
             // -- maintenance / lifecycle --
             commands::maintenance::list_maintenance_commands,
             commands::maintenance::run_maintenance_command,

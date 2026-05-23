@@ -1,8 +1,17 @@
 // Agent CRUD + security findings commands.
 use crate::agents;
 
+// Origin-aware listing for the Control Center 2.0 Agents viewer.
+// Walks global, project, and plugin trees and tags each entry with its
+// origin. The legacy `AgentInfo` registry-style path is preserved as
+// `list_agents_legacy` for components still using that richer shape.
 #[tauri::command]
-pub async fn list_agents() -> Result<Vec<agents::AgentInfo>, String> {
+pub async fn list_agents(project_path: Option<String>) -> Result<Vec<agents::AgentEntry>, String> {
+    agents::list_agents_with_origin_inner(project_path)
+}
+
+#[tauri::command]
+pub async fn list_agents_legacy() -> Result<Vec<agents::AgentInfo>, String> {
     agents::list_agents_inner()
 }
 

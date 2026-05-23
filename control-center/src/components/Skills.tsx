@@ -1,1177 +1,185 @@
+// ULTRON Control Center 2.0 — Skills viewer (P2).
+//
+// Lists skills from 3 origins (global / project / plugin) with scope chips,
+// search, "open in editor", and an enable/disable toggle (global only).
+// Backend = `list_skills` + `skill_toggle` Tauri commands.
+
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import type {
-  AllowSkillResult,
-  SkillCreateResult,
-  SkillDeleteResult,
-  SkillInfo,
-  SkillSecurityReport,
-  SkillState,
-  SkillUpdateResult,
-} from "../types";
-import { SkillRichView } from "./SkillRichView";
-import { SecurityPanel } from "./SecurityPanel";
-import { HeaderBtn, KindBadge, Pill, SkillAgentRow } from "./SkillAgentShared";
-import { getHomeDir, joinPath } from "../lib/paths";
-import { useRoutingTitle } from "../lib/button-prompts";
+import type { SkillEntry, SkillOrigin } from "../types";
 
-// Default body when creating a new skill. Keeps the user oriented without
-// overwhelming the textarea.
-const NEW_SKILL_TEMPLATE = `# Overview\n\nWhat does this skill do?\n\n# When to use\n\n- Trigger phrases\n- Concrete examples\n\n# Notes\n\n- Any constraints, references, follow-up TODOs\n`;
+type ScopeFilter = "all" | SkillOrigin;
 
-// ---------------------------------------------------------------------------
-// State styling
-// ---------------------------------------------------------------------------
+const SCOPES: { id: ScopeFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "global", label: "Global" },
+  { id: "project", label: "Project" },
+  { id: "plugin", label: "Plugin" },
+];
 
-type StateKey = "active" | "plugin" | "vaulted" | "quarantined";
-
-function stateBadge(s: SkillState): { color: string; bg: string; label: string } {
-  switch (s) {
-    case "active":
-      return {
-        color: "var(--color-success)",
-        bg: "rgba(63, 185, 80, 0.08)",
-        label: "active",
-      };
+function originChipColor(origin: SkillOrigin): string {
+  switch (origin) {
+    case "global":
+      return "var(--color-accent)";
+    case "project":
+      return "#88c";
     case "plugin":
-      return {
-        color: "var(--color-text-secondary)",
-        bg: "var(--color-surface-3)",
-        label: "plugin",
-      };
-    case "vaulted":
-      return {
-        color: "var(--color-text-tertiary)",
-        bg: "var(--color-surface-2)",
-        label: "vault",
-      };
-    case "quarantined":
-      return {
-        color: "#e8a93a",
-        bg: "rgba(232, 169, 58, 0.12)",
-        label: "quarantine",
-      };
-    default:
-      return {
-        color: "var(--color-text-tertiary)",
-        bg: "var(--color-surface-2)",
-        label: String(s),
-      };
+      return "#a8a";
   }
 }
-
-// ---------------------------------------------------------------------------
-// Row — thin adapter over <SkillAgentRow/> (the shared primitive). The
-// kind-specific bits (state badge on the left, usage count on the
-// right) live here; everything else is centralised so the Agents tab
-// can render the same layout from its own adapter.
-// ---------------------------------------------------------------------------
-
-function Row({
-  s,
-  selected,
-  onClick,
-}: {
-  s: SkillInfo;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  const b = stateBadge(s.state);
-  return (
-    <SkillAgentRow
-      name={s.name}
-      description={s.description ?? null}
-      selected={selected}
-      onClick={onClick}
-      security={s.security ?? null}
-      leftBadge={<KindBadge label={b.label} bg={b.bg} color={b.color} />}
-      rightMeta={
-        s.usage_count > 0 ? (
-          <span
-            className="shrink-0 tabular-nums text-[10.5px]"
-            style={{ color: "var(--color-text-faint)" }}
-            title={`Used ${s.usage_count} times`}
-          >
-            ×{s.usage_count}
-          </span>
-        ) : undefined
-      }
-    />
-  );
-}
-
-type PreviewMode = "view" | "edit" | "ai-edit" | "confirm-delete" | "security";
-// v15.4.8 — ViewKind retired (rich is the only mode).
-
-function Preview({
-  skill,
-  onMutated,
-  onDeleted,
-}: {
-  skill: SkillInfo;
-  onMutated: () => void;
-  onDeleted: () => void;
-}) {
-  const [content, setContent] = useState<string>("");
-  const [draft, setDraft] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [mode, setMode] = useState<PreviewMode>("view");
-  // v15.4.8 — view state retired; rich is the only mode.
-  const [aiInstruction, setAiInstruction] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
-  // Security drawer state. The reason textarea + submit button now live
-  // inside the shared <SecurityPanel/> component, which owns its own
-  // reason state — we only keep what the parent needs to coordinate the
-  // RPC (report, loading/error, in-flight flag).
-  const [secReport, setSecReport] = useState<SkillSecurityReport | null>(null);
-  const [secLoading, setSecLoading] = useState(false);
-  const [secError, setSecError] = useState<string | null>(null);
-  const [allowBusy, setAllowBusy] = useState(false);
-  const aiEditTitle = useRoutingTitle(
-    "skills.edit_with_ai",
-    "Apply this natural-language edit to the SKILL.md in a new AI session.",
-  );
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setStatus(null);
-    setContent("");
-    setDraft("");
-    // Security-first preview: when a skill carries warn/quarantine/block,
-    // open the Security panel by default so the findings (rule, line,
-    // excerpt) are the foreground and the SKILL.md sits behind dimmed.
-    const hasFindings = !!skill.security && skill.security.decision !== "allow";
-    setMode(hasFindings ? "security" : "view");
-    setSecReport(null);
-    setSecError(null);
-    invoke<string>("read_skill_md", { name: skill.name })
-      .then((c) => {
-        if (!cancelled) {
-          setContent(c);
-          setDraft(c);
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) setError(String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    // Auto-load findings when in security mode.
-    if (hasFindings) {
-      setSecLoading(true);
-      invoke<SkillSecurityReport>("get_skill_findings", { name: skill.name })
-        .then((r) => {
-          if (!cancelled) setSecReport(r);
-        })
-        .catch((e) => {
-          if (!cancelled) setSecError(String(e));
-        })
-        .finally(() => {
-          if (!cancelled) setSecLoading(false);
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [skill.name]);
-
-  function flash(msg: string) {
-    setStatus(msg);
-    window.setTimeout(() => setStatus(null), 2500);
-  }
-
-  async function handleSaveEdit() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await invoke<SkillUpdateResult>("update_skill_md", {
-        name: skill.name,
-        content: draft,
-      });
-      setContent(draft);
-      setMode("view");
-      flash(`Saved — backup at ${res.backup_path}`);
-      onMutated();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleAiEdit() {
-    if (!aiInstruction.trim()) return;
-    setAiBusy(true);
-    setError(null);
-    try {
-      // v15.2.40: prompt + provider/model/agent come from the central
-      // catalog (key "skills.edit_with_ai", zone "skill_edit"). The
-      // catalog template already references {skill_name} + {ai_instruction}
-      // so we just supply the vars. Auto-mode picks the best subagent
-      // (e.g. refactoring-specialist) via embed_agents.py query.
-      const skillDir =
-        skill.path ?? joinPath(await getHomeDir(), ".claude", "skills", skill.name);
-      const { resolveAndSpawn } = await import("../lib/button-prompts");
-      await resolveAndSpawn({
-        key: "skills.edit_with_ai",
-        vars: {
-          skill_name: skill.name,
-          ai_instruction: aiInstruction.trim(),
-        },
-        cwd: skillDir,
-      });
-      setMode("view");
-      setAiInstruction("");
-      flash("AI session opened in wt.exe to edit this skill.");
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setAiBusy(false);
-    }
-  }
-
-  async function openSecurity() {
-    setMode("security");
-    setSecError(null);
-    setSecLoading(true);
-    setSecReport(null);
-    try {
-      const report = await invoke<SkillSecurityReport>("get_skill_findings", {
-        name: skill.name,
-      });
-      setSecReport(report);
-    } catch (e) {
-      setSecError(String(e));
-    } finally {
-      setSecLoading(false);
-    }
-  }
-
-  // Called from the shared SecurityPanel with already-deduped rules and a
-  // non-empty reason (the panel enforces both). Returns once the waiver
-  // RPC settles.
-  async function handleAllowAnyway(rules: string[], reason: string) {
-    if (allowBusy) return;
-    setAllowBusy(true);
-    setSecError(null);
-    try {
-      if (rules.length === 0) {
-        setSecError("No active findings to waive.");
-        setAllowBusy(false);
-        return;
-      }
-      const res = await invoke<AllowSkillResult>("allow_skill_manually", {
-        name: skill.name,
-        rules,
-        reason,
-      });
-      flash(`Waiver written (sha1 ${res.sha1.slice(0, 10)}…). Re-run registry sync to refresh state.`);
-      setMode("view");
-      onMutated();
-    } catch (e) {
-      setSecError(String(e));
-    } finally {
-      setAllowBusy(false);
-    }
-  }
-
-  async function handleDelete(soft: boolean) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await invoke<SkillDeleteResult>("delete_skill", {
-        name: skill.name,
-        soft,
-      });
-      flash(soft ? `Demoted to vault: ${res.to_path}` : `Archived: ${res.to_path}`);
-      onDeleted();
-    } catch (e) {
-      setError(String(e));
-      setBusy(false);
-    }
-  }
-
-  async function handleRestoreFromVault() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await invoke<SkillDeleteResult>("restore_skill_from_vault", { name: skill.name });
-      flash(`Restored to ${res.to_path}`);
-      onDeleted();
-    } catch (e) {
-      setError(String(e));
-      setBusy(false);
-    }
-  }
-
-  // Open the skill's directory in Windows Explorer. SkillInfo.path is
-  // the directory itself (skills live in ~/.claude/skills/<name>/),
-  // unlike agents whose `path` points at the .md file — we don't need
-  // to strip a trailing segment here.
-  async function handleOpenFolder() {
-    try {
-      const dir =
-        skill.path ??
-        joinPath(await getHomeDir(), ".claude", "skills", skill.name);
-      await openPath(dir);
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  const b = stateBadge(skill.state);
-
-  return (
-    <div className="flex h-full flex-col overflow-hidden">
-      <header
-        className="border-b px-5 py-4"
-        style={{ borderColor: "var(--color-border)" }}
-      >
-        <div className="flex items-center gap-2">
-          <KindBadge label={b.label} bg={b.bg} color={b.color} />
-          <h2 className="text-[15px] font-semibold leading-none">{skill.name}</h2>
-          <div className="ml-auto flex items-center gap-1.5">
-            {mode === "view" && (
-              <>
-                {/* v15.4.8 — rich/raw toggle retired. Rich is the only
-                    view; raw was a fallback nobody used and the dual
-                    paths created edge cases. The previewer always
-                    renders Markdown via SkillRichView now. */}
-                <HeaderBtn
-                  label="Folder"
-                  onClick={() => void handleOpenFolder()}
-                  disabled={busy || loading}
-                  title="Open this skill's directory in Windows Explorer"
-                />
-                <HeaderBtn label="Edit" onClick={() => setMode("edit")} disabled={busy || loading} />
-                <HeaderBtn
-                  label="AI"
-                  onClick={() => setMode("ai-edit")}
-                  disabled={busy || loading}
-                />
-                {skill.security && skill.security.decision !== "allow" && (
-                  <HeaderBtn
-                    label="Security"
-                    variant="danger"
-                    onClick={openSecurity}
-                    disabled={busy || loading}
-                  />
-                )}
-                {skill.state === "vaulted" ? (
-                  <HeaderBtn
-                    label="Restore"
-                    onClick={() => void handleRestoreFromVault()}
-                    disabled={busy || loading}
-                    title="Move this skill back to ~/.claude/skills/ so Claude auto-loads it again"
-                  />
-                ) : (
-                  <HeaderBtn
-                    label="Vault"
-                    onClick={() => void handleDelete(true)}
-                    disabled={busy || loading}
-                    title="Move to ~/.ultron/skill-vault/ — Claude stops auto-loading it; reversible from the vault layer"
-                  />
-                )}
-                <HeaderBtn
-                  label="Delete"
-                  variant="danger"
-                  onClick={() => setMode("confirm-delete")}
-                  disabled={busy || loading}
-                />
-              </>
-            )}
-            {mode === "edit" && (
-              <>
-                <HeaderBtn label="Cancel" onClick={() => { setDraft(content); setMode("view"); setError(null); }} disabled={busy} />
-                <HeaderBtn label={busy ? "Saving…" : "Save"} onClick={handleSaveEdit} disabled={busy || draft === content} />
-              </>
-            )}
-            {mode === "ai-edit" && (
-              <HeaderBtn
-                label="Cancel"
-                onClick={() => {
-                  setMode("view");
-                  setAiInstruction("");
-                  setError(null);
-                }}
-                disabled={aiBusy}
-              />
-            )}
-            {mode === "confirm-delete" && (
-              <HeaderBtn label="Cancel" onClick={() => { setMode("view"); setError(null); }} disabled={busy} />
-            )}
-            {mode === "security" && (
-              <HeaderBtn
-                label="Close"
-                onClick={() => {
-                  setMode("view");
-                  setSecError(null);
-                }}
-                disabled={allowBusy}
-              />
-            )}
-          </div>
-        </div>
-        {skill.description && (
-          <p
-            className="mt-2 text-[12.5px] leading-relaxed"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            {skill.description}
-          </p>
-        )}
-        {skill.tags.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {skill.tags.map((t) => (
-              <span
-                key={t}
-                className="rounded px-1.5 py-px text-[10px]"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-        {skill.path && (
-          <div
-            className="mt-2 truncate text-[10.5px]"
-            style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}
-            title={skill.path}
-          >
-            {skill.path}
-          </div>
-        )}
-        {status && (
-          <div
-            className="mt-2 rounded px-2 py-1 text-[11px]"
-            style={{
-              background: "rgba(63, 185, 80, 0.08)",
-              color: "var(--color-success)",
-              border: "1px solid rgba(63, 185, 80, 0.22)",
-            }}
-          >
-            {status}
-          </div>
-        )}
-        {error && (
-          <div
-            className="mt-2 rounded px-2 py-1 text-[11px]"
-            style={{
-              background: "rgba(248, 81, 73, 0.06)",
-              border: "1px solid rgba(248, 81, 73, 0.22)",
-              color: "var(--color-danger)",
-            }}
-          >
-            {error}
-          </div>
-        )}
-        {mode === "confirm-delete" && (
-          <div
-            className="mt-3 flex flex-wrap items-center gap-2 rounded p-2 text-[11.5px]"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border-strong)",
-              color: "var(--color-text-secondary)",
-            }}
-          >
-            <span>Confirm: remove this skill?</span>
-            <HeaderBtn
-              label={busy ? "Working…" : "Demote to vault"}
-              onClick={() => handleDelete(true)}
-              disabled={busy}
-            />
-            <HeaderBtn
-              label={busy ? "Working…" : "Move to backup"}
-              variant="danger"
-              onClick={() => handleDelete(false)}
-              disabled={busy}
-            />
-          </div>
-        )}
-        <SecurityPanel
-          open={mode === "security"}
-          loading={secLoading}
-          error={secError}
-          report={secReport}
-          busy={allowBusy}
-          onAllow={(rules, reason) => void handleAllowAnyway(rules, reason)}
-          targetLabel="skill"
-        />
-
-        {mode === "ai-edit" && (
-          <div
-            className="mt-3 rounded p-3"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-          >
-            <div
-              className="text-[10px] font-medium uppercase tracking-[0.06em]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Edit with Claude
-            </div>
-            <p
-              className="mt-1 text-[11.5px] leading-relaxed"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Spawns a Claude session in the skill's folder with SKILL.md
-              preloaded. Claude proposes a diff before writing — you
-              accept or reject it in wt.exe.
-            </p>
-            <textarea
-              value={aiInstruction}
-              onChange={(e) => setAiInstruction(e.target.value)}
-              placeholder="e.g. add a triggers block for 'night mode', keep the rest intact"
-              className="mt-2 w-full rounded p-2 text-[12px] leading-relaxed"
-              style={{
-                fontFamily: "var(--font-mono)",
-                background: "var(--color-surface-1)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-                outline: "none",
-                minHeight: 90,
-                resize: "vertical",
-              }}
-            />
-            <div className="mt-2 flex items-center justify-end gap-2">
-              <HeaderBtn
-                label={aiBusy ? "Spawning..." : "Open Claude session"}
-                onClick={handleAiEdit}
-                disabled={aiBusy || !aiInstruction.trim()}
-                title={aiEditTitle}
-              />
-            </div>
-          </div>
-        )}
-      </header>
-      <div className="flex-1 overflow-auto px-5 py-4">
-        {loading && (
-          <div className="text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-            Loading SKILL.md…
-          </div>
-        )}
-        {!loading && mode === "edit" && (
-          <textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            spellCheck={false}
-            className="h-full w-full resize-none rounded p-3 text-[11.5px] leading-relaxed"
-            style={{
-              fontFamily: "var(--font-mono)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-              outline: "none",
-              minHeight: 320,
-            }}
-          />
-        )}
-        {/* v15.4.8 — single Markdown view (rich-only). Raw was dropped. */}
-        {!loading && mode !== "edit" && (
-          <div
-            style={{
-              opacity: mode === "security" ? 0.35 : 1,
-              filter: mode === "security" ? "grayscale(0.7)" : "none",
-              transition: "opacity 120ms, filter 120ms",
-              pointerEvents: mode === "security" ? "none" : "auto",
-            }}
-          >
-            <SkillRichView raw={content} />
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// New-skill modal
-// ---------------------------------------------------------------------------
-
-const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,60}$/;
-
-function NewSkillModal({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: (name: string) => void;
-}) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [body, setBody] = useState(NEW_SKILL_TEMPLATE);
-  const [layer, setLayer] = useState<"active" | "vaulted">("active");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const slugOk = SLUG_RE.test(name);
-  const descOk = description.trim().length > 0 && description.trim().length <= 300;
-  const canSubmit = slugOk && descOk && !busy;
-
-  async function handleSubmit() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await invoke<SkillCreateResult>("create_skill", {
-        name,
-        description: description.trim(),
-        body,
-        layer,
-      });
-      onCreated(res.name);
-    } catch (e) {
-      setError(String(e));
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center px-6"
-      style={{ background: "rgba(0,0,0,0.55)" }}
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[88vh] w-full max-w-[640px] flex-col overflow-hidden rounded"
-        style={{
-          background: "var(--color-surface-1)",
-          border: "1px solid var(--color-border-strong)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header
-          className="flex items-center justify-between border-b px-5 py-3"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          <h2 className="text-[14px] font-semibold">New skill</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded px-2 py-0.5 text-[12px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </header>
-        <div className="flex-1 space-y-3 overflow-auto px-5 py-4">
-          <div>
-            <label
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Slug
-            </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="my-new-skill"
-              className="w-full rounded px-2.5 py-1.5 text-[12.5px]"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: `1px solid ${name && !slugOk ? "rgba(248, 81, 73, 0.4)" : "var(--color-border-strong)"}`,
-                outline: "none",
-                fontFamily: "var(--font-mono)",
-              }}
-            />
-            <div
-              className="mt-1 text-[10.5px]"
-              style={{ color: name && !slugOk ? "var(--color-danger)" : "var(--color-text-faint)" }}
-            >
-              Lowercase letters, digits, dashes. 2–61 chars. Must start with [a-z0-9].
-            </div>
-          </div>
-
-          <div>
-            <label
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Description
-            </label>
-            <input
-              type="text"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="One-line summary that ends up in the YAML frontmatter."
-              maxLength={300}
-              className="w-full rounded px-2.5 py-1.5 text-[12.5px]"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-                outline: "none",
-              }}
-            />
-            <div
-              className="mt-1 text-[10.5px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              {description.trim().length}/300
-            </div>
-          </div>
-
-          <div>
-            <label
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Layer
-            </label>
-            <div className="flex gap-1.5">
-              {(["active", "vaulted"] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setLayer(k)}
-                  className="rounded px-2.5 py-1 text-[11px]"
-                  style={{
-                    background: layer === k ? "var(--color-surface-3)" : "transparent",
-                    color: layer === k ? "var(--color-text)" : "var(--color-text-tertiary)",
-                    border: `1px solid ${layer === k ? "var(--color-border-strong)" : "var(--color-border)"}`,
-                  }}
-                >
-                  {k === "active" ? "Active (~/.claude/skills)" : "Vault (~/.ultron/skill-vault)"}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label
-              className="mb-1 block text-[10px] font-medium uppercase tracking-wide"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Body (frontmatter auto-prepended)
-            </label>
-            <textarea
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              spellCheck={false}
-              className="w-full rounded p-2.5 text-[11.5px] leading-relaxed"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-                outline: "none",
-                fontFamily: "var(--font-mono)",
-                minHeight: 220,
-                resize: "vertical",
-              }}
-            />
-          </div>
-
-          {error && (
-            <div
-              className="rounded p-2 text-[11.5px]"
-              style={{
-                background: "rgba(248, 81, 73, 0.06)",
-                border: "1px solid rgba(248, 81, 73, 0.22)",
-                color: "var(--color-danger)",
-              }}
-            >
-              {error}
-            </div>
-          )}
-        </div>
-        <footer
-          className="flex items-center justify-end gap-2 border-t px-5 py-3"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          <HeaderBtn label="Cancel" onClick={onClose} disabled={busy} />
-          <HeaderBtn
-            label={busy ? "Creating…" : "Create skill"}
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-          />
-        </footer>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Main
-// ---------------------------------------------------------------------------
 
 export function Skills() {
-  const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [states, setStates] = useState<Set<StateKey>>(() => new Set(["active", "plugin", "quarantined"]));
+  const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [scope, setScope] = useState<ScopeFilter>("all");
   const [query, setQuery] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
-  const [onlyUsed, setOnlyUsed] = useState(false);
-  const [tagFilter, setTagFilter] = useState<Set<string>>(() => new Set());
-  const [showAllTags, setShowAllTags] = useState(false);
-  const [showNewModal, setShowNewModal] = useState(false);
-  const aiCreateTitle = useRoutingTitle(
-    "skills.create_with_ai",
-    "Create a new skill with AI. cwd=instructions/skills/ with GUIDE.md auto-loaded.",
-  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function reload(): Promise<SkillInfo[]> {
-    return invoke<SkillInfo[]>("list_skills")
-      .then((list) => {
-        setSkills(list);
-        setError(null);
-        return list;
-      })
-      .catch((e) => {
-        setError(String(e));
-        return [] as SkillInfo[];
-      });
-  }
+  const reload = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = (await invoke("list_skills", {
+        projectPath: null,
+      })) as SkillEntry[];
+      setSkills(res);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    reload().finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void reload();
   }, []);
-
-  const counts = useMemo(() => {
-    const c: Record<StateKey, number> = { active: 0, plugin: 0, vaulted: 0, quarantined: 0 };
-    for (const s of skills) {
-      if (s.state in c) c[s.state as StateKey] += 1;
-    }
-    return c;
-  }, [skills]);
-
-  // Top tags computed once, ranked by frequency
-  const allTags = useMemo(() => {
-    const freq = new Map<string, number>();
-    for (const s of skills) {
-      if (!states.has(s.state as StateKey)) continue;
-      for (const t of s.tags) {
-        if (!t) continue;
-        freq.set(t, (freq.get(t) ?? 0) + 1);
-      }
-    }
-    return Array.from(freq.entries())
-      .sort((a, b) => b[1] - a[1])
-      .map(([tag, n]) => ({ tag, n }));
-  }, [skills, states]);
-
-  const usedCount = useMemo(
-    () => skills.filter((s) => s.usage_count > 0 && states.has(s.state as StateKey)).length,
-    [skills, states],
-  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return skills
-      .filter((s) => states.has(s.state as StateKey))
-      .filter((s) => !onlyUsed || s.usage_count > 0)
-      .filter((s) => {
-        if (tagFilter.size === 0) return true;
-        return s.tags.some((t) => tagFilter.has(t));
-      })
-      .filter((s) => {
-        if (!q) return true;
-        if (s.name.toLowerCase().includes(q)) return true;
-        if ((s.description ?? "").toLowerCase().includes(q)) return true;
-        if (s.tags.some((t) => t.toLowerCase().includes(q))) return true;
-        return false;
-      })
-      .sort((a, b) => {
-        // Quarantined goes first so security issues are impossible to miss.
-        const order = { quarantined: 0, active: 1, plugin: 2, vaulted: 3 } as Record<string, number>;
-        const oa = order[a.state] ?? 4;
-        const ob = order[b.state] ?? 4;
-        if (oa !== ob) return oa - ob;
-        // Within same state, used skills first
-        if (a.usage_count !== b.usage_count) return b.usage_count - a.usage_count;
-        return a.name.localeCompare(b.name);
-      });
-  }, [skills, states, query, onlyUsed, tagFilter]);
+    return skills.filter((s) => {
+      if (scope !== "all" && s.origin !== scope) return false;
+      if (!q) return true;
+      return (
+        s.name.toLowerCase().includes(q) ||
+        s.description.toLowerCase().includes(q)
+      );
+    });
+  }, [skills, scope, query]);
 
-  const selectedSkill = useMemo(
-    () => skills.find((s) => s.name === selected) ?? null,
-    [skills, selected],
-  );
-
-  function toggleState(k: StateKey) {
-    const next = new Set(states);
-    if (next.has(k)) {
-      if (next.size > 1) next.delete(k);
-    } else {
-      next.add(k);
+  const handleOpen = async (path: string) => {
+    try {
+      const skillMd = path.endsWith(".md") ? path : `${path}/SKILL.md`;
+      await openPath(skillMd);
+    } catch (e) {
+      setError(`open ${path}: ${e}`);
     }
-    setStates(next);
-  }
+  };
 
-  function toggleTag(t: string) {
-    const next = new Set(tagFilter);
-    if (next.has(t)) next.delete(t);
-    else next.add(t);
-    setTagFilter(next);
-  }
+  const handleToggle = async (s: SkillEntry) => {
+    if (s.origin !== "global") return;
+    try {
+      await invoke("skill_toggle", { name: s.name, enabled: !s.enabled });
+      await reload();
+    } catch (e) {
+      setError(`toggle ${s.name}: ${e}`);
+    }
+  };
 
   return (
-    <div className="flex h-full">
-      {/* Left: list */}
-      <div className="flex w-[44%] min-w-[420px] flex-col overflow-hidden border-r" style={{ borderColor: "var(--color-border)" }}>
-        <header
-          className="border-b px-5 py-4"
-          style={{ borderColor: "var(--color-border)" }}
+    <div className="flex h-full flex-col gap-4 p-6">
+      <header className="flex items-center justify-between">
+        <h2 className="text-lg font-semibold">Skills</h2>
+        <button
+          onClick={reload}
+          className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)]"
         >
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h1 className="text-[18px] font-semibold leading-tight">Skills</h1>
-              <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
-                {skills.length} total · {filtered.length} shown
-              </p>
-            </div>
-            <div className="flex shrink-0 gap-1.5">
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    const instr = (await invoke("instruction_path", {
-                      kind: "skills",
-                    })) as string;
-                    // v15.2.40: prompt + provider/model/agent come from
-                    // the central catalog (key "skills.create_with_ai")
-                    // and the `skill_create` AI Router zone. Auto-mode
-                    // picks the best subagent via embed_agents.py query.
-                    const { resolveAndSpawn } = await import(
-                      "../lib/button-prompts"
-                    );
-                    await resolveAndSpawn({
-                      key: "skills.create_with_ai",
-                      cwd: instr,
-                    });
-                  } catch (e) {
-                    console.error("create skill with AI failed", e);
-                  }
-                }}
-                className="rounded px-2.5 py-1 text-[11.5px] font-medium"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-                title={aiCreateTitle}
-              >
-                AI
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowNewModal(true)}
-                className="rounded px-2.5 py-1 text-[11.5px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                + New
-              </button>
-            </div>
-          </div>
+          Refresh
+        </button>
+      </header>
 
-          <div className="mt-3 flex flex-wrap gap-1.5">
-            <Pill
-              label="Active"
-              count={counts.active}
-              color="var(--color-success)"
-              active={states.has("active")}
-              onClick={() => toggleState("active")}
-            />
-            <Pill
-              label="Plugin"
-              count={counts.plugin}
-              color="var(--color-text-secondary)"
-              active={states.has("plugin")}
-              onClick={() => toggleState("plugin")}
-            />
-            <Pill
-              label="Vault"
-              count={counts.vaulted}
-              color="var(--color-text-tertiary)"
-              active={states.has("vaulted")}
-              onClick={() => toggleState("vaulted")}
-            />
-            <Pill
-              label="Quarantined"
-              count={counts.quarantined}
-              color="#e8a93a"
-              active={states.has("quarantined")}
-              onClick={() => toggleState("quarantined")}
-            />
-            <span className="mx-1 my-auto h-4 w-px" style={{ background: "var(--color-border-strong)" }} />
-            <Pill
-              label="Used"
-              count={usedCount}
-              active={onlyUsed}
-              onClick={() => setOnlyUsed(!onlyUsed)}
-            />
-          </div>
-
-          <input
-            type="text"
-            placeholder="Search by name, description, tag…"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            className="mt-3 w-full rounded px-3 py-1.5 text-[12.5px]"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-              outline: "none",
-            }}
-          />
-
-          {/* Tag filter chips */}
-          {allTags.length > 0 && (
-            <div className="mt-3">
-              <div className="mb-1.5 flex items-baseline justify-between">
-                <span
-                  className="text-[10px] font-medium uppercase tracking-[0.06em]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  Tags {tagFilter.size > 0 && `· ${tagFilter.size} selected`}
-                </span>
-                {tagFilter.size > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setTagFilter(new Set())}
-                    className="text-[10px]"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    clear
-                  </button>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {(showAllTags ? allTags : allTags.slice(0, 14)).map(({ tag, n }) => {
-                  const active = tagFilter.has(tag);
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      onClick={() => toggleTag(tag)}
-                      className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors"
-                      style={{
-                        background: active ? "var(--color-surface-3)" : "transparent",
-                        color: active ? "var(--color-text)" : "var(--color-text-tertiary)",
-                        border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}`,
-                      }}
-                    >
-                      {tag}
-                      <span
-                        className="ml-1 tabular-nums"
-                        style={{ color: active ? "var(--color-text-secondary)" : "var(--color-text-faint)" }}
-                      >
-                        {n}
-                      </span>
-                    </button>
-                  );
-                })}
-                {allTags.length > 14 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllTags(!showAllTags)}
-                    className="rounded px-1.5 py-0.5 text-[10.5px]"
-                    style={{
-                      color: "var(--color-text-tertiary)",
-                      border: "1px dashed var(--color-border)",
-                    }}
-                  >
-                    {showAllTags ? `less` : `+${allTags.length - 14} more`}
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-        </header>
-
-        <div className="flex-1 overflow-auto px-2 py-2">
-          {loading && (
-            <div className="px-3 py-4 text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-              Loading…
-            </div>
-          )}
-          {error && (
-            <div
-              className="m-2 rounded p-3 text-[12px]"
-              style={{
-                background: "rgba(248, 81, 73, 0.06)",
-                border: "1px solid rgba(248, 81, 73, 0.22)",
-                color: "var(--color-danger)",
-              }}
-            >
-              {error}
-            </div>
-          )}
-          {!loading && filtered.length === 0 && skills.length > 0 && (
-            <div className="px-3 py-4 text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-              No skills match the current filters.
-            </div>
-          )}
-          <div className="space-y-px">
-            {filtered.map((s) => (
-              <Row
-                key={s.name}
-                s={s}
-                selected={selected === s.name}
-                onClick={() => setSelected(s.name)}
-              />
-            ))}
-          </div>
-        </div>
+      <div className="flex items-center gap-2">
+        {SCOPES.map((s) => (
+          <button
+            key={s.id}
+            onClick={() => setScope(s.id)}
+            className={`rounded-full border px-3 py-1 text-xs ${
+              scope === s.id
+                ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
+                : "border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
+            }`}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
 
-      {/* Right: preview */}
-      <div className="flex-1 overflow-hidden">
-        {selectedSkill ? (
-          <Preview
-            key={selectedSkill.name}
-            skill={selectedSkill}
-            onMutated={() => {
-              void reload();
-            }}
-            onDeleted={() => {
-              const removed = selectedSkill.name;
-              void reload().then((list) => {
-                if (!list.some((s) => s.name === removed)) {
-                  setSelected(null);
-                }
-              });
-            }}
-          />
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Buscar skills…"
+        className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+      />
+
+      {error && (
+        <div className="rounded-md border border-[var(--color-error)] bg-[var(--color-surface-1)] p-3 text-xs text-[var(--color-error)]">
+          {error}
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto">
+        {loading ? (
+          <p className="text-xs text-[var(--color-text-muted)]">Loading…</p>
+        ) : filtered.length === 0 ? (
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Sin skills para el filtro actual.
+          </p>
         ) : (
-          <div
-            className="flex h-full items-center justify-center text-[13px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Select a skill to preview its SKILL.md
-          </div>
+          <ul className="space-y-2">
+            {filtered.map((s) => (
+              <li
+                key={`${s.origin}-${s.path}`}
+                className={`rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-sm ${
+                  s.enabled ? "" : "opacity-60"
+                }`}
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="font-medium">{s.name}</span>
+                  <span
+                    className="rounded-full px-2 py-0.5 text-xs text-white"
+                    style={{ background: originChipColor(s.origin) }}
+                  >
+                    {s.origin}
+                  </span>
+                </div>
+                <p className="mb-2 text-xs text-[var(--color-text-muted)]">
+                  {s.description || "(sin descripcion)"}
+                </p>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleOpen(s.path)}
+                    className="rounded-md border border-[var(--color-border)] px-2 py-0.5 text-xs hover:bg-[var(--color-surface-2)]"
+                  >
+                    Open in editor
+                  </button>
+                  {s.origin === "global" && (
+                    <button
+                      onClick={() => handleToggle(s)}
+                      className={`rounded-md border px-2 py-0.5 text-xs ${
+                        s.enabled
+                          ? "border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
+                          : "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
+                      }`}
+                    >
+                      {s.enabled ? "Disable" : "Enable"}
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
-
-      {showNewModal && (
-        <NewSkillModal
-          onClose={() => setShowNewModal(false)}
-          onCreated={(name) => {
-            setShowNewModal(false);
-            void reload().then(() => setSelected(name));
-          }}
-        />
-      )}
     </div>
   );
 }
