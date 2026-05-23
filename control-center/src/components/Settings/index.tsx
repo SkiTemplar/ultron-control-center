@@ -4,7 +4,6 @@ import type { SettingsSaveResult, SettingsSnapshot } from "../../types";
 import { AuthStatus } from "../AuthStatus";
 import { GeneralSection } from "./GeneralSection";
 import { ButtonPromptsSection } from "./ButtonPromptsSection";
-import { FeaturesSection } from "./FeaturesSection";
 import { JsonEditor } from "./EditorSection";
 import { BackupRootEditor, BackupSourcesEditor, DiskBackupStatus } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
@@ -18,7 +17,6 @@ type Section =
   | "raw"
   | "general"
   | "auth"
-  | "features"
   | "button-prompts"
   | "backups"
   | "lifecycle"
@@ -153,7 +151,6 @@ export function Settings({ onNavigate }: SettingsProps = {}) {
           { id: "raw" as Section, label: "settings.json" },
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
-          { id: "features" as Section, label: "Features" },
           { id: "button-prompts" as Section, label: "Button prompts" },
           { id: "backups" as Section, label: "Backups" },
           { id: "lifecycle" as Section, label: "App lifecycle" },
@@ -207,7 +204,6 @@ export function Settings({ onNavigate }: SettingsProps = {}) {
         {section === "general" && <GeneralSection />}
         {section === "auth" && <AuthStatus />}
         {section === "button-prompts" && <ButtonPromptsSection />}
-        {section === "features" && <FeaturesSection />}
 
         {section === "raw" && draft && (
           <JsonEditor
