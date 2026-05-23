@@ -220,3 +220,68 @@ pub fn list_claude_sessions_inner(limit: Option<usize>) -> Result<Vec<ClaudeSess
     }
     Ok(out)
 }
+
+// ---- P4: per-project sessions listing ----
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ClaudeSessionSummary {
+    pub session_id: String,
+    pub path: String,
+    pub modified_at: String,
+    pub first_user_message: Option<String>,
+}
+
+fn project_slug_for(path: &str) -> String {
+    // Claude Code mangles project paths into directory names by replacing
+    // path separators with `-`. We strip leading separators so e.g.
+    // "C:\Users\USER\.ultron" -> "C-Users-USER-.ultron".
+    path.replace('\\', "-")
+        .replace('/', "-")
+        .trim_matches('-')
+        .to_string()
+}
+
+#[tauri::command]
+pub async fn project_sessions_list(
+    project_path: String,
+) -> Result<Vec<ClaudeSessionSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
+        let slug = project_slug_for(&project_path);
+        let dir = home.join(".claude").join("projects").join(&slug);
+        if !dir.exists() {
+            return Ok::<Vec<ClaudeSessionSummary>, String>(vec![]);
+        }
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(&dir).map_err(|e| format!("read dir: {e}"))? {
+            let entry = entry.map_err(|e| format!("entry: {e}"))?;
+            let p = entry.path();
+            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                continue;
+            }
+            let session_id = p
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+            let meta = entry.metadata().map_err(|e| format!("metadata: {e}"))?;
+            let modified_at = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| format!("epoch:{}", d.as_secs()))
+                .unwrap_or_else(|| "unknown".to_string());
+            let first_user_message = extract_first_user_message(&p);
+            out.push(ClaudeSessionSummary {
+                session_id,
+                path: p.display().to_string(),
+                modified_at,
+                first_user_message,
+            });
+        }
+        out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
+        Ok(out)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

@@ -207,6 +207,7 @@ pub fn run() {
             commands::sessions::spawn_session,
             commands::sessions::run_inline,
             commands::sessions::list_claude_sessions,
+            claude_sessions::project_sessions_list,
             // -- settings + backup --
             commands::settings::settings_read,
             commands::settings::settings_save,
