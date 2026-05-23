@@ -60,21 +60,39 @@ fn read_api_key() -> Result<String, String> {
     let v: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("settings.json parse: {e}"))?;
     // The Mem0 key may live in a few places depending on how the user
-    // wired the MCP server:
-    //   - mem0.apiKey                       (legacy/explicit)
-    //   - mcp.servers.mem0.headers.Authorization → "Token <key>" or just "<key>"
-    //   - env var MEM0_API_KEY               (last-resort fallback)
+    // wired the MCP server. Claude Code stores MCP entries under the
+    // top-level key `mcpServers` (camelCase, single key — not a nested
+    // `mcp.servers`). We check in this order:
+    //   - mem0.apiKey                                          (legacy/explicit)
+    //   - mcpServers.mem0.headers.Authorization                (Claude Code MCP — primary)
+    //   - mcpServers."mem0-mcp".headers.Authorization          (alternate naming users sometimes pick)
+    //   - mcp.servers.mem0.headers.Authorization               (very old custom layout, kept for safety)
+    //   - env var MEM0_API_KEY                                 (last-resort fallback)
+    let extract_token = |raw: &str| raw.trim_start_matches("Token ").trim().to_string();
     let key = if let Some(k) = v.pointer("/mem0/apiKey").and_then(|x| x.as_str()) {
         k.to_string()
+    } else if let Some(h) = v
+        .pointer("/mcpServers/mem0/headers/Authorization")
+        .and_then(|x| x.as_str())
+    {
+        extract_token(h)
+    } else if let Some(h) = v
+        .pointer("/mcpServers/mem0-mcp/headers/Authorization")
+        .and_then(|x| x.as_str())
+    {
+        extract_token(h)
     } else if let Some(h) = v
         .pointer("/mcp/servers/mem0/headers/Authorization")
         .and_then(|x| x.as_str())
     {
-        h.trim_start_matches("Token ").trim().to_string()
+        extract_token(h)
     } else if let Ok(env_key) = std::env::var("MEM0_API_KEY") {
         env_key
     } else {
-        return Err("settings.json: mem0.apiKey not set".to_string());
+        return Err(
+            "Mem0 API key not found. Add it to settings.json at mcpServers.mem0.headers.Authorization or set MEM0_API_KEY."
+                .to_string(),
+        );
     };
     if key.is_empty() || key.starts_with("REEMPLAZAR_CON_TU_API_KEY") {
         return Err("Mem0 API key placeholder — configure mem0.apiKey".to_string());
