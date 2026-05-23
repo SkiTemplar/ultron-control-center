@@ -30,3 +30,9 @@ pub async fn get_button_prompt(
 ) -> Result<String, String> {
     button_prompts::get_button_prompt_inner(key, vars.unwrap_or_default())
 }
+
+// TODO: when variable prompting moves server-side, add a dedicated
+// `button_prompt_render_for_clipboard` command that walks the entry's `vars`
+// list, surfaces a UI to collect any missing values, and returns the rendered
+// text. For now the frontend uses `navigator.clipboard.writeText` directly
+// over the value returned by `getPrompt(key, vars)`.

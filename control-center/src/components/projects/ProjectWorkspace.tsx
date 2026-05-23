@@ -9,6 +9,8 @@ import { useEffect, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   Bot,
+  BookOpen,
+  Clock,
   ExternalLink,
   FolderOpen,
   Kanban,
@@ -23,6 +25,8 @@ import ProjectTerminal from "./ProjectTerminal";
 import ProjectAgents from "./ProjectAgents";
 import ProjectContext from "./ProjectContext";
 import ProjectSessions from "./ProjectSessions";
+import ProjectNotes from "./ProjectNotes";
+import ProjectTimeline from "./ProjectTimeline";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 
 type Props = {
@@ -47,10 +51,10 @@ const TABS: { id: ProjectSubTab; label: string; Icon: ComponentType<{ size?: num
   { id: "agents", label: "Agents", Icon: Bot },
   { id: "context", label: "Context", Icon: Notebook },
   { id: "sessions", label: "Sessions", Icon: History },
-  // TODO(next-session): add "notes" and "timeline" sub-tabs. Notes = freeform
-  // markdown editor scoped to the project (file: cockpit/projects/<id>/notes.md);
-  // Timeline = unified feed of kanban moves + PTY spawns + commits. Both require
-  // new ProjectSubTab values in types.ts (off-limits to this redesign pass).
+  // v2.x: Notes (freeform markdown editor, file: cockpit/projects/<id>/notes.md)
+  // and Timeline (read-only chronological feed: kanban moves + sessions + backups).
+  { id: "notes", label: "Notes", Icon: BookOpen },
+  { id: "timeline", label: "Timeline", Icon: Clock },
 ];
 
 export default function ProjectWorkspace({ projectId }: Props) {
@@ -220,6 +224,10 @@ export default function ProjectWorkspace({ projectId }: Props) {
         )}
         {subTab === "sessions" && (
           <ProjectSessions projectId={projectId} projectPath={meta?.path ?? ""} />
+        )}
+        {subTab === "notes" && <ProjectNotes projectId={projectId} />}
+        {subTab === "timeline" && (
+          <ProjectTimeline projectId={projectId} projectPath={meta?.path} />
         )}
       </div>
     </div>

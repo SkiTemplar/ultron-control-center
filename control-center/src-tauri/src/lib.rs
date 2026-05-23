@@ -25,6 +25,7 @@ mod button_prompts;
 mod claude_sessions;
 mod codex_fallback;
 mod cost_watchdog;
+mod ecc_memory;
 mod features;
 mod hooks_admin;
 mod hotkeys;
@@ -38,6 +39,7 @@ mod logs;
 mod maintenance;
 mod mcps;
 mod mem0;
+mod notes;
 mod plans;
 mod plugins_info;
 mod project_hotkeys;
@@ -50,6 +52,8 @@ mod settings;
 mod skills;
 mod system;
 mod tabs;
+mod terminal_layout;
+mod timeline;
 mod toast_emit;
 mod tray;
 mod update_checker;
@@ -213,6 +217,13 @@ pub fn run() {
             commands::projects::launch_all_items,
             commands::projects::project_claude_md_load,
             commands::projects::project_claude_md_save,
+            // -- per-project notes (Notes sub-tab, v2.x) --
+            commands::notes::project_notes_load,
+            commands::notes::project_notes_save,
+            // -- ECC local knowledge graph (read-only display) --
+            commands::ecc_memory::ecc_memory_read,
+            // -- per-project timeline aggregator (Timeline sub-tab, v2.x) --
+            commands::timeline::project_timeline_list,
             // -- mem0 --
             commands::mem0::mem0_status,
             commands::mem0::mem0_search,
@@ -222,6 +233,7 @@ pub fn run() {
             commands::sessions::spawn_session,
             commands::sessions::run_inline,
             commands::sessions::list_claude_sessions,
+            commands::sessions::list_workspaces,
             claude_sessions::project_sessions_list,
             // -- settings + backup --
             commands::settings::settings_read,
@@ -305,6 +317,9 @@ pub fn run() {
             // -- tabs (P4) --
             commands::tabs::tabs_load,
             commands::tabs::tabs_save,
+            // -- terminal split-pane layout (per-project, Dorothy-style) --
+            commands::terminal_layout::project_terminal_layout_load,
+            commands::terminal_layout::project_terminal_layout_save,
             // -- inbox quick-capture --
             commands::inbox::append_inbox,
             commands::inbox::list_inbox,

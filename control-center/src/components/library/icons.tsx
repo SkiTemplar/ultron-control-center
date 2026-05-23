@@ -164,3 +164,70 @@ export function AlertTriangle({ size, className }: IconProps) {
     </svg>
   );
 }
+
+// Creator modal icons (added for Skill/Agent/MCP v2 wizards).
+export function ChevronLeft({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  );
+}
+
+export function ChevronRight({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polyline points="9 18 15 12 9 6" />
+    </svg>
+  );
+}
+
+export function Eye({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+export function FileText({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <line x1="8" y1="13" x2="16" y2="13" />
+      <line x1="8" y1="17" x2="16" y2="17" />
+    </svg>
+  );
+}
+
+export function Code({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
+    </svg>
+  );
+}
+
+export function Sparkles({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="m12 3 1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z" />
+      <path d="M19 14v3" />
+      <path d="M17.5 15.5h3" />
+      <path d="M5 17v3" />
+      <path d="M3.5 18.5h3" />
+    </svg>
+  );
+}
+
+export function Clipboard({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    </svg>
+  );
+}

@@ -178,6 +178,26 @@ export function History({ size, className }: IconProps) {
   );
 }
 
+export function BookOpen({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M2 4h7a3 3 0 0 1 3 3v13" />
+      <path d="M22 4h-7a3 3 0 0 0-3 3v13" />
+      <path d="M2 4v15h7a3 3 0 0 1 3 3" />
+      <path d="M22 4v15h-7a3 3 0 0 0-3 3" />
+    </svg>
+  );
+}
+
+export function Clock({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <polyline points="12 7 12 12 15 14" />
+    </svg>
+  );
+}
+
 export function Pin({ size, className }: IconProps) {
   return (
     <svg {...base(size)} className={className}>

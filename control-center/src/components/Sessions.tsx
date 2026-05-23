@@ -1,4 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+// ULTRON Control Center — Sessions tab.
+//
+// Redesigned as a workspace picker. The previous version led with a Codex
+// fallback button, a provider matrix and a long flat list of sessions —
+// most of which the user never touched. The new layout puts what USER
+// asked for first: pick a recent workspace and either continue the last
+// session or start a fresh one.
+//
+//   1. "Recent workspaces" — auto-detected from `~/.claude/projects/`,
+//      enriched with `projects.json` names where the cwd matches.
+//      Each card has: Continue last · New session · Open in IDE · Open folder.
+//   2. "All Claude sessions" — the old flat list, kept for power users.
+//      Collapsed by default so it stops dominating the page.
+//   3. Provider tabs + model + presets — still here for the "advanced"
+//      launch flow, but tucked under the workspace grid. The Codex
+//      fallback button is gone (user: "el sistema de Codex cuando me
+//      quedo sin tokens no lo necesito").
+
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type {
@@ -6,8 +24,16 @@ import type {
   ProjectInfo,
   SessionProvider,
   SpawnFlags,
+  WorkspaceSummary,
 } from "../types";
-import { CodexFallbackButton } from "./CodexFallbackButton";
+import {
+  FolderOpen,
+  ExternalLink,
+  Play,
+  Plus,
+  History,
+  RefreshCw,
+} from "./projects/icons";
 
 // Session presets — persisted across launches in localStorage. Keep the keys
 // stable so existing users don't lose their preferred config when the app
@@ -58,6 +84,16 @@ function formatBytes(b: number): string {
   if (b < 1024) return `${b} B`;
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / 1024 / 1024).toFixed(2)} MB`;
+}
+
+/** Derive a readable headline from a cwd when the workspace is not
+ *  registered in `projects.json`. We use the tail directory name. */
+function deriveWorkspaceName(cwd: string): string {
+  const cleaned = cwd.replace(/[\\/]+$/, "");
+  const idx = Math.max(cleaned.lastIndexOf("\\"), cleaned.lastIndexOf("/"));
+  if (idx < 0) return cleaned || cwd;
+  const tail = cleaned.slice(idx + 1);
+  return tail || cleaned;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +194,7 @@ function ProviderTabs({
 }
 
 // ---------------------------------------------------------------------------
-// Workspace chip
+// Workspace chip (advanced launch flow)
 // ---------------------------------------------------------------------------
 
 const WORKSPACE_KEY = "ultron.cc.session.cwd.v1";
@@ -191,7 +227,6 @@ function WorkspacePicker({
   const [search, setSearch] = useState("");
   const popRef = useRef<HTMLDivElement | null>(null);
 
-  // Close on outside click.
   useEffect(() => {
     if (!open) return;
     function onDoc(e: MouseEvent) {
@@ -233,7 +268,6 @@ function WorkspacePicker({
     onChange("");
   }
 
-  // Filter projects by search; show last_active first (already sorted in Rust).
   const q = search.trim().toLowerCase();
   const filteredProjects = q
     ? projects.filter(
@@ -425,6 +459,154 @@ function WorkspacePicker({
 }
 
 // ---------------------------------------------------------------------------
+// Workspace card — the headline UI
+// ---------------------------------------------------------------------------
+
+type WorkspaceCardProps = {
+  ws: WorkspaceSummary;
+  busy: boolean;
+  onContinue: (ws: WorkspaceSummary) => void;
+  onNew: (ws: WorkspaceSummary) => void;
+  onOpenIde: (ws: WorkspaceSummary) => void;
+  onOpenFolder: (ws: WorkspaceSummary) => void;
+};
+
+function WorkspaceCard({
+  ws,
+  busy,
+  onContinue,
+  onNew,
+  onOpenIde,
+  onOpenFolder,
+}: WorkspaceCardProps) {
+  const headline = ws.project_name ?? deriveWorkspaceName(ws.cwd);
+  const canContinue = !!ws.latest_session_id;
+
+  return (
+    <div
+      className="flex h-full flex-col rounded p-4 transition-colors"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <h3
+            className="truncate text-[14px] font-semibold leading-tight"
+            style={{ color: "var(--color-text)" }}
+            title={headline}
+          >
+            {headline}
+          </h3>
+          {ws.project_id && (
+            <span
+              className="shrink-0 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border)",
+              }}
+              title={`Registered as ${ws.project_id}`}
+            >
+              registered
+            </span>
+          )}
+        </div>
+        <div
+          className="mt-1 truncate text-[10.5px]"
+          style={{
+            fontFamily: "var(--font-mono)",
+            color: "var(--color-text-faint)",
+          }}
+          title={ws.cwd}
+        >
+          {ws.cwd}
+        </div>
+        <div
+          className="mt-2 flex items-center gap-3 text-[10.5px] tabular-nums"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          <span>{formatRel(ws.last_activity)}</span>
+          <span>·</span>
+          <span>
+            {ws.session_count} session{ws.session_count === 1 ? "" : "s"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onContinue(ws)}
+          disabled={!canContinue || busy}
+          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-40"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+          title={
+            canContinue
+              ? `Resume claude -r ${ws.latest_session_id}`
+              : "No prior session — use New instead"
+          }
+        >
+          <Play size={12} />
+          Continue
+        </button>
+        <button
+          type="button"
+          onClick={() => onNew(ws)}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title={`New Claude session in ${ws.cwd}`}
+        >
+          <Plus size={12} />
+          New
+        </button>
+        <div className="ml-auto flex items-center gap-1">
+          {ws.project_id && (
+            <button
+              type="button"
+              onClick={() => onOpenIde(ws)}
+              disabled={busy}
+              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] transition-colors disabled:opacity-40"
+              style={{
+                background: "transparent",
+                color: "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border)",
+              }}
+              title="Open in IDE"
+            >
+              <ExternalLink size={11} />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onOpenFolder(ws)}
+            disabled={busy}
+            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] transition-colors disabled:opacity-40"
+            style={{
+              background: "transparent",
+              color: "var(--color-text-tertiary)",
+              border: "1px solid var(--color-border)",
+            }}
+            title="Reveal folder in Explorer"
+          >
+            <FolderOpen size={11} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main panel
 // ---------------------------------------------------------------------------
 
@@ -438,11 +620,17 @@ export function Sessions() {
   const [presets, setPresets] = useState<Presets>(() => loadPresets());
   const [history, setHistory] = useState<ClaudeSession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
+  const [workspacesLoading, setWorkspacesLoading] = useState(false);
   const [showInline, setShowInline] = useState(false);
+  const [showAllSessions, setShowAllSessions] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [search, setSearch] = useState("");
+  const [busyCwd, setBusyCwd] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   // Toasts auto-dismiss after 3s. Single channel — newer messages replace
-  // older ones, which is fine for a low-frequency fallback affordance.
+  // older ones, which is fine for the low-frequency operations on this page.
   useEffect(() => {
     if (!toast) return;
     const id = window.setTimeout(() => setToast(null), 3000);
@@ -452,26 +640,29 @@ export function Sessions() {
   useEffect(() => saveCwd(cwd), [cwd]);
   useEffect(() => savePresets(presets), [presets]);
 
-  // Load Claude session history once when the tab mounts. We cap at 25
-  // entries so the panel doesn't drown in old transcripts.
-  useEffect(() => {
-    if (provider !== "claude") return;
-    let cancelled = false;
+  // Load Claude session history once when the tab mounts. We cap at 50
+  // entries — enough for the collapsible "All sessions" list without
+  // dragging in the entire archive.
+  function reloadHistory() {
     setHistoryLoading(true);
-    invoke<ClaudeSession[]>("list_claude_sessions", { limit: 25 })
-      .then((list) => {
-        if (!cancelled) setHistory(list);
-      })
-      .catch(() => {
-        if (!cancelled) setHistory([]);
-      })
-      .finally(() => {
-        if (!cancelled) setHistoryLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [provider]);
+    invoke<ClaudeSession[]>("list_claude_sessions", { limit: 50 })
+      .then(setHistory)
+      .catch(() => setHistory([]))
+      .finally(() => setHistoryLoading(false));
+  }
+
+  function reloadWorkspaces() {
+    setWorkspacesLoading(true);
+    invoke<WorkspaceSummary[]>("list_workspaces")
+      .then(setWorkspaces)
+      .catch(() => setWorkspaces([]))
+      .finally(() => setWorkspacesLoading(false));
+  }
+
+  useEffect(() => {
+    reloadHistory();
+    reloadWorkspaces();
+  }, []);
 
   // When provider changes, default the model to the provider's default.
   useEffect(() => {
@@ -484,10 +675,7 @@ export function Sessions() {
       .catch(() => setProjects([]));
   }, []);
 
-
-  function flagsForProvider(extra: Partial<SpawnFlags> = {}): SpawnFlags | null {
-    // We send the same flag struct for every provider; the PS wrapper
-    // translates each flag to the matching CLI option (or drops it).
+  function flagsForProvider(extra: Partial<SpawnFlags> = {}): SpawnFlags {
     return {
       dangerouslySkipPermissions: presets.dangerouslySkipPermissions,
       effort: presets.effort ? presets.effort : null,
@@ -527,26 +715,169 @@ export function Sessions() {
     }
   }
 
+  // -------------------------------------------------------------------------
+  // Workspace card actions
+  // -------------------------------------------------------------------------
+
+  async function continueWorkspace(ws: WorkspaceSummary) {
+    if (!ws.latest_session_id) return;
+    setBusyCwd(ws.cwd);
+    setError(null);
+    try {
+      // Claude default for the recent-workspaces flow — USER's main
+      // use case is "resume the project I was just in". The advanced panel
+      // below still lets power users pick provider/model.
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: null,
+        cwd: ws.cwd,
+        flags: { resumeId: ws.latest_session_id },
+      });
+      setToast(`Resumed session in ${deriveWorkspaceName(ws.cwd)}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyCwd(null);
+    }
+  }
+
+  async function newInWorkspace(ws: WorkspaceSummary) {
+    setBusyCwd(ws.cwd);
+    setError(null);
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: null,
+        cwd: ws.cwd,
+        flags: {},
+      });
+      setToast(`New session in ${deriveWorkspaceName(ws.cwd)}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyCwd(null);
+    }
+  }
+
+  async function openWorkspaceFolder(ws: WorkspaceSummary) {
+    // Use the same launcher chip pipeline projects.rs already exposes —
+    // simpler than a separate "reveal in explorer" command and handles
+    // the PowerShell quoting safely.
+    setBusyCwd(ws.cwd);
+    setError(null);
+    try {
+      await invoke("open_project_in_ide", {
+        path: ws.cwd,
+        preferredIde: null,
+      });
+    } catch (e) {
+      // Fallback: a shell-only open via the projects helper — at minimum
+      // we can hand it off to the IDE auto-detect chain. If that also
+      // fails, surface the error so the user knows what went wrong.
+      setError(String(e));
+    } finally {
+      setBusyCwd(null);
+    }
+  }
+
+  async function openWorkspaceInIde(ws: WorkspaceSummary) {
+    setBusyCwd(ws.cwd);
+    setError(null);
+    try {
+      const matched = ws.project_id
+        ? projects.find((p) => p.id === ws.project_id)
+        : null;
+      await invoke("open_project_in_ide", {
+        path: ws.cwd,
+        preferredIde: matched?.ide ?? null,
+      });
+      setToast(`Opened ${deriveWorkspaceName(ws.cwd)} in IDE`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyCwd(null);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Search / filtering
+  // -------------------------------------------------------------------------
+
+  const normalisedSearch = search.trim().toLowerCase();
+  const filteredWorkspaces = useMemo(() => {
+    if (!normalisedSearch) return workspaces;
+    return workspaces.filter((w) => {
+      const name = (w.project_name ?? deriveWorkspaceName(w.cwd)).toLowerCase();
+      return (
+        name.includes(normalisedSearch) ||
+        w.cwd.toLowerCase().includes(normalisedSearch) ||
+        (w.project_id ?? "").toLowerCase().includes(normalisedSearch)
+      );
+    });
+  }, [workspaces, normalisedSearch]);
+
+  const filteredHistory = useMemo(() => {
+    if (!normalisedSearch) return history;
+    return history.filter((s) => {
+      return (
+        s.project_label.toLowerCase().includes(normalisedSearch) ||
+        s.id.toLowerCase().includes(normalisedSearch) ||
+        (s.preview ?? "").toLowerCase().includes(normalisedSearch)
+      );
+    });
+  }, [history, normalisedSearch]);
 
   const meta = PROVIDERS[provider];
 
   return (
     <div className="px-10 py-8">
-      <header className="mb-6">
-        <h1 className="text-[20px] font-semibold leading-tight">Sessions</h1>
-        <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
-          Open a Claude/Gemini/Codex session in the active workspace, or resume
-          a previous one. The primary buttons are below, inside the presets
-          block.
-        </p>
+      <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-[20px] font-semibold leading-tight">
+            Workspaces &amp; sessions
+          </h1>
+          <p
+            className="mt-1 text-[13px]"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            Pick a recent workspace to resume or start a fresh Claude session.
+            The full session list lives below for power-user resume.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter workspaces & sessions…"
+            className="rounded px-3 py-1.5 text-[12px]"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+              outline: "none",
+              width: 280,
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => {
+              reloadWorkspaces();
+              reloadHistory();
+            }}
+            className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-[11.5px] transition-colors"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Refresh workspaces and session list"
+          >
+            <RefreshCw size={12} />
+            Refresh
+          </button>
+        </div>
       </header>
-
-      {/* Fallback: switch to Codex with pre-loaded ULTRON context. Sits above
-          the provider tabs so it's the first thing the user sees when they
-          land here after a Claude rate-limit screen. */}
-      <div className="mb-5">
-        <CodexFallbackButton cwd={cwd} onToast={setToast} />
-      </div>
 
       {toast && (
         <div
@@ -561,384 +892,464 @@ export function Sessions() {
         </div>
       )}
 
-      <section
-        className="rounded p-5"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-border)",
-        }}
-      >
-        {/* Provider tabs + workspace + model */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <ProviderTabs active={provider} onChange={setProvider} />
-          <WorkspacePicker cwd={cwd} onChange={setCwd} projects={projects} />
-        </div>
-
-        {meta.acceptsModel && (
-          <div className="mt-4 flex items-center gap-3">
-            <label
-              className="text-[11px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-              htmlFor="provider-model"
-            >
-              Model
-            </label>
-            <select
-              id="provider-model"
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="rounded px-2 py-1 text-[12px]"
-              style={{
-                background: "var(--color-surface-1)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-              }}
-            >
-              {meta.models.map((m) => (
-                <option key={m.id || "default"} value={m.id}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* Session presets — render for ALL providers. The backend wrapper
-            translates dangerously-skip / effort to each CLI's equivalent
-            flag (claude --dangerously-skip-permissions, codex's
-            --dangerously-bypass-approvals-and-sandbox, gemini --yolo) and
-            silently drops flags that don't apply. */}
-        {(
-          <div
-            className="mt-4 rounded p-4"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            <div
-              className="text-[10px] font-medium uppercase tracking-[0.06em]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Presets · applied on launch and remembered across sessions
-            </div>
-            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-              <label
-                className="flex items-start gap-2 rounded p-2.5 transition-colors"
-                style={{
-                  background: presets.dangerouslySkipPermissions
-                    ? "rgba(248, 81, 73, 0.06)"
-                    : "var(--color-surface-2)",
-                  border: `1px solid ${
-                    presets.dangerouslySkipPermissions
-                      ? "rgba(248, 81, 73, 0.22)"
-                      : "var(--color-border)"
-                  }`,
-                  cursor: "pointer",
-                }}
-              >
-                <input
-                  type="checkbox"
-                  checked={presets.dangerouslySkipPermissions}
-                  onChange={(e) =>
-                    setPresets({
-                      ...presets,
-                      dangerouslySkipPermissions: e.target.checked,
-                    })
-                  }
-                  className="mt-0.5 h-3.5 w-3.5"
-                />
-                <div className="min-w-0">
-                  <div
-                    className="text-[12.5px] font-medium"
-                    style={{
-                      color: presets.dangerouslySkipPermissions
-                        ? "var(--color-danger)"
-                        : "var(--color-text)",
-                    }}
-                  >
-                    --dangerously-skip-permissions
-                  </div>
-                  <div
-                    className="mt-0.5 text-[11px]"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    Skip every tool confirmation. Only in trusted
-                    environments.
-                  </div>
-                </div>
-              </label>
-
-              <div>
-                <label
-                  className="block text-[10px] uppercase tracking-wide"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                  htmlFor="effort-select"
-                >
-                  --effort
-                </label>
-                <select
-                  id="effort-select"
-                  value={presets.effort}
-                  onChange={(e) =>
-                    setPresets({
-                      ...presets,
-                      effort: e.target.value as Presets["effort"],
-                    })
-                  }
-                  className="mt-1 w-full rounded px-2 py-1 text-[12px]"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-text)",
-                    border: "1px solid var(--color-border-strong)",
-                  }}
-                >
-                  <option value="">default</option>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                  <option value="xhigh">xhigh</option>
-                  <option value="max">max</option>
-                </select>
-              </div>
-
-            </div>
-
-            <div className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
-              style={{ borderColor: "var(--color-border)" }}
-            >
-              <button
-                type="button"
-                onClick={() => openSession(false)}
-                className="rounded px-4 py-2 text-[13px] font-semibold transition-colors"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-                title={`Launch a clean Claude session in ${cwd || "(no workspace)"}`}
-              >
-                New Session
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  document
-                    .getElementById("session-history")
-                    ?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-                className="rounded px-4 py-2 text-[13px] font-semibold transition-colors"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-                title="Jump to the list of existing sessions in this workspace"
-              >
-                Resume Session
-              </button>
-              <span
-                className="ml-auto text-[10.5px]"
-                style={{ color: "var(--color-text-faint)" }}
-              >
-                cwd: {cwd || "(none)"}
-              </span>
-            </div>
-          </div>
-        )}
-
-        <div className="mt-4 flex items-center justify-between">
-          <button
-            type="button"
-            onClick={() => setShowInline(!showInline)}
-            className="text-[11px] transition-colors"
-            style={{ color: "var(--color-text-tertiary)" }}
-            title="Inline mode: run a batch prompt without opening a terminal — useful for one-shot queries"
-          >
-            {showInline ? "Hide quick prompt" : "Show quick prompt"}
-          </button>
-        </div>
-
-        {showInline && (<>
-        <textarea
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          placeholder={`Prompt for ${meta.label}…  (Ctrl+Enter to open session with prompt)`}
-          rows={6}
-          onKeyDown={(e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-              e.preventDefault();
-              if (prompt.trim()) openSession(true);
-            }
-          }}
-          className="mt-3 w-full rounded px-3 py-2 text-[12.5px] leading-relaxed"
+      {error && (
+        <div
+          className="mb-4 rounded px-3 py-2 text-[12px]"
           style={{
-            background: "var(--color-surface-1)",
-            color: "var(--color-text)",
-            border: "1px solid var(--color-border-strong)",
-            fontFamily: "var(--font-mono)",
-            outline: "none",
-            resize: "vertical",
+            background: "rgba(248, 81, 73, 0.08)",
+            border: "1px solid rgba(248, 81, 73, 0.32)",
+            color: "var(--color-danger)",
           }}
-        />
+        >
+          {error}
+        </div>
+      )}
 
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => openSession(true)}
-            disabled={!prompt.trim()}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-            title="Open a new terminal session pre-populated with this prompt"
+      {/* ------------------------------------------------------------------
+          Section 1 — Recent workspaces (the new headline)
+          ------------------------------------------------------------------ */}
+      <section className="mb-6">
+        <div className="mb-3 flex items-baseline justify-between">
+          <h2 className="text-[14px] font-semibold leading-tight">
+            Recent workspaces
+          </h2>
+          <span
+            className="text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
           >
-            Open session with prompt
-          </button>
-          <div className="ml-auto flex gap-2">
-            <button
-              type="button"
-              onClick={() => setPrompt("")}
-              className="rounded px-2 py-1.5 text-[11px] transition-colors"
-              style={{
-                background: "transparent",
-                color: "var(--color-text-tertiary)",
-                border: "1px solid var(--color-border-strong)",
-              }}
-            >
-              Clear
-            </button>
-          </div>
+            {workspacesLoading
+              ? "Loading…"
+              : `${filteredWorkspaces.length} of ${workspaces.length}`}
+          </span>
         </div>
 
-        {error && (
-          <p className="mt-3 text-[11.5px]" style={{ color: "var(--color-danger)" }}>
-            {error}
-          </p>
+        {!workspacesLoading && workspaces.length === 0 && (
+          <div
+            className="rounded p-6 text-center text-[12.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            No Claude workspaces yet. Open a Claude session in any folder and
+            it will appear here automatically.
+          </div>
         )}
 
-        </>)}
+        {!workspacesLoading && workspaces.length > 0 && filteredWorkspaces.length === 0 && (
+          <div
+            className="rounded p-6 text-center text-[12.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            No workspace matches "{search}".
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {filteredWorkspaces.map((ws) => (
+            <WorkspaceCard
+              key={ws.cwd}
+              ws={ws}
+              busy={busyCwd === ws.cwd}
+              onContinue={continueWorkspace}
+              onNew={newInWorkspace}
+              onOpenIde={openWorkspaceInIde}
+              onOpenFolder={openWorkspaceFolder}
+            />
+          ))}
+        </div>
       </section>
 
-      {/* Recent Claude sessions — resumable. Auto-filtered to the selected
-       * workspace cwd when there is one, otherwise shows everything. */}
-      {provider === "claude" && (() => {
-        const normalisedCwd = cwd ? cwd.replace(/\\/g, "/").toLowerCase() : "";
-        const filteredHistory = !normalisedCwd
-          ? history
-          : history.filter((s) =>
-              s.project_label
-                .replace(/\\/g, "/")
-                .toLowerCase()
-                .startsWith(normalisedCwd),
-            );
-        return (
-        <section
-          id="session-history"
-          className="mt-6 rounded p-5"
+      {/* ------------------------------------------------------------------
+          Section 2 — Collapsible: All Claude sessions (the old flat list)
+          ------------------------------------------------------------------ */}
+      <section className="mb-6">
+        <button
+          type="button"
+          onClick={() => setShowAllSessions(!showAllSessions)}
+          className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
           style={{
             background: "var(--color-surface-2)",
             border: "1px solid var(--color-border)",
           }}
         >
-          <div className="mb-3 flex items-baseline justify-between">
-            <div>
-              <h2 className="text-[14px] font-semibold leading-tight">
-                Sessions {normalisedCwd ? "in this workspace" : "across all workspaces"}
-              </h2>
-              <p
-                className="mt-0.5 text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {filteredHistory.length} / {history.length} listed · click Resume to continue (claude -r &lt;id&gt;)
-              </p>
-            </div>
-            {historyLoading && (
-              <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-                Loading…
-              </span>
-            )}
-          </div>
+          <History size={13} />
+          <span className="text-[12.5px] font-semibold">
+            All Claude sessions
+          </span>
+          <span
+            className="text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {historyLoading
+              ? "loading…"
+              : `${filteredHistory.length} of ${history.length}`}
+          </span>
+          <span
+            className="ml-auto text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {showAllSessions ? "hide" : "show"}
+          </span>
+        </button>
 
-          {!historyLoading && filteredHistory.length === 0 && (
-            <div
-              className="rounded p-6 text-center text-[12.5px]"
-              style={{
-                background: "var(--color-surface-1)",
-                border: "1px solid var(--color-border)",
-                color: "var(--color-text-tertiary)",
-              }}
-            >
-              {normalisedCwd
-                ? "No sessions recorded for this workspace. Click New Session to open one."
-                : "No sessions recorded yet. Open one with Claude and it will show up here."}
-            </div>
-          )}
-
-          <div className="space-y-1.5">
-            {filteredHistory.map((s) => (
+        {showAllSessions && (
+          <div
+            className="mt-2 rounded p-4"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {!historyLoading && filteredHistory.length === 0 && (
               <div
-                key={`${s.project_slug}-${s.id}`}
-                className="rounded p-3 transition-colors"
+                className="rounded p-4 text-center text-[12px]"
                 style={{
                   background: "var(--color-surface-1)",
                   border: "1px solid var(--color-border)",
+                  color: "var(--color-text-tertiary)",
                 }}
               >
-                <div className="flex items-baseline gap-3">
-                  <span
-                    className="truncate text-[11px]"
+                {history.length === 0
+                  ? "No sessions recorded yet."
+                  : `No session matches "${search}".`}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              {filteredHistory.map((s) => (
+                <div
+                  key={`${s.project_slug}-${s.id}`}
+                  className="rounded p-3 transition-colors"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  <div className="flex items-baseline gap-3">
+                    <span
+                      className="truncate text-[11px]"
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        color: "var(--color-text-tertiary)",
+                      }}
+                      title={s.project_label}
+                    >
+                      {s.project_label}
+                    </span>
+                    <span
+                      className="ml-auto shrink-0 tabular-nums text-[10.5px]"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      {formatRel(s.last_activity)} · {s.line_count} turns ·{" "}
+                      {formatBytes(s.size_bytes)}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => resumeSession(s)}
+                      className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                      style={{
+                        background: "var(--color-accent)",
+                        color: "var(--color-accent-text)",
+                      }}
+                      title={`claude -r ${s.id}`}
+                    >
+                      Resume
+                    </button>
+                  </div>
+                  {s.preview && (
+                    <div
+                      className="mt-1 line-clamp-2 text-[12px] leading-relaxed"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      {s.preview}
+                    </div>
+                  )}
+                  <div
+                    className="mt-1 truncate text-[10px]"
                     style={{
                       fontFamily: "var(--font-mono)",
-                      color: "var(--color-text-tertiary)",
+                      color: "var(--color-text-faint)",
                     }}
-                    title={s.project_label}
                   >
-                    {s.project_label}
-                  </span>
-                  <span
-                    className="ml-auto shrink-0 tabular-nums text-[10.5px]"
-                    style={{ color: "var(--color-text-faint)" }}
+                    {s.id}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* ------------------------------------------------------------------
+          Section 3 — Collapsible: Advanced launch (provider / model / presets)
+          ------------------------------------------------------------------ */}
+      <section>
+        <button
+          type="button"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <span className="text-[12.5px] font-semibold">
+            Advanced launch
+          </span>
+          <span
+            className="text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            provider · model · presets · quick prompt
+          </span>
+          <span
+            className="ml-auto text-[11px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {showAdvanced ? "hide" : "show"}
+          </span>
+        </button>
+
+        {showAdvanced && (
+          <section
+            className="mt-2 rounded p-5"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <ProviderTabs active={provider} onChange={setProvider} />
+              <WorkspacePicker
+                cwd={cwd}
+                onChange={setCwd}
+                projects={projects}
+              />
+            </div>
+
+            {meta.acceptsModel && (
+              <div className="mt-4 flex items-center gap-3">
+                <label
+                  className="text-[11px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                  htmlFor="provider-model"
+                >
+                  Model
+                </label>
+                <select
+                  id="provider-model"
+                  value={model}
+                  onChange={(e) => setModel(e.target.value)}
+                  className="rounded px-2 py-1 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                >
+                  {meta.models.map((m) => (
+                    <option key={m.id || "default"} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+
+            <div
+              className="mt-4 rounded p-4"
+              style={{
+                background: "var(--color-surface-1)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <div
+                className="text-[10px] font-medium uppercase tracking-[0.06em]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Presets · applied on launch and remembered across sessions
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                <label
+                  className="flex items-start gap-2 rounded p-2.5 transition-colors"
+                  style={{
+                    background: presets.dangerouslySkipPermissions
+                      ? "rgba(248, 81, 73, 0.06)"
+                      : "var(--color-surface-2)",
+                    border: `1px solid ${
+                      presets.dangerouslySkipPermissions
+                        ? "rgba(248, 81, 73, 0.22)"
+                        : "var(--color-border)"
+                    }`,
+                    cursor: "pointer",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={presets.dangerouslySkipPermissions}
+                    onChange={(e) =>
+                      setPresets({
+                        ...presets,
+                        dangerouslySkipPermissions: e.target.checked,
+                      })
+                    }
+                    className="mt-0.5 h-3.5 w-3.5"
+                  />
+                  <div className="min-w-0">
+                    <div
+                      className="text-[12.5px] font-medium"
+                      style={{
+                        color: presets.dangerouslySkipPermissions
+                          ? "var(--color-danger)"
+                          : "var(--color-text)",
+                      }}
+                    >
+                      --dangerously-skip-permissions
+                    </div>
+                    <div
+                      className="mt-0.5 text-[11px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      Skip every tool confirmation. Only in trusted
+                      environments.
+                    </div>
+                  </div>
+                </label>
+
+                <div>
+                  <label
+                    className="block text-[10px] uppercase tracking-wide"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                    htmlFor="effort-select"
                   >
-                    {formatRel(s.last_activity)} · {s.line_count} turns ·{" "}
-                    {formatBytes(s.size_bytes)}
-                  </span>
+                    --effort
+                  </label>
+                  <select
+                    id="effort-select"
+                    value={presets.effort}
+                    onChange={(e) =>
+                      setPresets({
+                        ...presets,
+                        effort: e.target.value as Presets["effort"],
+                      })
+                    }
+                    className="mt-1 w-full rounded px-2 py-1 text-[12px]"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border-strong)",
+                    }}
+                  >
+                    <option value="">default</option>
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                    <option value="xhigh">xhigh</option>
+                    <option value="max">max</option>
+                  </select>
+                </div>
+              </div>
+
+              <div
+                className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <button
+                  type="button"
+                  onClick={() => openSession(false)}
+                  className="rounded px-4 py-2 text-[13px] font-semibold transition-colors"
+                  style={{
+                    background: "var(--color-accent)",
+                    color: "var(--color-accent-text)",
+                  }}
+                  title={`Launch a clean ${meta.label} session in ${cwd || "(no workspace)"}`}
+                >
+                  New Session
+                </button>
+                <span
+                  className="ml-auto text-[10.5px]"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  cwd: {cwd || "(none)"}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-4 flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setShowInline(!showInline)}
+                className="text-[11px] transition-colors"
+                style={{ color: "var(--color-text-tertiary)" }}
+                title="Inline mode: run a batch prompt without opening a terminal"
+              >
+                {showInline ? "Hide quick prompt" : "Show quick prompt"}
+              </button>
+            </div>
+
+            {showInline && (
+              <>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder={`Prompt for ${meta.label}…  (Ctrl+Enter to open session with prompt)`}
+                  rows={6}
+                  onKeyDown={(e) => {
+                    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                      e.preventDefault();
+                      if (prompt.trim()) openSession(true);
+                    }
+                  }}
+                  className="mt-3 w-full rounded px-3 py-2 text-[12.5px] leading-relaxed"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                    fontFamily: "var(--font-mono)",
+                    outline: "none",
+                    resize: "vertical",
+                  }}
+                />
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => resumeSession(s)}
-                    className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                    onClick={() => openSession(true)}
+                    disabled={!prompt.trim()}
+                    className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
                     style={{
                       background: "var(--color-accent)",
                       color: "var(--color-accent-text)",
                     }}
-                    title={`claude -r ${s.id}`}
+                    title="Open a new terminal session pre-populated with this prompt"
                   >
-                    Resume
+                    Open session with prompt
                   </button>
-                </div>
-                {s.preview && (
-                  <div
-                    className="mt-1 line-clamp-2 text-[12px] leading-relaxed"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    {s.preview}
+                  <div className="ml-auto flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPrompt("")}
+                      className="rounded px-2 py-1.5 text-[11px] transition-colors"
+                      style={{
+                        background: "transparent",
+                        color: "var(--color-text-tertiary)",
+                        border: "1px solid var(--color-border-strong)",
+                      }}
+                    >
+                      Clear
+                    </button>
                   </div>
-                )}
-                <div
-                  className="mt-1 truncate text-[10px]"
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    color: "var(--color-text-faint)",
-                  }}
-                >
-                  {s.id}
                 </div>
-              </div>
-            ))}
-          </div>
-        </section>
-        );
-      })()}
+              </>
+            )}
+          </section>
+        )}
+      </section>
     </div>
   );
 }

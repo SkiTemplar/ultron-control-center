@@ -28,3 +28,15 @@ pub async fn list_claude_sessions(
 ) -> Result<Vec<claude_sessions::ClaudeSession>, String> {
     claude_sessions::list_claude_sessions_inner(limit)
 }
+
+/// Aggregated workspace view for the redesigned Sessions tab. Returns one
+/// entry per unique cwd under `~/.claude/projects/`, sorted by most-recent
+/// activity. Enriched with project metadata when the cwd matches an entry
+/// in `projects.json`. See `claude_sessions::WorkspaceSummary` for the
+/// field-level docs.
+#[tauri::command]
+pub async fn list_workspaces() -> Result<Vec<claude_sessions::WorkspaceSummary>, String> {
+    tauri::async_runtime::spawn_blocking(claude_sessions::list_workspaces_inner)
+        .await
+        .map_err(|e| e.to_string())?
+}

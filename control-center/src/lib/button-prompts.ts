@@ -1,14 +1,9 @@
-// ULTRON Control Center — Button prompts client helper
+// Control Center — Button prompts client helper
 //
 // Mirrors the Rust catalog in `src-tauri/src/button_prompts.rs`. Components
-// that spawn AI sessions used to inline their prompt as a string literal.
-// They now go through `getPrompt(key, vars)` so the catalog (and any user
-// override stored in `~/.ultron/cockpit/button-prompts.json`) becomes the
-// single source of truth.
-//
-// v2.0: AI Router integration removed. `resolveAndSpawn` spawns `claude`
-// directly (no router resolution). `useRoutingTitle` is a no-op kept for
-// backward-compat with components that import it.
+// that spawn AI sessions go through `getPrompt(key, vars)` so the catalog
+// (and any user override stored on disk) becomes the single source of truth
+// without having to recompile when prompts change.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -74,6 +69,14 @@ export async function refreshButtonPrompts(): Promise<ButtonPromptsCatalog> {
   return loadCatalog(true);
 }
 
+function renderPrompt(template: string, vars: Record<string, string>): string {
+  let out = template;
+  for (const [k, v] of Object.entries(vars)) {
+    out = out.split(`{${k}}`).join(v);
+  }
+  return out;
+}
+
 export async function getPrompt(
   key: string,
   vars: Record<string, string> = {},
@@ -83,11 +86,7 @@ export async function getPrompt(
   if (!entry) {
     throw new Error(`unknown button prompt key: ${key}`);
   }
-  let out = entry.prompt;
-  for (const [k, v] of Object.entries(vars)) {
-    out = out.split(`{${k}}`).join(v);
-  }
-  return out;
+  return renderPrompt(entry.prompt, vars);
 }
 
 export async function updateButtonPrompt(
@@ -112,6 +111,38 @@ export function cachedCatalog(): ButtonPromptsCatalog | null {
   return cache;
 }
 
+/**
+ * Render a prompt template against its vars (no I/O). Useful for previewing
+ * what would be sent without touching the backend. Returns the template as-is
+ * with missing vars left in `{placeholder}` form.
+ */
+export function renderButtonPrompt(
+  entry: ButtonPrompt,
+  vars: Record<string, string> = {},
+): string {
+  return renderPrompt(entry.prompt, vars);
+}
+
+/**
+ * Copy a rendered prompt to the system clipboard. Uses `navigator.clipboard`,
+ * which is the convention already used elsewhere in the Control Center
+ * (InboxModal, PluginsSection, CodexFallbackButton).
+ *
+ * Throws if the browser denies clipboard access (e.g. when the WebView is
+ * focusless). Callers should surface the error to the user.
+ */
+export async function copyButtonPromptToClipboard(
+  entry: ButtonPrompt,
+  vars: Record<string, string> = {},
+): Promise<string> {
+  const rendered = renderButtonPrompt(entry, vars);
+  if (!navigator.clipboard || !navigator.clipboard.writeText) {
+    throw new Error("Clipboard API not available in this WebView.");
+  }
+  await navigator.clipboard.writeText(rendered);
+  return rendered;
+}
+
 // ---------------------------------------------------------------------------
 // Spawn helper (no AI Router)
 // ---------------------------------------------------------------------------
@@ -134,7 +165,7 @@ export type ResolveAndSpawnOptions = {
   vars?: Record<string, string>;
   cwd?: string | null;
   extraFlags?: Record<string, unknown>;
-  /** Deprecated in v2.0 (no AI router). Kept for back-compat at call sites. */
+  /** Deprecated. Kept for back-compat at call sites. */
   routeOnPrompt?: boolean;
 };
 
@@ -155,7 +186,7 @@ function staticRoute(): ResolvedRoute {
 
 /**
  * Resolve `{key}` against the prompt catalog and spawn a Claude session.
- * v2.0: no AI router — always spawns `claude` with provider defaults.
+ * Always spawns `claude` with provider defaults (no AI router).
  */
 export async function resolveAndSpawn(
   opts: ResolveAndSpawnOptions,
@@ -166,10 +197,7 @@ export async function resolveAndSpawn(
   if (!entry) {
     throw new Error(`unknown button prompt key: ${key}`);
   }
-  let prompt = entry.prompt;
-  for (const [k, v] of Object.entries(vars)) {
-    prompt = prompt.split(`{${k}}`).join(v);
-  }
+  const prompt = renderPrompt(entry.prompt, vars);
   const resolved = staticRoute();
   await invoke("spawn_session", {
     provider: resolved.entry.provider,
@@ -185,7 +213,7 @@ export async function resolveAndSpawn(
 
 /**
  * Back-compat hook: returns `baseTitle` unchanged. Originally appended an AI
- * Router routing hint; the router is gone in v2.0 so this is a no-op.
+ * Router routing hint; the router has been removed so this is a no-op.
  */
 export function useRoutingTitle(_key: string, baseTitle = ""): string {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

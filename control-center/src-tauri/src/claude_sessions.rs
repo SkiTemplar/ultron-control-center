@@ -221,6 +221,103 @@ pub fn list_claude_sessions_inner(limit: Option<usize>) -> Result<Vec<ClaudeSess
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// Workspace-level aggregation — "Recent workspaces" view
+// ---------------------------------------------------------------------------
+//
+// The Sessions tab redesign reframes the page as a workspace picker. The
+// existing `list_claude_sessions_inner` returns one entry per JSONL file,
+// which is useful for the power-user "All sessions" list but too verbose
+// for the headline grid. `list_workspaces_inner` collapses sessions by
+// folder (one slot per unique cwd) and pre-computes the aggregates the
+// frontend cards need: latest activity, session count, newest session id
+// (for one-click Continue), and the original cwd recovered from the slug.
+//
+// When a workspace cwd matches a registered project (`projects.json`), we
+// enrich the entry with `project_id` and `project_name` so the UI can show
+// the friendly label; otherwise the raw cwd stands in.
+
+#[derive(Debug, Serialize, Clone)]
+pub struct WorkspaceSummary {
+    /// Absolute cwd recovered from Claude's folder slug. Used both for
+    /// display (mono font, truncated) and as the `cwd` arg for spawning
+    /// a fresh session in this workspace.
+    pub cwd: String,
+    /// Id from `projects.json` when the cwd matches a registered entry.
+    pub project_id: Option<String>,
+    /// Display name from `projects.json`. Falls back to None when the
+    /// workspace is not registered; the frontend then renders the cwd
+    /// tail as the headline.
+    pub project_name: Option<String>,
+    /// ISO 8601 mtime of the most recently touched session JSONL in
+    /// this workspace. Sort key for the recent-workspaces grid.
+    pub last_activity: Option<String>,
+    /// How many session JSONL files live under this workspace folder.
+    pub session_count: u32,
+    /// UUID of the newest session — the "Continue last session" button
+    /// passes this as `resumeId` to `spawn_session`.
+    pub latest_session_id: Option<String>,
+}
+
+pub fn list_workspaces_inner() -> Result<Vec<WorkspaceSummary>, String> {
+    let sessions = list_claude_sessions_inner(None)?;
+    if sessions.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Cross-reference with the project registry up front (one read for the
+    // whole batch) so we can enrich every workspace without re-parsing
+    // projects.json per entry.
+    let projects = crate::projects::list_projects_inner().unwrap_or_default();
+
+    use std::collections::HashMap;
+    let mut by_cwd: HashMap<String, WorkspaceSummary> = HashMap::new();
+
+    for s in sessions.into_iter() {
+        let key = s.project_label.clone();
+        let entry = by_cwd
+            .entry(key.clone())
+            .or_insert_with(|| WorkspaceSummary {
+                cwd: s.project_label.clone(),
+                project_id: None,
+                project_name: None,
+                last_activity: None,
+                session_count: 0,
+                latest_session_id: None,
+            });
+        entry.session_count = entry.session_count.saturating_add(1);
+        // Sessions arrive sorted newest-first from `list_claude_sessions_inner`,
+        // so the first one we see per workspace is the latest.
+        if entry.latest_session_id.is_none() {
+            entry.latest_session_id = Some(s.id.clone());
+            entry.last_activity = s.last_activity.clone();
+        }
+    }
+
+    // Enrich with project metadata when the cwd lines up with a registered
+    // entry. We normalise both sides — Claude's recovered label uses `\\`
+    // separators on Windows, and projects.json paths usually match, but we
+    // compare case-insensitively to defend against drive-letter casing.
+    for ws in by_cwd.values_mut() {
+        let needle = ws.cwd.replace('/', "\\").to_lowercase();
+        if let Some(matched) = projects.iter().find(|p| {
+            p.path
+                .as_deref()
+                .map(|pp| pp.replace('/', "\\").to_lowercase() == needle)
+                .unwrap_or(false)
+        }) {
+            ws.project_id = Some(matched.id.clone());
+            ws.project_name = matched.name.clone().or_else(|| Some(matched.id.clone()));
+        }
+    }
+
+    let mut out: Vec<WorkspaceSummary> = by_cwd.into_values().collect();
+    // Most recently active workspace first — same sort key the frontend
+    // would compute anyway, but doing it server-side keeps the UI dumb.
+    out.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
+    Ok(out)
+}
+
 // ---- P4: per-project sessions listing ----
 
 #[derive(Debug, Serialize, Clone)]

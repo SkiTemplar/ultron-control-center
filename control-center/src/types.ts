@@ -238,6 +238,19 @@ export type ClaudeSession = {
   line_count: number;
 };
 
+/** Aggregated view of one workspace folder under `~/.claude/projects/`.
+ *  Mirrors `claude_sessions::WorkspaceSummary` on the Rust side. The
+ *  Sessions tab uses this for the "Recent workspaces" grid: each card
+ *  resumes `latest_session_id` or spawns a new session in `cwd`. */
+export type WorkspaceSummary = {
+  cwd: string;
+  project_id: string | null;
+  project_name: string | null;
+  last_activity: string | null;
+  session_count: number;
+  latest_session_id: string | null;
+};
+
 export type RichSystemInfo = {
   hostname: string;
   user: string;
@@ -713,7 +726,37 @@ export type OpenTab = {
   order: number;
 };
 
-export type ProjectSubTab = "board" | "terminal" | "agents" | "context" | "sessions";
+export type ProjectSubTab =
+  | "board"
+  | "terminal"
+  | "agents"
+  | "context"
+  | "sessions"
+  | "notes"
+  | "timeline";
+
+// ---------------------------------------------------------------------------
+// Project Timeline (per-project derived event feed)
+// ---------------------------------------------------------------------------
+
+export type TimelineEventKind =
+  | "session"        // claude code session opened in the project dir
+  | "card_created"   // kanban card created
+  | "card_moved"     // kanban card moved between columns
+  | "card_run"       // kanban card spawned a PTY run
+  | "backup";        // last backup snapshot covering the project root
+
+export type TimelineEvent = {
+  kind: TimelineEventKind;
+  /** ISO-8601 or "epoch:<secs>" timestamp; sorted as a string desc. */
+  at: string;
+  /** Short label rendered in the event card title. */
+  title: string;
+  /** Optional secondary line (column transition, agent name, etc). */
+  detail: string | null;
+  /** Optional reference id for click-through (card_id, session_id, ...). */
+  ref_id: string | null;
+};
 
 // ---------------------------------------------------------------------------
 // Library (P5): agent/skill discovery + install + pinning.

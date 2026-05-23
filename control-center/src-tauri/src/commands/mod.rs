@@ -22,6 +22,7 @@ pub mod alerts;
 pub mod apps;
 pub mod button_prompts;
 pub mod diagnostics_native;
+pub mod ecc_memory;
 pub mod hooks;
 pub mod hotkeys;
 pub mod inbox;
@@ -32,6 +33,7 @@ pub mod maintenance;
 pub mod mcps;
 pub mod mem0;
 pub mod misc;
+pub mod notes;
 pub mod plans;
 pub mod plugins_info;
 pub mod projects;
@@ -42,6 +44,8 @@ pub mod settings;
 pub mod skills;
 pub mod system;
 pub mod tabs;
+pub mod terminal_layout;
+pub mod timeline;
 
 // ---------------------------------------------------------------------------
 // Shared command-level types and helpers

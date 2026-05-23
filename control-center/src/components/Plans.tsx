@@ -480,30 +480,10 @@ function PlanModal({
   );
 }
 
-function StatBox({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div
-      className="rounded p-2.5"
-      style={{
-        background: "var(--color-surface-2)",
-        border: "1px solid var(--color-border)",
-      }}
-    >
-      <div
-        className="text-[9.5px] font-medium uppercase tracking-[0.06em]"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        {label}
-      </div>
-      <div
-        className="mt-0.5 text-[15px] font-semibold tabular-nums leading-tight"
-        style={{ color: "var(--color-text)" }}
-      >
-        {value}
-      </div>
-    </div>
-  );
-}
+// v2.x slim: per-tab stats strip removed. The Plans tab is intentionally
+// minimal — USER asked for the kanban board only, no rolled-up counts.
+// The per-status counts that the UI still needs (resolvedCount for the
+// archive button) are computed inline in <Plans />.
 
 // Per-column action bar. Each kanban column owns 0..N buttons that only
 // make sense for items in that lane. Centralising the switch here keeps
@@ -952,24 +932,19 @@ export function Plans() {
     return m;
   }, [filtered]);
 
-  const stats = useMemo(() => {
-    if (!report) return { total: 0, byStatus: {} as Record<string, number>, byPriority: {} as Record<string, number> };
-    const byStatus: Record<string, number> = {};
-    const byPriority: Record<string, number> = {};
-    const validStatuses = new Set(COLUMNS.map((c) => c.key));
-    let total = 0;
-    for (const it of report.items) {
-      // `archived` + `merged` leave the kanban for the drawer, so they're
-      // excluded from totals + buckets. Without this, `merged` (no longer a
-      // valid column) would fall through to the `open` bucket and inflate it.
-      if (ARCHIVED_STATUSES.has(it.status)) continue;
-      // Match the kanban column-bucket logic so the stat cards agree with the columns
-      const bucket = validStatuses.has(it.status) ? it.status : "open";
-      byStatus[bucket] = (byStatus[bucket] ?? 0) + 1;
-      byPriority[it.priority] = (byPriority[it.priority] ?? 0) + 1;
-      total += 1;
-    }
-    return { total, byStatus, byPriority };
+  // v2.x slim: previously a full `stats` memo (total, byStatus, byPriority)
+  // fed the rolled-up stats strip. The strip is gone, but the "Archive
+  // selected" button still needs to know how many cards live in the
+  // `resolved` column. Compute just that — nothing else.
+  const resolvedCount = useMemo(() => {
+    if (!report) return 0;
+    return report.items.filter(
+      (it) => !ARCHIVED_STATUSES.has(it.status) && it.status === "resolved",
+    ).length;
+  }, [report]);
+  const totalActive = useMemo(() => {
+    if (!report) return 0;
+    return report.items.filter((it) => !ARCHIVED_STATUSES.has(it.status)).length;
   }, [report]);
 
   const priorityKeys = useMemo(() => {
@@ -1000,8 +975,6 @@ export function Plans() {
     });
   }
 
-  const resolvedCount = stats.byStatus["resolved"] ?? 0;
-
   return (
     <div className="flex h-full flex-col overflow-hidden px-8 py-6">
       <header className="mb-4 flex items-baseline justify-between gap-4">
@@ -1011,7 +984,7 @@ export function Plans() {
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            ~/.ultron/plans/PLANS.json - {stats.total} items - updated {report?.updated_at?.slice(0, 19) ?? "-"}
+            ~/.ultron/plans/PLANS.json - {totalActive} items - updated {report?.updated_at?.slice(0, 19) ?? "-"}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -1044,41 +1017,11 @@ export function Plans() {
         </div>
       </header>
 
-      {/* Stats strip: total + priorities + archived (clickable -> drawer) */}
-      <div className="mb-3 grid grid-cols-4 gap-2 md:grid-cols-7">
-        <StatBox label="Total" value={stats.total} />
-        {PRIORITY_OPTIONS.map((p) => (
-          <StatBox
-            key={p}
-            label={p.toUpperCase()}
-            value={stats.byPriority[p] ?? 0}
-          />
-        ))}
-        <button
-          type="button"
-          onClick={() => setArchivedOpen(true)}
-          className="rounded p-2 text-left transition-colors hover:opacity-80"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-            cursor: "pointer",
-          }}
-          title="Open the archived drawer (resolved > N days). Each item has a Restore button to bring it back to the kanban."
-        >
-          <div
-            className="text-[10px] uppercase tracking-wide"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Archived
-          </div>
-          <div
-            className="mt-0.5 text-[18px] font-semibold tabular-nums"
-            style={{ color: "var(--color-text)" }}
-          >
-            {archivedItems.length}
-          </div>
-        </button>
-      </div>
+      {/* v2.x slim: the rolled-up stats strip (total + priority counts +
+          archived) has been removed at USER's request. The Plans tab is
+          now intentionally focused on the kanban board itself. The archived
+          drawer is still reachable via the "Show archived" button in the
+          header. Per-column counts live in the column headers below. */}
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <input

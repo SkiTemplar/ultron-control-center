@@ -95,7 +95,17 @@ export default function ProjectBoard({ projectId }: Props) {
 
   return (
     <>
-      <div className="flex h-full gap-3 overflow-x-auto p-3">
+      {/* v2.x: lightweight breadcrumb so it's clear this kanban is scoped to
+          the project — distinct from the global Plans tab (which lives at
+          ~/.ultron/plans/PLANS.json). The Plans tab now holds cross-project
+          personal items only. */}
+      <div className="flex h-full flex-col">
+        <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1 text-[10.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
+          <span>Project</span>
+          <span className="text-[var(--color-text-faint)]">/</span>
+          <span className="text-[var(--color-text-secondary)]">Board</span>
+        </div>
+        <div className="flex flex-1 gap-3 overflow-x-auto p-3">
         {[...board.columns]
           .sort((a, b) => a.order - b.order)
           .map((col) => (
@@ -124,6 +134,7 @@ export default function ProjectBoard({ projectId }: Props) {
               onDeleteCard={(cardId) => void deleteCard(cardId)}
             />
           ))}
+        </div>
       </div>
       {editing && (
         <CardEditorModal

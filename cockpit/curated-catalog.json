@@ -111,6 +111,63 @@
           "summary": "Step-by-step guide and templates for shipping new MCP servers."
         }
       ]
+    },
+    {
+      "id": "project-management",
+      "label": "Project Management",
+      "description": "PRD -> Epic -> GitHub Issues -> parallel agents. Worktree-based execution.",
+      "items": [
+        {
+          "kind": "skill",
+          "name": "ccpm-prd",
+          "title": "CCPM (Claude Code Project Management)",
+          "owner": "automazeio",
+          "repo": "ccpm",
+          "path": "skills/pm/SKILL.md",
+          "summary": "Decompose PRDs into epics and parallel-executable issues. Worktree-friendly. Strong fit for solo-dev orchestration."
+        }
+      ]
+    },
+    {
+      "id": "security",
+      "label": "Security & Audits",
+      "description": "Audit AI/ML pipelines and MCP servers for common security pitfalls.",
+      "items": [
+        {
+          "kind": "skill",
+          "name": "trailofbits-skills",
+          "title": "Trail of Bits Skills",
+          "owner": "trailofbits",
+          "repo": "skills",
+          "path": "README.md",
+          "summary": "Security-focused skill collection from Trail of Bits. Good fit for MCP and AI/ML audit surface."
+        }
+      ]
+    },
+    {
+      "id": "creative-tooling",
+      "label": "Creative Tooling (3D / Diagrams / Blender)",
+      "description": "MCP servers for visual / creative workflows.",
+      "items": [
+        {
+          "kind": "agent",
+          "name": "blender-mcp-agent",
+          "title": "Blender via MCP",
+          "owner": "ahujasid",
+          "repo": "blender-mcp",
+          "path": "README.md",
+          "summary": "Drive Blender from Claude via MCP. Useful for procedural / generative graphics work."
+        },
+        {
+          "kind": "agent",
+          "name": "unreal-mcp-agent",
+          "title": "Unreal Engine via MCP",
+          "owner": "flopperam",
+          "repo": "unreal-engine-mcp",
+          "path": "README.md",
+          "summary": "Natural-language control of UE5. Pairs with the existing UE5 Dev skill for hands-on work."
+        }
+      ]
     }
   ]
 }
