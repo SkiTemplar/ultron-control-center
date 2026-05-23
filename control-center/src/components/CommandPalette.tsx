@@ -30,28 +30,25 @@ type Props = {
   extraActions?: PaletteAction[];
 };
 
-// v15.3 — palette enumerates every tab known to the Tab union, including
-// the ones the sidebar now keeps in the "More" group (Changelog, News,
-// Gaming, Stats, Personal, Logs). Drop a sidebar item → it's still one
-// Ctrl+K away. "tier" labels mirror the Sidebar grouping so the
-// secondary tabs are visually grouped together for power-users.
+// Palette enumerates every tab known to the Tab union, including the
+// secondary ones the sidebar keeps under "More". "Navigate (More)" labels
+// mirror the Sidebar grouping so power users see them together.
 const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
   { id: "dashboard", label: "Go to Dashboard", group: "Navigate" },
   { id: "usage", label: "Go to Usage", group: "Navigate" },
   { id: "notifications", label: "Go to Notifications", group: "Navigate" },
   { id: "system", label: "Go to System", group: "Navigate" },
   { id: "mcps", label: "Go to MCPs", group: "Navigate" },
-  { id: "skills", label: "Go to Skills", group: "Navigate" },
-  { id: "agents", label: "Go to Agents", group: "Navigate" },
+  { id: "library", label: "Go to Library", group: "Navigate" },
+  { id: "skills", label: "Library · Skills", group: "Navigate" },
+  { id: "agents", label: "Library · Agents", group: "Navigate" },
+  { id: "rules", label: "Library · Rules", group: "Navigate" },
   { id: "memory", label: "Go to Memory", group: "Navigate" },
   { id: "sessions", label: "Go to Sessions", group: "Navigate" },
   { id: "projects", label: "Go to Projects", group: "Navigate" },
   { id: "plans", label: "Go to Plans", group: "Navigate" },
   { id: "settings", label: "Go to Settings", group: "Navigate" },
-  // Secondary tabs (now collapsed under "More" in the sidebar).
   { id: "changelog", label: "Go to Changelog", group: "Navigate (More)" },
-  { id: "gaming", label: "Go to Gaming", group: "Navigate (More)" },
-  { id: "personal", label: "Go to Personal", group: "Navigate (More)" },
 ];
 
 // Tiny in-order fuzzy scorer. Returns a positive score when every char of

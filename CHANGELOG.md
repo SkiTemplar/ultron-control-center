@@ -1,5 +1,22 @@
 # Changelog
 
+<!-- v2.0.0 -->
+## v2.0.0 - 2026-05-23
+
+Errores corregidos:
+- (sin cambios)
+
+Anadido:
+- Phase 7 — Settings cleanup (raw first, plugins panel, MCP/Hooks polish)
+- Phase 6 - PC Diagnostic native rewrite (sysinfo + wmi + AI + history + scheduled)
+- P5 — agent/skill library (GitHub search + in-app create + per-project pinning)
+- P4.10 wire tabs in App + projects open dispatch + migration
+- P4.9 ProjectSessions sub-tab
+- P4.8 ProjectContext sub-tab (CLAUDE.md editor + Mem0 panel)
+- P4.7 ProjectAgents sub-tab + pinning persistence
+- P4.6 ProjectTerminal sub-tab with multi-PTY bar
+
+
 > Per `docs/CHANGELOG-POLICY.md`: only MAJOR / MINOR get detailed entries.
 > Patches collapse into the next minor entry as a brief sweep.
 

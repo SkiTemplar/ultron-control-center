@@ -8,9 +8,7 @@ import { Dashboard } from "./components/Dashboard";
 import { Changelog } from "./components/Changelog";
 import { Notifications } from "./components/Notifications";
 import { MCPs } from "./components/MCPs";
-import { Skills } from "./components/Skills";
-import { Agents } from "./components/Agents";
-import { Rules } from "./components/Rules";
+import { Library, type LibrarySubTab } from "./components/Library";
 import { Memory } from "./components/Memory";
 import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
@@ -20,8 +18,6 @@ import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsConte
 import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
-import { Gaming } from "./components/Gaming";
-import { Personal } from "./components/Personal";
 import { Plans } from "./components/Plans";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";
@@ -480,20 +476,30 @@ function AppInner() {
         )}
         {tab === "changelog" && <Changelog entries={changelog} />}
         {tab === "mcps" && <MCPs />}
-        {tab === "skills" && <Skills />}
-        {tab === "agents" && <Agents />}
-        {tab === "rules" && <Rules />}
+        {(tab === "library" ||
+          tab === "skills" ||
+          tab === "agents" ||
+          tab === "rules") && (
+          // The 4 ids land on the same Library shell — the deep-link tab
+          // name doubles as the initial sub-tab so "Go to Agents" from the
+          // palette still opens Agents directly. `key` forces a remount
+          // when the deep-link changes so the new initial prop is honoured.
+          <Library
+            key={tab}
+            initial={tab === "library" ? undefined : (tab as LibrarySubTab)}
+          />
+        )}
         {tab === "memory" && <Memory />}
         {tab === "sessions" && <Sessions />}
         {tab === "usage" && <Usage />}
         {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}
         {tab === "projects" && <ProjectsPane />}
         {tab === "system" && <System />}
-        {tab === "gaming" && <Gaming />}
         {tab === "plans" && <Plans />}
-        {tab === "personal" && <Personal />}
-        {/* "hooks" tab removed — Hooks now lives inside the System tab as
-            an inner sub-tab. The Tab union no longer includes "hooks". */}
+        {/* v2.1: "gaming" and "personal" tabs removed — they were leftovers
+            from the old ULTRON persona stack (Tio Gilito profile + game
+            killer). The Tab union no longer includes them. "hooks" is also
+            gone as a top-level tab; it lives inside System as a sub-tab. */}
       </main>
 
       <CommandPalette

@@ -147,27 +147,6 @@
           ]
         },
         {
-          "name": "gaming-enum",
-          "cmd": "powershell.exe",
-          "args": [
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-            { "validator": "^.*[\\/]\\.ultron[\\/]scripts[\\/]cockpit[\\/]gaming-enum\\.ps1$" }
-          ]
-        },
-        {
-          "name": "gaming-kill",
-          "cmd": "taskkill.exe",
-          "args": [
-            "/F",
-            { "validator": "^/PID$" },
-            { "validator": "^[0-9]{1,9}$" }
-          ]
-        },
-        {
           "name": "system-tasks-run",
           "cmd": "powershell.exe",
           "args": [

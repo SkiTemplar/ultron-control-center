@@ -21,14 +21,6 @@ const META: Record<
   keyof Features,
   { label: string; description: string }
 > = {
-  gaming: {
-    label: "Gaming utilities",
-    description: "Game detector + Windows tweaks panel.",
-  },
-  personal: {
-    label: "Personal tab",
-    description: "Private profile / known.json / writing style.",
-  },
   schedules: {
     label: "Schedules tab",
     description: "Windows scheduled-task management UI.",

@@ -75,3 +75,92 @@ export function Plus({ size, className }: IconProps) {
     </svg>
   );
 }
+
+// v2.1 — icons used by the Library shell + Catalog.
+export function Sparkle({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M12 3 13.5 9 19 10.5 13.5 12 12 18 10.5 12 5 10.5 10.5 9z" />
+      <path d="M19 16v4" />
+      <path d="M17 18h4" />
+    </svg>
+  );
+}
+
+export function Bot({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="3" y="8" width="18" height="12" rx="2" />
+      <path d="M12 8V4" />
+      <circle cx="12" cy="3" r="1" />
+      <circle cx="9" cy="13" r="1" />
+      <circle cx="15" cy="13" r="1" />
+      <line x1="9" y1="17" x2="15" y2="17" />
+    </svg>
+  );
+}
+
+export function BookOpen({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M2 5h7a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H2z" />
+      <path d="M22 5h-7a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h8z" />
+    </svg>
+  );
+}
+
+export function Compass({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <polygon points="16 8 14 14 8 16 10 10 16 8" />
+    </svg>
+  );
+}
+
+export function Folder({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
+  );
+}
+
+export function Globe({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="10" />
+      <line x1="2" y1="12" x2="22" y2="12" />
+      <path d="M12 2a15 15 0 0 1 0 20" />
+      <path d="M12 2a15 15 0 0 0 0 20" />
+    </svg>
+  );
+}
+
+export function ExternalLink({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+      <polyline points="15 3 21 3 21 9" />
+      <line x1="10" y1="14" x2="21" y2="3" />
+    </svg>
+  );
+}
+
+export function Check({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+export function AlertTriangle({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+      <line x1="12" y1="9" x2="12" y2="13" />
+      <line x1="12" y1="17" x2="12.01" y2="17" />
+    </svg>
+  );
+}

@@ -1,15 +1,17 @@
-// ULTRON Control Center — Feature toggles
+// Control Center — Feature toggles
 //
 // The installer writes `~/.ultron/cockpit/features.json` with a flat map of
-// booleans (one per togglable area: gaming, personal, schedules, memory,
-// plans, projects, mcps, skills, hooks, notifications, usage, sessions).
-// When a flag is false, the corresponding sidebar entry is hidden on the
-// frontend.
+// booleans (one per togglable area: schedules, memory, plans, projects,
+// mcps, skills, hooks, notifications, usage, sessions). When a flag is
+// false, the corresponding sidebar entry is hidden on the frontend.
+//
+// v2.1: `gaming` and `personal` were dropped. We deserialize with
+// `deny_unknown_fields = false` (serde default) so old features.json files
+// still parse — extra keys are silently ignored.
 //
 // Defaults: all true. If the file is missing or malformed we return the
 // default (everything enabled) so a fresh install never surfaces an empty
-// sidebar. Partial JSON (only some keys present) is fine — serde fills the
-// gaps via `default_true`.
+// sidebar.
 //
 // Writes are atomic (tmp + rename) so a crashed save can never leave a
 // truncated file on disk.
@@ -21,10 +23,6 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Features {
-    #[serde(default = "default_true")]
-    pub gaming: bool,
-    #[serde(default = "default_true")]
-    pub personal: bool,
     #[serde(default = "default_true")]
     pub schedules: bool,
     #[serde(default = "default_true")]
@@ -55,8 +53,6 @@ fn default_true() -> bool {
 impl Default for Features {
     fn default() -> Self {
         Self {
-            gaming: true,
-            personal: true,
             schedules: true,
             memory: true,
             plans: true,

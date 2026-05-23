@@ -271,24 +271,8 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             "Claude, ayúdame a resolver el plan que tenga in_progress (o el primero open p0/p1). Lee su description + spec_path si existe, ejecuta los pasos, y cuando termines márcalo resolved. Si te bloquea algo, márcalo blocked con una nota explicando.",
         ),
         // ─── v15.4 batch — fill remaining empty sections so every tab has at least
-        // one AI shortcut. Personal / Projects / Sessions had none; Memory, System
-        // and MCPs only had a single prompt.
-        default_button(
-            "personal.refresh_profile",
-            "Personal · Refresh profile with AI",
-            "Personal / profile section header",
-            "Claude session that re-reads recent transcripts to update profile.md.",
-            &[],
-            "Lee ~/.ultron/personal/profile.md y mis últimas 10 sesiones (~/.claude/projects/*/conversations/*.jsonl, los más recientes). Propón una versión actualizada del perfil: tono, lenguaje principal, code-switching, frases características, formato preferido. Muestra un diff antes de escribir. NO inventes — solo agrega lo que se vea respaldado por evidencia en las transcripciones.",
-        ),
-        default_button(
-            "personal.refresh_known",
-            "Personal · Re-synthesize known.json",
-            "Personal / known section header",
-            "Spawns a session that regenerates known.json from recent activity.",
-            &[],
-            "Regenera ~/.ultron/personal/known.json desde mis últimas 20 sesiones. Schema: writing_style, recent_topics (5-10), routines (3-5), source: 'auto-2026-xx-xx'. No borres lo que ya esté curado a mano salvo que esté claramente desactualizado. Diff antes de escribir.",
-        ),
+        // one AI shortcut. Projects / Sessions had none; Memory, System and MCPs
+        // only had a single prompt. (Personal tab dropped in v2.1.)
         default_button(
             "projects.suggest_refactor",
             "Projects · Suggest refactors",

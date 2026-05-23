@@ -6,6 +6,7 @@ import { useFeatures, type Features } from "../lib/features";
 export type Tab =
   | "dashboard"
   | "mcps"
+  | "library"
   | "skills"
   | "agents"
   | "rules"
@@ -17,8 +18,6 @@ export type Tab =
   | "sessions"
   | "usage"
   | "system"
-  | "gaming"
-  | "personal"
   | "settings";
 
 type Item = {
@@ -70,9 +69,11 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "system", label: "System", available: true },
       { id: "mcps", label: "MCPs", available: true, featureKey: "mcps" },
-      { id: "skills", label: "Skills", available: true, featureKey: "skills" },
-      { id: "agents", label: "Agents", available: true, featureKey: "skills" },
-      { id: "rules", label: "Rules", available: true, featureKey: "skills" },
+      // v2.1: Skills + Agents + Rules collapsed into one Library tab with
+      // sub-navigation. The 3 individual tab ids remain reachable via the
+      // command palette and deep-links — App.tsx routes them all to
+      // <Library initial="..." /> so deep-linking still feels native.
+      { id: "library", label: "Library", available: true, featureKey: "skills" },
       { id: "memory", label: "Memory", available: true, featureKey: "memory" },
     ],
   },
@@ -81,23 +82,11 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
-      { id: "gaming", label: "Gaming", available: true, featureKey: "gaming", tier: "more" },
       { id: "plans", label: "Plans", available: true, featureKey: "plans" },
     ],
   },
-  {
-    heading: "Meta",
-    items: [
-      {
-        id: "personal",
-        label: "Personal",
-        available: true,
-        featureKey: "personal",
-      },
-    ],
-  },
-  // v15.2 F7: "Hooks" moved into System as an inner sub-tab — no longer a
-  // top-level sidebar item. Hooks feature gating still applies inside System.
+  // v2.1: "Gaming" and "Personal" tabs deleted (old ULTRON persona stack).
+  // "Hooks" lives inside System as a sub-tab since v15.2.
   {
     heading: "",
     items: [{ id: "settings", label: "Settings", available: true }],
@@ -124,12 +113,13 @@ function saveMoreOpen(open: boolean) {
 /** Tabs that should redirect to dashboard if disabled while active. */
 const FEATURE_TAB_TO_KEY: Partial<Record<Tab, keyof Features>> = {
   mcps: "mcps",
+  library: "skills",
   skills: "skills",
+  agents: "skills",
+  rules: "skills",
   memory: "memory",
   projects: "projects",
-  gaming: "gaming",
   plans: "plans",
-  personal: "personal",
   // hooks: gating moved inside System tab — no top-level redirect needed.
 };
 

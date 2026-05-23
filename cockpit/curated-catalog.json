@@ -1,0 +1,116 @@
+{
+  "_comment": "Curated catalog of skills + agents recommended for USER's typical work: graphics programming, Unreal Engine 5, AI/ML, MCP development. Each item points at a public GitHub source — the Library -> Catalog tab installs via library_install_from_github. Add/edit freely; the GUI re-reads this file on every Catalog mount.",
+  "schema_version": 1,
+  "updated_at": "2026-05-23",
+  "domains": [
+    {
+      "id": "graphics",
+      "label": "Graphics Programming",
+      "description": "Shaders, render pipelines, GPU debugging.",
+      "items": [
+        {
+          "kind": "agent",
+          "name": "graphics-programmer",
+          "title": "Graphics Programmer",
+          "owner": "wshobson",
+          "repo": "agents",
+          "path": "graphics-programmer.md",
+          "summary": "GLSL/HLSL/WGSL shaders + OpenGL/Vulkan/DX12/Metal/WebGPU rendering techniques (PBR, deferred, shadow maps, post-processing)."
+        },
+        {
+          "kind": "skill",
+          "name": "shader-fundamentals",
+          "title": "Shader Fundamentals",
+          "owner": "anthropics",
+          "repo": "skills",
+          "path": "shader-fundamentals/SKILL.md",
+          "summary": "Conceptual shader breakdowns and modern GPU programming patterns."
+        }
+      ]
+    },
+    {
+      "id": "ue5",
+      "label": "Unreal Engine 5",
+      "description": "Gameplay C++, Blueprints, GAS, Niagara, Lumen, Nanite, replication.",
+      "items": [
+        {
+          "kind": "agent",
+          "name": "unreal-engine-engineer",
+          "title": "Unreal Engine Engineer",
+          "owner": "wshobson",
+          "repo": "agents",
+          "path": "unreal-engine-engineer.md",
+          "summary": "UE5 gameplay programming, Enhanced Input, Gameplay Ability System, network roles."
+        },
+        {
+          "kind": "skill",
+          "name": "ue5-dev",
+          "title": "UE5 Dev",
+          "owner": "anthropics",
+          "repo": "skills",
+          "path": "ue5-dev/SKILL.md",
+          "summary": "End-to-end Unreal Engine project assistance with deep API + asset discovery."
+        }
+      ]
+    },
+    {
+      "id": "ai",
+      "label": "AI / ML",
+      "description": "LLM systems, RAG, fine-tuning, inference, evaluation.",
+      "items": [
+        {
+          "kind": "agent",
+          "name": "ai-engineer",
+          "title": "AI Engineer",
+          "owner": "wshobson",
+          "repo": "agents",
+          "path": "ai-engineer.md",
+          "summary": "End-to-end AI system architecture: model selection, training, deployment, monitoring."
+        },
+        {
+          "kind": "agent",
+          "name": "ml-engineer",
+          "title": "ML Engineer",
+          "owner": "wshobson",
+          "repo": "agents",
+          "path": "ml-engineer.md",
+          "summary": "Production ML pipelines: training, serving, retraining, performance."
+        },
+        {
+          "kind": "agent",
+          "name": "llm-architect",
+          "title": "LLM Architect",
+          "owner": "wshobson",
+          "repo": "agents",
+          "path": "llm-architect.md",
+          "summary": "LLM production systems, fine-tuning, RAG, inference infra, multi-model orchestration."
+        }
+      ]
+    },
+    {
+      "id": "mcp",
+      "label": "MCP Development",
+      "description": "Building Model Context Protocol servers and clients.",
+      "items": [
+        {
+          "kind": "agent",
+          "name": "mcp-developer",
+          "title": "MCP Developer",
+          "owner": "wshobson",
+          "repo": "agents",
+          "path": "mcp-developer.md",
+          "summary": "Builds, debugs, and optimises MCP servers connecting AI to external tools/data."
+        },
+        {
+          "kind": "skill",
+          "name": "mcp-builder",
+          "title": "MCP Builder",
+          "owner": "anthropics",
+          "repo": "skills",
+          "path": "mcp-builder/SKILL.md",
+          "summary": "Step-by-step guide and templates for shipping new MCP servers."
+        }
+      ]
+    }
+  ]
+}

@@ -1,6 +1,29 @@
 //! P5 — Agent/Skill library Tauri command wrappers.
+//! v2.1 — also surfaces the curated catalog (`cockpit/curated-catalog.json`)
+//! that powers the Library -> Catalog sub-tab.
 
 use crate::library;
+use crate::ultron_root;
+
+/// Raw JSON payload of `~/.ultron/cockpit/curated-catalog.json`. Returned
+/// as a `serde_json::Value` so the schema can evolve in the file without
+/// requiring a backend recompile — the frontend tolerates unknown keys.
+#[tauri::command]
+pub fn read_curated_catalog() -> Result<serde_json::Value, String> {
+    let path = ultron_root()?.join("cockpit").join("curated-catalog.json");
+    if !path.exists() {
+        // Empty schema: frontend renders the "no domains" empty state and
+        // a "create a catalog" hint instead of crashing.
+        return Ok(serde_json::json!({
+            "schema_version": 1,
+            "updated_at": null,
+            "domains": []
+        }));
+    }
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    serde_json::from_str(&text).map_err(|e| format!("parse curated-catalog.json: {e}"))
+}
 
 #[tauri::command]
 pub async fn library_search_github(

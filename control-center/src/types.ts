@@ -238,26 +238,6 @@ export type ClaudeSession = {
   line_count: number;
 };
 
-export type GameProcessInfo = {
-  pid: number;
-  name: string;
-  ram_mb: number;
-  category: string;
-  suggested: boolean;
-  keep_default: boolean;
-};
-
-export type KillFailure = {
-  pid: number;
-  reason: string;
-};
-
-export type KillResult = {
-  killed: number[];
-  failed: KillFailure[];
-  freed_mb_estimate: number;
-};
-
 export type RichSystemInfo = {
   hostname: string;
   user: string;

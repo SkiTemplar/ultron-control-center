@@ -26,7 +26,6 @@ mod claude_sessions;
 mod codex_fallback;
 mod cost_watchdog;
 mod features;
-mod gaming;
 mod hooks_admin;
 mod hotkeys;
 mod in_app_shortcuts;
@@ -39,7 +38,6 @@ mod logs;
 mod maintenance;
 mod mcps;
 mod mem0;
-mod personal;
 mod plans;
 mod plugins_info;
 mod project_hotkeys;
@@ -246,12 +244,6 @@ pub fn run() {
             commands::apps::list_installed_apps,
             commands::apps::open_app_folder,
             commands::apps::uninstall_app,
-            // -- gaming --
-            commands::gaming::detect_running_games,
-            commands::gaming::list_killable_processes,
-            commands::gaming::kill_processes,
-            commands::gaming::windows_tweaks_status,
-            commands::gaming::windows_tweak_set,
             // -- auth + lifecycle --
             commands::lifecycle::auth_status,
             commands::lifecycle::close_control_center,
@@ -262,14 +254,6 @@ pub fn run() {
             commands::diagnostics_native::diagnostic_history_read,
             commands::diagnostics_native::diagnostic_schedule_get,
             commands::diagnostics_native::diagnostic_schedule_set,
-            // -- personal profile --
-            commands::personal::read_personal_profile,
-            commands::personal::save_personal_profile,
-            commands::personal::read_personal_known,
-            commands::personal::request_personal_analysis,
-            commands::personal::read_personal_sample,
-            commands::personal::train_personal_style,
-            commands::personal::generate_style_sample,
             // -- plans --
             commands::plans::list_plans,
             commands::plans::patch_plan_status,
@@ -297,8 +281,10 @@ pub fn run() {
             commands::pty::pty_kill,
             commands::pty::pty_list,
             // -- library (P5 — GitHub search + install + per-project pin) --
+            // v2.1: curated catalog feed.
             commands::library::library_search_github,
             commands::library::library_install_from_github,
+            commands::library::read_curated_catalog,
             commands::library::agent_create,
             commands::library::skill_create,
             commands::library::library_pin_agent,
