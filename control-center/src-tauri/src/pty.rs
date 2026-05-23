@@ -85,6 +85,77 @@ fn new_ulid() -> String {
     format!("pty-{t}-{n}")
 }
 
+/// Resolve a provider slug to the CommandBuilder that actually spawns it.
+///
+/// Windows-specific bug fix (2026-05-23): the Claude/Codex/Gemini CLIs are
+/// installed as `.cmd` shim scripts (e.g. `claude.cmd` under the npm prefix
+/// or `~/.local/bin`). portable-pty's `CommandBuilder::new("claude")` ends up
+/// in CreateProcessW with a bare argv0 of `claude`, which does NOT walk
+/// PATHEXT — so the shim is never found and the spawn fails silently (PTY
+/// shows nothing, child exits immediately). The fix mirrors the trick used in
+/// `sessions::spawn_session_inner`: shell out via `cmd.exe /C <provider>` so
+/// the cmd interpreter resolves `<provider>.cmd` through PATHEXT.
+///
+/// Other providers we add (`powershell`, `powershell-admin`) get their own
+/// branches here — `powershell` runs Windows PowerShell 5.1 inside the PTY,
+/// and `powershell-admin` re-launches PowerShell elevated through UAC
+/// (Start-Process -Verb RunAs) without keeping the elevated session attached
+/// to our PTY (UAC always opens a fresh console window).
+fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, String> {
+    let trimmed = provider.trim();
+    if trimmed.is_empty() {
+        return Err("provider is empty".to_string());
+    }
+    match trimmed {
+        "claude" | "codex" | "gemini" => {
+            // Windows: wrap with cmd /C so the .cmd shim resolves via PATHEXT.
+            // On non-Windows the bare binary is on PATH already.
+            #[cfg(windows)]
+            {
+                let mut cmd = CommandBuilder::new("cmd.exe");
+                cmd.arg("/C");
+                cmd.arg(trimmed);
+                if let Some(a) = agent {
+                    cmd.arg("--agent");
+                    cmd.arg(a);
+                }
+                Ok(cmd)
+            }
+            #[cfg(not(windows))]
+            {
+                let mut cmd = CommandBuilder::new(trimmed);
+                if let Some(a) = agent {
+                    cmd.arg("--agent");
+                    cmd.arg(a);
+                }
+                Ok(cmd)
+            }
+        }
+        "powershell" => {
+            // Plain Windows PowerShell 5.1 inside the PTY. -NoLogo keeps the
+            // banner away; we still want the interactive prompt so the user
+            // can type commands.
+            let mut cmd = CommandBuilder::new("powershell.exe");
+            cmd.arg("-NoLogo");
+            Ok(cmd)
+        }
+        "powershell-admin" => {
+            // UAC elevation. We launch a *non-elevated* PowerShell whose sole
+            // job is to call Start-Process -Verb RunAs on another PowerShell.
+            // The elevated session necessarily opens in its own console window
+            // (Windows does not let an unelevated PTY adopt an elevated child),
+            // but the user gets the UAC prompt + admin shell as requested.
+            let mut cmd = CommandBuilder::new("powershell.exe");
+            cmd.arg("-NoLogo");
+            cmd.arg("-NoProfile");
+            cmd.arg("-Command");
+            cmd.arg("Start-Process -Verb RunAs powershell.exe; Write-Host 'Admin PowerShell launched in a new window (UAC must run elevated outside this PTY).'");
+            Ok(cmd)
+        }
+        other => Err(format!("unknown provider '{}'", other)),
+    }
+}
+
 pub fn spawn_inner<R: Runtime>(
     app: AppHandle<R>,
     project_id: String,
@@ -104,14 +175,13 @@ pub fn spawn_inner<R: Runtime>(
         })
         .map_err(|e| format!("openpty: {e}"))?;
 
-    // Build the command. provider is `claude|codex|gemini`. agent maps to
-    // `--agent <slug>` when supported (claude). prompt is reserved for P4
-    // (clipboard prime flow); not embedded in the command line.
-    let mut cmd = CommandBuilder::new(&provider);
-    if let Some(a) = agent.as_deref() {
-        cmd.arg("--agent");
-        cmd.arg(a);
-    }
+    // Build the command. provider is one of:
+    //   claude / codex / gemini  — AI CLI providers
+    //   powershell               — plain Windows PowerShell 5.1 PTY
+    //   powershell-admin         — UAC-elevated PowerShell (new window)
+    // agent maps to `--agent <slug>` when supported (claude). prompt is
+    // reserved for P4 (clipboard prime flow); not embedded in the command line.
+    let mut cmd = build_command(&provider, agent.as_deref())?;
     cmd.cwd(&cwd);
 
     // Inherit env so OAuth tokens / PATH carry over.
@@ -256,6 +326,31 @@ pub fn kill_all_inner() {
         for s in reg.values_mut() {
             let _ = s.child.kill();
             s.status = PtyStatus::Killed;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_command_rejects_unknown_provider() {
+        let r = build_command("nope", None);
+        assert!(r.is_err(), "unknown provider should fail");
+    }
+
+    #[test]
+    fn build_command_rejects_empty_provider() {
+        let r = build_command("   ", None);
+        assert!(r.is_err(), "empty provider should fail");
+    }
+
+    #[test]
+    fn build_command_accepts_known_providers() {
+        for p in ["claude", "codex", "gemini", "powershell", "powershell-admin"] {
+            let r = build_command(p, None);
+            assert!(r.is_ok(), "provider {p} should be accepted");
         }
     }
 }

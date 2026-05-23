@@ -10,9 +10,15 @@ import { Skills } from "./Skills";
 import { Agents } from "./Agents";
 import { Rules } from "./Rules";
 import { Catalog } from "./library/Catalog";
-import { Sparkle, Bot, BookOpen, Compass } from "./library/icons";
+import { Commands } from "./library/Commands";
+import { Sparkle, Bot, BookOpen, Compass, Terminal } from "./library/icons";
 
-export type LibrarySubTab = "skills" | "agents" | "rules" | "catalog";
+export type LibrarySubTab =
+  | "skills"
+  | "agents"
+  | "rules"
+  | "catalog"
+  | "commands";
 
 type SubTabSpec = {
   id: LibrarySubTab;
@@ -45,6 +51,12 @@ const SUB_TABS: SubTabSpec[] = [
     label: "Catalog",
     Icon: Compass,
     hint: "Curated picks for graphics, UE5, AI, and MCP work.",
+  },
+  {
+    id: "commands",
+    label: "Commands",
+    Icon: Terminal,
+    hint: "Every /slash command exposed by your installed plugins.",
   },
 ];
 
@@ -133,6 +145,7 @@ export function Library({ initial }: { initial?: LibrarySubTab } = {}) {
         {sub === "agents" && <Agents />}
         {sub === "rules" && <Rules />}
         {sub === "catalog" && <Catalog />}
+        {sub === "commands" && <Commands />}
       </div>
     </div>
   );

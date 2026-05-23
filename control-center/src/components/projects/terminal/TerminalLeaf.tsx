@@ -19,18 +19,30 @@ type Props = {
   onKillPty: (leafId: string, ptyId: string) => void;
 };
 
-const PROVIDERS: Provider[] = ["claude", "codex", "gemini"];
+const PROVIDERS: Provider[] = [
+  "claude",
+  "codex",
+  "gemini",
+  "powershell",
+  "powershell-admin",
+];
 
 function providerLabel(p: Provider): string {
   if (p === "claude") return "Claude";
   if (p === "codex") return "Codex";
-  return "Gemini";
+  if (p === "gemini") return "Gemini";
+  if (p === "powershell") return "PowerShell";
+  if (p === "powershell-admin") return "PowerShell (admin)";
+  return p;
 }
 
 function providerTint(p: Provider): string {
   if (p === "claude") return "#cc785c";
   if (p === "codex") return "#10a37f";
-  return "#4285f4";
+  if (p === "gemini") return "#4285f4";
+  if (p === "powershell") return "#012456"; // PowerShell blue
+  if (p === "powershell-admin") return "#d29922"; // warning amber for elevated
+  return "#888";
 }
 
 export default function TerminalLeaf(props: Props) {

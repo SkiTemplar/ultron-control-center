@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "tabs": [
+    {
+      "id": "tab-1779559313254635-3",
+      "label": "Tab 1",
+      "default_provider": null,
+      "root": {
+        "kind": "leaf",
+        "id": "leaf-1779559319508-3",
+        "pty_id": null
+      }
+    }
+  ],
+  "active_tab_id": "tab-1779559313254635-3"
+}

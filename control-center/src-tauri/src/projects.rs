@@ -821,6 +821,52 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             default_provider,
         });
     }
+    // v2.x: synthesise a "Home" entry pointing at the user's home directory
+    // if the registry doesn't already cover it. USER uses ~/ as a frequent
+    // base for ad-hoc work; the synthetic entry has a stable id ("__home")
+    // and shows up alongside scanned projects so the AI/Terminal launch path
+    // is one click away. We do NOT persist it to projects.json — it's purely
+    // computed at read time so users on different machines see their own
+    // home folder without any seed step.
+    if let Some(home) = dirs::home_dir() {
+        let home_str = home.to_string_lossy().to_string();
+        let already_present = out
+            .iter()
+            .any(|p| matches!(p.path.as_deref(), Some(p) if p.trim_end_matches('\\').trim_end_matches('/') == home_str.trim_end_matches('\\').trim_end_matches('/')));
+        if !already_present {
+            out.push(ProjectInfo {
+                id: "__home".to_string(),
+                name: Some("Home".to_string()),
+                path: Some(home_str.clone()),
+                ide: None,
+                language: None,
+                type_: Some("home".to_string()),
+                status: Some("manual".to_string()),
+                last_active: None,
+                tags: vec!["home".to_string()],
+                items: Some(vec![
+                    LauncherItem {
+                        kind: "folder".to_string(),
+                        path: Some(home_str.clone()),
+                        cwd: None,
+                        args: None,
+                        label: Some("Open folder".to_string()),
+                        provider: None,
+                    },
+                    LauncherItem {
+                        kind: "claude".to_string(),
+                        path: None,
+                        cwd: Some(home_str),
+                        args: None,
+                        label: Some("New Claude session".to_string()),
+                        provider: None,
+                    },
+                ]),
+                default_provider: Some("claude".to_string()),
+            });
+        }
+    }
+
     // Sort by last_active desc (ISO yyyy-mm-dd compares lexicographically).
     out.sort_by(|a, b| b.last_active.cmp(&a.last_active));
     Ok(out)

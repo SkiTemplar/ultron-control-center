@@ -1,4 +1,4 @@
-use crate::rules::{list_inner, read_inner, RuleFile};
+use crate::rules::{list_inner, read_inner, write_inner, RuleFile};
 
 #[tauri::command]
 pub async fn rules_list() -> Result<Vec<RuleFile>, String> {
@@ -8,4 +8,9 @@ pub async fn rules_list() -> Result<Vec<RuleFile>, String> {
 #[tauri::command]
 pub async fn rules_read(path: String) -> Result<String, String> {
     read_inner(path)
+}
+
+#[tauri::command]
+pub async fn rules_write(name: String, body: String) -> Result<String, String> {
+    write_inner(name, body)
 }

@@ -919,3 +919,27 @@ export type HookLastFired = {
   project: string | null;
   exit_code: number | null;
 };
+
+// ---------------------------------------------------------------------------
+// Slash command registry (v2.3 — Library → Commands sub-tab).
+// ---------------------------------------------------------------------------
+
+export type SlashCommand = {
+  /** Bare command name (file stem). */
+  name: string;
+  /** Plugin slug — `ecc`, `superpowers`, `commit-commands`, …
+   *  Special value `user` for `~/.claude/commands/*`. */
+  plugin: string;
+  /** Marketplace folder — `ecc`, `claude-plugins-official`,
+   *  `superpowers-marketplace`, `openai-codex`, …
+   *  Special value `user` for the user-local namespace. */
+  marketplace: string;
+  /** Summary — frontmatter `description:` when present, else first prose paragraph. */
+  description: string;
+  /** Optional `argument-hint:` from frontmatter. */
+  argument_hint: string | null;
+  /** Optional `model:` override from frontmatter. */
+  model: string | null;
+  /** Absolute on-disk path to the .md source. */
+  path: string;
+};

@@ -235,6 +235,64 @@ pub fn list_maintenance_commands_inner() -> Vec<MaintenanceCommand> {
             description: "Aggregate usage / freshness stats per persona — output to ~/.ultron/cockpit/audits/.".into(),
             group: "skills".into(),
         },
+        // v2.5: PC-focused actions surfaced in the Dashboard "Fix common issues"
+        // strip. Each maps to a known-good Windows command. Destructive ones
+        // (restart explorer, clear temp) MUST be confirmed by the UI before
+        // dispatch — the Rust side has no dialog facility.
+        MaintenanceCommand {
+            kind: "pc-flush-dns".into(),
+            label: "Flush DNS cache".into(),
+            description: "Run ipconfig /flushdns to clear stale DNS entries.".into(),
+            group: "pc".into(),
+        },
+        MaintenanceCommand {
+            kind: "pc-reset-network".into(),
+            label: "Reset network adapter".into(),
+            description: "netsh int ip reset — restores TCP/IP stack to default. Reboot recommended.".into(),
+            group: "pc".into(),
+        },
+        MaintenanceCommand {
+            kind: "pc-disk-cleanup".into(),
+            label: "Disk cleanup".into(),
+            description: "Launches Windows Disk Cleanup with the default preset.".into(),
+            group: "pc".into(),
+        },
+        MaintenanceCommand {
+            kind: "pc-reliability-monitor".into(),
+            label: "Open Reliability Monitor".into(),
+            description: "Reveals perfmon /rel — the per-day system stability log.".into(),
+            group: "pc".into(),
+        },
+        MaintenanceCommand {
+            kind: "pc-task-manager".into(),
+            label: "Open Task Manager".into(),
+            description: "Launches taskmgr.exe.".into(),
+            group: "pc".into(),
+        },
+        MaintenanceCommand {
+            kind: "pc-restart-explorer".into(),
+            label: "Restart Explorer".into(),
+            description: "Kills explorer.exe and relaunches it — fixes taskbar / shell glitches.".into(),
+            group: "pc".into(),
+        },
+        MaintenanceCommand {
+            kind: "pc-clear-temp".into(),
+            label: "Clear temp files".into(),
+            description: "Deletes %TEMP%\\* (best effort — locked files are skipped).".into(),
+            group: "pc".into(),
+        },
+        MaintenanceCommand {
+            kind: "pc-windows-update".into(),
+            label: "Open Windows Update settings".into(),
+            description: "Opens ms-settings:windowsupdate via shell URI.".into(),
+            group: "pc".into(),
+        },
+        MaintenanceCommand {
+            kind: "pc-open-hosts".into(),
+            label: "Open hosts file".into(),
+            description: "Opens %SystemRoot%\\System32\\drivers\\etc\\hosts in notepad.".into(),
+            group: "pc".into(),
+        },
     ]
 }
 
@@ -333,7 +391,108 @@ fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String
                 cock.join("persona_audit.py").to_string_lossy().into_owned(),
             ],
         ),
+        // v2.5: PC-focused quick actions. All command strings are hardcoded
+        // here — the frontend only passes the `kind` token. On non-Windows
+        // hosts they fall through to the unknown-kind error since none of
+        // these have *nix equivalents.
+        #[cfg(target_os = "windows")]
+        "pc-flush-dns" => ("ipconfig".into(), vec!["/flushdns".into()]),
+        #[cfg(target_os = "windows")]
+        "pc-reset-network" => (
+            "netsh".into(),
+            vec!["int".into(), "ip".into(), "reset".into()],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-disk-cleanup" => ("cleanmgr.exe".into(), vec![]),
+        #[cfg(target_os = "windows")]
+        "pc-reliability-monitor" => ("perfmon.exe".into(), vec!["/rel".into()]),
+        #[cfg(target_os = "windows")]
+        "pc-task-manager" => ("taskmgr.exe".into(), vec![]),
+        #[cfg(target_os = "windows")]
+        "pc-restart-explorer" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "taskkill.exe /IM explorer.exe /F | Out-Null; Start-Sleep -Milliseconds 400; Start-Process explorer.exe".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-clear-temp" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                // Best-effort — locked files raise non-terminating errors which
+                // we silence so the command always returns 0 on no-fatal cases.
+                "Get-ChildItem -Path $env:TEMP -Recurse -Force -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-windows-update" => (
+            "cmd.exe".into(),
+            vec![
+                "/c".into(),
+                "start".into(),
+                "".into(),
+                "ms-settings:windowsupdate".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-open-hosts" => (
+            "notepad.exe".into(),
+            vec!["C:\\Windows\\System32\\drivers\\etc\\hosts".into()],
+        ),
         other => return Err(format!("unknown maintenance kind: {}", other)),
+    })
+}
+
+/// v2.5: dedicated "run backup now" entry point. Re-uses the same script the
+/// Task Scheduler job runs (~/.ultron/scripts/backup/weekly-backup.ps1). We
+/// surface this as its own command so the Dashboard BackupCard can call it
+/// without piggy-backing on the generic `weekly-backup` maintenance kind —
+/// the latter goes through the audit/timeline path and isn't intended for
+/// the "I just want to restart the backup" use case.
+pub fn run_backup_now_inner() -> Result<MaintenanceResult, String> {
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let script = backup_script(&home);
+    if !script.is_file() {
+        return Err(format!("backup script missing: {}", script.display()));
+    }
+    let start = std::time::Instant::now();
+    #[cfg(target_os = "windows")]
+    let (cmd, args): (String, Vec<String>) = (
+        "powershell.exe".into(),
+        vec![
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-ExecutionPolicy".into(),
+            "Bypass".into(),
+            "-File".into(),
+            script.to_string_lossy().into_owned(),
+        ],
+    );
+    #[cfg(not(target_os = "windows"))]
+    let (cmd, args): (String, Vec<String>) =
+        ("bash".into(), vec![script.to_string_lossy().into_owned()]);
+    let mut command = Command::new(&cmd);
+    command.args(&args).current_dir(home.join(".ultron"));
+    #[cfg(windows)]
+    {
+        command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = command
+        .output()
+        .map_err(|e| format!("spawn {}: {}", cmd, e))?;
+    Ok(MaintenanceResult {
+        kind: "run-backup-now".into(),
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: output.status.code(),
+        elapsed_ms: start.elapsed().as_millis(),
     })
 }
 

@@ -1,0 +1,14 @@
+[
+  {
+    "id": "home",
+    "kind": "home",
+    "title": "Projects",
+    "order": 0
+  },
+  {
+    "id": "ultron",
+    "kind": "project",
+    "title": "ultron",
+    "order": 1
+  }
+]

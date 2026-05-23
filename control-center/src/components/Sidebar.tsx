@@ -82,7 +82,9 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
-      { id: "plans", label: "Plans", available: true, featureKey: "plans" },
+      // v2.5: Plans tab removed from sidebar (per user). Per-project kanban
+      // lives inside Projects -> Board. Cross-project plans accessible only
+      // via the command palette ("Go to Plans") if ever needed.
     ],
   },
   // v2.1: "Gaming" and "Personal" tabs deleted (old ULTRON persona stack).

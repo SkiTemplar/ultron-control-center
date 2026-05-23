@@ -5,7 +5,17 @@
 // ProjectTerminalLayout with active tab id. All mutations through this module
 // are immutable; helpers below produce a fresh tree on each edit.
 
-export type Provider = "claude" | "codex" | "gemini";
+/** Providers that can be spawned into a terminal pane. The first three are
+ *  AI CLIs; `powershell` opens a plain Windows PowerShell 5.1 PTY, and
+ *  `powershell-admin` re-launches PowerShell elevated through UAC (the
+ *  elevated session opens in its own window — Windows does not allow a
+ *  non-elevated PTY to adopt an elevated child). */
+export type Provider =
+  | "claude"
+  | "codex"
+  | "gemini"
+  | "powershell"
+  | "powershell-admin";
 
 export type SplitDirection = "h" | "v";
 

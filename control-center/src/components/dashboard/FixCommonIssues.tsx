@@ -1,95 +1,122 @@
-// Reworked "Fix common issues" — quick actions tuned for the
-// Claude Code + ECC + Mem0 stack. No ULTRON / Qdrant / brain_index.
+// PC-focused quick actions (v2.5).
+//
+// Each action shells out to a Windows command via run_maintenance_command
+// (whitelisted by `kind` in src-tauri/src/maintenance.rs). Destructive
+// actions (Restart Explorer, Clear temp files, Reset network adapter)
+// require an explicit confirm via confirmDialog before dispatch.
 
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
+import { confirmDialog } from "../../lib/dialog";
 
 interface FixCommonIssuesProps {
   onOpenSettings?: () => void;
 }
 
 type ActionId =
-  | "rescan-projects"
-  | "open-claude-log"
-  | "open-ecc-plugin"
-  | "reset-mem0"
-  | "open-settings-json";
+  | "pc-flush-dns"
+  | "pc-reset-network"
+  | "pc-disk-cleanup"
+  | "pc-reliability-monitor"
+  | "pc-task-manager"
+  | "pc-restart-explorer"
+  | "pc-clear-temp"
+  | "pc-windows-update"
+  | "pc-open-hosts";
 
 interface Action {
   id: ActionId;
   label: string;
   detail: string;
-  run: () => Promise<string>; // returns short status message
+  /** When set, a confirm dialog must be acknowledged before dispatch. */
+  confirm?: { title: string; message: string };
 }
+
+interface MaintenanceResult {
+  kind: string;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  elapsed_ms: number;
+}
+
+const ACTIONS: Action[] = [
+  {
+    id: "pc-flush-dns",
+    label: "Flush DNS cache",
+    detail: "ipconfig /flushdns — clears stale DNS entries.",
+  },
+  {
+    id: "pc-reset-network",
+    label: "Reset network adapter",
+    detail: "netsh int ip reset — TCP/IP stack reset. Reboot recommended.",
+    confirm: {
+      title: "Reset network adapter?",
+      message:
+        "This resets the Windows TCP/IP stack. Your current connection will drop and a reboot is recommended afterward. Continue?",
+    },
+  },
+  {
+    id: "pc-disk-cleanup",
+    label: "Disk cleanup",
+    detail: "Launches Windows Disk Cleanup.",
+  },
+  {
+    id: "pc-reliability-monitor",
+    label: "Reliability Monitor",
+    detail: "perfmon /rel — per-day system stability log.",
+  },
+  {
+    id: "pc-task-manager",
+    label: "Task Manager",
+    detail: "Launches taskmgr.exe.",
+  },
+  {
+    id: "pc-restart-explorer",
+    label: "Restart Explorer",
+    detail: "Kills + relaunches explorer.exe (fixes shell glitches).",
+    confirm: {
+      title: "Restart Explorer?",
+      message:
+        "This will close and relaunch the Windows shell (taskbar, desktop icons). Any open File Explorer windows will be closed. Continue?",
+    },
+  },
+  {
+    id: "pc-clear-temp",
+    label: "Clear temp files",
+    detail: "Deletes %TEMP%\\* (best effort — locked files are skipped).",
+    confirm: {
+      title: "Clear temporary files?",
+      message:
+        "Permanently deletes contents of %TEMP%. Locked files (in use by running apps) are skipped. Continue?",
+    },
+  },
+  {
+    id: "pc-windows-update",
+    label: "Windows Update settings",
+    detail: "Opens ms-settings:windowsupdate.",
+  },
+  {
+    id: "pc-open-hosts",
+    label: "Open hosts file",
+    detail: "Opens C:\\Windows\\System32\\drivers\\etc\\hosts in notepad.",
+  },
+];
 
 export function FixCommonIssues({ onOpenSettings }: FixCommonIssuesProps) {
   const [busy, setBusy] = useState<ActionId | null>(null);
   const [results, setResults] = useState<Record<string, string>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const actions: Action[] = [
-    {
-      id: "rescan-projects",
-      label: "Re-scan projects",
-      detail: "Refresh ~/.ultron/projects.json so new entries are picked up.",
-      run: async () => {
-        const r = (await invoke("scan_projects")) as unknown[];
-        return `${r.length} projects`;
-      },
-    },
-    {
-      id: "open-claude-log",
-      label: "Open Claude Code log",
-      detail: "Reveal ~/.claude/logs in the file manager.",
-      run: async () => {
-        const home = (await invoke("home_dir_str")) as string;
-        const sep = home.includes("\\") ? "\\" : "/";
-        const path = `${home}${sep}.claude${sep}logs`;
-        await openPath(path);
-        return "opened";
-      },
-    },
-    {
-      id: "open-ecc-plugin",
-      label: "Open ECC plugin folder",
-      detail: "Open the installed ecc plugin root.",
-      run: async () => {
-        const info = (await invoke("read_plugin_info")) as {
-          root: string | null;
-        };
-        if (!info.root) throw new Error("plugin not installed");
-        await openPath(info.root);
-        return "opened";
-      },
-    },
-    {
-      id: "reset-mem0",
-      label: "Reset Mem0 connection",
-      detail: "Re-issue mem0_status to refresh the connection probe.",
-      run: async () => {
-        const r = (await invoke("mem0_status")) as {
-          connected: boolean;
-          latency_ms: number | null;
-        };
-        return r.connected ? `ok ${r.latency_ms ?? "?"}ms` : "disconnected";
-      },
-    },
-    {
-      id: "open-settings-json",
-      label: "Open settings.json",
-      detail: "Reveal ~/.claude/settings.json for manual edits.",
-      run: async () => {
-        const home = (await invoke("home_dir_str")) as string;
-        const sep = home.includes("\\") ? "\\" : "/";
-        const path = `${home}${sep}.claude${sep}settings.json`;
-        await openPath(path);
-        return "opened";
-      },
-    },
-  ];
-
   async function run(a: Action) {
+    if (a.confirm) {
+      const ok = await confirmDialog(a.confirm.message, {
+        title: a.confirm.title,
+        kind: "warning",
+      });
+      if (!ok) return;
+    }
     setBusy(a.id);
     setErrors((p) => {
       const next = { ...p };
@@ -97,8 +124,19 @@ export function FixCommonIssues({ onOpenSettings }: FixCommonIssuesProps) {
       return next;
     });
     try {
-      const msg = await a.run();
-      setResults((p) => ({ ...p, [a.id]: msg }));
+      const r = (await invoke("run_maintenance_command", {
+        kind: a.id,
+      })) as MaintenanceResult;
+      const status = r.success
+        ? `ok ${r.elapsed_ms}ms`
+        : `exit ${r.exit_code ?? "?"}`;
+      setResults((p) => ({ ...p, [a.id]: status }));
+      if (!r.success) {
+        const tail = (r.stderr || r.stdout || "").trim().slice(0, 180);
+        if (tail.length > 0) {
+          setErrors((p) => ({ ...p, [a.id]: tail }));
+        }
+      }
     } catch (e) {
       setErrors((p) => ({ ...p, [a.id]: String(e) }));
     } finally {
@@ -115,7 +153,7 @@ export function FixCommonIssues({ onOpenSettings }: FixCommonIssuesProps) {
             className="mt-1 text-[12px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Quick actions for the Claude Code + ECC + Mem0 stack.
+            PC-focused quick actions. Destructive ones ask for confirmation.
           </p>
         </div>
         {onOpenSettings && (
@@ -134,7 +172,7 @@ export function FixCommonIssues({ onOpenSettings }: FixCommonIssuesProps) {
         )}
       </div>
       <div className="mt-3 flex flex-wrap gap-2">
-        {actions.map((a) => {
+        {ACTIONS.map((a) => {
           const running = busy === a.id;
           const ok = results[a.id];
           const err = errors[a.id];
@@ -148,7 +186,7 @@ export function FixCommonIssues({ onOpenSettings }: FixCommonIssuesProps) {
               key={a.id}
               type="button"
               onClick={() => void run(a)}
-              disabled={running}
+              disabled={running || busy !== null}
               title={a.detail}
               className="flex items-center gap-2 rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-60"
               style={{

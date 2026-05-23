@@ -212,7 +212,7 @@ function providerToKind(p: SessionProvider): string {
 // Status styling
 // ---------------------------------------------------------------------------
 
-type StatusKey = "active" | "auto-detected" | "manual" | "archived" | string;
+// v2.5: StatusKey type alias removed — status filter was dropped per user.
 
 function statusBadge(s: string | null): { color: string; bg: string; label: string } {
   switch (s) {
@@ -1019,48 +1019,114 @@ function Row({
 }
 
 // ---------------------------------------------------------------------------
-// Filter pill
-// ---------------------------------------------------------------------------
-
-function Pill({
-  active,
-  label,
-  count,
-  onClick,
-}: {
-  active: boolean;
-  label: string;
-  count: number;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] transition-colors"
-      style={{
-        background: active ? "var(--color-surface-3)" : "transparent",
-        color: active ? "var(--color-text)" : "var(--color-text-tertiary)",
-        border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}`,
-      }}
-    >
-      <span>{label}</span>
-      <span
-        className="tabular-nums"
-        style={{ color: active ? "var(--color-text-secondary)" : "var(--color-text-faint)" }}
-      >
-        {count}
-      </span>
-    </button>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-type GroupBy = "none" | "language" | "tag";
 type SortBy = "recent" | "alpha" | "type";
+
+/** Hierarchy mode for the project grid. `flat` is the legacy "single flat
+ *  list of cards". `tree` groups by the common-ancestor folder of `path` so
+ *  projects under e.g. `C:/Users/USER/CARRERA/ASIGNATURAS/PROGRAM_B/*` collapse
+ *  into a CARRERA / ASIGNATURAS / PROGRAM_B nested node — USER asked for this
+ *  after the flat list of carrera asignatura grew unwieldy. */
+type HierarchyMode = "flat" | "tree";
+
+/** Internal tree node used by the Tree-mode render. Folders nest by path
+ *  segment; leaves carry the project itself. */
+type FolderNode = {
+  segment: string;      // single path segment ("CARRERA", "PROGRAM_B", …) or full path for the root
+  fullPath: string;     // accumulated path used for the React key + tooltip
+  children: FolderNode[];
+  projects: ProjectInfo[];
+};
+
+/** Split a path into normalised segments (handles \ and /). Empty segments
+ *  are dropped, drive letters preserved as their own segment. */
+function splitPath(p: string): string[] {
+  return p
+    .replace(/\\+/g, "/")
+    .split("/")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/** Build a folder tree from a list of projects, grouping by the common
+ *  ancestor path. Projects without a path land under a synthetic "(no path)"
+ *  root so they don't disappear when Tree mode is on. */
+function buildFolderTree(items: ProjectInfo[]): FolderNode {
+  const root: FolderNode = {
+    segment: "",
+    fullPath: "",
+    children: [],
+    projects: [],
+  };
+  for (const p of items) {
+    if (!p.path) {
+      // Group path-less entries under a synthetic bucket.
+      let bucket = root.children.find((c) => c.segment === "(no path)");
+      if (!bucket) {
+        bucket = {
+          segment: "(no path)",
+          fullPath: "(no path)",
+          children: [],
+          projects: [],
+        };
+        root.children.push(bucket);
+      }
+      bucket.projects.push(p);
+      continue;
+    }
+    const segments = splitPath(p.path);
+    // Leaf segment is the project folder itself — keep it on the parent node,
+    // not as its own folder node, so the card sits next to its siblings.
+    const parentSegments = segments.slice(0, Math.max(0, segments.length - 1));
+    let node = root;
+    let acc = "";
+    for (const seg of parentSegments) {
+      acc = acc ? `${acc}/${seg}` : seg;
+      let child = node.children.find((c) => c.segment === seg);
+      if (!child) {
+        child = {
+          segment: seg,
+          fullPath: acc,
+          children: [],
+          projects: [],
+        };
+        node.children.push(child);
+      }
+      node = child;
+    }
+    node.projects.push(p);
+  }
+  // Collapse linear chains (a node with one child and no projects) into a
+  // single segment so deeply-nested mono-paths render as "A/B/C" instead of
+  // three nested collapsibles. Mirrors the way file managers compress paths.
+  collapseLinearChains(root);
+  // Sort children alphabetically for predictable rendering.
+  sortTree(root);
+  return root;
+}
+
+function collapseLinearChains(node: FolderNode) {
+  for (const child of node.children) {
+    while (child.children.length === 1 && child.projects.length === 0) {
+      const only = child.children[0];
+      child.segment = `${child.segment}/${only.segment}`;
+      child.fullPath = only.fullPath;
+      child.children = only.children;
+      child.projects = only.projects;
+    }
+    collapseLinearChains(child);
+  }
+}
+
+function sortTree(node: FolderNode) {
+  node.children.sort((a, b) => a.segment.localeCompare(b.segment));
+  node.projects.sort((a, b) =>
+    (a.name ?? a.id).localeCompare(b.name ?? b.id),
+  );
+  for (const c of node.children) sortTree(c);
+}
 
 // Parse the `last_active` string (ISO timestamp or a relative label like
 // "2h ago") into a sortable number. Higher = more recent. Unknown → 0 so
@@ -1081,6 +1147,156 @@ const ITEM_KINDS: { value: LauncherItemKind; label: string; hint: string }[] = [
   { value: "session", label: "AI session", hint: "Start a new Claude / Codex / Gemini session (selector below)" },
   { value: "exe", label: "Executable (advanced)", hint: "Spawn an .exe / .lnk / .bat with optional arguments" },
 ];
+
+// ---------------------------------------------------------------------------
+// Folder tree view (Tree hierarchy mode)
+// ---------------------------------------------------------------------------
+
+type FolderTreeViewProps = {
+  node: FolderNode;
+  depth: number;
+  viewMode: ViewMode;
+  collapsed: Set<string>;
+  onToggleFolder: (fullPath: string) => void;
+  stats: Record<string, CardStats>;
+  openInWorkspace: (id: string, name: string, subTab?: ProjectSubTab) => void;
+  cardOpenFolder: (p: ProjectInfo) => void | Promise<void>;
+  cardOpenIde: (p: ProjectInfo) => void | Promise<void>;
+  cardOpenAi: (p: ProjectInfo) => void | Promise<void>;
+  cardOpenTerminal: (p: ProjectInfo) => void;
+  startEdit: (p: ProjectInfo) => void;
+  setPendingDelete: (p: ProjectInfo) => void;
+  selected: string | null;
+  setSelected: (id: string) => void;
+  opening: string | null;
+  openLegacy: (id: string) => void | Promise<void>;
+  launchAll: (id: string) => void | Promise<void>;
+  launchItem: (id: string, i: number) => void | Promise<void>;
+  openAddItem: (p: ProjectInfo) => void;
+  removeItem: (id: string, i: number) => void | Promise<void>;
+  setDefaultProvider: (id: string, prov: SessionProvider) => void | Promise<void>;
+  busyItem: Record<string, number | null>;
+  launchingAll: Record<string, boolean>;
+};
+
+function FolderTreeView(props: FolderTreeViewProps): ReactElement {
+  const { node, depth, viewMode, collapsed, onToggleFolder, stats } = props;
+
+  // Render this node's direct projects as cards/rows, then recurse into
+  // children. Root node has no header — it just lays out children.
+  const isRoot = depth === 0;
+  const isCollapsed = !isRoot && collapsed.has(node.fullPath);
+  const totalUnderHere = countProjects(node);
+
+  const renderProjects = (items: ProjectInfo[]) =>
+    viewMode === "cards" ? (
+      <div
+        className="grid gap-3"
+        style={{
+          gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+        }}
+      >
+        {items.map((p) => (
+          <ProjectCard
+            key={p.id}
+            p={p}
+            stats={stats[p.id] ?? null}
+            onOpenWorkspace={() => props.openInWorkspace(p.id, p.name ?? p.id)}
+            onOpenFolder={() => void props.cardOpenFolder(p)}
+            onOpenIde={() => void props.cardOpenIde(p)}
+            onOpenAi={() => void props.cardOpenAi(p)}
+            onOpenTerminal={() => props.cardOpenTerminal(p)}
+            onEdit={() => props.startEdit(p)}
+            onDelete={() => props.setPendingDelete(p)}
+          />
+        ))}
+      </div>
+    ) : (
+      <div className="space-y-2">
+        {items.map((p) => (
+          <Row
+            key={p.id}
+            p={p}
+            selected={props.selected === p.id}
+            onClick={() => props.setSelected(p.id)}
+            onOpen={() => void props.openLegacy(p.id)}
+            opening={props.opening === p.id}
+            onEdit={() => props.startEdit(p)}
+            onDelete={() => props.setPendingDelete(p)}
+            onLaunchAll={() => void props.launchAll(p.id)}
+            onLaunchItem={(i) => void props.launchItem(p.id, i)}
+            onAddItem={() => props.openAddItem(p)}
+            onRemoveItem={(i) => void props.removeItem(p.id, i)}
+            onSetDefaultProvider={(prov) =>
+              void props.setDefaultProvider(p.id, prov)
+            }
+            busyItem={props.busyItem[p.id] ?? null}
+            launchingAll={!!props.launchingAll[p.id]}
+          />
+        ))}
+      </div>
+    );
+
+  return (
+    <div
+      className={isRoot ? "space-y-4" : "space-y-2"}
+      style={isRoot ? {} : { marginLeft: depth === 1 ? 0 : 12 }}
+    >
+      {!isRoot && (
+        <button
+          type="button"
+          onClick={() => onToggleFolder(node.fullPath)}
+          className="flex w-full items-baseline gap-2 rounded px-1 py-0.5 text-left transition-colors hover:bg-[var(--color-surface-2)]"
+          title={node.fullPath}
+        >
+          <span
+            aria-hidden
+            className="inline-block w-3 text-center font-mono text-[10px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {isCollapsed ? "▶" : "▼"}
+          </span>
+          <span
+            className="font-mono text-[11.5px] font-semibold uppercase tracking-[0.04em]"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            {node.segment}
+          </span>
+          <span
+            className="text-[10px] tabular-nums"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {totalUnderHere}
+          </span>
+          <span
+            className="h-px flex-1"
+            style={{ background: "var(--color-border)" }}
+          />
+        </button>
+      )}
+      {!isCollapsed && (
+        <div className="space-y-4">
+          {node.projects.length > 0 && renderProjects(node.projects)}
+          {node.children.map((child) => (
+            <FolderTreeView
+              key={child.fullPath || child.segment}
+              {...props}
+              node={child}
+              depth={depth + 1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function countProjects(node: FolderNode): number {
+  return (
+    node.projects.length +
+    node.children.reduce((acc, c) => acc + countProjects(c), 0)
+  );
+}
 
 type ProjectsProps = {
   onOpenProject?: (project: { id: string; name: string }) => void;
@@ -1127,14 +1343,30 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [statusFilters, setStatusFilters] = useState<Set<StatusKey>>(
-    () => new Set<StatusKey>(),
-  );
-  const [languageFilters, setLanguageFilters] = useState<Set<string>>(
+  const [sortBy, setSortBy] = useState<SortBy>("recent");
+  // v2.x — folder hierarchy toggle. Default Tree per user request: dropping
+  // status/language/group-by filters in favour of file-structure grouping.
+  const [hierarchy, setHierarchy] = useState<HierarchyMode>(() => {
+    try {
+      const v = localStorage.getItem("projects.hierarchy");
+      return v === "flat" ? "flat" : "tree";
+    } catch {
+      return "tree";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("projects.hierarchy", hierarchy);
+    } catch {
+      /* ignore */
+    }
+  }, [hierarchy]);
+  // Collapsed-folder state for Tree mode — keyed by fullPath. We default to
+  // EXPANDED so the user sees their projects on first paint; collapsing is
+  // opt-in via the chevron.
+  const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(
     () => new Set<string>(),
   );
-  const [groupBy, setGroupBy] = useState<GroupBy>("none");
-  const [sortBy, setSortBy] = useState<SortBy>("recent");
   const [selected, setSelected] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -1640,45 +1872,13 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     } catch {}
   }
 
-  // Counts for filter pills
-  const statusCounts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const p of projects) {
-      const key = p.status ?? "—";
-      c[key] = (c[key] ?? 0) + 1;
-    }
-    return c;
-  }, [projects]);
-
-  const languageCounts = useMemo(() => {
-    const c: Record<string, number> = {};
-    for (const p of projects) {
-      const key = (p.language ?? "").trim() || "—";
-      c[key] = (c[key] ?? 0) + 1;
-    }
-    return c;
-  }, [projects]);
-
-  const sortByCountDesc = (counts: Record<string, number>) =>
-    Object.keys(counts).sort((a, b) =>
-      counts[b] - counts[a] !== 0 ? counts[b] - counts[a] : a.localeCompare(b),
-    );
-
-  const statusKeys = useMemo(() => sortByCountDesc(statusCounts), [statusCounts]);
-  const languageKeys = useMemo(() => sortByCountDesc(languageCounts), [languageCounts]);
+  // v2.x — status/language/group-by filters dropped per user feedback.
+  // The folder hierarchy toggle (Flat ↔ Tree) below replaces "Group by".
 
   // Filtered + searched
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     const matched = projects
-      .filter((p) => {
-        if (statusFilters.size === 0) return true;
-        return statusFilters.has(p.status ?? "—");
-      })
-      .filter((p) => {
-        if (languageFilters.size === 0) return true;
-        return languageFilters.has((p.language ?? "").trim() || "—");
-      })
       .filter((p) => {
         if (!q) return true;
         const hay = [
@@ -1717,38 +1917,18 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       });
     }
     return sorted;
-  }, [projects, statusFilters, languageFilters, query, sortBy]);
+  }, [projects, query, sortBy]);
 
-  // Group filtered by chosen dimension
-  const grouped = useMemo(() => {
-    if (groupBy === "none") return [["", filtered]] as [string, ProjectInfo[]][];
-    const map = new Map<string, ProjectInfo[]>();
-    for (const p of filtered) {
-      const key =
-        groupBy === "language"
-          ? (p.language ?? "").trim() || "—"
-          : (p.tags[0] ?? "").trim() || "—";
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(p);
-    }
-    return Array.from(map.entries()).sort((a, b) =>
-      b[1].length - a[1].length !== 0
-        ? b[1].length - a[1].length
-        : a[0].localeCompare(b[0]),
-    );
-  }, [filtered, groupBy]);
+  /** Folder tree built from `filtered` — only consumed when hierarchy === "tree". */
+  const folderTree = useMemo(() => buildFolderTree(filtered), [filtered]);
 
-  function toggleStatus(s: StatusKey) {
-    const next = new Set(statusFilters);
-    if (next.has(s)) next.delete(s);
-    else next.add(s);
-    setStatusFilters(next);
-  }
-  function toggleLang(s: string) {
-    const next = new Set(languageFilters);
-    if (next.has(s)) next.delete(s);
-    else next.add(s);
-    setLanguageFilters(next);
+  function toggleFolder(fullPath: string) {
+    setCollapsedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(fullPath)) next.delete(fullPath);
+      else next.add(fullPath);
+      return next;
+    });
   }
 
   return (
@@ -2060,89 +2240,40 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         </div>
       </div>
 
-      {statusKeys.length > 1 && (
-        <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          <span
-            className="text-[10px] font-medium uppercase tracking-[0.06em] w-16"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Status
-          </span>
-          {statusKeys.map((s) => (
-            <Pill
-              key={s}
-              label={s}
-              count={statusCounts[s]}
-              active={statusFilters.has(s)}
-              onClick={() => toggleStatus(s)}
-            />
-          ))}
-          {statusFilters.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setStatusFilters(new Set())}
-              className="text-[10px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              clear
-            </button>
-          )}
-        </div>
-      )}
-
-      {languageKeys.length > 1 && (
-        <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          <span
-            className="text-[10px] font-medium uppercase tracking-[0.06em] w-16"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Language
-          </span>
-          {languageKeys.map((s) => (
-            <Pill
-              key={s}
-              label={s}
-              count={languageCounts[s]}
-              active={languageFilters.has(s)}
-              onClick={() => toggleLang(s)}
-            />
-          ))}
-          {languageFilters.size > 0 && (
-            <button
-              type="button"
-              onClick={() => setLanguageFilters(new Set())}
-              className="text-[10px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              clear
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Group-by switch */}
+      {/* Hierarchy toggle — Flat (classic grid) vs Tree (folder breakdown).
+          v2.x: replaces status/language/group-by filter rows the user found
+          useless. Tree groups by the common-ancestor path of each project,
+          collapsing linear chains so deeply-nested mono-paths render compactly. */}
       <div className="mb-4 flex items-center gap-1.5">
         <span
-          className="text-[10px] font-medium uppercase tracking-[0.06em] w-16"
+          className="w-16 text-[10px] font-medium uppercase tracking-[0.06em]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          Group by
+          Layout
         </span>
-        {(["none", "language", "tag"] as GroupBy[]).map((g) => (
-          <button
-            key={g}
-            type="button"
-            onClick={() => setGroupBy(g)}
-            className="rounded px-2 py-0.5 text-[11px] transition-colors"
-            style={{
-              background: groupBy === g ? "var(--color-surface-3)" : "transparent",
-              color: groupBy === g ? "var(--color-text)" : "var(--color-text-tertiary)",
-              border: `1px solid ${groupBy === g ? "var(--color-border-strong)" : "var(--color-border)"}`,
-            }}
-          >
-            {g}
-          </button>
-        ))}
+        {(["tree", "flat"] as HierarchyMode[]).map((m) => {
+          const active = hierarchy === m;
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => setHierarchy(m)}
+              className="rounded px-2 py-0.5 text-[11px] transition-colors"
+              style={{
+                background: active ? "var(--color-surface-3)" : "transparent",
+                color: active ? "var(--color-text)" : "var(--color-text-tertiary)",
+                border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}`,
+              }}
+              title={
+                m === "tree"
+                  ? "Group projects by their common parent folder (e.g. CARRERA/ASIGNATURAS/PROGRAM_B)"
+                  : "Flat grid — show every project at the same level"
+              }
+            >
+              {m}
+            </button>
+          );
+        })}
       </div>
 
       {lastAction && !lastAction.success && (
@@ -2178,74 +2309,80 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       )}
 
       <div className="space-y-6">
-        {grouped.map(([groupKey, items]) => (
-          <div key={groupKey}>
-            {groupBy !== "none" && (
-              <div className="mb-2 flex items-baseline gap-3">
-                <h3
-                  className="text-[12px] font-medium uppercase tracking-[0.06em]"
-                  style={{ color: "var(--color-text-secondary)" }}
-                >
-                  {groupKey}
-                </h3>
-                <div className="h-px flex-1" style={{ background: "var(--color-border)" }} />
-                <span className="text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>
-                  {items.length}
-                </span>
-              </div>
-            )}
-            {viewMode === "cards" ? (
-              <div
-                className="grid gap-3"
-                style={{
-                  gridTemplateColumns:
-                    "repeat(auto-fill, minmax(320px, 1fr))",
-                }}
-              >
-                {items.map((p) => (
-                  <ProjectCard
-                    key={p.id}
-                    p={p}
-                    stats={stats[p.id] ?? null}
-                    onOpenWorkspace={() =>
-                      openInWorkspace(p.id, p.name ?? p.id)
-                    }
-                    onOpenFolder={() => void cardOpenFolder(p)}
-                    onOpenIde={() => void cardOpenIde(p)}
-                    onOpenAi={() => void cardOpenAi(p)}
-                    onOpenTerminal={() => cardOpenTerminal(p)}
-                    onEdit={() => startEdit(p)}
-                    onDelete={() => setPendingDelete(p)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {items.map((p) => (
-                  <Row
-                    key={p.id}
-                    p={p}
-                    selected={selected === p.id}
-                    onClick={() => setSelected(p.id)}
-                    onOpen={() => openLegacy(p.id)}
-                    opening={opening === p.id}
-                    onEdit={() => startEdit(p)}
-                    onDelete={() => setPendingDelete(p)}
-                    onLaunchAll={() => launchAll(p.id)}
-                    onLaunchItem={(i) => launchItem(p.id, i)}
-                    onAddItem={() => openAddItem(p)}
-                    onRemoveItem={(i) => removeItem(p.id, i)}
-                    onSetDefaultProvider={(prov) =>
-                      setDefaultProvider(p.id, prov)
-                    }
-                    busyItem={busyItem[p.id] ?? null}
-                    launchingAll={!!launchingAll[p.id]}
-                  />
-                ))}
-              </div>
-            )}
+        {hierarchy === "tree" ? (
+          <FolderTreeView
+            node={folderTree}
+            depth={0}
+            viewMode={viewMode}
+            collapsed={collapsedFolders}
+            onToggleFolder={toggleFolder}
+            stats={stats}
+            openInWorkspace={openInWorkspace}
+            cardOpenFolder={cardOpenFolder}
+            cardOpenIde={cardOpenIde}
+            cardOpenAi={cardOpenAi}
+            cardOpenTerminal={cardOpenTerminal}
+            startEdit={startEdit}
+            setPendingDelete={setPendingDelete}
+            selected={selected}
+            setSelected={setSelected}
+            opening={opening}
+            openLegacy={openLegacy}
+            launchAll={launchAll}
+            launchItem={launchItem}
+            openAddItem={openAddItem}
+            removeItem={removeItem}
+            setDefaultProvider={setDefaultProvider}
+            busyItem={busyItem}
+            launchingAll={launchingAll}
+          />
+        ) : viewMode === "cards" ? (
+          <div
+            className="grid gap-3"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+            }}
+          >
+            {filtered.map((p) => (
+              <ProjectCard
+                key={p.id}
+                p={p}
+                stats={stats[p.id] ?? null}
+                onOpenWorkspace={() => openInWorkspace(p.id, p.name ?? p.id)}
+                onOpenFolder={() => void cardOpenFolder(p)}
+                onOpenIde={() => void cardOpenIde(p)}
+                onOpenAi={() => void cardOpenAi(p)}
+                onOpenTerminal={() => cardOpenTerminal(p)}
+                onEdit={() => startEdit(p)}
+                onDelete={() => setPendingDelete(p)}
+              />
+            ))}
           </div>
-        ))}
+        ) : (
+          <div className="space-y-2">
+            {filtered.map((p) => (
+              <Row
+                key={p.id}
+                p={p}
+                selected={selected === p.id}
+                onClick={() => setSelected(p.id)}
+                onOpen={() => openLegacy(p.id)}
+                opening={opening === p.id}
+                onEdit={() => startEdit(p)}
+                onDelete={() => setPendingDelete(p)}
+                onLaunchAll={() => launchAll(p.id)}
+                onLaunchItem={(i) => launchItem(p.id, i)}
+                onAddItem={() => openAddItem(p)}
+                onRemoveItem={(i) => removeItem(p.id, i)}
+                onSetDefaultProvider={(prov) =>
+                  setDefaultProvider(p.id, prov)
+                }
+                busyItem={busyItem[p.id] ?? null}
+                launchingAll={!!launchingAll[p.id]}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Add launcher item modal */}

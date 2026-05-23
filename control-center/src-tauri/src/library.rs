@@ -100,11 +100,18 @@ pub async fn search_github_inner(
     // Available fields are now: path, repository, sha, textMatches, url.
     // We derive the display name from the basename of `path`.
     //
-    // For skills we want SKILL.md hits only (a real skill is always a
-    // directory containing SKILL.md). For agents we ask for any .md under
-    // .claude/agents.
+    // GitHub code search treats the FIRST token as the keyword and the
+    // rest as qualifiers. Putting `SKILL.md` before `path:` returns 0
+    // results because GitHub indexes "SKILL.md" as a filename, not a
+    // body token. The user-supplied query MUST come first so the rest
+    // of the line works as qualifiers — verified manually via
+    //   gh search code "tdd path:.claude/skills" → 5 hits
+    //   gh search code "SKILL.md path:.claude/skills tdd" → []
+    //
+    // Post-filtering happens below (per-kind path/extension assertions),
+    // so we don't lose precision by loosening the query.
     let q = match kind {
-        LibraryKind::Skill => format!("SKILL.md path:{} {}", kind_path, query),
+        LibraryKind::Skill => format!("{} path:{}", query, kind_path),
         LibraryKind::Agent => format!("{} path:{} extension:md", query, kind_path),
     };
     let limit_str = limit.clamp(1, 100).to_string();
@@ -155,7 +162,24 @@ pub async fn search_github_inner(
             // segment (not nested README/docs).
             match kind {
                 LibraryKind::Skill => {
-                    if !h.path.ends_with("/SKILL.md") && h.path != "SKILL.md" {
+                    // Accept three shapes (verified on real repos):
+                    //   .claude/skills/<name>/SKILL.md   ← canonical
+                    //   .claude/skills/<name>.md         ← flat file
+                    //   .claude/skills/<name>/README.md  ← occasional
+                    let p = &h.path;
+                    let is_skill_md = p.ends_with("/SKILL.md") || p == "SKILL.md";
+                    let is_readme_under_skills = p.contains(".claude/skills/")
+                        && p.to_ascii_lowercase().ends_with("/readme.md");
+                    let is_flat_skill = {
+                        // .claude/skills/<name>.md (parent dir literally "skills").
+                        let parent_is_skills = p
+                            .rsplitn(3, '/')
+                            .nth(1)
+                            .map(|seg| seg == "skills")
+                            .unwrap_or(false);
+                        parent_is_skills && p.ends_with(".md")
+                    };
+                    if !(is_skill_md || is_readme_under_skills || is_flat_skill) {
                         return None;
                     }
                 }
@@ -194,12 +218,15 @@ pub async fn search_github_inner(
             //   .claude/agents/foo.md        -> "foo"
             let name = match kind {
                 LibraryKind::Skill => {
-                    // parent of SKILL.md
-                    h.path
-                        .rsplitn(3, '/')
-                        .nth(1)
-                        .unwrap_or("")
-                        .to_string()
+                    let bn = h.path.rsplit('/').next().unwrap_or("");
+                    let bn_lc = bn.to_ascii_lowercase();
+                    if bn_lc == "skill.md" || bn_lc == "readme.md" {
+                        // Folder-style: <name>/SKILL.md → parent dir is the name.
+                        h.path.rsplitn(3, '/').nth(1).unwrap_or("").to_string()
+                    } else {
+                        // Flat file: <name>.md → stem of the basename.
+                        bn.trim_end_matches(".md").to_string()
+                    }
                 }
                 LibraryKind::Agent => h
                     .path

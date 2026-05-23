@@ -106,6 +106,52 @@ fn unslug(slug: &str) -> String {
     out
 }
 
+/// v2.5: Read the cwd from the first JSONL line that carries one. Claude
+/// Code transcripts log the working directory in event metadata; reading
+/// it back is far more reliable than reverse-engineering the slug.
+/// Scans up to 50 lines per file. Returns None if no cwd field is found.
+pub(crate) fn cwd_from_jsonl(project_dir: &PathBuf) -> Option<String> {
+    let entries = fs::read_dir(project_dir).ok()?;
+    for entry in entries.flatten() {
+        let p = entry.path();
+        if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let text = match fs::read_to_string(&p) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        for line in text.lines().take(50) {
+            if line.is_empty() {
+                continue;
+            }
+            let parsed: serde_json::Value = match serde_json::from_str(line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            // Try several shapes: top-level cwd, message.cwd, metadata.cwd.
+            if let Some(cwd) = parsed.get("cwd").and_then(|v| v.as_str()) {
+                return Some(cwd.to_string());
+            }
+            if let Some(cwd) = parsed
+                .get("message")
+                .and_then(|m| m.get("cwd"))
+                .and_then(|v| v.as_str())
+            {
+                return Some(cwd.to_string());
+            }
+            if let Some(cwd) = parsed
+                .get("metadata")
+                .and_then(|m| m.get("cwd"))
+                .and_then(|v| v.as_str())
+            {
+                return Some(cwd.to_string());
+            }
+        }
+    }
+    None
+}
+
 /// Extract the first user message text from a transcript. We deliberately
 /// keep the scan bounded — Claude transcripts can grow to many MB and we
 /// only need a snippet.
@@ -173,7 +219,9 @@ pub fn list_claude_sessions_inner(limit: Option<usize>) -> Result<Vec<ClaudeSess
             continue;
         }
         let slug = project_entry.file_name().to_string_lossy().to_string();
-        let label = unslug(&slug);
+        // v2.5: prefer the cwd recorded inside the JSONL events (authoritative).
+        // Fall back to the slug heuristic only when no JSONL carries a cwd.
+        let label = cwd_from_jsonl(&project_path).unwrap_or_else(|| unslug(&slug));
 
         // Top-level .jsonl files inside each project folder. We skip
         // `subagents/*.jsonl` because those are not resumable sessions —

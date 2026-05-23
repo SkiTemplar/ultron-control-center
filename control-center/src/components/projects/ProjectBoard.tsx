@@ -132,6 +132,16 @@ export default function ProjectBoard({ projectId }: Props) {
               onAddCard={() => setEditing({ mode: "create", columnId: col.id })}
               onEditCard={(card) => setEditing({ mode: "edit", card })}
               onDeleteCard={(cardId) => void deleteCard(cardId)}
+              onDispatchPrompt={(prompt) =>
+                void dispatchOrchestratorPrompt(
+                  projectId,
+                  col.name,
+                  prompt,
+                  board.cards
+                    .filter((c) => c.column_id === col.id)
+                    .map((c) => c.title),
+                )
+              }
             />
           ))}
         </div>
@@ -171,7 +181,110 @@ type ColumnProps = {
   onAddCard: () => void;
   onEditCard: (card: Card) => void;
   onDeleteCard: (cardId: string) => void;
+  onDispatchPrompt: (prompt: string) => void;
 };
+
+/** Per-column orchestrator presets — each entry maps a column name (matched
+ *  case-insensitive substring) to a list of named prompts. The button on the
+ *  column header opens a popover with these and dispatches the chosen prompt
+ *  as a Claude PTY session preseeded with the column context. */
+type ColumnPreset = { label: string; prompt: string };
+
+function presetsForColumn(name: string): ColumnPreset[] {
+  const n = name.toLowerCase();
+  if (n.includes("backlog") || n.includes("todo") || n.includes("to do")) {
+    return [
+      {
+        label: "Brainstorm new cards",
+        prompt: `You are looking at the BACKLOG of this project. Propose 3-5 new tasks that would belong here, based on the project layout and the cards already present. Format each as a card title plus 1-line description.`,
+      },
+      {
+        label: "Prioritise backlog",
+        prompt: `Review the BACKLOG and rank the cards by priority (P0 critical, P1 high, P2 medium, P3 nice-to-have). Briefly justify each ranking.`,
+      },
+    ];
+  }
+  if (n.includes("open") || n.includes("ready")) {
+    return [
+      {
+        label: "Pick next",
+        prompt: `Look at the OPEN column. Pick the single highest-value card to start RIGHT NOW. State which one and why, then outline the first three concrete steps.`,
+      },
+    ];
+  }
+  if (n.includes("progress") || n.includes("doing")) {
+    return [
+      {
+        label: "Resume work",
+        prompt: `These cards are IN PROGRESS. Pick the one most likely to be unblocked quickly, summarise where it left off, and continue the implementation.`,
+      },
+      {
+        label: "Status check",
+        prompt: `For each IN PROGRESS card, summarise current status in one line and flag anything blocked.`,
+      },
+    ];
+  }
+  if (n.includes("review")) {
+    return [
+      {
+        label: "Review cards",
+        prompt: `Each of these cards is awaiting REVIEW. For each one, identify what needs to be verified, suggest a quick QA plan, and call out any obvious gaps.`,
+      },
+    ];
+  }
+  if (n.includes("done") || n.includes("complete")) {
+    return [
+      {
+        label: "Summarise wins",
+        prompt: `Write a one-line victory summary for each DONE card. Frame it as a changelog line.`,
+      },
+    ];
+  }
+  if (n.includes("block")) {
+    return [
+      {
+        label: "Diagnose blockers",
+        prompt: `These cards are BLOCKED. For each one, list the suspected blocker, who/what could unblock it, and a fallback path.`,
+      },
+    ];
+  }
+  return [
+    {
+      label: "Discuss this column",
+      prompt: `Discuss the cards currently in this column. What pattern do you see? What would you do next?`,
+    },
+  ];
+}
+
+/** Spawn a Claude PTY pre-seeded with the column context. We invoke
+ *  `pty_spawn` directly so the session opens in the project's Terminal tab
+ *  (the user can flip to it manually). Prompt is currently not auto-pasted —
+ *  the wrapper script's clipboard route is the safer fallback — but the
+ *  column name + card titles are baked into the prompt so context is clear. */
+async function dispatchOrchestratorPrompt(
+  projectId: string,
+  columnName: string,
+  prompt: string,
+  cardTitles: string[],
+): Promise<void> {
+  const titlesBlock =
+    cardTitles.length > 0
+      ? cardTitles.map((t) => `  - ${t}`).join("\n")
+      : "  (no cards in this column)";
+  const fullPrompt = `[Kanban orchestrator — column: ${columnName}]\n\nCards currently in "${columnName}":\n${titlesBlock}\n\nTask: ${prompt}\n`;
+  try {
+    await invoke("pty_spawn", {
+      projectId,
+      cardId: null,
+      provider: "claude",
+      agent: null,
+      cwd: ".",
+      prompt: fullPrompt,
+    });
+  } catch (e) {
+    console.error("dispatchOrchestratorPrompt failed", e);
+  }
+}
 
 /** Lookup an accent colour per well-known column name. Falls back to muted. */
 function columnAccent(name: string): string {
@@ -193,24 +306,30 @@ function BoardColumn({
   onAddCard,
   onEditCard,
   onDeleteCard,
+  onDispatchPrompt,
 }: ColumnProps) {
   const { columnDropProps, cardDropProps, hover } = useDroppableColumn(
     columnId,
     ({ payload, beforeCardId }) => onDropCard(payload.card_id, beforeCardId),
   );
   const accent = columnAccent(name);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const presets = useMemo(() => presetsForColumn(name), [name]);
 
   return (
     <div
       {...columnDropProps}
       className={[
-        "flex h-full w-72 shrink-0 flex-col rounded-md border bg-[var(--color-surface-1)] transition-colors",
+        // v2.x: min-w-[280px] + flex-1 so columns absorb the right-side
+        // dead space the user complained about, while still horizontal-
+        // scrolling on narrow viewports.
+        "flex h-full min-w-[280px] flex-1 shrink-0 flex-col rounded-md border bg-[var(--color-surface-1)] transition-colors",
         hover
           ? "border-[var(--color-accent)] bg-[var(--color-surface-2)]"
           : "border-[var(--color-border)]",
       ].join(" ")}
     >
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2 text-xs">
+      <div className="relative flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2 text-xs">
         <span className="flex items-center gap-1.5 font-semibold uppercase tracking-wide">
           <span
             aria-hidden
@@ -222,14 +341,48 @@ function BoardColumn({
             {cards.length}
           </span>
         </span>
-        <button
-          onClick={onAddCard}
-          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
-          aria-label="Add card"
-          title="Add card"
-        >
-          <Plus size={12} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={() => setMenuOpen((v) => !v)}
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-accent)]"
+            aria-label="Dispatch AI on this column"
+            title="Dispatch AI session with this column's context"
+          >
+            <Bot size={12} />
+          </button>
+          <button
+            onClick={onAddCard}
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
+            aria-label="Add card"
+            title="Add card"
+          >
+            <Plus size={12} />
+          </button>
+        </div>
+        {menuOpen && (
+          <div
+            className="absolute right-1 top-9 z-20 w-60 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] shadow-lg"
+            onMouseLeave={() => setMenuOpen(false)}
+          >
+            <div className="border-b border-[var(--color-border)] px-3 py-1.5 text-[10.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
+              Dispatch for {name}
+            </div>
+            {presets.map((p) => (
+              <button
+                key={p.label}
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDispatchPrompt(p.prompt);
+                }}
+                className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-accent)]"
+                title={p.prompt}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <div className="flex-1 space-y-1.5 overflow-y-auto p-2">
         {cards.length === 0 && (

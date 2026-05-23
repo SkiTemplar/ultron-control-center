@@ -231,3 +231,65 @@ export function Clipboard({ size, className }: IconProps) {
     </svg>
   );
 }
+
+// v2.3 — icons for the Commands sub-tab + tree-view nav.
+export function Terminal({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </svg>
+  );
+}
+
+export function ChevronDown({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+export function Edit({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M12 20h9" />
+      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4z" />
+    </svg>
+  );
+}
+
+export function FileCode({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <polyline points="14 2 14 8 20 8" />
+      <polyline points="10 13 8 15 10 17" />
+      <polyline points="14 13 16 15 14 17" />
+    </svg>
+  );
+}
+
+export function Grid({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="3" y="3" width="7" height="7" />
+      <rect x="14" y="3" width="7" height="7" />
+      <rect x="14" y="14" width="7" height="7" />
+      <rect x="3" y="14" width="7" height="7" />
+    </svg>
+  );
+}
+
+export function ListTree({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M21 12h-9" />
+      <path d="M21 18h-7" />
+      <path d="M21 6h-11" />
+      <path d="M5 21V5a1 1 0 0 1 1-1h2" />
+      <path d="M5 12h5" />
+      <path d="M5 18h7" />
+    </svg>
+  );
+}

@@ -195,9 +195,11 @@ pub fn run() {
             // -- rules --
             commands::rules::rules_list,
             commands::rules::rules_read,
+            commands::rules::rules_write,
             // -- maintenance / lifecycle --
             commands::maintenance::list_maintenance_commands,
             commands::maintenance::run_maintenance_command,
+            commands::maintenance::run_backup_now,
             commands::maintenance::run_app_lifecycle,
             commands::maintenance::is_developer_install,
             update_checker::check_for_updates,

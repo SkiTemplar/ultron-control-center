@@ -170,9 +170,15 @@ pub async fn search_inner(
 ) -> Result<Vec<Mem0Memory>, String> {
     let key = read_api_key()?;
     let client = http_client()?;
+    // v2.5: Mem0 v1 search REQUIRES at least one filter (user_id /
+    // agent_id / app_id / run_id). When the caller passes no project_id
+    // we fell through to user_id=None, which triggered HTTP 400 "Bad
+    // Request" in the Memory tab. Default to a stable sentinel so
+    // global search works.
+    let user_id_effective = project_id.as_deref().unwrap_or("global");
     let body = Mem0SearchRequest {
         query: &query,
-        user_id: project_id.as_deref(),
+        user_id: Some(user_id_effective),
         limit,
     };
     let resp = client
