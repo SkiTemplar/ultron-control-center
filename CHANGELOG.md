@@ -1,5 +1,19 @@
 # Changelog
 
+<!-- v2.2.0 -->
+## v2.2.0 - 2026-05-23
+
+Errores corregidos:
+- use /v1/ping/ endpoint instead of /v1/memories/?limit=1
+
+Anadido:
+- card redesign + ProjectWorkspace polish (first pass)
+- drop Features, simplify Backups, multi-plugin Plugins
+- rebuild around ECC + Mem0 stack
+- drop Schedules+Overview, fix Apps mojibake, expand MCPs
+- fix gh search + false-positive detection + contrast + live catalog
+
+
 <!-- v2.1.0 -->
 ## v2.1.0 - 2026-05-23
 
