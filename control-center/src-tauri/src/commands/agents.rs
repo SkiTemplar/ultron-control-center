@@ -43,3 +43,58 @@ pub async fn update_agent_md(
 pub async fn delete_agent(name: String) -> Result<agents::AgentMutationResult, String> {
     agents::delete_agent_inner(name)
 }
+
+// ---- P4: per-project agent pinning ----
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+pub struct PinnedAgents {
+    pub pinned: Vec<String>,
+}
+
+fn pinned_path(project_id: &str) -> Result<std::path::PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
+    Ok(home
+        .join(".ultron")
+        .join("cockpit")
+        .join("projects")
+        .join(project_id)
+        .join("pinned-agents.json"))
+}
+
+#[tauri::command]
+pub async fn agents_pinned_load(project_id: String) -> Result<PinnedAgents, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = pinned_path(&project_id)?;
+        if !path.exists() {
+            return Ok(PinnedAgents::default());
+        }
+        let raw =
+            std::fs::read_to_string(&path).map_err(|e| format!("read pinned: {e}"))?;
+        let p: PinnedAgents =
+            serde_json::from_str(&raw).map_err(|e| format!("parse pinned: {e}"))?;
+        Ok::<PinnedAgents, String>(p)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn agents_pinned_save(
+    project_id: String,
+    pinned: PinnedAgents,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = pinned_path(&project_id)?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
+        }
+        let tmp = path.with_extension("json.tmp");
+        let json =
+            serde_json::to_string_pretty(&pinned).map_err(|e| format!("serialize: {e}"))?;
+        std::fs::write(&tmp, json).map_err(|e| format!("write tmp: {e}"))?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

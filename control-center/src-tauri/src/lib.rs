@@ -171,6 +171,8 @@ pub fn run() {
             commands::agents::create_agent,
             commands::agents::update_agent_md,
             commands::agents::delete_agent,
+            commands::agents::agents_pinned_load,
+            commands::agents::agents_pinned_save,
             // -- rules --
             commands::rules::rules_list,
             commands::rules::rules_read,
