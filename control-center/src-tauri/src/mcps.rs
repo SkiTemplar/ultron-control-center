@@ -37,6 +37,18 @@ pub struct McpInfo {
     pub fallback_message: Option<String>,
     pub alert_severity: Option<String>,
     pub expected_offline: bool,
+    /// Provenance of the entry — Claudia-compatible. One of:
+    ///   "user"         — declared in ~/.claude/settings.json mcpServers
+    ///   "project"      — declared in <cwd>/.mcp.json (project-scope)
+    ///   "plugin:<slug>" — provided by an installed plugin's .mcp.json
+    /// The frontend uses this to render an origin chip and to gate
+    /// destructive mutations (only user-scope entries are editable).
+    #[serde(default)]
+    pub origin: String,
+    /// Plugin slug when origin starts with "plugin:". Convenience field
+    /// so the UI doesn't have to split the origin string.
+    #[serde(default)]
+    pub plugin: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -49,7 +61,7 @@ struct SettingsRoot {
     mcp_servers: BTreeMap<String, McpServerCfg>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct McpServerCfg {
     #[serde(default)]
     command: Option<String>,
@@ -167,45 +179,282 @@ fn parse_fallbacks() -> BTreeMap<String, FallbackEntry> {
 // Public command
 // ---------------------------------------------------------------------------
 
+/// Build an `McpInfo` for a single (name, cfg, origin) tuple, joining in
+/// the global health + fallback metadata. Shared by all sources so the
+/// frontend gets consistent shapes regardless of provenance.
+fn build_mcp_info(
+    name: &str,
+    cfg: &McpServerCfg,
+    origin: String,
+    plugin: Option<String>,
+    health: &HealthDoc,
+    fallbacks: &BTreeMap<String, FallbackEntry>,
+) -> McpInfo {
+    let transport = if cfg.transport.as_deref() == Some("sse") {
+        "sse".to_string()
+    } else if cfg.url.is_some() {
+        "http".to_string()
+    } else {
+        "stdio".to_string()
+    };
+    let args_preview = if cfg.args.is_empty() {
+        None
+    } else {
+        Some(cfg.args.join(" "))
+    };
+    let status = health
+        .results
+        .get(name)
+        .cloned()
+        .unwrap_or_else(|| "unknown".to_string());
+    let fb = fallbacks.get(name).cloned().unwrap_or_default();
+
+    McpInfo {
+        name: name.to_string(),
+        transport,
+        command: cfg.command.clone(),
+        args_preview,
+        url: cfg.url.clone(),
+        status,
+        last_checked: health.checked_at.clone(),
+        fallback_message: fb.fallback_message,
+        alert_severity: fb.alert_severity,
+        expected_offline: fb.expected_offline,
+        origin,
+        plugin,
+    }
+}
+
+/// Parse a generic `{ "mcpServers": { ... } }` JSON file. Returns an
+/// empty map when the file is missing, unreadable, or doesn't carry the
+/// expected top-level key — plugin authors are inconsistent and we don't
+/// want one bad file to wipe out the whole list.
+fn parse_mcp_file(path: &std::path::Path) -> BTreeMap<String, McpServerCfg> {
+    let raw = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(_) => return BTreeMap::new(),
+    };
+    let value: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(_) => return BTreeMap::new(),
+    };
+    let Some(obj) = value.get("mcpServers").and_then(|v| v.as_object()) else {
+        return BTreeMap::new();
+    };
+    let mut out: BTreeMap<String, McpServerCfg> = BTreeMap::new();
+    for (k, v) in obj.iter() {
+        if let Ok(cfg) = serde_json::from_value::<McpServerCfg>(v.clone()) {
+            out.insert(k.clone(), cfg);
+        }
+    }
+    out
+}
+
+/// Discover MCP servers contributed by installed plugins. Walks
+/// ~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/.mcp.json
+/// AND ~/.claude/plugins/marketplaces/<...>/.mcp.json. Each entry is
+/// tagged with origin "plugin:<plugin-slug>" so the UI can display where
+/// it came from. Matches Claudia's discovery behaviour.
+fn collect_plugin_mcps() -> Vec<(String, String, McpServerCfg)> {
+    let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
+    let Some(home) = dirs::home_dir() else {
+        return out;
+    };
+    let plugins_root = home.join(".claude").join("plugins");
+    if !plugins_root.exists() {
+        return out;
+    }
+    // Walk depth-limited (we don't recurse into node_modules etc.). Each
+    // .mcp.json sits next to its plugin's .claude-plugin/plugin.json so a
+    // 5-level walk from ~/.claude/plugins is more than enough.
+    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(plugins_root, 0)];
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > 6 {
+            continue;
+        }
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for entry in rd.filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if p.is_dir() {
+                // Skip obvious junk to keep the walk fast.
+                let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                if matches!(name, "node_modules" | ".git" | "dist" | "build") {
+                    continue;
+                }
+                stack.push((p, depth + 1));
+            } else if p.file_name().and_then(|s| s.to_str()) == Some(".mcp.json") {
+                // Derive plugin slug from the closest ancestor that looks
+                // like a plugin root. Heuristic: the directory two levels
+                // above (cache/<marketplace>/<plugin>/<version>/.mcp.json)
+                // or one level above for marketplaces/<plugin>/.mcp.json.
+                let plugin_slug = derive_plugin_slug(&p)
+                    .unwrap_or_else(|| "unknown".to_string());
+                let parsed = parse_mcp_file(&p);
+                for (name, cfg) in parsed.into_iter() {
+                    out.push((plugin_slug.clone(), name, cfg));
+                }
+            }
+        }
+    }
+    out
+}
+
+fn derive_plugin_slug(mcp_path: &std::path::Path) -> Option<String> {
+    let parts: Vec<&std::ffi::OsStr> = mcp_path
+        .iter()
+        .collect::<Vec<_>>();
+    // Find the index of "plugins" (first match — root of the tree).
+    let mut idx_plugins: Option<usize> = None;
+    for (i, p) in parts.iter().enumerate() {
+        if p.to_string_lossy() == "plugins" {
+            idx_plugins = Some(i);
+            break;
+        }
+    }
+    let i = idx_plugins?;
+    // After "plugins/" we may see either "cache/<marketplace>/<plugin>/..."
+    // or "marketplaces/<marketplace>/<plugin>/..." or "marketplaces/<plugin>/...".
+    // Prefer the segment immediately under the marketplace name.
+    let after: Vec<String> = parts[i + 1..]
+        .iter()
+        .map(|s| s.to_string_lossy().to_string())
+        .collect();
+    match after.as_slice() {
+        // cache / <marketplace> / <plugin-slug> / <version> / .mcp.json
+        [first, _market, plugin, _ver, _file, ..] if first == "cache" => Some(plugin.clone()),
+        // marketplaces / <marketplace> / <plugin-slug> / .mcp.json
+        [first, _market, plugin, _file, ..] if first == "marketplaces" => Some(plugin.clone()),
+        // marketplaces / <plugin-slug> / .mcp.json
+        [first, plugin, _file, ..] if first == "marketplaces" => Some(plugin.clone()),
+        _ => after.first().cloned(),
+    }
+}
+
+/// Discover MCP servers declared in a project-level `.mcp.json` at the
+/// user's currently-open project root. We don't have a single canonical
+/// cwd here — projects are managed by the Control Center's own Projects
+/// tab — so we scan every registered project's path. This mirrors how
+/// Claudia surfaces project MCPs across the user's known projects.
+fn collect_project_mcps() -> Vec<(String, String, McpServerCfg)> {
+    let mut out: Vec<(String, String, McpServerCfg)> = Vec::new();
+    let Some(home) = dirs::home_dir() else {
+        return out;
+    };
+    let registry = home
+        .join(".ultron")
+        .join("cockpit")
+        .join("projects.json");
+    let Ok(raw) = fs::read_to_string(&registry) else {
+        return out;
+    };
+    let Ok(value): Result<serde_json::Value, _> = serde_json::from_str(&raw) else {
+        return out;
+    };
+    let projects = value
+        .get("projects")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    for proj in projects.iter() {
+        let path_str = proj
+            .get("path")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if path_str.is_empty() {
+            continue;
+        }
+        let candidate = std::path::Path::new(path_str).join(".mcp.json");
+        if !candidate.exists() {
+            continue;
+        }
+        let proj_label = proj
+            .get("name")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                std::path::Path::new(path_str)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("project")
+                    .to_string()
+            });
+        for (name, cfg) in parse_mcp_file(&candidate).into_iter() {
+            out.push((proj_label.clone(), name, cfg));
+        }
+    }
+    out
+}
+
 pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
     let settings = parse_settings()?;
     let health = read_health();
     let fallbacks = parse_fallbacks();
 
+    // De-dup by (name, origin) so the same MCP showing up via user AND
+    // plugin doesn't render twice with the same chip. We DO keep entries
+    // with the same name but different origins so the user can see when
+    // a plugin would shadow a user-scope server.
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
     let mut out: Vec<McpInfo> = Vec::new();
-    for (name, cfg) in settings.mcp_servers.iter() {
-        let transport = if cfg.transport.as_deref() == Some("sse") {
-            "sse".to_string()
-        } else if cfg.url.is_some() {
-            "http".to_string()
-        } else {
-            "stdio".to_string()
-        };
-        let args_preview = if cfg.args.is_empty() {
-            None
-        } else {
-            Some(cfg.args.join(" "))
-        };
-        let status = health
-            .results
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| "unknown".to_string());
-        let fb = fallbacks.get(name).cloned().unwrap_or_default();
 
-        out.push(McpInfo {
-            name: name.clone(),
-            transport,
-            command: cfg.command.clone(),
-            args_preview,
-            url: cfg.url.clone(),
-            status,
-            last_checked: health.checked_at.clone(),
-            fallback_message: fb.fallback_message,
-            alert_severity: fb.alert_severity,
-            expected_offline: fb.expected_offline,
-        });
+    // Source 1: user settings.json
+    for (name, cfg) in settings.mcp_servers.iter() {
+        let key = (name.clone(), "user".to_string());
+        if seen.insert(key) {
+            out.push(build_mcp_info(name, cfg, "user".to_string(), None, &health, &fallbacks));
+        }
     }
+
+    // Source 2: plugin .mcp.json files
+    for (plugin, name, cfg) in collect_plugin_mcps().into_iter() {
+        let origin = format!("plugin:{}", plugin);
+        let key = (name.clone(), origin.clone());
+        if seen.insert(key) {
+            out.push(build_mcp_info(
+                &name,
+                &cfg,
+                origin,
+                Some(plugin),
+                &health,
+                &fallbacks,
+            ));
+        }
+    }
+
+    // Source 3: project-level .mcp.json files
+    for (project, name, cfg) in collect_project_mcps().into_iter() {
+        let origin = format!("project:{}", project);
+        let key = (name.clone(), origin.clone());
+        if seen.insert(key) {
+            out.push(build_mcp_info(
+                &name,
+                &cfg,
+                origin,
+                Some(project),
+                &health,
+                &fallbacks,
+            ));
+        }
+    }
+
+    // Stable ordering: user first, then project, then plugin, alphabetical
+    // within each group.
+    out.sort_by(|a, b| {
+        let bucket = |o: &str| -> u8 {
+            if o == "user" {
+                0
+            } else if o.starts_with("project:") {
+                1
+            } else if o.starts_with("plugin:") {
+                2
+            } else {
+                3
+            }
+        };
+        bucket(&a.origin)
+            .cmp(&bucket(&b.origin))
+            .then_with(|| a.name.cmp(&b.name))
+    });
     Ok(out)
 }
 

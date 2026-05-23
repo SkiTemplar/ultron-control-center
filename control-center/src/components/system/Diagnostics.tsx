@@ -61,26 +61,76 @@ export function Diagnostics() {
     }
   }
 
+  // v2.0 redesign: diagnostic is on-demand — present a compact intro
+  // banner explaining that and stash the (rarely-used) schedule + history
+  // behind disclosures, so the panel doesn't fight the rest of System for
+  // visual weight when no report is loaded.
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+
   return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-semibold">PC Diagnostic</h2>
-        <div className="ml-auto flex gap-2">
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded border border-white/10 px-3 py-1 text-xs hover:bg-white/5"
-            onClick={() => setHistoryOpen((v) => !v)}
-          >
-            History
-          </button>
-          <button
-            type="button"
-            className="flex items-center gap-1 rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-black disabled:opacity-50"
-            onClick={run}
-            disabled={loading}
-          >
-            {loading ? "Running..." : "Run diagnostic"}
-          </button>
+    <div className="space-y-3">
+      <div
+        className="rounded p-3"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <div
+              className="text-[12px] font-semibold"
+              style={{ color: "var(--color-text)" }}
+            >
+              PC Diagnostic
+            </div>
+            <div
+              className="mt-0.5 text-[11.5px] leading-snug"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              On-demand only. Run this when the PC misbehaves: it snapshots
+              CPU/RAM/disks, recent event-log entries, and CLI health. Nothing
+              runs automatically unless you enable a schedule below.
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button
+              type="button"
+              className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+              onClick={() => setHistoryOpen((v) => !v)}
+            >
+              {historyOpen ? "Hide history" : "History"}
+            </button>
+            <button
+              type="button"
+              className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+              onClick={() => setScheduleOpen((v) => !v)}
+            >
+              {scheduleOpen ? "Hide schedule" : "Schedule"}
+            </button>
+            <button
+              type="button"
+              className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-50"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-accent-text)",
+              }}
+              onClick={run}
+              disabled={loading}
+            >
+              {loading ? "Running..." : "Run diagnostic"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -99,7 +149,7 @@ export function Diagnostics() {
         />
       )}
 
-      <DiagnosticSchedulePanel />
+      {scheduleOpen && <DiagnosticSchedulePanel />}
 
       {report && (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">

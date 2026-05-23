@@ -267,6 +267,15 @@ fn decode_ps_stdout(bytes: &[u8]) -> String {
 /// columnar parser when --json isn't available.
 #[cfg(target_os = "windows")]
 const INVENTORY_PS: &str = r#"
+# v2.0 mojibake fix: PS 5.1's default $OutputEncoding is ASCII and the
+# console is OEM (cp850/cp1252) — by the time `ConvertTo-Json` runs the
+# non-ASCII publisher names are already lossily transcoded. Force the
+# pipeline AND the console to UTF-8 BEFORE doing any work so the JSON
+# emitted on stdout is valid UTF-8 (the Rust side then decodes the BOM-
+# less bytes as UTF-8 directly).
+$OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+[Console]::InputEncoding  = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = 'SilentlyContinue'
 $apps = New-Object System.Collections.Generic.List[object]
 $errors = New-Object System.Collections.Generic.List[string]
@@ -371,9 +380,11 @@ $out = [pscustomobject]@{
     errors = $errors
 }
 $json = $out | ConvertTo-Json -Depth 4 -Compress
-# Force UTF-8 emit (PS 5.1 stdout is OEM by default)
+# Belt-and-suspenders: re-assert UTF-8 in case any cmdlet above flipped it,
+# then write bytes directly to stdout via [Console]::Out to bypass PS 5.1's
+# string-to-OEM transcoding on Write-Output.
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-Write-Output $json
+[Console]::Out.WriteLine($json)
 "#;
 
 #[cfg(target_os = "windows")]

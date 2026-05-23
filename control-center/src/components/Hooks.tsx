@@ -420,9 +420,10 @@ export function Hooks() {
         )}
 
         {!loading && grouped.length === 0 && (
-          <div className="text-[13px]" style={{ color: "var(--color-text-tertiary)" }}>
-            No hooks configured.
-          </div>
+          <HooksEmptyState
+            onAdd={() => setAddOpen(true)}
+            onAi={() => setAiOpen(true)}
+          />
         )}
 
         <div className="space-y-6">
@@ -614,6 +615,139 @@ export function Hooks() {
           onSubmit={submitAi}
         />
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Empty state — shown when settings.json has no hooks configured. Explains
+// what hooks are, what each event fires on, and offers two paths in: the
+// raw "Add hook" form or the AI-assisted modal. Also surfaces a link to
+// the ECC plugin's hook templates directory so users can browse curated
+// recipes instead of starting from scratch.
+// ---------------------------------------------------------------------------
+
+function HooksEmptyState({
+  onAdd,
+  onAi,
+}: {
+  onAdd: () => void;
+  onAi: () => void;
+}) {
+  async function openEccHookDir() {
+    try {
+      const home = (await invoke("home_dir_str")) as string;
+      const target = `${home}/.claude/plugins/cache/ecc/ecc/2.0.0-rc.1/hooks`;
+      await invoke("open_app_folder", { installLocation: target });
+    } catch {
+      // Falls back to no-op — the directory is informational; the user can
+      // still hand-craft a hook via the Add form.
+    }
+  }
+  return (
+    <div
+      className="rounded p-5"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div
+        className="mb-1 text-[14px] font-semibold"
+        style={{ color: "var(--color-text)" }}
+      >
+        No hooks configured
+      </div>
+      <p
+        className="mb-4 text-[12px] leading-relaxed"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
+        Hooks are shell commands Claude Code runs around tool calls and session
+        lifecycle events. They let you enforce policies (block bad commands),
+        log activity, auto-format files, or trigger external systems — all
+        without modifying Claude's behaviour. They live in{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</code>{" "}
+        under the <code style={{ fontFamily: "var(--font-mono)" }}>hooks</code> key.
+      </p>
+      <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
+        <HookEventTile
+          name="PreToolUse"
+          desc="Before a tool runs. Exit 2 to block. Good for command audits and policy checks."
+        />
+        <HookEventTile
+          name="PostToolUse"
+          desc="After a tool succeeds. Good for auto-format, lint, dependency updates."
+        />
+        <HookEventTile
+          name="Stop"
+          desc="When Claude finishes responding. Good for end-of-session checks (debug statements, dirty git tree)."
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={onAdd}
+          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+        >
+          Add your first hook
+        </button>
+        <button
+          type="button"
+          onClick={onAi}
+          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Describe what you want in plain English; Claude drafts the JSON"
+        >
+          Add with AI
+        </button>
+        <button
+          type="button"
+          onClick={openEccHookDir}
+          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Open the ECC plugin's hooks/ directory in Explorer"
+        >
+          Browse hook templates
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HookEventTile({ name, desc }: { name: string; desc: string }) {
+  const colors = eventBadgeColor(name);
+  return (
+    <div
+      className="rounded p-2.5"
+      style={{
+        background: "var(--color-surface-1)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div
+        className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide"
+        style={{ background: colors.bg, color: colors.fg }}
+      >
+        {name}
+      </div>
+      <div
+        className="text-[11px] leading-snug"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        {desc}
+      </div>
     </div>
   );
 }

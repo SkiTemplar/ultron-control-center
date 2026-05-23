@@ -40,6 +40,43 @@ function statusColor(s: McpStatus, expectedOffline: boolean): string {
   return "var(--color-text-faint)";
 }
 
+// v2.0 origin chip — Claudia-compatible provenance tagging. The backend
+// now merges three sources: user settings.json, plugin .mcp.json files,
+// and project-level .mcp.json files. The chip lets the user see at a
+// glance where a given MCP came from (and why it can't be edited from
+// here when it's plugin-owned).
+type McpOriginKind = "user" | "project" | "plugin" | "unknown";
+
+function parseOrigin(o: string | undefined): { kind: McpOriginKind; label: string } {
+  if (!o) return { kind: "unknown", label: "?" };
+  if (o === "user") return { kind: "user", label: "user" };
+  if (o.startsWith("project:")) {
+    return { kind: "project", label: o.slice("project:".length) || "project" };
+  }
+  if (o.startsWith("plugin:")) {
+    return { kind: "plugin", label: o.slice("plugin:".length) || "plugin" };
+  }
+  return { kind: "unknown", label: o };
+}
+
+function originBadgeColor(kind: McpOriginKind): { bg: string; fg: string } {
+  switch (kind) {
+    case "user":
+      return { bg: "rgba(56, 139, 253, 0.12)", fg: "var(--color-accent, #58a6ff)" };
+    case "project":
+      return { bg: "rgba(63, 185, 80, 0.12)", fg: "var(--color-success)" };
+    case "plugin":
+      return { bg: "rgba(163, 113, 247, 0.12)", fg: "#a371f7" };
+    default:
+      return { bg: "var(--color-surface-3)", fg: "var(--color-text-secondary)" };
+  }
+}
+
+// Extended view of McpInfo that includes the v2.0 origin/plugin fields.
+// types.ts is shared with other components; once it's updated the cast
+// here can go away.
+type McpInfoExt = McpInfo & { origin?: string; plugin?: string | null };
+
 function statusLabel(s: McpStatus, expectedOffline: boolean): string {
   if (s === "ok") return "connected";
   if (s === "degraded") return expectedOffline ? "offline" : "degraded";
@@ -407,7 +444,7 @@ function Card({
   pingBusy,
   onAction,
 }: {
-  mcp: McpInfo;
+  mcp: McpInfoExt;
   hidden: boolean;
   ping?: McpPingResult;
   pingBusy?: boolean;
@@ -415,6 +452,12 @@ function Card({
 }) {
   const color = statusColor(mcp.status, mcp.expected_offline);
   const label = statusLabel(mcp.status, mcp.expected_offline);
+  const origin = parseOrigin(mcp.origin);
+  const originColors = originBadgeColor(origin.kind);
+  // Plugin / project-scope MCPs are read-only from the Control Center —
+  // mutating them would invalidate the plugin's signature or wander into
+  // a project's repo. Surface this clearly rather than silently failing.
+  const readOnly = origin.kind !== "user";
 
   return (
     <div
@@ -427,7 +470,7 @@ function Card({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="flex items-baseline gap-2">
+          <div className="flex flex-wrap items-baseline gap-2">
             <span
               className="inline-block h-2 w-2 shrink-0 rounded-full"
               style={{ background: color }}
@@ -438,6 +481,23 @@ function Card({
               style={{ color }}
             >
               {label}
+            </span>
+            <span
+              className="rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+              style={{ background: originColors.bg, color: originColors.fg }}
+              title={
+                origin.kind === "user"
+                  ? "Configured in ~/.claude/settings.json — editable from here"
+                  : origin.kind === "plugin"
+                    ? `Provided by plugin '${origin.label}' — read-only here`
+                    : origin.kind === "project"
+                      ? `Defined in project '${origin.label}' .mcp.json — read-only here`
+                      : "Unknown origin"
+              }
+            >
+              {origin.kind === "user"
+                ? "user"
+                : `${origin.kind}: ${origin.label}`}
             </span>
             {mcp.expected_offline && (
               <span
@@ -527,26 +587,36 @@ function Card({
           <button
             type="button"
             onClick={() => onAction("edit")}
-            className="rounded px-2.5 py-1 text-[11px] transition-colors"
+            disabled={readOnly}
+            className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-40"
             style={{
               background: "var(--color-surface-3)",
               color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
             }}
-            title="Edit this MCP's settings.json entry"
+            title={
+              readOnly
+                ? `Origin '${origin.kind}' is read-only from the Control Center`
+                : "Edit this MCP's settings.json entry"
+            }
           >
             Edit
           </button>
           <button
             type="button"
             onClick={() => onAction("delete")}
-            className="rounded px-2.5 py-1 text-[11px] transition-colors"
+            disabled={readOnly}
+            className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-40"
             style={{
               background: "rgba(248, 81, 73, 0.10)",
               color: "var(--color-danger)",
               border: "1px solid rgba(248, 81, 73, 0.35)",
             }}
-            title="Remove from settings.json (backup kept)"
+            title={
+              readOnly
+                ? `Origin '${origin.kind}' is read-only from the Control Center`
+                : "Remove from settings.json (backup kept)"
+            }
           >
             Delete
           </button>
@@ -731,7 +801,7 @@ function EnableDisableSection({ onChanged }: { onChanged: () => void }) {
 // ---------------------------------------------------------------------------
 
 export function MCPs() {
-  const [mcps, setMcps] = useState<McpInfo[]>([]);
+  const [mcps, setMcps] = useState<McpInfoExt[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hidden, setHidden] = useState<Set<string>>(() => loadHidden());
@@ -800,7 +870,7 @@ export function MCPs() {
 
   async function fetchList() {
     try {
-      const list = (await invoke("list_mcps")) as McpInfo[];
+      const list = (await invoke("list_mcps")) as McpInfoExt[];
       setMcps(list);
       setError(null);
     } catch (e) {
@@ -813,7 +883,7 @@ export function MCPs() {
   async function runProbe() {
     setProbing(true);
     try {
-      const list = (await invoke("run_mcp_health_check")) as McpInfo[];
+      const list = (await invoke("run_mcp_health_check")) as McpInfoExt[];
       setMcps(list);
       setError(null);
     } catch (e) {
@@ -1010,6 +1080,21 @@ export function MCPs() {
           <h1 className="text-[20px] font-semibold leading-tight">MCPs</h1>
           <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
             {mcps.length} servers · {okCount} connected · {issueCount} need attention
+            {(() => {
+              // Surface origin breakdown so the user can sanity-check that
+              // plugin- and project-scope MCPs are showing up (USER
+              // reported that Claudia surfaced many more than CC did).
+              const buckets = mcps.reduce<Record<string, number>>((acc, m) => {
+                const k = parseOrigin(m.origin).kind;
+                acc[k] = (acc[k] || 0) + 1;
+                return acc;
+              }, {});
+              const parts: string[] = [];
+              if (buckets.user) parts.push(`${buckets.user} user`);
+              if (buckets.project) parts.push(`${buckets.project} project`);
+              if (buckets.plugin) parts.push(`${buckets.plugin} plugin`);
+              return parts.length > 0 ? <> · {parts.join(" · ")}</> : null;
+            })()}
           </p>
         </div>
         <div className="flex items-center gap-2">
