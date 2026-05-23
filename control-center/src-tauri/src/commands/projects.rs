@@ -227,3 +227,46 @@ pub async fn open_project_in_ide(
     explorer.spawn().map_err(|e| format!("spawn explorer: {}", e))?;
     Ok("opened in file explorer (no IDE on PATH)".to_string())
 }
+
+// ---- P4: per-project CLAUDE.md editor ----
+
+fn resolve_claude_md(project_path: &str) -> std::path::PathBuf {
+    let p = std::path::PathBuf::from(project_path);
+    let dotclaude = p.join(".claude").join("CLAUDE.md");
+    if dotclaude.exists() {
+        return dotclaude;
+    }
+    p.join("CLAUDE.md")
+}
+
+#[tauri::command]
+pub async fn project_claude_md_load(project_path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = resolve_claude_md(&project_path);
+        if !path.exists() {
+            return Ok::<String, String>(String::new());
+        }
+        std::fs::read_to_string(&path).map_err(|e| format!("read CLAUDE.md: {e}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn project_claude_md_save(
+    project_path: String,
+    content: String,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let path = resolve_claude_md(&project_path);
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
+        }
+        let tmp = path.with_extension("md.tmp");
+        std::fs::write(&tmp, content).map_err(|e| format!("write tmp: {e}"))?;
+        std::fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))?;
+        Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

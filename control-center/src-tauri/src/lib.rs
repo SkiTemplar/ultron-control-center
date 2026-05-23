@@ -196,6 +196,8 @@ pub fn run() {
             commands::projects::reorder_launcher_items,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
+            commands::projects::project_claude_md_load,
+            commands::projects::project_claude_md_save,
             // -- mem0 --
             commands::mem0::mem0_status,
             commands::mem0::mem0_search,
