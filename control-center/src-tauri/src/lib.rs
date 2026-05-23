@@ -23,6 +23,7 @@ mod auth;
 mod backup_status;
 mod button_prompts;
 mod claude_sessions;
+mod commands_registry;
 mod codex_fallback;
 mod cost_watchdog;
 mod ecc_memory;
@@ -196,6 +197,8 @@ pub fn run() {
             commands::rules::rules_list,
             commands::rules::rules_read,
             commands::rules::rules_write,
+            // -- commands registry (Library Commands tab — v2.5) --
+            commands::commands_registry::list_all_slash_commands,
             // -- maintenance / lifecycle --
             commands::maintenance::list_maintenance_commands,
             commands::maintenance::run_maintenance_command,

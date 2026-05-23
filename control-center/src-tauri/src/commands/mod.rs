@@ -21,6 +21,7 @@ pub mod agents;
 pub mod alerts;
 pub mod apps;
 pub mod button_prompts;
+pub mod commands_registry;
 pub mod diagnostics_native;
 pub mod ecc_memory;
 pub mod hooks;
