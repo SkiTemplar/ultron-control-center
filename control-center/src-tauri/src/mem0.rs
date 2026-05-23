@@ -129,8 +129,14 @@ pub async fn status_inner() -> Result<Mem0Status, String> {
     let masked = mask_key(&key);
     let client = http_client()?;
     let started = Instant::now();
+    // NOTE: We hit `/v1/ping/` rather than `/v1/memories/?limit=1`. The Mem0
+    // memories list endpoint requires at least one filter (`user_id`,
+    // `agent_id`, `app_id` or `run_id`) and returns HTTP 400 otherwise, which
+    // would surface as a false "not connected" in the UI. `/v1/ping/` returns
+    // 200 with `{status, org_id, project_id, user_email}` whenever the token
+    // is valid, which is exactly the signal the Memory tab needs.
     let resp = client
-        .get(format!("{MEM0_BASE}/memories/?limit=1"))
+        .get(format!("{MEM0_BASE}/ping/"))
         .header("Authorization", format!("Token {key}"))
         .send()
         .await;
