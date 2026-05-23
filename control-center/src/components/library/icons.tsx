@@ -293,3 +293,56 @@ export function ListTree({ size, className }: IconProps) {
     </svg>
   );
 }
+
+// v2.6 — "blocks" view mode icon. Stack of three offset rectangles —
+// communicates "tiles drilled into more tiles" without depending on Lucide.
+export function Boxes({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M2.97 12.92A2 2 0 0 0 2 14.63v3.24a2 2 0 0 0 .97 1.71l3 1.8a2 2 0 0 0 2.06 0L12 19v-5l-5-3-4.03 1.92Z" />
+      <path d="m7 16.5-4.74-2.85" />
+      <path d="m7 16.5 5-3" />
+      <path d="M7 16.5v5.17" />
+      <path d="M12 13.91V9a2 2 0 0 0-.97-1.71L8.03 5.49a2 2 0 0 0-2.06 0L3 7.29A2 2 0 0 0 2 9v.5" />
+      <path d="M17 8a2 2 0 0 0-2-2h-3" />
+      <path d="m22 17.65-5 3-5-3" />
+      <path d="m22 11.65-5 3" />
+    </svg>
+  );
+}
+
+// v2.6 — generic chevron back arrow for breadcrumb / drill-up.
+export function ArrowLeft({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  );
+}
+
+// v2.6 — sparkles icon used by "Edit with AI" button on the rule detail pane.
+// Distinct from the existing `Sparkles` (kept) — this one is a single 4-pointed
+// twinkle that pairs better with action buttons.
+export function Wand({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="m21 21-7-7" />
+      <path d="M14 14 9 9" />
+      <path d="M3 3l3 3" />
+      <path d="M6 6 3 9" />
+      <path d="m12 3 1 3 3 1-3 1-1 3-1-3-3-1 3-1z" />
+    </svg>
+  );
+}
+
+// v2.6 — save floppy icon for the inline rule editor.
+export function Save({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+      <polyline points="17 21 17 13 7 13 7 21" />
+      <polyline points="7 3 7 8 15 8" />
+    </svg>
+  );
+}

@@ -1024,12 +1024,13 @@ function Row({
 
 type SortBy = "recent" | "alpha" | "type";
 
-/** Hierarchy mode for the project grid. `flat` is the legacy "single flat
- *  list of cards". `tree` groups by the common-ancestor folder of `path` so
- *  projects under e.g. `C:/Users/USER/CARRERA/ASIGNATURAS/PROGRAM_B/*` collapse
- *  into a CARRERA / ASIGNATURAS / PROGRAM_B nested node — USER asked for this
- *  after the flat list of carrera asignatura grew unwieldy. */
-type HierarchyMode = "flat" | "tree";
+/** Hierarchy mode for the project grid. v2.6 adds `blocks` — USER's quote:
+ *  "más como por bloque, doy clic con bloque y como que se me hace de más
+ *  bloques y me salen ahí". Top-level shows one big tile per common-ancestor
+ *  folder (CARRERA / PERSONAL / …); clicking drills into sub-folders or
+ *  surfaces the project cards. `flat` is the legacy flat list. `tree` groups
+ *  with collapsible folders (compressed linear chains). */
+type HierarchyMode = "flat" | "tree" | "blocks";
 
 /** Internal tree node used by the Tree-mode render. Folders nest by path
  *  segment; leaves carry the project itself. */
@@ -1298,6 +1299,274 @@ function countProjects(node: FolderNode): number {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Blocks hierarchy view — Spotify-style drill-down (v2.6)
+// ---------------------------------------------------------------------------
+//
+// USER's quote: "más como por bloque, doy clic con bloque y como que se
+// me hace de más bloques y me salen ahí. Pero también tengo la opción de
+// que me salgan todos. Tengo una caja, le doy a la caja y me aparecen
+// ahora los nuevos y tal".
+//
+// Level 0 shows one big tile per top-level folder under the projects tree
+// (CARRERA, PERSONAL, .ultron, …). Click a tile to drill into its
+// sub-folders or, if the only contents are projects, surface the project
+// cards directly. A breadcrumb at the top jumps back to any ancestor.
+
+/** Walk the folder tree to the node addressed by `path` (array of segments).
+ *  Returns the root node if the path is empty or any segment misses. */
+function navigateTo(root: FolderNode, path: string[]): FolderNode {
+  let node: FolderNode = root;
+  for (const seg of path) {
+    const child = node.children.find((c) => c.segment === seg);
+    if (!child) return node;
+    node = child;
+  }
+  return node;
+}
+
+type BlocksProjectViewProps = {
+  root: FolderNode;
+  path: string[];
+  onPathChange: (next: string[]) => void;
+  stats: Record<string, CardStats>;
+  openInWorkspace: (id: string, name: string, subTab?: ProjectSubTab) => void;
+  cardOpenFolder: (p: ProjectInfo) => void | Promise<void>;
+  cardOpenIde: (p: ProjectInfo) => void | Promise<void>;
+  cardOpenAi: (p: ProjectInfo) => void | Promise<void>;
+  cardOpenTerminal: (p: ProjectInfo) => void;
+  startEdit: (p: ProjectInfo) => void;
+  setPendingDelete: (p: ProjectInfo) => void;
+};
+
+function BlocksProjectView({
+  root,
+  path,
+  onPathChange,
+  stats,
+  openInWorkspace,
+  cardOpenFolder,
+  cardOpenIde,
+  cardOpenAi,
+  cardOpenTerminal,
+  startEdit,
+  setPendingDelete,
+}: BlocksProjectViewProps): ReactElement {
+  const here = navigateTo(root, path);
+  const isRoot = path.length === 0;
+
+  // Empty state
+  if (root.children.length === 0 && root.projects.length === 0) {
+    return (
+      <div
+        className="rounded p-6 text-center text-[13px]"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px dashed var(--color-border-strong)",
+          color: "var(--color-text-tertiary)",
+        }}
+      >
+        No projects to display. Add one with "+ New project" above.
+      </div>
+    );
+  }
+
+  // Breadcrumb. Always shows "All ›" so the user knows how to go back even
+  // at level 1. Each segment is a click target for jump-to-ancestor.
+  const breadcrumb = !isRoot && (
+    <nav
+      className="mb-4 flex flex-wrap items-center gap-1.5 text-[12px]"
+      aria-label="Folder breadcrumb"
+    >
+      <button
+        type="button"
+        onClick={() => onPathChange([])}
+        className="rounded px-2 py-0.5 transition-colors"
+        style={{
+          background: "var(--color-surface-2)",
+          color: "var(--color-text-secondary)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        All
+      </button>
+      {path.map((seg, i) => (
+        <span key={`${seg}-${i}`} className="flex items-center gap-1.5">
+          <span style={{ color: "var(--color-text-faint)" }}>›</span>
+          <button
+            type="button"
+            onClick={() => onPathChange(path.slice(0, i + 1))}
+            className="rounded px-2 py-0.5 transition-colors"
+            style={{
+              background:
+                i === path.length - 1
+                  ? "var(--color-surface-3)"
+                  : "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {seg}
+          </button>
+        </span>
+      ))}
+    </nav>
+  );
+
+  // Folder tile — big card with name + project count badge. Hover lifts +
+  // glows, matching the BlocksView pattern in library/.
+  const FolderTile = ({ child }: { child: FolderNode }) => {
+    const count = countProjects(child);
+    return (
+      <button
+        type="button"
+        onClick={() => onPathChange([...path, child.segment])}
+        className="group flex h-[140px] flex-col justify-between rounded-lg p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+          boxShadow: "inset 0 2px 0 var(--color-border)",
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.borderColor = "var(--color-border-strong)";
+          e.currentTarget.style.transform = "translateY(-2px)";
+          e.currentTarget.style.boxShadow =
+            "inset 0 2px 0 var(--color-accent), 0 4px 14px rgba(0,0,0,0.22)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.borderColor = "var(--color-border)";
+          e.currentTarget.style.transform = "translateY(0)";
+          e.currentTarget.style.boxShadow = "inset 0 2px 0 var(--color-border)";
+        }}
+        title={`${count} project${count === 1 ? "" : "s"} under ${child.fullPath || child.segment}`}
+      >
+        <div
+          className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.06em]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Folder
+        </div>
+        <div>
+          <div
+            className="truncate text-[16px] font-semibold leading-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            {child.segment}
+          </div>
+          {child.children.length > 0 && (
+            <div
+              className="mt-1 truncate text-[10.5px]"
+              style={{
+                color: "var(--color-text-tertiary)",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {child.children.length} sub-folder
+              {child.children.length === 1 ? "" : "s"}
+            </div>
+          )}
+        </div>
+        <div className="flex items-end justify-between gap-2">
+          <span
+            className="text-[10.5px]"
+            style={{ color: "var(--color-text-faint)" }}
+          >
+            Click to drill in
+          </span>
+          <span
+            className="rounded px-2 py-0.5 text-[11px] tabular-nums"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {count}
+          </span>
+        </div>
+      </button>
+    );
+  };
+
+  // Project cards inside the current node.
+  const renderProjects = (items: ProjectInfo[]) =>
+    items.length === 0 ? null : (
+      <div
+        className="grid gap-3"
+        style={{
+          gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
+        }}
+      >
+        {items.map((p) => (
+          <ProjectCard
+            key={p.id}
+            p={p}
+            stats={stats[p.id] ?? null}
+            onOpenWorkspace={() => openInWorkspace(p.id, p.name ?? p.id)}
+            onOpenFolder={() => void cardOpenFolder(p)}
+            onOpenIde={() => void cardOpenIde(p)}
+            onOpenAi={() => void cardOpenAi(p)}
+            onOpenTerminal={() => cardOpenTerminal(p)}
+            onEdit={() => startEdit(p)}
+            onDelete={() => setPendingDelete(p)}
+          />
+        ))}
+      </div>
+    );
+
+  return (
+    <div>
+      {breadcrumb}
+
+      {here.children.length > 0 && (
+        <div className="mb-5">
+          {here.projects.length > 0 && (
+            <div
+              className="mb-2 text-[10.5px] uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Sub-folders
+            </div>
+          )}
+          <div
+            className="grid gap-3"
+            style={{
+              gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))",
+            }}
+          >
+            {here.children.map((c) => (
+              <FolderTile key={c.fullPath || c.segment} child={c} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {here.projects.length > 0 && (
+        <div>
+          {here.children.length > 0 && (
+            <div
+              className="mb-2 text-[10.5px] uppercase tracking-[0.06em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Projects in this folder
+            </div>
+          )}
+          {renderProjects(here.projects)}
+        </div>
+      )}
+
+      {here.children.length === 0 && here.projects.length === 0 && (
+        <p
+          className="text-[12.5px]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          This folder is empty.
+        </p>
+      )}
+    </div>
+  );
+}
+
 type ProjectsProps = {
   onOpenProject?: (project: { id: string; name: string }) => void;
 };
@@ -1344,16 +1613,21 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("recent");
-  // v2.x — folder hierarchy toggle. Default Tree per user request: dropping
-  // status/language/group-by filters in favour of file-structure grouping.
+  // v2.6 — folder hierarchy toggle. Default is "blocks" — USER asked for
+  // the Spotify-style drill-down on first paint. Flat/tree stay available.
   const [hierarchy, setHierarchy] = useState<HierarchyMode>(() => {
     try {
       const v = localStorage.getItem("projects.hierarchy");
-      return v === "flat" ? "flat" : "tree";
+      if (v === "flat" || v === "tree" || v === "blocks") return v;
     } catch {
-      return "tree";
+      /* ignore */
     }
+    return "blocks";
   });
+  // Drill state for Blocks mode — array of path segments from the root.
+  // Empty = level 0 (top tiles). Lives in component state, not storage, so
+  // navigating away from Projects resets to the top level (feels cleaner).
+  const [blockPath, setBlockPath] = useState<string[]>([]);
   useEffect(() => {
     try {
       localStorage.setItem("projects.hierarchy", hierarchy);
@@ -2251,13 +2525,16 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         >
           Layout
         </span>
-        {(["tree", "flat"] as HierarchyMode[]).map((m) => {
+        {(["blocks", "tree", "flat"] as HierarchyMode[]).map((m) => {
           const active = hierarchy === m;
           return (
             <button
               key={m}
               type="button"
-              onClick={() => setHierarchy(m)}
+              onClick={() => {
+                setHierarchy(m);
+                if (m !== "blocks") setBlockPath([]);
+              }}
               className="rounded px-2 py-0.5 text-[11px] transition-colors"
               style={{
                 background: active ? "var(--color-surface-3)" : "transparent",
@@ -2265,7 +2542,9 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 border: `1px solid ${active ? "var(--color-border-strong)" : "var(--color-border)"}`,
               }}
               title={
-                m === "tree"
+                m === "blocks"
+                  ? "Big tiles per parent folder — drill in by clicking a tile (Spotify-style)"
+                  : m === "tree"
                   ? "Group projects by their common parent folder (e.g. CARRERA/ASIGNATURAS/PROGRAM_B)"
                   : "Flat grid — show every project at the same level"
               }
@@ -2309,7 +2588,21 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       )}
 
       <div className="space-y-6">
-        {hierarchy === "tree" ? (
+        {hierarchy === "blocks" ? (
+          <BlocksProjectView
+            root={folderTree}
+            path={blockPath}
+            onPathChange={setBlockPath}
+            stats={stats}
+            openInWorkspace={openInWorkspace}
+            cardOpenFolder={cardOpenFolder}
+            cardOpenIde={cardOpenIde}
+            cardOpenAi={cardOpenAi}
+            cardOpenTerminal={cardOpenTerminal}
+            startEdit={startEdit}
+            setPendingDelete={setPendingDelete}
+          />
+        ) : hierarchy === "tree" ? (
           <FolderTreeView
             node={folderTree}
             depth={0}

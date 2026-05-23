@@ -65,15 +65,27 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
     }
 
     term.open(container);
-    fit.fit();
     termRef.current = term;
 
-    // Initial resize push to backend.
-    void invoke("pty_resize", {
-      sessionId,
-      rows: term.rows,
-      cols: term.cols,
-    });
+    // v2.5.1 — defer the initial fit() to the next animation frame. When
+    // mounted inside a split-pane that has zero measured dimensions on the
+    // first synchronous tick, FitAddon.proposeDimensions returns undefined
+    // and dereferencing `.dimensions` throws. rAF + safety guard fixes it.
+    const safeFit = () => {
+      try {
+        const dims = fit.proposeDimensions();
+        if (!dims || !dims.cols || !dims.rows) return;
+        fit.fit();
+        void invoke("pty_resize", {
+          sessionId,
+          rows: term.rows,
+          cols: term.cols,
+        });
+      } catch {
+        // Transient: container not laid out yet. ResizeObserver will retry.
+      }
+    };
+    const initialFitFrame = requestAnimationFrame(safeFit);
 
     // Forward keystrokes.
     const dataDispose = term.onData((data) => {
@@ -105,22 +117,15 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
       );
     })();
 
-    // Resize on container change.
+    // Resize on container change. Same proposeDimensions guard as initial
+    // fit — observers fire during teardown / zero-size transitions too.
     const resizeObserver = new ResizeObserver(() => {
-      try {
-        fit.fit();
-        void invoke("pty_resize", {
-          sessionId,
-          rows: term.rows,
-          cols: term.cols,
-        });
-      } catch {
-        /* ignore transient resize errors during teardown */
-      }
+      safeFit();
     });
     resizeObserver.observe(container);
 
     return () => {
+      cancelAnimationFrame(initialFitFrame);
       resizeObserver.disconnect();
       dataDispose.dispose();
       if (unlistenData) unlistenData();

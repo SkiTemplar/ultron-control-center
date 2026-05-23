@@ -1,4 +1,6 @@
-// Top 3-5 most recently active projects, with quick open buttons.
+// Top 3-5 most recently active projects. v2.5.1 simplified: dropped the
+// per-row IDE+AI quick buttons (USER wanted a single Open action that
+// navigates to the Projects tab; per-project actions live there).
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -7,17 +9,12 @@ import { Card, SmallButton, relativeTime } from "./Card";
 
 interface RecentProjectsCardProps {
   onOpenProjects?: () => void;
-  onProjectChanged?: () => void;
 }
 
-export function RecentProjectsCard({
-  onOpenProjects,
-  onProjectChanged,
-}: RecentProjectsCardProps) {
+export function RecentProjectsCard({ onOpenProjects }: RecentProjectsCardProps) {
   const [projects, setProjects] = useState<ProjectInfo[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,35 +45,6 @@ export function RecentProjectsCard({
     })
     .slice(0, 5);
 
-  async function openInIde(id: string) {
-    setBusy(id);
-    try {
-      await invoke("open_project_in_ide", { id });
-      onProjectChanged?.();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function openAi(p: ProjectInfo) {
-    if (!p.path) return;
-    setBusy(p.id);
-    try {
-      await invoke("spawn_session", {
-        cwd: p.path,
-        prompt: null,
-        flags: { dangerouslySkipPermissions: true },
-      });
-      onProjectChanged?.();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   return (
     <Card
       title={`Recent projects (${recent.length})`}
@@ -93,13 +61,14 @@ export function RecentProjectsCard({
         {recent.map((p) => (
           <li
             key={p.id}
-            className="flex items-center gap-2 text-[11.5px]"
+            className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[11.5px] hover:bg-[var(--color-surface-3)]"
             style={{ minHeight: 24 }}
+            onClick={() => onOpenProjects?.()}
+            title={`Open ${p.name ?? p.id} in Projects tab`}
           >
             <span
               className="flex-1 truncate"
               style={{ color: "var(--color-text)" }}
-              title={p.path ?? p.id}
             >
               {p.name ?? p.id}
             </span>
@@ -113,21 +82,6 @@ export function RecentProjectsCard({
             >
               {relativeTime(p.last_active)}
             </span>
-            <SmallButton
-              onClick={() => void openInIde(p.id)}
-              disabled={busy === p.id}
-              title="Open in preferred IDE"
-            >
-              ide
-            </SmallButton>
-            <SmallButton
-              variant="accent"
-              onClick={() => void openAi(p)}
-              disabled={busy === p.id || !p.path}
-              title="Spawn Claude Code session"
-            >
-              ai
-            </SmallButton>
           </li>
         ))}
       </ul>

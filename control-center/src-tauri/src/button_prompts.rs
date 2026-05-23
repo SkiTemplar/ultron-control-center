@@ -206,16 +206,8 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             &[],
             "/usage",
         ),
-        default_button(
-            "news.generate_with_ai",
-            "News · Generate newsletter",
-            "News / generator card",
-            "Banner seed shown in the LLM tab opened by the 'Open session' \
-             button. The full prompt is built by the news generator script and \
-             copied to the clipboard.",
-            &["today", "model"],
-            "[Banner] Este no es el prompt real. El prompt completo se ha copiado a tu portapapeles — pulsa Ctrl+V (o Cmd+V) dentro de la sesión LLM para usarlo.\n\nFecha: {today}\nModelo: {model}\n\nEl output HTML se guarda en la carpeta de news del Control Center. La lista de temas y la persistencia de duplicados se gestiona desde el panel News.",
-        ),
+        // v2.5.1: news.generate_with_ai removed — News pipeline was dropped
+        // in v2.0 and the prompt referenced surfaces that no longer exist.
         default_button(
             "mcps.add_with_ai",
             "MCPs · Add server with AI",

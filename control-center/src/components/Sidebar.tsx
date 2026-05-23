@@ -61,7 +61,9 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       { id: "dashboard", label: "Dashboard", available: true },
       { id: "usage", label: "Usage", available: true, featureKey: "usage" },
       { id: "notifications", label: "Notifications", available: true, featureKey: "notifications" },
-      { id: "changelog", label: "Changelog", available: true, tier: "more" },
+      // v2.5.1: Changelog dropped from sidebar (user does not need it).
+      // Still reachable via command palette "Go to Changelog" since the
+      // Tab union still includes it and App.tsx still routes it.
     ],
   },
   {

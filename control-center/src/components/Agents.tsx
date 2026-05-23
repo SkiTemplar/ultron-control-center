@@ -1,8 +1,7 @@
-// ULTRON Control Center 2.0 — Agents viewer.
+// ULTRON Control Center 2.6 — Agents viewer.
 //
-// Lists agents from 3 origins (global / project / plugin) with scope chips,
-// search, category filter (derived from path segments), and "open in
-// editor". Backend = `list_agents` Tauri command.
+// 3-way view: Grid (legacy cards), Tree (origin → group → leaf), and Blocks
+// (Spotify-style drill-down). Default = Blocks. Backend = `list_agents`.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -12,6 +11,12 @@ import { SearchGitHubModal } from "./library/SearchGitHubModal";
 import { InstallConfirmModal } from "./library/InstallConfirmModal";
 import { CreateAgentModal } from "./library/CreateAgentModal";
 import { Bot, Folder, Github, Plus } from "./library/icons";
+import { TreeView, type TreeOrigin } from "./library/TreeView";
+import {
+  BlocksView,
+  type BlocksItem,
+} from "./library/BlocksView";
+import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
 
 type ProjectLite = { id: string; name: string };
 
@@ -63,12 +68,32 @@ function deriveCategory(a: AgentEntry): string {
     const m = norm.match(/\/plugins\/cache\/[^/]+\/([^/]+)\/[^/]+\/agents\//);
     if (m && m[1]) return m[1];
   }
-  // Agents are usually flat under agents/, but some communities organise
-  // them in subfolders. Capture the segment immediately after `agents/`
-  // when there's at least one more `/` before the .md filename.
   const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md$/);
   if (m && m[1]) return m[1];
   return NO_CATEGORY;
+}
+
+/// Top-level Blocks group: per-plugin tile when plugin-scoped, else Global /
+/// Project (mirrors Skills.tsx behaviour).
+function deriveTopGroup(a: AgentEntry): string {
+  if (a.origin === "global") return "Global";
+  if (a.origin === "project") return "Project";
+  return deriveCategory(a);
+}
+
+/// Sub-group within a top-level Blocks tile. For plugin agents, this is the
+/// folder under `agents/` if one exists. For global/project agents, the
+/// category itself becomes the sub-group.
+function deriveSubGroup(a: AgentEntry): string | null {
+  const norm = a.path.replace(/\\/g, "/");
+  if (a.origin === "plugin") {
+    const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md$/);
+    if (m && m[1]) return m[1];
+    return null;
+  }
+  const cat = deriveCategory(a);
+  if (cat === NO_CATEGORY) return null;
+  return cat;
 }
 
 export function Agents() {
@@ -82,6 +107,7 @@ export function Agents() {
   const [createOpen, setCreateOpen] = useState(false);
   const [installItem, setInstallItem] = useState<RemoteItem | null>(null);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
+  const [view, setView] = useLibraryViewMode("agents");
 
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
@@ -149,6 +175,114 @@ export function Agents() {
     }
   };
 
+  // Tree-view origins for the legacy tree mode.
+  const treeOrigins: TreeOrigin<AgentEntry>[] = useMemo(() => {
+    const buckets: Record<SkillOrigin, Record<string, AgentEntry[]>> = {
+      global: {},
+      project: {},
+      plugin: {},
+    };
+    for (const a of filtered) {
+      const cat = deriveCategory(a);
+      (buckets[a.origin][cat] ??= []).push(a);
+    }
+    return (["global", "project", "plugin"] as SkillOrigin[]).map((id) => ({
+      id,
+      label: id.charAt(0).toUpperCase() + id.slice(1),
+      groups: Object.entries(buckets[id])
+        .sort(([a], [b]) => {
+          if (a === NO_CATEGORY) return 1;
+          if (b === NO_CATEGORY) return -1;
+          return a.localeCompare(b);
+        })
+        .map(([name, list]) => ({
+          name,
+          leaves: list.map((a) => ({
+            key: `${a.origin}-${a.path}`,
+            label: a.name,
+            data: a,
+          })),
+        })),
+    }));
+  }, [filtered]);
+
+  // Blocks-view items. Top group splits plugin scope into per-plugin tiles.
+  const blockItems: BlocksItem<AgentEntry>[] = useMemo(
+    () =>
+      filtered.map((a) => ({
+        key: `${a.origin}-${a.path}`,
+        topGroup: deriveTopGroup(a),
+        subGroup: deriveSubGroup(a),
+        data: a,
+      })),
+    [filtered],
+  );
+
+  // Card grid used by Grid mode and Blocks-mode leaves.
+  const renderCardGrid = (items: AgentEntry[]) => (
+    <ul className="grid gap-2 md:grid-cols-2">
+      {items.map((a) => {
+        const cat = deriveCategory(a);
+        const chip = originChipStyle(a.origin);
+        return (
+          <li
+            key={`${a.origin}-${a.path}`}
+            className="rounded-md p-3 text-sm"
+            style={{
+              border: "1px solid var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+            }}
+          >
+            <div className="mb-1 flex items-start justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Bot
+                  size={12}
+                  className="shrink-0 text-[var(--color-text-tertiary)]"
+                />
+                <span className="truncate font-medium">{a.name}</span>
+              </div>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
+                style={chip}
+              >
+                {a.origin}
+              </span>
+            </div>
+            {cat !== NO_CATEGORY && (
+              <div
+                className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                <Folder size={10} /> {cat}
+              </div>
+            )}
+            <p
+              className="mb-2 text-xs leading-snug"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              {a.description || "(sin descripción)"}
+            </p>
+            <button
+              onClick={() => handleOpen(a.path)}
+              className="rounded-md border px-2 py-0.5 text-xs"
+              style={{
+                borderColor: "var(--color-border-strong)",
+                background: "var(--color-surface-3)",
+                color: "var(--color-text)",
+              }}
+            >
+              Open in editor
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   return (
     <div className="flex h-full flex-col gap-4 p-6">
       <header className="flex items-center justify-between gap-2">
@@ -162,6 +296,7 @@ export function Agents() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <ViewToggle mode={view} onChange={setView} />
           <button
             onClick={() => setSearchOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs"
@@ -224,7 +359,7 @@ export function Agents() {
           })}
         </div>
 
-        {categories.length > 0 && (
+        {view !== "blocks" && categories.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span
               className="text-[10.5px] uppercase tracking-wide"
@@ -319,68 +454,29 @@ export function Agents() {
           >
             Sin agents para el filtro actual.
           </p>
+        ) : view === "blocks" ? (
+          <BlocksView<AgentEntry>
+            items={blockItems}
+            noun="agent"
+            emptyLabel="Sin agents para el filtro actual."
+            topGroupAccent={(g) => {
+              if (g === "Global") return "rgba(136, 136, 204, 0.40)";
+              if (g === "Project") return "rgba(168, 136, 168, 0.40)";
+              return "rgba(63, 185, 80, 0.32)";
+            }}
+            renderLeaves={(items) =>
+              renderCardGrid(items.map((it) => it.data))
+            }
+          />
+        ) : view === "tree" ? (
+          <TreeView<AgentEntry>
+            origins={treeOrigins}
+            selectedKey={null}
+            onSelect={(leaf) => void handleOpen(leaf.data.path)}
+            query={query}
+          />
         ) : (
-          <ul className="grid gap-2 md:grid-cols-2">
-            {filtered.map((a) => {
-              const cat = deriveCategory(a);
-              const chip = originChipStyle(a.origin);
-              return (
-                <li
-                  key={`${a.origin}-${a.path}`}
-                  className="rounded-md p-3 text-sm"
-                  style={{
-                    border: "1px solid var(--color-border-strong)",
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-text)",
-                  }}
-                >
-                  <div className="mb-1 flex items-start justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <Bot
-                        size={12}
-                        className="shrink-0 text-[var(--color-text-tertiary)]"
-                      />
-                      <span className="truncate font-medium">{a.name}</span>
-                    </div>
-                    <span
-                      className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
-                      style={chip}
-                    >
-                      {a.origin}
-                    </span>
-                  </div>
-                  {cat !== NO_CATEGORY && (
-                    <div
-                      className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
-                      style={{
-                        background: "var(--color-surface-3)",
-                        color: "var(--color-text-tertiary)",
-                      }}
-                    >
-                      <Folder size={10} /> {cat}
-                    </div>
-                  )}
-                  <p
-                    className="mb-2 text-xs leading-snug"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    {a.description || "(sin descripción)"}
-                  </p>
-                  <button
-                    onClick={() => handleOpen(a.path)}
-                    className="rounded-md border px-2 py-0.5 text-xs"
-                    style={{
-                      borderColor: "var(--color-border-strong)",
-                      background: "var(--color-surface-3)",
-                      color: "var(--color-text)",
-                    }}
-                  >
-                    Open in editor
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
+          renderCardGrid(filtered)
         )}
       </div>
 

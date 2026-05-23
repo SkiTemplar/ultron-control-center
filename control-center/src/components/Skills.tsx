@@ -1,9 +1,11 @@
-// ULTRON Control Center 2.0 — Skills viewer.
+// ULTRON Control Center 2.6 — Skills viewer.
 //
-// Lists skills from 3 origins (global / project / plugin) with scope chips,
-// search, category filter (derived from path segments), "open in editor",
-// and an enable/disable toggle (global only). Backend = `list_skills` +
-// `skill_toggle` Tauri commands.
+// 3-way view: Grid (legacy card layout), Tree (origin → group → leaf), and
+// Blocks (Spotify-style drill-down per USER: top-level tile per origin /
+// plugin → sub-category tile → leaf list). Default = Blocks; persists per
+// sub-tab via `useLibraryViewMode`.
+//
+// Backend = `list_skills` + `skill_toggle` Tauri commands (unchanged).
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -13,6 +15,12 @@ import { SearchGitHubModal } from "./library/SearchGitHubModal";
 import { InstallConfirmModal } from "./library/InstallConfirmModal";
 import { CreateSkillModal } from "./library/CreateSkillModal";
 import { Folder, Github, Plus, Sparkle } from "./library/icons";
+import { TreeView, type TreeOrigin } from "./library/TreeView";
+import {
+  BlocksView,
+  type BlocksItem,
+} from "./library/BlocksView";
+import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
 
 type ProjectLite = { id: string; name: string };
 
@@ -73,6 +81,31 @@ function deriveCategory(s: SkillEntry): string {
   return NO_CATEGORY;
 }
 
+/// Derive the Blocks-view top-level group label. Distinct from the legacy
+/// scope chip: plugin-scoped skills land under their plugin name (so the
+/// user sees "ecc", "superpowers", … as separate tiles instead of a single
+/// "Plugin" bucket).
+function deriveTopGroup(s: SkillEntry): string {
+  if (s.origin === "global") return "Global";
+  if (s.origin === "project") return "Project";
+  return deriveCategory(s);
+}
+
+/// Derive the Blocks-view sub-group label. For plugin skills we look at the
+/// path segment immediately AFTER `skills/` so categories like "agent",
+/// "tooling", "review" surface as sub-tiles.
+function deriveSubGroup(s: SkillEntry): string | null {
+  const norm = s.path.replace(/\\/g, "/");
+  if (s.origin === "plugin") {
+    const m = norm.match(/\/skills\/([^/]+)\/[^/]+\/?(?:SKILL\.md)?$/);
+    if (m && m[1] && m[1] !== s.name) return m[1];
+    return null;
+  }
+  const cat = deriveCategory(s);
+  if (cat === NO_CATEGORY) return null;
+  return cat;
+}
+
 export function Skills() {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
@@ -84,6 +117,7 @@ export function Skills() {
   const [createOpen, setCreateOpen] = useState(false);
   const [installItem, setInstallItem] = useState<RemoteItem | null>(null);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
+  const [view, setView] = useLibraryViewMode("skills");
 
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
@@ -166,6 +200,139 @@ export function Skills() {
     }
   };
 
+  // Build the Tree-view origins (legacy 3-level tree). Kept for users who
+  // prefer the dense sidebar look.
+  const treeOrigins: TreeOrigin<SkillEntry>[] = useMemo(() => {
+    const buckets: Record<SkillOrigin, Record<string, SkillEntry[]>> = {
+      global: {},
+      project: {},
+      plugin: {},
+    };
+    for (const s of filtered) {
+      const cat = deriveCategory(s);
+      (buckets[s.origin][cat] ??= []).push(s);
+    }
+    return (["global", "project", "plugin"] as SkillOrigin[]).map((id) => ({
+      id,
+      label: id.charAt(0).toUpperCase() + id.slice(1),
+      groups: Object.entries(buckets[id])
+        .sort(([a], [b]) => {
+          if (a === NO_CATEGORY) return 1;
+          if (b === NO_CATEGORY) return -1;
+          return a.localeCompare(b);
+        })
+        .map(([name, list]) => ({
+          name,
+          leaves: list.map((s) => ({
+            key: `${s.origin}-${s.path}`,
+            label: s.name,
+            data: s,
+          })),
+        })),
+    }));
+  }, [filtered]);
+
+  // Build the Blocks-view items. Top group folds plugin scope into per-plugin
+  // tiles so "ecc" and "superpowers" surface separately, as USER requested.
+  const blockItems: BlocksItem<SkillEntry>[] = useMemo(
+    () =>
+      filtered.map((s) => ({
+        key: `${s.origin}-${s.path}`,
+        topGroup: deriveTopGroup(s),
+        subGroup: deriveSubGroup(s),
+        data: s,
+      })),
+    [filtered],
+  );
+
+  // Card layout used by both Grid mode and Blocks mode's leaf view — keeps
+  // the visual language consistent.
+  const renderCardGrid = (items: SkillEntry[]) => (
+    <ul className="grid gap-2 md:grid-cols-2">
+      {items.map((s) => {
+        const cat = deriveCategory(s);
+        const chip = originChipStyle(s.origin);
+        return (
+          <li
+            key={`${s.origin}-${s.path}`}
+            className="rounded-md p-3 text-sm transition-colors"
+            style={{
+              border: "1px solid var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              opacity: s.enabled ? 1 : 0.55,
+            }}
+          >
+            <div className="mb-1 flex items-start justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <Sparkle
+                  size={12}
+                  className="shrink-0 text-[var(--color-text-tertiary)]"
+                />
+                <span className="truncate font-medium">{s.name}</span>
+              </div>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
+                style={chip}
+              >
+                {s.origin}
+              </span>
+            </div>
+            {cat !== NO_CATEGORY && (
+              <div
+                className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                <Folder size={10} /> {cat}
+              </div>
+            )}
+            <p
+              className="mb-2 text-xs leading-snug"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              {s.description || "(sin descripción)"}
+            </p>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleOpen(s.path)}
+                className="rounded-md border px-2 py-0.5 text-xs"
+                style={{
+                  borderColor: "var(--color-border-strong)",
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text)",
+                }}
+              >
+                Open in editor
+              </button>
+              {s.origin === "global" && (
+                <button
+                  onClick={() => handleToggle(s)}
+                  className="rounded-md border px-2 py-0.5 text-xs"
+                  style={{
+                    borderColor: s.enabled
+                      ? "var(--color-border-strong)"
+                      : "var(--color-accent)",
+                    background: s.enabled
+                      ? "var(--color-surface-3)"
+                      : "var(--color-accent)",
+                    color: s.enabled
+                      ? "var(--color-text)"
+                      : "var(--color-accent-text)",
+                  }}
+                >
+                  {s.enabled ? "Disable" : "Enable"}
+                </button>
+              )}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
   return (
     <div className="flex h-full flex-col gap-4 p-6">
       <header className="flex items-center justify-between gap-2">
@@ -179,6 +346,7 @@ export function Skills() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <ViewToggle mode={view} onChange={setView} />
           <button
             onClick={() => setSearchOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs"
@@ -241,7 +409,7 @@ export function Skills() {
           })}
         </div>
 
-        {categories.length > 0 && (
+        {view !== "blocks" && categories.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span
               className="text-[10.5px] uppercase tracking-wide"
@@ -336,90 +504,29 @@ export function Skills() {
           >
             Sin skills para el filtro actual.
           </p>
+        ) : view === "blocks" ? (
+          <BlocksView<SkillEntry>
+            items={blockItems}
+            noun="skill"
+            emptyLabel="Sin skills para el filtro actual."
+            topGroupAccent={(g) => {
+              if (g === "Global") return "rgba(136, 136, 204, 0.40)";
+              if (g === "Project") return "rgba(168, 136, 168, 0.40)";
+              return "rgba(63, 185, 80, 0.32)";
+            }}
+            renderLeaves={(items) =>
+              renderCardGrid(items.map((it) => it.data))
+            }
+          />
+        ) : view === "tree" ? (
+          <TreeView<SkillEntry>
+            origins={treeOrigins}
+            selectedKey={null}
+            onSelect={(leaf) => void handleOpen(leaf.data.path)}
+            query={query}
+          />
         ) : (
-          <ul className="grid gap-2 md:grid-cols-2">
-            {filtered.map((s) => {
-              const cat = deriveCategory(s);
-              const chip = originChipStyle(s.origin);
-              return (
-                <li
-                  key={`${s.origin}-${s.path}`}
-                  className="rounded-md p-3 text-sm transition-colors"
-                  style={{
-                    border: "1px solid var(--color-border-strong)",
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-text)",
-                    opacity: s.enabled ? 1 : 0.55,
-                  }}
-                >
-                  <div className="mb-1 flex items-start justify-between gap-2">
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <Sparkle
-                        size={12}
-                        className="shrink-0 text-[var(--color-text-tertiary)]"
-                      />
-                      <span className="truncate font-medium">{s.name}</span>
-                    </div>
-                    <span
-                      className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
-                      style={chip}
-                    >
-                      {s.origin}
-                    </span>
-                  </div>
-                  {cat !== NO_CATEGORY && (
-                    <div
-                      className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
-                      style={{
-                        background: "var(--color-surface-3)",
-                        color: "var(--color-text-tertiary)",
-                      }}
-                    >
-                      <Folder size={10} /> {cat}
-                    </div>
-                  )}
-                  <p
-                    className="mb-2 text-xs leading-snug"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    {s.description || "(sin descripción)"}
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleOpen(s.path)}
-                      className="rounded-md border px-2 py-0.5 text-xs"
-                      style={{
-                        borderColor: "var(--color-border-strong)",
-                        background: "var(--color-surface-3)",
-                        color: "var(--color-text)",
-                      }}
-                    >
-                      Open in editor
-                    </button>
-                    {s.origin === "global" && (
-                      <button
-                        onClick={() => handleToggle(s)}
-                        className="rounded-md border px-2 py-0.5 text-xs"
-                        style={{
-                          borderColor: s.enabled
-                            ? "var(--color-border-strong)"
-                            : "var(--color-accent)",
-                          background: s.enabled
-                            ? "var(--color-surface-3)"
-                            : "var(--color-accent)",
-                          color: s.enabled
-                            ? "var(--color-text)"
-                            : "var(--color-accent-text)",
-                        }}
-                      >
-                        {s.enabled ? "Disable" : "Enable"}
-                      </button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
+          renderCardGrid(filtered)
         )}
       </div>
 
