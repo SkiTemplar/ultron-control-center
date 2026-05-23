@@ -96,14 +96,24 @@ pub async fn search_github_inner(
         return Ok(cached);
     }
 
-    let q = format!("{} path:{} extension:md", query, kind_path);
+    // gh CLI v2.x dropped the `name` field from `gh search code --json`.
+    // Available fields are now: path, repository, sha, textMatches, url.
+    // We derive the display name from the basename of `path`.
+    //
+    // For skills we want SKILL.md hits only (a real skill is always a
+    // directory containing SKILL.md). For agents we ask for any .md under
+    // .claude/agents.
+    let q = match kind {
+        LibraryKind::Skill => format!("SKILL.md path:{} {}", kind_path, query),
+        LibraryKind::Agent => format!("{} path:{} extension:md", query, kind_path),
+    };
     let limit_str = limit.clamp(1, 100).to_string();
     let args: Vec<String> = vec![
         "search".into(),
         "code".into(),
         q,
         "--json".into(),
-        "repository,path,name,url".into(),
+        "repository,path,url".into(),
         "--limit".into(),
         limit_str,
     ];
@@ -129,8 +139,6 @@ pub async fn search_github_inner(
     struct GhHit {
         repository: GhRepo,
         path: String,
-        #[allow(dead_code)]
-        name: String,
         url: Option<String>,
     }
 
@@ -141,25 +149,74 @@ pub async fn search_github_inner(
     let items: Vec<RemoteItem> = hits
         .into_iter()
         .filter_map(|h| {
+            // Strict filter per kind: skill hits MUST be a SKILL.md file
+            // (anything else is a false positive — README.md, docs/, etc.).
+            // Agent hits MUST be a .md file directly under an `agents/`
+            // segment (not nested README/docs).
+            match kind {
+                LibraryKind::Skill => {
+                    if !h.path.ends_with("/SKILL.md") && h.path != "SKILL.md" {
+                        return None;
+                    }
+                }
+                LibraryKind::Agent => {
+                    if !h.path.ends_with(".md") {
+                        return None;
+                    }
+                    // The file's parent dir must literally be `agents`
+                    // (i.e. <repo>/.claude/agents/<name>.md). Skips
+                    // `.claude/agents/README.md` rejection too — README is
+                    // not a kebab-case agent slug downstream anyway.
+                    let parent_is_agents = h
+                        .path
+                        .rsplitn(3, '/')
+                        .nth(1)
+                        .map(|seg| seg == "agents")
+                        .unwrap_or(false);
+                    if !parent_is_agents {
+                        return None;
+                    }
+                    let bn = h.path.rsplit('/').next().unwrap_or("");
+                    if bn.eq_ignore_ascii_case("readme.md") {
+                        return None;
+                    }
+                }
+            }
+
             let (owner, repo) = {
                 let mut it = h.repository.name_with_owner.splitn(2, '/');
                 let o = it.next()?.to_string();
                 let r = it.next()?.to_string();
                 (o, r)
             };
-            let basename = h
-                .path
-                .rsplit('/')
-                .next()
-                .unwrap_or("")
-                .trim_end_matches(".md")
-                .trim_end_matches("/SKILL")
-                .to_string();
+            // Derive a human name from the path:
+            //   .claude/skills/foo/SKILL.md  -> "foo"
+            //   .claude/agents/foo.md        -> "foo"
+            let name = match kind {
+                LibraryKind::Skill => {
+                    // parent of SKILL.md
+                    h.path
+                        .rsplitn(3, '/')
+                        .nth(1)
+                        .unwrap_or("")
+                        .to_string()
+                }
+                LibraryKind::Agent => h
+                    .path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("")
+                    .trim_end_matches(".md")
+                    .to_string(),
+            };
+            if name.is_empty() {
+                return None;
+            }
             Some(RemoteItem {
                 owner,
                 repo,
                 path: h.path,
-                name: basename,
+                name,
                 html_url: h.url,
                 preview: None,
             })

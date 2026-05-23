@@ -475,25 +475,45 @@ fn plugin_agents_dirs() -> Vec<PathBuf> {
     out
 }
 
-fn read_agent_meta(path: &Path) -> (String, String) {
+/// Parse `(name, description, is_valid_agent)` from an agent .md file.
+/// A real agent is a markdown file whose YAML frontmatter declares at
+/// least `name:` and `description:`. README.md / docs are rejected.
+fn read_agent_meta(path: &Path) -> (String, String, bool) {
     let name = path
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("(unnamed)")
         .to_string();
-    let description = fs::read_to_string(path)
-        .ok()
-        .and_then(|s| {
-            for line in s.lines() {
-                let t = line.trim();
-                if let Some(rest) = t.strip_prefix("description:") {
-                    return Some(rest.trim().trim_matches('"').to_string());
-                }
+    let contents = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return (name, String::new(), false),
+    };
+    let trimmed = contents.trim_start();
+    if !trimmed.starts_with("---") {
+        return (name, String::new(), false);
+    }
+    let Some(end) = trimmed[3..].find("\n---") else {
+        return (name, String::new(), false);
+    };
+    let block = &trimmed[3..3 + end];
+    let mut has_name = false;
+    let mut has_description = false;
+    let mut description = String::new();
+    for raw in block.lines() {
+        let t = raw.trim();
+        if let Some(rest) = t.strip_prefix("name:") {
+            if !rest.trim().is_empty() {
+                has_name = true;
             }
-            None
-        })
-        .unwrap_or_default();
-    (name, description)
+        } else if let Some(rest) = t.strip_prefix("description:") {
+            let v = rest.trim().trim_matches(|c| c == '"' || c == '\'');
+            if !v.is_empty() {
+                has_description = true;
+                description = v.to_string();
+            }
+        }
+    }
+    (name, description, has_name && has_description)
 }
 
 fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
@@ -510,7 +530,20 @@ fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
             if p.extension().and_then(|s| s.to_str()) != Some("md") {
                 continue;
             }
-            let (name, description) = read_agent_meta(&p);
+            // Skip non-agent files (README.md, CHANGELOG.md, etc.) that
+            // happen to share the agents dir.
+            let bn = p
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if bn == "readme.md" || bn == "changelog.md" || bn == "license.md" {
+                continue;
+            }
+            let (name, description, valid) = read_agent_meta(&p);
+            if !valid {
+                continue;
+            }
             out.push(AgentEntry {
                 name,
                 path: p.to_string_lossy().to_string(),

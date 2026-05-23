@@ -629,8 +629,12 @@ fn plugin_skills_dirs() -> Vec<PathBuf> {
     out
 }
 
-fn read_skill_meta(dir: &Path) -> (String, String, bool) {
-    // (name, description, enabled). `enabled` = !under `_disabled/`.
+/// Parse `(name, description, has_required_frontmatter)` from a skill dir.
+/// A real skill is a DIRECTORY containing `SKILL.md` whose YAML frontmatter
+/// declares at least `name:` and `description:`. Anything else is rejected
+/// as a false positive (loose markdown files, READMEs, etc.).
+fn read_skill_meta(dir: &Path) -> (String, String, bool, bool) {
+    // Returns: (name, description, enabled, is_valid_skill).
     let name = dir
         .file_name()
         .and_then(|s| s.to_str())
@@ -643,21 +647,39 @@ fn read_skill_meta(dir: &Path) -> (String, String, bool) {
         .map(|s| s == "_disabled")
         .unwrap_or(false);
     let skill_md = dir.join("SKILL.md");
-    let description = std::fs::read_to_string(&skill_md)
-        .ok()
-        .and_then(|s| {
-            for line in s.lines() {
-                let t = line.trim();
-                if let Some(rest) = t.strip_prefix("description:") {
-                    return Some(rest.trim().trim_matches('"').to_string());
+    if !skill_md.is_file() {
+        return (name, String::new(), enabled, false);
+    }
+    let contents = match std::fs::read_to_string(&skill_md) {
+        Ok(c) => c,
+        Err(_) => return (name, String::new(), enabled, false),
+    };
+    // Require a YAML frontmatter with at least name + description.
+    let trimmed = contents.trim_start();
+    let mut has_name = false;
+    let mut has_description = false;
+    let mut description = String::new();
+    if trimmed.starts_with("---") {
+        if let Some(end) = trimmed[3..].find("\n---") {
+            let block = &trimmed[3..3 + end];
+            for raw in block.lines() {
+                let t = raw.trim();
+                if let Some(rest) = t.strip_prefix("name:") {
+                    if !rest.trim().is_empty() {
+                        has_name = true;
+                    }
+                } else if let Some(rest) = t.strip_prefix("description:") {
+                    let v = rest.trim().trim_matches(|c| c == '"' || c == '\'');
+                    if !v.is_empty() {
+                        has_description = true;
+                        description = v.to_string();
+                    }
                 }
             }
-            s.lines()
-                .find(|l| !l.trim().is_empty() && !l.starts_with("---"))
-                .map(|l| l.trim().trim_start_matches('#').trim().to_string())
-        })
-        .unwrap_or_default();
-    (name, description, enabled)
+        }
+    }
+    let is_valid_skill = has_name && has_description;
+    (name, description, enabled, is_valid_skill)
 }
 
 fn collect_skills_from(
@@ -687,7 +709,10 @@ fn collect_skills_from(
                     for d in disabled.flatten() {
                         let dp = d.path();
                         if dp.is_dir() {
-                            let (n, desc, _) = read_skill_meta(&dp);
+                            let (n, desc, _, valid) = read_skill_meta(&dp);
+                            if !valid {
+                                continue;
+                            }
                             out.push(SkillEntry {
                                 name: n,
                                 path: dp.to_string_lossy().to_string(),
@@ -701,7 +726,13 @@ fn collect_skills_from(
             }
             continue;
         }
-        let (n, desc, enabled) = read_skill_meta(&path);
+        let (n, desc, enabled, valid) = read_skill_meta(&path);
+        if !valid {
+            // Skip directories without a SKILL.md or without the required
+            // YAML frontmatter (`name:` + `description:`). Prevents random
+            // markdown subfolders from being surfaced as skills.
+            continue;
+        }
         out.push(SkillEntry {
             name: n,
             path: path.to_string_lossy().to_string(),
@@ -761,7 +792,7 @@ pub fn skill_toggle_inner(name: String, enabled: bool) -> Result<SkillEntry, Str
     } else {
         target_disabled_dir
     };
-    let (n, desc, e) = read_skill_meta(&final_path);
+    let (n, desc, e, _) = read_skill_meta(&final_path);
     Ok(SkillEntry {
         name: n,
         path: final_path.to_string_lossy().to_string(),

@@ -1,7 +1,8 @@
-// ULTRON Control Center 2.0 — Agents viewer (P2).
+// ULTRON Control Center 2.0 — Agents viewer.
 //
 // Lists agents from 3 origins (global / project / plugin) with scope chips,
-// search, and "open in editor". Backend = `list_agents` Tauri command.
+// search, category filter (derived from path segments), and "open in
+// editor". Backend = `list_agents` Tauri command.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -10,6 +11,7 @@ import type { AgentEntry, RemoteItem, SkillOrigin } from "../types";
 import { SearchGitHubModal } from "./library/SearchGitHubModal";
 import { InstallConfirmModal } from "./library/InstallConfirmModal";
 import { CreateAgentModal } from "./library/CreateAgentModal";
+import { Bot, Folder, Github, Plus } from "./library/icons";
 
 type ProjectLite = { id: string; name: string };
 
@@ -22,20 +24,57 @@ const SCOPES: { id: ScopeFilter; label: string }[] = [
   { id: "plugin", label: "Plugin" },
 ];
 
-function originChipColor(origin: SkillOrigin): string {
+const NO_CATEGORY = "uncategorized";
+
+function originChipStyle(origin: SkillOrigin): {
+  background: string;
+  color: string;
+  border: string;
+} {
   switch (origin) {
     case "global":
-      return "var(--color-accent)";
+      return {
+        background: "var(--color-surface-4)",
+        color: "var(--color-text)",
+        border: "1px solid var(--color-border-strong)",
+      };
     case "project":
-      return "#88c";
+      return {
+        background: "rgba(136, 136, 204, 0.16)",
+        color: "#b6b6ff",
+        border: "1px solid rgba(136, 136, 204, 0.40)",
+      };
     case "plugin":
-      return "#a8a";
+      return {
+        background: "rgba(168, 136, 168, 0.16)",
+        color: "#e0bce0",
+        border: "1px solid rgba(168, 136, 168, 0.40)",
+      };
   }
+}
+
+/// Derive a category from the on-disk path. Examples:
+///   ~/.claude/agents/sec/reviewer.md → "sec"
+///   ~/.claude/agents/reviewer.md     → "uncategorized"
+///   .../plugins/cache/<id>/<plugin>/<ver>/agents/foo.md → "<plugin>"
+function deriveCategory(a: AgentEntry): string {
+  const norm = a.path.replace(/\\/g, "/");
+  if (a.origin === "plugin") {
+    const m = norm.match(/\/plugins\/cache\/[^/]+\/([^/]+)\/[^/]+\/agents\//);
+    if (m && m[1]) return m[1];
+  }
+  // Agents are usually flat under agents/, but some communities organise
+  // them in subfolders. Capture the segment immediately after `agents/`
+  // when there's at least one more `/` before the .md filename.
+  const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md$/);
+  if (m && m[1]) return m[1];
+  return NO_CATEGORY;
 }
 
 export function Agents() {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
+  const [category, setCategory] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,17 +110,36 @@ export function Agents() {
     void reload();
   }, []);
 
+  const categories = useMemo(() => {
+    const subset =
+      scope === "all" ? agents : agents.filter((a) => a.origin === scope);
+    const set = new Set<string>();
+    for (const a of subset) set.add(deriveCategory(a));
+    return Array.from(set).sort((a, b) => {
+      if (a === NO_CATEGORY) return 1;
+      if (b === NO_CATEGORY) return -1;
+      return a.localeCompare(b);
+    });
+  }, [agents, scope]);
+
+  useEffect(() => {
+    if (category !== "all" && !categories.includes(category)) {
+      setCategory("all");
+    }
+  }, [categories, category]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return agents.filter((a) => {
       if (scope !== "all" && a.origin !== scope) return false;
+      if (category !== "all" && deriveCategory(a) !== category) return false;
       if (!q) return true;
       return (
         a.name.toLowerCase().includes(q) ||
         a.description.toLowerCase().includes(q)
       );
     });
-  }, [agents, scope, query]);
+  }, [agents, scope, category, query]);
 
   const handleOpen = async (path: string) => {
     try {
@@ -94,92 +152,234 @@ export function Agents() {
   return (
     <div className="flex h-full flex-col gap-4 p-6">
       <header className="flex items-center justify-between gap-2">
-        <h2 className="text-lg font-semibold">Agents</h2>
+        <div className="flex items-baseline gap-2">
+          <h2 className="text-lg font-semibold">Agents</h2>
+          <span
+            className="text-[11.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {filtered.length} of {agents.length}
+          </span>
+        </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSearchOpen(true)}
-            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)]"
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs"
+            style={{
+              borderColor: "var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+            }}
           >
-            Search GitHub
+            <Github size={12} /> Search GitHub
           </button>
           <button
             onClick={() => setCreateOpen(true)}
-            className="rounded-md bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white"
+            className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
           >
-            + New agent
+            <Plus size={12} /> New agent
           </button>
           <button
             onClick={reload}
-            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)]"
+            className="rounded-md border px-3 py-1 text-xs"
+            style={{
+              borderColor: "var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+            }}
           >
             Refresh
           </button>
         </div>
       </header>
 
-      <div className="flex items-center gap-2">
-        {SCOPES.map((s) => (
-          <button
-            key={s.id}
-            onClick={() => setScope(s.id)}
-            className={`rounded-full border px-3 py-1 text-xs ${
-              scope === s.id
-                ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
-                : "border-[var(--color-border)] hover:bg-[var(--color-surface-2)]"
-            }`}
-          >
-            {s.label}
-          </button>
-        ))}
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          {SCOPES.map((s) => {
+            const isActive = scope === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() => setScope(s.id)}
+                className="rounded-full border px-3 py-1 text-xs transition-colors"
+                style={{
+                  borderColor: isActive
+                    ? "var(--color-accent)"
+                    : "var(--color-border-strong)",
+                  background: isActive
+                    ? "var(--color-accent)"
+                    : "transparent",
+                  color: isActive
+                    ? "var(--color-accent-text)"
+                    : "var(--color-text-secondary)",
+                }}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {categories.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span
+              className="text-[10.5px] uppercase tracking-wide"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Category
+            </span>
+            <button
+              onClick={() => setCategory("all")}
+              className="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
+              style={{
+                borderColor:
+                  category === "all"
+                    ? "var(--color-text)"
+                    : "var(--color-border-strong)",
+                background:
+                  category === "all"
+                    ? "var(--color-surface-4)"
+                    : "transparent",
+                color:
+                  category === "all"
+                    ? "var(--color-text)"
+                    : "var(--color-text-secondary)",
+              }}
+            >
+              All
+            </button>
+            {categories.map((c) => {
+              const active = c === category;
+              return (
+                <button
+                  key={c}
+                  onClick={() => setCategory(c)}
+                  className="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
+                  style={{
+                    borderColor: active
+                      ? "var(--color-text)"
+                      : "var(--color-border-strong)",
+                    background: active
+                      ? "var(--color-surface-4)"
+                      : "transparent",
+                    color: active
+                      ? "var(--color-text)"
+                      : "var(--color-text-secondary)",
+                  }}
+                >
+                  {c}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Buscar agents…"
-        className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] px-3 py-2 text-sm outline-none focus:border-[var(--color-accent)]"
+        className="w-full rounded-md px-3 py-2 text-sm outline-none"
+        style={{
+          border: "1px solid var(--color-border-strong)",
+          background: "var(--color-surface-2)",
+          color: "var(--color-text)",
+        }}
       />
 
       {error && (
-        <div className="rounded-md border border-[var(--color-error)] bg-[var(--color-surface-1)] p-3 text-xs text-[var(--color-error)]">
+        <div
+          className="rounded-md p-3 text-xs"
+          style={{
+            border: "1px solid rgba(248, 81, 73, 0.30)",
+            background: "rgba(248, 81, 73, 0.08)",
+            color: "var(--color-danger)",
+          }}
+        >
           {error}
         </div>
       )}
 
       <div className="flex-1 overflow-y-auto">
         {loading ? (
-          <p className="text-xs text-[var(--color-text-muted)]">Loading…</p>
+          <p
+            className="text-xs"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Loading…
+          </p>
         ) : filtered.length === 0 ? (
-          <p className="text-xs text-[var(--color-text-muted)]">
+          <p
+            className="text-xs"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
             Sin agents para el filtro actual.
           </p>
         ) : (
-          <ul className="space-y-2">
-            {filtered.map((a) => (
-              <li
-                key={`${a.origin}-${a.path}`}
-                className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-sm"
-              >
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="font-medium">{a.name}</span>
-                  <span
-                    className="rounded-full px-2 py-0.5 text-xs text-white"
-                    style={{ background: originChipColor(a.origin) }}
-                  >
-                    {a.origin}
-                  </span>
-                </div>
-                <p className="mb-2 text-xs text-[var(--color-text-muted)]">
-                  {a.description || "(sin descripcion)"}
-                </p>
-                <button
-                  onClick={() => handleOpen(a.path)}
-                  className="rounded-md border border-[var(--color-border)] px-2 py-0.5 text-xs hover:bg-[var(--color-surface-2)]"
+          <ul className="grid gap-2 md:grid-cols-2">
+            {filtered.map((a) => {
+              const cat = deriveCategory(a);
+              const chip = originChipStyle(a.origin);
+              return (
+                <li
+                  key={`${a.origin}-${a.path}`}
+                  className="rounded-md p-3 text-sm"
+                  style={{
+                    border: "1px solid var(--color-border-strong)",
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text)",
+                  }}
                 >
-                  Open in editor
-                </button>
-              </li>
-            ))}
+                  <div className="mb-1 flex items-start justify-between gap-2">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <Bot
+                        size={12}
+                        className="shrink-0 text-[var(--color-text-tertiary)]"
+                      />
+                      <span className="truncate font-medium">{a.name}</span>
+                    </div>
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
+                      style={chip}
+                    >
+                      {a.origin}
+                    </span>
+                  </div>
+                  {cat !== NO_CATEGORY && (
+                    <div
+                      className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text-tertiary)",
+                      }}
+                    >
+                      <Folder size={10} /> {cat}
+                    </div>
+                  )}
+                  <p
+                    className="mb-2 text-xs leading-snug"
+                    style={{ color: "var(--color-text-secondary)" }}
+                  >
+                    {a.description || "(sin descripción)"}
+                  </p>
+                  <button
+                    onClick={() => handleOpen(a.path)}
+                    className="rounded-md border px-2 py-0.5 text-xs"
+                    style={{
+                      borderColor: "var(--color-border-strong)",
+                      background: "var(--color-surface-3)",
+                      color: "var(--color-text)",
+                    }}
+                  >
+                    Open in editor
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>

@@ -157,7 +157,11 @@ export function CreateSkillModal({
             Cancel
           </button>
           <button
-            className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white disabled:opacity-50"
+            className="rounded px-3 py-1 text-xs font-medium disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
             onClick={submit}
             disabled={!valid || busy}
           >

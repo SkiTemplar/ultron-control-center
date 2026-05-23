@@ -129,3 +129,147 @@ pub fn library_unpin_agent(
 pub fn library_list_pinned(project_id: String) -> Result<library::PinnedAgents, String> {
     library::pinned_load(&project_id)
 }
+
+// ---------------------------------------------------------------------------
+// Catalog refresh — fetch the first paragraph of each item's source file
+// from GitHub raw and return them keyed by `owner/repo/path`. The frontend
+// merges these into the static seed summaries so the cards show fresh
+// upstream wording on every Catalog mount. Failures are reported per-item;
+// the global call never errors out.
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+pub struct CatalogPreview {
+    pub key: String,
+    pub summary: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(serde::Deserialize)]
+pub struct CatalogPreviewRequest {
+    pub owner: String,
+    pub repo: String,
+    pub path: String,
+    /// Optional branch override; defaults to `main` and falls back to `master`.
+    #[serde(default)]
+    pub branch: Option<String>,
+}
+
+#[tauri::command]
+pub async fn catalog_fetch_previews(
+    items: Vec<CatalogPreviewRequest>,
+) -> Result<Vec<CatalogPreview>, String> {
+    let client = reqwest::Client::builder()
+        .user_agent("ultron-control-center/2.0 (catalog-preview)")
+        .timeout(std::time::Duration::from_secs(8))
+        .build()
+        .map_err(|e| format!("reqwest build: {e}"))?;
+
+    // Sequential fetches keep deps minimal (no `futures` crate). Catalog
+    // is small (<50 items) and the per-request timeout caps total runtime.
+    let mut out: Vec<CatalogPreview> = Vec::with_capacity(items.len());
+    for req in items {
+        let key = format!("{}/{}/{}", req.owner, req.repo, req.path);
+        let branches: Vec<String> = match req.branch {
+            Some(b) if !b.is_empty() => vec![b],
+            _ => vec!["main".to_string(), "master".to_string()],
+        };
+        let mut last_err: Option<String> = None;
+        let mut summary: Option<String> = None;
+        for branch in &branches {
+            let url = format!(
+                "https://raw.githubusercontent.com/{}/{}/{}/{}",
+                req.owner, req.repo, branch, req.path
+            );
+            match client.get(&url).send().await {
+                Ok(resp) if resp.status().is_success() => match resp.text().await {
+                    Ok(body) => {
+                        summary = Some(extract_summary(&body));
+                        last_err = None;
+                        break;
+                    }
+                    Err(e) => last_err = Some(format!("body: {e}")),
+                },
+                Ok(resp) => last_err = Some(format!("http {}", resp.status())),
+                Err(e) => last_err = Some(format!("net: {e}")),
+            }
+        }
+        out.push(CatalogPreview {
+            key,
+            summary,
+            error: last_err,
+        });
+    }
+    Ok(out)
+}
+
+/// Pull the first non-trivial paragraph out of a SKILL.md / README.md /
+/// agent .md file. Strips YAML frontmatter and the leading `# Title`
+/// header. Caps at 240 chars so the catalog cards stay tight.
+fn extract_summary(body: &str) -> String {
+    let mut text = body.trim_start();
+    if text.starts_with("---") {
+        // Skip frontmatter block.
+        if let Some(end) = text[3..].find("\n---") {
+            text = text[3 + end + 4..].trim_start();
+        }
+    }
+    let mut paragraph = String::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            if !paragraph.is_empty() {
+                break;
+            }
+            continue;
+        }
+        if line.starts_with('#') {
+            // Skip heading lines until we find prose.
+            continue;
+        }
+        if line.starts_with("```") || line.starts_with("<!--") {
+            continue;
+        }
+        if !paragraph.is_empty() {
+            paragraph.push(' ');
+        }
+        paragraph.push_str(line);
+        if paragraph.len() > 280 {
+            break;
+        }
+    }
+    let trimmed = paragraph.trim();
+    if trimmed.len() <= 240 {
+        return trimmed.to_string();
+    }
+    let cut = trimmed.char_indices().nth(237).map(|(i, _)| i).unwrap_or(237);
+    format!("{}…", &trimmed[..cut])
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::extract_summary;
+
+    #[test]
+    fn strips_frontmatter_and_title() {
+        let body = "---\nname: foo\ndescription: x\n---\n\n# Foo\n\nFirst real line here.\nSecond line.\n";
+        let s = extract_summary(body);
+        assert_eq!(s, "First real line here. Second line.");
+    }
+
+    #[test]
+    fn skips_empty_body() {
+        let body = "---\nname: foo\n---\n";
+        let s = extract_summary(body);
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn truncates_long_paragraph_with_ellipsis() {
+        let long = "x".repeat(400);
+        let body = format!("# Title\n\n{}\n", long);
+        let s = extract_summary(&body);
+        assert!(s.ends_with('…'));
+        assert!(s.chars().count() <= 238);
+    }
+}

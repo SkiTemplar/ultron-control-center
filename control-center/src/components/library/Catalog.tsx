@@ -1,8 +1,15 @@
 // Catalog sub-tab — renders the curated catalog from
 // ~/.ultron/cockpit/curated-catalog.json (backend cmd `read_curated_catalog`).
 // One-click install of each item via `library_install_from_github`.
+//
+// v2.1: live preview refresh. After loading the static seed we fetch each
+// item's first paragraph from GitHub raw via the backend command
+// `catalog_fetch_previews` (sequential HTTPS GETs in Rust with reqwest;
+// 8s per-request timeout). The fresh summary replaces the seed value if
+// available, the seed wins otherwise. A Refresh button re-triggers the
+// fetch on demand and shows a Loader while it's in flight.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
@@ -47,6 +54,12 @@ type ItemState =
   | { kind: "done"; path: string }
   | { kind: "error"; message: string };
 
+type CatalogPreview = {
+  key: string;
+  summary: string | null;
+  error: string | null;
+};
+
 function itemKey(it: CatalogItem): string {
   return `${it.owner}/${it.repo}/${it.path}`;
 }
@@ -57,6 +70,46 @@ export function Catalog() {
   const [loading, setLoading] = useState(true);
   const [state, setState] = useState<Record<string, ItemState>>({});
   const [filter, setFilter] = useState<"all" | CatalogKind>("all");
+  const [refreshing, setRefreshing] = useState(false);
+  const [previewMap, setPreviewMap] = useState<Record<string, string>>({});
+  const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
+
+  const allItems = useMemo<CatalogItem[]>(() => {
+    if (!data) return [];
+    return data.domains.flatMap((d) => d.items);
+  }, [data]);
+
+  const refreshPreviews = useCallback(
+    async (items: CatalogItem[]) => {
+      if (items.length === 0) return;
+      setRefreshing(true);
+      try {
+        const previews = (await invoke("catalog_fetch_previews", {
+          items: items.map((it) => ({
+            owner: it.owner,
+            repo: it.repo,
+            path: it.path,
+          })),
+        })) as CatalogPreview[];
+        setPreviewMap((prev) => {
+          const next = { ...prev };
+          for (const p of previews) {
+            if (p.summary && p.summary.trim().length > 0) {
+              next[p.key] = p.summary;
+            }
+          }
+          return next;
+        });
+        setRefreshedAt(new Date().toISOString());
+      } catch (e) {
+        // Non-fatal: seed summaries still render.
+        setError((prev) => prev ?? `preview fetch: ${String(e)}`);
+      } finally {
+        setRefreshing(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -64,7 +117,11 @@ export function Catalog() {
       setLoading(true);
       try {
         const res = (await invoke("read_curated_catalog")) as CatalogPayload;
-        if (!cancelled) setData(res);
+        if (cancelled) return;
+        setData(res);
+        // Kick off a non-blocking refresh of live summaries on first mount.
+        const items = res.domains.flatMap((d) => d.items);
+        void refreshPreviews(items);
       } catch (e) {
         if (!cancelled) setError(String(e));
       } finally {
@@ -75,7 +132,7 @@ export function Catalog() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshPreviews]);
 
   const filteredDomains = useMemo(() => {
     if (!data) return [];
@@ -134,7 +191,7 @@ export function Catalog() {
     );
   }
 
-  if (error) {
+  if (error && !data) {
     return (
       <div
         className="m-6 rounded-md border p-4 text-[12.5px]"
@@ -186,41 +243,75 @@ export function Catalog() {
   return (
     <div className="flex h-full flex-col">
       <div
-        className="flex items-center justify-between border-b px-6 py-3"
+        className="flex items-center justify-between gap-3 border-b px-6 py-3"
         style={{ borderColor: "var(--color-border)" }}
       >
         <div
-          className="flex items-center gap-2 text-[12px]"
+          className="flex min-w-0 items-center gap-2 text-[12px]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           <Compass size={14} />
-          <span>
-            Curated picks for graphics, UE5, AI, and MCP work · last updated{" "}
+          <span className="truncate">
+            Curated picks for graphics, UE5, AI, and MCP work · seed{" "}
             {data.updated_at ?? "—"}
+            {refreshedAt && (
+              <>
+                {" "}
+                · live{" "}
+                {new Date(refreshedAt).toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </>
+            )}
           </span>
         </div>
-        <div className="flex gap-1">
-          {(["all", "skill", "agent"] as const).map((f) => (
-            <button
-              key={f}
-              type="button"
-              onClick={() => setFilter(f)}
-              className="rounded-md px-2.5 py-1 text-[11px] transition-colors"
-              style={{
-                background:
-                  filter === f ? "var(--color-surface-3)" : "transparent",
-                color:
-                  filter === f
-                    ? "var(--color-text)"
-                    : "var(--color-text-secondary)",
-                border: `1px solid ${
-                  filter === f ? "var(--color-border-strong)" : "transparent"
-                }`,
-              }}
-            >
-              {f === "all" ? "All" : f === "skill" ? "Skills" : "Agents"}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void refreshPreviews(allItems)}
+            disabled={refreshing || allItems.length === 0}
+            className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] disabled:opacity-60"
+            style={{
+              borderColor: "var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+            }}
+            title="Re-fetch live summaries from GitHub raw"
+          >
+            {refreshing ? (
+              <>
+                <Loader size={11} className="animate-spin" /> Refreshing
+              </>
+            ) : (
+              <>Refresh from GitHub</>
+            )}
+          </button>
+          <div className="flex gap-1">
+            {(["all", "skill", "agent"] as const).map((f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                className="rounded-md px-2.5 py-1 text-[11px] transition-colors"
+                style={{
+                  background:
+                    filter === f ? "var(--color-surface-3)" : "transparent",
+                  color:
+                    filter === f
+                      ? "var(--color-text)"
+                      : "var(--color-text-secondary)",
+                  border: `1px solid ${
+                    filter === f
+                      ? "var(--color-border-strong)"
+                      : "transparent"
+                  }`,
+                }}
+              >
+                {f === "all" ? "All" : f === "skill" ? "Skills" : "Agents"}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -243,17 +334,23 @@ export function Catalog() {
                 const isInstalled = st.kind === "done";
                 const isInstalling = st.kind === "installing";
                 const KindIcon = it.kind === "skill" ? Sparkle : Bot;
+                const liveSummary = previewMap[key];
+                const summary = liveSummary ?? it.summary;
                 return (
                   <li
                     key={key}
                     className="rounded-md border p-3 text-[12px]"
                     style={{
                       background: "var(--color-surface-2)",
-                      borderColor: "var(--color-border)",
+                      borderColor: "var(--color-border-strong)",
+                      color: "var(--color-text)",
                     }}
                   >
                     <div className="mb-1 flex items-center gap-2">
-                      <KindIcon size={12} />
+                      <KindIcon
+                        size={12}
+                        className="shrink-0 text-[var(--color-text-tertiary)]"
+                      />
                       <span className="font-medium">{it.title}</span>
                       <span
                         className="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide"
@@ -264,12 +361,25 @@ export function Catalog() {
                       >
                         {it.kind}
                       </span>
+                      {liveSummary && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[10px]"
+                          style={{
+                            background: "rgba(63, 185, 80, 0.12)",
+                            color: "var(--color-success)",
+                            border: "1px solid rgba(63, 185, 80, 0.30)",
+                          }}
+                          title="Summary fetched from GitHub raw"
+                        >
+                          live
+                        </span>
+                      )}
                     </div>
                     <p
                       className="mb-2 text-[11.5px] leading-snug"
                       style={{ color: "var(--color-text-secondary)" }}
                     >
-                      {it.summary}
+                      {summary}
                     </p>
                     <div
                       className="flex items-center justify-between text-[10.5px]"
@@ -282,7 +392,11 @@ export function Catalog() {
                         <button
                           type="button"
                           onClick={() => openSource(it)}
-                          className="inline-flex items-center gap-1 rounded px-2 py-0.5 hover:bg-[var(--color-surface-3)]"
+                          className="inline-flex items-center gap-1 rounded px-2 py-0.5"
+                          style={{
+                            color: "var(--color-text)",
+                            background: "var(--color-surface-3)",
+                          }}
                           title="Open source on GitHub"
                         >
                           <ExternalLink size={11} />
@@ -295,10 +409,14 @@ export function Catalog() {
                           style={{
                             background: isInstalled
                               ? "rgba(63, 185, 80, 0.12)"
-                              : "var(--color-surface-3)",
+                              : isInstalling
+                                ? "var(--color-surface-3)"
+                                : "var(--color-accent)",
                             color: isInstalled
                               ? "var(--color-success)"
-                              : "var(--color-text)",
+                              : isInstalling
+                                ? "var(--color-text-secondary)"
+                                : "var(--color-accent-text)",
                             border: `1px solid ${
                               isInstalled
                                 ? "rgba(63, 185, 80, 0.30)"
