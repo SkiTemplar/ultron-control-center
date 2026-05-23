@@ -714,7 +714,11 @@ const ITEM_KINDS: { value: LauncherItemKind; label: string; hint: string }[] = [
   { value: "exe", label: "Executable (advanced)", hint: "Spawn an .exe / .lnk / .bat with optional arguments" },
 ];
 
-export function Projects() {
+type ProjectsProps = {
+  onOpenProject?: (project: { id: string; name: string }) => void;
+};
+
+export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [projects, setProjects] = useState<ProjectInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -793,6 +797,11 @@ export function Projects() {
   }
 
   async function openLegacy(id: string) {
+    if (onOpenProject) {
+      const p = projects.find((x) => x.id === id);
+      onOpenProject({ id, name: p?.name ?? id });
+      return;
+    }
     setOpening(id);
     setLastAction(null);
     try {

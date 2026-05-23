@@ -16,6 +16,9 @@ import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
 import { Settings } from "./components/Settings";
 import { Projects } from "./components/Projects";
+import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsContext";
+import TabsBar from "./components/projects/TabsBar";
+import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
 import { Gaming } from "./components/Gaming";
 import { Personal } from "./components/Personal";
@@ -30,7 +33,15 @@ import { setupTrayEventListeners } from "./lib/tauri-events";
 import type { AlertEntry, ChangelogEntry } from "./types";
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>("dashboard");
+  return (
+    <ProjectsTabsProvider>
+      <AppInner />
+    </ProjectsTabsProvider>
+  );
+}
+
+function AppInner() {
+  const [tab, setTab] = useState<Tab>("projects");
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -479,7 +490,7 @@ export default function App() {
         {tab === "sessions" && <Sessions />}
         {tab === "usage" && <Usage />}
         {tab === "settings" && <Settings />}
-        {tab === "projects" && <Projects />}
+        {tab === "projects" && <ProjectsPane />}
         {tab === "system" && <System />}
         {tab === "gaming" && <Gaming />}
         {tab === "plans" && <Plans />}
@@ -496,6 +507,30 @@ export default function App() {
       />
       <PopupHost />
       <Onboarding />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// P4: Projects pane — renders the browser-style tab strip + the active
+// project workspace, or the legacy Projects home component when the "Projects"
+// tab is selected.
+// ---------------------------------------------------------------------------
+
+function ProjectsPane() {
+  const { currentId, open } = useProjectsTabs();
+  return (
+    <div className="flex h-full flex-col">
+      <TabsBar />
+      <div className="flex-1 overflow-hidden">
+        {currentId === "home" ? (
+          <Projects
+            onOpenProject={(p) => open({ id: p.id, title: p.name })}
+          />
+        ) : (
+          <ProjectWorkspace key={currentId} projectId={currentId} />
+        )}
+      </div>
     </div>
   );
 }

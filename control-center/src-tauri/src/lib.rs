@@ -313,6 +313,17 @@ pub fn run() {
             features::save_features,
         ])
         .setup(|app| {
+            // P4 migration: ensure every known project has a kanban.json.
+            // Idempotent — no-op if files already exist.
+            {
+                if let Ok(projects) = crate::projects::list_projects_inner() {
+                    let ids: Vec<String> = projects.iter().map(|p| p.id.clone()).collect();
+                    if let Err(e) = crate::kanban::migrate_all_projects(&ids) {
+                        eprintln!("[ultron] kanban migration: {e}");
+                    }
+                }
+            }
+
             // Persisted main toggle hotkey (Ctrl+Alt+U by default).
             let shortcut_handle = app.global_shortcut();
             let spec = hotkeys::load_hotkey_spec();
