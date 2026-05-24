@@ -670,7 +670,7 @@ function WorkspaceCard({
 
   return (
     <div
-      className="flex h-full flex-col rounded p-4 transition-colors"
+      className="flex h-full flex-col rounded-lg p-5 transition-colors"
       style={{
         background: "var(--color-surface-2)",
         border: "1px solid var(--color-border)",
@@ -679,7 +679,7 @@ function WorkspaceCard({
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <h3
-            className="truncate text-[14px] font-semibold leading-tight"
+            className="truncate text-[16px] font-semibold leading-tight"
             style={{ color: "var(--color-text)" }}
             title={headline}
           >

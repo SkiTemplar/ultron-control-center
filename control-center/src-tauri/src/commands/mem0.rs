@@ -1,7 +1,7 @@
 // ULTRON Control Center 2.0 — Tauri command wrappers for the Mem0 client.
 
 use crate::mem0::{
-    add_inner, delete_inner, diagnostics_inner, search_inner, status_inner,
+    add_inner, delete_inner, diagnostics_inner, list_all_inner, search_inner, status_inner,
     test_connection_inner, Mem0Diagnostics, Mem0Memory, Mem0Status,
 };
 
@@ -41,4 +41,14 @@ pub fn mem0_diagnostics() -> Result<Mem0Diagnostics, String> {
 #[tauri::command]
 pub async fn mem0_test_connection() -> Result<Mem0Status, String> {
     test_connection_inner().await
+}
+
+/// v2.6.3 — proper list endpoint. Hits `GET /v1/memories/?user_id=...&limit=...`
+/// instead of the search endpoint that rejects blank queries with HTTP 400.
+#[tauri::command]
+pub async fn mem0_list_all(
+    project_id: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<Mem0Memory>, String> {
+    list_all_inner(project_id, limit).await
 }

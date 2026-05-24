@@ -85,13 +85,31 @@ pub struct Mem0Status {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Mem0Memory {
+    // v2.6.3: Mem0 v1.1 made these optional. The async `add` endpoint returns
+    // `[{message, status:"PENDING", event_id}]` with NO `id`/`memory` until the
+    // background worker finishes processing the conversation into memories.
+    // Previously this caused "Mem0 add deserialize: missing field `id`" — the
+    // request succeeded but the UI surfaced the parse error as a failure.
+    // Making both fields optional with serde defaults lets the queued response
+    // round-trip cleanly; the UI can show a "queued" placeholder until the
+    // next list/search hydrates the real id+memory.
+    #[serde(default)]
     pub id: String,
+    #[serde(default)]
     pub memory: String,
     pub user_id: Option<String>,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     #[serde(default)]
     pub metadata: serde_json::Value,
+    // Async-add response surface — propagated to the frontend so the UI can
+    // show a "Queued, will appear shortly" hint instead of nothing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -657,4 +675,142 @@ pub fn diagnostics_inner() -> Result<Mem0Diagnostics, String> {
 /// outcome without affecting the background poll loop.
 pub async fn test_connection_inner() -> Result<Mem0Status, String> {
     status_inner().await
+}
+
+/// List all memories for a given user_id (project_id) via GET /v1/memories/.
+///
+/// v2.6.3 fix: the Memory tab + ProjectContext sub-tab were using
+/// `mem0_search` with an empty query as a "list everything" call, but
+/// Mem0's search endpoint rejects blank queries (HTTP 400). Since v2.6.2
+/// we short-circuit those locally — which means the tabs always showed
+/// "0 memories" even when memories existed in the cloud. This dedicated
+/// list endpoint mirrors the official Mem0 API:
+///
+///     GET https://api.mem0.ai/v1/memories/?user_id={uid}&limit={n}
+///
+/// Returns the parsed list, or an empty `Vec` on success-with-no-results.
+pub async fn list_all_inner(
+    project_id: Option<String>,
+    limit: Option<u32>,
+) -> Result<Vec<Mem0Memory>, String> {
+    let key = match read_api_key() {
+        Ok(k) => k,
+        Err(e) => {
+            append_log(&Mem0LogEntry {
+                timestamp: now_iso(),
+                op: "list".into(),
+                ok: false,
+                status_code: None,
+                latency_ms: None,
+                error: Some(e.clone()),
+                body_excerpt: None,
+                query: None,
+            });
+            return Err(e);
+        }
+    };
+    let client = http_client()?;
+    let started = Instant::now();
+    let user_id_effective = project_id
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("global");
+    let limit_effective = limit.unwrap_or(100);
+    let limit_str = limit_effective.to_string();
+    let resp = match client
+        .get(format!("{MEM0_BASE}/memories/"))
+        .header("Authorization", format!("Token {key}"))
+        .query(&[("user_id", user_id_effective), ("limit", &limit_str)])
+        .send()
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let err = e.to_string();
+            append_log(&Mem0LogEntry {
+                timestamp: now_iso(),
+                op: "list".into(),
+                ok: false,
+                status_code: None,
+                latency_ms: Some(started.elapsed().as_millis() as u64),
+                error: Some(err.clone()),
+                body_excerpt: None,
+                query: Some(user_id_effective.to_string()),
+            });
+            return Err(err);
+        }
+    };
+    let latency_ms = started.elapsed().as_millis() as u64;
+    let status_code = resp.status().as_u16();
+    if !resp.status().is_success() {
+        let body_text = resp.text().await.unwrap_or_else(|_| "<no body>".into());
+        let err = format!("Mem0 list HTTP {status_code}: {body_text}");
+        append_log(&Mem0LogEntry {
+            timestamp: now_iso(),
+            op: "list".into(),
+            ok: false,
+            status_code: Some(status_code),
+            latency_ms: Some(latency_ms),
+            error: Some(err.clone()),
+            body_excerpt: Some(body_excerpt(&body_text)),
+            query: Some(user_id_effective.to_string()),
+        });
+        return Err(err);
+    }
+    let body_text = resp.text().await.map_err(|e| e.to_string())?;
+    let value: serde_json::Value = match serde_json::from_str(&body_text) {
+        Ok(v) => v,
+        Err(e) => {
+            let err = format!("Mem0 list JSON parse: {e}");
+            append_log(&Mem0LogEntry {
+                timestamp: now_iso(),
+                op: "list".into(),
+                ok: false,
+                status_code: Some(status_code),
+                latency_ms: Some(latency_ms),
+                error: Some(err.clone()),
+                body_excerpt: Some(body_excerpt(&body_text)),
+                query: Some(user_id_effective.to_string()),
+            });
+            return Err(err);
+        }
+    };
+    // The list endpoint historically returned a bare array; the v1.1 API
+    // returns `{results: [...], next_cursor: ...}`. Handle both.
+    let arr = value
+        .get("results")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .or_else(|| value.as_array().cloned())
+        .ok_or_else(|| {
+            let err = "unexpected Mem0 list response shape".to_string();
+            append_log(&Mem0LogEntry {
+                timestamp: now_iso(),
+                op: "list".into(),
+                ok: false,
+                status_code: Some(status_code),
+                latency_ms: Some(latency_ms),
+                error: Some(err.clone()),
+                body_excerpt: Some(body_excerpt(&body_text)),
+                query: Some(user_id_effective.to_string()),
+            });
+            err
+        })?;
+    let result_count = arr.len();
+    let memories: Vec<Mem0Memory> = serde_json::from_value(serde_json::Value::Array(arr))
+        .map_err(|e| format!("Mem0 list deserialize: {e}"))?;
+    append_log(&Mem0LogEntry {
+        timestamp: now_iso(),
+        op: "list".into(),
+        ok: true,
+        status_code: Some(status_code),
+        latency_ms: Some(latency_ms),
+        error: None,
+        body_excerpt: Some(format!(
+            "user_id={user_id_effective} results={result_count}"
+        )),
+        query: Some(user_id_effective.to_string()),
+    });
+    Ok(memories)
 }

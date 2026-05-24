@@ -263,6 +263,7 @@ pub fn run() {
             commands::mem0::mem0_delete,
             commands::mem0::mem0_diagnostics,
             commands::mem0::mem0_test_connection,
+            commands::mem0::mem0_list_all,
             // -- sessions --
             commands::sessions::spawn_session,
             commands::sessions::run_inline,
@@ -338,6 +339,7 @@ pub fn run() {
             commands::pty::pty_resize,
             commands::pty::pty_kill,
             commands::pty::pty_list,
+            commands::pty::pty_replay,
             // -- library (P5 — GitHub search + install + per-project pin) --
             // v2.1: curated catalog feed. v2.2: live preview refresh.
             commands::library::library_search_github,

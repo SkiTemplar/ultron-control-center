@@ -5,7 +5,8 @@
 // portable-pty spawn) and we don't want to stall the async runtime.
 
 use crate::pty::{
-    kill_inner, list_inner, resize_inner, spawn_inner, write_inner, PtySessionSummary,
+    kill_inner, list_inner, replay_inner, resize_inner, spawn_inner, write_inner,
+    PtySessionSummary,
 };
 use tauri::{AppHandle, Runtime};
 
@@ -44,4 +45,16 @@ pub async fn pty_kill(session_id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn pty_list(project_id: String) -> Result<Vec<PtySessionSummary>, String> {
     list_inner(project_id)
+}
+
+/// Return the buffered output captured by the reader thread (base64).
+///
+/// The frontend calls this once, immediately after its `pty:data:<id>`
+/// listener registers, to recover the early output that the reader thread
+/// emitted before the IPC listener was subscribed. Without this, TUIs
+/// (Claude/Codex/Gemini) that paint their UI in the first burst and never
+/// repaint left the embedded terminal blank — the canonical P0 bug.
+#[tauri::command]
+pub async fn pty_replay(session_id: String) -> Result<String, String> {
+    replay_inner(session_id)
 }

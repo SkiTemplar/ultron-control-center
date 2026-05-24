@@ -44,7 +44,34 @@ pub struct PtySession {
     pub master: Box<dyn MasterPty + Send>,
     pub writer: Box<dyn Write + Send>,
     pub child: Box<dyn portable_pty::Child + Send + Sync>,
+    /// Ring buffer of raw output bytes captured by the reader thread.
+    ///
+    /// P0 bug fix (2026-05-24): the previous build emitted `pty:data:<id>`
+    /// events immediately as the PTY produced output, but the frontend
+    /// `EmbeddedTerminal` registers its `listen()` *after* the React mount
+    /// has finished and the Tauri IPC handshake completes (tens to hundreds
+    /// of ms). The first burst of output from Claude/Codex/Gemini — the TUI
+    /// splash, banner and entire initial paint — was emitted into a void:
+    /// the listener wasn't subscribed yet, so the chunks were lost forever.
+    /// TUIs don't periodically repaint, so the terminal stayed blank.
+    ///
+    /// Fix: capture every byte the reader produces into this buffer and
+    /// HOLD live emission until the frontend calls `pty_replay`. The
+    /// replay call returns the buffered bytes and flips `subscribed=true`,
+    /// after which the reader thread starts emitting `pty:data:<id>`
+    /// events in real time. This way there is exactly one path bytes can
+    /// reach the frontend — first as replay, then as live events — with
+    /// no duplication and no loss. Capped at 256 KiB to bound memory;
+    /// older bytes are dropped from the front when full.
+    pub output_buffer: Vec<u8>,
+    /// Has the frontend subscribed via `pty_replay`? While false, the
+    /// reader thread captures bytes into `output_buffer` but does NOT
+    /// emit `pty:data:<id>` events. Once true, the reader switches to
+    /// live emission for every subsequent chunk.
+    pub subscribed: bool,
 }
+
+const PTY_REPLAY_BUFFER_MAX: usize = 256 * 1024;
 
 impl PtySession {
     pub fn summary(&self) -> PtySessionSummary {
@@ -397,6 +424,8 @@ pub fn spawn_inner<R: Runtime>(
         master,
         writer,
         child,
+        output_buffer: Vec::with_capacity(8 * 1024),
+        subscribed: false,
     };
 
     {
@@ -405,6 +434,10 @@ pub fn spawn_inner<R: Runtime>(
     }
 
     // Reader thread: pump stdout/stderr chunks to the frontend.
+    //
+    // Every chunk is also appended to the session's output_buffer so that
+    // `pty_replay` can hand back the early output if the frontend listener
+    // subscribed after the chunk was emitted (see PtySession docs above).
     let app_for_reader = app.clone();
     let id_for_reader = id.clone();
     thread::spawn(move || {
@@ -414,11 +447,37 @@ pub fn spawn_inner<R: Runtime>(
             match reader.read(&mut buf) {
                 Ok(0) => break,
                 Ok(n) => {
-                    let chunk = engine.encode(&buf[..n]);
-                    let _ = app_for_reader.emit(
-                        &format!("pty:data:{id_for_reader}"),
-                        serde_json::json!({ "data": chunk }),
-                    );
+                    let slice = &buf[..n];
+                    // Capture for replay (ring-buffer trim if oversized) and
+                    // check whether the frontend has subscribed yet. If not,
+                    // we capture but do NOT emit — the bytes will be handed
+                    // back via pty_replay when the listener registers. This
+                    // is the canonical fix for the listen-after-emit race.
+                    let subscribed_now = {
+                        match registry().lock() {
+                            Ok(mut reg) => {
+                                if let Some(s) = reg.get_mut(&id_for_reader) {
+                                    s.output_buffer.extend_from_slice(slice);
+                                    if s.output_buffer.len() > PTY_REPLAY_BUFFER_MAX {
+                                        let drop_n =
+                                            s.output_buffer.len() - PTY_REPLAY_BUFFER_MAX;
+                                        s.output_buffer.drain(0..drop_n);
+                                    }
+                                    s.subscribed
+                                } else {
+                                    false
+                                }
+                            }
+                            Err(_) => false,
+                        }
+                    };
+                    if subscribed_now {
+                        let chunk = engine.encode(slice);
+                        let _ = app_for_reader.emit(
+                            &format!("pty:data:{id_for_reader}"),
+                            serde_json::json!({ "data": chunk }),
+                        );
+                    }
                 }
                 Err(_) => break,
             }
@@ -492,6 +551,30 @@ pub fn kill_inner(session_id: String) -> Result<(), String> {
     let _ = s.child.kill();
     s.status = PtyStatus::Killed;
     Ok(())
+}
+
+/// Return the buffered output captured by the reader thread, base64-encoded,
+/// AND flip the `subscribed` flag so the reader starts emitting live events.
+///
+/// Called by the frontend `EmbeddedTerminal` immediately after its
+/// `pty:data:<id>` listener registers. The transition from "buffered" to
+/// "live" happens under the registry mutex so no chunk can be lost or
+/// duplicated: the reader thread either captures a chunk before this call
+/// (in which case it's in the returned buffer and not emitted) or after this
+/// call (in which case it's not in the buffer but is emitted as a live event).
+///
+/// Returns an empty string if the session is unknown (already exited and
+/// pruned, etc.) so the caller can no-op without surfacing a misleading error.
+pub fn replay_inner(session_id: String) -> Result<String, String> {
+    let mut reg = registry().lock().map_err(|e| e.to_string())?;
+    let s = match reg.get_mut(&session_id) {
+        Some(s) => s,
+        None => return Ok(String::new()),
+    };
+    let engine = base64::engine::general_purpose::STANDARD;
+    let encoded = engine.encode(&s.output_buffer);
+    s.subscribed = true;
+    Ok(encoded)
 }
 
 pub fn list_inner(project_id: String) -> Result<Vec<PtySessionSummary>, String> {

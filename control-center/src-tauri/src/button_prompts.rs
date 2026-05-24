@@ -180,20 +180,8 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             &["plan_id", "plan_title", "plan_status", "plan_priority", "plan_description"],
             "Plan ID: {plan_id}\nTitle: {plan_title}\nStatus: {plan_status}\nPriority: {plan_priority}\n\nDescription:\n{plan_description}\n\nQuiero trabajar en este plan ahora.\n\nPasos:\n1. Si existe un spec asociado, léelo primero.\n2. Propón un plan de ejecución dividido en tareas pequeñas (<1h cada una).\n3. Empieza por la primera tarea.\n4. Cuando termines, marca el plan como resolved (o blocked con nota si te atascas).",
         ),
-        // CANDIDATE FOR REMOVAL — outdated (fb-031 audit, 2026-05-24):
-        // The SelfImprove tab + RepoEvaluatorCard no longer exist in the
-        // sidebar — repo evaluation now lives inside the Library / Catalog
-        // flow and uses ad-hoc slash commands. No caller references this
-        // key (`rg "selfimprove.repo_evaluator"` returns 0 hits in src/).
-        default_button(
-            "selfimprove.repo_evaluator",
-            "SelfImprove · Run repo-evaluator",
-            "SelfImprove / RepoEvaluatorCard",
-            "Spawns a Claude session that activates the repo-evaluator skill \
-             for a strict professor-style review of the current repository.",
-            &[],
-            "Activa la skill `repo-evaluator`. Evalúa este repositorio al estilo de un profesor estricto:\n- Arquitectura (separación de responsabilidades, capas).\n- Tests (cobertura, calidad de los casos).\n- Documentación (README, API docs, ADRs).\n- Riesgos (acoplamientos, código muerto, hot spots).\n- Dependencias (CVEs conocidos, licencias, mantenimiento upstream).\n\nDevuelve una nota final con justificación y un top-5 de mejoras priorizadas. Empieza por una fase 0 de inventario del repo.",
-        ),
+        // v2.5.2 (fb-031): `selfimprove.repo_evaluator` removed — SelfImprove
+        // tab no longer exists and repo evaluation now lives in Library/Catalog.
         default_button(
             "system.schedule_task_ai",
             "System · New scheduled task with AI",
@@ -338,19 +326,8 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             &["target_change"],
             "Recorre `~/.claude/agents/*.md`. Para cada agent, propón los cambios necesarios para aplicar el siguiente migration target:\n\n{target_change}\n\nDevuelve un plan tabular con columnas: `agent | cambio sugerido | diff line`.\n\nEspera mi OK por lotes de 5 agents antes de tocar nada.",
         ),
-        // CANDIDATE FOR REMOVAL — outdated (fb-031 audit, 2026-05-24):
-        // No "Logs" tab exists in the Control Center sidebar today — log
-        // tailing lives under System / diagnostics panel and uses a
-        // separate prompt (`system.diagnose_runtime`). No caller references
-        // this key in `src/`.
-        default_button(
-            "logs.summarize_recent",
-            "Logs · Summarize recent log file",
-            "Logs / per-row context menu",
-            "Compress the tail of a log file into a 5-line summary + flagged issues.",
-            &["log_path"],
-            "Lee la cola (últimas 500 líneas) de `{log_path}` y devuelve:\n\n1. Qué proceso lo escribe.\n2. Eventos relevantes (errores, warnings, transiciones de estado).\n3. ¿Hay un patrón anómalo (loop, retry storm, silence)?\n4. Sugerencia de siguiente paso: investigar / silenciar / ignorar.\n\nMáximo 150 palabras.",
-        ),
+        // v2.5.2 (fb-031): `logs.summarize_recent` removed — no Logs tab
+        // exists; system.diagnose_runtime covers the use case.
     ]
 }
 

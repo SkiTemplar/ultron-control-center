@@ -18,34 +18,13 @@ import {
 //   Level 2: prompt cards within the picked category.
 //   Detail : modal overlay (unchanged, opens on prompt-card click).
 //
-// Dead-prompt audit (CANDIDATE FOR REMOVAL): some categories no longer have
-// a UI surface in the Control Center because the corresponding tab was
-// retired. Those categories are flagged with `dead: true` so the user can
-// see them and clean up later. None are deleted automatically.
-//
-// Live Tab union (from Sidebar.tsx):
-//   dashboard, mcps, library (= skills/agents/rules/plugins/hooks/commands),
-//   projects, memory, notes, plans, changelog, notifications, sessions,
-//   usage, system, settings.
-//
-// Categories present in button_prompts.rs that DO map to a tab:
-//   dashboard, skills, agents, memory, notif, plans, system, usage, mcps,
-//   projects, sessions.
-//
-// Categories that have NO matching tab anymore (dead surfaces):
-//   selfimprove, logs.
-//
-// Keys flagged for removal (see button_prompts.rs):
-//   selfimprove.repo_evaluator
-//   logs.summarize_recent
+// v2.5.2 (fb-031, 2026-05-24): dead-surface tagging removed — the prompts
+// flagged as candidates for removal were dropped from button_prompts.rs
+// (selfimprove.repo_evaluator, logs.summarize_recent) so the UI no longer
+// needs to render "dead surface" badges or special-case categories.
 // ---------------------------------------------------------------------------
 
 const SEARCH_FOCUS_KEY = "/";
-
-// Categories whose UI surface no longer exists in the Control Center. The
-// prompts under these prefixes are CANDIDATES FOR REMOVAL — they still
-// exist in button_prompts.rs but nothing in the React tree calls them.
-const DEAD_CATEGORIES: ReadonlySet<string> = new Set(["selfimprove", "logs"]);
 
 /** Category derived from the prompt key prefix (everything before the first
  *  dot). Falls back to "misc" when the key has no dot. */
@@ -220,26 +199,18 @@ export function ButtonPromptsSection() {
   }, [catalog]);
 
   // v2.5.2 (wave 2): Level-1 categories derived from the key prefix
-  // (dashboard.foo → "dashboard"). Each category card surfaces its prompt
-  // count and a "dead" tag when no Control Center tab consumes that prefix.
+  // (dashboard.foo → "dashboard"). v2.5.2 (fb-031): "dead" tag removed —
+  // outdated prompts were deleted from the backend instead of flagged.
   const categories = useMemo(() => {
-    if (!catalog) return [] as Array<{ name: string; count: number; dead: boolean }>;
+    if (!catalog) return [] as Array<{ name: string; count: number }>;
     const counts = new Map<string, number>();
     for (const b of catalog.buttons) {
       const c = categoryOf(b);
       counts.set(c, (counts.get(c) ?? 0) + 1);
     }
     return Array.from(counts.entries())
-      .map(([name, count]) => ({
-        name,
-        count,
-        dead: DEAD_CATEGORIES.has(name),
-      }))
-      // Dead categories sink to the bottom so live categories surface first.
-      .sort((a, b) => {
-        if (a.dead !== b.dead) return a.dead ? 1 : -1;
-        return a.name.localeCompare(b.name);
-      });
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   }, [catalog]);
 
   const filtered = useMemo(() => {
@@ -334,18 +305,6 @@ export function ButtonPromptsSection() {
             style={{ color: "var(--color-text-secondary)" }}
           >
             <span style={{ fontFamily: "var(--font-mono)" }}>{activeCategory}.*</span>
-            {DEAD_CATEGORIES.has(activeCategory) && (
-              <span
-                className="ml-2 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
-                style={{
-                  background: "rgba(248, 81, 73, 0.10)",
-                  color: "var(--color-danger)",
-                }}
-                title="No Control Center tab consumes this category — candidate for removal"
-              >
-                dead surface
-              </span>
-            )}
           </span>
         </div>
       )}
@@ -473,8 +432,8 @@ export function ButtonPromptsSection() {
       {/* Level 1 — Category grid (mirrors the Library two-step UX). */}
       {showCategoryGrid && categories.length > 0 && (
         <div
-          className="mt-4 grid gap-3"
-          style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
+          className="mt-4 grid gap-2.5"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
         >
           {categories.map((c) => (
             <button
@@ -484,35 +443,30 @@ export function ButtonPromptsSection() {
                 setActiveCategory(c.name);
                 setActiveGroups(new Set());
               }}
-              className="rounded p-4 text-left transition-colors"
+              className="rounded p-3.5 text-left transition-colors"
               style={{
                 background: "var(--color-surface-2)",
-                border: `1px solid ${c.dead ? "rgba(248, 81, 73, 0.32)" : "var(--color-border)"}`,
+                border: "1px solid var(--color-border)",
                 cursor: "pointer",
-                opacity: c.dead ? 0.7 : 1,
               }}
-              title={
-                c.dead
-                  ? `No Control Center tab consumes '${c.name}.*' anymore — candidate for removal`
-                  : `${c.count} prompt(s) in ${c.name}.*`
-              }
+              title={`${c.count} prompt(s) in ${c.name}.*`}
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span
-                  className="truncate text-[14px] font-semibold"
+                  className="truncate text-[15px] font-semibold"
                   style={{ color: "var(--color-text)" }}
                 >
                   {c.name}
                 </span>
                 <span
-                  className="shrink-0 tabular-nums text-[11.5px]"
+                  className="shrink-0 tabular-nums text-[12px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
                   {c.count}
                 </span>
               </div>
               <div
-                className="mt-1 text-[11px]"
+                className="mt-1 text-[11.5px]"
                 style={{
                   color: "var(--color-text-faint)",
                   fontFamily: "var(--font-mono)",
@@ -520,19 +474,6 @@ export function ButtonPromptsSection() {
               >
                 {c.name}.*
               </div>
-              {c.dead && (
-                <div className="mt-2">
-                  <span
-                    className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
-                    style={{
-                      background: "rgba(248, 81, 73, 0.10)",
-                      color: "var(--color-danger)",
-                    }}
-                  >
-                    dead surface
-                  </span>
-                </div>
-              )}
             </button>
           ))}
         </div>
@@ -568,8 +509,8 @@ export function ButtonPromptsSection() {
         </div>
       ) : (
         <div
-          className="mt-4 grid gap-3"
-          style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}
+          className="mt-4 grid gap-2.5"
+          style={{ gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))" }}
         >
           {filtered.map((b) => (
             <button
@@ -579,7 +520,7 @@ export function ButtonPromptsSection() {
                 setExpanded(b.key);
                 setEditing(null);
               }}
-              className="rounded p-3 text-left transition-colors"
+              className="rounded p-3.5 text-left transition-colors"
               style={{
                 background: "var(--color-surface-2)",
                 border: `1px solid ${b.overridden ? "var(--color-accent)" : "var(--color-border)"}`,
@@ -589,13 +530,13 @@ export function ButtonPromptsSection() {
             >
               <div className="flex items-baseline justify-between gap-2">
                 <span
-                  className="truncate text-[13px] font-semibold"
+                  className="truncate text-[14.5px] font-semibold leading-tight"
                   style={{ color: "var(--color-text)" }}
                 >
                   {b.label}
                 </span>
                 <span
-                  className="shrink-0 rounded-full px-2 py-px text-[10px]"
+                  className="shrink-0 rounded-full px-2 py-px text-[10.5px]"
                   style={{
                     background: "var(--color-surface-3)",
                     color: "var(--color-text-tertiary)",
@@ -606,7 +547,7 @@ export function ButtonPromptsSection() {
                 </span>
               </div>
               {b.overridden && (
-                <div className="mt-1">
+                <div className="mt-1.5">
                   <span
                     className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
                     style={{
@@ -620,7 +561,7 @@ export function ButtonPromptsSection() {
               )}
               {b.description && (
                 <div
-                  className="mt-1.5 text-[11.5px]"
+                  className="mt-2 text-[12px] leading-snug"
                   style={{
                     color: "var(--color-text-secondary)",
                     display: "-webkit-box",
@@ -633,7 +574,7 @@ export function ButtonPromptsSection() {
                 </div>
               )}
               <div
-                className="mt-1.5 text-[10.5px]"
+                className="mt-2 text-[11px]"
                 style={{
                   color: "var(--color-text-faint)",
                   fontFamily: "var(--font-mono)",

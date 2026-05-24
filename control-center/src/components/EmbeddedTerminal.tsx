@@ -76,21 +76,45 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
     // mounted inside a split-pane that has zero measured dimensions on the
     // first synchronous tick, FitAddon.proposeDimensions returns undefined
     // and dereferencing `.dimensions` throws. rAF + safety guard fixes it.
+    //
+    // v2.6.1 P0 bug fix (continued): also retry the fit on a 100ms timer
+    // until proposeDimensions returns valid cols/rows. ResizeObserver fires
+    // only when the container size *changes*; if the container is sized
+    // synchronously by the parent's flex layout before mount, the observer
+    // may not fire again and we'd never resize the PTY past the default
+    // 30x120. The timer self-clears on the first successful fit.
+    let fitRetryTimer: number | null = null;
+    let didFirstSuccessfulFit = false;
     const safeFit = () => {
       try {
         const dims = fit.proposeDimensions();
-        if (!dims || !dims.cols || !dims.rows) return;
+        if (!dims || !dims.cols || !dims.rows) return false;
         fit.fit();
         void invoke("pty_resize", {
           sessionId,
           rows: term.rows,
           cols: term.cols,
         });
+        didFirstSuccessfulFit = true;
+        return true;
       } catch {
-        // Transient: container not laid out yet. ResizeObserver will retry.
+        // Transient: container not laid out yet. ResizeObserver / timer will retry.
+        return false;
       }
     };
-    const initialFitFrame = requestAnimationFrame(safeFit);
+    const initialFitFrame = requestAnimationFrame(() => {
+      if (safeFit()) return;
+      // Container still has no measurable size — poll for up to ~3s.
+      let attempts = 0;
+      const tick = () => {
+        attempts += 1;
+        if (didFirstSuccessfulFit) return;
+        if (safeFit()) return;
+        if (attempts >= 30) return;
+        fitRetryTimer = window.setTimeout(tick, 100);
+      };
+      fitRetryTimer = window.setTimeout(tick, 100);
+    });
 
     // Forward keystrokes.
     const dataDispose = term.onData((data) => {
@@ -101,6 +125,19 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
     });
 
     // Listen for chunks.
+    //
+    // v2.6.1 P0 bug fix: the backend now holds live emission until the
+    // frontend calls `pty_replay`. Ordering:
+    //   1. register `pty:data` and `pty:exit` listeners (idempotent IPC).
+    //   2. call `pty_replay` — atomically returns the captured buffer
+    //      AND flips the session's `subscribed` flag under the registry
+    //      mutex, so the reader thread starts emitting live events for
+    //      every chunk produced after this point. No chunk can be both
+    //      buffered and emitted (mutex guarantees the transition is
+    //      observed by the reader before the next read iteration).
+    //   3. write the replay bytes to xterm — this is the entire initial
+    //      TUI paint that the previous build lost into the void.
+    // From now on, the listener handler writes live chunks directly.
     let unlistenData: UnlistenFn | null = null;
     let unlistenExit: UnlistenFn | null = null;
     (async () => {
@@ -120,6 +157,18 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
           if (onExit) onExit(event.payload.exit_code);
         },
       );
+      try {
+        const b64 = (await invoke("pty_replay", { sessionId })) as string;
+        if (b64) {
+          const bytes = BASE64.decode(b64);
+          if (bytes.length > 0) term.write(bytes);
+        }
+      } catch (e) {
+        // Replay is best-effort — surface as a transient warning but
+        // keep the terminal usable; live events will still flow.
+        // eslint-disable-next-line no-console
+        console.warn("pty_replay failed", e);
+      }
     })();
 
     // Resize on container change. Same proposeDimensions guard as initial
@@ -131,6 +180,7 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
 
     return () => {
       cancelAnimationFrame(initialFitFrame);
+      if (fitRetryTimer !== null) window.clearTimeout(fitRetryTimer);
       resizeObserver.disconnect();
       dataDispose.dispose();
       if (unlistenData) unlistenData();

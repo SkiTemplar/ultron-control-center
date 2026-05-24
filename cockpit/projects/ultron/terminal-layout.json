@@ -3,8 +3,8 @@
   "tabs": [
     {
       "id": "tab-1779632183192-2",
-      "label": "Tab 2",
-      "default_provider": null,
+      "label": "PowerShell",
+      "default_provider": "powershell",
       "root": {
         "kind": "leaf",
         "id": "leaf-1779632183192-3",

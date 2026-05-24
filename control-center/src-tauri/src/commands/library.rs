@@ -317,7 +317,6 @@ fn run_gh_search_repos(args: Vec<String>) -> Result<Vec<RepoHit>, String> {
         #[serde(rename = "updatedAt")]
         updated_at: Option<String>,
         #[serde(default)]
-        #[serde(rename = "repositoryTopics")]
         topics: Vec<serde_json::Value>,
     }
 
@@ -328,12 +327,17 @@ fn run_gh_search_repos(args: Vec<String>) -> Result<Vec<RepoHit>, String> {
     let out = hits
         .into_iter()
         .map(|h| {
-            // gh returns repositoryTopics as either [{name: "x"}, ...] or
-            // []. Accept both shapes safely.
+            // gh's `--json topics` field returns either a list of
+            // bare strings (`["foo", "bar"]`) or a list of objects
+            // (`[{"name": "foo"}, ...]`) depending on the gh version.
+            // Accept both shapes safely.
             let topics: Vec<String> = h
                 .topics
                 .iter()
                 .filter_map(|v| {
+                    if let Some(s) = v.as_str() {
+                        return Some(s.to_string());
+                    }
                     v.get("name")
                         .and_then(|n| n.as_str())
                         .map(|s| s.to_string())
@@ -375,7 +379,7 @@ pub async fn github_search_repos(
         "repos".into(),
         q,
         "--json".into(),
-        "fullName,owner,name,description,stargazersCount,language,url,updatedAt,repositoryTopics".into(),
+        "fullName,owner,name,description,stargazersCount,language,url,updatedAt,topics".into(),
         "--limit".into(),
         lim,
         "--sort".into(),
@@ -431,7 +435,7 @@ pub async fn github_search_trending(
         "repos".into(),
         q,
         "--json".into(),
-        "fullName,owner,name,description,stargazersCount,language,url,updatedAt,repositoryTopics".into(),
+        "fullName,owner,name,description,stargazersCount,language,url,updatedAt,topics".into(),
         "--limit".into(),
         lim,
         "--sort".into(),

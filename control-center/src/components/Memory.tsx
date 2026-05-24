@@ -294,6 +294,14 @@ function Mem0Pane() {
   const [addContent, setAddContent] = useState("");
   const [addProject, setAddProject] = useState("global");
   const [adding, setAdding] = useState(false);
+  // v2.6.3 — Mem0 `add` is async (returns PENDING + event_id). Track recent
+  // queued events so the user sees feedback even before the worker hydrates.
+  const [addNotice, setAddNotice] = useState<string | null>(null);
+  // The user_id (project_id) currently used for listing/searching. Surfaced
+  // in the header so we can transparently show WHICH bucket is being
+  // queried — fixes the "memories no aparecen" confusion when memories
+  // exist under a different user_id than expected.
+  const [listUserId, setListUserId] = useState<string>("global");
   // v2.6 (card-v26-fb-008): manual refresh — the 30s interval is fine for
   // passive use but the user wants an immediate reload after editing keys
   // in settings.json.
@@ -383,9 +391,35 @@ function Mem0Pane() {
     }
   }, [diagOpen, refreshDiagnostics]);
 
+  // v2.6.3 — combined list/search effect.
+  //   · empty query → GET /v1/memories/?user_id=global   (real list, not blank-search)
+  //   · non-empty    → POST /v1/memories/search/
+  // Previously the empty-query branch returned [] immediately, so the tab
+  // always looked empty until the user typed something — which is the
+  // "Mem0 sigue sin ofrecer nada" bug USER reported.
   useEffect(() => {
-    if (!query.trim() || !status?.connected) {
+    if (!status?.connected) {
       setResults([]);
+      return;
+    }
+    if (!query.trim()) {
+      setSearching(true);
+      setError(null);
+      (async () => {
+        try {
+          const res = (await invoke("mem0_list_all", {
+            projectId: null,
+            limit: DEFAULT_LIMIT,
+          })) as Mem0Memory[];
+          setResults(res);
+          setListUserId("global");
+        } catch (e) {
+          setError(String(e));
+          setResults([]);
+        } finally {
+          setSearching(false);
+        }
+      })();
       return;
     }
     const handle = window.setTimeout(async () => {
@@ -398,6 +432,7 @@ function Mem0Pane() {
           limit: DEFAULT_LIMIT,
         })) as Mem0Memory[];
         setResults(res);
+        setListUserId("global");
       } catch (e) {
         setError(String(e));
         setResults([]);
@@ -421,17 +456,44 @@ function Mem0Pane() {
   const handleAdd = async () => {
     if (!addContent.trim()) return;
     setAdding(true);
+    setAddNotice(null);
     try {
-      await invoke("mem0_add", {
+      // v2.6.3 — Mem0's add endpoint is async: it returns PENDING + event_id
+      // and the actual memory id/text materializes later when the background
+      // worker finishes. Surface that explicitly so the user understands why
+      // the list doesn't show the new entry instantly.
+      const added = (await invoke("mem0_add", {
         content: addContent.trim(),
         projectId: addProject.trim() || "global",
         metadata: null,
-      });
+      })) as Mem0Memory & {
+        status?: string;
+        event_id?: string;
+        message?: string;
+      };
       setAddContent("");
       setAddOpen(false);
+      const pending = added?.status === "PENDING" || (!added?.id && added?.event_id);
+      if (pending) {
+        setAddNotice(
+          `Memory queued for processing (event ${added.event_id ?? "?"}). It will appear in the list shortly.`,
+        );
+      } else if (added?.id) {
+        setAddNotice(`Memory added · id ${added.id.slice(0, 8)}…`);
+      } else {
+        setAddNotice("Memory request accepted.");
+      }
+      // Refresh whichever view is active (list or search) so the user sees
+      // updated state immediately, even if the new memory is still PENDING.
       if (query.trim()) {
         const res = (await invoke("mem0_search", {
           query: query.trim(),
+          projectId: null,
+          limit: DEFAULT_LIMIT,
+        })) as Mem0Memory[];
+        setResults(res);
+      } else {
+        const res = (await invoke("mem0_list_all", {
           projectId: null,
           limit: DEFAULT_LIMIT,
         })) as Mem0Memory[];
@@ -536,9 +598,21 @@ function Mem0Pane() {
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar memorias…"
+            placeholder={`Buscar en user_id="${listUserId}" o vacío para listar todo…`}
             className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 py-2 text-sm text-[var(--color-text-primary)] outline-none focus:border-[var(--color-accent)]"
           />
+          {addNotice && (
+            <div className="rounded-md border border-[var(--color-accent)] bg-[var(--color-surface-2)] p-2 text-xs">
+              {addNotice}
+              <button
+                onClick={() => setAddNotice(null)}
+                className="ml-2 text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]"
+                aria-label="Dismiss"
+              >
+                ×
+              </button>
+            </div>
+          )}
 
           {addOpen && (
             <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3">
@@ -582,11 +656,12 @@ function Mem0Pane() {
             ) : results.length === 0 ? (
               query.trim() ? (
                 <p className="text-xs text-[var(--color-text-tertiary)]">
-                  Sin resultados para "{query}".
+                  Sin resultados para "{query}" en user_id="{listUserId}".
                 </p>
               ) : (
                 <p className="text-xs text-[var(--color-text-tertiary)]">
-                  Empieza a escribir para buscar.
+                  No hay memorias guardadas para user_id="{listUserId}". Usa
+                  + New memory para añadir una.
                 </p>
               )
             ) : (

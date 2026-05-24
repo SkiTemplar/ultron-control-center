@@ -152,8 +152,12 @@ export default function ProjectContext({ projectId, projectPath }: Props) {
   const loadMemories = useCallback(async () => {
     setMemLoading(true);
     try {
-      const items = (await invoke("mem0_search", {
-        query: "",
+      // v2.6.3 fix: was calling `mem0_search` with empty query — but the
+      // backend short-circuits blank queries to return `[]` (Mem0 v1 search
+      // rejects them with HTTP 400). Use the dedicated GET /v1/memories/
+      // listing instead so projects with no search term still show all
+      // memories tagged with this project_id.
+      const items = (await invoke("mem0_list_all", {
         projectId,
         limit: 50,
       })) as Mem0Memory[];
