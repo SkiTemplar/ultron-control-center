@@ -25,6 +25,7 @@ pub mod commands_registry;
 pub mod diagnostics_native;
 pub mod ecc_memory;
 pub mod event_log;
+pub mod external_editor;
 pub mod hooks;
 pub mod hotkeys;
 pub mod inbox;
@@ -50,6 +51,7 @@ pub mod system;
 pub mod tabs;
 pub mod terminal_layout;
 pub mod timeline;
+pub mod workdays;
 
 // ---------------------------------------------------------------------------
 // Shared command-level types and helpers

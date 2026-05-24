@@ -6,6 +6,12 @@
 // Wired to the same `event_log_recent` backend command the System -
 // Diagnostics panel uses, but with scope="crash_only" so the filtering
 // happens server-side.
+//
+// v2.7 redesign:
+//   - "Open Event Viewer" button removed (and the per-row click handler
+//     that opened it). The dashboard surfaces info inline only.
+//   - Bigger card baseline (13px), shows up to 5 crashes, severity pill
+//     per row, message preview line below the headline.
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -29,9 +35,7 @@ interface EventLogEntry {
 }
 
 // Compact human-readable label per crash-grade Event ID. Kept in sync
-// with the richer KNOWN_ERRORS map in components/system/Diagnostics.tsx —
-// this card uses a one-liner per row so the card stays the same height
-// as siblings.
+// with the richer KNOWN_ERRORS map in components/system/Diagnostics.tsx.
 const CRASH_DESCRIPTIONS: Record<number, string> = {
   41: "Kernel-Power — unexpected reboot / hard crash",
   1001: "Windows Error Reporting — app or driver crash",
@@ -83,55 +87,38 @@ export function CrashEventsCard() {
     };
   }, []);
 
-  async function openViewer() {
-    try {
-      await invoke("open_event_viewer");
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  const top = (events ?? []).slice(0, 3);
+  const top = (events ?? []).slice(0, 5);
   const hasCrashes = top.length > 0;
   const accent = hasCrashes ? "danger" : "ok";
 
   return (
     <Card
       title="Crash events"
+      subtitle="Windows kernel-power / WER / unexpected shutdown"
       accent={accent}
       loading={loading}
       error={error}
       action={
-        <div className="flex items-center gap-1.5">
-          <SmallButton
-            onClick={() => void load()}
-            disabled={loading}
-            title="Re-query the Windows Event Log"
-          >
-            {loading ? "..." : "refresh"}
-          </SmallButton>
-          {hasCrashes && (
-            <SmallButton
-              onClick={() => void openViewer()}
-              variant="accent"
-              title="Launch eventvwr.msc for full event details"
-            >
-              event viewer
-            </SmallButton>
-          )}
-        </div>
+        <SmallButton
+          onClick={() => void load()}
+          disabled={loading}
+          size="md"
+          title="Re-query the Windows Event Log"
+        >
+          {loading ? "..." : "Refresh"}
+        </SmallButton>
       }
     >
       {!hasCrashes ? (
         <div className="space-y-1">
           <div
-            className="text-[12.5px] font-semibold"
+            className="text-[16px] font-semibold"
             style={{ color: "var(--color-success)" }}
           >
-            All clear ✓
+            All clear
           </div>
           <div
-            className="text-[11.5px]"
+            className="text-[12.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             No kernel-power crashes or unexpected shutdowns in the recent
@@ -139,17 +126,16 @@ export function CrashEventsCard() {
           </div>
         </div>
       ) : (
-        <ul className="space-y-1.5">
+        <ul className="space-y-2">
           {top.map((evt, idx) => (
             <li
               key={`${evt.time_created}-${idx}`}
-              className="cursor-pointer rounded px-1.5 py-1 transition-colors hover:bg-white/5"
-              onClick={() => void openViewer()}
-              title="Click to open Event Viewer"
+              className="rounded px-2 py-1.5"
+              style={{ background: "var(--color-surface-3)" }}
             >
               <div className="flex items-baseline gap-2">
                 <span
-                  className="shrink-0 rounded px-1 py-0.5 text-[9.5px] font-medium tabular-nums uppercase tracking-wide"
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium tabular-nums uppercase tracking-wide"
                   style={{
                     background: "rgba(248, 81, 73, 0.10)",
                     color: "var(--color-danger)",
@@ -158,19 +144,27 @@ export function CrashEventsCard() {
                   id {evt.event_id}
                 </span>
                 <span
-                  className="ml-auto shrink-0 tabular-nums text-[10px]"
+                  className="truncate text-[13px] font-medium"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {shortDescription(evt)}
+                </span>
+                <span
+                  className="ml-auto shrink-0 tabular-nums text-[11px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
                   {relativeTime(evt.time_created)}
                 </span>
               </div>
-              <div
-                className="mt-0.5 truncate text-[11.5px] leading-snug"
-                style={{ color: "var(--color-text-secondary)" }}
-                title={evt.message || shortDescription(evt)}
-              >
-                {shortDescription(evt)}
-              </div>
+              {evt.message && (
+                <div
+                  className="mt-1 truncate text-[12px]"
+                  style={{ color: "var(--color-text-secondary)" }}
+                  title={evt.message}
+                >
+                  {evt.message}
+                </div>
+              )}
             </li>
           ))}
         </ul>

@@ -2,15 +2,15 @@
   "schema_version": 1,
   "tabs": [
     {
-      "id": "tab-1779559313254635-3",
-      "label": "Tab 1",
+      "id": "tab-1779632183192-2",
+      "label": "Tab 2",
       "default_provider": null,
       "root": {
         "kind": "leaf",
-        "id": "leaf-1779559319508-3",
+        "id": "leaf-1779632183192-3",
         "pty_id": null
       }
     }
   ],
-  "active_tab_id": "tab-1779559313254635-3"
+  "active_tab_id": "tab-1779632183192-2"
 }

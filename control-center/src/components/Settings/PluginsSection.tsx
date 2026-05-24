@@ -9,9 +9,15 @@
 //
 // Backend: list_all_plugins + uninstall_plugin_cache (plugins_info.rs).
 //
-// The "Browse marketplaces" section is a static list of the curated
-// marketplaces USER already uses; each entry copies the canonical
-// `/plugin marketplace add` URL so the user can paste it into Claude Code.
+// v2.6 fb-022:
+//   - 3-column grid (was 2): the cards are wide enough that 3 fit cleanly.
+//   - Action buttons are width-fit so they don't stretch across the card.
+//   - New toolbar button "Search for updates" → check_plugin_updates calls
+//     `gh repo view --json pushedAt` for each marketplace and we badge any
+//     plugin whose remote push timestamp is newer than the local cache.
+//   - Live "Update available" badges on the card header. Clicking the Update
+//     button still copies `/plugin install <coord>` to the clipboard so the
+//     user can paste into Claude Code.
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -35,6 +41,16 @@ type PluginEntry = {
   mcp_servers_count: number;
 };
 
+type PluginUpdateStatus = {
+  name: string;
+  marketplace: string;
+  coordinate: string;
+  local_iso: string | null;
+  remote_pushed_iso: string | null;
+  update_available: boolean;
+  error: string | null;
+};
+
 // v2.6 (fb-016): "Browse marketplaces" section removed at the user's
 // request — the list of curated marketplaces wasn't going to be used and
 // just added vertical noise below the installed plugins grid.
@@ -45,6 +61,10 @@ export function PluginsSection({ onNavigate }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
+  // v2.6 fb-022 — per-coordinate update status (keyed by `<plugin>@<market>`).
+  const [updates, setUpdates] = useState<Record<string, PluginUpdateStatus>>({});
+  const [checking, setChecking] = useState(false);
+  const [checkSummary, setCheckSummary] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setErr(null);
@@ -96,6 +116,31 @@ export function PluginsSection({ onNavigate }: Props) {
     }
   }
 
+  async function checkForUpdates() {
+    setChecking(true);
+    setCheckSummary(null);
+    setErr(null);
+    try {
+      const rows = await invoke<PluginUpdateStatus[]>("check_plugin_updates");
+      const next: Record<string, PluginUpdateStatus> = {};
+      for (const r of rows) {
+        next[r.coordinate] = r;
+      }
+      setUpdates(next);
+      const availableCount = rows.filter((r) => r.update_available).length;
+      const errorCount = rows.filter((r) => r.error).length;
+      setCheckSummary(
+        `${availableCount} update${availableCount === 1 ? "" : "s"} available` +
+          (errorCount > 0 ? ` · ${errorCount} could not be checked` : ""),
+      );
+      window.setTimeout(() => setCheckSummary(null), 6000);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setChecking(false);
+    }
+  }
+
   if (err) {
     return (
       <div
@@ -122,16 +167,42 @@ export function PluginsSection({ onNavigate }: Props) {
     <div className="space-y-6">
       {/* Installed plugins list */}
       <section>
-        <div className="mb-2 flex items-baseline justify-between">
+        <div className="mb-2 flex items-baseline justify-between gap-2">
           <h2 className="text-[14px] font-semibold">Installed plugins</h2>
-          <button
-            type="button"
-            onClick={load}
-            className="text-[11.5px] transition-colors"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={checkForUpdates}
+              disabled={checking}
+              className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[11.5px] transition-colors disabled:opacity-50"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+              title="Ask GitHub (via gh) whether any plugin marketplace has been pushed since the local cache was written."
+            >
+              {checking && (
+                <span
+                  aria-hidden
+                  className="inline-block h-3 w-3 animate-spin rounded-full"
+                  style={{
+                    border: "1.5px solid var(--color-border-strong)",
+                    borderTopColor: "var(--color-accent)",
+                  }}
+                />
+              )}
+              {checking ? "Checking…" : "Search for updates"}
+            </button>
+            <button
+              type="button"
+              onClick={load}
+              className="text-[11.5px] transition-colors"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Refresh
+            </button>
+          </div>
         </div>
         <p
           className="mb-3 text-[11.5px] leading-relaxed"
@@ -148,6 +219,19 @@ export function PluginsSection({ onNavigate }: Props) {
           </span>
           .
         </p>
+
+        {checkSummary && (
+          <div
+            className="mb-3 rounded p-2 text-[11.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            {checkSummary}
+          </div>
+        )}
 
         {removed && (
           <div
@@ -175,7 +259,7 @@ export function PluginsSection({ onNavigate }: Props) {
             below via Claude Code.
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             {plugins.map((p) => {
               // Hooks live inside System; skills+agents live under Library.
               const counts: { label: string; n: number; tab: string }[] = [
@@ -185,6 +269,7 @@ export function PluginsSection({ onNavigate }: Props) {
                 { label: "mcp", n: p.mcp_servers_count, tab: "mcps" },
               ];
               const installCmd = `/plugin install ${p.coordinate}`;
+              const update = updates[p.coordinate];
               return (
                 <div
                   key={p.coordinate}
@@ -239,6 +324,23 @@ export function PluginsSection({ onNavigate }: Props) {
                         }}
                       >
                         cached
+                      </span>
+                    )}
+                    {update?.update_available && (
+                      <span
+                        className="rounded px-1.5 py-px text-[9.5px] uppercase tracking-wide"
+                        style={{
+                          background: "rgba(56, 139, 253, 0.14)",
+                          color: "#79b8ff",
+                          border: "1px solid rgba(56, 139, 253, 0.40)",
+                        }}
+                        title={
+                          update.remote_pushed_iso
+                            ? `Remote push: ${update.remote_pushed_iso}`
+                            : "Update available"
+                        }
+                      >
+                        Update available
                       </span>
                     )}
                     {p.last_update_iso && (
@@ -302,26 +404,41 @@ export function PluginsSection({ onNavigate }: Props) {
                     ))}
                   </div>
 
-                  {/* Action buttons */}
-                  <div className="mt-auto flex gap-2">
+                  {/* Action buttons — width-fit so they don't stretch across
+                      the (wide) card. Per fb-022 the buttons hugged the full
+                      card width and looked oversized; w-fit keeps them
+                      proportional and aligned to the left. */}
+                  <div className="mt-auto flex flex-wrap items-center gap-2">
                     <button
                       type="button"
                       onClick={() => copy(installCmd, `update:${p.coordinate}`)}
-                      className="flex-1 rounded px-2.5 py-1 text-[11.5px] transition-colors"
+                      className="w-fit max-w-[120px] rounded px-2.5 py-1 text-[11.5px] transition-colors"
                       style={{
-                        background: "var(--color-surface-1)",
-                        color: "var(--color-text)",
-                        border: "1px solid var(--color-border-strong)",
+                        background: update?.update_available
+                          ? "rgba(56, 139, 253, 0.14)"
+                          : "var(--color-surface-1)",
+                        color: update?.update_available ? "#79b8ff" : "var(--color-text)",
+                        border: update?.update_available
+                          ? "1px solid rgba(56, 139, 253, 0.40)"
+                          : "1px solid var(--color-border-strong)",
                       }}
-                      title="Copy /plugin install command"
+                      title={
+                        update?.update_available
+                          ? "Copy /plugin install command — remote is newer than your cache."
+                          : "Copy /plugin install command"
+                      }
                     >
-                      {copied === `update:${p.coordinate}` ? "Copied" : "Update / reinstall"}
+                      {copied === `update:${p.coordinate}`
+                        ? "Copied"
+                        : update?.update_available
+                          ? "Update"
+                          : "Update / reinstall"}
                     </button>
                     <button
                       type="button"
                       onClick={() => uninstall(p)}
                       disabled={busy === p.coordinate}
-                      className="rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
+                      className="w-fit max-w-[120px] rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
                       style={{
                         background: "transparent",
                         color: "var(--color-danger)",
@@ -331,6 +448,15 @@ export function PluginsSection({ onNavigate }: Props) {
                     >
                       {busy === p.coordinate ? "Removing…" : "Uninstall"}
                     </button>
+                    {update?.error && !update.update_available && (
+                      <span
+                        className="text-[10px]"
+                        style={{ color: "var(--color-text-faint)" }}
+                        title={update.error}
+                      >
+                        Update check failed
+                      </span>
+                    )}
                   </div>
                 </div>
               );

@@ -218,7 +218,9 @@ export default function ProjectWorkspace({ projectId }: Props) {
       <div className="flex-1 overflow-hidden">
         {subTab === "board" && <ProjectBoard projectId={projectId} />}
         {subTab === "terminal" && <ProjectTerminal projectId={projectId} />}
-        {subTab === "agents" && <ProjectAgents projectId={projectId} />}
+        {subTab === "agents" && (
+          <ProjectAgents projectId={projectId} projectPath={meta?.path ?? ""} />
+        )}
         {subTab === "context" && (
           <ProjectContext projectId={projectId} projectPath={meta?.path ?? ""} />
         )}

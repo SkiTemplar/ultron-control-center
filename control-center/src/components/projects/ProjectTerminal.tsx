@@ -13,6 +13,7 @@
 // reattach by re-mounting <EmbeddedTerminal sessionId={pty_id}/>.
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { providerLabel } from "./terminal/provider-labels";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Plus, Terminal as TerminalIcon, X } from "./icons";
@@ -231,12 +232,33 @@ export default function ProjectTerminal({ projectId }: Props) {
           cwd: ".",
           prompt: null,
         })) as string;
-        updateActiveRoot((root) => setLeafPty(root, leafId, id));
+        // v2.6.1: also auto-name the upper tab if its label is still the
+        // default "Tab N" placeholder. The leaf chrome already auto-names
+        // the *pane*; this completes the experience for the tab row at the
+        // top of the terminal, per the user's request. For tabs that already
+        // host another provider (split-pane scenario) we keep the existing
+        // label so the user isn't surprised by a rename on every new spawn.
+        setLayout((prev) => {
+          if (!prev) return prev;
+          const activeId = prev.active_tab_id;
+          if (!activeId) return prev;
+          return {
+            ...prev,
+            tabs: prev.tabs.map((t) => {
+              if (t.id !== activeId) return t;
+              const next = setLeafPty(t.root, leafId, id);
+              const isDefaultLabel = /^Tab\s+\d+$/i.test(t.label.trim());
+              const label = isDefaultLabel ? providerLabel(provider) : t.label;
+              const defaultProvider = t.default_provider ?? provider;
+              return { ...t, label, default_provider: defaultProvider, root: next };
+            }),
+          };
+        });
       } catch (e) {
         setError(String(e));
       }
     },
-    [projectId, updateActiveRoot],
+    [projectId],
   );
 
   const handleAttachExisting = useCallback(
@@ -332,18 +354,39 @@ function TabsBar({
   onRename,
   onAddTab,
 }: TabsBarProps) {
+  // v2.6.1: double-click an upper tab → inline rename. The previous build
+  // used `window.prompt`, which is blocking, ugly in a Tauri window, and the
+  // user explicitly asked for the *tabs* (not the leaf pane chrome) to be
+  // renameable inline.
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<string>("");
+
+  const startEdit = (id: string, current: string) => {
+    setEditingId(id);
+    setDraft(current);
+  };
+  const commit = () => {
+    if (editingId && draft.trim()) onRename(editingId, draft.trim());
+    setEditingId(null);
+    setDraft("");
+  };
+  const cancel = () => {
+    setEditingId(null);
+    setDraft("");
+  };
+
   return (
     <div className="flex items-center gap-0.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-2">
       {tabs.map((t) => {
         const isActive = t.id === activeId;
+        const isEditing = editingId === t.id;
         return (
           <div
             key={t.id}
-            onClick={() => onSelect(t.id)}
-            onDoubleClick={() => {
-              const next = window.prompt("Rename tab", t.label);
-              if (next && next.trim()) onRename(t.id, next.trim());
+            onClick={() => {
+              if (!isEditing) onSelect(t.id);
             }}
+            onDoubleClick={() => startEdit(t.id, t.label)}
             className={[
               "group flex cursor-pointer items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs",
               isActive
@@ -353,8 +396,28 @@ function TabsBar({
             title={`${t.label} (double-click to rename)`}
           >
             <TerminalIcon size={11} />
-            <span className="font-mono">{t.label}</span>
-            {tabs.length > 1 && (
+            {isEditing ? (
+              <input
+                autoFocus
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit}
+                onClick={(e) => e.stopPropagation()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    commit();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancel();
+                  }
+                }}
+                className="h-5 w-28 rounded border border-[var(--color-accent)] bg-[var(--color-surface-0)] px-1 font-mono text-[11px] text-[var(--color-text)] outline-none"
+              />
+            ) : (
+              <span className="font-mono">{t.label}</span>
+            )}
+            {tabs.length > 1 && !isEditing && (
               <button
                 onClick={(e) => {
                   e.stopPropagation();

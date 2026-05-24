@@ -187,3 +187,40 @@ pub async fn kanban_migrate_existing(project_ids: Vec<String>) -> Result<u32, St
         .await
         .map_err(|e| e.to_string())?
 }
+
+// ---------------------------------------------------------------------------
+// v2.6.2 — archive commands (named groups for archived Done cards).
+//
+// All three delegate to `crate::kanban::*` so the persistence rules stay in
+// the domain module. The frontend wires them in src/components/projects/
+// ProjectBoard.tsx ("Archive Done" toolbar button + "Show Archived" panel).
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn kanban_archive_done(
+    project_id: String,
+    archive_name: String,
+) -> Result<kanban::KanbanArchive, String> {
+    tauri::async_runtime::spawn_blocking(move || kanban::archive_done(&project_id, &archive_name))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn kanban_list_archives(
+    project_id: String,
+) -> Result<Vec<kanban::KanbanArchiveSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || kanban::list_archives(&project_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn kanban_load_archive(
+    project_id: String,
+    archive_name: String,
+) -> Result<kanban::KanbanArchive, String> {
+    tauri::async_runtime::spawn_blocking(move || kanban::load_archive(&project_id, &archive_name))
+        .await
+        .map_err(|e| e.to_string())?
+}

@@ -445,6 +445,176 @@ fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String
             "notepad.exe".into(),
             vec!["C:\\Windows\\System32\\drivers\\etc\\hosts".into()],
         ),
+        // v2.7 expanded fixes: catalogued solutions consumed by the merged
+        // Diagnostics tab. Each entry is a one-line Windows shell snippet
+        // routed through powershell.exe / netsh / sc / etc. We never inline
+        // user data into these commands so injection is structurally
+        // impossible.
+        #[cfg(target_os = "windows")]
+        "pc-renew-ip" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "ipconfig /release; ipconfig /renew".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-winsock-reset" => (
+            "netsh".into(),
+            vec!["winsock".into(), "reset".into()],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-restart-spooler" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Restart-Service -Name Spooler -Force".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-restart-audio" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Restart-Service -Name Audiosrv -Force; Restart-Service -Name AudioEndpointBuilder -Force".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-restart-wsearch" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Restart-Service -Name WSearch -Force".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-restart-bits" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Restart-Service -Name BITS -Force".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-restart-wuauserv" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Restart-Service -Name wuauserv -Force".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-repair-wu" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                // SoftwareDistribution wipe is the canonical "fix WU" recipe.
+                "Stop-Service -Name wuauserv -Force; Stop-Service -Name bits -Force; Remove-Item -Path \"$env:WINDIR\\SoftwareDistribution\" -Recurse -Force -ErrorAction SilentlyContinue; Start-Service -Name bits; Start-Service -Name wuauserv".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-sfc" => (
+            "cmd.exe".into(),
+            vec![
+                "/c".into(),
+                "start".into(),
+                "".into(),
+                "powershell.exe".into(),
+                "-NoExit".into(),
+                "-Command".into(),
+                "sfc /scannow".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-dism" => (
+            "cmd.exe".into(),
+            vec![
+                "/c".into(),
+                "start".into(),
+                "".into(),
+                "powershell.exe".into(),
+                "-NoExit".into(),
+                "-Command".into(),
+                "DISM /Online /Cleanup-Image /RestoreHealth".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-chkdsk" => (
+            "cmd.exe".into(),
+            vec![
+                "/c".into(),
+                "start".into(),
+                "".into(),
+                "powershell.exe".into(),
+                "-NoExit".into(),
+                "-Command".into(),
+                "chkdsk C: /scan".into(),
+            ],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-mdsched" => (
+            "mdsched.exe".into(),
+            vec![],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-power-troubleshooter" => (
+            "msdt.exe".into(),
+            vec!["/id".into(), "PowerDiagnostic".into()],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-network-troubleshooter" => (
+            "msdt.exe".into(),
+            vec!["/id".into(), "NetworkDiagnosticsNetworkAdapter".into()],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-services-mmc" => (
+            "services.msc".into(),
+            vec![],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-event-viewer" => (
+            "eventvwr.msc".into(),
+            vec![],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-device-manager" => (
+            "devmgmt.msc".into(),
+            vec![],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-reset-firewall" => (
+            "netsh".into(),
+            vec!["advfirewall".into(), "reset".into()],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-gpupdate" => (
+            "gpupdate.exe".into(),
+            vec!["/force".into()],
+        ),
+        #[cfg(target_os = "windows")]
+        "pc-restart-explorer-soft" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Stop-Process -Name explorer -Force; Start-Sleep -Milliseconds 400; Start-Process explorer.exe".into(),
+            ],
+        ),
         other => return Err(format!("unknown maintenance kind: {}", other)),
     })
 }
@@ -455,6 +625,21 @@ fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String
 /// without piggy-backing on the generic `weekly-backup` maintenance kind —
 /// the latter goes through the audit/timeline path and isn't intended for
 /// the "I just want to restart the backup" use case.
+///
+/// v2.7 fix: previously this just spawned the script with the inherited
+/// env. The Tauri command `set_backup_root` mirrors the chosen path into
+/// `std::env::set_var("ULTRON_BACKUP_ROOT", …)`, but that only sticks for
+/// the lifetime of the running Control Center process. If the user
+/// restarts the app and then presses "Force backup now" without
+/// re-picking the destination, the script wouldn't see any override and
+/// would silently fall back to `%USERPROFILE%\BACKUP`, leaving the
+/// configured drive empty and the "last backup" badge stuck on the old C:
+/// mirror.
+///
+/// The script itself now reads `~/.ultron/.tmp/backup-root.txt` (matching
+/// `backup_status.rs::backup_root()`), and we additionally inject both
+/// `ULTRON_BACKUP_ROOT` + `ULTRON_BACKUP_SOURCES` here so the child
+/// PowerShell never has to depend on inherited in-process state.
 pub fn run_backup_now_inner() -> Result<MaintenanceResult, String> {
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let script = backup_script(&home);
@@ -479,6 +664,34 @@ pub fn run_backup_now_inner() -> Result<MaintenanceResult, String> {
         ("bash".into(), vec![script.to_string_lossy().into_owned()]);
     let mut command = Command::new(&cmd);
     command.args(&args).current_dir(home.join(".ultron"));
+
+    // v2.7: explicitly inject the configured destination + sources into
+    // the child process. We re-read from disk every invocation so a fresh
+    // Control Center process (where `std::env::set_var` from a previous
+    // session is gone) still sees the user's preferences.
+    let root_cfg = home.join(".ultron").join(".tmp").join("backup-root.txt");
+    if let Ok(raw) = std::fs::read_to_string(&root_cfg) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            command.env("ULTRON_BACKUP_ROOT", trimmed);
+        }
+    }
+    let sources_cfg = home.join(".ultron").join("cockpit").join("backup-config.json");
+    if let Ok(raw) = std::fs::read_to_string(&sources_cfg) {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(arr) = val.get("sources").and_then(|v| v.as_array()) {
+                let joined: Vec<String> = arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                if !joined.is_empty() {
+                    command.env("ULTRON_BACKUP_SOURCES", joined.join(","));
+                }
+            }
+        }
+    }
+
     #[cfg(windows)]
     {
         command.creation_flags(0x08000000); // CREATE_NO_WINDOW

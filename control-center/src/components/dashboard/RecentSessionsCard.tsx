@@ -1,4 +1,7 @@
-// Top 3 Claude sessions ordered by last_activity, click to resume.
+// Top 5 Claude sessions ordered by last_activity, click row to resume.
+//
+// v2.7 redesign: 5 items, bigger typography, preview line under the title,
+// row hover affordance, resume button on hover/end-of-row.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -42,7 +45,7 @@ export function RecentSessionsCard({ onOpenSessions }: RecentSessionsCardProps) 
       const bt = b.last_activity ?? "";
       return at < bt ? 1 : at > bt ? -1 : 0;
     })
-    .slice(0, 3);
+    .slice(0, 5);
 
   async function resume(s: ClaudeSession) {
     setBusy(s.id);
@@ -52,9 +55,7 @@ export function RecentSessionsCard({ onOpenSessions }: RecentSessionsCardProps) 
       // the session record only carries a project_slug — spawn_session will
       // route by resumeId regardless.
       await invoke("spawn_session", {
-        // v2.6 bug fix: backend command requires `provider` key. Without it
-        // the Recent sessions resume button failed with "invalid args
-        // `provider` for command `spawn_session`".
+        // backend command requires `provider` key.
         provider: "claude",
         cwd: null,
         prompt: null,
@@ -72,50 +73,64 @@ export function RecentSessionsCard({ onOpenSessions }: RecentSessionsCardProps) 
 
   return (
     <Card
-      title={`Recent sessions (${recent.length})`}
+      title="Recent sessions"
+      subtitle={`Last ${recent.length} Claude sessions`}
       loading={loading}
       error={error}
       empty={!loading && recent.length === 0 ? "No Claude sessions yet." : null}
       action={
-        <SmallButton onClick={onOpenSessions} title="Open Sessions tab">
-          open
+        <SmallButton
+          onClick={onOpenSessions}
+          size="md"
+          title="Open Sessions tab"
+        >
+          Open
         </SmallButton>
       }
     >
-      <ul className="space-y-1.5">
-        {recent.map((s) => (
-          <li
-            key={s.id}
-            className="flex items-center gap-2 text-[11.5px]"
-            style={{ minHeight: 24 }}
-          >
-            <span
-              className="flex-1 truncate"
-              style={{ color: "var(--color-text)" }}
-              title={s.preview ?? s.id}
+      <ul className="space-y-1">
+        {recent.map((s) => {
+          const label = s.project_label || s.project_slug || s.id.slice(0, 8);
+          return (
+            <li
+              key={s.id}
+              className="group flex items-center gap-3 rounded px-2 py-1.5 transition-colors hover:bg-[var(--color-surface-3)]"
             >
-              {s.project_label || s.project_slug || s.id.slice(0, 8)}
-            </span>
-            <span
-              className="shrink-0 tabular-nums"
-              style={{
-                color: "var(--color-text-faint)",
-                fontFamily: "var(--font-mono, ui-monospace)",
-                fontSize: 10,
-              }}
-            >
-              {relativeTime(s.last_activity)}
-            </span>
-            <SmallButton
-              variant="accent"
-              onClick={() => void resume(s)}
-              disabled={busy === s.id}
-              title="Resume session"
-            >
-              resume
-            </SmallButton>
-          </li>
-        ))}
+              <div className="min-w-0 flex-1">
+                <div
+                  className="truncate text-[13px] font-medium"
+                  style={{ color: "var(--color-text)" }}
+                  title={label}
+                >
+                  {label}
+                </div>
+                {s.preview && (
+                  <div
+                    className="truncate text-[11.5px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                    title={s.preview}
+                  >
+                    {s.preview}
+                  </div>
+                )}
+              </div>
+              <span
+                className="shrink-0 tabular-nums text-[11px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                {relativeTime(s.last_activity)}
+              </span>
+              <SmallButton
+                variant="accent"
+                onClick={() => void resume(s)}
+                disabled={busy === s.id}
+                title="Resume session"
+              >
+                {busy === s.id ? "…" : "Resume"}
+              </SmallButton>
+            </li>
+          );
+        })}
       </ul>
     </Card>
   );

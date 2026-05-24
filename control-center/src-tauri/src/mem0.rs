@@ -286,6 +286,23 @@ pub async fn search_inner(
     project_id: Option<String>,
     limit: Option<u32>,
 ) -> Result<Vec<Mem0Memory>, String> {
+    // v2.6.2 fix: Mem0 v1 search rejects blank queries with HTTP 400
+    // {"query":["This field may not be blank."]}. Short-circuit empty /
+    // whitespace queries so the Memory tab doesn't fire useless calls
+    // when the input is cleared or on initial mount.
+    if query.trim().is_empty() {
+        append_log(&Mem0LogEntry {
+            timestamp: now_iso(),
+            op: "search".into(),
+            ok: true,
+            status_code: None,
+            latency_ms: Some(0),
+            error: None,
+            body_excerpt: Some("skipped: empty query".into()),
+            query: Some(query),
+        });
+        return Ok(Vec::new());
+    }
     let key = match read_api_key() {
         Ok(k) => k,
         Err(e) => {

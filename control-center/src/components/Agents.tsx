@@ -1,129 +1,15 @@
-// ULTRON Control Center 2.6 — Agents viewer.
+// ULTRON Control Center 2.6 — Agents viewer (FULL REDESIGN).
 //
-// 3-way view: Grid (legacy cards), Tree (origin → group → leaf), and Blocks
-// (Spotify-style drill-down). Default = Blocks. Backend = `list_agents`.
+// Same redesign as Skills.tsx: name-only cards in a uniform grid, click →
+// detail pane on the right with Edit / Edit with AI / Open Externally.
+// Agents use a violet accent so the three viewers (cyan skills, violet
+// agents, lime rules) read as distinct categories at a glance.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import type { AgentEntry, SkillOrigin } from "../types";
 import { CreateAgentModal } from "./library/CreateAgentModal";
-import { Bot, Folder, Plus } from "./library/icons";
-
-// v2.6 (v27-f14): sibling-file metadata returned by `list_skill_files`.
-// Agents are typically a single .md so the sibling list usually shows the
-// parent folder content (e.g. plugin agents share a directory with peers).
-type SiblingFile = {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  ext: string | null;
-  size_bytes: number | null;
-};
-
-function AgentFilesInline({ entryPath }: { entryPath: string }) {
-  const [open, setOpen] = useState(false);
-  const [files, setFiles] = useState<SiblingFile[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const ensureLoaded = async () => {
-    if (files || busy) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      const list = (await invoke("list_skill_files", {
-        entryPath,
-      })) as SiblingFile[];
-      setFiles(list);
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggle = async () => {
-    const next = !open;
-    setOpen(next);
-    if (next) await ensureLoaded();
-  };
-
-  return (
-    <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => void toggle()}
-        className="rounded-md border px-2 py-0.5 text-[11.5px]"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "transparent",
-          color: "var(--color-text-tertiary)",
-        }}
-      >
-        {open ? "▾ Files" : "▸ Files"}
-        {files && (
-          <span className="ml-1 tabular-nums">{files.length}</span>
-        )}
-      </button>
-      {open && (
-        <div className="mt-1.5">
-          {busy && (
-            <p
-              className="text-[10.5px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              Loading…
-            </p>
-          )}
-          {err && (
-            <p
-              className="text-[10.5px]"
-              style={{ color: "var(--color-danger)" }}
-            >
-              {err}
-            </p>
-          )}
-          {files && files.length === 0 && (
-            <p
-              className="text-[10.5px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              No sibling files.
-            </p>
-          )}
-          {files && files.length > 0 && (
-            <ul className="flex flex-wrap gap-1">
-              {files.map((f) => (
-                <li key={f.path}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      openPath(f.path).catch((e) =>
-                        setErr(`open ${f.name}: ${e}`),
-                      );
-                    }}
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px]"
-                    style={{
-                      background: "var(--color-surface-3)",
-                      color: "var(--color-text)",
-                      border: "1px solid var(--color-border)",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                    title={f.path}
-                  >
-                    {f.is_dir ? "📁" : f.ext ? `.${f.ext}` : "📄"}{" "}
-                    <span>{f.name}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+import { Bot, Plus } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
 import {
   BlocksView,
@@ -131,6 +17,7 @@ import {
 } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
 import { categorize } from "../lib/skill-categories";
+import { LibraryDetailPane } from "./library/LibraryDetailPane";
 
 type ProjectLite = { id: string; name: string };
 
@@ -145,37 +32,10 @@ const SCOPES: { id: ScopeFilter; label: string }[] = [
 
 const NO_CATEGORY = "uncategorized";
 
-function originChipStyle(origin: SkillOrigin): {
-  background: string;
-  color: string;
-  border: string;
-} {
-  switch (origin) {
-    case "global":
-      return {
-        background: "var(--color-surface-4)",
-        color: "var(--color-text)",
-        border: "1px solid var(--color-border-strong)",
-      };
-    case "project":
-      return {
-        background: "rgba(136, 136, 204, 0.16)",
-        color: "#b6b6ff",
-        border: "1px solid rgba(136, 136, 204, 0.40)",
-      };
-    case "plugin":
-      return {
-        background: "rgba(168, 136, 168, 0.16)",
-        color: "#e0bce0",
-        border: "1px solid rgba(168, 136, 168, 0.40)",
-      };
-  }
-}
+// Violet — distinct from skill cyan and rule lime.
+const AGENT_ACCENT = "rgba(167, 139, 250, 0.55)";
+const AGENT_ACCENT_SOFT = "rgba(167, 139, 250, 0.18)";
 
-/// Derive a category from the on-disk path. Examples:
-///   ~/.claude/agents/sec/reviewer.md → "sec"
-///   ~/.claude/agents/reviewer.md     → "uncategorized"
-///   .../plugins/cache/<id>/<plugin>/<ver>/agents/foo.md → "<plugin>"
 function deriveCategory(a: AgentEntry): string {
   const norm = a.path.replace(/\\/g, "/");
   if (a.origin === "plugin") {
@@ -187,23 +47,13 @@ function deriveCategory(a: AgentEntry): string {
   return NO_CATEGORY;
 }
 
-/// Top-level Blocks group: per-plugin tile when plugin-scoped, else Global /
-/// Project (mirrors Skills.tsx behaviour).
 function deriveTopGroup(a: AgentEntry): string {
   if (a.origin === "global") return "Global";
   if (a.origin === "project") return "Project";
   return deriveCategory(a);
 }
 
-/// Sub-group within a top-level Blocks tile. For plugin agents this is the
-/// folder under `agents/`. For global/project agents we first try the
-/// `categorize()` domain map (Personas, Game Dev, Quality & Review, …) so
-/// personal agents stop collapsing into "Uncategorized"; fall back to the
-/// path-based category when the slug + description gives no confident hit.
 function deriveSubGroup(a: AgentEntry): string | null {
-  // v2.6 feedback: try the domain map FIRST regardless of origin so ECC
-  // and other plugin agents also land under meaningful sub-tiles
-  // (Personas, Quality & Review, …). Path-based fallback below.
   const domain = categorize(a.name, a.description);
   if (domain) return domain;
   const norm = a.path.replace(/\\/g, "/");
@@ -217,6 +67,17 @@ function deriveSubGroup(a: AgentEntry): string | null {
   return cat;
 }
 
+/// Agents are typically single-file .md, but the "Open Externally" button
+/// still benefits from opening the parent folder so the user sees siblings.
+function agentWorkspace(a: AgentEntry): { folder: string; file: string } {
+  const file = a.path;
+  const lastSep = Math.max(file.lastIndexOf("\\"), file.lastIndexOf("/"));
+  return {
+    folder: lastSep > 0 ? file.slice(0, lastSep) : "",
+    file,
+  };
+}
+
 export function Agents() {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
@@ -227,6 +88,7 @@ export function Agents() {
   const [createOpen, setCreateOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
   const [view, setView] = useLibraryViewMode("agents");
+  const [selected, setSelected] = useState<AgentEntry | null>(null);
 
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
@@ -286,18 +148,19 @@ export function Agents() {
     });
   }, [agents, scope, category, query]);
 
-  const handleOpen = async (path: string) => {
-    try {
-      // Agents are standalone .md files (no folder of siblings) — open the
-      // file directly in VS Code instead of the parent dir, which would
-      // surface every other agent at once.
-      await invoke("open_folder_in_vscode", { target: path });
-    } catch (e) {
-      setError(`open ${path}: ${e}`);
-    }
+  // update_agent_md is slug-based and only resolves global agents — limit
+  // inline editing to that origin. Plugin / project agents are read-only;
+  // the detail pane hides Edit when onSave is absent.
+  const buildOnSave = (
+    a: AgentEntry,
+  ): ((body: string) => Promise<void>) | undefined => {
+    if (a.origin !== "global") return undefined;
+    return async (body: string) => {
+      await invoke("update_agent_md", { name: a.name, content: body });
+      await reload();
+    };
   };
 
-  // Tree-view origins for the legacy tree mode.
   const treeOrigins: TreeOrigin<AgentEntry>[] = useMemo(() => {
     const buckets: Record<SkillOrigin, Record<string, AgentEntry[]>> = {
       global: {},
@@ -328,7 +191,6 @@ export function Agents() {
     }));
   }, [filtered]);
 
-  // Blocks-view items. Top group splits plugin scope into per-plugin tiles.
   const blockItems: BlocksItem<AgentEntry>[] = useMemo(
     () =>
       filtered.map((a) => ({
@@ -340,65 +202,71 @@ export function Agents() {
     [filtered],
   );
 
-  // Card grid used by Grid mode and Blocks-mode leaves.
   const renderCardGrid = (items: AgentEntry[]) => (
-    <ul className="grid gap-2 md:grid-cols-2">
+    <div
+      className="grid gap-3"
+      style={{
+        gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+      }}
+    >
       {items.map((a) => {
-        const cat = deriveCategory(a);
-        const chip = originChipStyle(a.origin);
+        const isActive = selected?.path === a.path;
         return (
-          <li
+          <button
             key={`${a.origin}-${a.path}`}
-            className="rounded-md p-3 text-sm"
+            type="button"
+            onClick={() => setSelected(a)}
+            className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
-              border: "1px solid var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
+              background: isActive
+                ? "var(--color-surface-3)"
+                : "var(--color-surface-2)",
+              border: `1px solid ${
+                isActive ? AGENT_ACCENT : "var(--color-border)"
+              }`,
+              boxShadow: `inset 0 3px 0 ${AGENT_ACCENT}`,
             }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = AGENT_ACCENT;
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${AGENT_ACCENT}, 0 6px 18px rgba(0,0,0,0.28)`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = isActive
+                ? AGENT_ACCENT
+                : "var(--color-border)";
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${AGENT_ACCENT}`;
+            }}
+            title={a.description || a.name}
           >
-            <div className="mb-1 flex items-start justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <Bot
-                  size={12}
-                  className="shrink-0 text-[var(--color-text-tertiary)]"
-                />
-                <span className="truncate font-medium">{a.name}</span>
-              </div>
+            <div
+              className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.08em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              <Bot size={12} />
+              Agent
               <span
-                className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
-                style={chip}
+                className="ml-auto rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
+                style={{
+                  background: AGENT_ACCENT_SOFT,
+                  color: "#c4b5fd",
+                  border: "1px solid rgba(167, 139, 250, 0.35)",
+                }}
               >
                 {a.origin}
               </span>
             </div>
-            {cat !== NO_CATEGORY && (
-              <div
-                className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                <Folder size={10} /> {cat}
-              </div>
-            )}
-            <button
-              onClick={() => handleOpen(a.path)}
-              className="rounded-md border px-2 py-0.5 text-xs"
-              style={{
-                borderColor: "var(--color-border-strong)",
-                background: "var(--color-surface-3)",
-                color: "var(--color-text)",
-              }}
+            <div
+              className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
+              style={{ color: "var(--color-text)" }}
             >
-              Open in editor
-            </button>
-            {/* v2.6 (v27-f14): sibling files in the agent's folder. */}
-            <AgentFilesInline entryPath={a.path} />
-          </li>
+              {a.name}
+            </div>
+          </button>
         );
       })}
-    </ul>
+    </div>
   );
 
   return (
@@ -546,46 +414,72 @@ export function Agents() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <p
-            className="text-xs"
-            style={{ color: "var(--color-text-tertiary)" }}
+      <div className="flex flex-1 flex-col gap-3 overflow-hidden lg:flex-row">
+        <div
+          className={
+            selected ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"
+          }
+          style={{ minWidth: 0 }}
+        >
+          {loading ? (
+            <p
+              className="text-xs"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Loading…
+            </p>
+          ) : filtered.length === 0 ? (
+            <p
+              className="text-xs"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Sin agents para el filtro actual.
+            </p>
+          ) : view === "blocks" ? (
+            <BlocksView<AgentEntry>
+              items={blockItems}
+              noun="agent"
+              emptyLabel="Sin agents para el filtro actual."
+              topGroupAccent={() => AGENT_ACCENT}
+              renderLeaves={(items) =>
+                renderCardGrid(items.map((it) => it.data))
+              }
+            />
+          ) : view === "tree" ? (
+            <TreeView<AgentEntry>
+              origins={treeOrigins}
+              selectedKey={selected ? `${selected.origin}-${selected.path}` : null}
+              onSelect={(leaf) => setSelected(leaf.data)}
+              query={query}
+            />
+          ) : (
+            renderCardGrid(filtered)
+          )}
+        </div>
+
+        {selected && (
+          <div
+            className="overflow-hidden lg:w-[560px] lg:shrink-0"
+            style={{ minWidth: 0 }}
           >
-            Loading…
-          </p>
-        ) : filtered.length === 0 ? (
-          <p
-            className="text-xs"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Sin agents para el filtro actual.
-          </p>
-        ) : view === "blocks" ? (
-          <BlocksView<AgentEntry>
-            items={blockItems}
-            noun="agent"
-            emptyLabel="Sin agents para el filtro actual."
-            topGroupAccent={(g) => {
-              // Ultron palette: true-black monochrome. Sutile jerarquía via
-              // alpha del foreground en lugar de tints chromáticos.
-              if (g === "Global") return "rgba(245, 245, 245, 0.22)";
-              if (g === "Project") return "rgba(160, 160, 160, 0.26)";
-              return "rgba(110, 110, 110, 0.22)";
-            }}
-            renderLeaves={(items) =>
-              renderCardGrid(items.map((it) => it.data))
-            }
-          />
-        ) : view === "tree" ? (
-          <TreeView<AgentEntry>
-            origins={treeOrigins}
-            selectedKey={null}
-            onSelect={(leaf) => void handleOpen(leaf.data.path)}
-            query={query}
-          />
-        ) : (
-          renderCardGrid(filtered)
+            {(() => {
+              const ws = agentWorkspace(selected);
+              const subtitleParts: string[] = [selected.origin];
+              const cat = deriveCategory(selected);
+              if (cat !== NO_CATEGORY) subtitleParts.push(cat);
+              return (
+                <LibraryDetailPane
+                  kind="agent"
+                  name={selected.name}
+                  subtitle={subtitleParts.join(" · ")}
+                  filePath={ws.file}
+                  folderPath={ws.folder}
+                  onSave={buildOnSave(selected)}
+                  onClose={() => setSelected(null)}
+                />
+              );
+            })()}
+          </div>
         )}
       </div>
 

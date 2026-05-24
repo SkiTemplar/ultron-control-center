@@ -71,6 +71,9 @@ export default function ProjectNotes({ projectId }: Props) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const newTitleRef = useRef<HTMLInputElement>(null);
+  // -- delete confirm popover (v2.5.2 fb-notes-delete-popover) --
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const deletePopoverRef = useRef<HTMLDivElement>(null);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -189,14 +192,23 @@ export default function ProjectNotes({ projectId }: Props) {
     }
   }
 
+  useEffect(() => {
+    if (!deleteConfirmOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        deletePopoverRef.current &&
+        !deletePopoverRef.current.contains(e.target as Node)
+      ) {
+        setDeleteConfirmOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [deleteConfirmOpen]);
+
   async function deleteCurrent() {
     if (!selectedSlug) return;
-    const ok = await confirmDialog(`Delete note "${selected?.title}"?`, {
-      title: "Project notes",
-      kind: "error",
-      okLabel: "Delete",
-    });
-    if (!ok) return;
+    setDeleteConfirmOpen(false);
     setSaving(true);
     setError(null);
     try {
@@ -269,22 +281,10 @@ export default function ProjectNotes({ projectId }: Props) {
                 if (e.key === "Enter") void confirmCreateNew();
                 if (e.key === "Escape") cancelCreateNew();
               }}
-              placeholder="Note title…"
-              className="min-w-0 flex-1 bg-transparent text-[12px] outline-none"
+              placeholder="Note title — press Enter to create"
+              className="min-w-0 flex-1 bg-transparent text-[13px] outline-none"
               style={{ color: "var(--color-text)" }}
             />
-            <button
-              type="button"
-              onClick={() => void confirmCreateNew()}
-              disabled={!newTitle.trim()}
-              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium disabled:opacity-40"
-              style={{
-                background: "var(--color-accent)",
-                color: "var(--color-accent-text)",
-              }}
-            >
-              Create
-            </button>
             <button
               type="button"
               onClick={cancelCreateNew}
@@ -293,8 +293,9 @@ export default function ProjectNotes({ projectId }: Props) {
                 background: "transparent",
                 color: "var(--color-text-tertiary)",
               }}
+              title="Cancel (Esc)"
             >
-              x
+              ✕
             </button>
           </div>
         )}
@@ -324,7 +325,7 @@ export default function ProjectNotes({ projectId }: Props) {
                     <button
                       type="button"
                       onClick={() => void selectNote(n.slug)}
-                      className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-[12px] transition-colors"
+                      className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-[13px] transition-colors"
                       style={{
                         background: active
                           ? "var(--color-surface-3)"
@@ -340,14 +341,14 @@ export default function ProjectNotes({ projectId }: Props) {
                       <span className="truncate font-medium">{n.title}</span>
                       {n.preview && (
                         <span
-                          className="line-clamp-1 text-[11px]"
+                          className="line-clamp-1 text-[11.5px]"
                           style={{ color: "var(--color-text-tertiary)" }}
                         >
                           {n.preview}
                         </span>
                       )}
                       <span
-                        className="text-[10px] tabular-nums"
+                        className="text-[10.5px] tabular-nums"
                         style={{ color: "var(--color-text-faint)" }}
                       >
                         {relativeTime(n.modified_iso)}
@@ -454,19 +455,64 @@ export default function ProjectNotes({ projectId }: Props) {
                     </button>
                   </>
                 )}
-                <button
-                  type="button"
-                  onClick={() => void deleteCurrent()}
-                  disabled={saving}
-                  className="rounded-md border px-2.5 py-1 text-[11.5px]"
-                  style={{
-                    background: "transparent",
-                    borderColor: "rgba(248, 81, 73, 0.32)",
-                    color: "var(--color-danger)",
-                  }}
-                >
-                  Delete
-                </button>
+                <div className="relative" ref={deletePopoverRef}>
+                  <button
+                    type="button"
+                    onClick={() => setDeleteConfirmOpen((v) => !v)}
+                    disabled={saving}
+                    className="rounded-md border px-2.5 py-1 text-[11.5px]"
+                    style={{
+                      background: deleteConfirmOpen
+                        ? "rgba(248, 81, 73, 0.10)"
+                        : "transparent",
+                      borderColor: "rgba(248, 81, 73, 0.32)",
+                      color: "var(--color-danger)",
+                    }}
+                  >
+                    Delete
+                  </button>
+                  {deleteConfirmOpen && (
+                    <div
+                      className="absolute right-0 z-20 mt-1 w-56 rounded-md border p-2 shadow-lg"
+                      style={{
+                        background: "var(--color-surface-2)",
+                        borderColor: "rgba(248, 81, 73, 0.32)",
+                      }}
+                    >
+                      <p
+                        className="mb-2 text-[11.5px] leading-snug"
+                        style={{ color: "var(--color-text)" }}
+                      >
+                        Delete <span className="font-semibold">{selected.title}</span>?
+                      </p>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmOpen(false)}
+                          className="rounded border px-2 py-0.5 text-[11px]"
+                          style={{
+                            background: "transparent",
+                            borderColor: "var(--color-border-strong)",
+                            color: "var(--color-text-tertiary)",
+                          }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteCurrent()}
+                          className="rounded px-2 py-0.5 text-[11px] font-medium"
+                          style={{
+                            background: "var(--color-danger)",
+                            color: "#fff",
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </header>
 
@@ -483,13 +529,14 @@ export default function ProjectNotes({ projectId }: Props) {
               </div>
             )}
 
-            <div className="flex-1 overflow-auto p-4">
+            {/* v2.5.2 fb-notes-layout: same edge-to-edge pass as global Notes. */}
+            <div className="flex-1 overflow-auto px-4 py-3">
               {editing ? (
                 <textarea
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
                   spellCheck={false}
-                  className="h-full min-h-[400px] w-full resize-none rounded-md p-3 text-[12.5px] leading-relaxed outline-none"
+                  className="h-full min-h-[400px] w-full resize-none rounded-md p-4 text-[14px] leading-relaxed outline-none"
                   style={{
                     background: "var(--color-surface-1)",
                     border: "1px solid var(--color-border-strong)",
@@ -498,7 +545,9 @@ export default function ProjectNotes({ projectId }: Props) {
                   }}
                 />
               ) : (
-                <Markdown source={body || "*(empty note)*"} />
+                <div className="text-[14px] leading-relaxed">
+                  <Markdown source={body || "*(empty note)*"} />
+                </div>
               )}
             </div>
           </>

@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "control-center"
-version = "2.5.1"
+version = "2.7.0"
 dependencies = [
  "base64 0.22.1",
  "chrono",

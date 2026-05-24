@@ -514,6 +514,10 @@ export type ProjectInfo = {
    *  from the standalone Notes tab — these live next to the project
    *  registry entry. */
   notes?: string | null;
+  /** v2.6.2 — list of bound executables surfaced as Quick Launch buttons in
+   *  the Project Home. Distinct from `items[]` launcher chips: these are
+   *  edited via the Project Edit modal and rendered with a separate UI. */
+  executables?: ProjectExecutable[] | null;
 };
 
 /** fb-016 — allowed values for `Project.default_shell`. Mirrors the Rust
@@ -535,6 +539,38 @@ export type CreateProjectResult = {
   success: boolean;
   id: string;
   message: string;
+};
+
+// v2.6.2 — kanban archive types. Done cards can be moved into named archive
+// groups under ~/.ultron/cockpit/projects/<project_id>/archives/<name>.json.
+// The list summary keeps the body slim (no cards) so the toolbar grid renders
+// quickly; the full payload is fetched on box click.
+export type KanbanArchiveSummary = {
+  name: string;
+  archived_at: string;
+  card_count: number;
+};
+
+export type KanbanArchive = {
+  name: string;
+  archived_at: string;
+  cards: Array<{
+    id: string;
+    title: string;
+    description: string;
+    tags: string[];
+    column_name: string;
+    archived_from_column_id: string;
+  }>;
+};
+
+// v2.6.2 — per-project executables for Quick Launch in Project Home.
+// Persisted on the project registry entry as an `executables[]` array.
+export type ProjectExecutable = {
+  name: string;
+  path: string;
+  args?: string[] | null;
+  icon?: string | null;
 };
 
 export type SkillInfo = {

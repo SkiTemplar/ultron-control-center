@@ -1,4 +1,7 @@
 // Last backup status — pulls from `backup_status`.
+//
+// v2.7 redesign: this is one of the "important" cards — bigger Force Backup
+// CTA, larger timestamp, explicit destination + folder count, status pill.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -29,13 +32,17 @@ function accentFor(status: string): "ok" | "warn" | "danger" | "neutral" {
   return "neutral";
 }
 
+function statusColor(status: string): string {
+  if (status === "ok") return "var(--color-success)";
+  if (status === "stale") return "var(--color-warn)";
+  if (status === "cold") return "var(--color-danger)";
+  return "var(--color-text-tertiary)";
+}
+
 export function BackupCard() {
   const [report, setReport] = useState<BackupStatusReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  // v2.6 (card-v26-fb-014): Run backup now button. Calls the same backend
-  // command Settings → Backups uses. Reloads status afterwards so the
-  // "last backup" timestamp refreshes.
   const [running, setRunning] = useState(false);
   const [runMsg, setRunMsg] = useState<string | null>(null);
 
@@ -94,6 +101,8 @@ export function BackupCard() {
     })[0];
 
   const accent = accentFor(report?.overall_status ?? "");
+  const folderCount = report?.entries.length ?? 0;
+  const okCount = report?.entries.filter((e) => e.status === "ok").length ?? 0;
 
   async function openRoot() {
     if (report?.root) {
@@ -107,7 +116,8 @@ export function BackupCard() {
 
   return (
     <Card
-      title="Last backup"
+      title="Backup"
+      subtitle="Local mirror status"
       accent={accent}
       loading={loading}
       error={error}
@@ -117,26 +127,31 @@ export function BackupCard() {
           : null
       }
       action={
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          {report?.root && (
+            <SmallButton
+              onClick={() => void openRoot()}
+              size="md"
+              title="Open backup root in file explorer"
+            >
+              Folder
+            </SmallButton>
+          )}
           <SmallButton
             onClick={() => void runBackupNow()}
             disabled={running}
             variant="accent"
+            size="md"
             title="Run weekly-backup script now"
           >
-            {running ? "running…" : "run"}
+            {running ? "Running…" : "Force Backup"}
           </SmallButton>
-          {report?.root && (
-            <SmallButton onClick={() => void openRoot()} title="Open backup root">
-              folder
-            </SmallButton>
-          )}
         </div>
       }
     >
       {runMsg && (
         <div
-          className="mb-1 rounded px-1.5 py-0.5 text-[10.5px]"
+          className="mb-3 rounded px-2 py-1 text-[12px]"
           style={{
             background: "rgba(63, 185, 80, 0.08)",
             color: "var(--color-success)",
@@ -146,41 +161,107 @@ export function BackupCard() {
         </div>
       )}
       {report && report.entries.length > 0 && (
-        <div className="space-y-1">
-          <div className="flex items-baseline gap-2">
+        <div className="space-y-3">
+          {/* Hero: last backup time + status pill */}
+          <div className="flex items-baseline gap-3">
             <span
-              className="text-[12.5px] font-semibold"
+              className="text-[22px] font-semibold leading-none"
               style={{ color: "var(--color-text)" }}
             >
               {latest ? relativeTime(latest.last_modified) : "never"}
             </span>
             <span
-              className="text-[10.5px]"
-              style={{ color: "var(--color-text-tertiary)" }}
+              className="rounded px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide"
+              style={{
+                background: "color-mix(in srgb, " + statusColor(report.overall_status) + " 12%, transparent)",
+                color: statusColor(report.overall_status),
+              }}
             >
               {report.overall_status}
             </span>
           </div>
-          <div
-            className="truncate text-[11.5px]"
-            style={{
-              color: "var(--color-text-tertiary)",
-              fontFamily: "var(--font-mono, ui-monospace)",
-            }}
-            title={report.root}
-          >
-            {report.root}
+
+          {/* Stats row */}
+          <div className="grid grid-cols-2 gap-3">
+            <Stat
+              label="Folders"
+              value={`${okCount} / ${folderCount}`}
+              hint={folderCount === 1 ? "mirror" : "mirrors ok"}
+            />
+            <Stat
+              label="Newest"
+              value={latest ? latest.name : "—"}
+              hint={
+                latest && latest.age_hours !== null
+                  ? `${Math.round(latest.age_hours)}h old`
+                  : undefined
+              }
+            />
           </div>
-          {latest && (
+
+          {/* Destination */}
+          <div className="space-y-1">
             <div
-              className="text-[11.5px]"
+              className="text-[11.5px] uppercase tracking-wide"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Newest mirror: {latest.name}
+              Destination
             </div>
-          )}
+            <div
+              className="truncate text-[12.5px]"
+              style={{
+                color: "var(--color-text-secondary)",
+                fontFamily: "var(--font-mono, ui-monospace)",
+              }}
+              title={report.root}
+            >
+              {report.root}
+            </div>
+          </div>
         </div>
       )}
     </Card>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+}) {
+  return (
+    <div
+      className="rounded p-2.5"
+      style={{
+        background: "var(--color-surface-3)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div
+        className="text-[10.5px] uppercase tracking-wide"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        {label}
+      </div>
+      <div
+        className="mt-1 truncate text-[14px] font-semibold tabular-nums"
+        style={{ color: "var(--color-text)" }}
+        title={value}
+      >
+        {value}
+      </div>
+      {hint && (
+        <div
+          className="mt-0.5 text-[10.5px]"
+          style={{ color: "var(--color-text-faint)" }}
+        >
+          {hint}
+        </div>
+      )}
+    </div>
   );
 }

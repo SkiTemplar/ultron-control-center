@@ -164,7 +164,7 @@ function SidebarButton({
       type="button"
       disabled={dim}
       onClick={() => item.available && onSelect(item.id)}
-      className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[15px] transition-colors"
+      className="flex w-full items-center justify-between rounded-md px-3 py-2.5 text-[16.5px] transition-colors"
       style={{
         background: active ? "var(--color-surface-3)" : "transparent",
         color: active
@@ -257,14 +257,14 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
 
   return (
     <aside
-      className="flex w-56 shrink-0 flex-col border-r"
+      className="flex w-64 shrink-0 flex-col border-r"
       style={{
         borderColor: "var(--color-border)",
         background: "var(--color-surface-1)",
       }}
     >
       {/* Brand */}
-      <div className="flex items-center gap-2.5 px-4 py-4">
+      <div className="flex items-center gap-2.5 px-5 py-4">
         <div
           className="flex h-6 w-6 items-center justify-center rounded text-[12px] font-semibold"
           style={{
@@ -274,11 +274,11 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
         >
           U
         </div>
-        <div className="text-[13px] font-medium leading-none">ULTRON</div>
+        <div className="text-[13.5px] font-medium leading-none">ULTRON</div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto px-2 pb-2">
+      <nav className="flex-1 overflow-y-auto px-3 pb-2">
         {SECTIONS.map((section, si) => {
           // v15.3 — split each section into primary + more so the rendered
           // sidebar stays the same shape for primary items while the more
@@ -291,16 +291,16 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
           const primary = visibleItems.filter((it) => (it.tier ?? "primary") === "primary");
           if (primary.length === 0) return null;
           return (
-            <div key={si} className="mb-5">
+            <div key={si} className="mb-6">
               {section.heading && (
                 <div
-                  className="px-2 pb-2 text-[11.5px] font-medium uppercase tracking-[0.08em]"
+                  className="px-2.5 pb-2 text-[12px] font-medium uppercase tracking-[0.08em]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
                   {section.heading}
                 </div>
               )}
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {primary.map((item) => (
                   <SidebarButton
                     key={item.id}
@@ -376,7 +376,7 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
           bottom of the sidebar. Separated from the scrollable nav so the
           user always sees them without scrolling on tall screens. */}
       <div
-        className="border-t px-2 py-2 space-y-0.5"
+        className="border-t px-3 py-2 space-y-1"
         style={{ borderColor: "var(--color-border)" }}
       >
         {features.notifications !== false && (

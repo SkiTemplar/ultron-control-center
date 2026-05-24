@@ -1,4 +1,7 @@
-// Mem0 connection status card. Hits `mem0_status` once per mount.
+// Mem0 connection status card. v2.7 redesign: bigger, more prominent.
+//   - Status pill with semantic color.
+//   - Latency surfaced as a metric chip.
+//   - API-key mask and last-error inline.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -43,20 +46,25 @@ export function Mem0Card({ onOpenMemory }: Mem0CardProps) {
   return (
     <Card
       title="Mem0"
+      subtitle="Memory backend"
       accent={accent}
       loading={loading}
       error={error}
       action={
-        <SmallButton onClick={onOpenMemory} title="Open Memory tab">
-          open
+        <SmallButton
+          onClick={onOpenMemory}
+          size="md"
+          title="Open Memory tab"
+        >
+          Open
         </SmallButton>
       }
     >
       {status && (
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-3">
             <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
+              className="inline-block h-2.5 w-2.5 rounded-full"
               style={{
                 background: status.connected
                   ? "var(--color-success)"
@@ -64,33 +72,47 @@ export function Mem0Card({ onOpenMemory }: Mem0CardProps) {
               }}
             />
             <span
-              className="text-[12.5px] font-semibold"
+              className="text-[18px] font-semibold leading-none"
               style={{ color: "var(--color-text)" }}
             >
               {status.connected ? "Connected" : "Disconnected"}
             </span>
             {status.latency_ms !== null && (
               <span
-                className="ml-auto tabular-nums text-[10.5px]"
+                className="ml-auto tabular-nums text-[11px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
                 {status.latency_ms}ms
               </span>
             )}
           </div>
-          <div
-            className="text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Key:{" "}
-            <code style={{ fontFamily: "var(--font-mono, ui-monospace)" }}>
+
+          <div className="space-y-1.5">
+            <div
+              className="text-[12.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              API key
+            </div>
+            <code
+              className="block truncate text-[13px]"
+              style={{
+                color: "var(--color-text)",
+                fontFamily: "var(--font-mono, ui-monospace)",
+              }}
+            >
               {status.api_key_masked ?? "not set"}
             </code>
           </div>
+
           {status.error && (
             <div
-              className="text-[11.5px]"
-              style={{ color: "var(--color-warn)" }}
+              className="rounded p-2 text-[12px]"
+              style={{
+                background: "rgba(210, 153, 34, 0.08)",
+                border: "1px solid rgba(210, 153, 34, 0.22)",
+                color: "var(--color-warn)",
+              }}
             >
               {status.error}
             </div>

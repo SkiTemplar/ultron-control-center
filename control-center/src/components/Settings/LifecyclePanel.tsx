@@ -1,13 +1,182 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { confirmDialog } from "../../lib/dialog";
 
 // ---------------------------------------------------------------------------
-// LifecyclePanel — autostart toggle + Rebuild + Close.
+// LifecyclePanel — autostart toggle + Rebuild + Close + global hotkey.
 // "Check for updates" removed (USER owns the binary).
 // "Uninstall" removed (deprecated).
+// v2.5.2 (wave 2): merged the "Show/hide Control Center" global hotkey
+// editor from the old GeneralSection — it was the only hotkey worth
+// keeping (in-app + project hotkeys were retired).
 // ---------------------------------------------------------------------------
+
+// HotkeyEditor inlined from the deleted GeneralSection. Single global
+// shortcut to show/hide the Control Center.
+function HotkeyEditor() {
+  const [spec, setSpec] = useState<string>("");
+  const [draft, setDraft] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [capturing, setCapturing] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    invoke<string>("get_global_hotkey")
+      .then((s) => {
+        setSpec(s);
+        setDraft(s);
+      })
+      .catch((e) => setError(String(e)));
+  }, []);
+
+  useEffect(() => {
+    if (capturing) inputRef.current?.focus();
+  }, [capturing]);
+
+  async function apply() {
+    if (!draft.trim() || draft === spec) return;
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const r = await invoke<string>("set_global_hotkey", { spec: draft.trim() });
+      setSpec(r);
+      setDraft(r);
+      setSuccess(`Registered: ${r}`);
+      window.setTimeout(() => setSuccess(null), 2500);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function onCapture(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (!capturing) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (["Control", "Alt", "Shift", "Meta", "OS"].includes(e.key)) return;
+    const parts: string[] = [];
+    if (e.ctrlKey) parts.push("Ctrl");
+    if (e.altKey) parts.push("Alt");
+    if (e.shiftKey) parts.push("Shift");
+    if (e.metaKey) parts.push("Meta");
+    let k = e.key;
+    if (k.length === 1) k = k.toUpperCase();
+    parts.push(k);
+    setDraft(parts.join("+"));
+    setCapturing(false);
+  }
+
+  return (
+    <div
+      className="rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border-strong)",
+      }}
+    >
+      <div className="flex items-baseline justify-between">
+        <div className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
+          Open ULTRON hotkey
+        </div>
+        <span
+          className="text-[10.5px]"
+          style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+        >
+          ~/.ultron/.tmp/hotkey.txt
+        </span>
+      </div>
+      <p
+        className="mt-1 text-[11.5px] leading-relaxed"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
+        Press this combination in any Windows app to show/hide the Control
+        Center. Format: <span style={{ fontFamily: "var(--font-mono)" }}>Ctrl+Alt+U</span>,
+        <span style={{ fontFamily: "var(--font-mono)" }}> Ctrl+Shift+F12</span>, etc.
+        Needs at least one modifier.
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          ref={inputRef}
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onCapture}
+          placeholder="Ctrl+Alt+U"
+          className="rounded px-3 py-1.5 text-[12.5px]"
+          style={{
+            background: "var(--color-surface-1)",
+            color: "var(--color-text)",
+            border: `1px solid ${capturing ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+            outline: "none",
+            fontFamily: "var(--font-mono)",
+            minWidth: 220,
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => setCapturing(!capturing)}
+          className="rounded px-2.5 py-1 text-[11.5px]"
+          style={{
+            background: capturing ? "var(--color-surface-3)" : "transparent",
+            color: capturing ? "var(--color-text)" : "var(--color-text-tertiary)",
+            border: `1px solid ${capturing ? "var(--color-border-strong)" : "var(--color-border)"}`,
+          }}
+        >
+          {capturing ? "Cancel capture" : "Capture key"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void apply()}
+          disabled={busy || !draft.trim() || draft === spec}
+          className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-40"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+        >
+          {busy ? "Applying…" : "Apply"}
+        </button>
+        <span className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
+          active:{" "}
+          <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}>
+            {spec || "—"}
+          </span>
+        </span>
+      </div>
+
+      {error && (
+        <div
+          className="mt-3 rounded px-2 py-1 text-[11.5px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+      {success && (
+        <div
+          className="mt-3 rounded px-2 py-1 text-[11.5px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.08)",
+            border: "1px solid rgba(63, 185, 80, 0.22)",
+            color: "var(--color-success)",
+          }}
+        >
+          {success}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function LifecyclePanel() {
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
@@ -116,6 +285,10 @@ export function LifecyclePanel() {
           {error}
         </div>
       )}
+
+      {/* Global hotkey (only hotkey kept after v2.5.2 wave 2 — the in-app
+          and project hotkey editors were retired). */}
+      <HotkeyEditor />
 
       {/* Start with Windows */}
       <div

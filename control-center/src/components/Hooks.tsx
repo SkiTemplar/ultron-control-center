@@ -106,24 +106,32 @@ function truncate(s: string, n: number): string {
 // Main component
 // ---------------------------------------------------------------------------
 
+// v2.7 redesign — category descriptions used inside the big cartilla cards.
+// Each entry maps a hook event to a short, user-facing one-liner so the
+// grid reads as a glossary, not just a list of badges.
+const EVENT_DESCRIPTIONS: Record<string, string> = {
+  PreToolUse: "Runs before a tool executes. Exit 2 to block, exit 0 to allow.",
+  PostToolUse: "Fires after a tool succeeds. Auto-format, lint, log activity.",
+  UserPromptSubmit: "Runs when you press Enter on a prompt. Gate or transform input.",
+  SessionStart: "Fires when a Claude session opens. Inject context or warm caches.",
+  SessionEnd: "Fires when a session closes. Final checks, dirty-tree warnings.",
+  Stop: "Runs when Claude finishes responding. Good for end-of-turn audits.",
+  SubagentStop: "Fires when a delegated subagent finishes. Roll up its output.",
+  PreCompact: "Runs before context compaction. Save state you'll need later.",
+  Notification: "Fires when Claude raises a system notification.",
+};
+
 export function Hooks() {
   const [list, setList] = useState<HooksList | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
-  const [filterEvent, setFilterEvent] = useState<string>("All");
   const [filterText, setFilterText] = useState<string>("");
 
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-
-  const toggleGroup = (event: string) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(event)) next.delete(event);
-      else next.add(event);
-      return next;
-    });
-  };
+  // v2.7: replaces the old "collapsed-section" model. One category is
+  // "expanded" at a time — its hooks render in a detail pane below the
+  // grid (still in-page, no modal). null = grid only.
+  const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -246,28 +254,31 @@ export function Hooks() {
   // Derived
   // -------------------------------------------------------------------------
 
+  // v2.7: filter applies on the full list (used both by the grid counts
+  // and by the expanded category pane). The grid no longer needs a
+  // separate event filter — clicking a card IS the filter.
   const filtered = useMemo(() => {
     if (!list) return [];
-    const base = filterEvent === "All"
-      ? list.hooks
-      : list.hooks.filter((h) => h.event === filterEvent);
     const q = filterText.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter((h) => {
-      const hay = `${h.matcher ?? ""} ${h.command ?? ""} ${h.event ?? ""}`.toLowerCase();
+    if (!q) return list.hooks;
+    return list.hooks.filter((h) => {
+      const hay = `${h.id} ${h.matcher ?? ""} ${h.command ?? ""} ${h.event ?? ""}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [list, filterEvent, filterText]);
+  }, [list, filterText]);
 
-  const grouped = useMemo(() => {
+  // Per-category hook arrays, derived from `filtered` so the card counts
+  // reflect the current search. Categories appear in EVENT_OPTIONS order
+  // so the grid is stable across re-renders.
+  const byCategory = useMemo(() => {
     const map = new Map<string, HookRecord[]>();
+    for (const e of EVENT_OPTIONS) map.set(e, []);
     for (const h of filtered) {
-      const k = h.event;
-      const arr = map.get(k) ?? [];
+      const arr = map.get(h.event) ?? [];
       arr.push(h);
-      map.set(k, arr);
+      map.set(h.event, arr);
     }
-    return Array.from(map.entries());
+    return map;
   }, [filtered]);
 
   const selectedHook = useMemo(
@@ -388,30 +399,12 @@ export function Hooks() {
         )}
 
         <div className="mb-4 flex flex-wrap items-center gap-2 text-[12px]">
-          <span style={{ color: "var(--color-text-tertiary)" }}>Filter:</span>
-          <select
-            value={filterEvent}
-            onChange={(e) => setFilterEvent(e.target.value)}
-            className="rounded px-2 py-1"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            <option value="All">All events</option>
-            {EVENT_OPTIONS.map((e) => (
-              <option key={e} value={e}>
-                {e}
-              </option>
-            ))}
-          </select>
           <input
             type="text"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Search by matcher / command…"
-            className="min-w-[220px] flex-1 rounded px-2 py-1"
+            placeholder="Search by id / matcher / command…"
+            className="min-w-[260px] flex-1 rounded px-2.5 py-1.5 text-[12.5px]"
             style={{
               background: "var(--color-surface-2)",
               color: "var(--color-text)",
@@ -424,212 +417,327 @@ export function Hooks() {
           </span>
         </div>
 
+        {/* v2.7 — Instrumentation banner. Shown whenever the hook-fires
+            log file is missing or empty so the user knows how to wire
+            their hooks up to the "last fired" UI. Wording is preserved
+            verbatim per USER's spec so the message reads the same
+            here, in the SidePanel and anywhere else we surface it. */}
+        {!loading && fires && !fires.instrumented && (
+          <div
+            className="mb-4 rounded border px-3 py-2 text-[12.5px] leading-relaxed"
+            style={{
+              borderColor: "var(--color-border)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text-secondary)",
+            }}
+          >
+            No instrumentation set up yet. To track fires, have your hook
+            append a JSON line to{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>
+              ~/.ultron/.tmp/hook-fires.jsonl
+            </code>{" "}
+            (keys: timestamp, event, hook_id, matcher, exit_code).
+          </div>
+        )}
+
         {loading && (
           <div className="text-[13px]" style={{ color: "var(--color-text-tertiary)" }}>
             Loading...
           </div>
         )}
 
-        {!loading && grouped.length === 0 && (
+        {!loading && list && list.hooks.length === 0 && (
           <HooksEmptyState
             onAdd={() => setAddOpen(true)}
             onAi={() => setAiOpen(true)}
           />
         )}
 
-        <div className="space-y-3">
-          {grouped.map(([event, items]) => {
-            const colors = eventBadgeColor(event);
-            const isCollapsed = collapsedGroups.has(event);
-            return (
-              <section key={event}>
-                {/* Collapsible section header */}
+        {/* v2.7 — Category cards grid (Library-style cartillas). Each card
+            represents one hook event. Clicking a card expands a detail
+            pane below with all hooks in that category. */}
+        {!loading && list && list.hooks.length > 0 && (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            {EVENT_OPTIONS.map((event) => {
+              const items = byCategory.get(event) ?? [];
+              const isExpanded = expandedCategory === event;
+              const colors = eventBadgeColor(event);
+              const enabledCount = items.filter((h) => h.enabled).length;
+              return (
                 <button
+                  key={event}
                   type="button"
-                  onClick={() => toggleGroup(event)}
-                  className="mb-1.5 flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors"
+                  onClick={() => setExpandedCategory(isExpanded ? null : event)}
+                  className="flex flex-col rounded-lg border p-3.5 text-left transition-colors"
                   style={{
-                    background: "var(--color-surface-2)",
-                    border: "1px solid var(--color-border)",
+                    borderColor: isExpanded
+                      ? "var(--color-accent)"
+                      : "var(--color-border)",
+                    background: isExpanded
+                      ? "var(--color-surface-3)"
+                      : "var(--color-surface-2)",
+                    minHeight: 132,
                   }}
-                  aria-expanded={!isCollapsed}
                 >
-                  <span
-                    className="inline-block rounded px-2 py-0.5 text-[11.5px] font-semibold uppercase tracking-wide"
-                    style={{ background: colors.bg, color: colors.fg }}
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <span
+                      className="inline-block rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide"
+                      style={{ background: colors.bg, color: colors.fg }}
+                    >
+                      {event}
+                    </span>
+                    <span
+                      className="tabular-nums text-[11px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                      title={`${enabledCount} enabled / ${items.length} total`}
+                    >
+                      {items.length}
+                      {items.length > 0 && enabledCount < items.length && (
+                        <span style={{ color: "var(--color-text-faint)" }}>
+                          {" "}
+                          ({enabledCount} on)
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <p
+                    className="mb-2 text-[12px] leading-snug"
+                    style={{ color: "var(--color-text-secondary)" }}
                   >
-                    {event}
-                  </span>
-                  <span
-                    className="text-[10px]"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    {items.length} hook{items.length === 1 ? "" : "s"}
-                  </span>
-                  <span
-                    className="ml-auto text-[10px]"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    {isCollapsed ? "▶" : "▼"}
-                  </span>
-                </button>
-
-                {!isCollapsed && (
-                  <ul className="space-y-1">
-                    {items.map((h) => {
-                      const isSelected = selectedId === h.id;
-                      return (
+                    {EVENT_DESCRIPTIONS[event] ?? ""}
+                  </p>
+                  {items.length === 0 ? (
+                    <p
+                      className="mt-auto text-[11px]"
+                      style={{ color: "var(--color-text-faint)" }}
+                    >
+                      No hooks configured.
+                    </p>
+                  ) : (
+                    <ul
+                      className="mt-auto space-y-0.5 text-[11.5px]"
+                      style={{ color: "var(--color-text)" }}
+                    >
+                      {items.slice(0, 3).map((h) => (
                         <li
                           key={h.id}
-                          onClick={() => setSelectedId(isSelected ? null : h.id)}
-                          className="flex cursor-pointer items-center gap-2 rounded border px-2.5 py-1.5 text-[12px] transition-colors"
+                          className="truncate"
                           style={{
-                            borderColor: isSelected
-                              ? "var(--color-accent)"
-                              : "var(--color-border)",
-                            background: isSelected
-                              ? "var(--color-surface-2)"
-                              : "var(--color-surface-1)",
                             opacity: h.enabled ? 1 : 0.55,
+                            fontFamily: "var(--font-mono)",
+                          }}
+                          title={h.id}
+                        >
+                          · {h.id}
+                        </li>
+                      ))}
+                      {items.length > 3 && (
+                        <li
+                          className="text-[10.5px]"
+                          style={{ color: "var(--color-text-faint)" }}
+                        >
+                          +{items.length - 3} more — click to open
+                        </li>
+                      )}
+                    </ul>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* v2.7 — Detail pane for the currently expanded category. Shows
+            every hook in that bucket with the original Test/Edit/Delete
+            controls. */}
+        {!loading && expandedCategory && (
+          <section className="mt-5">
+            <div className="mb-2 flex items-center gap-2">
+              <span
+                className="inline-block rounded px-2 py-0.5 text-[11.5px] font-semibold uppercase tracking-wide"
+                style={{
+                  background: eventBadgeColor(expandedCategory).bg,
+                  color: eventBadgeColor(expandedCategory).fg,
+                }}
+              >
+                {expandedCategory}
+              </span>
+              <span
+                className="text-[12px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {(byCategory.get(expandedCategory) ?? []).length} hook
+                {(byCategory.get(expandedCategory) ?? []).length === 1 ? "" : "s"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setExpandedCategory(null)}
+                className="ml-auto rounded px-2 py-0.5 text-[11px]"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
+                Close
+              </button>
+            </div>
+
+            {(byCategory.get(expandedCategory) ?? []).length === 0 ? (
+              <div
+                className="rounded border px-3 py-3 text-[12px]"
+                style={{
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                No hooks configured for this event yet.
+              </div>
+            ) : (
+              <ul className="space-y-1">
+                {(byCategory.get(expandedCategory) ?? []).map((h) => {
+                  const isSelected = selectedId === h.id;
+                  return (
+                    <li
+                      key={h.id}
+                      onClick={() => setSelectedId(isSelected ? null : h.id)}
+                      className="flex cursor-pointer items-center gap-2 rounded border px-2.5 py-1.5 text-[12px] transition-colors"
+                      style={{
+                        borderColor: isSelected
+                          ? "var(--color-accent)"
+                          : "var(--color-border)",
+                        background: isSelected
+                          ? "var(--color-surface-2)"
+                          : "var(--color-surface-1)",
+                        opacity: h.enabled ? 1 : 0.55,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggle(h);
+                        }}
+                        aria-label={h.enabled ? `Disable ${h.id}` : `Enable ${h.id}`}
+                        title={h.enabled ? "Click to disable" : "Click to enable"}
+                        className="relative h-4 w-7 shrink-0 rounded-full transition-colors"
+                        style={{
+                          background: h.enabled
+                            ? "var(--color-success)"
+                            : "var(--color-surface-3)",
+                          border: "1px solid var(--color-border-strong)",
+                        }}
+                      >
+                        <span
+                          className="absolute top-[1px] h-3 w-3 rounded-full transition-transform"
+                          style={{
+                            background: "var(--color-text)",
+                            transform: h.enabled
+                              ? "translateX(13px)"
+                              : "translateX(1px)",
+                          }}
+                        />
+                      </button>
+
+                      <span
+                        className="min-w-0 flex-1 truncate text-[11.5px] font-medium"
+                        style={{ color: "var(--color-text)" }}
+                        title={`${h.id}\n${h.command}`}
+                      >
+                        {h.id}
+                      </span>
+
+                      <span
+                        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium"
+                        style={{
+                          background: "var(--color-surface-3)",
+                          color: "var(--color-text-secondary)",
+                        }}
+                      >
+                        {h.matcher ?? "any"}
+                      </span>
+
+                      <span
+                        className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
+                        style={{
+                          background:
+                            h.source === "user"
+                              ? "var(--color-surface-3)"
+                              : "rgba(168,136,168,0.18)",
+                          color:
+                            h.source === "user"
+                              ? "var(--color-text-secondary)"
+                              : "#e0bce0",
+                          border: "1px solid var(--color-border)",
+                        }}
+                      >
+                        {h.source}
+                      </span>
+
+                      {lastFired[h.id]?.timestamp && (
+                        <span
+                          className="shrink-0 text-[10px]"
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            color: "var(--color-text-faint)",
+                          }}
+                          title={`Last fired ${lastFired[h.id].timestamp ?? ""} in ${lastFired[h.id].project ?? "?"}`}
+                        >
+                          {(lastFired[h.id].timestamp ?? "").slice(0, 16).replace("T", " ")}
+                        </span>
+                      )}
+
+                      <div
+                        className="flex shrink-0 items-center gap-1"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setTestTarget(h)}
+                          className="rounded px-2 py-0.5 text-[11.5px]"
+                          style={{
+                            background: "var(--color-surface-3)",
+                            color: "var(--color-text-secondary)",
+                            border: "1px solid var(--color-border)",
                           }}
                         >
-                          {/* Toggle switch */}
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleToggle(h);
-                            }}
-                            aria-label={h.enabled ? `Disable ${h.id}` : `Enable ${h.id}`}
-                            title={h.enabled ? "Click to disable" : "Click to enable"}
-                            className="relative h-4 w-7 shrink-0 rounded-full transition-colors"
-                            style={{
-                              background: h.enabled
-                                ? "var(--color-success)"
-                                : "var(--color-surface-3)",
-                              border: "1px solid var(--color-border-strong)",
-                            }}
-                          >
-                            <span
-                              className="absolute top-[1px] h-3 w-3 rounded-full transition-transform"
-                              style={{
-                                background: "var(--color-text)",
-                                transform: h.enabled
-                                  ? "translateX(13px)"
-                                  : "translateX(1px)",
-                              }}
-                            />
-                          </button>
-
-                          {/* Hook id / name */}
-                          <span
-                            className="min-w-0 flex-1 truncate text-[11.5px] font-medium"
-                            style={{ color: "var(--color-text)" }}
-                            title={`${h.id}\n${h.command}`}
-                          >
-                            {h.id}
-                          </span>
-
-                          {/* Matcher badge */}
-                          <span
-                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium"
-                            style={{
-                              background: "var(--color-surface-3)",
-                              color: "var(--color-text-secondary)",
-                            }}
-                          >
-                            {h.matcher ?? "any"}
-                          </span>
-
-                          {/* Source badge: user vs plugin */}
-                          <span
-                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
-                            style={{
-                              background:
-                                h.source === "user"
-                                  ? "var(--color-surface-3)"
-                                  : "rgba(168,136,168,0.18)",
-                              color:
-                                h.source === "user"
-                                  ? "var(--color-text-secondary)"
-                                  : "#e0bce0",
-                              border: "1px solid var(--color-border)",
-                            }}
-                          >
-                            {h.source}
-                          </span>
-
-                          {/* Last-fired timestamp */}
-                          {lastFired[h.id]?.timestamp && (
-                            <span
-                              className="shrink-0 text-[10px]"
-                              style={{
-                                fontFamily: "var(--font-mono)",
-                                color: "var(--color-text-faint)",
-                              }}
-                              title={`Last fired ${lastFired[h.id].timestamp ?? ""} in ${lastFired[h.id].project ?? "?"}`}
-                            >
-                              {(lastFired[h.id].timestamp ?? "").slice(0, 16).replace("T", " ")}
-                            </span>
-                          )}
-
-                          {/* Action buttons */}
-                          <div
-                            className="flex shrink-0 items-center gap-1"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              onClick={() => setTestTarget(h)}
-                              className="rounded px-2 py-0.5 text-[11.5px]"
-                              style={{
-                                background: "var(--color-surface-3)",
-                                color: "var(--color-text-secondary)",
-                                border: "1px solid var(--color-border)",
-                              }}
-                            >
-                              Test
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setEditTarget(h)}
-                              className="rounded px-2 py-0.5 text-[11.5px]"
-                              style={{
-                                background: "var(--color-surface-3)",
-                                color: "var(--color-text-secondary)",
-                                border: "1px solid var(--color-border)",
-                              }}
-                            >
-                              Edit
-                            </button>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                const ok = await confirmDialog(
-                                  `Delete hook?\n\nEvent: ${h.event}\nMatcher: ${h.matcher ?? "(none)"}\nCommand: ${truncate(h.command, 200)}`,
-                                  { title: "Delete hook", kind: "error" }
-                                );
-                                if (ok) handleDelete(h);
-                              }}
-                              className="rounded px-2 py-0.5 text-[11.5px]"
-                              style={{
-                                background: "var(--color-surface-3)",
-                                color: "var(--color-danger, #f88)",
-                                border: "1px solid var(--color-border)",
-                              }}
-                            >
-                              Del
-                            </button>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
-            );
-          })}
-        </div>
+                          Test
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditTarget(h)}
+                          className="rounded px-2 py-0.5 text-[11.5px]"
+                          style={{
+                            background: "var(--color-surface-3)",
+                            color: "var(--color-text-secondary)",
+                            border: "1px solid var(--color-border)",
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const ok = await confirmDialog(
+                              `Delete hook?\n\nEvent: ${h.event}\nMatcher: ${h.matcher ?? "(none)"}\nCommand: ${truncate(h.command, 200)}`,
+                              { title: "Delete hook", kind: "error" }
+                            );
+                            if (ok) handleDelete(h);
+                          }}
+                          className="rounded px-2 py-0.5 text-[11.5px]"
+                          style={{
+                            background: "var(--color-surface-3)",
+                            color: "var(--color-danger, #f88)",
+                            border: "1px solid var(--color-border)",
+                          }}
+                        >
+                          Del
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        )}
       </div>
 
       {selectedHook && (

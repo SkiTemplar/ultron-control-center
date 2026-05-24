@@ -641,6 +641,32 @@ function McpServersEditor({
 // Top-level component.
 // ---------------------------------------------------------------------------
 
+// v2.5.2 (wave 2): explicit priority order for top-level keys so the most
+// edited settings (model, language, permissions, …) render first. Anything
+// not in this list falls through to alphabetical order. The user reported
+// that the previous order felt arbitrary and that some keys never made it
+// into the form — we now iterate over Object.keys(obj) directly (real
+// settings.json keys) and merely sort them, so nothing is ever dropped.
+const TOP_LEVEL_PRIORITY: readonly string[] = [
+  "model",
+  "language",
+  "permissions",
+  "mcpServers",
+  "env",
+  "hooks",
+];
+
+function sortKeysByImportance(keys: string[]): string[] {
+  const indexOf = new Map<string, number>();
+  TOP_LEVEL_PRIORITY.forEach((k, i) => indexOf.set(k, i));
+  return [...keys].sort((a, b) => {
+    const ia = indexOf.has(a) ? (indexOf.get(a) as number) : Number.POSITIVE_INFINITY;
+    const ib = indexOf.has(b) ? (indexOf.get(b) as number) : Number.POSITIVE_INFINITY;
+    if (ia !== ib) return ia - ib;
+    return a.localeCompare(b);
+  });
+}
+
 export function JsonVisualEditor({
   obj,
   onChange,
@@ -648,7 +674,9 @@ export function JsonVisualEditor({
   obj: Record<string, unknown>;
   onChange: (next: Record<string, unknown>) => void;
 }) {
-  const keys = Object.keys(obj);
+  // Iterate over the real settings.json keys (never a hand-curated list)
+  // so anything the user adds shows up automatically. We only re-order.
+  const keys = sortKeysByImportance(Object.keys(obj));
 
   function patchKey(key: string, nextVal: unknown) {
     const next = clone(obj);

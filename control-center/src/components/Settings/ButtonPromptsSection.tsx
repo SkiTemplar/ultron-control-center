@@ -12,20 +12,50 @@ import {
 // ---------------------------------------------------------------------------
 // Button prompts Settings panel.
 //
-// Layout:
-//   1. Header copy + storage hint.
-//   2. Search input (debounced via `/` keyboard shortcut to focus).
-//   3. Group filter chips derived from the `header` (location) of each entry.
-//   4. 2-column card grid. v2.6 (fb-031): clicking a card opens a centered
-//      MODAL overlay (instead of an inline expanded panel that pushed the
-//      whole section taller) with the full body, var list, original default
-//      (when an override exists) and three actions: copy / edit / reset.
+// v2.5.2 (wave 2): two-level Library-style layout.
+//   Level 1: category cards (derived from the prompt key prefix —
+//            "dashboard.*", "plans.*", "skills.*", …).
+//   Level 2: prompt cards within the picked category.
+//   Detail : modal overlay (unchanged, opens on prompt-card click).
+//
+// Dead-prompt audit (CANDIDATE FOR REMOVAL): some categories no longer have
+// a UI surface in the Control Center because the corresponding tab was
+// retired. Those categories are flagged with `dead: true` so the user can
+// see them and clean up later. None are deleted automatically.
+//
+// Live Tab union (from Sidebar.tsx):
+//   dashboard, mcps, library (= skills/agents/rules/plugins/hooks/commands),
+//   projects, memory, notes, plans, changelog, notifications, sessions,
+//   usage, system, settings.
+//
+// Categories present in button_prompts.rs that DO map to a tab:
+//   dashboard, skills, agents, memory, notif, plans, system, usage, mcps,
+//   projects, sessions.
+//
+// Categories that have NO matching tab anymore (dead surfaces):
+//   selfimprove, logs.
+//
+// Keys flagged for removal (see button_prompts.rs):
+//   selfimprove.repo_evaluator
+//   logs.summarize_recent
 // ---------------------------------------------------------------------------
 
 const SEARCH_FOCUS_KEY = "/";
 
-/** Derive a coarse group from the `location` string (everything before the
- * first " / "). Falls back to the full location when no slash is present. */
+// Categories whose UI surface no longer exists in the Control Center. The
+// prompts under these prefixes are CANDIDATES FOR REMOVAL — they still
+// exist in button_prompts.rs but nothing in the React tree calls them.
+const DEAD_CATEGORIES: ReadonlySet<string> = new Set(["selfimprove", "logs"]);
+
+/** Category derived from the prompt key prefix (everything before the first
+ *  dot). Falls back to "misc" when the key has no dot. */
+function categoryOf(entry: ButtonPrompt): string {
+  const dot = entry.key.indexOf(".");
+  if (dot === -1) return "misc";
+  return entry.key.slice(0, dot);
+}
+
+/** Legacy `location`-based group, kept for the search badge. */
 function groupOf(entry: ButtonPrompt): string {
   const slash = entry.location.indexOf("/");
   if (slash === -1) return entry.location.trim();
@@ -57,6 +87,9 @@ export function ButtonPromptsSection() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  // v2.5.2: two-level navigation. When null we render the category grid.
+  // When set, we render the prompts inside that category.
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   const load = useCallback(async () => {
@@ -186,14 +219,41 @@ export function ButtonPromptsSection() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [catalog]);
 
+  // v2.5.2 (wave 2): Level-1 categories derived from the key prefix
+  // (dashboard.foo → "dashboard"). Each category card surfaces its prompt
+  // count and a "dead" tag when no Control Center tab consumes that prefix.
+  const categories = useMemo(() => {
+    if (!catalog) return [] as Array<{ name: string; count: number; dead: boolean }>;
+    const counts = new Map<string, number>();
+    for (const b of catalog.buttons) {
+      const c = categoryOf(b);
+      counts.set(c, (counts.get(c) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([name, count]) => ({
+        name,
+        count,
+        dead: DEAD_CATEGORIES.has(name),
+      }))
+      // Dead categories sink to the bottom so live categories surface first.
+      .sort((a, b) => {
+        if (a.dead !== b.dead) return a.dead ? 1 : -1;
+        return a.name.localeCompare(b.name);
+      });
+  }, [catalog]);
+
   const filtered = useMemo(() => {
     if (!catalog) return [] as ButtonPrompt[];
     const q = filter.trim().toLowerCase();
     return catalog.buttons.filter((b) => {
+      // v2.5.2: when a category is active, scope to its prompts. The
+      // legacy `activeGroups` chip filter still works inside a category
+      // (handy for prompts whose `location` spans multiple sub-pages).
+      if (activeCategory && categoryOf(b) !== activeCategory) return false;
       if (activeGroups.size > 0 && !activeGroups.has(groupOf(b))) return false;
       return matchesQuery(b, q);
     });
-  }, [catalog, filter, activeGroups]);
+  }, [catalog, filter, activeGroups, activeCategory]);
 
   const toggleGroup = (name: string) => {
     setActiveGroups((prev) => {
@@ -217,12 +277,29 @@ export function ButtonPromptsSection() {
     );
   }
 
+  // Level 1 (no active category): render the category grid. Search still
+  // works at this level — typing a query auto-flattens the view by surfacing
+  // every matching prompt regardless of category.
+  const searchActive = filter.trim().length > 0;
+  const showCategoryGrid = activeCategory === null && !searchActive;
+
   return (
     <div>
       <p className="text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
         Each entry here is the prompt that fires when you press an AI-powered
-        button somewhere in the Control Center. Search by any keyword, filter
-        by section, then click a card to inspect, copy, edit, or reset it.
+        button somewhere in the Control Center. Pick a category to drill in,
+        or search across every prompt with{" "}
+        <kbd
+          className="rounded px-1 py-px text-[10px]"
+          style={{
+            background: "var(--color-surface-3)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-secondary)",
+          }}
+        >
+          /
+        </kbd>
+        .
       </p>
       <p
         className="mt-1 text-[10.5px]"
@@ -233,6 +310,45 @@ export function ButtonPromptsSection() {
       >
         ~/.claude/projects/control-center/button-prompts.json
       </p>
+
+      {/* Back row — only when inside a category */}
+      {activeCategory && (
+        <div className="mt-3 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setActiveCategory(null);
+              setActiveGroups(new Set());
+            }}
+            className="rounded px-2.5 py-1 text-[11.5px]"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+          >
+            ← Categories
+          </button>
+          <span
+            className="text-[12px]"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            <span style={{ fontFamily: "var(--font-mono)" }}>{activeCategory}.*</span>
+            {DEAD_CATEGORIES.has(activeCategory) && (
+              <span
+                className="ml-2 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                style={{
+                  background: "rgba(248, 81, 73, 0.10)",
+                  color: "var(--color-danger)",
+                }}
+                title="No Control Center tab consumes this category — candidate for removal"
+              >
+                dead surface
+              </span>
+            )}
+          </span>
+        </div>
+      )}
 
       {/* Search row */}
       <div className="mt-3 flex items-center gap-2">
@@ -288,8 +404,9 @@ export function ButtonPromptsSection() {
         </button>
       </div>
 
-      {/* Group filter chips */}
-      {groups.length > 0 && (
+      {/* Group filter chips — hidden on the Level-1 category grid since the
+          chips would compete with the category cards themselves. */}
+      {!showCategoryGrid && groups.length > 0 && (
         <div className="mt-2.5 flex flex-wrap gap-1.5">
           {groups.map((g) => {
             const active = activeGroups.has(g.name);
@@ -353,8 +470,78 @@ export function ButtonPromptsSection() {
         </div>
       )}
 
-      {/* Card grid */}
-      {filtered.length === 0 ? (
+      {/* Level 1 — Category grid (mirrors the Library two-step UX). */}
+      {showCategoryGrid && categories.length > 0 && (
+        <div
+          className="mt-4 grid gap-3"
+          style={{ gridTemplateColumns: "repeat(3, minmax(0, 1fr))" }}
+        >
+          {categories.map((c) => (
+            <button
+              key={c.name}
+              type="button"
+              onClick={() => {
+                setActiveCategory(c.name);
+                setActiveGroups(new Set());
+              }}
+              className="rounded p-4 text-left transition-colors"
+              style={{
+                background: "var(--color-surface-2)",
+                border: `1px solid ${c.dead ? "rgba(248, 81, 73, 0.32)" : "var(--color-border)"}`,
+                cursor: "pointer",
+                opacity: c.dead ? 0.7 : 1,
+              }}
+              title={
+                c.dead
+                  ? `No Control Center tab consumes '${c.name}.*' anymore — candidate for removal`
+                  : `${c.count} prompt(s) in ${c.name}.*`
+              }
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span
+                  className="truncate text-[14px] font-semibold"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {c.name}
+                </span>
+                <span
+                  className="shrink-0 tabular-nums text-[11.5px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {c.count}
+                </span>
+              </div>
+              <div
+                className="mt-1 text-[11px]"
+                style={{
+                  color: "var(--color-text-faint)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {c.name}.*
+              </div>
+              {c.dead && (
+                <div className="mt-2">
+                  <span
+                    className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                    style={{
+                      background: "rgba(248, 81, 73, 0.10)",
+                      color: "var(--color-danger)",
+                    }}
+                  >
+                    dead surface
+                  </span>
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Level 2 — Prompt grid. Visible when a category is picked OR when a
+          search query is active (search auto-flattens the view). */}
+      {!showCategoryGrid && (
+        filtered.length === 0 ? (
         <div
           className="mt-4 rounded p-8 text-center text-[12px]"
           style={{
@@ -457,6 +644,7 @@ export function ButtonPromptsSection() {
             </button>
           ))}
         </div>
+        )
       )}
 
       {/* Modal overlay (v2.6 / fb-031). Replaces the previous inline detail

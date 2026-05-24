@@ -165,6 +165,9 @@ pub fn run() {
             commands::misc::compute_activity_timeline,
             commands::misc::compute_cost,
             commands::misc::open_folder_in_vscode,
+            // -- external editor (v2.6 Library redesign) --
+            commands::external_editor::open_in_vscode,
+            commands::external_editor::read_text_file,
             // -- alerts / changelog --
             commands::alerts::read_alerts,
             commands::alerts::delete_alert_entries,
@@ -222,6 +225,7 @@ pub fn run() {
             commands::projects::reorder_launcher_items,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
+            commands::projects::launch_project_executable,
             commands::projects::project_claude_md_load,
             commands::projects::project_claude_md_save,
             // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --
@@ -241,6 +245,7 @@ pub fn run() {
             commands::notes::notes_send_to_project,
             // -- ECC local knowledge graph (read-only display) --
             commands::ecc_memory::ecc_memory_read,
+            commands::ecc_memory::bootstrap_ecc_memory,
             // -- local Knowledge Graph editor (Control Center-owned, v2.6 fb-047) --
             commands::kg::kg_read_graph,
             commands::kg::kg_create_entities,
@@ -264,6 +269,8 @@ pub fn run() {
             commands::sessions::list_claude_sessions,
             commands::sessions::list_workspaces,
             claude_sessions::project_sessions_list,
+            // -- workdays (jornadas de trabajo, v2.5.3 skeleton) --
+            commands::workdays::workday_list,
             // -- settings + backup --
             commands::settings::settings_read,
             commands::settings::settings_save,
@@ -324,6 +331,7 @@ pub fn run() {
             commands::plugins_info::read_plugin_info,
             commands::plugins_info::list_all_plugins,
             commands::plugins_info::uninstall_plugin_cache,
+            commands::plugins_info::check_plugin_updates,
             // -- pty (embedded terminal, P3) --
             commands::pty::pty_spawn,
             commands::pty::pty_write,
@@ -355,6 +363,9 @@ pub fn run() {
             commands::kanban::kanban_delete_card,
             commands::kanban::kanban_dispatch_card,
             commands::kanban::kanban_migrate_existing,
+            commands::kanban::kanban_archive_done,
+            commands::kanban::kanban_list_archives,
+            commands::kanban::kanban_load_archive,
             // -- tabs (P4) --
             commands::tabs::tabs_load,
             commands::tabs::tabs_save,

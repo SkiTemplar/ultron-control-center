@@ -1,32 +1,32 @@
-// ULTRON Control Center 2.6 — Rules viewer.
+// ULTRON Control Center 2.6 — Rules viewer (FULL REDESIGN, aligned with
+// Skills/Agents).
 //
-// USER's quote: "no puedo ver todo lo que incluye una rule, entonces la
-// verdad es que no sé qué puede tener... poder editarla quizá directamente
-// desde el archivo y tal".
+// Same big-tile card grid as Skills + Agents, with a lime accent to
+// distinguish rules from skills (cyan) and agents (violet). The shared
+// `LibraryDetailPane` powers the right-side detail view, so Edit /
+// Edit with AI / Open Externally behave identically across all three.
 //
-// What changed in v2.6:
-//   - 3-way view toggle (Grid / Tree / Blocks). Default = Blocks.
-//   - Clicking a rule (in any view) opens a right-side detail panel that:
-//       · renders the full markdown via lib/markdown.tsx
-//       · has an inline "Edit" textarea with Save/Cancel (rules_write)
-//       · has "Edit with AI" which spawns a Claude session pre-loaded with
-//         the rule body in the clipboard + an improvement prompt
-//   - Layout becomes a 2-pane split when the detail panel is open. The
-//     left pane stays interactive; clicking another rule re-loads.
+// Backend wiring (rules_list, rules_read, rules_write) is unchanged — the
+// detail pane uses the path-based `read_text_file` for reading and a
+// `rules_write` wrapper for writing.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { RuleFile } from "../types";
-import { BookOpen, Edit, Folder, Save, Wand, X } from "./library/icons";
+import { BookOpen } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
 import {
   BlocksView,
   type BlocksItem,
 } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
-import { Markdown } from "../lib/markdown";
+import { LibraryDetailPane } from "./library/LibraryDetailPane";
 
 const NO_CATEGORY = "root";
+
+// Lime — distinct from skill cyan and agent violet.
+const RULE_ACCENT = "rgba(132, 204, 22, 0.55)";
+const RULE_ACCENT_SOFT = "rgba(132, 204, 22, 0.18)";
 
 function deriveCategory(r: RuleFile): string {
   const rel = (r.relative ?? "").replace(/\\/g, "/");
@@ -35,14 +35,24 @@ function deriveCategory(r: RuleFile): string {
   return first;
 }
 
-/// Sub-category derived from the second path segment. e.g. for
-///   typescript/coding-style.md  → top: "typescript", sub: null (file)
-///   common/git/workflow.md      → top: "common",     sub: "git"
 function deriveSubGroup(r: RuleFile): string | null {
   const rel = (r.relative ?? "").replace(/\\/g, "/");
   const parts = rel.split("/").filter(Boolean);
   if (parts.length < 3) return null;
   return parts[1];
+}
+
+/// Compute the workspace folder for a rule. ~/.claude/rules/<top>/<file>.md
+/// → opening the <top> folder in VS Code shows sibling rules at the same
+/// time, which mirrors the "open whole skill workspace" behaviour USER
+/// asked for.
+function ruleWorkspace(r: RuleFile): { folder: string; file: string } {
+  const file = r.path;
+  const lastSep = Math.max(file.lastIndexOf("\\"), file.lastIndexOf("/"));
+  return {
+    folder: lastSep > 0 ? file.slice(0, lastSep) : "",
+    file,
+  };
 }
 
 export function Rules() {
@@ -52,16 +62,7 @@ export function Rules() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [view, setView] = useLibraryViewMode("rules");
-
-  // Detail-panel state.
   const [selected, setSelected] = useState<RuleFile | null>(null);
-  const [body, setBody] = useState<string>("");
-  const [bodyLoading, setBodyLoading] = useState(false);
-  const [bodyError, setBodyError] = useState<string | null>(null);
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
 
   const reload = async () => {
     setLoading(true);
@@ -109,9 +110,6 @@ export function Rules() {
     });
   }, [rules, category, query]);
 
-  // Tree-view: 1 synthetic origin per top-level folder ("common", "rust",
-  // "typescript"). Inside each, group by sub-folder (or use "*" leaves at
-  // the top when the rule is directly under the folder).
   const treeOrigins: TreeOrigin<RuleFile>[] = useMemo(() => {
     const byTop = new Map<string, RuleFile[]>();
     for (const r of filtered) {
@@ -127,8 +125,6 @@ export function Rules() {
         return a.localeCompare(b);
       })
       .map(([id, list]) => {
-        // Group by sub-folder or "(root)" when the rule lives directly under
-        // the top-level folder.
         const byGroup = new Map<string, RuleFile[]>();
         for (const r of list) {
           const sub = deriveSubGroup(r) ?? "(root)";
@@ -153,7 +149,6 @@ export function Rules() {
       });
   }, [filtered]);
 
-  // Blocks-view items.
   const blockItems: BlocksItem<RuleFile>[] = useMemo(
     () =>
       filtered.map((r) => ({
@@ -166,390 +161,80 @@ export function Rules() {
     [filtered],
   );
 
-  const handleOpenExternal = async (path: string) => {
-    try {
-      // openPath relies on the Windows file association for .md, which
-      // many users don't have set — falling through to the new VS Code
-      // invocation guarantees the rule opens in a real editor.
-      await invoke("open_folder_in_vscode", { target: path });
-    } catch (e) {
-      setError(`open ${path}: ${e}`);
-    }
+  const buildOnSave = (r: RuleFile) => async (body: string) => {
+    await invoke("rules_write", { name: r.relative, body });
+    await reload();
   };
-
-  // ---- Detail pane wiring ----
-
-  const openDetail = async (r: RuleFile) => {
-    setSelected(r);
-    setEditing(false);
-    setSaveError(null);
-    setBodyError(null);
-    setBody("");
-    setBodyLoading(true);
-    try {
-      const text = (await invoke("rules_read", { path: r.path })) as string;
-      setBody(text);
-      setDraft(text);
-    } catch (e) {
-      setBodyError(String(e));
-    } finally {
-      setBodyLoading(false);
-    }
-  };
-
-  const closeDetail = () => {
-    setSelected(null);
-    setEditing(false);
-    setSaveError(null);
-    setBody("");
-    setDraft("");
-  };
-
-  const startEdit = () => {
-    setDraft(body);
-    setEditing(true);
-    setSaveError(null);
-  };
-
-  const cancelEdit = () => {
-    setDraft(body);
-    setEditing(false);
-    setSaveError(null);
-  };
-
-  const saveEdit = async () => {
-    if (!selected) return;
-    setSaving(true);
-    setSaveError(null);
-    try {
-      // rules_write takes the relative path inside ~/.claude/rules/. The
-      // RuleFile.relative is exactly that (e.g. "typescript/coding-style.md").
-      await invoke("rules_write", {
-        name: selected.relative,
-        body: draft,
-      });
-      setBody(draft);
-      setEditing(false);
-      // Refresh the list to update the preview text.
-      void reload();
-    } catch (e) {
-      setSaveError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Spawn a Claude session with the rule body in the clipboard and a
-  // pre-baked improvement prompt — mirrors the existing spawn_session pattern
-  // used by lib/button-prompts.ts and Plans.tsx.
-  const editWithAi = async () => {
-    if (!selected) return;
-    // navigator.clipboard is the established pattern in this codebase (see
-    // lib/button-prompts.ts) — the Tauri 2 WebView exposes it directly so
-    // we don't pull in @tauri-apps/plugin-clipboard-manager.
-    try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(body);
-      }
-    } catch (e) {
-      // Clipboard failure is non-fatal — surface the error but still spawn.
-      setSaveError(`clipboard: ${String(e)}`);
-    }
-    const prompt =
-      `Improve this Claude Code rule for clarity and completeness. ` +
-      `The current rule body is in your clipboard (paste it).\n\n` +
-      `Rule file: ${selected.relative}\n` +
-      `Rule name: ${selected.name}\n\n` +
-      `Goals:\n` +
-      `1. Keep the structure and intent intact.\n` +
-      `2. Fill obvious gaps (missing examples, vague wording, dead links).\n` +
-      `3. Stay concise — no filler, no marketing language.\n` +
-      `4. Output the new file body only (no commentary). I'll paste it back.`;
-    try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt,
-        cwd: null,
-        flags: { dangerouslySkipPermissions: false },
-      });
-    } catch (e) {
-      setSaveError(`spawn_session: ${String(e)}`);
-    }
-  };
-
-  // ---- Card grid (used by Grid mode + Blocks leaves) ----
 
   const renderCardGrid = (items: RuleFile[]) => (
-    <ul className="grid gap-2 md:grid-cols-2">
+    <div
+      className="grid gap-3"
+      style={{
+        gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+      }}
+    >
       {items.map((r) => {
-        const cat = deriveCategory(r);
         const isActive = selected?.path === r.path;
+        const cat = deriveCategory(r);
         return (
-          <li
+          <button
             key={r.path}
-            className="cursor-pointer rounded-md px-2.5 py-2 text-sm transition-colors"
+            type="button"
+            onClick={() => setSelected(r)}
+            className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
-              border: `1px solid ${
-                isActive
-                  ? "var(--color-accent)"
-                  : "var(--color-border-strong)"
-              }`,
               background: isActive
                 ? "var(--color-surface-3)"
                 : "var(--color-surface-2)",
-              color: "var(--color-text)",
+              border: `1px solid ${
+                isActive ? RULE_ACCENT : "var(--color-border)"
+              }`,
+              boxShadow: `inset 0 3px 0 ${RULE_ACCENT}`,
             }}
-            onClick={() => void openDetail(r)}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = RULE_ACCENT;
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${RULE_ACCENT}, 0 6px 18px rgba(0,0,0,0.28)`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = isActive
+                ? RULE_ACCENT
+                : "var(--color-border)";
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${RULE_ACCENT}`;
+            }}
+            title={r.relative}
           >
-            <div className="mb-1 flex items-start justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <BookOpen
-                  size={12}
-                  className="shrink-0 text-[var(--color-text-tertiary)]"
-                />
-                <span className="truncate font-medium">{r.name}</span>
-              </div>
-              <span
-                className="truncate text-[10.5px]"
-                style={{
-                  color: "var(--color-text-tertiary)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {r.relative}
-              </span>
-            </div>
-            {cat !== NO_CATEGORY && (
-              <div
-                className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                <Folder size={10} /> {cat}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void openDetail(r);
-                }}
-                className="rounded-md border px-2 py-0.5 text-xs"
-                style={{
-                  borderColor: "var(--color-border-strong)",
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-              >
-                View
-              </button>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  void handleOpenExternal(r.path);
-                }}
-                className="rounded-md border px-2 py-0.5 text-xs"
-                style={{
-                  borderColor: "var(--color-border-strong)",
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text)",
-                }}
-              >
-                Open externally
-              </button>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-
-  // ---- Detail pane ----
-
-  const DetailPane = () => {
-    if (!selected) return null;
-    return (
-      <aside
-        className="flex h-full w-full flex-col overflow-hidden rounded-md"
-        style={{
-          border: "1px solid var(--color-border-strong)",
-          background: "var(--color-surface-2)",
-        }}
-      >
-        <header
-          className="flex items-start justify-between gap-2 border-b p-3"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <BookOpen size={13} className="text-[var(--color-text-tertiary)]" />
-              <span
-                className="truncate text-[13.5px] font-semibold"
-                style={{ color: "var(--color-text)" }}
-                title={selected.name}
-              >
-                {selected.name}
-              </span>
-            </div>
             <div
-              className="mt-0.5 truncate text-[10.5px]"
-              style={{
-                color: "var(--color-text-tertiary)",
-                fontFamily: "var(--font-mono)",
-              }}
-              title={selected.path}
-            >
-              {selected.relative}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={closeDetail}
-            className="rounded p-1 transition-colors"
-            style={{
-              background: "transparent",
-              color: "var(--color-text-tertiary)",
-              border: "1px solid var(--color-border)",
-            }}
-            title="Close detail panel"
-            aria-label="Close"
-          >
-            <X size={12} />
-          </button>
-        </header>
-
-        {/* Action bar */}
-        <div
-          className="flex flex-wrap items-center gap-2 border-b px-3 py-2"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          {!editing ? (
-            <>
-              <button
-                type="button"
-                onClick={startEdit}
-                disabled={bodyLoading || !!bodyError}
-                className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-                title="Edit this rule inline"
-              >
-                <Edit size={11} /> Edit
-              </button>
-              <button
-                type="button"
-                onClick={() => void editWithAi()}
-                disabled={bodyLoading || !!bodyError}
-                className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
-                style={{
-                  background: "var(--color-surface-3)",
-                  borderColor: "var(--color-border-strong)",
-                  color: "var(--color-text)",
-                }}
-                title="Spawn a Claude session with the rule body in your clipboard + an improvement prompt"
-              >
-                <Wand size={11} /> Edit with AI
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleOpenExternal(selected.path)}
-                className="rounded-md border px-2.5 py-1 text-[11.5px] transition-colors"
-                style={{
-                  background: "transparent",
-                  borderColor: "var(--color-border-strong)",
-                  color: "var(--color-text-secondary)",
-                }}
-                title="Open in the OS-default editor"
-              >
-                Open externally
-              </button>
-            </>
-          ) : (
-            <>
-              <button
-                type="button"
-                onClick={() => void saveEdit()}
-                disabled={saving}
-                className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-              >
-                <Save size={11} /> {saving ? "Saving…" : "Save"}
-              </button>
-              <button
-                type="button"
-                onClick={cancelEdit}
-                disabled={saving}
-                className="rounded-md border px-2.5 py-1 text-[11.5px]"
-                style={{
-                  background: "transparent",
-                  borderColor: "var(--color-border-strong)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                Cancel
-              </button>
-            </>
-          )}
-        </div>
-
-        {saveError && (
-          <div
-            className="mx-3 mt-2 rounded-md p-2 text-[11.5px]"
-            style={{
-              background: "rgba(248, 81, 73, 0.08)",
-              border: "1px solid rgba(248, 81, 73, 0.30)",
-              color: "var(--color-danger)",
-            }}
-          >
-            {saveError}
-          </div>
-        )}
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {bodyLoading ? (
-            <p
-              className="text-xs"
+              className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.08em]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Loading rule body…
-            </p>
-          ) : bodyError ? (
-            <p
-              className="text-xs"
-              style={{ color: "var(--color-danger)" }}
+              <BookOpen size={12} />
+              Rule
+              {cat !== NO_CATEGORY && (
+                <span
+                  className="ml-auto rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
+                  style={{
+                    background: RULE_ACCENT_SOFT,
+                    color: "#bef264",
+                    border: "1px solid rgba(132, 204, 22, 0.35)",
+                  }}
+                >
+                  {cat}
+                </span>
+              )}
+            </div>
+            <div
+              className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
+              style={{ color: "var(--color-text)" }}
             >
-              {bodyError}
-            </p>
-          ) : editing ? (
-            <textarea
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              spellCheck={false}
-              className="h-full min-h-[400px] w-full resize-none rounded-md p-3 text-[12.5px] leading-relaxed outline-none"
-              style={{
-                background: "var(--color-surface-1)",
-                border: "1px solid var(--color-border-strong)",
-                color: "var(--color-text)",
-                fontFamily: "var(--font-mono)",
-              }}
-            />
-          ) : (
-            <Markdown source={body || "*(empty file)*"} />
-          )}
-        </div>
-      </aside>
-    );
-  };
-
-  // ---- Render ----
+              {r.name}
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
 
   return (
     <div className="flex h-full flex-col gap-4 p-6">
@@ -658,14 +343,11 @@ export function Rules() {
         </div>
       )}
 
-      {/* Layout: list pane on the left, detail pane on the right when open.
-          On narrow viewports both panes stack vertically (rules list above,
-          detail below) — keeps the editor usable on smaller windows. */}
-      <div
-        className="flex flex-1 flex-col gap-3 overflow-hidden lg:flex-row"
-      >
+      <div className="flex flex-1 flex-col gap-3 overflow-hidden lg:flex-row">
         <div
-          className={selected ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"}
+          className={
+            selected ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"
+          }
           style={{ minWidth: 0 }}
         >
           {loading ? (
@@ -687,6 +369,7 @@ export function Rules() {
               items={blockItems}
               noun="rule"
               emptyLabel="Sin reglas para el filtro actual."
+              topGroupAccent={() => RULE_ACCENT}
               renderLeaves={(items) =>
                 renderCardGrid(items.map((it) => it.data))
               }
@@ -695,7 +378,7 @@ export function Rules() {
             <TreeView<RuleFile>
               origins={treeOrigins}
               selectedKey={selected?.path ?? null}
-              onSelect={(leaf) => void openDetail(leaf.data)}
+              onSelect={(leaf) => setSelected(leaf.data)}
               query={query}
             />
           ) : (
@@ -705,10 +388,23 @@ export function Rules() {
 
         {selected && (
           <div
-            className="overflow-hidden lg:w-[520px] lg:shrink-0"
+            className="overflow-hidden lg:w-[560px] lg:shrink-0"
             style={{ minWidth: 0 }}
           >
-            <DetailPane />
+            {(() => {
+              const ws = ruleWorkspace(selected);
+              return (
+                <LibraryDetailPane
+                  kind="rule"
+                  name={selected.name}
+                  subtitle={selected.relative}
+                  filePath={ws.file}
+                  folderPath={ws.folder}
+                  onSave={buildOnSave(selected)}
+                  onClose={() => setSelected(null)}
+                />
+              );
+            })()}
           </div>
         )}
       </div>

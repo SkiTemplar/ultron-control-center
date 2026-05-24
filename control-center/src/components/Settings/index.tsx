@@ -2,31 +2,32 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SettingsSaveResult, SettingsSnapshot } from "../../types";
 import { AuthStatus } from "../AuthStatus";
-import { GeneralSection } from "./GeneralSection";
 import { ButtonPromptsSection } from "./ButtonPromptsSection";
 import { JsonEditor } from "./EditorSection";
 import { BackupsPanel } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
-import { PluginsSection } from "./PluginsSection";
 
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
 // top-level tab now. P7 (2.0): "raw" (settings.json) is the default tab and
-// the Section union is reordered so the JSON editor leads. "plugins" added
-// as a new sub-tab for ECC component counts with jump-links.
+// the Section union is reordered so the JSON editor leads.
+// v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
+// "lifecycle" relabeled to "General" — it now hosts autostart, rebuild,
+// close, and the single global hotkey. Plugins lives in the Library tab.
 type Section =
   | "raw"
   | "general"
   | "auth"
   | "button-prompts"
-  | "backups"
-  | "lifecycle"
-  | "plugins";
+  | "backups";
 
 type SettingsProps = {
   onNavigate?: (tab: string) => void;
 };
 
-export function Settings({ onNavigate }: SettingsProps = {}) {
+export function Settings(_props: SettingsProps = {}) {
+  // _props.onNavigate was used by the retired Plugins sub-tab. Kept in the
+  // signature so callers (App.tsx) don't break, but no longer consumed.
+  void _props;
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -153,8 +154,6 @@ export function Settings({ onNavigate }: SettingsProps = {}) {
           { id: "auth" as Section, label: "Auth" },
           { id: "button-prompts" as Section, label: "Button prompts" },
           { id: "backups" as Section, label: "Backups" },
-          { id: "lifecycle" as Section, label: "App lifecycle" },
-          { id: "plugins" as Section, label: "Plugins" },
         ].map((t) => (
           <button
             key={t.id}
@@ -201,7 +200,10 @@ export function Settings({ onNavigate }: SettingsProps = {}) {
       )}
 
       <div className="mt-5">
-        {section === "general" && <GeneralSection />}
+        {/* v2.5.2 wave 2: "General" now points to the merged LifecyclePanel
+            (autostart + rebuild + close + global hotkey). The old
+            GeneralSection placeholder is no longer imported. */}
+        {section === "general" && <LifecyclePanel />}
         {section === "auth" && <AuthStatus />}
         {section === "button-prompts" && <ButtonPromptsSection />}
 
@@ -271,8 +273,8 @@ export function Settings({ onNavigate }: SettingsProps = {}) {
           </div>
         )}
 
-        {section === "lifecycle" && <LifecyclePanel />}
-        {section === "plugins" && <PluginsSection onNavigate={onNavigate} />}
+        {/* v2.5.2 wave 2: "lifecycle" and "plugins" sub-tabs retired.
+            Lifecycle content lives in "general"; Plugins lives in Library. */}
       </div>
     </div>
   );

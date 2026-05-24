@@ -1,5 +1,35 @@
 # Changelog
 
+<!-- v2.7.1 -->
+## v2.7.1 - 2026-05-24
+
+Errores corregidos:
+- BUG P0 Backup Force Now: weekly-backup.ps1 no leía backup-root.txt al reiniciar — ahora resolve order coincide con backend (file → env → default). run_backup_now_inner inyecta env vars desde config en cada invocación (stateless). Verified: copia las 5 carpetas a D:\USER\BACKUP con timestamp real.
+- BUG Notes Delete confirm: popup contextual inline anclado al botón Delete (no bottom-left), click-outside dismiss.
+- BUG Mem0 HTTP 400 query blank: search_inner retorna Ok(vec![]) si query vacío, sin llamada HTTP.
+- BUG TS Catalog.tsx: Search icon style→className.
+
+Añadido / Rediseñado:
+- **Dashboard FULL REDESIGN**: AlertsCard banner top, trio Mem0+Pending+Backup, RecentSessions+RecentProjects, CrashEvents (sin Event Viewer button), PluginStatus. Typography baseline 13-14px, hero metrics 16-22px.
+- **Library cards uniformes**: Skills (cyan/Sparkle), Agents (violet/Bot), Rules (lime/BookOpen). Detail pane compartido (LibraryDetailPane). Edit + Edit with AI + **Open Externally** (open_in_vscode con folder padre + archivo). Sibling tabs en detail pane.
+- **System rediseño**: Bloatware eliminada. Apps con Library-style cards agrupadas por dominio. Hooks sub-tab eliminada (solo en Library). Diagnostics absorbe Troubleshooting con FIX_CATALOG (28 fixes) + KNOWN_ERRORS map (14 event IDs).
+- **Hooks cards categorías**: 9 cards por evento con count+preview. Detail pane con Test/Edit/Delete. Instrumentation banner exacto.
+- **Sessions modal overlays**: Custom y Send Context salen como LauncherModal, no inline. Botón Continue eliminado. Cards solo headline (project_name o cwd legible), sin session ID ni epoch.
+- **Workdays sub-tab skeleton**: WorkdaysPanel con concepto + "Coming soon". Backend stub workday_list_inner. Card investigación añadida al Kanban.
+- **Projects**: vista default = flat. Investigar fusionado en Backlog (SplitBacklogColumn vertical). Executables por proyecto (ProjectInfo.executables + launch_project_executable cmd + QuickLaunchPanel en Project Home). Archive Done + Show Archived (kanban_archive_done / list_archives / load_archive).
+- **ProjectAgents → Agent Team**: rename "Pinned" → "Agent Team", roles editables inline, picker con sidebar de categorías. Workflow tiles con badge "Beta". Create skill from project relocalizado.
+- **Plugins en Library**: grid 3 columnas, botones w-fit max-w-[120px]. Search for updates (check_plugin_updates via gh repo view).
+- **MCPs**: enable/disable global toolbar eliminado.
+- **Settings consolidation**: GeneralSection stub, todo movido a App Lifecycle renombrado "General". JsonVisualEditor orden por importancia.
+- **Button Prompts vista categorías**: 2 niveles (categorías → prompts), modal overlay.
+- **Notes**: Delete confirm popup anclado a botón. Editor pane usa ancho completo. Project Notes Enter para crear.
+- **Sidebar**: font 15→16.5px, width w-56→w-64.
+- **Backend nuevos commands**: open_in_vscode, read_text_file, bootstrap_ecc_memory, launch_project_executable, kanban_archive_done / list_archives / load_archive, workday_list, check_plugin_updates.
+
+Mantenido para sesión adicional (columna Investigar del Kanban):
+- /usage scraping, Background-tasks free-tier LLM, Graphify, Ralph, Sessions context backend, ProjectAgents workflows backend, KG MCP proxy, Catalog GitHub install completo, Workdays aggregator backend.
+
+
 <!-- v2.7.0 -->
 ## v2.7.0 - 2026-05-24
 

@@ -85,6 +85,122 @@ fn new_ulid() -> String {
     format!("pty-{t}-{n}")
 }
 
+/// Resolve a caller-supplied `cwd` string to an absolute, existing directory.
+///
+/// The frontend currently passes `"."` for project terminals (we have not
+/// wired per-project workspace paths into the PTY layer yet). `portable-pty`
+/// forwards the string verbatim into `CreateProcessW` on Windows, and a bare
+/// `.` is sensitive to the current process working dir — if that dir was
+/// removed (network mount disconnected, parent process started from a
+/// deleted temp folder, etc.) the spawn fails with no terminal output.
+///
+/// Resolution order:
+///   1. If `cwd` is a valid existing directory, canonicalise + return it.
+///   2. Otherwise fall back to the user's home directory.
+///   3. Otherwise fall back to the SystemDrive root (Windows) or `/`.
+fn resolve_cwd(cwd: &str) -> String {
+    use std::path::Path;
+    let trimmed = cwd.trim();
+    if !trimmed.is_empty() && Path::new(trimmed).is_dir() {
+        if let Ok(canon) = std::fs::canonicalize(trimmed) {
+            // dunce-style: strip the Windows \\?\ prefix if present so the
+            // path is friendlier inside the shell prompt.
+            let s = canon.to_string_lossy().to_string();
+            return s.trim_start_matches(r"\\?\").to_string();
+        }
+        return trimmed.to_string();
+    }
+    if let Some(home) = dirs::home_dir() {
+        if home.is_dir() {
+            return home.to_string_lossy().to_string();
+        }
+    }
+    #[cfg(windows)]
+    {
+        std::env::var("SystemDrive")
+            .map(|d| format!("{d}\\"))
+            .unwrap_or_else(|_| "C:\\".to_string())
+    }
+    #[cfg(not(windows))]
+    {
+        "/".to_string()
+    }
+}
+
+/// Append a single line to `~/.ultron/logs/pty-spawn.log` describing a PTY
+/// spawn failure. Best-effort — if the log directory cannot be created we
+/// silently drop the entry; the user already sees the propagated error in
+/// the UI via the returned `Result<_, String>`.
+fn log_pty_failure(provider: &str, cwd: &str, msg: &str) {
+    let dir = match dirs::home_dir() {
+        Some(h) => h.join(".ultron").join("logs"),
+        None => return,
+    };
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("pty-spawn.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        use std::io::Write;
+        let _ = writeln!(
+            f,
+            "[{}] provider={} cwd={} :: {}",
+            now_iso(),
+            provider,
+            cwd,
+            msg
+        );
+    }
+}
+
+/// Resolve which PowerShell executable to spawn into the PTY.
+///
+/// Preference order on Windows:
+///   1. `pwsh.exe` (PowerShell 7+) if it resolves on PATH.
+///   2. `powershell.exe` if it resolves on PATH.
+///   3. Absolute fallback to `%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe`.
+///
+/// We never return an error here — if all probes fail, the absolute
+/// System32 path is returned. portable-pty will surface a clear spawn
+/// failure if that path is also missing (extremely unlikely on Windows).
+#[cfg(windows)]
+fn resolve_powershell_exe() -> String {
+    fn on_path(exe: &str) -> bool {
+        use std::os::windows::process::CommandExt;
+        let mut probe = std::process::Command::new("where");
+        probe.arg(exe);
+        probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        match probe.output() {
+            Ok(o) => o.status.success(),
+            Err(_) => false,
+        }
+    }
+    if on_path("pwsh.exe") {
+        return "pwsh.exe".to_string();
+    }
+    if on_path("powershell.exe") {
+        return "powershell.exe".to_string();
+    }
+    // Absolute fallback. SystemRoot is virtually always set on Windows.
+    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+    format!(
+        "{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+        system_root.trim_end_matches('\\')
+    )
+}
+
+#[cfg(not(windows))]
+fn resolve_powershell_exe() -> String {
+    // PowerShell on non-Windows is `pwsh`; build_command never reaches here
+    // on those platforms because the provider list is Windows-only, but we
+    // keep the helper compiling for cargo check / cross-target builds.
+    "pwsh".to_string()
+}
+
 /// Resolve a provider slug to the CommandBuilder that actually spawns it.
 ///
 /// Windows-specific bug fix (2026-05-23): the Claude/Codex/Gemini CLIs are
@@ -158,11 +274,30 @@ fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, 
             }
         }
         "powershell" => {
-            // Plain Windows PowerShell 5.1 inside the PTY. -NoLogo keeps the
-            // banner away; we still want the interactive prompt so the user
-            // can type commands.
-            let mut cmd = CommandBuilder::new("powershell.exe");
+            // Plain Windows PowerShell PTY.
+            //
+            // v2.6.1 P0 bug fix: the previous build called
+            //     CommandBuilder::new("powershell.exe").arg("-NoLogo")
+            // which left the user's PowerShell profile enabled. A profile that
+            // loads oh-my-posh, posh-git, PSReadLine custom prompts, or any
+            // module with network/auth side-effects (Azure / AWS / GitHub) can
+            // block startup for 5-30s — to the user the PTY just "stays
+            // hanging without opening anything", exactly the reported P0 bug.
+            //
+            // Fix:
+            //   1. Add -NoProfile so user-level profiles do not run inside the
+            //      embedded PTY. Power users can still run `& $PROFILE` once
+            //      the shell is up if they want their profile loaded.
+            //   2. Prefer pwsh.exe (PowerShell 7) when on PATH — it's faster
+            //      to start and renders modern TUIs better. Fall back to
+            //      powershell.exe (Windows PowerShell 5.1).
+            //   3. If neither shim is on PATH, fall back to the absolute
+            //      System32 path so a corrupted PATH does not break the
+            //      terminal entirely.
+            let exe = resolve_powershell_exe();
+            let mut cmd = CommandBuilder::new(&exe);
             cmd.arg("-NoLogo");
+            cmd.arg("-NoProfile");
             Ok(cmd)
         }
         "powershell-admin" => {
@@ -171,11 +306,15 @@ fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, 
             // The elevated session necessarily opens in its own console window
             // (Windows does not let an unelevated PTY adopt an elevated child),
             // but the user gets the UAC prompt + admin shell as requested.
-            let mut cmd = CommandBuilder::new("powershell.exe");
+            //
+            // v2.6.1: also -NoProfile + resolved exe for the same reasons as
+            // the plain `powershell` branch.
+            let exe = resolve_powershell_exe();
+            let mut cmd = CommandBuilder::new(&exe);
             cmd.arg("-NoLogo");
             cmd.arg("-NoProfile");
             cmd.arg("-Command");
-            cmd.arg("Start-Process -Verb RunAs powershell.exe; Write-Host 'Admin PowerShell launched in a new window (UAC must run elevated outside this PTY).'");
+            cmd.arg("try { Start-Process -Verb RunAs powershell.exe -ArgumentList '-NoLogo' -ErrorAction Stop; Write-Host 'Admin PowerShell launched in a new window. (UAC opens elevated consoles outside the embedded PTY.)' } catch { Write-Host ('Admin launch failed: ' + $_.Exception.Message) -ForegroundColor Red }");
             Ok(cmd)
         }
         other => Err(format!("unknown provider '{}'", other)),
@@ -207,8 +346,18 @@ pub fn spawn_inner<R: Runtime>(
     //   powershell-admin         — UAC-elevated PowerShell (new window)
     // agent maps to `--agent <slug>` when supported (claude). prompt is
     // reserved for P4 (clipboard prime flow); not embedded in the command line.
-    let mut cmd = build_command(&provider, agent.as_deref())?;
-    cmd.cwd(&cwd);
+    let mut cmd = build_command(&provider, agent.as_deref()).map_err(|e| {
+        log_pty_failure(&provider, &cwd, &format!("build_command: {e}"));
+        e
+    })?;
+    // Resolve cwd to an absolute path. The frontend passes "." for project
+    // panes that don't track a per-project workspace path yet; portable-pty
+    // forwards that string into CreateProcessW unchanged, and on Windows a
+    // bare "." can fail when the process current dir is on a non-existent
+    // drive (e.g. when launched from a removed network mount). Normalise to
+    // an absolute path falling back to the user home, then the SystemDrive.
+    let resolved_cwd = resolve_cwd(&cwd);
+    cmd.cwd(&resolved_cwd);
 
     // Inherit env so OAuth tokens / PATH carry over.
     for (k, v) in std::env::vars() {
@@ -222,10 +371,11 @@ pub fn spawn_inner<R: Runtime>(
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
 
-    let child = pair
-        .slave
-        .spawn_command(cmd)
-        .map_err(|e| format!("spawn {provider}: {e}"))?;
+    let child = pair.slave.spawn_command(cmd).map_err(|e| {
+        let msg = format!("spawn {provider}: {e}");
+        log_pty_failure(&provider, &resolved_cwd, &msg);
+        msg
+    })?;
     drop(pair.slave); // child holds it now
 
     let master = pair.master;

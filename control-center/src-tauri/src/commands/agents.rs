@@ -45,10 +45,17 @@ pub async fn delete_agent(name: String) -> Result<agents::AgentMutationResult, S
 }
 
 // ---- P4: per-project agent pinning ----
+//
+// v2.6 (card-v26-fb-023): `roles` map persists a user-supplied label for each
+// pinned agent (e.g. "Backend reviewer", "QA"). The field is optional and
+// defaults to empty so existing `pinned-agents.json` files without a roles
+// section continue to deserialize cleanly.
 
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 pub struct PinnedAgents {
     pub pinned: Vec<String>,
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub roles: std::collections::HashMap<String, String>,
 }
 
 fn pinned_path(project_id: &str) -> Result<std::path::PathBuf, String> {

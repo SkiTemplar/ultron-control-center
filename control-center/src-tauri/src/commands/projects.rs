@@ -65,6 +65,8 @@ pub async fn update_project(
     default_shell: Option<String>,
     parent_folder_override: Option<String>,
     notes: Option<String>,
+    // v2.6.2 — patch the Quick Launch executables. Some([]) clears the list.
+    executables: Option<Vec<projects::ExecutableEntry>>,
 ) -> Result<projects::UpdateProjectResult, String> {
     projects::update_project_inner(projects::UpdateProjectPayload {
         id,
@@ -77,7 +79,18 @@ pub async fn update_project(
         default_shell,
         parent_folder_override,
         notes,
+        executables,
     })
+}
+
+/// v2.6.2 — spawn a Quick Launch executable. Validated server-side via the
+/// same hardening helpers as the launcher chips.
+#[tauri::command]
+pub async fn launch_project_executable(
+    app: tauri::AppHandle,
+    path: String,
+) -> Result<projects::ProjectActionResult, String> {
+    projects::launch_project_executable_inner(&app, path).await
 }
 
 /// Surgical patch for `Project.default_provider`. The Projects tab's inline

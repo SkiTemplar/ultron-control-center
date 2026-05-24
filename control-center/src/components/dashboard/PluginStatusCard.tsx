@@ -1,4 +1,7 @@
 // ECC plugin status — installed flag + counts for skills/agents/hooks/mcps.
+//
+// v2.7 redesign: bigger card, stat chips with 18px values, consistent with
+// the rest of the dashboard.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -46,49 +49,54 @@ export function PluginStatusCard() {
   return (
     <Card
       title="ECC plugin"
+      subtitle={info?.version ? `v${info.version}` : "Everything Claude Code"}
       accent={accent}
       loading={loading}
       error={error}
       action={
         info?.root ? (
-          <SmallButton onClick={() => void openRoot()} title="Open plugin folder">
-            folder
+          <SmallButton
+            onClick={() => void openRoot()}
+            size="md"
+            title="Open plugin folder"
+          >
+            Folder
           </SmallButton>
         ) : null
       }
     >
       {info && (
-        <div className="space-y-1">
-          <div className="flex items-baseline gap-2">
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-3">
             <span
-              className="text-[12.5px] font-semibold"
+              className="inline-block h-2.5 w-2.5 rounded-full"
+              style={{
+                background: info.installed
+                  ? "var(--color-success)"
+                  : "var(--color-warn)",
+              }}
+            />
+            <span
+              className="text-[16px] font-semibold leading-none"
               style={{ color: "var(--color-text)" }}
             >
               {info.installed ? "Installed" : "Not installed"}
             </span>
-            {info.version && (
+            {info.last_update_iso && (
               <span
-                className="text-[10.5px] tabular-nums"
-                style={{ color: "var(--color-text-tertiary)" }}
+                className="ml-auto text-[11px] tabular-nums"
+                style={{ color: "var(--color-text-faint)" }}
               >
-                v{info.version}
+                {relativeTime(info.last_update_iso)}
               </span>
             )}
           </div>
-          <div className="grid grid-cols-4 gap-2 pt-1">
+          <div className="grid grid-cols-4 gap-2">
             <CountChip label="skills" value={info.skills_count} />
             <CountChip label="agents" value={info.agents_count} />
             <CountChip label="hooks" value={info.hooks_count} />
             <CountChip label="mcps" value={info.mcp_servers_count} />
           </div>
-          {info.last_update_iso && (
-            <div
-              className="pt-1 text-[11.5px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              Updated {relativeTime(info.last_update_iso)}
-            </div>
-          )}
         </div>
       )}
     </Card>
@@ -98,20 +106,20 @@ export function PluginStatusCard() {
 function CountChip({ label, value }: { label: string; value: number }) {
   return (
     <div
-      className="rounded px-2 py-1 text-center"
+      className="rounded px-2 py-2 text-center"
       style={{
         background: "var(--color-surface-3)",
         border: "1px solid var(--color-border)",
       }}
     >
       <div
-        className="text-[14px] font-semibold tabular-nums leading-none"
+        className="text-[18px] font-semibold leading-none tabular-nums"
         style={{ color: "var(--color-text)" }}
       >
         {value}
       </div>
       <div
-        className="mt-0.5 text-[9.5px] uppercase tracking-[0.05em]"
+        className="mt-1 text-[10px] uppercase tracking-[0.05em]"
         style={{ color: "var(--color-text-tertiary)" }}
       >
         {label}

@@ -62,10 +62,38 @@ if (-not $Sources) {
     }
 }
 
-# Backup destination root. Override with $env:ULTRON_BACKUP_ROOT (e.g. set it
-# to "D:\BACKUP" in your environment). Falls back to "$env:USERPROFILE\BACKUP"
-# so the script still works on a fresh box without env-var setup.
-$BackupRoot      = if ($env:ULTRON_BACKUP_ROOT) { $env:ULTRON_BACKUP_ROOT } else { Join-Path $env:USERPROFILE "BACKUP" }
+# Backup destination root. Resolution order MUST match
+# control-center/src-tauri/src/backup_status.rs::backup_root():
+#   1. ~/.ultron/.tmp/backup-root.txt        (set via Settings -> Backups UI)
+#   2. $env:ULTRON_BACKUP_ROOT               (CLI / Task Scheduler override)
+#   3. D:\BACKUP if mounted                  (legacy convention)
+#   4. $env:USERPROFILE\BACKUP               (fresh-install fallback)
+#
+# v2.7 fix: prior versions only read step (2), so when the user picked a
+# destination through the Control Center UI (which writes step 1 only,
+# and sets the env var ONLY in the live Tauri process) any subsequent
+# Force-Backup-Now invocation after a Control Center restart silently
+# fell back to %USERPROFILE%\BACKUP — leaving the configured D:\... empty
+# and the "last backup" badge stuck on the old C: mirror.
+$BackupRootFile  = Join-Path $env:USERPROFILE ".ultron\.tmp\backup-root.txt"
+$BackupRoot      = $null
+if (Test-Path $BackupRootFile) {
+    try {
+        $fileVal = (Get-Content -Raw -Path $BackupRootFile -Encoding UTF8).Trim()
+        if ($fileVal) { $BackupRoot = $fileVal }
+    } catch {
+        Write-Warning "Could not read $BackupRootFile ($_) - falling back to env/defaults."
+    }
+}
+if (-not $BackupRoot -and $env:ULTRON_BACKUP_ROOT) {
+    $BackupRoot = $env:ULTRON_BACKUP_ROOT
+}
+if (-not $BackupRoot -and (Test-Path "D:\BACKUP")) {
+    $BackupRoot = "D:\BACKUP"
+}
+if (-not $BackupRoot) {
+    $BackupRoot = Join-Path $env:USERPROFILE "BACKUP"
+}
 $ExclusionsFile  = Join-Path $env:USERPROFILE ".ultron\config\backup-exclusions.txt"
 $LogDir          = Join-Path $env:USERPROFILE ".ultron\logs"
 $StatusFile      = Join-Path $env:USERPROFILE ".ultron\.tmp\backup-last-run.json"

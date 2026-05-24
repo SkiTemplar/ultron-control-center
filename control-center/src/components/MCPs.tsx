@@ -834,6 +834,14 @@ function EnableDisableSection({ onChanged }: { onChanged: () => void }) {
   );
 }
 
+// v2.5.2 (wave 2): EnableDisableSection is intentionally retained but no
+// longer rendered. The per-card toggle in <Card> replaces it. Keep this
+// reference so TS6133 (unused) doesn't fire and we can resurrect the
+// section quickly if USER changes his mind.
+/* eslint-disable @typescript-eslint/no-unused-vars */
+const _keepEnableDisableSection = EnableDisableSection;
+void _keepEnableDisableSection;
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -1285,8 +1293,11 @@ export function MCPs() {
         </div>
       )}
 
-      {/* Enable/disable toggles — moved from Settings tab (v15.2 F7). */}
-      <EnableDisableSection onChanged={fetchList} />
+      {/* v2.5.2 (wave 2): Global Enable/disable section removed — per-card
+          toggle (rendered in <Card>) is the only enable/disable surface now.
+          EnableDisableSection definition kept below the main component so
+          backend wiring isn't dead and the section can be restored quickly.
+          See SCOPE WARNING in task brief. */}
 
       {loading && (
         <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>

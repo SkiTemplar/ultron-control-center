@@ -1,25 +1,25 @@
-// Catalog sub-tab — renders the curated catalog from
-// ~/.ultron/cockpit/curated-catalog.json (backend cmd `read_curated_catalog`).
-// One-click install of each item via `library_install_from_github`.
+// Catalog sub-tab — full redesign (v2.6.2, fb-100).
 //
-// v2.1: live preview refresh. After loading the static seed we fetch each
-// item's first paragraph from GitHub raw via the backend command
-// `catalog_fetch_previews` (sequential HTTPS GETs in Rust with reqwest;
-// 8s per-request timeout). The fresh summary replaces the seed value if
-// available, the seed wins otherwise. A Refresh button re-triggers the
-// fetch on demand and shows a Loader while it's in flight.
+// Previous behaviour: rendered a curated JSON catalog with two-pane filters
+// for skill/agent. The user wanted a real discovery surface — "Trending
+// repos + skills + agents + rules + MCPs + full repos, with search".
 //
-// v2.6.1:
-//   - Honour `dead: true` entries from the catalog (toggleable; hidden by
-//     default, surfaced via a "Show stale entries" switch with a yellow
-//     warning chip explaining why the URL 404s upstream).
-//   - New "Search GitHub" section beneath the curated list with two modes:
-//       Trending  → `github_search_trending` (recent claude-flavoured repos)
-//       Search    → `github_search_repos` with the user-typed query
-//     Each result is a card with stars / language / topics and an
-//     ExternalLink + Clipboard-copy action. Full install flow stays inside
-//     the curated catalog for now (one-click install needs the file path,
-//     which repo-level search doesn't surface).
+// New behaviour: search-engine layout.
+//   - Big search bar at the top ("Search GitHub repos, skills, agents…").
+//   - Tab strip below: Trending | Skills | Agents | Rules | MCPs | Repos.
+//     Each tab fires a backend search with a tailored query:
+//       Trending  → github_search_trending (no filter, latest claude-flavoured)
+//       Skills    → topic:claude-skill OR `SKILL.md`
+//       Agents    → topic:claude-agent
+//       Rules     → topic:claude-rules / topic:claude-code-rules
+//       MCPs      → topic:mcp-server OR topic:model-context-protocol
+//       Repos     → free-text search on whatever the user typed
+//   - Each result is a card: name + owner, stars, language, topics, short
+//     description, "Open" and "Install" actions. Install copies the repo
+//     URL to the clipboard for now (backend repo-clone install is on the
+//     roadmap — see backlog).
+//   - The legacy curated list survives as a collapsed section at the
+//     bottom so the seed entries are not lost.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -48,8 +48,6 @@ type CatalogItem = {
   repo: string;
   path: string;
   summary: string;
-  // v2.6.1 — entries whose upstream URL has 404'd. Kept in the JSON for
-  // history/audit trail; hidden in the GUI unless the user opts in.
   dead?: boolean;
   dead_reason?: string;
 };
@@ -73,12 +71,6 @@ type ItemState =
   | { kind: "done"; path: string }
   | { kind: "error"; message: string };
 
-type CatalogPreview = {
-  key: string;
-  summary: string | null;
-  error: string | null;
-};
-
 type RepoHit = {
   full_name: string;
   owner: string;
@@ -91,8 +83,16 @@ type RepoHit = {
   topics: string[];
 };
 
-type SearchMode = "trending" | "manual";
-type TrendingKind = "all" | "skill" | "agent" | "mcp";
+type SearchTab = "trending" | "skills" | "agents" | "rules" | "mcps" | "repos";
+
+const TABS: { id: SearchTab; label: string; hint: string }[] = [
+  { id: "trending", label: "Trending", hint: "Recent claude-flavoured repos" },
+  { id: "skills", label: "Skills", hint: "topic:claude-skill" },
+  { id: "agents", label: "Agents", hint: "topic:claude-agent" },
+  { id: "rules", label: "Rules", hint: "topic:claude-rules" },
+  { id: "mcps", label: "MCPs", hint: "topic:mcp-server" },
+  { id: "repos", label: "Repos", hint: "Free-text repo search" },
+];
 
 function itemKey(it: CatalogItem): string {
   return `${it.owner}/${it.repo}/${it.path}`;
@@ -103,108 +103,107 @@ function formatStars(n: number): string {
   return n.toString();
 }
 
-export function Catalog() {
-  const [data, setData] = useState<CatalogPayload | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [state, setState] = useState<Record<string, ItemState>>({});
-  const [filter, setFilter] = useState<"all" | CatalogKind>("all");
-  const [refreshing, setRefreshing] = useState(false);
-  const [previewMap, setPreviewMap] = useState<Record<string, string>>({});
-  const [refreshedAt, setRefreshedAt] = useState<string | null>(null);
-  const [showDead, setShowDead] = useState(false);
+/// Compose the GitHub search query for a given tab + user query.
+function queryForTab(tab: SearchTab, raw: string): string {
+  const q = raw.trim();
+  switch (tab) {
+    case "skills":
+      return q
+        ? `${q} topic:claude-skill`
+        : "topic:claude-skill stars:>5 sort:updated";
+    case "agents":
+      return q
+        ? `${q} topic:claude-agent`
+        : "topic:claude-agent stars:>5 sort:updated";
+    case "rules":
+      return q
+        ? `${q} topic:claude-rules`
+        : "topic:claude-rules stars:>1 sort:updated";
+    case "mcps":
+      return q
+        ? `${q} topic:mcp-server`
+        : "topic:mcp-server stars:>10 sort:updated";
+    case "repos":
+      return q || "claude-code stars:>20 sort:updated";
+    case "trending":
+      return q; // unused — trending uses dedicated backend command
+  }
+}
 
-  // GitHub repo search panel state.
-  const [searchOpen, setSearchOpen] = useState(false);
-  const [searchMode, setSearchMode] = useState<SearchMode>("trending");
-  const [trendingKind, setTrendingKind] = useState<TrendingKind>("all");
-  const [manualQuery, setManualQuery] = useState("");
+export function Catalog() {
+  // Curated catalog (legacy)
+  const [data, setData] = useState<CatalogPayload | null>(null);
+  const [legacyError, setLegacyError] = useState<string | null>(null);
+  const [legacyLoading, setLegacyLoading] = useState(true);
+  const [legacyOpen, setLegacyOpen] = useState(false);
+  const [state, setState] = useState<Record<string, ItemState>>({});
+
+  // Search engine
+  const [tab, setTab] = useState<SearchTab>("trending");
+  const [query, setQuery] = useState("");
   const [hits, setHits] = useState<RepoHit[]>([]);
   const [hitsLoading, setHitsLoading] = useState(false);
   const [hitsError, setHitsError] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<Record<string, "copied">>({});
+  const [refreshTick, setRefreshTick] = useState(0);
 
-  const allItems = useMemo<CatalogItem[]>(() => {
-    if (!data) return [];
-    return data.domains.flatMap((d) => d.items);
-  }, [data]);
-
-  const refreshPreviews = useCallback(
-    async (items: CatalogItem[]) => {
-      // Skip dead entries — fetching their previews wastes the 8s timeout
-      // per request and the result wouldn't be displayed anyway.
-      const live = items.filter((it) => !it.dead);
-      if (live.length === 0) return;
-      setRefreshing(true);
-      try {
-        const previews = (await invoke("catalog_fetch_previews", {
-          items: live.map((it) => ({
-            owner: it.owner,
-            repo: it.repo,
-            path: it.path,
-          })),
-        })) as CatalogPreview[];
-        setPreviewMap((prev) => {
-          const next = { ...prev };
-          for (const p of previews) {
-            if (p.summary && p.summary.trim().length > 0) {
-              next[p.key] = p.summary;
-            }
-          }
-          return next;
-        });
-        setRefreshedAt(new Date().toISOString());
-      } catch (e) {
-        // Non-fatal: seed summaries still render.
-        setError((prev) => prev ?? `preview fetch: ${String(e)}`);
-      } finally {
-        setRefreshing(false);
-      }
-    },
-    [],
-  );
-
+  // Load legacy curated catalog lazily (only when user expands it).
   useEffect(() => {
+    if (!legacyOpen || data) return;
     let cancelled = false;
     async function load() {
-      setLoading(true);
+      setLegacyLoading(true);
       try {
         const res = (await invoke("read_curated_catalog")) as CatalogPayload;
         if (cancelled) return;
         setData(res);
-        // Kick off a non-blocking refresh of live summaries on first mount.
-        const items = res.domains.flatMap((d) => d.items);
-        void refreshPreviews(items);
       } catch (e) {
-        if (!cancelled) setError(String(e));
+        if (!cancelled) setLegacyError(String(e));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setLegacyLoading(false);
       }
     }
     void load();
     return () => {
       cancelled = true;
     };
-  }, [refreshPreviews]);
+  }, [legacyOpen, data]);
 
-  const filteredDomains = useMemo(() => {
-    if (!data) return [];
-    return data.domains
-      .map((d) => ({
-        ...d,
-        items: d.items.filter((it) => {
-          if (filter !== "all" && it.kind !== filter) return false;
-          if (!showDead && it.dead) return false;
-          return true;
-        }),
-      }))
-      .filter((d) => d.items.length > 0);
-  }, [data, filter, showDead]);
+  // Run the search whenever the tab changes, when the user submits a
+  // manual query (Enter), or when a Refresh is requested.
+  const runSearch = useCallback(async () => {
+    setHitsLoading(true);
+    setHitsError(null);
+    try {
+      if (tab === "trending") {
+        const results = (await invoke("github_search_trending", {
+          kind: null,
+          limit: 30,
+        })) as RepoHit[];
+        setHits(results);
+      } else {
+        const composed = queryForTab(tab, query);
+        const results = (await invoke("github_search_repos", {
+          query: composed,
+          limit: 30,
+        })) as RepoHit[];
+        setHits(results);
+      }
+    } catch (e) {
+      setHitsError(String(e));
+      setHits([]);
+    } finally {
+      setHitsLoading(false);
+    }
+  }, [tab, query]);
 
-  const deadCount = useMemo(
-    () => allItems.filter((it) => it.dead).length,
-    [allItems],
-  );
+  // Auto-run on tab change so each tab arrives populated.
+  useEffect(() => {
+    void runSearch();
+    // We deliberately don't depend on `query` here — query updates only
+    // fire a new search on Enter to avoid hammering the GitHub API.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, refreshTick]);
 
   async function install(it: CatalogItem) {
     const key = itemKey(it);
@@ -231,62 +230,11 @@ export function Catalog() {
     }
   }
 
-  async function openSource(it: CatalogItem) {
-    const url = `https://github.com/${it.owner}/${it.repo}/blob/main/${it.path}`;
-    try {
-      await openPath(url);
-    } catch {
-      setState((s) => ({
-        ...s,
-        [itemKey(it)]: { kind: "error", message: `Open manually: ${url}` },
-      }));
-    }
-  }
-
-  // --- GitHub repo search handlers --------------------------------------
-
-  const runTrending = useCallback(async () => {
-    setHitsLoading(true);
-    setHitsError(null);
-    try {
-      const results = (await invoke("github_search_trending", {
-        kind: trendingKind === "all" ? null : trendingKind,
-        limit: 24,
-      })) as RepoHit[];
-      setHits(results);
-    } catch (e) {
-      setHitsError(String(e));
-      setHits([]);
-    } finally {
-      setHitsLoading(false);
-    }
-  }, [trendingKind]);
-
-  const runManual = useCallback(async () => {
-    const q = manualQuery.trim();
-    if (q.length === 0) return;
-    setHitsLoading(true);
-    setHitsError(null);
-    try {
-      const results = (await invoke("github_search_repos", {
-        query: q,
-        limit: 24,
-      })) as RepoHit[];
-      setHits(results);
-    } catch (e) {
-      setHitsError(String(e));
-      setHits([]);
-    } finally {
-      setHitsLoading(false);
-    }
-  }, [manualQuery]);
-
   async function openRepo(hit: RepoHit) {
     const url = hit.html_url ?? `https://github.com/${hit.full_name}`;
     try {
       await openPath(url);
     } catch {
-      // Best-effort: fall through to clipboard if the OS link handler fails.
       void copyRepoUrl(hit);
     }
   }
@@ -304,678 +252,458 @@ export function Catalog() {
         });
       }, 1500);
     } catch {
-      // No-op — clipboard refusal is rare in a Tauri webview.
+      /* no-op */
     }
   }
 
-  if (loading) {
-    return (
-      <div
-        className="flex h-full items-center justify-center text-[12px]"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        <Loader size={14} className="mr-2 animate-spin" />
-        Loading catalog…
-      </div>
-    );
-  }
-
-  if (error && !data) {
-    return (
-      <div
-        className="m-6 rounded-md border p-4 text-[12.5px]"
-        style={{
-          background: "rgba(248, 81, 73, 0.06)",
-          borderColor: "rgba(248, 81, 73, 0.22)",
-          color: "var(--color-danger)",
-        }}
-      >
-        <div className="mb-1 flex items-center gap-2 font-medium">
-          <AlertTriangle size={14} /> Could not load curated-catalog.json
-        </div>
-        <div
-          className="text-[11.5px]"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          {error}
-        </div>
-      </div>
-    );
-  }
-
-  if (!data || data.domains.length === 0) {
-    return (
-      <div
-        className="m-6 rounded-md border p-6 text-[12.5px]"
-        style={{
-          background: "var(--color-surface-2)",
-          borderColor: "var(--color-border)",
-        }}
-      >
-        <div className="mb-2 flex items-center gap-2 font-medium">
-          <Compass size={14} /> Catalog is empty
-        </div>
-        <p
-          className="text-[11.5px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Edit{" "}
-          <code style={{ fontFamily: "var(--font-mono)" }}>
-            ~/.ultron/cockpit/curated-catalog.json
-          </code>{" "}
-          to add domains and items.
-        </p>
-      </div>
-    );
-  }
+  const legacyDomains = useMemo<CatalogDomain[]>(() => {
+    if (!data) return [];
+    return data.domains;
+  }, [data]);
 
   return (
     <div className="flex h-full flex-col">
+      {/* HEADER — big search bar */}
       <div
-        className="flex items-center justify-between gap-3 border-b px-6 py-3"
+        className="border-b px-6 py-4"
         style={{ borderColor: "var(--color-border)" }}
       >
-        <div
-          className="flex min-w-0 items-center gap-2 text-[12px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          <Compass size={14} />
-          <span className="truncate">
-            Curated picks for graphics, UE5, AI, and MCP work · seed{" "}
-            {data.updated_at ?? "—"}
-            {refreshedAt && (
-              <>
-                {" "}
-                · live{" "}
-                {new Date(refreshedAt).toLocaleTimeString([], {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </>
-            )}
-            {deadCount > 0 && (
-              <>
-                {" "}
-                ·{" "}
-                <span style={{ color: "var(--color-warning, #d29922)" }}>
-                  {deadCount} stale
-                </span>
-              </>
-            )}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {deadCount > 0 && (
-            <button
-              type="button"
-              onClick={() => setShowDead((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px]"
+        <div className="flex items-center gap-3">
+          <Compass size={18} className="shrink-0" />
+          <div className="relative flex-1">
+            <Search
+              size={14}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-text-tertiary)]"
+            />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void runSearch();
+              }}
+              placeholder="Search GitHub repos, skills, agents, rules, MCPs…"
+              className="w-full rounded-md border py-2.5 pl-9 pr-3 text-sm outline-none"
               style={{
+                background: "var(--color-surface-2)",
                 borderColor: "var(--color-border-strong)",
-                background: showDead
-                  ? "var(--color-surface-3)"
-                  : "var(--color-surface-2)",
                 color: "var(--color-text)",
               }}
-              title={
-                showDead
-                  ? "Hide entries whose upstream URL 404s"
-                  : "Show entries whose upstream URL 404s"
-              }
-            >
-              <AlertTriangle size={11} />
-              {showDead ? "Hide stale" : `Show stale (${deadCount})`}
-            </button>
-          )}
+            />
+          </div>
           <button
             type="button"
-            onClick={() => void refreshPreviews(allItems)}
-            disabled={refreshing || allItems.length === 0}
-            className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] disabled:opacity-60"
+            onClick={() => void runSearch()}
+            disabled={hitsLoading}
+            className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium disabled:opacity-60"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+          >
+            {hitsLoading ? (
+              <>
+                <Loader size={13} className="animate-spin" /> Searching
+              </>
+            ) : (
+              <>
+                <Search size={13} /> Search
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setRefreshTick((n) => n + 1)}
+            disabled={hitsLoading}
+            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-2 text-xs disabled:opacity-60"
             style={{
               borderColor: "var(--color-border-strong)",
               background: "var(--color-surface-2)",
               color: "var(--color-text)",
             }}
-            title="Re-fetch live summaries from GitHub raw"
+            title="Re-fetch current tab"
           >
-            {refreshing ? (
-              <>
-                <Loader size={11} className="animate-spin" /> Refreshing
-              </>
-            ) : (
-              <>Refresh from GitHub</>
-            )}
+            Refresh
           </button>
-          <div className="flex gap-1">
-            {(["all", "skill", "agent"] as const).map((f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFilter(f)}
-                className="rounded-md px-2.5 py-1 text-[11.5px] transition-colors"
-                style={{
-                  background:
-                    filter === f ? "var(--color-surface-3)" : "transparent",
-                  color:
-                    filter === f
-                      ? "var(--color-text)"
-                      : "var(--color-text-secondary)",
-                  border: `1px solid ${
-                    filter === f
-                      ? "var(--color-border-strong)"
-                      : "transparent"
-                  }`,
-                }}
-              >
-                {f === "all" ? "All" : f === "skill" ? "Skills" : "Agents"}
-              </button>
-            ))}
-          </div>
+        </div>
+        {/* TAB STRIP */}
+        <div className="mt-3 flex flex-wrap gap-1">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className="rounded-md px-3 py-1.5 text-[12.5px] transition-colors"
+              style={{
+                background:
+                  tab === t.id ? "var(--color-surface-3)" : "transparent",
+                color:
+                  tab === t.id
+                    ? "var(--color-text)"
+                    : "var(--color-text-secondary)",
+                border: `1px solid ${
+                  tab === t.id
+                    ? "var(--color-border-strong)"
+                    : "var(--color-border)"
+                }`,
+              }}
+              title={t.hint}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
       </div>
 
+      {/* BODY */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
-        {filteredDomains.map((domain) => (
-          <section key={domain.id} className="mb-6">
-            <header className="mb-2">
-              <h3 className="text-[13px] font-semibold">{domain.label}</h3>
-              <p
-                className="text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {domain.description}
-              </p>
-            </header>
-            <ul className="grid gap-2 md:grid-cols-2">
-              {domain.items.map((it) => {
-                const key = itemKey(it);
-                const st = state[key] ?? { kind: "idle" };
-                const isInstalled = st.kind === "done";
-                const isInstalling = st.kind === "installing";
-                const KindIcon = it.kind === "skill" ? Sparkle : Bot;
-                const liveSummary = previewMap[key];
-                const summary = liveSummary ?? it.summary;
-                const isDead = it.dead === true;
-                return (
-                  <li
-                    key={key}
-                    className="rounded-md border p-3 text-[12px]"
-                    style={{
-                      background: "var(--color-surface-2)",
-                      borderColor: isDead
-                        ? "rgba(210, 153, 34, 0.30)"
-                        : "var(--color-border-strong)",
-                      color: "var(--color-text)",
-                      opacity: isDead ? 0.78 : 1,
-                    }}
-                  >
-                    <div className="mb-1 flex items-center gap-2">
-                      <KindIcon
-                        size={12}
-                        className="shrink-0 text-[var(--color-text-tertiary)]"
-                      />
-                      <span className="font-medium">{it.title}</span>
+        {hitsError && (
+          <div
+            className="mb-3 rounded-md border p-3 text-[12.5px]"
+            style={{
+              background: "rgba(248, 81, 73, 0.06)",
+              borderColor: "rgba(248, 81, 73, 0.22)",
+              color: "var(--color-danger)",
+            }}
+          >
+            <div className="mb-1 flex items-center gap-2 font-medium">
+              <AlertTriangle size={13} /> GitHub search failed
+            </div>
+            <div
+              className="text-[11.5px]"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              {hitsError}
+            </div>
+          </div>
+        )}
+
+        {hitsLoading && hits.length === 0 && (
+          <div
+            className="flex items-center gap-2 text-[12.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            <Loader size={13} className="animate-spin" />
+            Loading {TABS.find((t) => t.id === tab)?.label.toLowerCase()}…
+          </div>
+        )}
+
+        {!hitsLoading && hits.length === 0 && !hitsError && (
+          <p
+            className="text-[12.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            No results for this tab. Try a different keyword or hit Refresh.
+          </p>
+        )}
+
+        {hits.length > 0 && (
+          <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {hits.map((hit) => {
+              const copied = copyState[hit.full_name] === "copied";
+              return (
+                <li
+                  key={hit.full_name}
+                  className="rounded-md border p-3 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    borderColor: "var(--color-border-strong)",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <Github
+                      size={12}
+                      className="shrink-0 text-[var(--color-text-tertiary)]"
+                    />
+                    <span className="font-medium">{hit.name}</span>
+                    <span
+                      className="text-[10.5px]"
+                      style={{
+                        color: "var(--color-text-tertiary)",
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      {hit.owner}
+                    </span>
+                    <span
+                      className="rounded px-1.5 py-0.5 text-[10px]"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text-secondary)",
+                      }}
+                      title="Stars"
+                    >
+                      ★ {formatStars(hit.stars)}
+                    </span>
+                    {hit.language && (
                       <span
-                        className="rounded px-1.5 py-0.5 text-[10px] uppercase tracking-wide"
+                        className="rounded px-1.5 py-0.5 text-[10px]"
                         style={{
                           background: "var(--color-surface-3)",
                           color: "var(--color-text-tertiary)",
                         }}
                       >
-                        {it.kind}
+                        {hit.language}
                       </span>
-                      {isDead && (
-                        <span
-                          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
-                          style={{
-                            background: "rgba(210, 153, 34, 0.12)",
-                            color: "var(--color-warning, #d29922)",
-                            border: "1px solid rgba(210, 153, 34, 0.30)",
-                          }}
-                          title={
-                            it.dead_reason ?? "Upstream URL 404s as of last verification."
-                          }
-                        >
-                          <AlertTriangle size={9} /> 404
-                        </span>
-                      )}
-                      {liveSummary && !isDead && (
-                        <span
-                          className="rounded px-1.5 py-0.5 text-[10px]"
-                          style={{
-                            background: "rgba(63, 185, 80, 0.12)",
-                            color: "var(--color-success)",
-                            border: "1px solid rgba(63, 185, 80, 0.30)",
-                          }}
-                          title="Summary fetched from GitHub raw"
-                        >
-                          live
-                        </span>
-                      )}
-                    </div>
+                    )}
+                  </div>
+                  {hit.description && (
                     <p
                       className="mb-2 text-[11.5px] leading-snug"
                       style={{ color: "var(--color-text-secondary)" }}
                     >
-                      {summary}
+                      {hit.description}
                     </p>
-                    {isDead && it.dead_reason && (
-                      <p
-                        className="mb-2 rounded px-2 py-1 text-[10.5px] leading-snug"
-                        style={{
-                          background: "rgba(210, 153, 34, 0.08)",
-                          color: "var(--color-warning, #d29922)",
-                          border: "1px solid rgba(210, 153, 34, 0.22)",
-                        }}
-                      >
-                        {it.dead_reason}
-                      </p>
-                    )}
-                    <div
-                      className="flex items-center justify-between text-[10.5px]"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      <span style={{ fontFamily: "var(--font-mono)" }}>
-                        {it.owner}/{it.repo}
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => openSource(it)}
-                          className="inline-flex items-center gap-1 rounded px-2 py-0.5"
+                  )}
+                  {hit.topics.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-1">
+                      {hit.topics.slice(0, 6).map((t) => (
+                        <span
+                          key={t}
+                          className="rounded px-1.5 py-0.5 text-[9.5px]"
                           style={{
-                            color: "var(--color-text)",
                             background: "var(--color-surface-3)",
+                            color: "var(--color-text-tertiary)",
+                            border: "1px solid var(--color-border)",
                           }}
-                          title="Open source on GitHub"
                         >
-                          <ExternalLink size={11} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => install(it)}
-                          disabled={isInstalling || isInstalled || isDead}
-                          className="inline-flex items-center gap-1 rounded px-2 py-0.5 transition-colors"
-                          style={{
-                            background: isInstalled
-                              ? "rgba(63, 185, 80, 0.12)"
-                              : isInstalling
-                                ? "var(--color-surface-3)"
-                                : isDead
-                                  ? "var(--color-surface-3)"
-                                  : "var(--color-accent)",
-                            color: isInstalled
-                              ? "var(--color-success)"
-                              : isInstalling
-                                ? "var(--color-text-secondary)"
-                                : isDead
-                                  ? "var(--color-text-tertiary)"
-                                  : "var(--color-accent-text)",
-                            border: `1px solid ${
-                              isInstalled
-                                ? "rgba(63, 185, 80, 0.30)"
-                                : "var(--color-border-strong)"
-                            }`,
-                            cursor:
-                              isInstalled || isInstalling || isDead
-                                ? "default"
-                                : "pointer",
-                          }}
-                          title={
-                            isDead
-                              ? "Upstream URL 404s — cannot install"
-                              : isInstalled
-                                ? "Installed"
-                                : isInstalling
-                                  ? "Installing…"
-                                  : "Install to global scope"
-                          }
-                        >
-                          {isInstalled ? (
-                            <>
-                              <Check size={11} /> Installed
-                            </>
-                          ) : isInstalling ? (
-                            <>
-                              <Loader size={11} className="animate-spin" />{" "}
-                              Installing
-                            </>
-                          ) : (
-                            <>
-                              <Download size={11} /> Install
-                            </>
-                          )}
-                        </button>
-                      </div>
+                          {t}
+                        </span>
+                      ))}
                     </div>
-                    {st.kind === "error" && (
-                      <div
-                        className="mt-2 rounded px-2 py-1 text-[10.5px]"
+                  )}
+                  <div
+                    className="flex items-center justify-between text-[10.5px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    <span style={{ fontFamily: "var(--font-mono)" }}>
+                      {hit.full_name}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => void openRepo(hit)}
+                        className="inline-flex items-center gap-1 rounded px-2 py-0.5"
                         style={{
-                          background: "rgba(248, 81, 73, 0.06)",
-                          color: "var(--color-danger)",
-                          border: "1px solid rgba(248, 81, 73, 0.22)",
+                          color: "var(--color-text)",
+                          background: "var(--color-surface-3)",
                         }}
+                        title="Open repo on GitHub"
                       >
-                        {st.message}
-                      </div>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        ))}
+                        <ExternalLink size={11} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void copyRepoUrl(hit)}
+                        className="inline-flex items-center gap-1 rounded px-2 py-0.5"
+                        style={{
+                          color: copied
+                            ? "var(--color-success)"
+                            : "var(--color-text)",
+                          background: copied
+                            ? "rgba(63, 185, 80, 0.12)"
+                            : "var(--color-surface-3)",
+                          border: copied
+                            ? "1px solid rgba(63, 185, 80, 0.30)"
+                            : "1px solid var(--color-border)",
+                        }}
+                        title="Copy URL — full clone-into-library is on the roadmap"
+                      >
+                        {copied ? (
+                          <>
+                            <Check size={11} /> Copied
+                          </>
+                        ) : (
+                          <>
+                            <Clipboard size={11} /> Install
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
 
-        {/* ---------- v2.6.1: GitHub repo discovery panel ---------- */}
+        {/* Legacy curated catalog — kept as a collapsed section so the
+            seed entries are still reachable but no longer dominate the
+            page. */}
         <section
-          className="mt-2 rounded-md border"
+          className="mt-6 rounded-md border"
           style={{
-            background: "var(--color-surface-2)",
-            borderColor: "var(--color-border-strong)",
+            background: "var(--color-surface)",
+            borderColor: "var(--color-border)",
           }}
         >
-          <header
-            className="flex items-center justify-between gap-2 border-b px-3 py-2"
-            style={{ borderColor: "var(--color-border)" }}
+          <button
+            type="button"
+            onClick={() => setLegacyOpen((v) => !v)}
+            className="flex w-full items-center justify-between px-3 py-2 text-left"
+            style={{ color: "var(--color-text)" }}
           >
-            <button
-              type="button"
-              onClick={() => setSearchOpen((v) => !v)}
-              className="inline-flex items-center gap-2 text-[13px] font-semibold"
-              style={{ color: "var(--color-text)" }}
-            >
-              <Github size={13} />
-              Search GitHub
-              <span
-                className="text-[11.5px] font-normal"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {searchOpen ? "(hide)" : "(show)"}
-              </span>
-            </button>
+            <span className="inline-flex items-center gap-2 text-[12.5px] font-semibold">
+              <Compass size={13} /> Curated picks (legacy seed)
+            </span>
             <span
               className="text-[11.5px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Trending claude-flavoured repos and free-text repo search.
+              {legacyOpen ? "Hide" : "Show"}
             </span>
-          </header>
+          </button>
 
-          {searchOpen && (
-            <div className="px-3 py-3">
-              <div className="mb-3 flex flex-wrap items-center gap-2">
+          {legacyOpen && (
+            <div
+              className="border-t px-3 py-3"
+              style={{ borderColor: "var(--color-border)" }}
+            >
+              {legacyLoading && (
                 <div
-                  className="flex rounded-md border p-0.5"
-                  style={{ borderColor: "var(--color-border-strong)" }}
-                >
-                  {(["trending", "manual"] as const).map((m) => (
-                    <button
-                      key={m}
-                      type="button"
-                      onClick={() => setSearchMode(m)}
-                      className="rounded px-2.5 py-1 text-[11.5px] transition-colors"
-                      style={{
-                        background:
-                          searchMode === m
-                            ? "var(--color-surface-3)"
-                            : "transparent",
-                        color:
-                          searchMode === m
-                            ? "var(--color-text)"
-                            : "var(--color-text-secondary)",
-                      }}
-                    >
-                      {m === "trending" ? "Trending" : "Search"}
-                    </button>
-                  ))}
-                </div>
-
-                {searchMode === "trending" ? (
-                  <>
-                    <div className="flex flex-wrap gap-1">
-                      {(["all", "skill", "agent", "mcp"] as const).map((k) => (
-                        <button
-                          key={k}
-                          type="button"
-                          onClick={() => setTrendingKind(k)}
-                          className="rounded-md px-2 py-1 text-[11.5px] transition-colors"
-                          style={{
-                            background:
-                              trendingKind === k
-                                ? "var(--color-surface-3)"
-                                : "transparent",
-                            color:
-                              trendingKind === k
-                                ? "var(--color-text)"
-                                : "var(--color-text-secondary)",
-                            border: `1px solid ${
-                              trendingKind === k
-                                ? "var(--color-border-strong)"
-                                : "var(--color-border)"
-                            }`,
-                          }}
-                        >
-                          {k}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void runTrending()}
-                      disabled={hitsLoading}
-                      className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] disabled:opacity-60"
-                      style={{
-                        background: "var(--color-accent)",
-                        color: "var(--color-accent-text)",
-                        border: "1px solid var(--color-border-strong)",
-                      }}
-                    >
-                      {hitsLoading ? (
-                        <>
-                          <Loader size={11} className="animate-spin" />{" "}
-                          Loading
-                        </>
-                      ) : (
-                        <>Show trending</>
-                      )}
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <input
-                      type="text"
-                      value={manualQuery}
-                      onChange={(e) => setManualQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") void runManual();
-                      }}
-                      placeholder="e.g. topic:claude-skill language:python stars:>50"
-                      className="flex-1 rounded-md border px-2.5 py-1 text-[11.5px] outline-none"
-                      style={{
-                        background: "var(--color-surface)",
-                        borderColor: "var(--color-border-strong)",
-                        color: "var(--color-text)",
-                        minWidth: "240px",
-                      }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void runManual()}
-                      disabled={hitsLoading || manualQuery.trim().length === 0}
-                      className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-[11.5px] disabled:opacity-60"
-                      style={{
-                        background: "var(--color-accent)",
-                        color: "var(--color-accent-text)",
-                        border: "1px solid var(--color-border-strong)",
-                      }}
-                    >
-                      {hitsLoading ? (
-                        <>
-                          <Loader size={11} className="animate-spin" />{" "}
-                          Searching
-                        </>
-                      ) : (
-                        <>
-                          <Search size={11} /> Search
-                        </>
-                      )}
-                    </button>
-                  </>
-                )}
-              </div>
-
-              {hitsError && (
-                <div
-                  className="mb-2 rounded px-2 py-1 text-[11.5px]"
-                  style={{
-                    background: "rgba(248, 81, 73, 0.06)",
-                    color: "var(--color-danger)",
-                    border: "1px solid rgba(248, 81, 73, 0.22)",
-                  }}
-                >
-                  {hitsError}
-                </div>
-              )}
-
-              {hits.length === 0 && !hitsLoading && !hitsError && (
-                <p
-                  className="text-[11.5px]"
+                  className="flex items-center gap-2 text-[12px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  {searchMode === "trending"
-                    ? "Pick a kind and hit Show trending to fetch the latest claude-flavoured repos."
-                    : "Type a GitHub repo query — qualifiers like topic:, stars:, language: are supported."}
-                </p>
+                  <Loader size={12} className="animate-spin" /> Loading curated
+                  catalog…
+                </div>
               )}
-
-              {hits.length > 0 && (
-                <ul className="grid gap-2 md:grid-cols-2">
-                  {hits.map((hit) => {
-                    const copied = copyState[hit.full_name] === "copied";
-                    return (
-                      <li
-                        key={hit.full_name}
-                        className="rounded-md border p-3 text-[12px]"
-                        style={{
-                          background: "var(--color-surface)",
-                          borderColor: "var(--color-border)",
-                          color: "var(--color-text)",
-                        }}
-                      >
-                        <div className="mb-1 flex flex-wrap items-center gap-2">
-                          <span className="font-medium">{hit.name}</span>
-                          <span
-                            className="text-[10.5px]"
+              {legacyError && (
+                <div
+                  className="rounded-md border p-2 text-[11.5px]"
+                  style={{
+                    background: "rgba(248, 81, 73, 0.06)",
+                    borderColor: "rgba(248, 81, 73, 0.22)",
+                    color: "var(--color-danger)",
+                  }}
+                >
+                  {legacyError}
+                </div>
+              )}
+              {legacyDomains.map((domain) => (
+                <section key={domain.id} className="mb-4">
+                  <header className="mb-1">
+                    <h3 className="text-[12.5px] font-semibold">
+                      {domain.label}
+                    </h3>
+                    <p
+                      className="text-[11px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {domain.description}
+                    </p>
+                  </header>
+                  <ul className="grid gap-2 md:grid-cols-2">
+                    {domain.items
+                      .filter((it) => !it.dead)
+                      .map((it) => {
+                        const key = itemKey(it);
+                        const st = state[key] ?? { kind: "idle" };
+                        const isInstalled = st.kind === "done";
+                        const isInstalling = st.kind === "installing";
+                        const KindIcon = it.kind === "skill" ? Sparkle : Bot;
+                        return (
+                          <li
+                            key={key}
+                            className="rounded-md border p-2 text-[11.5px]"
                             style={{
-                              color: "var(--color-text-tertiary)",
-                              fontFamily: "var(--font-mono)",
+                              background: "var(--color-surface-2)",
+                              borderColor: "var(--color-border)",
+                              color: "var(--color-text)",
                             }}
                           >
-                            {hit.owner}
-                          </span>
-                          <span
-                            className="rounded px-1.5 py-0.5 text-[10px]"
-                            style={{
-                              background: "var(--color-surface-3)",
-                              color: "var(--color-text-secondary)",
-                            }}
-                            title="Stars"
-                          >
-                            ★ {formatStars(hit.stars)}
-                          </span>
-                          {hit.language && (
-                            <span
-                              className="rounded px-1.5 py-0.5 text-[10px]"
-                              style={{
-                                background: "var(--color-surface-3)",
-                                color: "var(--color-text-tertiary)",
-                              }}
-                            >
-                              {hit.language}
-                            </span>
-                          )}
-                        </div>
-                        {hit.description && (
-                          <p
-                            className="mb-2 text-[11.5px] leading-snug"
-                            style={{ color: "var(--color-text-secondary)" }}
-                          >
-                            {hit.description}
-                          </p>
-                        )}
-                        {hit.topics.length > 0 && (
-                          <div className="mb-2 flex flex-wrap gap-1">
-                            {hit.topics.slice(0, 6).map((t) => (
+                            <div className="mb-1 flex items-center gap-1.5">
+                              <KindIcon
+                                size={11}
+                                className="shrink-0 text-[var(--color-text-tertiary)]"
+                              />
+                              <span className="font-medium">{it.title}</span>
                               <span
-                                key={t}
-                                className="rounded px-1.5 py-0.5 text-[9.5px]"
+                                className="rounded px-1.5 py-0.5 text-[9.5px] uppercase"
                                 style={{
                                   background: "var(--color-surface-3)",
                                   color: "var(--color-text-tertiary)",
-                                  border: "1px solid var(--color-border)",
                                 }}
                               >
-                                {t}
+                                {it.kind}
                               </span>
-                            ))}
-                          </div>
-                        )}
-                        <div
-                          className="flex items-center justify-between text-[10.5px]"
-                          style={{ color: "var(--color-text-tertiary)" }}
-                        >
-                          <span style={{ fontFamily: "var(--font-mono)" }}>
-                            {hit.full_name}
-                          </span>
-                          <div className="flex items-center gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => void openRepo(hit)}
-                              className="inline-flex items-center gap-1 rounded px-2 py-0.5"
-                              style={{
-                                color: "var(--color-text)",
-                                background: "var(--color-surface-3)",
-                              }}
-                              title="Open repo on GitHub"
+                            </div>
+                            <p
+                              className="mb-1 text-[11px] leading-snug"
+                              style={{ color: "var(--color-text-secondary)" }}
                             >
-                              <ExternalLink size={11} />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void copyRepoUrl(hit)}
-                              className="inline-flex items-center gap-1 rounded px-2 py-0.5"
-                              style={{
-                                color: copied
-                                  ? "var(--color-success)"
-                                  : "var(--color-text)",
-                                background: copied
-                                  ? "rgba(63, 185, 80, 0.12)"
-                                  : "var(--color-surface-3)",
-                                border: copied
-                                  ? "1px solid rgba(63, 185, 80, 0.30)"
-                                  : "1px solid var(--color-border)",
-                              }}
-                              title="Copy URL to clipboard (Install requires the source path — TODO: clone-into-library flow)"
+                              {it.summary}
+                            </p>
+                            <div
+                              className="flex items-center justify-between text-[10px]"
+                              style={{ color: "var(--color-text-tertiary)" }}
                             >
-                              {copied ? (
-                                <>
-                                  <Check size={11} /> Copied
-                                </>
-                              ) : (
-                                <>
-                                  <Clipboard size={11} /> Install
-                                </>
-                              )}
-                            </button>
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
+                              <span style={{ fontFamily: "var(--font-mono)" }}>
+                                {it.owner}/{it.repo}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => install(it)}
+                                disabled={isInstalling || isInstalled}
+                                className="inline-flex items-center gap-1 rounded px-2 py-0.5"
+                                style={{
+                                  background: isInstalled
+                                    ? "rgba(63, 185, 80, 0.12)"
+                                    : "var(--color-accent)",
+                                  color: isInstalled
+                                    ? "var(--color-success)"
+                                    : "var(--color-accent-text)",
+                                  border: `1px solid ${
+                                    isInstalled
+                                      ? "rgba(63, 185, 80, 0.30)"
+                                      : "var(--color-border-strong)"
+                                  }`,
+                                  cursor:
+                                    isInstalled || isInstalling
+                                      ? "default"
+                                      : "pointer",
+                                }}
+                              >
+                                {isInstalled ? (
+                                  <>
+                                    <Check size={10} /> Installed
+                                  </>
+                                ) : isInstalling ? (
+                                  <>
+                                    <Loader
+                                      size={10}
+                                      className="animate-spin"
+                                    />{" "}
+                                    Installing
+                                  </>
+                                ) : (
+                                  <>
+                                    <Download size={10} /> Install
+                                  </>
+                                )}
+                              </button>
+                            </div>
+                            {st.kind === "error" && (
+                              <div
+                                className="mt-1 rounded px-1.5 py-0.5 text-[10px]"
+                                style={{
+                                  background: "rgba(248, 81, 73, 0.06)",
+                                  color: "var(--color-danger)",
+                                  border:
+                                    "1px solid rgba(248, 81, 73, 0.22)",
+                                }}
+                              >
+                                {st.message}
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </section>
+              ))}
             </div>
           )}
         </section>

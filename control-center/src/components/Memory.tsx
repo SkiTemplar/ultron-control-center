@@ -629,6 +629,17 @@ function EccGraphPane() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [bootstrapping, setBootstrapping] = useState(false);
+
+  const refreshSnapshot = useCallback(async () => {
+    try {
+      const snap = (await invoke("ecc_memory_read")) as EccMemorySnapshot;
+      setSnapshot(snap);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -650,6 +661,18 @@ function EccGraphPane() {
       clearInterval(id);
     };
   }, []);
+
+  const handleBootstrap = useCallback(async () => {
+    setBootstrapping(true);
+    try {
+      await invoke("bootstrap_ecc_memory");
+      await refreshSnapshot();
+    } catch (e) {
+      setError(`bootstrap: ${String(e)}`);
+    } finally {
+      setBootstrapping(false);
+    }
+  }, [refreshSnapshot]);
 
   const filtered = useMemo<EccEntity[]>(() => {
     if (!snapshot) return [];
@@ -737,8 +760,17 @@ function EccGraphPane() {
           </ul>
           <p className="mt-3 text-xs text-[var(--color-text-tertiary)]">
             Install the ECC plugin or run a session that calls the memory MCP
-            (create_entities / add_observations) to bootstrap the file.
+            (create_entities / add_observations) to bootstrap the file. Or
+            create an empty graph right now:
           </p>
+          <button
+            onClick={() => void handleBootstrap()}
+            disabled={bootstrapping}
+            className="mt-2 rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-[var(--color-bg)] disabled:opacity-40"
+            title="Create ~/.claude/memory.jsonl with a seed entity"
+          >
+            {bootstrapping ? "Bootstrapping…" : "Bootstrap memory"}
+          </button>
         </div>
       )}
 

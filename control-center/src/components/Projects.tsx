@@ -6,6 +6,7 @@ import type {
   LauncherItem,
   LauncherItemKind,
   ProjectActionResult,
+  ProjectExecutable,
   ProjectInfo,
   ProjectShell,
   ProjectSubTab,
@@ -1619,8 +1620,9 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("recent");
-  // v2.6 — folder hierarchy toggle. Default is "blocks" — USER asked for
-  // the Spotify-style drill-down on first paint. Flat/tree stay available.
+  // v2.6.1 — folder hierarchy toggle. Default is "flat" per USER's
+  // request ("indico que la vista predeterminada será flat, no blocks").
+  // Blocks/tree stay available via the toggle.
   const [hierarchy, setHierarchy] = useState<HierarchyMode>(() => {
     try {
       const v = localStorage.getItem("projects.hierarchy");
@@ -1628,7 +1630,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     } catch {
       /* ignore */
     }
-    return "blocks";
+    return "flat";
   });
   // Drill state for Blocks mode — array of path segments from the root.
   // Empty = level 0 (top tiles). Lives in component state, not storage, so
@@ -1680,6 +1682,10 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   const [wDefaultShell, setWDefaultShell] = useState<ProjectShell | "">("");
   const [wParentFolderOverride, setWParentFolderOverride] = useState("");
   const [wNotes, setWNotes] = useState("");
+  /** v2.6.2 — Quick Launch executables editor. Rendered as a small list in
+   *  the Edit modal; each row has a name input, a path input, and a Pick
+   *  button that opens a file dialog filtered to .exe / .lnk / .bat. */
+  const [wExecutables, setWExecutables] = useState<ProjectExecutable[]>([]);
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
@@ -1958,6 +1964,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     setWDefaultShell("");
     setWParentFolderOverride("");
     setWNotes("");
+    setWExecutables([]);
     setEditingId(null);
     setCreateError(null);
   }
@@ -1974,6 +1981,11 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     setWDefaultShell((p.default_shell as ProjectShell | null | undefined) ?? "");
     setWParentFolderOverride(p.parent_folder_override ?? "");
     setWNotes(p.notes ?? "");
+    // v2.6.2 — clone the executables array so the modal can mutate it
+    // without touching the source list until save.
+    setWExecutables(
+      (p.executables ?? []).map((e) => ({ name: e.name, path: e.path })),
+    );
     setCreateError(null);
     setWizardOpen(true);
   }
@@ -2002,6 +2014,12 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       const parentFolderTrimmed = wParentFolderOverride.trim();
       const notesTrimmed = wNotes.trim();
       if (editingId) {
+        // v2.6.2 — clean the executables list before persisting: drop blank
+        // entries, trim whitespace, ensure path looks plausible. Pass the
+        // cleaned vec so the backend can clear-on-empty deterministically.
+        const cleanedExecs = wExecutables
+          .map((e) => ({ name: e.name.trim(), path: e.path.trim() }))
+          .filter((e) => e.name && e.path);
         await invoke("update_project", {
           id: editingId,
           name: wName || null,
@@ -2014,6 +2032,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           defaultShell: wDefaultShell === "" ? "" : wDefaultShell,
           parentFolderOverride: parentFolderTrimmed,
           notes: notesTrimmed,
+          executables: cleanedExecs,
         });
         resetWizard();
         setWizardOpen(false);
@@ -2716,6 +2735,163 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                   fontFamily: "var(--font-mono)",
                 }}
               />
+            </div>
+            {/* v2.6.2 — Executables editor. Each row: name + path + Pick.
+                Persisted in projects.json under `executables[]`; surfaced on
+                Project Home as Quick Launch buttons via launch_project_executable. */}
+            <div className="col-span-2">
+              <div className="flex items-center justify-between">
+                <label
+                  className="text-[10px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                  title="Bind .exe / .lnk / .bat shortcuts to this project. They render as Quick Launch buttons on the Project Home (Context tab)."
+                >
+                  Executables (Quick Launch on Project Home)
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setWExecutables((prev) => [...prev, { name: "", path: "" }])
+                  }
+                  className="rounded px-2 py-0.5 text-[10.5px]"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title="Add a new executable entry"
+                >
+                  + Add executable
+                </button>
+              </div>
+              <div className="mt-1 space-y-1.5">
+                {wExecutables.length === 0 && (
+                  <p
+                    className="text-[11.5px]"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    None bound. Click "+ Add executable" to create a Quick
+                    Launch button for an .exe / .lnk / .bat / .cmd file.
+                  </p>
+                )}
+                {wExecutables.map((exe, idx) => (
+                  <div key={idx} className="flex flex-wrap items-center gap-1.5">
+                    <input
+                      type="text"
+                      value={exe.name}
+                      onChange={(e) =>
+                        setWExecutables((prev) =>
+                          prev.map((row, i) =>
+                            i === idx ? { ...row, name: e.target.value } : row,
+                          ),
+                        )
+                      }
+                      placeholder="e.g. Launch Game"
+                      className="min-w-[120px] flex-1 rounded px-2 py-1 text-[11.5px]"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        outline: "none",
+                      }}
+                    />
+                    <input
+                      type="text"
+                      value={exe.path}
+                      onChange={(e) =>
+                        setWExecutables((prev) =>
+                          prev.map((row, i) =>
+                            i === idx ? { ...row, path: e.target.value } : row,
+                          ),
+                        )
+                      }
+                      placeholder="C:/Program Files/MyGame/MyGame.exe"
+                      className="min-w-[200px] flex-[2] rounded px-2 py-1 text-[11.5px]"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        fontFamily: "var(--font-mono)",
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const picked = await openDialog({
+                            directory: false,
+                            multiple: false,
+                            title: "Pick an executable",
+                            filters: [
+                              {
+                                name: "Executables",
+                                extensions: ["exe", "lnk", "bat", "cmd"],
+                              },
+                            ],
+                          });
+                          if (typeof picked === "string" && picked) {
+                            setWExecutables((prev) =>
+                              prev.map((row, i) => {
+                                if (i !== idx) return row;
+                                // Auto-fill name from the file's basename
+                                // when the user hasn't typed one yet.
+                                const nameAuto = row.name.trim()
+                                  ? row.name
+                                  : picked
+                                      .replace(/[\/\\]+$/, "")
+                                      .split(/[\/\\]/)
+                                      .pop()
+                                      ?.replace(/\.(exe|lnk|bat|cmd)$/i, "") ??
+                                    "";
+                                return { ...row, path: picked, name: nameAuto };
+                              }),
+                            );
+                          }
+                        } catch {
+                          /* user cancelled */
+                        }
+                      }}
+                      className="rounded px-2 py-1 text-[11.5px]"
+                      style={{
+                        background: "var(--color-surface-3)",
+                        color: "var(--color-text-secondary)",
+                        border: "1px solid var(--color-border-strong)",
+                      }}
+                      title="Pick an .exe / .lnk / .bat / .cmd"
+                    >
+                      Pick
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setWExecutables((prev) =>
+                          prev.filter((_, i) => i !== idx),
+                        )
+                      }
+                      className="rounded px-1.5 py-1 text-[11.5px]"
+                      style={{
+                        background: "transparent",
+                        color: "var(--color-danger)",
+                        border: "1px solid rgba(248, 81, 73, 0.32)",
+                      }}
+                      title="Remove this executable"
+                      aria-label="Remove executable"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {editingId === null && wExecutables.length > 0 && (
+                <p
+                  className="mt-1 text-[10.5px]"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  Save the new project first, then re-open Edit to bind
+                  executables.
+                </p>
+              )}
             </div>
           </div>
           {createError && (

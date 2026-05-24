@@ -1,6 +1,9 @@
 // Pending cards for the most-recent project. We pick the project with the
 // freshest `last_active` as the "active project" stand-in — the Projects tab
 // itself owns the canonical selection and we don't share state with it.
+//
+// v2.7 redesign: bigger card, 13px content baseline, room for 5 items + a
+// done-count footer so the user gets a real sense of inbox load.
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -14,6 +17,7 @@ interface PendingKanbanCardProps {
 interface PendingState {
   projectName: string;
   pending: { id: string; title: string }[];
+  totalPending: number;
   doneCount: number;
 }
 
@@ -49,16 +53,19 @@ export function PendingKanbanCard({ onOpenProjects }: PendingKanbanCardProps) {
             .filter((c) => /done|complete|archiv/i.test(c.name))
             .map((c) => c.id),
         );
-        const pending = board.cards
+        const allPending = board.cards
           .filter((c) => !doneColumns.has(c.column_id))
-          .sort((a, b) => a.order - b.order)
-          .slice(0, 5)
-          .map((c) => ({ id: c.id, title: c.title }));
-        const doneCount = board.cards.length - pending.length;
+          .sort((a, b) => a.order - b.order);
+        const pending = allPending.slice(0, 5).map((c) => ({
+          id: c.id,
+          title: c.title,
+        }));
+        const doneCount = board.cards.length - allPending.length;
         if (!cancelled) {
           setState({
             projectName: active.name ?? active.id,
             pending,
+            totalPending: allPending.length,
             doneCount,
           });
         }
@@ -76,11 +83,8 @@ export function PendingKanbanCard({ onOpenProjects }: PendingKanbanCardProps) {
 
   return (
     <Card
-      title={
-        state
-          ? `Pending - ${state.projectName}`
-          : "Pending kanban"
-      }
+      title="Pending"
+      subtitle={state ? state.projectName : undefined}
       loading={loading}
       error={error}
       empty={
@@ -91,28 +95,56 @@ export function PendingKanbanCard({ onOpenProjects }: PendingKanbanCardProps) {
             : null
       }
       action={
-        <SmallButton onClick={onOpenProjects} title="Open Projects tab">
-          open
+        <SmallButton
+          onClick={onOpenProjects}
+          size="md"
+          title="Open Projects tab"
+        >
+          Open
         </SmallButton>
       }
     >
       {state && state.pending.length > 0 && (
-        <ul className="space-y-1">
-          {state.pending.map((c) => (
-            <li
-              key={c.id}
-              className="truncate text-[11.5px]"
+        <div className="space-y-3">
+          <div className="flex items-baseline gap-3">
+            <span
+              className="text-[20px] font-semibold leading-none tabular-nums"
               style={{ color: "var(--color-text)" }}
-              title={c.title}
             >
+              {state.totalPending}
+            </span>
+            <span
+              className="text-[12.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {state.totalPending === 1 ? "card pending" : "cards pending"}
+            </span>
+            {state.doneCount > 0 && (
               <span
-                className="mr-1.5 inline-block h-1 w-1 rounded-full align-middle"
-                style={{ background: "var(--color-text-tertiary)" }}
-              />
-              {c.title}
-            </li>
-          ))}
-        </ul>
+                className="ml-auto tabular-nums text-[11px]"
+                style={{ color: "var(--color-text-faint)" }}
+              >
+                {state.doneCount} done
+              </span>
+            )}
+          </div>
+          <ul className="space-y-1.5">
+            {state.pending.map((c) => (
+              <li
+                key={c.id}
+                className="flex items-baseline gap-2 truncate text-[13px]"
+                style={{ color: "var(--color-text)" }}
+                title={c.title}
+              >
+                <span
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ background: "var(--color-text-tertiary)" }}
+                />
+                <span className="truncate">{c.title}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
     </Card>
   );

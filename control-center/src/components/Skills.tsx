@@ -1,136 +1,31 @@
-// ULTRON Control Center 2.6 — Skills viewer.
+// ULTRON Control Center 2.6 — Skills viewer (FULL REDESIGN).
 //
-// 3-way view: Grid (legacy card layout), Tree (origin → group → leaf), and
-// Blocks (Spotify-style drill-down per USER: top-level tile per origin /
-// plugin → sub-category tile → leaf list). Default = Blocks; persists per
-// sub-tab via `useLibraryViewMode`.
+// USER's brief: the v2.6.x card layout was "para nada lo que buscaba".
+// He wants the same big-tile pattern the Blocks-view category screen uses,
+// but as the PRIMARY layout for Skills / Agents / Rules — click a card,
+// detail slides in on the right with Edit / Edit with AI / Open Externally.
 //
-// Backend = `list_skills` + `skill_toggle` Tauri commands (unchanged).
+// What changed:
+//   - Cards now show ONLY the skill name (+ a cyan sparkle to distinguish
+//     skills from agents/rules at a glance). No description, no chips, no
+//     sibling-file expander — that detail lives in the right pane.
+//   - Default view is the card grid. Tree and Blocks (drill-down) are
+//     preserved for power users via the toggle.
+//   - Selecting a card opens `LibraryDetailPane` on the right. The pane
+//     loads the body via the new `read_text_file` Tauri command (which
+//     handles plugin-scoped paths the slug-based reader can't reach).
+//   - "Open Externally" opens the workspace folder in VS Code with the
+//     specific file focused — multi-file skills surface their helpers.
+//
+// Filters (scope chips, category chips, search) and the New / Refresh
+// buttons are unchanged. `skill_toggle` is still available, but it now
+// lives in the detail pane action bar.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import type { SkillEntry, SkillOrigin } from "../types";
 import { CreateSkillModal } from "./library/CreateSkillModal";
-import { Folder, Plus, Sparkle } from "./library/icons";
-
-// v2.6 (v27-f14): sibling-file metadata returned by `list_skill_files`.
-type SiblingFile = {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  ext: string | null;
-  size_bytes: number | null;
-};
-
-// v2.6 (v27-f14): on-demand sibling-file list rendered inside each Skills
-// card. Lazy — `list_skill_files` only fires when the user clicks "Files".
-// On clicking an entry we delegate to the OS via `openPath`, which routes
-// to the user's default editor for that extension (VS Code for .md/.py/...,
-// File Explorer for sub-folders).
-function SkillFilesInline({ entryPath }: { entryPath: string }) {
-  const [open, setOpen] = useState(false);
-  const [files, setFiles] = useState<SiblingFile[] | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const ensureLoaded = async () => {
-    if (files || busy) return;
-    setBusy(true);
-    setErr(null);
-    try {
-      const list = (await invoke("list_skill_files", {
-        entryPath,
-      })) as SiblingFile[];
-      setFiles(list);
-    } catch (e) {
-      setErr(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggle = async () => {
-    const next = !open;
-    setOpen(next);
-    if (next) await ensureLoaded();
-  };
-
-  return (
-    <div className="mt-2">
-      <button
-        type="button"
-        onClick={() => void toggle()}
-        className="rounded-md border px-2 py-0.5 text-[11.5px]"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "transparent",
-          color: "var(--color-text-tertiary)",
-        }}
-      >
-        {open ? "▾ Files" : "▸ Files"}
-        {files && (
-          <span className="ml-1 tabular-nums">{files.length}</span>
-        )}
-      </button>
-      {open && (
-        <div className="mt-1.5">
-          {busy && (
-            <p
-              className="text-[10.5px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              Loading…
-            </p>
-          )}
-          {err && (
-            <p
-              className="text-[10.5px]"
-              style={{ color: "var(--color-danger)" }}
-            >
-              {err}
-            </p>
-          )}
-          {files && files.length === 0 && (
-            <p
-              className="text-[10.5px]"
-              style={{ color: "var(--color-text-faint)" }}
-            >
-              No sibling files.
-            </p>
-          )}
-          {files && files.length > 0 && (
-            <ul className="flex flex-wrap gap-1">
-              {files.map((f) => (
-                <li key={f.path}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      openPath(f.path).catch((e) =>
-                        setErr(`open ${f.name}: ${e}`),
-                      );
-                    }}
-                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px]"
-                    style={{
-                      background: "var(--color-surface-3)",
-                      color: "var(--color-text)",
-                      border: "1px solid var(--color-border)",
-                      fontFamily: "var(--font-mono)",
-                    }}
-                    title={f.path}
-                  >
-                    {f.is_dir ? "📁" : f.ext ? `.${f.ext}` : "📄"}{" "}
-                    <span>{f.name}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+import { Plus, Sparkle } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
 import {
   BlocksView,
@@ -138,6 +33,7 @@ import {
 } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
 import { categorize } from "../lib/skill-categories";
+import { LibraryDetailPane } from "./library/LibraryDetailPane";
 
 type ProjectLite = { id: string; name: string };
 
@@ -152,42 +48,10 @@ const SCOPES: { id: ScopeFilter; label: string }[] = [
 
 const NO_CATEGORY = "uncategorized";
 
-// v2.6 (card-v26-fb-024): detect CJK (Chinese/Japanese/Korean) characters
-// in skill description. Read-only audit — flags skills whose author wrote
-// the description in a non-Castilian language so USER can decide
-// whether to disable / replace them. Does NOT edit plugin files.
-const CJK_REGEX = /[一-鿿぀-ヿ가-힯]/;
-function hasCJK(text: string | null | undefined): boolean {
-  if (!text) return false;
-  return CJK_REGEX.test(text);
-}
-
-function originChipStyle(origin: SkillOrigin): {
-  background: string;
-  color: string;
-  border: string;
-} {
-  switch (origin) {
-    case "global":
-      return {
-        background: "var(--color-surface-4)",
-        color: "var(--color-text)",
-        border: "1px solid var(--color-border-strong)",
-      };
-    case "project":
-      return {
-        background: "rgba(136, 136, 204, 0.16)",
-        color: "#b6b6ff",
-        border: "1px solid rgba(136, 136, 204, 0.40)",
-      };
-    case "plugin":
-      return {
-        background: "rgba(168, 136, 168, 0.16)",
-        color: "#e0bce0",
-        border: "1px solid rgba(168, 136, 168, 0.40)",
-      };
-  }
-}
+// v2.6 cyan accent — distinguishes skill cards from agents (violet) and
+// rules (lime) at a glance.
+const SKILL_ACCENT = "rgba(56, 189, 248, 0.55)";
+const SKILL_ACCENT_SOFT = "rgba(56, 189, 248, 0.16)";
 
 /// Derive a category from the on-disk path. Examples:
 ///   ~/.claude/skills/agent-skills/foo/SKILL.md → "agent-skills"
@@ -195,39 +59,22 @@ function originChipStyle(origin: SkillOrigin): {
 ///   .../plugins/cache/<id>/<plugin>/<ver>/skills/foo → "<plugin>"
 function deriveCategory(s: SkillEntry): string {
   const norm = s.path.replace(/\\/g, "/");
-  // Plugin scope: bucket by plugin name (the parent of the `skills/` dir).
   if (s.origin === "plugin") {
     const m = norm.match(/\/plugins\/cache\/[^/]+\/([^/]+)\/[^/]+\/skills\//);
     if (m && m[1]) return m[1];
   }
-  // Global / project: capture any segment between `skills/` and the skill
-  // dir itself. If the skill lives at top level of skills/, it has no
-  // sub-folder and counts as uncategorized.
   const m = norm.match(/\/skills\/([^/]+)\/[^/]+\/?(?:SKILL\.md)?$/);
   if (m && m[1] && m[1] !== s.name) return m[1];
   return NO_CATEGORY;
 }
 
-/// Derive the Blocks-view top-level group label. Distinct from the legacy
-/// scope chip: plugin-scoped skills land under their plugin name (so the
-/// user sees "ecc", "superpowers", … as separate tiles instead of a single
-/// "Plugin" bucket).
 function deriveTopGroup(s: SkillEntry): string {
   if (s.origin === "global") return "Global";
   if (s.origin === "project") return "Project";
   return deriveCategory(s);
 }
 
-/// Derive the Blocks-view sub-group label. For plugin skills we look at the
-/// path segment immediately AFTER `skills/` so categories like "agent",
-/// "tooling", "review" surface as sub-tiles. Global / project skills run
-/// through the `categorize()` domain map first so personal skills land
-/// under real sub-tiles (Personas, Game Dev, …) instead of "Uncategorized".
 function deriveSubGroup(s: SkillEntry): string | null {
-  // v2.6 feedback: try the domain map FIRST regardless of origin so ECC
-  // and superpowers plugin skills also surface under meaningful sub-tiles
-  // (Personas, AI Engineering, …). Path-based fallback below only kicks
-  // in when the slug + description has no confident match.
   const domain = categorize(s.name, s.description);
   if (domain) return domain;
   const norm = s.path.replace(/\\/g, "/");
@@ -241,6 +88,28 @@ function deriveSubGroup(s: SkillEntry): string | null {
   return cat;
 }
 
+/// Compute the workspace folder for a skill. SKILL.md lives inside a folder
+/// with examples + helpers — opening that folder in VS Code is what USER
+/// wants ("para que las skills con multiples carpetas abra todo su
+/// workspace"). For flat skills (top-level .md), the folder is the parent.
+function skillWorkspace(s: SkillEntry): { folder: string; file: string } {
+  const file = s.path;
+  const norm = file.replace(/\\/g, "/");
+  // Standard SKILL.md → folder is the directory above.
+  if (/\/SKILL\.md$/i.test(norm)) {
+    return {
+      folder: file.replace(/[\\/]SKILL\.md$/i, ""),
+      file,
+    };
+  }
+  // Flat .md skill → folder is the parent directory.
+  const lastSep = Math.max(file.lastIndexOf("\\"), file.lastIndexOf("/"));
+  return {
+    folder: lastSep > 0 ? file.slice(0, lastSep) : "",
+    file,
+  };
+}
+
 export function Skills() {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
@@ -250,7 +119,11 @@ export function Skills() {
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
+  // v2.6 redesign: default to "grid" so the card-and-detail flow lands first.
   const [view, setView] = useLibraryViewMode("skills");
+
+  // Detail-pane state.
+  const [selected, setSelected] = useState<SkillEntry | null>(null);
 
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
@@ -279,22 +152,18 @@ export function Skills() {
     void reload();
   }, []);
 
-  // Build the unique sorted category list from the currently scoped slice
-  // so the chip row tracks the scope filter.
   const categories = useMemo(() => {
     const subset =
       scope === "all" ? skills : skills.filter((s) => s.origin === scope);
     const set = new Set<string>();
     for (const s of subset) set.add(deriveCategory(s));
-    const arr = Array.from(set).sort((a, b) => {
+    return Array.from(set).sort((a, b) => {
       if (a === NO_CATEGORY) return 1;
       if (b === NO_CATEGORY) return -1;
       return a.localeCompare(b);
     });
-    return arr;
   }, [skills, scope]);
 
-  // Reset category when scope changes if the chosen category disappeared.
   useEffect(() => {
     if (category !== "all" && !categories.includes(category)) {
       setCategory("all");
@@ -314,19 +183,6 @@ export function Skills() {
     });
   }, [skills, scope, category, query]);
 
-  const handleOpen = async (path: string) => {
-    try {
-      // Strip the trailing SKILL.md so VS Code opens the whole skill folder —
-      // README, examples and supporting markdowns become visible at once.
-      // Flat skills (no folder) just keep their .md path; the backend cmd
-      // happily passes both shapes straight through to `code`.
-      const target = path.replace(/[\\/]SKILL\.md$/, "");
-      await invoke("open_folder_in_vscode", { target });
-    } catch (e) {
-      setError(`open ${path}: ${e}`);
-    }
-  };
-
   const handleToggle = async (s: SkillEntry) => {
     if (s.origin !== "global") return;
     try {
@@ -337,8 +193,18 @@ export function Skills() {
     }
   };
 
-  // Build the Tree-view origins (legacy 3-level tree). Kept for users who
-  // prefer the dense sidebar look.
+  // Save handler passed to the detail pane. Only valid for global skills
+  // (the only origin update_skill_md accepts) — plugin / project skills
+  // are read-only; the pane hides the Edit button when onSave is absent.
+  const buildOnSave = (s: SkillEntry): ((body: string) => Promise<void>) | undefined => {
+    if (s.origin !== "global") return undefined;
+    return async (body: string) => {
+      await invoke("update_skill_md", { name: s.name, content: body });
+      await reload();
+    };
+  };
+
+  // Tree-view origins (legacy power-user mode).
   const treeOrigins: TreeOrigin<SkillEntry>[] = useMemo(() => {
     const buckets: Record<SkillOrigin, Record<string, SkillEntry[]>> = {
       global: {},
@@ -369,8 +235,6 @@ export function Skills() {
     }));
   }, [filtered]);
 
-  // Build the Blocks-view items. Top group folds plugin scope into per-plugin
-  // tiles so "ecc" and "superpowers" surface separately, as USER requested.
   const blockItems: BlocksItem<SkillEntry>[] = useMemo(
     () =>
       filtered.map((s) => ({
@@ -382,100 +246,82 @@ export function Skills() {
     [filtered],
   );
 
-  // Card layout used by both Grid mode and Blocks mode's leaf view — keeps
-  // the visual language consistent.
+  // ---- Name-only card grid (the redesign) ----
+  //
+  // Tile shape mirrors `BlocksView` Tile — USER wants the same visual
+  // language across categories and entries. Each skill card has:
+  //   - small "Skill" header chip
+  //   - the skill name in big type
+  //   - a tiny origin badge in the corner
+  //   - cyan ribbon at the top to differentiate from agents (violet) / rules
+  // Click → opens the detail pane on the right.
+
   const renderCardGrid = (items: SkillEntry[]) => (
-    <ul className="grid gap-2 md:grid-cols-2">
+    <div
+      className="grid gap-3"
+      style={{
+        gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+      }}
+    >
       {items.map((s) => {
-        const cat = deriveCategory(s);
-        const chip = originChipStyle(s.origin);
+        const isActive = selected?.path === s.path;
         return (
-          <li
+          <button
             key={`${s.origin}-${s.path}`}
-            className="rounded-md p-3 text-sm transition-colors"
+            type="button"
+            onClick={() => setSelected(s)}
+            className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
-              border: "1px solid var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
+              background: isActive
+                ? "var(--color-surface-3)"
+                : "var(--color-surface-2)",
+              border: `1px solid ${
+                isActive ? SKILL_ACCENT : "var(--color-border)"
+              }`,
+              boxShadow: `inset 0 3px 0 ${SKILL_ACCENT}`,
               opacity: s.enabled ? 1 : 0.55,
             }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = SKILL_ACCENT;
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${SKILL_ACCENT}, 0 6px 18px rgba(0,0,0,0.28)`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = isActive
+                ? SKILL_ACCENT
+                : "var(--color-border)";
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${SKILL_ACCENT}`;
+            }}
+            title={s.description || s.name}
           >
-            <div className="mb-1 flex items-start justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <Sparkle
-                  size={12}
-                  className="shrink-0 text-[var(--color-text-tertiary)]"
-                />
-                <span className="truncate font-medium">{s.name}</span>
-                {hasCJK(s.description) && (
-                  <span
-                    className="rounded px-1 py-px text-[9px] font-semibold uppercase"
-                    style={{
-                      background: "rgba(210, 153, 34, 0.18)",
-                      color: "var(--color-warn)",
-                    }}
-                    title="Description contains CJK characters — candidate for cleanup"
-                  >
-                    CJK
-                  </span>
-                )}
-              </div>
+            <div
+              className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.08em]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              <Sparkle size={12} />
+              Skill
               <span
-                className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
-                style={chip}
+                className="ml-auto rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
+                style={{
+                  background: SKILL_ACCENT_SOFT,
+                  color: "#67e8f9",
+                  border: "1px solid rgba(56, 189, 248, 0.35)",
+                }}
               >
                 {s.origin}
               </span>
             </div>
-            {cat !== NO_CATEGORY && (
-              <div
-                className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                <Folder size={10} /> {cat}
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => handleOpen(s.path)}
-                className="rounded-md border px-2 py-0.5 text-xs"
-                style={{
-                  borderColor: "var(--color-border-strong)",
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text)",
-                }}
-              >
-                Open in editor
-              </button>
-              {s.origin === "global" && (
-                <button
-                  onClick={() => handleToggle(s)}
-                  className="rounded-md border px-2 py-0.5 text-xs"
-                  style={{
-                    borderColor: s.enabled
-                      ? "var(--color-border-strong)"
-                      : "var(--color-accent)",
-                    background: s.enabled
-                      ? "var(--color-surface-3)"
-                      : "var(--color-accent)",
-                    color: s.enabled
-                      ? "var(--color-text)"
-                      : "var(--color-accent-text)",
-                  }}
-                >
-                  {s.enabled ? "Disable" : "Enable"}
-                </button>
-              )}
+            <div
+              className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
+              {s.name}
             </div>
-            {/* v2.6 (v27-f14): sibling files of the skill folder. */}
-            <SkillFilesInline entryPath={s.path} />
-          </li>
+          </button>
         );
       })}
-    </ul>
+    </div>
   );
 
   return (
@@ -623,46 +469,100 @@ export function Skills() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <p
-            className="text-xs"
-            style={{ color: "var(--color-text-tertiary)" }}
+      {/* 2-pane layout: card list on the left, detail pane on the right
+          when a skill is selected. Stacks vertically on narrow viewports. */}
+      <div className="flex flex-1 flex-col gap-3 overflow-hidden lg:flex-row">
+        <div
+          className={
+            selected ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"
+          }
+          style={{ minWidth: 0 }}
+        >
+          {loading ? (
+            <p
+              className="text-xs"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Loading…
+            </p>
+          ) : filtered.length === 0 ? (
+            <p
+              className="text-xs"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              Sin skills para el filtro actual.
+            </p>
+          ) : view === "blocks" ? (
+            <BlocksView<SkillEntry>
+              items={blockItems}
+              noun="skill"
+              emptyLabel="Sin skills para el filtro actual."
+              topGroupAccent={() => SKILL_ACCENT}
+              renderLeaves={(items) =>
+                renderCardGrid(items.map((it) => it.data))
+              }
+            />
+          ) : view === "tree" ? (
+            <TreeView<SkillEntry>
+              origins={treeOrigins}
+              selectedKey={selected ? `${selected.origin}-${selected.path}` : null}
+              onSelect={(leaf) => setSelected(leaf.data)}
+              query={query}
+            />
+          ) : (
+            renderCardGrid(filtered)
+          )}
+        </div>
+
+        {selected && (
+          <div
+            className="overflow-hidden lg:w-[560px] lg:shrink-0"
+            style={{ minWidth: 0 }}
           >
-            Loading…
-          </p>
-        ) : filtered.length === 0 ? (
-          <p
-            className="text-xs"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Sin skills para el filtro actual.
-          </p>
-        ) : view === "blocks" ? (
-          <BlocksView<SkillEntry>
-            items={blockItems}
-            noun="skill"
-            emptyLabel="Sin skills para el filtro actual."
-            topGroupAccent={(g) => {
-              // Ultron palette: true-black monochrome. Sutile jerarquía via
-              // alpha del foreground en lugar de tints chromáticos.
-              if (g === "Global") return "rgba(245, 245, 245, 0.22)";
-              if (g === "Project") return "rgba(160, 160, 160, 0.26)";
-              return "rgba(110, 110, 110, 0.22)";
-            }}
-            renderLeaves={(items) =>
-              renderCardGrid(items.map((it) => it.data))
-            }
-          />
-        ) : view === "tree" ? (
-          <TreeView<SkillEntry>
-            origins={treeOrigins}
-            selectedKey={null}
-            onSelect={(leaf) => void handleOpen(leaf.data.path)}
-            query={query}
-          />
-        ) : (
-          renderCardGrid(filtered)
+            {(() => {
+              const ws = skillWorkspace(selected);
+              const subtitleParts: string[] = [];
+              subtitleParts.push(selected.origin);
+              const cat = deriveCategory(selected);
+              if (cat !== NO_CATEGORY) subtitleParts.push(cat);
+              if (selected.origin === "global") {
+                subtitleParts.push(selected.enabled ? "enabled" : "disabled");
+              }
+              return (
+                <div className="flex h-full flex-col gap-2">
+                  <LibraryDetailPane
+                    kind="skill"
+                    name={selected.name}
+                    subtitle={subtitleParts.join(" · ")}
+                    filePath={ws.file}
+                    folderPath={ws.folder}
+                    onSave={buildOnSave(selected)}
+                    onClose={() => setSelected(null)}
+                  />
+                  {selected.origin === "global" && (
+                    <button
+                      type="button"
+                      onClick={() => void handleToggle(selected)}
+                      className="rounded-md border px-3 py-1.5 text-[11.5px]"
+                      style={{
+                        borderColor: selected.enabled
+                          ? "var(--color-border-strong)"
+                          : "var(--color-accent)",
+                        background: selected.enabled
+                          ? "var(--color-surface-2)"
+                          : "var(--color-accent)",
+                        color: selected.enabled
+                          ? "var(--color-text)"
+                          : "var(--color-accent-text)",
+                      }}
+                    >
+                      {selected.enabled ? "Disable skill" : "Enable skill"}
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
         )}
       </div>
 

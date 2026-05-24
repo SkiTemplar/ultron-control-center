@@ -196,3 +196,37 @@ pub fn ecc_memory_read() -> Result<EccMemorySnapshot, String> {
         generated_at: now,
     })
 }
+
+/// Bootstrap the ECC memory JSONL at `~/.claude/memory.jsonl` with a seed
+/// entity so the file exists and downstream MCP / GUI calls have a target.
+///
+/// Returns the absolute path of the file that was created or already
+/// existed. Idempotent: if a file is already present at one of the
+/// candidate paths, this is a no-op and the existing path is returned.
+pub fn bootstrap_ecc_memory_inner() -> Result<String, String> {
+    if let Some(existing) = ecc_memory_path() {
+        return Ok(existing.display().to_string());
+    }
+    let home = dirs::home_dir().ok_or("no home dir")?;
+    let target = home.join(".claude").join("memory.jsonl");
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+    }
+    // Seed with a single entity so consumers that expect non-empty JSONL
+    // (and the GUI's status pill) report "loaded" instead of "empty".
+    let seed = serde_json::json!({
+        "type": "entity",
+        "name": "ULTRON",
+        "entityType": "system",
+        "observations": [
+            "Bootstrapped from Control Center on first use.",
+            "Replace or extend via the memory MCP (create_entities / add_observations)."
+        ]
+    });
+    let line = serde_json::to_string(&seed)
+        .map_err(|e| format!("serialize seed: {e}"))?;
+    std::fs::write(&target, format!("{line}\n"))
+        .map_err(|e| format!("write {}: {e}", target.display()))?;
+    Ok(target.display().to_string())
+}

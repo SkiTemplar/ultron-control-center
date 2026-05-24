@@ -3,18 +3,25 @@
 // Redesigned as a workspace picker. The previous version led with a Codex
 // fallback button, a provider matrix and a long flat list of sessions —
 // most of which the user never touched. The new layout puts what USER
-// asked for first: pick a recent workspace and either continue the last
-// session or start a fresh one.
+// asked for first: pick a recent workspace and start a fresh session.
 //
 //   1. "Recent workspaces" — auto-detected from `~/.claude/projects/`,
 //      enriched with `projects.json` names where the cwd matches.
-//      Each card has: Continue last · New session · Open in IDE · Open folder.
+//      Each card has: New session · Custom · Send Context (modals).
 //   2. "All Claude sessions" — the old flat list, kept for power users.
 //      Collapsed by default so it stops dominating the page.
-//   3. Provider tabs + model + presets — still here for the "advanced"
-//      launch flow, but tucked under the workspace grid. The Codex
-//      fallback button is gone (user: "el sistema de Codex cuando me
-//      quedo sin tokens no lo necesito").
+//
+// v2.6 (feedback round 2):
+//   - "Continue" button removed (user: "no me sirve").
+//   - Custom and Send-Context popovers became MODAL overlays — no more
+//     inline expansion that grows the card.
+//   - Workspace cards stopped showing the session id / epoch. The headline
+//     is the project name or a derived workspace name, and the secondary
+//     line is the cwd. Anything machine-readable lives on hover.
+//   - New sub-tab "Workdays" (skeleton). Concept: a "jornada de trabajo"
+//      aggregates Claude/Codex/Gemini sessions + kanban activity + agents
+//      used into a single day-level entry with computed duration. Full
+//      implementation tracked under card-v27-inv-workdays.
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -27,7 +34,6 @@ import type {
   WorkspaceSummary,
 } from "../types";
 import {
-  Play,
   Plus,
   History,
   RefreshCw,
@@ -457,52 +463,210 @@ function WorkspacePicker({
 }
 
 // ---------------------------------------------------------------------------
+// Provider/model picker modal — shared by Custom and Send-Context flows
+// ---------------------------------------------------------------------------
+
+type LauncherModalProps = {
+  /** "custom" launches a clean session; "send-context" pre-seeds a prompt
+   *  asking the new session to continue from the prior session id. */
+  mode: "custom" | "send-context";
+  workspace: WorkspaceSummary;
+  busy: boolean;
+  onClose: () => void;
+  onLaunch: (opts: { provider: SessionProvider; model: string }) => void;
+};
+
+function LauncherModal({
+  mode,
+  workspace,
+  busy,
+  onClose,
+  onLaunch,
+}: LauncherModalProps) {
+  const [provider, setProvider] = useState<SessionProvider>("claude");
+  const [model, setModel] = useState<string>(PROVIDERS.claude.defaultModel);
+
+  // Close on Escape — matches the CardEditorModal pattern.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const headline = workspace.project_name ?? deriveWorkspaceName(workspace.cwd);
+  const title =
+    mode === "custom" ? "Custom launch" : "Send context to a new session";
+  const launchLabel =
+    mode === "custom" ? "Launch" : "Launch with context";
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+      onMouseDown={(e) => {
+        // Click on backdrop closes; clicks inside the card stop here.
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="flex w-full max-w-xl flex-col rounded-lg shadow-xl"
+        style={{
+          background: "var(--color-surface-1)",
+          border: "1px solid var(--color-border-strong)",
+        }}
+      >
+        <div
+          className="flex items-center justify-between border-b px-4 py-2.5"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold">{title}</div>
+            <div
+              className="mt-0.5 truncate text-[11.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+              title={workspace.cwd}
+            >
+              {headline}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded px-2 py-0.5 text-[12px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="p-4">
+          {mode === "send-context" && (
+            <div
+              className="mb-3 rounded p-2.5 text-[11.5px] leading-relaxed"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-secondary)",
+              }}
+            >
+              Spawns a new session in this workspace seeded with a reference
+              to{" "}
+              <span
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--color-text)",
+                }}
+              >
+                {workspace.latest_session_id?.slice(0, 8) ?? "—"}
+              </span>
+              . The new session will receive a prompt asking it to load and
+              continue context from that session.
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-2 text-[12px]">
+              <span style={{ color: "var(--color-text-tertiary)" }}>Provider</span>
+              <select
+                value={provider}
+                onChange={(e) => {
+                  const p = e.target.value as SessionProvider;
+                  setProvider(p);
+                  setModel(PROVIDERS[p].defaultModel);
+                }}
+                className="rounded px-2 py-1 text-[12px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                <option value="claude">Claude</option>
+                <option value="codex">Codex</option>
+                <option value="gemini">Gemini</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 text-[12px]">
+              <span style={{ color: "var(--color-text-tertiary)" }}>Model</span>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="rounded px-2 py-1 text-[12px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                {PROVIDERS[provider].models.map((m) => (
+                  <option key={m.id || "default"} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div
+          className="flex items-center justify-end gap-2 border-t px-4 py-2.5"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded px-3 py-1 text-[11.5px]"
+            style={{
+              background: "transparent",
+              color: "var(--color-text-tertiary)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => onLaunch({ provider, model })}
+            disabled={busy}
+            className="rounded px-3 py-1 text-[11.5px] font-medium disabled:opacity-40"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {launchLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Workspace card — the headline UI
 // ---------------------------------------------------------------------------
 
 type WorkspaceCardProps = {
   ws: WorkspaceSummary;
   busy: boolean;
-  onContinue: (ws: WorkspaceSummary) => void;
   onNew: (ws: WorkspaceSummary) => void;
   onCreateProject: (ws: WorkspaceSummary) => void;
-  // v2.6 (card-v26-fb-003): inline Custom popover — user picks provider +
-  // model and the parent spawns the session.
-  onCustom: (
-    ws: WorkspaceSummary,
-    opts: { provider: SessionProvider; model: string; prompt: string | null },
-  ) => void;
-  // v2.5.2 (fb-046 + send-context): send-context popover lets the user pick
-  // a provider and spawns a brand new session in the workspace seeded with
-  // a continuation prompt referencing the last session id.
-  onSendContext: (
-    ws: WorkspaceSummary,
-    opts: { provider: SessionProvider; model: string },
-  ) => void;
+  onCustom: (ws: WorkspaceSummary) => void;
+  onSendContext: (ws: WorkspaceSummary) => void;
 };
 
 function WorkspaceCard({
   ws,
   busy,
-  onContinue,
   onNew,
   onCreateProject,
   onCustom,
   onSendContext,
 }: WorkspaceCardProps) {
   const headline = ws.project_name ?? deriveWorkspaceName(ws.cwd);
-  const canContinue = !!ws.latest_session_id;
-  // v2.6 (card-v26-fb-003): Custom popover per workspace — inline expand
-  // so the user can pick provider + prompt and launch without touching
-  // a separate Advanced panel.
-  const [customOpen, setCustomOpen] = useState(false);
-  const [customProvider, setCustomProvider] = useState<SessionProvider>("claude");
-  const [customModel, setCustomModel] = useState<string>("");
-  // v2.5.2: Send-context popover — separate from Custom because the
-  // intent (and the prompt the backend receives) is different.
-  const [sendOpen, setSendOpen] = useState(false);
-  const [sendProvider, setSendProvider] = useState<SessionProvider>("claude");
-  const [sendModel, setSendModel] = useState<string>("");
+  const canSendContext = !!ws.latest_session_id;
 
   return (
     <div
@@ -524,7 +688,7 @@ function WorkspaceCard({
           {/* v2.5.2: provider badge — for now every workspace surfaced here
               is sourced from `~/.claude/projects/`, so the last provider is
               Claude. Future work can derive this from a per-workspace
-              provider history. Colour is the Claude accent (tinto). */}
+              provider history. Colour is the Claude accent. */}
           <span
             className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
             style={{
@@ -554,6 +718,8 @@ function WorkspaceCard({
             </span>
           )}
         </div>
+        {/* v2.6 round 2: secondary line is the cwd only — the session id /
+            epoch the user explicitly asked us to remove no longer appears. */}
         <div
           className="mt-1 truncate text-[11.5px]"
           style={{
@@ -577,27 +743,27 @@ function WorkspaceCard({
       </div>
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
+        {/* v2.6 round 2: "Continue" removed entirely — USER: "no me
+            sirve". `claude -r <id>` resume lives in the All Sessions list. */}
         <button
           type="button"
-          onClick={() => onContinue(ws)}
-          disabled={!canContinue || busy}
+          onClick={() => onNew(ws)}
+          disabled={busy}
           className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-40"
           style={{
             background: "var(--color-accent)",
             color: "var(--color-accent-text)",
           }}
-          title={
-            canContinue
-              ? `Resume claude -r ${ws.latest_session_id}`
-              : "No prior session — use New instead"
-          }
+          title={`New Claude session in ${ws.cwd}`}
         >
-          <Play size={12} />
-          Continue
+          <Plus size={12} />
+          New
         </button>
+        {/* v2.6 round 2: Custom opens a MODAL — the card no longer grows
+            inline with extra rows. */}
         <button
           type="button"
-          onClick={() => onNew(ws)}
+          onClick={() => onCustom(ws)}
           disabled={busy}
           className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
           style={{
@@ -605,50 +771,25 @@ function WorkspaceCard({
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
-          title={`New Claude session in ${ws.cwd}`}
-        >
-          <Plus size={12} />
-          New
-        </button>
-        {/* v2.6 (card-v26-fb-003): per-card Custom launch — inline popover
-            so user picks provider + prompt without leaving the card. */}
-        <button
-          type="button"
-          onClick={() => {
-            setCustomOpen((v) => !v);
-            if (sendOpen) setSendOpen(false);
-          }}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
-          style={{
-            background: customOpen
-              ? "var(--color-surface-4)"
-              : "var(--color-surface-3)",
-            color: "var(--color-text)",
-            border: "1px solid var(--color-border-strong)",
-          }}
-          title="Custom launch (provider + prompt) in this workspace"
+          title="Custom launch (provider + model) in this workspace"
         >
           Custom
         </button>
-        {/* v2.5.2: Send Context → New Session. Disabled when there is no
-            previous session id to reference. */}
+        {/* v2.6 round 2: Send Context also opens a MODAL. Disabled when
+            there is no previous session id to reference. */}
         <button
           type="button"
-          onClick={() => {
-            setSendOpen((v) => !v);
-            if (customOpen) setCustomOpen(false);
-          }}
-          disabled={busy || !canContinue}
+          onClick={() => onSendContext(ws)}
+          disabled={busy || !canSendContext}
           className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
           style={{
-            background: sendOpen ? "var(--color-surface-4)" : "var(--color-surface-3)",
+            background: "var(--color-surface-3)",
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
           title={
-            canContinue
-              ? `Start a new session pre-seeded with a reference to ${ws.latest_session_id}`
+            canSendContext
+              ? `Start a new session pre-seeded with a reference to the latest session in this workspace`
               : "Need at least one prior session to send context from"
           }
         >
@@ -671,197 +812,126 @@ function WorkspaceCard({
           </button>
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* v2.6 (card-v26-fb-003): Custom popover — provider + model only. */}
-      {customOpen && (
-        <div
-          className="mt-3 rounded p-3"
-          style={{
-            background: "var(--color-surface-1)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-[11.5px]">
-              <span style={{ color: "var(--color-text-tertiary)" }}>Provider</span>
-              <select
-                value={customProvider}
-                onChange={(e) => {
-                  const p = e.target.value as SessionProvider;
-                  setCustomProvider(p);
-                  setCustomModel(PROVIDERS[p].defaultModel);
-                }}
-                className="rounded px-1.5 py-0.5 text-[11.5px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-                <option value="gemini">Gemini</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2 text-[11.5px]">
-              <span style={{ color: "var(--color-text-tertiary)" }}>Model</span>
-              <select
-                value={customModel}
-                onChange={(e) => setCustomModel(e.target.value)}
-                className="rounded px-1.5 py-0.5 text-[11.5px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                {PROVIDERS[customProvider].models.map((m) => (
-                  <option key={m.id || "default"} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setCustomOpen(false)}
-                className="rounded px-2.5 py-1 text-[11.5px]"
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text-tertiary)",
-                  border: "1px solid var(--color-border)",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onCustom(ws, {
-                    provider: customProvider,
-                    model: customModel,
-                    prompt: null,
-                  });
-                  setCustomOpen(false);
-                }}
-                disabled={busy}
-                className="rounded px-2.5 py-1 text-[11.5px] font-medium disabled:opacity-40"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-              >
-                Launch
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+// ---------------------------------------------------------------------------
+// Workdays sub-tab (skeleton)
+// ---------------------------------------------------------------------------
 
-      {/* v2.5.2: Send Context popover — pick destination provider/model and
-          spawn a new session pre-seeded with a continuation prompt that
-          references the latest session id of this workspace. */}
-      {sendOpen && (
-        <div
-          className="mt-3 rounded p-3"
-          style={{
-            background: "var(--color-surface-1)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          <div
-            className="mb-2 text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Spawns a new session in this workspace seeded with a reference to{" "}
-            <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                color: "var(--color-text-secondary)",
-              }}
-            >
-              {ws.latest_session_id?.slice(0, 8) ?? "—"}
-            </span>
-            . The new session will receive a prompt asking it to load and
-            continue context from that session.
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 text-[11.5px]">
-              <span style={{ color: "var(--color-text-tertiary)" }}>Provider</span>
-              <select
-                value={sendProvider}
-                onChange={(e) => {
-                  const p = e.target.value as SessionProvider;
-                  setSendProvider(p);
-                  setSendModel(PROVIDERS[p].defaultModel);
-                }}
-                className="rounded px-1.5 py-0.5 text-[11.5px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                <option value="claude">Claude</option>
-                <option value="codex">Codex</option>
-                <option value="gemini">Gemini</option>
-              </select>
-            </div>
-            <div className="flex items-center gap-2 text-[11.5px]">
-              <span style={{ color: "var(--color-text-tertiary)" }}>Model</span>
-              <select
-                value={sendModel}
-                onChange={(e) => setSendModel(e.target.value)}
-                className="rounded px-1.5 py-0.5 text-[11.5px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                {PROVIDERS[sendProvider].models.map((m) => (
-                  <option key={m.id || "default"} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setSendOpen(false)}
-                className="rounded px-2.5 py-1 text-[11.5px]"
-                style={{
-                  background: "transparent",
-                  color: "var(--color-text-tertiary)",
-                  border: "1px solid var(--color-border)",
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onSendContext(ws, {
-                    provider: sendProvider,
-                    model: sendModel,
-                  });
-                  setSendOpen(false);
-                }}
-                disabled={busy || !canContinue}
-                className="rounded px-2.5 py-1 text-[11.5px] font-medium disabled:opacity-40"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-              >
-                Launch with context
-              </button>
-            </div>
-          </div>
+/** Shape mirrors `commands::workdays::Workday` on the Rust side. The
+ *  backend currently returns an empty Vec — the UI renders a "Coming soon"
+ *  state so USER can review the concept before we wire the aggregator. */
+type Workday = {
+  id: string;
+  date: string;
+  kind: string;
+  project_id: string | null;
+  title: string;
+  minutes: number;
+  session_count: number;
+  agents_used: string[];
+  kanban_changes: number;
+  summary: string;
+};
+
+function WorkdaysPanel() {
+  const [items, setItems] = useState<Workday[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    invoke<Workday[]>("workday_list", { limit: 50 })
+      .then((list) => {
+        if (!cancelled) setItems(list);
+      })
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn("[Workdays] workday_list failed", e);
+        if (!cancelled) setItems([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <div>
+      <div
+        className="mb-4 rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        <div className="text-[13px] font-semibold">
+          What is a "Workday"?
         </div>
-      )}
+        <p
+          className="mt-1 text-[12px] leading-relaxed"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          A focused block of work in a single local day. ULTRON aggregates
+          your Claude / Codex / Gemini sessions, the kanban cards you
+          touched, the agents you invoked and the project you were on into
+          one Workday entry — with computed duration, work kind
+          (coding / research / admin / meeting / mixed) and a short summary.
+        </p>
+        <ul
+          className="mt-3 grid grid-cols-1 gap-1.5 text-[11.5px] md:grid-cols-2"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          <li>
+            <strong style={{ color: "var(--color-text-secondary)" }}>
+              Time invested
+            </strong>{" "}
+            — derived from session transcript timestamps.
+          </li>
+          <li>
+            <strong style={{ color: "var(--color-text-secondary)" }}>
+              Project
+            </strong>{" "}
+            — inferred from the most-used cwd of the day.
+          </li>
+          <li>
+            <strong style={{ color: "var(--color-text-secondary)" }}>
+              Agents used
+            </strong>{" "}
+            — Terry, Don Claudio, Tolkien… counted per workday.
+          </li>
+          <li>
+            <strong style={{ color: "var(--color-text-secondary)" }}>
+              Kanban changes
+            </strong>{" "}
+            — cards created, moved or completed during the day.
+          </li>
+        </ul>
+      </div>
+
+      <div
+        className="rounded p-6 text-center"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px dashed var(--color-border-strong)",
+          color: "var(--color-text-tertiary)",
+        }}
+      >
+        <div className="text-[13px] font-semibold">
+          Coming soon · backend in research
+        </div>
+        <p className="mt-1 text-[12px]">
+          {loading
+            ? "Loading…"
+            : items.length === 0
+              ? "No workdays yet — the aggregator ships in a follow-up sprint (see card-v27-inv-workdays in the Investigar column)."
+              : `Loaded ${items.length} workday${items.length === 1 ? "" : "s"}.`}
+        </p>
+      </div>
     </div>
   );
 }
@@ -871,6 +941,7 @@ function WorkspaceCard({
 // ---------------------------------------------------------------------------
 
 export function Sessions() {
+  const [tab, setTab] = useState<"sessions" | "workdays">("sessions");
   const [provider, setProvider] = useState<SessionProvider>("claude");
   const [model, setModel] = useState<string>(PROVIDERS["claude"].defaultModel);
   const [prompt, setPrompt] = useState("");
@@ -888,6 +959,13 @@ export function Sessions() {
   const [search, setSearch] = useState("");
   const [busyCwd, setBusyCwd] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  // v2.6 round 2: Custom + Send-Context modals live at the panel level so
+  // only one is open at a time and the workspace card stays compact.
+  const [modal, setModal] = useState<
+    | { mode: "custom"; ws: WorkspaceSummary }
+    | { mode: "send-context"; ws: WorkspaceSummary }
+    | null
+  >(null);
 
   // Toasts auto-dismiss after 3s. Single channel — newer messages replace
   // older ones, which is fine for the low-frequency operations on this page.
@@ -907,11 +985,6 @@ export function Sessions() {
     setHistoryLoading(true);
     invoke<ClaudeSession[]>("list_claude_sessions", { limit: 50 })
       .then((list) => {
-        // v2.5.2 (fb-046): temporary diagnostic so we can confirm exactly
-        // what the backend hands back when USER says "no encuentra
-        // sesiones del proyecto activo". Strip once fb-046 is closed.
-        // eslint-disable-next-line no-console
-        console.log("[Sessions] list_claude_sessions →", list.length, list);
         setHistory(list);
       })
       .catch((e) => {
@@ -926,9 +999,6 @@ export function Sessions() {
     setWorkspacesLoading(true);
     invoke<WorkspaceSummary[]>("list_workspaces")
       .then((list) => {
-        // v2.5.2 (fb-046): same diagnostic for the workspace aggregate.
-        // eslint-disable-next-line no-console
-        console.log("[Sessions] list_workspaces →", list.length, list);
         setWorkspaces(list);
       })
       .catch((e) => {
@@ -999,28 +1069,6 @@ export function Sessions() {
   // Workspace card actions
   // -------------------------------------------------------------------------
 
-  async function continueWorkspace(ws: WorkspaceSummary) {
-    if (!ws.latest_session_id) return;
-    setBusyCwd(ws.cwd);
-    setError(null);
-    try {
-      // Claude default for the recent-workspaces flow — USER's main
-      // use case is "resume the project I was just in". The advanced panel
-      // below still lets power users pick provider/model.
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt: null,
-        cwd: ws.cwd,
-        flags: { resumeId: ws.latest_session_id },
-      });
-      setToast(`Resumed session in ${deriveWorkspaceName(ws.cwd)}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusyCwd(null);
-    }
-  }
-
   async function newInWorkspace(ws: WorkspaceSummary) {
     setBusyCwd(ws.cwd);
     setError(null);
@@ -1039,17 +1087,17 @@ export function Sessions() {
     }
   }
 
-  // v2.6 (card-v26-fb-003): custom launch from per-card popover.
+  // v2.6 round 2: custom launch from MODAL.
   async function customInWorkspace(
     ws: WorkspaceSummary,
-    opts: { provider: SessionProvider; model: string; prompt: string | null },
+    opts: { provider: SessionProvider; model: string },
   ) {
     setBusyCwd(ws.cwd);
     setError(null);
     try {
       await invoke("spawn_session", {
         provider: opts.provider,
-        prompt: opts.prompt,
+        prompt: null,
         cwd: ws.cwd,
         flags: { model: opts.model || null },
       });
@@ -1068,8 +1116,7 @@ export function Sessions() {
   // that references the previous session id. The backend doesn't (yet)
   // support `--context-from-session=<id>` natively, so this is the simple
   // version: pass a textual prompt asking the assistant to load and
-  // continue context from the named session. The hook is visible to the
-  // user, who can refine the prompt downstream.
+  // continue context from the named session.
   async function sendContextFromWorkspace(
     ws: WorkspaceSummary,
     opts: { provider: SessionProvider; model: string },
@@ -1103,11 +1150,8 @@ export function Sessions() {
   async function createProjectFromWorkspace(ws: WorkspaceSummary) {
     // Navigate to Projects tab or simply register via invoke.
     // For now we open the Projects tab so the user can fill in the form.
-    // The invoke "register_project" may not exist yet, so we use a toast
-    // pointing the user to the Projects tab.
     setToast(`Go to Projects tab to register "${deriveWorkspaceName(ws.cwd)}"`);
   }
-
 
   // -------------------------------------------------------------------------
   // Search / filtering
@@ -1137,14 +1181,10 @@ export function Sessions() {
       let key: string;
       let label: string;
       if (ws.project_id) {
-        // Cluster ultron / ultron-control-center / ultron-personal under
-        // a shared "ultron" head when project ids share the leading token.
         const head = ws.project_id.split(/[-_]/, 1)[0] ?? ws.project_id;
         key = `project:${head}`;
         label = head;
       } else {
-        // Use the second-to-last path segment (e.g. ".ultron" or the
-        // parent folder name) so siblings group together.
         const cleaned = ws.cwd.replace(/[\\/]+$/, "");
         const parts = cleaned.split(/[\\/]/).filter(Boolean);
         const tail = parts[parts.length - 2] ?? parts[parts.length - 1] ?? ws.cwd;
@@ -1155,8 +1195,6 @@ export function Sessions() {
       entry.items.push(ws);
       groups.set(key, entry);
     }
-    // Keep insertion order (which is already sorted by activity from the
-    // backend) but split into "ungrouped" (small) and "grouped" (>5).
     const ungrouped: WorkspaceSummary[] = [];
     const collapsible: { key: string; label: string; items: WorkspaceSummary[] }[] = [];
     for (const [key, value] of groups) {
@@ -1169,8 +1207,6 @@ export function Sessions() {
     return { ungrouped, collapsible };
   }, [filteredWorkspaces]);
 
-  // Persist which groups the user has expanded across reloads. Default:
-  // collapsed (the whole point of grouping is to reclaim space).
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
   const filteredHistory = useMemo(() => {
@@ -1197,25 +1233,27 @@ export function Sessions() {
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Pick a recent workspace to resume or start a fresh Claude session.
-            The full session list lives below for power-user resume.
+            Pick a recent workspace to start a fresh Claude session — or
+            switch to Workdays to see your day-level activity.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter workspaces & sessions…"
-            className="rounded px-3 py-1.5 text-[12px]"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-              outline: "none",
-              width: 280,
-            }}
-          />
+          {tab === "sessions" && (
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filter workspaces & sessions…"
+              className="rounded px-3 py-1.5 text-[12px]"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+                width: 280,
+              }}
+            />
+          )}
           <button
             type="button"
             onClick={() => {
@@ -1235,6 +1273,48 @@ export function Sessions() {
           </button>
         </div>
       </header>
+
+      {/* v2.6 round 2: sub-tab switch (Sessions / Workdays). */}
+      <div
+        className="mb-5 inline-flex rounded p-0.5"
+        style={{
+          background: "var(--color-surface-1)",
+          border: "1px solid var(--color-border-strong)",
+        }}
+      >
+        {(["sessions", "workdays"] as const).map((t) => {
+          const isActive = tab === t;
+          const label = t === "sessions" ? "Sessions" : "Workdays";
+          return (
+            <button
+              key={t}
+              type="button"
+              onClick={() => setTab(t)}
+              className="rounded px-3 py-1 text-[12px] font-medium transition-colors"
+              style={{
+                background: isActive ? "var(--color-surface-3)" : "transparent",
+                color: isActive
+                  ? "var(--color-text)"
+                  : "var(--color-text-tertiary)",
+              }}
+            >
+              {label}
+              {t === "workdays" && (
+                <span
+                  className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text-tertiary)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  preview
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
 
       {toast && (
         <div
@@ -1262,524 +1342,538 @@ export function Sessions() {
         </div>
       )}
 
-      {/* ------------------------------------------------------------------
-          Section 1 — Recent workspaces (the new headline)
-          ------------------------------------------------------------------ */}
-      <section className="mb-6">
-        <div className="mb-3 flex items-baseline justify-between">
-          <h2 className="text-[14px] font-semibold leading-tight">
-            Recent workspaces
-          </h2>
-          <span
-            className="text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            {workspacesLoading
-              ? "Loading…"
-              : `${filteredWorkspaces.length} of ${workspaces.length}`}
-          </span>
-        </div>
+      {tab === "workdays" && <WorkdaysPanel />}
 
-        {!workspacesLoading && workspaces.length === 0 && (
-          <div
-            className="rounded p-6 text-center text-[12.5px]"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-text-tertiary)",
-            }}
-          >
-            No Claude workspaces yet. Open a Claude session in any folder and
-            it will appear here automatically.
-          </div>
-        )}
+      {tab === "sessions" && (
+        <>
+          {/* ------------------------------------------------------------------
+              Section 1 — Recent workspaces (the new headline)
+              ------------------------------------------------------------------ */}
+          <section className="mb-6">
+            <div className="mb-3 flex items-baseline justify-between">
+              <h2 className="text-[14px] font-semibold leading-tight">
+                Recent workspaces
+              </h2>
+              <span
+                className="text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {workspacesLoading
+                  ? "Loading…"
+                  : `${filteredWorkspaces.length} of ${workspaces.length}`}
+              </span>
+            </div>
 
-        {!workspacesLoading && workspaces.length > 0 && filteredWorkspaces.length === 0 && (
-          <div
-            className="rounded p-6 text-center text-[12.5px]"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-text-tertiary)",
-            }}
-          >
-            No workspace matches "{search}".
-          </div>
-        )}
-
-        {/* v2.5.2: ungrouped workspaces render flat, grouped workspaces
-            sit under collapsible headers so a noisy project (e.g.
-            ultron + ultron-control-center + ultron-personal + …) doesn't
-            dominate the page. */}
-        {grouped.ungrouped.length > 0 && (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {grouped.ungrouped.map((ws) => (
-              <WorkspaceCard
-                key={ws.cwd}
-                ws={ws}
-                busy={busyCwd === ws.cwd}
-                onContinue={continueWorkspace}
-                onNew={newInWorkspace}
-                onCustom={customInWorkspace}
-                onSendContext={sendContextFromWorkspace}
-                onCreateProject={createProjectFromWorkspace}
-              />
-            ))}
-          </div>
-        )}
-
-        {grouped.collapsible.map((g) => {
-          const isOpen = openGroups.has(g.key);
-          return (
-            <div key={g.key} className="mt-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setOpenGroups((prev) => {
-                    const next = new Set(prev);
-                    if (next.has(g.key)) next.delete(g.key);
-                    else next.add(g.key);
-                    return next;
-                  });
+            {!workspacesLoading && workspaces.length === 0 && (
+              <div
+                className="rounded p-6 text-center text-[12.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-tertiary)",
                 }}
-                className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+              >
+                No Claude workspaces yet. Open a Claude session in any folder and
+                it will appear here automatically.
+              </div>
+            )}
+
+            {!workspacesLoading && workspaces.length > 0 && filteredWorkspaces.length === 0 && (
+              <div
+                className="rounded p-6 text-center text-[12.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                No workspace matches "{search}".
+              </div>
+            )}
+
+            {grouped.ungrouped.length > 0 && (
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                {grouped.ungrouped.map((ws) => (
+                  <WorkspaceCard
+                    key={ws.cwd}
+                    ws={ws}
+                    busy={busyCwd === ws.cwd}
+                    onNew={newInWorkspace}
+                    onCustom={(w) => setModal({ mode: "custom", ws: w })}
+                    onSendContext={(w) =>
+                      setModal({ mode: "send-context", ws: w })
+                    }
+                    onCreateProject={createProjectFromWorkspace}
+                  />
+                ))}
+              </div>
+            )}
+
+            {grouped.collapsible.map((g) => {
+              const isOpen = openGroups.has(g.key);
+              return (
+                <div key={g.key} className="mt-4">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenGroups((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(g.key)) next.delete(g.key);
+                        else next.add(g.key);
+                        return next;
+                      });
+                    }}
+                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                  >
+                    <span
+                      className="inline-block text-[12px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {isOpen ? "▾" : "▸"}
+                    </span>
+                    <span className="text-[12.5px] font-semibold">{g.label}</span>
+                    <span
+                      className="text-[11.5px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {g.items.length} workspaces
+                    </span>
+                    <span
+                      className="ml-auto text-[11.5px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {isOpen ? "hide" : "show"}
+                    </span>
+                  </button>
+                  {isOpen && (
+                    <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                      {g.items.map((ws) => (
+                        <WorkspaceCard
+                          key={ws.cwd}
+                          ws={ws}
+                          busy={busyCwd === ws.cwd}
+                          onNew={newInWorkspace}
+                          onCustom={(w) =>
+                            setModal({ mode: "custom", ws: w })
+                          }
+                          onSendContext={(w) =>
+                            setModal({ mode: "send-context", ws: w })
+                          }
+                          onCreateProject={createProjectFromWorkspace}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </section>
+
+          {/* ------------------------------------------------------------------
+              Section 2 — Collapsible: All Claude sessions
+              Kept hidden by default (toggled via internal state, not shown
+              in the UI for now). Power-user resume lives here.
+              ------------------------------------------------------------------ */}
+          <section className="mb-6" style={{ display: "none" }}>
+            <button
+              type="button"
+              onClick={() => setShowAllSessions(!showAllSessions)}
+              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <History size={13} />
+              <span className="text-[12.5px] font-semibold">
+                All Claude sessions
+              </span>
+              <span
+                className="text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {historyLoading
+                  ? "loading…"
+                  : `${filteredHistory.length} of ${history.length}`}
+              </span>
+              <span
+                className="ml-auto text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {showAllSessions ? "hide" : "show"}
+              </span>
+            </button>
+
+            {showAllSessions && (
+              <div
+                className="mt-2 rounded p-4"
                 style={{
                   background: "var(--color-surface-2)",
                   border: "1px solid var(--color-border)",
                 }}
               >
-                <span
-                  className="inline-block text-[12px]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  {isOpen ? "▾" : "▸"}
-                </span>
-                <span className="text-[12.5px] font-semibold">{g.label}</span>
-                <span
-                  className="text-[11.5px]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  {g.items.length} workspaces
-                </span>
-                <span
-                  className="ml-auto text-[11.5px]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  {isOpen ? "hide" : "show"}
-                </span>
-              </button>
-              {isOpen && (
-                <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                  {g.items.map((ws) => (
-                    <WorkspaceCard
-                      key={ws.cwd}
-                      ws={ws}
-                      busy={busyCwd === ws.cwd}
-                      onContinue={continueWorkspace}
-                      onNew={newInWorkspace}
-                      onCustom={customInWorkspace}
-                      onSendContext={sendContextFromWorkspace}
-                      onCreateProject={createProjectFromWorkspace}
-                    />
+                {!historyLoading && filteredHistory.length === 0 && (
+                  <div
+                    className="rounded p-4 text-center text-[12px]"
+                    style={{
+                      background: "var(--color-surface-1)",
+                      border: "1px solid var(--color-border)",
+                      color: "var(--color-text-tertiary)",
+                    }}
+                  >
+                    {history.length === 0
+                      ? "No sessions recorded yet."
+                      : `No session matches "${search}".`}
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  {filteredHistory.map((s) => (
+                    <div
+                      key={`${s.project_slug}-${s.id}`}
+                      className="rounded p-3 transition-colors"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        border: "1px solid var(--color-border)",
+                      }}
+                    >
+                      <div className="flex items-baseline gap-3">
+                        <span
+                          className="truncate text-[11.5px]"
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            color: "var(--color-text-tertiary)",
+                          }}
+                          title={s.project_label}
+                        >
+                          {s.project_label}
+                        </span>
+                        <span
+                          className="ml-auto shrink-0 tabular-nums text-[10.5px]"
+                          style={{ color: "var(--color-text-faint)" }}
+                        >
+                          {formatRel(s.last_activity)} · {s.line_count} turns ·{" "}
+                          {formatBytes(s.size_bytes)}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => resumeSession(s)}
+                          className="shrink-0 rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors"
+                          style={{
+                            background: "var(--color-accent)",
+                            color: "var(--color-accent-text)",
+                          }}
+                          title={`claude -r ${s.id}`}
+                        >
+                          Resume
+                        </button>
+                      </div>
+                      {s.preview && (
+                        <div
+                          className="mt-1 line-clamp-2 text-[12px] leading-relaxed"
+                          style={{ color: "var(--color-text-secondary)" }}
+                        >
+                          {s.preview}
+                        </div>
+                      )}
+                    </div>
                   ))}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </section>
-
-      {/* ------------------------------------------------------------------
-          Section 2 — Collapsible: All Claude sessions
-          v2.6 (card-v26-fb-003): hidden — user wants the per-workspace
-          card to be the only way to see sessions. Code stays.
-          ------------------------------------------------------------------ */}
-      <section className="mb-6" style={{ display: "none" }}>
-        <button
-          type="button"
-          onClick={() => setShowAllSessions(!showAllSessions)}
-          className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          <History size={13} />
-          <span className="text-[12.5px] font-semibold">
-            All Claude sessions
-          </span>
-          <span
-            className="text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            {historyLoading
-              ? "loading…"
-              : `${filteredHistory.length} of ${history.length}`}
-          </span>
-          <span
-            className="ml-auto text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            {showAllSessions ? "hide" : "show"}
-          </span>
-        </button>
-
-        {showAllSessions && (
-          <div
-            className="mt-2 rounded p-4"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            {!historyLoading && filteredHistory.length === 0 && (
-              <div
-                className="rounded p-4 text-center text-[12px]"
-                style={{
-                  background: "var(--color-surface-1)",
-                  border: "1px solid var(--color-border)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                {history.length === 0
-                  ? "No sessions recorded yet."
-                  : `No session matches "${search}".`}
               </div>
             )}
-            <div className="space-y-1.5">
-              {filteredHistory.map((s) => (
+          </section>
+
+          {/* ------------------------------------------------------------------
+              Section 3 — Advanced launch (hidden, retained for future use)
+              ------------------------------------------------------------------ */}
+          <section style={{ display: "none" }}>
+            <button
+              type="button"
+              onClick={() => setShowAdvanced(!showAdvanced)}
+              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <span className="text-[12.5px] font-semibold">
+                Advanced launch
+              </span>
+              <span
+                className="text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                provider · model · presets · quick prompt
+              </span>
+              <span
+                className="ml-auto text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {showAdvanced ? "hide" : "show"}
+              </span>
+            </button>
+
+            {showAdvanced && (
+              <section
+                className="mt-2 rounded p-5"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <ProviderTabs active={provider} onChange={setProvider} />
+                  <WorkspacePicker
+                    cwd={cwd}
+                    onChange={setCwd}
+                    projects={projects}
+                  />
+                </div>
+
+                {meta.acceptsModel && (
+                  <div className="mt-4 flex items-center gap-3">
+                    <label
+                      className="text-[11.5px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                      htmlFor="provider-model"
+                    >
+                      Model
+                    </label>
+                    <select
+                      id="provider-model"
+                      value={model}
+                      onChange={(e) => setModel(e.target.value)}
+                      className="rounded px-2 py-1 text-[12px]"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                      }}
+                    >
+                      {meta.models.map((m) => (
+                        <option key={m.id || "default"} value={m.id}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
                 <div
-                  key={`${s.project_slug}-${s.id}`}
-                  className="rounded p-3 transition-colors"
+                  className="mt-4 rounded p-4"
                   style={{
                     background: "var(--color-surface-1)",
                     border: "1px solid var(--color-border)",
                   }}
                 >
-                  <div className="flex items-baseline gap-3">
-                    <span
-                      className="truncate text-[11.5px]"
+                  <div
+                    className="text-[10px] font-medium uppercase tracking-[0.06em]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Presets · applied on launch and remembered across sessions
+                  </div>
+                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <label
+                      className="flex items-start gap-2 rounded p-2.5 transition-colors"
                       style={{
-                        fontFamily: "var(--font-mono)",
-                        color: "var(--color-text-tertiary)",
+                        background: presets.dangerouslySkipPermissions
+                          ? "rgba(248, 81, 73, 0.06)"
+                          : "var(--color-surface-2)",
+                        border: `1px solid ${
+                          presets.dangerouslySkipPermissions
+                            ? "rgba(248, 81, 73, 0.22)"
+                            : "var(--color-border)"
+                        }`,
+                        cursor: "pointer",
                       }}
-                      title={s.project_label}
                     >
-                      {s.project_label}
-                    </span>
-                    <span
-                      className="ml-auto shrink-0 tabular-nums text-[10.5px]"
-                      style={{ color: "var(--color-text-faint)" }}
-                    >
-                      {formatRel(s.last_activity)} · {s.line_count} turns ·{" "}
-                      {formatBytes(s.size_bytes)}
-                    </span>
+                      <input
+                        type="checkbox"
+                        checked={presets.dangerouslySkipPermissions}
+                        onChange={(e) =>
+                          setPresets({
+                            ...presets,
+                            dangerouslySkipPermissions: e.target.checked,
+                          })
+                        }
+                        className="mt-0.5 h-3.5 w-3.5"
+                      />
+                      <div className="min-w-0">
+                        <div
+                          className="text-[12.5px] font-medium"
+                          style={{
+                            color: presets.dangerouslySkipPermissions
+                              ? "var(--color-danger)"
+                              : "var(--color-text)",
+                          }}
+                        >
+                          --dangerously-skip-permissions
+                        </div>
+                        <div
+                          className="mt-0.5 text-[11.5px]"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                        >
+                          Skip every tool confirmation. Only in trusted
+                          environments.
+                        </div>
+                      </div>
+                    </label>
+
+                    <div>
+                      <label
+                        className="block text-[10px] uppercase tracking-wide"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                        htmlFor="effort-select"
+                      >
+                        --effort
+                      </label>
+                      <select
+                        id="effort-select"
+                        value={presets.effort}
+                        onChange={(e) =>
+                          setPresets({
+                            ...presets,
+                            effort: e.target.value as Presets["effort"],
+                          })
+                        }
+                        className="mt-1 w-full rounded px-2 py-1 text-[12px]"
+                        style={{
+                          background: "var(--color-surface-2)",
+                          color: "var(--color-text)",
+                          border: "1px solid var(--color-border-strong)",
+                        }}
+                      >
+                        <option value="">default</option>
+                        <option value="low">low</option>
+                        <option value="medium">medium</option>
+                        <option value="high">high</option>
+                        <option value="xhigh">xhigh</option>
+                        <option value="max">max</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div
+                    className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
+                    style={{ borderColor: "var(--color-border)" }}
+                  >
                     <button
                       type="button"
-                      onClick={() => resumeSession(s)}
-                      className="shrink-0 rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors"
+                      onClick={() => openSession(false)}
+                      className="rounded px-4 py-2 text-[13px] font-semibold transition-colors"
                       style={{
                         background: "var(--color-accent)",
                         color: "var(--color-accent-text)",
                       }}
-                      title={`claude -r ${s.id}`}
+                      title={`Launch a clean ${meta.label} session in ${cwd || "(no workspace)"}`}
                     >
-                      Resume
+                      New Session
                     </button>
-                  </div>
-                  {s.preview && (
-                    <div
-                      className="mt-1 line-clamp-2 text-[12px] leading-relaxed"
-                      style={{ color: "var(--color-text-secondary)" }}
+                    <span
+                      className="ml-auto text-[11.5px]"
+                      style={{ color: "var(--color-text-faint)" }}
                     >
-                      {s.preview}
-                    </div>
-                  )}
-                  <div
-                    className="mt-1 truncate text-[10px]"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      color: "var(--color-text-faint)",
-                    }}
-                  >
-                    {s.id}
+                      cwd: {cwd || "(none)"}
+                    </span>
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </section>
 
-      {/* ------------------------------------------------------------------
-          Section 3 — Collapsible: Advanced launch (provider / model / presets)
-          v2.6 (card-v26-fb-003): hidden — user explicitly asked to drop
-          this block ("todo el Advanced launch ese lo quiero fuera"). Each
-          workspace card will gain a per-card Custom popover instead.
-          The code stays so we can restore it later if needed.
-          ------------------------------------------------------------------ */}
-      <section style={{ display: "none" }}>
-        <button
-          type="button"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          <span className="text-[12.5px] font-semibold">
-            Advanced launch
-          </span>
-          <span
-            className="text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            provider · model · presets · quick prompt
-          </span>
-          <span
-            className="ml-auto text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            {showAdvanced ? "hide" : "show"}
-          </span>
-        </button>
-
-        {showAdvanced && (
-          <section
-            className="mt-2 rounded p-5"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <ProviderTabs active={provider} onChange={setProvider} />
-              <WorkspacePicker
-                cwd={cwd}
-                onChange={setCwd}
-                projects={projects}
-              />
-            </div>
-
-            {meta.acceptsModel && (
-              <div className="mt-4 flex items-center gap-3">
-                <label
-                  className="text-[11.5px]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                  htmlFor="provider-model"
-                >
-                  Model
-                </label>
-                <select
-                  id="provider-model"
-                  value={model}
-                  onChange={(e) => setModel(e.target.value)}
-                  className="rounded px-2 py-1 text-[12px]"
-                  style={{
-                    background: "var(--color-surface-1)",
-                    color: "var(--color-text)",
-                    border: "1px solid var(--color-border-strong)",
-                  }}
-                >
-                  {meta.models.map((m) => (
-                    <option key={m.id || "default"} value={m.id}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-
-            <div
-              className="mt-4 rounded p-4"
-              style={{
-                background: "var(--color-surface-1)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              <div
-                className="text-[10px] font-medium uppercase tracking-[0.06em]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                Presets · applied on launch and remembered across sessions
-              </div>
-              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                <label
-                  className="flex items-start gap-2 rounded p-2.5 transition-colors"
-                  style={{
-                    background: presets.dangerouslySkipPermissions
-                      ? "rgba(248, 81, 73, 0.06)"
-                      : "var(--color-surface-2)",
-                    border: `1px solid ${
-                      presets.dangerouslySkipPermissions
-                        ? "rgba(248, 81, 73, 0.22)"
-                        : "var(--color-border)"
-                    }`,
-                    cursor: "pointer",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={presets.dangerouslySkipPermissions}
-                    onChange={(e) =>
-                      setPresets({
-                        ...presets,
-                        dangerouslySkipPermissions: e.target.checked,
-                      })
-                    }
-                    className="mt-0.5 h-3.5 w-3.5"
-                  />
-                  <div className="min-w-0">
-                    <div
-                      className="text-[12.5px] font-medium"
-                      style={{
-                        color: presets.dangerouslySkipPermissions
-                          ? "var(--color-danger)"
-                          : "var(--color-text)",
-                      }}
-                    >
-                      --dangerously-skip-permissions
-                    </div>
-                    <div
-                      className="mt-0.5 text-[11.5px]"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      Skip every tool confirmation. Only in trusted
-                      environments.
-                    </div>
-                  </div>
-                </label>
-
-                <div>
-                  <label
-                    className="block text-[10px] uppercase tracking-wide"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                    htmlFor="effort-select"
-                  >
-                    --effort
-                  </label>
-                  <select
-                    id="effort-select"
-                    value={presets.effort}
-                    onChange={(e) =>
-                      setPresets({
-                        ...presets,
-                        effort: e.target.value as Presets["effort"],
-                      })
-                    }
-                    className="mt-1 w-full rounded px-2 py-1 text-[12px]"
-                    style={{
-                      background: "var(--color-surface-2)",
-                      color: "var(--color-text)",
-                      border: "1px solid var(--color-border-strong)",
-                    }}
-                  >
-                    <option value="">default</option>
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                    <option value="xhigh">xhigh</option>
-                    <option value="max">max</option>
-                  </select>
-                </div>
-              </div>
-
-              <div
-                className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
-                style={{ borderColor: "var(--color-border)" }}
-              >
-                <button
-                  type="button"
-                  onClick={() => openSession(false)}
-                  className="rounded px-4 py-2 text-[13px] font-semibold transition-colors"
-                  style={{
-                    background: "var(--color-accent)",
-                    color: "var(--color-accent-text)",
-                  }}
-                  title={`Launch a clean ${meta.label} session in ${cwd || "(no workspace)"}`}
-                >
-                  New Session
-                </button>
-                <span
-                  className="ml-auto text-[11.5px]"
-                  style={{ color: "var(--color-text-faint)" }}
-                >
-                  cwd: {cwd || "(none)"}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between">
-              <button
-                type="button"
-                onClick={() => setShowInline(!showInline)}
-                className="text-[11.5px] transition-colors"
-                style={{ color: "var(--color-text-tertiary)" }}
-                title="Inline mode: run a batch prompt without opening a terminal"
-              >
-                {showInline ? "Hide quick prompt" : "Show quick prompt"}
-              </button>
-            </div>
-
-            {showInline && (
-              <>
-                <textarea
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder={`Prompt for ${meta.label}…  (Ctrl+Enter to open session with prompt)`}
-                  rows={6}
-                  onKeyDown={(e) => {
-                    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                      e.preventDefault();
-                      if (prompt.trim()) openSession(true);
-                    }
-                  }}
-                  className="mt-3 w-full rounded px-3 py-2 text-[12.5px] leading-relaxed"
-                  style={{
-                    background: "var(--color-surface-1)",
-                    color: "var(--color-text)",
-                    border: "1px solid var(--color-border-strong)",
-                    fontFamily: "var(--font-mono)",
-                    outline: "none",
-                    resize: "vertical",
-                  }}
-                />
-
-                <div className="mt-3 flex flex-wrap items-center gap-2">
+                <div className="mt-4 flex items-center justify-between">
                   <button
                     type="button"
-                    onClick={() => openSession(true)}
-                    disabled={!prompt.trim()}
-                    className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
-                    style={{
-                      background: "var(--color-accent)",
-                      color: "var(--color-accent-text)",
-                    }}
-                    title="Open a new terminal session pre-populated with this prompt"
+                    onClick={() => setShowInline(!showInline)}
+                    className="text-[11.5px] transition-colors"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                    title="Inline mode: run a batch prompt without opening a terminal"
                   >
-                    Open session with prompt
+                    {showInline ? "Hide quick prompt" : "Show quick prompt"}
                   </button>
-                  <div className="ml-auto flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setPrompt("")}
-                      className="rounded px-2 py-1.5 text-[11.5px] transition-colors"
-                      style={{
-                        background: "transparent",
-                        color: "var(--color-text-tertiary)",
-                        border: "1px solid var(--color-border-strong)",
-                      }}
-                    >
-                      Clear
-                    </button>
-                  </div>
                 </div>
-              </>
+
+                {showInline && (
+                  <>
+                    <textarea
+                      value={prompt}
+                      onChange={(e) => setPrompt(e.target.value)}
+                      placeholder={`Prompt for ${meta.label}…  (Ctrl+Enter to open session with prompt)`}
+                      rows={6}
+                      onKeyDown={(e) => {
+                        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                          e.preventDefault();
+                          if (prompt.trim()) openSession(true);
+                        }
+                      }}
+                      className="mt-3 w-full rounded px-3 py-2 text-[12.5px] leading-relaxed"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text)",
+                        border: "1px solid var(--color-border-strong)",
+                        fontFamily: "var(--font-mono)",
+                        outline: "none",
+                        resize: "vertical",
+                      }}
+                    />
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => openSession(true)}
+                        disabled={!prompt.trim()}
+                        className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+                        style={{
+                          background: "var(--color-accent)",
+                          color: "var(--color-accent-text)",
+                        }}
+                        title="Open a new terminal session pre-populated with this prompt"
+                      >
+                        Open session with prompt
+                      </button>
+                      <div className="ml-auto flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPrompt("")}
+                          className="rounded px-2 py-1.5 text-[11.5px] transition-colors"
+                          style={{
+                            background: "transparent",
+                            color: "var(--color-text-tertiary)",
+                            border: "1px solid var(--color-border-strong)",
+                          }}
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </section>
             )}
           </section>
-        )}
-      </section>
+        </>
+      )}
+
+      {/* v2.6 round 2: Custom / Send-Context modal — single instance at the
+          panel level. Cards delegate via setModal(...). */}
+      {modal && (
+        <LauncherModal
+          mode={modal.mode}
+          workspace={modal.ws}
+          busy={busyCwd === modal.ws.cwd}
+          onClose={() => setModal(null)}
+          onLaunch={(opts) => {
+            const ws = modal.ws;
+            const m = modal.mode;
+            setModal(null);
+            if (m === "custom") {
+              void customInWorkspace(ws, opts);
+            } else {
+              void sendContextFromWorkspace(ws, opts);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

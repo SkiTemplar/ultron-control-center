@@ -1,62 +1,66 @@
 // v2.3 — Slash command browser.
-// v2.6 (fb-023, fb-051) — split-view proportions reworked:
-//   - Tree column fixed at 280px so command names get a stable, legible width
-//     and the preview pane gets the rest of the screen (was compressed before
-//     to ~40% with a giant empty preview).
-//   - Categories default to COLLAPSED. The most recently visited category is
-//     persisted in localStorage and auto-expanded on mount.
-//   - Preview pane uses 12.5px monospace for command body / source path; long
-//     lines do not truncate (use overflow-x scroll instead).
-//
-// Tree view (Spotify-style) groups every discovered slash command by
-// marketplace → plugin → command. The right pane shows the metadata
-// (description, argument-hint, model, path) and a "Copy /<ns>:<cmd>" button.
-// Search filters the tree in place.
+// v2.6 (fb-023, fb-051) — first split-view rework (deprecated by v2.6.2).
+// v2.6.2 (fb-099) — full redesign: 3-column [categories][command list][preview].
+//   - The 2-col layout (tree on left, preview on right) wasted vertical
+//     space in the preview pane and forced the user to scroll an enormous
+//     plugin tree just to find a single command. The new layout splits the
+//     tree into TWO panes: a compact category list on the far left
+//     (marketplace/plugin chips) and a dedicated command list in the
+//     middle. The preview keeps its place on the right but no longer needs
+//     to absorb all the empty horizontal real estate.
+//   - Search input is prominent at the top and filters across every plugin
+//     so the user can find any command without touching the tree.
+//   - Active category is highlighted; clicking a category swaps the
+//     middle pane to that plugin's commands.
+//   - localStorage still persists the last active category so a relaunch
+//     drops the user back where they were.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type { SlashCommand } from "../../types";
-import {
-  ChevronDown,
-  ChevronRight,
-  Clipboard,
-  ExternalLink,
-  Folder,
-  Terminal,
-} from "./icons";
+import { Clipboard, ExternalLink, Folder, Terminal } from "./icons";
 
-type TreeNode = {
+type CategoryKey = string; // `${marketplace}/${plugin}` — empty plugin means "all of marketplace"
+
+type Category = {
+  key: CategoryKey;
   marketplace: string;
-  plugins: Record<string, SlashCommand[]>;
+  plugin: string;
+  count: number;
 };
 
-function groupCommands(cmds: SlashCommand[]): TreeNode[] {
-  const acc = new Map<string, Record<string, SlashCommand[]>>();
+function categoriesOf(cmds: SlashCommand[]): Category[] {
+  const map = new Map<CategoryKey, Category>();
   for (const c of cmds) {
-    if (!acc.has(c.marketplace)) acc.set(c.marketplace, {});
-    const plugins = acc.get(c.marketplace)!;
-    if (!plugins[c.plugin]) plugins[c.plugin] = [];
-    plugins[c.plugin].push(c);
+    const key = `${c.marketplace}/${c.plugin}`;
+    const prev = map.get(key);
+    if (prev) {
+      prev.count += 1;
+    } else {
+      map.set(key, {
+        key,
+        marketplace: c.marketplace,
+        plugin: c.plugin,
+        count: 1,
+      });
+    }
   }
-  return Array.from(acc.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([marketplace, plugins]) => ({ marketplace, plugins }));
+  return Array.from(map.values()).sort((a, b) => {
+    if (a.marketplace !== b.marketplace) {
+      return a.marketplace.localeCompare(b.marketplace);
+    }
+    return a.plugin.localeCompare(b.plugin);
+  });
 }
 
 function commandSlug(c: SlashCommand): string {
-  // `/<plugin>:<name>` is the invocation form. For the user-local
-  // namespace, the plugin slug is literally "user".
   if (c.marketplace === "user" && c.plugin === "user") {
     return `/${c.name}`;
   }
   return `/${c.plugin}:${c.name}`;
 }
 
-// v2.6 — persist the last-active category (plugin) so the user lands on
-// something useful instead of an empty tree. We only persist a single key
-// (`pl:<marketplace>/<plugin>`) — marketplaces stay collapsed by default
-// alongside it. Lives in localStorage so it survives a relaunch.
 const LAST_CATEGORY_KEY = "control-center.commands.lastCategory";
 
 function readLastCategory(): string | null {
@@ -71,7 +75,7 @@ function writeLastCategory(key: string): void {
   try {
     window.localStorage.setItem(LAST_CATEGORY_KEY, key);
   } catch {
-    // Ignore quota / privacy-mode failures.
+    /* ignore */
   }
 }
 
@@ -80,21 +84,10 @@ export function Commands() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<CategoryKey | null>(
+    readLastCategory(),
+  );
   const [selected, setSelected] = useState<SlashCommand | null>(null);
-  // v2.6 (fb-023): default-collapsed. We seed `expanded` with the last
-  // category the user touched (if any) — both its marketplace and plugin
-  // entries are opened so the tree isn't empty on mount.
-  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
-    const last = readLastCategory();
-    if (!last) return {};
-    // last looks like `pl:<marketplace>/<plugin>`. Derive the matching
-    // marketplace key so the parent node is also open.
-    const m = last.match(/^pl:([^/]+)\//);
-    const mpKey = m ? `mp:${m[1]}` : null;
-    const seed: Record<string, boolean> = { [last]: true };
-    if (mpKey) seed[mpKey] = true;
-    return seed;
-  });
   const [copied, setCopied] = useState(false);
 
   const reload = async () => {
@@ -114,48 +107,48 @@ export function Commands() {
     void reload();
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return cmds;
+  const trimmedQuery = query.trim().toLowerCase();
+  const isSearching = trimmedQuery.length > 0;
+
+  // Full filtered set (used when searching — search ignores category).
+  const filteredAll = useMemo(() => {
+    if (!isSearching) return cmds;
     return cmds.filter(
       (c) =>
-        c.name.toLowerCase().includes(q) ||
-        c.plugin.toLowerCase().includes(q) ||
-        c.description.toLowerCase().includes(q),
+        c.name.toLowerCase().includes(trimmedQuery) ||
+        c.plugin.toLowerCase().includes(trimmedQuery) ||
+        c.marketplace.toLowerCase().includes(trimmedQuery) ||
+        c.description.toLowerCase().includes(trimmedQuery),
     );
-  }, [cmds, query]);
+  }, [cmds, isSearching, trimmedQuery]);
 
-  const tree = useMemo(() => groupCommands(filtered), [filtered]);
+  const categories = useMemo(() => categoriesOf(cmds), [cmds]);
 
-  // Auto-expand all groups when the user types a query — otherwise
-  // search results stay hidden behind collapsed nodes.
+  // Pick a sensible default category when none is set and data has loaded.
   useEffect(() => {
-    if (!query.trim()) return;
-    const next: Record<string, boolean> = {};
-    for (const node of tree) {
-      next[`mp:${node.marketplace}`] = true;
-      for (const plugin of Object.keys(node.plugins)) {
-        next[`pl:${node.marketplace}/${plugin}`] = true;
-      }
+    if (activeCategory || categories.length === 0) return;
+    const first = categories[0];
+    setActiveCategory(first.key);
+  }, [activeCategory, categories]);
+
+  // Commands shown in the middle column.
+  const middleList = useMemo(() => {
+    // When searching, the middle pane shows global matches regardless of
+    // the active category — but if the user has a category selected we
+    // still scope to it for relevance.
+    if (isSearching) {
+      return filteredAll;
     }
-    setExpanded(next);
-  }, [query, tree]);
+    if (!activeCategory) return cmds;
+    return cmds.filter(
+      (c) => `${c.marketplace}/${c.plugin}` === activeCategory,
+    );
+  }, [isSearching, filteredAll, activeCategory, cmds]);
 
-  const toggle = (key: string) =>
-    setExpanded((prev) => {
-      const next = { ...prev, [key]: !prev[key] };
-      // Persist plugin-level opens so a relaunch lands on the same category.
-      if (key.startsWith("pl:") && next[key]) {
-        writeLastCategory(key);
-      }
-      return next;
-    });
-
-  // v2.6 (fb-023): default-collapsed for BOTH marketplace and plugin nodes.
-  // Search auto-expands on demand via the `useEffect` below; otherwise the
-  // user has to click to reveal each category.
-  const isExpanded = (key: string, fallback = false) =>
-    expanded[key] ?? fallback;
+  const sortedMiddle = useMemo(
+    () => middleList.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [middleList],
+  );
 
   const handleCopy = async (c: SlashCommand) => {
     const slug = commandSlug(c);
@@ -176,8 +169,15 @@ export function Commands() {
     }
   };
 
+  const matchingCategoryCount = useMemo(() => {
+    if (!isSearching) return null;
+    const seen = new Set<string>();
+    for (const c of filteredAll) seen.add(`${c.marketplace}/${c.plugin}`);
+    return seen.size;
+  }, [isSearching, filteredAll]);
+
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
+    <div className="flex h-full flex-col gap-3 p-6">
       <header className="flex items-center justify-between gap-2">
         <div className="flex items-baseline gap-2">
           <h2 className="text-lg font-semibold">Commands</h2>
@@ -185,7 +185,11 @@ export function Commands() {
             className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            {filtered.length} of {cmds.length} slash commands
+            {isSearching
+              ? `${filteredAll.length} matches across ${matchingCategoryCount} ${
+                  matchingCategoryCount === 1 ? "category" : "categories"
+                }`
+              : `${cmds.length} slash commands · ${categories.length} categories`}
           </span>
         </div>
         <button
@@ -201,11 +205,12 @@ export function Commands() {
         </button>
       </header>
 
+      {/* Prominent search input — finds any command across every plugin. */}
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Buscar comandos…"
-        className="w-full rounded-md px-3 py-2 text-sm outline-none"
+        placeholder="Buscar en TODOS los comandos (nombre, plugin, descripción)…"
+        className="w-full rounded-md px-3 py-2.5 text-sm outline-none"
         style={{
           border: "1px solid var(--color-border-strong)",
           background: "var(--color-surface-2)",
@@ -226,12 +231,12 @@ export function Commands() {
         </div>
       )}
 
-      {/* v2.6 (fb-023, fb-051): tree column fixed at 280px, preview gets all
-          remaining space. Was `1fr 1.4fr` before — the variable tree column
-          collapsed to ~40% on wide screens leaving the preview pane mostly
-          empty with truncated command names on the left. */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
-        {/* LEFT: tree */}
+      {/* 3-col layout: [categories 220px] [command list 1fr] [preview 1.2fr].
+          Reclaims horizontal space from the (previously enormous) preview
+          pane and gives the user a dedicated list of commands within the
+          selected category — no more scrolling through a 300+ entry tree. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 md:grid-cols-[220px_minmax(260px,1fr)_minmax(0,1.2fr)]">
+        {/* COL 1 — categories */}
         <div
           className="min-h-0 overflow-y-auto rounded-md"
           style={{
@@ -247,125 +252,139 @@ export function Commands() {
               Loading…
             </p>
           )}
-          {!loading && tree.length === 0 && (
+          {!loading && categories.length === 0 && (
             <p
               className="p-3 text-xs"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Sin comandos para el filtro actual.
+              No hay comandos.
             </p>
           )}
-          <ul className="p-1 text-sm">
-            {tree.map((node) => {
-              const mpKey = `mp:${node.marketplace}`;
-              const mpOpen = isExpanded(mpKey, false);
+          <ul className="p-1">
+            {categories.map((cat) => {
+              const isActive = cat.key === activeCategory && !isSearching;
               return (
-                <li key={node.marketplace} className="select-none">
+                <li key={cat.key}>
                   <button
                     type="button"
-                    onClick={() => toggle(mpKey)}
-                    className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[12px] uppercase tracking-wide"
-                    style={{ color: "var(--color-text-secondary)" }}
+                    onClick={() => {
+                      setActiveCategory(cat.key);
+                      writeLastCategory(cat.key);
+                      // Clear search when the user picks a category so the
+                      // middle pane returns to category-scoped browsing.
+                      if (isSearching) setQuery("");
+                    }}
+                    className="flex w-full items-center gap-1.5 rounded px-2 py-1.5 text-left text-[12px]"
+                    style={{
+                      background: isActive
+                        ? "var(--color-surface-4)"
+                        : "transparent",
+                      color: isActive
+                        ? "var(--color-text)"
+                        : "var(--color-text-secondary)",
+                      border: `1px solid ${
+                        isActive
+                          ? "var(--color-border-strong)"
+                          : "transparent"
+                      }`,
+                    }}
+                    title={`${cat.marketplace} · ${cat.plugin}`}
                   >
-                    {mpOpen ? (
-                      <ChevronDown size={12} />
-                    ) : (
-                      <ChevronRight size={12} />
-                    )}
                     <Folder size={12} />
-                    <span className="truncate">{node.marketplace}</span>
+                    <span className="min-w-0 flex-1 truncate">
+                      <span className="font-medium">{cat.plugin}</span>
+                      <span
+                        className="ml-1 text-[10.5px]"
+                        style={{ color: "var(--color-text-tertiary)" }}
+                      >
+                        · {cat.marketplace}
+                      </span>
+                    </span>
+                    <span
+                      className="ml-1 shrink-0 text-[10.5px]"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {cat.count}
+                    </span>
                   </button>
-                  {mpOpen && (
-                    <ul className="ml-2 border-l pl-2" style={{ borderColor: "var(--color-border)" }}>
-                      {Object.entries(node.plugins)
-                        .sort(([a], [b]) => a.localeCompare(b))
-                        .map(([plugin, list]) => {
-                          const plKey = `pl:${node.marketplace}/${plugin}`;
-                          const plOpen = isExpanded(plKey, false);
-                          return (
-                            <li key={plugin}>
-                              <button
-                                type="button"
-                                onClick={() => toggle(plKey)}
-                                className="flex w-full items-center gap-1.5 rounded px-2 py-1 text-left text-[12.5px]"
-                                style={{ color: "var(--color-text)" }}
-                              >
-                                {plOpen ? (
-                                  <ChevronDown size={12} />
-                                ) : (
-                                  <ChevronRight size={12} />
-                                )}
-                                <Terminal size={12} />
-                                <span className="truncate font-medium">
-                                  {plugin}
-                                </span>
-                                <span
-                                  className="ml-auto text-[10.5px]"
-                                  style={{
-                                    color: "var(--color-text-tertiary)",
-                                  }}
-                                >
-                                  {list.length}
-                                </span>
-                              </button>
-                              {plOpen && (
-                                <ul
-                                  className="ml-3 border-l pl-2"
-                                  style={{ borderColor: "var(--color-border)" }}
-                                >
-                                  {list
-                                    .slice()
-                                    .sort((a, b) => a.name.localeCompare(b.name))
-                                    .map((c) => {
-                                      const isActive = selected?.path === c.path;
-                                      return (
-                                        <li key={c.path}>
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setSelected(c);
-                                              // v2.6 (fb-023): remember the
-                                              // last category so a relaunch
-                                              // re-opens it automatically.
-                                              writeLastCategory(plKey);
-                                            }}
-                                            className="block w-full truncate rounded px-2 py-1 text-left text-[12px]"
-                                            style={{
-                                              background: isActive
-                                                ? "var(--color-surface-4)"
-                                                : "transparent",
-                                              color: isActive
-                                                ? "var(--color-text)"
-                                                : "var(--color-text-secondary)",
-                                              border: `1px solid ${
-                                                isActive
-                                                  ? "var(--color-border-strong)"
-                                                  : "transparent"
-                                              }`,
-                                            }}
-                                          >
-                                            {c.name}
-                                          </button>
-                                        </li>
-                                      );
-                                    })}
-                                </ul>
-                              )}
-                            </li>
-                          );
-                        })}
-                    </ul>
-                  )}
                 </li>
               );
             })}
           </ul>
         </div>
 
-        {/* RIGHT: detail. v2.6 (fb-051) — denser layout, mono content uses
-            12.5px instead of 11-12px, long lines scroll horizontally instead
-            of being truncated so commands with full file paths or example
-            invocations stay readable. */}
+        {/* COL 2 — command list (scoped to active category, or search results) */}
+        <div
+          className="min-h-0 overflow-y-auto rounded-md"
+          style={{
+            border: "1px solid var(--color-border-strong)",
+            background: "var(--color-surface-2)",
+          }}
+        >
+          {!loading && sortedMiddle.length === 0 && (
+            <p
+              className="p-3 text-xs"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {isSearching
+                ? "Sin coincidencias para la búsqueda."
+                : "Selecciona una categoría a la izquierda."}
+            </p>
+          )}
+          <ul className="p-1">
+            {sortedMiddle.map((c) => {
+              const isActive = selected?.path === c.path;
+              return (
+                <li key={c.path}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(c)}
+                    className="flex w-full items-start gap-1.5 rounded px-2 py-1.5 text-left text-[12px]"
+                    style={{
+                      background: isActive
+                        ? "var(--color-surface-4)"
+                        : "transparent",
+                      color: isActive
+                        ? "var(--color-text)"
+                        : "var(--color-text-secondary)",
+                      border: `1px solid ${
+                        isActive
+                          ? "var(--color-border-strong)"
+                          : "transparent"
+                      }`,
+                    }}
+                  >
+                    <Terminal size={12} className="mt-0.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{c.name}</div>
+                      {isSearching && (
+                        <div
+                          className="truncate text-[10.5px]"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                        >
+                          {c.marketplace} / {c.plugin}
+                        </div>
+                      )}
+                      {c.description && (
+                        <div
+                          className="mt-0.5 line-clamp-2 text-[11px]"
+                          style={{
+                            color: "var(--color-text-tertiary)",
+                            whiteSpace: "normal",
+                          }}
+                        >
+                          {c.description}
+                        </div>
+                      )}
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {/* COL 3 — preview / detail */}
         <div
           className="min-h-0 overflow-y-auto rounded-md p-5"
           style={{
@@ -378,7 +397,7 @@ export function Commands() {
               className="text-xs"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              Selecciona un comando del árbol para ver detalles.
+              Selecciona un comando para ver detalles.
             </p>
           ) : (
             <div className="flex flex-col gap-3">
@@ -386,10 +405,7 @@ export function Commands() {
                 <div className="min-w-0 flex-1">
                   <h3
                     className="text-base font-semibold"
-                    style={{
-                      // No truncation: command slug is the headline.
-                      wordBreak: "break-word",
-                    }}
+                    style={{ wordBreak: "break-word" }}
                   >
                     {commandSlug(selected)}
                   </h3>
@@ -419,7 +435,7 @@ export function Commands() {
                     }}
                   >
                     <Clipboard size={12} />
-                    {copied ? "Copied!" : "Copy slash command"}
+                    {copied ? "Copied!" : "Copy"}
                   </button>
                   <button
                     onClick={() => handleOpen(selected.path)}

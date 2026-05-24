@@ -1,4 +1,7 @@
 // Recent alerts mini-feed (last 5).
+//
+// v2.7 redesign: top-of-dashboard banner role. Larger header, severity-dot
+// per row, source pill, and a clearer empty state.
 
 import type { AlertEntry } from "../../types";
 import { Card, SmallButton, relativeTime } from "./Card";
@@ -27,16 +30,26 @@ export function AlertsCard({ alerts, onOpenNotifications }: AlertsCardProps) {
   const accent = critical > 0 ? "danger" : warn > 0 ? "warn" : "neutral";
   const recent = alerts.slice(0, 5);
 
+  const subtitle =
+    alerts.length === 0
+      ? "No pending alerts"
+      : `${critical} critical · ${warn} warning · ${alerts.length} total`;
+
   return (
     <Card
-      title={`Alerts (${alerts.length})`}
+      title="Notifications"
+      subtitle={subtitle}
       accent={accent}
       action={
-        <SmallButton onClick={onOpenNotifications} title="Open notifications">
-          open
+        <SmallButton
+          onClick={onOpenNotifications}
+          size="md"
+          title="Open notifications"
+        >
+          Open
         </SmallButton>
       }
-      empty={recent.length === 0 ? "No alerts." : null}
+      empty={recent.length === 0 ? "Inbox clear." : null}
     >
       <ul className="space-y-1.5">
         {recent.map((a, i) => {
@@ -44,26 +57,29 @@ export function AlertsCard({ alerts, onOpenNotifications }: AlertsCardProps) {
           return (
             <li
               key={a.id ?? `${a.source}-${i}-${ts ?? ""}`}
-              className="flex items-baseline gap-2 text-[11.5px]"
+              className="flex items-baseline gap-3 text-[13px]"
             >
               <span
-                className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                className="mt-1 inline-block h-2 w-2 shrink-0 rounded-full"
                 style={{ background: severityColor(a.severity) }}
               />
               <span
-                className="shrink-0 tabular-nums"
+                className="shrink-0 tabular-nums text-[11px]"
                 style={{
                   color: "var(--color-text-faint)",
                   fontFamily: "var(--font-mono, ui-monospace)",
-                  fontSize: 10,
-                  minWidth: 56,
+                  minWidth: 60,
                 }}
               >
                 {relativeTime(ts)}
               </span>
               <span
-                className="shrink-0 truncate"
-                style={{ color: "var(--color-text-tertiary)", maxWidth: 90 }}
+                className="shrink-0 truncate rounded px-1.5 py-0.5 text-[10.5px] uppercase tracking-wide"
+                style={{
+                  color: "var(--color-text-tertiary)",
+                  background: "var(--color-surface-3)",
+                  maxWidth: 120,
+                }}
                 title={a.source}
               >
                 {a.source}

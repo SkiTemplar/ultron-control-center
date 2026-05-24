@@ -82,6 +82,29 @@ pub struct ProjectInfo {
     /// gotchas, todos that don't deserve a kanban card.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// v2.6.2 — Quick Launch executables surfaced on the project home. Each
+    /// entry pairs a display name with an .exe / .lnk / .bat / .cmd path
+    /// that `launch_project_executable` can spawn directly. Distinct from
+    /// `items[]` (the Projects-tab launcher chips): this list is intentionally
+    /// kept thin so the Project home can show big buttons without forcing the
+    /// user to use the chip wizard.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executables: Option<Vec<ExecutableEntry>>,
+}
+
+/// v2.6.2 — single Quick Launch executable. `name` is the user-facing label;
+/// `path` must point at a .exe / .lnk / .bat / .cmd that
+/// `launch_project_executable` can spawn. `args` / `icon` are reserved for
+/// future expansion; serde keeps them optional so older registries round-trip
+/// without rewriting.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ExecutableEntry {
+    pub name: String,
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -119,6 +142,8 @@ struct RegEntry {
     parent_folder_override: Option<String>,
     #[serde(default)]
     notes: Option<String>,
+    #[serde(default)]
+    executables: Option<Vec<ExecutableEntry>>,
 }
 
 /// Allowed values for `Project.default_provider`. Centralised so backend
@@ -654,6 +679,11 @@ pub struct UpdateProjectPayload {
     pub parent_folder_override: Option<String>,
     /// fb-016 — patch the free-form notes. Empty string clears.
     pub notes: Option<String>,
+    /// v2.6.2 — patch the Quick Launch executables list. Some(empty vec)
+    /// clears the list; None leaves it alone (consistent with the rest of
+    /// the patch fields). Entries with an empty name or path are dropped
+    /// before persistence.
+    pub executables: Option<Vec<ExecutableEntry>>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -769,12 +799,95 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
             entry["notes"] = serde_json::Value::String(trimmed.to_string());
         }
     }
+    // v2.6.2 — write the executables list. Empty list = clear the field
+    // (Null on disk so we don't bloat the registry with empty arrays).
+    if let Some(list) = p.executables.as_ref() {
+        let cleaned: Vec<&ExecutableEntry> = list
+            .iter()
+            .filter(|e| !e.name.trim().is_empty() && !e.path.trim().is_empty())
+            .collect();
+        if cleaned.is_empty() {
+            entry["executables"] = serde_json::Value::Null;
+        } else {
+            entry["executables"] = serde_json::to_value(&cleaned)
+                .map_err(|e| format!("serialize executables: {}", e))?;
+        }
+    }
 
     let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
     atomic_write(&registry, &serialized)?;
     Ok(UpdateProjectResult {
         success: true,
         id: p.id,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// v2.6.2 — Quick Launch executable dispatch.
+// ---------------------------------------------------------------------------
+
+/// Spawn a Quick Launch executable. We validate the same security envelope as
+/// the `exe` launcher chip (`path_ps_safe`) and prefer a direct
+/// `Command::new(path)` spawn for `.exe` so we never enter a shell. Other
+/// extensions (.lnk / .bat / .cmd / .url) need ShellExecute via PowerShell
+/// Start-Process — same code path as `open_project_inner`.
+pub async fn launch_project_executable_inner(
+    app: &tauri::AppHandle,
+    path: String,
+) -> Result<ProjectActionResult, String> {
+    if path.trim().is_empty() {
+        return Err("path is empty".into());
+    }
+    if path.starts_with(r"\\") || path.starts_with("//") {
+        return Err("UNC paths are not allowed".into());
+    }
+    path_ps_safe(&path)?;
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".exe") {
+        let mut cmd = std::process::Command::new(&path);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        }
+        return match cmd.spawn() {
+            Ok(_) => Ok(ProjectActionResult {
+                success: true,
+                stdout: format!("spawned {}", path),
+                stderr: String::new(),
+                exit_code: Some(0),
+            }),
+            Err(e) => Ok(ProjectActionResult {
+                success: false,
+                stdout: String::new(),
+                stderr: format!("spawn {}: {}", path, e),
+                exit_code: None,
+            }),
+        };
+    }
+    // ShellExecute path for .lnk / .bat / .cmd / .url / .pdf / .html — quoted
+    // PowerShell argument, same hardening as `open_project_inner` Path 1.
+    let ps_quoted = format!("'{}'", path.replace('\'', "''"));
+    let ps_cmd = format!("Start-Process -FilePath {}", ps_quoted);
+    let output = app
+        .shell()
+        .command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            &ps_cmd,
+        ])
+        .output()
+        .await
+        .map_err(|e| format!("spawn ps: {}", e))?;
+    Ok(ProjectActionResult {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        exit_code: output.status.code(),
     })
 }
 
@@ -944,6 +1057,14 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .map(str::to_string);
+        // v2.6.2 — pass through the executables list verbatim. Filter out
+        // entries with an empty name or path so a manually-edited registry
+        // doesn't render dead buttons.
+        let executables = p.executables.map(|list| {
+            list.into_iter()
+                .filter(|e| !e.name.trim().is_empty() && !e.path.trim().is_empty())
+                .collect::<Vec<_>>()
+        });
         out.push(ProjectInfo {
             id: p.id,
             name: p.name,
@@ -959,6 +1080,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             default_shell,
             parent_folder_override,
             notes,
+            executables,
         });
     }
     // v2.x: synthesise a "Home" entry pointing at the user's home directory
@@ -1006,6 +1128,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
                 default_shell: None,
                 parent_folder_override: None,
                 notes: None,
+                executables: None,
             });
         }
     }

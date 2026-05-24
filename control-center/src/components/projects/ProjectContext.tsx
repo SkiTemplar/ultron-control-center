@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Plus, RefreshCw, Save } from "./icons";
+import type { ProjectExecutable, ProjectInfo } from "../../types";
 
 type Props = {
   projectId: string;
@@ -22,6 +23,96 @@ type Mem0Memory = {
   updated_at: string | null;
   metadata: Record<string, unknown>;
 };
+
+// v2.6.2 — Quick Launch buttons render the per-project executables list. We
+// fetch the list once (lightweight: piggybacks on list_projects) and surface
+// each entry as a button. Click → invoke launch_project_executable. The list
+// is editable from Projects › Edit project › Executables; we don't add inline
+// edit here to keep the home panel read-only and uncluttered.
+function QuickLaunchPanel({ projectId }: { projectId: string }) {
+  const [execs, setExecs] = useState<ProjectExecutable[] | null>(null);
+  const [busy, setBusy] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const list = (await invoke("list_projects")) as ProjectInfo[];
+      const proj = list.find((p) => p.id === projectId);
+      setExecs(proj?.executables ?? []);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const launch = useCallback(async (index: number, path: string) => {
+    setBusy(index);
+    setError(null);
+    try {
+      await invoke("launch_project_executable", { path });
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(null);
+    }
+  }, []);
+
+  // Skip rendering when the project has no executables — keeps the home
+  // panel uncluttered for projects that don't need it.
+  if (execs === null) return null;
+  if (execs.length === 0) return null;
+
+  return (
+    <section className="flex flex-col border-b border-[var(--color-border)]">
+      <div className="flex items-center justify-between bg-[var(--color-surface-1)] px-3 py-1 text-xs">
+        <span className="font-semibold">
+          Quick Launch{" "}
+          <span className="text-[var(--color-text-muted)]">({execs.length})</span>
+        </span>
+        <button
+          onClick={() => void load()}
+          className="rounded p-1 hover:bg-[var(--color-surface-2)]"
+          aria-label="Refresh"
+          title="Refresh"
+        >
+          <RefreshCw size={11} />
+        </button>
+      </div>
+      <div className="flex flex-wrap gap-2 bg-[var(--color-surface-0)] p-3">
+        {execs.map((e, i) => (
+          <button
+            key={`${e.name}-${i}`}
+            type="button"
+            onClick={() => void launch(i, e.path)}
+            disabled={busy !== null}
+            className="flex items-center gap-2 rounded-md border px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-surface-2)",
+              borderColor: "var(--color-border-strong)",
+              color: "var(--color-text)",
+            }}
+            title={e.path}
+          >
+            <span
+              aria-hidden
+              className="inline-block h-2 w-2 rounded-full"
+              style={{ background: "var(--color-accent)" }}
+            />
+            {busy === i ? "Launching…" : e.name}
+          </button>
+        ))}
+      </div>
+      {error && (
+        <div className="border-t border-[var(--color-error)] bg-[var(--color-surface-2)] px-3 py-1 text-xs text-[var(--color-error)]">
+          {error}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export default function ProjectContext({ projectId, projectPath }: Props) {
   const [content, setContent] = useState("");
@@ -99,6 +190,9 @@ export default function ProjectContext({ projectId, projectPath }: Props) {
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      {/* v2.6.2 — Quick Launch panel (only renders when the project has at
+          least one executable bound; otherwise it's silent). */}
+      <QuickLaunchPanel projectId={projectId} />
       {/* CLAUDE.md editor */}
       <section className="flex flex-col border-b border-[var(--color-border)]">
         <div className="flex items-center justify-between bg-[var(--color-surface-1)] px-3 py-1 text-xs">
@@ -136,39 +230,10 @@ export default function ProjectContext({ projectId, projectPath }: Props) {
             >
               Regenerate with AI
             </button>
-            {/* v2.6 (card-v26-fb-006): create skill from this project — Claude
-                drafts a SKILL.md based on the project's tree + CLAUDE.md and
-                drops it at ~/.claude/skills/project-<slug>/SKILL.md (so it
-                lands under the "Project" sub-tile in Library/Skills). */}
-            <button
-              onClick={async () => {
-                const slug = projectId.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
-                const prompt =
-                  "Lee este proyecto (árbol, CLAUDE.md si existe, README) y crea un skill nuevo que codifique cómo trabajar aquí.\n\n" +
-                  `Ubicación destino: ~/.claude/skills/project-${slug}/SKILL.md\n\n` +
-                  "Estructura del skill:\n" +
-                  "- Frontmatter YAML: name (kebab-case), description (cuándo activarse, no qué hace).\n" +
-                  "- Cuerpo: cómo arrancar el proyecto, convenciones críticas, gotchas conocidos, comandos comunes, qué NO tocar.\n\n" +
-                  "Muéstrame el contenido propuesto ANTES de escribir el archivo. Espera mi OK. Si la carpeta destino no existe créala.";
-                try {
-                  if (navigator.clipboard?.writeText) {
-                    await navigator.clipboard.writeText(prompt);
-                  }
-                  await invoke("spawn_session", {
-                    provider: "claude",
-                    cwd: projectPath,
-                    prompt,
-                    flags: { dangerouslySkipPermissions: false },
-                  });
-                } catch (e) {
-                  console.warn("create-skill spawn_session failed", e);
-                }
-              }}
-              className="rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-2 py-0.5 text-[11.5px]"
-              title="Spawn a Claude session that drafts a project-specific skill saved under ~/.claude/skills/"
-            >
-              Create skill from project
-            </button>
+            {/* v2.6 (card-v26-fb-024): "Create skill from project" was moved
+                from this toolbar to the Agents sub-tab where it lives next
+                to the workflow tiles. ProjectContext now focuses purely on
+                CLAUDE.md + Mem0. */}
             <button
               onClick={() => void saveMd()}
               disabled={!dirty || saving}
