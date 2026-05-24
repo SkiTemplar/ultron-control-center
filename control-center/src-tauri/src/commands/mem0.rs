@@ -1,7 +1,8 @@
 // ULTRON Control Center 2.0 — Tauri command wrappers for the Mem0 client.
 
 use crate::mem0::{
-    add_inner, delete_inner, search_inner, status_inner, Mem0Memory, Mem0Status,
+    add_inner, delete_inner, diagnostics_inner, search_inner, status_inner,
+    test_connection_inner, Mem0Diagnostics, Mem0Memory, Mem0Status,
 };
 
 #[tauri::command]
@@ -30,4 +31,14 @@ pub async fn mem0_add(
 #[tauri::command]
 pub async fn mem0_delete(id: String) -> Result<(), String> {
     delete_inner(id).await
+}
+
+#[tauri::command]
+pub fn mem0_diagnostics() -> Result<Mem0Diagnostics, String> {
+    diagnostics_inner()
+}
+
+#[tauri::command]
+pub async fn mem0_test_connection() -> Result<Mem0Status, String> {
+    test_connection_inner().await
 }

@@ -253,7 +253,7 @@ export function CommandPalette({ open, onClose, onNavigate, extraActions = [] }:
                       <span className="truncate">{a.label}</span>
                       {a.description && (
                         <span
-                          className="mt-0.5 truncate text-[11px]"
+                          className="mt-0.5 truncate text-[11.5px]"
                           style={{ color: "var(--color-text-tertiary)" }}
                         >
                           {a.description}

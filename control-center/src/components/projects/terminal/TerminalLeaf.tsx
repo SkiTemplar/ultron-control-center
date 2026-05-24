@@ -4,6 +4,7 @@
 // placeholder with "+ Claude / + Codex / + Gemini" spawn buttons. Always shows
 // a small leaf toolbar (split-h, split-v, close, kill) along the top edge.
 
+import { useEffect, useState } from "react";
 import EmbeddedTerminal from "../../EmbeddedTerminal";
 import type { Provider, SplitDirection } from "./layout-types";
 import { Plus, Terminal as TerminalIcon, X } from "../icons";
@@ -47,11 +48,46 @@ function providerTint(p: Provider): string {
 
 export default function TerminalLeaf(props: Props) {
   const { ptyId, leafId, onSplit, onClose, onSpawn, onKillPty } = props;
+  // v2.6: per-pane rename — persisted in localStorage by leafId.
+  const nameKey = `terminal.leaf.name.${leafId}`;
+  const [name, setName] = useState<string>(() => {
+    try {
+      return localStorage.getItem(nameKey) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(name);
+  useEffect(() => {
+    try {
+      if (name) localStorage.setItem(nameKey, name);
+      else localStorage.removeItem(nameKey);
+    } catch {
+      /* ignore */
+    }
+  }, [name, nameKey]);
 
   return (
     <div className="flex h-full w-full flex-col bg-[#0d0d11]">
       <LeafToolbar
         canKill={ptyId !== null}
+        name={name}
+        editingName={editingName}
+        draftName={draftName}
+        onStartRename={() => {
+          setDraftName(name);
+          setEditingName(true);
+        }}
+        onChangeDraft={setDraftName}
+        onCommitRename={() => {
+          setName(draftName.trim());
+          setEditingName(false);
+        }}
+        onCancelRename={() => {
+          setDraftName(name);
+          setEditingName(false);
+        }}
         onSplitH={() => onSplit(leafId, "h")}
         onSplitV={() => onSplit(leafId, "v")}
         onClose={() => onClose(leafId)}
@@ -63,7 +99,14 @@ export default function TerminalLeaf(props: Props) {
         {ptyId ? (
           <EmbeddedTerminal key={ptyId} sessionId={ptyId} />
         ) : (
-          <EmptyLeaf onSpawn={(p) => onSpawn(leafId, p)} />
+          <EmptyLeaf
+            onSpawn={(p) => {
+              // Assign the provider label as the pane name immediately so the
+              // toolbar shows "Claude" / "Codex" / etc. without manual rename.
+              setName(providerLabel(p));
+              onSpawn(leafId, p);
+            }}
+          />
         )}
       </div>
     </div>
@@ -72,12 +115,26 @@ export default function TerminalLeaf(props: Props) {
 
 function LeafToolbar({
   canKill,
+  name,
+  editingName,
+  draftName,
+  onStartRename,
+  onChangeDraft,
+  onCommitRename,
+  onCancelRename,
   onSplitH,
   onSplitV,
   onClose,
   onKill,
 }: {
   canKill: boolean;
+  name: string;
+  editingName: boolean;
+  draftName: string;
+  onStartRename: () => void;
+  onChangeDraft: (v: string) => void;
+  onCommitRename: () => void;
+  onCancelRename: () => void;
   onSplitH: () => void;
   onSplitV: () => void;
   onClose: () => void;
@@ -99,6 +156,38 @@ function LeafToolbar({
       >
         <SplitVIcon /> V
       </button>
+      {/* v2.6: pane name — double-click to rename, Enter commit, Esc cancel. */}
+      <div className="ml-2 min-w-0 flex-1">
+        {editingName ? (
+          <input
+            autoFocus
+            value={draftName}
+            onChange={(e) => onChangeDraft(e.target.value)}
+            onBlur={onCommitRename}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onCommitRename();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                onCancelRename();
+              }
+            }}
+            placeholder="Pane name"
+            className="h-5 w-full rounded border border-[var(--color-accent)] bg-[var(--color-surface-1)] px-1 text-[10.5px] outline-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onDoubleClick={onStartRename}
+            onClick={onStartRename}
+            className="block w-full truncate text-left text-[10.5px] text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
+            title="Click or double-click to rename"
+          >
+            {name || "Untitled pane"}
+          </button>
+        )}
+      </div>
       <div className="ml-auto flex items-center gap-0.5">
         {canKill && (
           <button

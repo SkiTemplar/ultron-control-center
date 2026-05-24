@@ -135,7 +135,7 @@ export function TreeView<T>({
                           {group.name}
                         </span>
                         <span
-                          className="ml-auto text-[10.5px]"
+                          className="ml-auto text-[11.5px]"
                           style={{
                             color: "var(--color-text-tertiary)",
                           }}

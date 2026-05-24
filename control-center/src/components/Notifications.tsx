@@ -406,7 +406,7 @@ function Row({ g }: { g: Grouped }) {
             {s.label}
           </span>
           <span
-            className="text-[11px]"
+            className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {g.source}
@@ -451,7 +451,7 @@ function Row({ g }: { g: Grouped }) {
               onClick={() => openFixSession("claude")}
               disabled={fixBusy !== null}
               title={fixClaudeTitle}
-              className="rounded px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
+              className="rounded px-2 py-0.5 text-[11.5px] transition-colors disabled:opacity-40"
               style={{
                 background: "var(--color-surface-3)",
                 color: "var(--color-text)",
@@ -465,7 +465,7 @@ function Row({ g }: { g: Grouped }) {
               onClick={() => openFixSession("codex")}
               disabled={fixBusy !== null}
               title={fixCodexTitle}
-              className="rounded px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
+              className="rounded px-2 py-0.5 text-[11.5px] transition-colors disabled:opacity-40"
               style={{
                 background: "var(--color-surface-3)",
                 color: "var(--color-text)",
@@ -814,7 +814,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
                 }}
                 disabled={infoVisible.length === 0 || deleting}
                 title="Permanently delete the visible info notifications from ~/.ultron/alerts.jsonl"
-                className="text-[11px] transition-colors disabled:opacity-30"
+                className="text-[11.5px] transition-colors disabled:opacity-30"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
                 {deleting ? "Deleting…" : `Delete info (${infoVisible.length})`}
@@ -856,14 +856,14 @@ export function Notifications({ alerts, onDeleted }: Props) {
               }}
               disabled={deleting}
               title="Delete ALL visible notifications (info + warn + critical) from the alerts.jsonl file. Asks for confirmation first."
-              className="text-[11px] transition-colors disabled:opacity-30"
+              className="text-[11.5px] transition-colors disabled:opacity-30"
               style={{ color: "var(--color-danger)" }}
             >
               {deleting ? "Deleting…" : `Clear all (${visibleGroups.length})`}
             </button>
           )}
           <label
-            className="flex cursor-pointer items-center gap-1.5 text-[11px] transition-colors"
+            className="flex cursor-pointer items-center gap-1.5 text-[11.5px] transition-colors"
             style={{ color: "var(--color-text-tertiary)" }}
             title="When on, critical/blocking alerts also fire a native Windows toast."
           >
@@ -925,7 +925,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
           <button
             type="button"
             onClick={() => setShowMuteList(!showMuteList)}
-            className="text-[11px] transition-colors"
+            className="text-[11.5px] transition-colors"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {showMuteList ? "Hide mute list" : `Mute sources (${mutes.size})`}
@@ -972,7 +972,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
                   key={src}
                   type="button"
                   onClick={() => toggleMute(src)}
-                  className="rounded px-2 py-0.5 text-[11px] transition-colors"
+                  className="rounded px-2 py-0.5 text-[11.5px] transition-colors"
                   style={{
                     background: muted ? "transparent" : "var(--color-surface-3)",
                     color: muted ? "var(--color-text-faint)" : "var(--color-text-secondary)",

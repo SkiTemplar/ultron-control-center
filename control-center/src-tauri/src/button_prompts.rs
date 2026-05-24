@@ -180,6 +180,11 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             &["plan_id", "plan_title", "plan_status", "plan_priority", "plan_description"],
             "Plan ID: {plan_id}\nTitle: {plan_title}\nStatus: {plan_status}\nPriority: {plan_priority}\n\nDescription:\n{plan_description}\n\nQuiero trabajar en este plan ahora.\n\nPasos:\n1. Si existe un spec asociado, léelo primero.\n2. Propón un plan de ejecución dividido en tareas pequeñas (<1h cada una).\n3. Empieza por la primera tarea.\n4. Cuando termines, marca el plan como resolved (o blocked con nota si te atascas).",
         ),
+        // CANDIDATE FOR REMOVAL — outdated (fb-031 audit, 2026-05-24):
+        // The SelfImprove tab + RepoEvaluatorCard no longer exist in the
+        // sidebar — repo evaluation now lives inside the Library / Catalog
+        // flow and uses ad-hoc slash commands. No caller references this
+        // key (`rg "selfimprove.repo_evaluator"` returns 0 hits in src/).
         default_button(
             "selfimprove.repo_evaluator",
             "SelfImprove · Run repo-evaluator",
@@ -333,6 +338,11 @@ fn build_defaults() -> Vec<ButtonPrompt> {
             &["target_change"],
             "Recorre `~/.claude/agents/*.md`. Para cada agent, propón los cambios necesarios para aplicar el siguiente migration target:\n\n{target_change}\n\nDevuelve un plan tabular con columnas: `agent | cambio sugerido | diff line`.\n\nEspera mi OK por lotes de 5 agents antes de tocar nada.",
         ),
+        // CANDIDATE FOR REMOVAL — outdated (fb-031 audit, 2026-05-24):
+        // No "Logs" tab exists in the Control Center sidebar today — log
+        // tailing lives under System / diagnostics panel and uses a
+        // separate prompt (`system.diagnose_runtime`). No caller references
+        // this key in `src/`.
         default_button(
             "logs.summarize_recent",
             "Logs · Summarize recent log file",

@@ -217,7 +217,7 @@ export function FixCommonIssues({ onOpenSettings }: FixCommonIssuesProps) {
           {Object.entries(errors).map(([id, msg]) => (
             <li
               key={id}
-              className="rounded p-2 text-[11px]"
+              className="rounded p-2 text-[11.5px]"
               style={{
                 background: "rgba(248, 81, 73, 0.06)",
                 border: "1px solid rgba(248, 81, 73, 0.22)",

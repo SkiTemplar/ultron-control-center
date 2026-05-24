@@ -495,7 +495,7 @@ function StepForm(props: {
                 {args.map((a, idx) => (
                   <span
                     key={idx}
-                    className="rounded px-2 py-0.5 font-mono text-[11px]"
+                    className="rounded px-2 py-0.5 font-mono text-[11.5px]"
                     style={{ background: "var(--color-surface-2)" }}
                   >
                     {a}
@@ -602,7 +602,7 @@ function StepReview(props: {
         A timestamped backup is taken before the write.
       </p>
       <pre
-        className="overflow-auto rounded border p-3 font-mono text-[11px]"
+        className="overflow-auto rounded border p-3 font-mono text-[11.5px]"
         style={{
           borderColor: "var(--color-border)",
           background: "var(--color-surface-2)",

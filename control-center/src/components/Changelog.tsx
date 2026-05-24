@@ -39,11 +39,11 @@ function Highlight({ entry }: { entry: ChangelogEntry }) {
         >
           added
         </span>
-        <span className="text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+        <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
           {entry.scope}
         </span>
         <span
-          className="ml-auto text-[11px] tabular-nums"
+          className="ml-auto text-[11.5px] tabular-nums"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           {entry.ts.slice(0, 10)}
@@ -65,7 +65,7 @@ function Highlight({ entry }: { entry: ChangelogEntry }) {
           <button
             type="button"
             onClick={() => setOpen(!open)}
-            className="mt-2 text-[11px] transition-colors"
+            className="mt-2 text-[11.5px] transition-colors"
             style={{ color: "var(--color-text-tertiary)" }}
             onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-secondary)")}
             onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-tertiary)")}
@@ -144,7 +144,7 @@ function VersionSection({ g }: { g: VersionGroup }) {
           style={{ background: "var(--color-border)" }}
         />
         <span
-          className="text-[11px] tabular-nums"
+          className="text-[11.5px] tabular-nums"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           {formatDateRange(g.firstTs, g.lastTs)}
@@ -166,7 +166,7 @@ function VersionSection({ g }: { g: VersionGroup }) {
           <button
             type="button"
             onClick={() => setShowInternal(!showInternal)}
-            className="text-[11px] transition-colors"
+            className="text-[11.5px] transition-colors"
             style={{ color: "var(--color-text-tertiary)" }}
             onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-secondary)")}
             onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "var(--color-text-tertiary)")}

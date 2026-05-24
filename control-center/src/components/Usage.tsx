@@ -183,7 +183,7 @@ function WeeklyResetCard() {
               onChange={(e) =>
                 setCfg({ ...cfg, weekday: parseInt(e.target.value, 10) })
               }
-              className="rounded px-1.5 py-0.5 text-[11px]"
+              className="rounded px-1.5 py-0.5 text-[11.5px]"
               style={{
                 background: "var(--color-surface-2)",
                 color: "var(--color-text)",
@@ -213,7 +213,7 @@ function WeeklyResetCard() {
                   hour: Math.max(0, Math.min(23, parseInt(e.target.value, 10) || 0)),
                 })
               }
-              className="w-12 rounded px-1.5 py-0.5 text-[11px] tabular-nums"
+              className="w-12 rounded px-1.5 py-0.5 text-[11.5px] tabular-nums"
               style={{
                 background: "var(--color-surface-2)",
                 color: "var(--color-text)",
@@ -233,7 +233,7 @@ function WeeklyResetCard() {
                   minute: Math.max(0, Math.min(59, parseInt(e.target.value, 10) || 0)),
                 })
               }
-              className="w-12 rounded px-1.5 py-0.5 text-[11px] tabular-nums"
+              className="w-12 rounded px-1.5 py-0.5 text-[11.5px] tabular-nums"
               style={{
                 background: "var(--color-surface-2)",
                 color: "var(--color-text)",
@@ -304,7 +304,7 @@ function WindowCard({
       <div className="mt-2 text-[22px] font-semibold tabular-nums leading-tight">
         {formatNum(w.tokens_total)}
         <span
-          className="ml-1 text-[11px] font-normal"
+          className="ml-1 text-[11.5px] font-normal"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           tokens
@@ -323,7 +323,7 @@ function WindowCard({
             .map(([m, v]) => (
               <div
                 key={m}
-                className="flex items-baseline justify-between text-[11px]"
+                className="flex items-baseline justify-between text-[11.5px]"
               >
                 <span style={{ color: "var(--color-text-tertiary)" }}>
                   {shortModel(m)}

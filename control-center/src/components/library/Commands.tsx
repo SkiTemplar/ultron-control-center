@@ -1,4 +1,12 @@
 // v2.3 — Slash command browser.
+// v2.6 (fb-023, fb-051) — split-view proportions reworked:
+//   - Tree column fixed at 280px so command names get a stable, legible width
+//     and the preview pane gets the rest of the screen (was compressed before
+//     to ~40% with a giant empty preview).
+//   - Categories default to COLLAPSED. The most recently visited category is
+//     persisted in localStorage and auto-expanded on mount.
+//   - Preview pane uses 12.5px monospace for command body / source path; long
+//     lines do not truncate (use overflow-x scroll instead).
 //
 // Tree view (Spotify-style) groups every discovered slash command by
 // marketplace → plugin → command. The right pane shows the metadata
@@ -45,13 +53,48 @@ function commandSlug(c: SlashCommand): string {
   return `/${c.plugin}:${c.name}`;
 }
 
+// v2.6 — persist the last-active category (plugin) so the user lands on
+// something useful instead of an empty tree. We only persist a single key
+// (`pl:<marketplace>/<plugin>`) — marketplaces stay collapsed by default
+// alongside it. Lives in localStorage so it survives a relaunch.
+const LAST_CATEGORY_KEY = "control-center.commands.lastCategory";
+
+function readLastCategory(): string | null {
+  try {
+    return window.localStorage.getItem(LAST_CATEGORY_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeLastCategory(key: string): void {
+  try {
+    window.localStorage.setItem(LAST_CATEGORY_KEY, key);
+  } catch {
+    // Ignore quota / privacy-mode failures.
+  }
+}
+
 export function Commands() {
   const [cmds, setCmds] = useState<SlashCommand[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<SlashCommand | null>(null);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // v2.6 (fb-023): default-collapsed. We seed `expanded` with the last
+  // category the user touched (if any) — both its marketplace and plugin
+  // entries are opened so the tree isn't empty on mount.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>(() => {
+    const last = readLastCategory();
+    if (!last) return {};
+    // last looks like `pl:<marketplace>/<plugin>`. Derive the matching
+    // marketplace key so the parent node is also open.
+    const m = last.match(/^pl:([^/]+)\//);
+    const mpKey = m ? `mp:${m[1]}` : null;
+    const seed: Record<string, boolean> = { [last]: true };
+    if (mpKey) seed[mpKey] = true;
+    return seed;
+  });
   const [copied, setCopied] = useState(false);
 
   const reload = async () => {
@@ -99,9 +142,19 @@ export function Commands() {
   }, [query, tree]);
 
   const toggle = (key: string) =>
-    setExpanded((prev) => ({ ...prev, [key]: !prev[key] }));
+    setExpanded((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      // Persist plugin-level opens so a relaunch lands on the same category.
+      if (key.startsWith("pl:") && next[key]) {
+        writeLastCategory(key);
+      }
+      return next;
+    });
 
-  const isExpanded = (key: string, fallback = true) =>
+  // v2.6 (fb-023): default-collapsed for BOTH marketplace and plugin nodes.
+  // Search auto-expands on demand via the `useEffect` below; otherwise the
+  // user has to click to reveal each category.
+  const isExpanded = (key: string, fallback = false) =>
     expanded[key] ?? fallback;
 
   const handleCopy = async (c: SlashCommand) => {
@@ -173,7 +226,11 @@ export function Commands() {
         </div>
       )}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+      {/* v2.6 (fb-023, fb-051): tree column fixed at 280px, preview gets all
+          remaining space. Was `1fr 1.4fr` before — the variable tree column
+          collapsed to ~40% on wide screens leaving the preview pane mostly
+          empty with truncated command names on the left. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 md:grid-cols-[280px_1fr]">
         {/* LEFT: tree */}
         <div
           className="min-h-0 overflow-y-auto rounded-md"
@@ -201,7 +258,7 @@ export function Commands() {
           <ul className="p-1 text-sm">
             {tree.map((node) => {
               const mpKey = `mp:${node.marketplace}`;
-              const mpOpen = isExpanded(mpKey, true);
+              const mpOpen = isExpanded(mpKey, false);
               return (
                 <li key={node.marketplace} className="select-none">
                   <button
@@ -265,7 +322,13 @@ export function Commands() {
                                         <li key={c.path}>
                                           <button
                                             type="button"
-                                            onClick={() => setSelected(c)}
+                                            onClick={() => {
+                                              setSelected(c);
+                                              // v2.6 (fb-023): remember the
+                                              // last category so a relaunch
+                                              // re-opens it automatically.
+                                              writeLastCategory(plKey);
+                                            }}
                                             className="block w-full truncate rounded px-2 py-1 text-left text-[12px]"
                                             style={{
                                               background: isActive
@@ -299,9 +362,12 @@ export function Commands() {
           </ul>
         </div>
 
-        {/* RIGHT: detail */}
+        {/* RIGHT: detail. v2.6 (fb-051) — denser layout, mono content uses
+            12.5px instead of 11-12px, long lines scroll horizontally instead
+            of being truncated so commands with full file paths or example
+            invocations stay readable. */}
         <div
-          className="min-h-0 overflow-y-auto rounded-md p-4"
+          className="min-h-0 overflow-y-auto rounded-md p-5"
           style={{
             border: "1px solid var(--color-border-strong)",
             background: "var(--color-surface-2)",
@@ -316,16 +382,23 @@ export function Commands() {
             </p>
           ) : (
             <div className="flex flex-col gap-3">
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <h3 className="truncate text-base font-semibold">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <h3
+                    className="text-base font-semibold"
+                    style={{
+                      // No truncation: command slug is the headline.
+                      wordBreak: "break-word",
+                    }}
+                  >
                     {commandSlug(selected)}
                   </h3>
                   <p
-                    className="mt-0.5 truncate text-[11px]"
+                    className="mt-0.5 text-[11.5px]"
                     style={{
                       color: "var(--color-text-tertiary)",
                       fontFamily: "var(--font-mono)",
+                      wordBreak: "break-word",
                     }}
                   >
                     {selected.marketplace} / {selected.plugin}
@@ -364,8 +437,12 @@ export function Commands() {
               </div>
 
               <p
-                className="text-sm leading-relaxed"
-                style={{ color: "var(--color-text-secondary)" }}
+                className="text-[12.5px] leading-relaxed"
+                style={{
+                  color: "var(--color-text-secondary)",
+                  whiteSpace: "pre-wrap",
+                  wordBreak: "break-word",
+                }}
               >
                 {selected.description || "(sin descripción)"}
               </p>
@@ -412,9 +489,26 @@ export function Commands() {
                 </div>
               )}
 
-              <div className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-                <span className="mr-2 uppercase tracking-wide">Source</span>
-                <code style={{ fontFamily: "var(--font-mono)" }}>
+              <div
+                className="text-[12.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                <div
+                  className="mb-1 text-[10.5px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  Source
+                </div>
+                <code
+                  className="block overflow-x-auto rounded p-2"
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    background: "var(--color-surface-1)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border)",
+                    whiteSpace: "nowrap",
+                  }}
+                >
                   {selected.path}
                 </code>
               </div>

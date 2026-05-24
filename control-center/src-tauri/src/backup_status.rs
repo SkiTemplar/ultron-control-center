@@ -167,15 +167,34 @@ fn backup_sources_config_path() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron/cockpit/backup-config.json"))
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 struct BackupSourcesConfig {
+    #[serde(default)]
     sources: Vec<String>,
+    /// v2.5.2 (backups-redesign): persisted weekly schedule. The
+    /// `set_backup_schedule` command also registers a `UltronBackup-Weekly`
+    /// Windows Task Scheduler entry; this field is the durable record the
+    /// UI reads back to pre-fill the day/time dropdowns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    schedule: Option<BackupScheduleConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BackupScheduleConfig {
+    /// Three-letter uppercase weekday (MON, TUE, WED, THU, FRI, SAT, SUN).
+    pub day: String,
+    /// 24-hour HH:MM (e.g. "03:00").
+    pub time: String,
+}
+
+fn read_full_config() -> Option<BackupSourcesConfig> {
+    let path = backup_sources_config_path()?;
+    let raw = fs::read_to_string(&path).ok()?;
+    serde_json::from_str(&raw).ok()
 }
 
 fn read_configured_sources() -> Option<Vec<String>> {
-    let path = backup_sources_config_path()?;
-    let raw = fs::read_to_string(&path).ok()?;
-    let parsed: BackupSourcesConfig = serde_json::from_str(&raw).ok()?;
+    let parsed = read_full_config()?;
     let cleaned: Vec<String> = parsed
         .sources
         .into_iter()
@@ -187,6 +206,10 @@ fn read_configured_sources() -> Option<Vec<String>> {
     } else {
         Some(cleaned)
     }
+}
+
+fn read_configured_schedule() -> Option<BackupScheduleConfig> {
+    read_full_config()?.schedule
 }
 
 fn resolved_sources() -> Vec<String> {
@@ -334,21 +357,218 @@ pub fn set_backup_sources_inner(
             fs::create_dir_all(parent).map_err(|e| format!("mkdir cockpit: {}", e))?;
         }
     }
-    if cleaned.is_empty() {
+    // v2.5.2 (backups-redesign): preserve any existing `schedule` field
+    // when rewriting the config. Without this, saving the sources list
+    // would silently drop the weekly schedule the user already set.
+    let existing_schedule = read_configured_schedule();
+    if cleaned.is_empty() && existing_schedule.is_none() {
         if cfg.exists() {
             fs::remove_file(&cfg).map_err(|e| format!("rm config: {}", e))?;
         }
         std::env::remove_var("ULTRON_BACKUP_SOURCES");
     } else {
-        let payload_out = BackupSourcesConfig { sources: cleaned.clone() };
+        let payload_out = BackupSourcesConfig {
+            sources: cleaned.clone(),
+            schedule: existing_schedule,
+        };
         let json = serde_json::to_string_pretty(&payload_out)
             .map_err(|e| format!("serialize config: {}", e))?;
         fs::write(&cfg, json).map_err(|e| format!("write config: {}", e))?;
         // Mirror into the env var so any in-process script reads it without
         // re-reading the JSON.
-        std::env::set_var("ULTRON_BACKUP_SOURCES", cleaned.join(","));
+        if cleaned.is_empty() {
+            std::env::remove_var("ULTRON_BACKUP_SOURCES");
+        } else {
+            std::env::set_var("ULTRON_BACKUP_SOURCES", cleaned.join(","));
+        }
     }
     get_backup_sources_inner()
+}
+
+// ---------------------------------------------------------------------------
+// v2.5.2 (backups-redesign): weekly schedule read/write + Windows Task
+// Scheduler integration.
+//
+// The schedule lives in two places:
+//   - The durable record: backup-config.json (`schedule: { day, time }`).
+//   - The Windows scheduled task `UltronBackup-Weekly` (created via
+//     `schtasks /Create /SC WEEKLY ...`). Non-Windows hosts skip the
+//     schtasks call and only persist the preference — the existing weekly
+//     backup script is Windows-only anyway.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Clone)]
+pub struct BackupScheduleInfo {
+    pub day: String,
+    pub time: String,
+    /// True when a `UltronBackup-Weekly` task is registered with the OS.
+    /// Non-Windows always reports false.
+    pub task_registered: bool,
+    /// True when the user has explicitly saved a schedule (vs. the
+    /// "Mon 09:00" default that the UI uses to pre-fill the form).
+    pub user_configured: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetBackupSchedulePayload {
+    pub day: String,
+    pub time: String,
+}
+
+const VALID_DAYS: &[&str] = &["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+
+fn validate_day(day: &str) -> Result<String, String> {
+    let up = day.trim().to_uppercase();
+    if VALID_DAYS.iter().any(|d| *d == up) {
+        Ok(up)
+    } else {
+        Err(format!(
+            "invalid day '{}' (expected one of MON/TUE/WED/THU/FRI/SAT/SUN)",
+            day
+        ))
+    }
+}
+
+fn validate_time(time: &str) -> Result<String, String> {
+    let trimmed = time.trim();
+    let bytes = trimmed.as_bytes();
+    if bytes.len() != 5 || bytes[2] != b':' {
+        return Err(format!("invalid time '{}' (expected HH:MM)", time));
+    }
+    let h: u32 = trimmed[0..2]
+        .parse()
+        .map_err(|_| format!("invalid hour in '{}'", time))?;
+    let m: u32 = trimmed[3..5]
+        .parse()
+        .map_err(|_| format!("invalid minute in '{}'", time))?;
+    if h > 23 || m > 59 {
+        return Err(format!("invalid time '{}' (out of range)", time));
+    }
+    Ok(trimmed.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn task_registered() -> bool {
+    use std::process::Command;
+    let mut cmd = Command::new("schtasks.exe");
+    cmd.args(["/Query", "/TN", "UltronBackup-Weekly"]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    cmd.output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+#[cfg(not(target_os = "windows"))]
+fn task_registered() -> bool {
+    false
+}
+
+pub fn get_backup_schedule_inner() -> Result<BackupScheduleInfo, String> {
+    let configured = read_configured_schedule();
+    let user_configured = configured.is_some();
+    let (day, time) = configured
+        .map(|s| (s.day, s.time))
+        .unwrap_or_else(|| ("MON".to_string(), "09:00".to_string()));
+    Ok(BackupScheduleInfo {
+        day,
+        time,
+        task_registered: task_registered(),
+        user_configured,
+    })
+}
+
+#[cfg(target_os = "windows")]
+fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
+    use std::process::Command;
+    let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
+    let script_path = home.join(".ultron\\scripts\\backup\\weekly-backup.ps1");
+    if !script_path.is_file() {
+        return Err(format!(
+            "weekly-backup.ps1 missing at {}",
+            script_path.display()
+        ));
+    }
+    let tr = format!(
+        "powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File \"{}\"",
+        script_path.display()
+    );
+    // schtasks /F overwrites any existing task with the same name, which
+    // is exactly the upsert semantics the UI wants.
+    let mut cmd = Command::new("schtasks.exe");
+    cmd.args([
+        "/Create",
+        "/SC",
+        "WEEKLY",
+        "/D",
+        day,
+        "/ST",
+        time,
+        "/TN",
+        "UltronBackup-Weekly",
+        "/TR",
+        &tr,
+        "/RL",
+        "LIMITED",
+        "/F",
+    ]);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    let output = cmd
+        .output()
+        .map_err(|e| format!("spawn schtasks: {}", e))?;
+    if !output.status.success() {
+        return Err(format!(
+            "schtasks /Create failed (exit {:?}): {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(())
+}
+
+pub fn set_backup_schedule_inner(
+    payload: SetBackupSchedulePayload,
+) -> Result<BackupScheduleInfo, String> {
+    let day = validate_day(&payload.day)?;
+    let time = validate_time(&payload.time)?;
+
+    // Persist preference first so the UI reflects the saved state even if
+    // the schtasks call later fails on a non-Windows host.
+    let cfg_path = backup_sources_config_path().ok_or_else(|| "no HOME".to_string())?;
+    if let Some(parent) = cfg_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent).map_err(|e| format!("mkdir cockpit: {}", e))?;
+        }
+    }
+    let mut cfg = read_full_config().unwrap_or_default();
+    cfg.schedule = Some(BackupScheduleConfig {
+        day: day.clone(),
+        time: time.clone(),
+    });
+    let json = serde_json::to_string_pretty(&cfg)
+        .map_err(|e| format!("serialize config: {}", e))?;
+    fs::write(&cfg_path, json).map_err(|e| format!("write config: {}", e))?;
+
+    // Register the Windows scheduled task. On Linux/macOS we just store the
+    // preference — the weekly-backup script doesn't ship a Unix entry point
+    // yet (TODO: systemd timer / launchd plist).
+    #[cfg(target_os = "windows")]
+    {
+        register_weekly_task(&day, &time)?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (&day, &time);
+    }
+
+    get_backup_schedule_inner()
 }
 
 fn iso_from_systime(t: SystemTime) -> Option<String> {

@@ -44,3 +44,19 @@ pub async fn set_backup_sources(
 ) -> Result<backup_status::BackupSourcesInfo, String> {
     backup_status::set_backup_sources_inner(backup_status::SetBackupSourcesPayload { sources })
 }
+
+#[tauri::command]
+pub async fn get_backup_schedule() -> Result<backup_status::BackupScheduleInfo, String> {
+    backup_status::get_backup_schedule_inner()
+}
+
+#[tauri::command]
+pub async fn set_backup_schedule(
+    day: String,
+    time: String,
+) -> Result<backup_status::BackupScheduleInfo, String> {
+    backup_status::set_backup_schedule_inner(backup_status::SetBackupSchedulePayload {
+        day,
+        time,
+    })
+}

@@ -10,6 +10,7 @@ import { Notifications } from "./components/Notifications";
 import { MCPs } from "./components/MCPs";
 import { Library, type LibrarySubTab } from "./components/Library";
 import { Memory } from "./components/Memory";
+import { Notes } from "./components/Notes";
 import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
 import { Settings } from "./components/Settings";
@@ -466,7 +467,6 @@ function AppInner() {
         {tab === "dashboard" && (
           <Dashboard
             alerts={alerts}
-            changelog={changelog}
             globalStatus={globalStatus}
             onNavigate={setTab}
           />
@@ -490,6 +490,7 @@ function AppInner() {
           />
         )}
         {tab === "memory" && <Memory />}
+        {tab === "notes" && <Notes />}
         {tab === "sessions" && <Sessions />}
         {tab === "usage" && <Usage />}
         {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}

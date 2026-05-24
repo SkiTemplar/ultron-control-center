@@ -83,7 +83,7 @@ export function PluginStatusCard() {
           </div>
           {info.last_update_iso && (
             <div
-              className="pt-1 text-[10.5px]"
+              className="pt-1 text-[11.5px]"
               style={{ color: "var(--color-text-faint)" }}
             >
               Updated {relativeTime(info.last_update_iso)}

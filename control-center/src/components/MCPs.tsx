@@ -237,7 +237,7 @@ function McpForm({
           style={{ ...inputStyle, opacity: lockName ? 0.6 : 1 }}
         />
         <p
-          className="mt-1 text-[10.5px]"
+          className="mt-1 text-[11.5px]"
           style={{ color: "var(--color-text-faint)" }}
         >
           Lowercase letters, digits, '_' or '-'. Must start with letter/digit.
@@ -305,7 +305,7 @@ function McpForm({
               <button
                 type="button"
                 onClick={addEnv}
-                className="text-[11px] underline-offset-2 hover:underline"
+                className="text-[11.5px] underline-offset-2 hover:underline"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
                 + add row
@@ -313,7 +313,7 @@ function McpForm({
             </div>
             {value.envRows.length === 0 && (
               <p
-                className="text-[11px]"
+                className="text-[11.5px]"
                 style={{ color: "var(--color-text-faint)" }}
               >
                 No environment variables.
@@ -339,7 +339,7 @@ function McpForm({
                   <button
                     type="button"
                     onClick={() => removeEnv(i)}
-                    className="rounded px-2 text-[11px]"
+                    className="rounded px-2 text-[11.5px]"
                     style={{
                       background: "var(--color-surface-3)",
                       color: "var(--color-text-secondary)",
@@ -442,13 +442,20 @@ function Card({
   hidden,
   ping,
   pingBusy,
+  enabled,
+  toggleBusy,
   onAction,
+  onToggleEnabled,
 }: {
   mcp: McpInfoExt;
   hidden: boolean;
   ping?: McpPingResult;
   pingBusy?: boolean;
+  /** Whether the MCP is currently enabled (disabled flag = false in settings.json). */
+  enabled: boolean;
+  toggleBusy: boolean;
   onAction: (a: Action) => void;
+  onToggleEnabled: () => void;
 }) {
   const color = statusColor(mcp.status, mcp.expected_offline);
   const label = statusLabel(mcp.status, mcp.expected_offline);
@@ -461,7 +468,7 @@ function Card({
 
   return (
     <div
-      className="rounded p-4 transition-opacity"
+      className="rounded-lg p-5 transition-opacity"
       style={{
         background: "var(--color-surface-2)",
         border: "1px solid var(--color-border)",
@@ -472,12 +479,12 @@ function Card({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-baseline gap-2">
             <span
-              className="inline-block h-2 w-2 shrink-0 rounded-full"
+              className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
               style={{ background: color }}
             />
-            <h3 className="text-[14px] font-semibold leading-none">{mcp.name}</h3>
+            <h3 className="text-[16px] font-semibold leading-tight">{mcp.name}</h3>
             <span
-              className="text-[10.5px] uppercase tracking-[0.06em]"
+              className="text-[11px] uppercase tracking-[0.06em]"
               style={{ color }}
             >
               {label}
@@ -549,11 +556,6 @@ function Card({
             )}
           </div>
 
-          {/* command / url preview */}
-          <div className="mt-2 truncate text-[11.5px]" style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }} title={mcp.command || mcp.url || ""}>
-            {mcp.url ? mcp.url : (mcp.command ? mcp.command + (mcp.args_preview ? ` ${mcp.args_preview}` : "") : "—")}
-          </div>
-
           {/* fallback message */}
           {mcp.fallback_message && mcp.status !== "ok" && (
             <p
@@ -563,6 +565,42 @@ function Card({
               {mcp.fallback_message}
             </p>
           )}
+
+          {/* Per-card enable/disable toggle */}
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onToggleEnabled}
+              disabled={toggleBusy || readOnly}
+              className="flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-40"
+              style={{
+                background: enabled ? "var(--color-success)" : "var(--color-surface-3)",
+                border: "1px solid var(--color-border-strong)",
+                padding: "1px",
+              }}
+              title={
+                readOnly
+                  ? `Origin '${origin.kind}' cannot be toggled from here`
+                  : enabled
+                    ? "Disable this MCP (writes disabled:true to settings.json)"
+                    : "Enable this MCP (removes disabled flag from settings.json)"
+              }
+            >
+              <span
+                className="block h-3.5 w-3.5 rounded-full transition-transform"
+                style={{
+                  background: "var(--color-text)",
+                  transform: enabled ? "translateX(16px)" : "translateX(0)",
+                }}
+              />
+            </button>
+            <span
+              className="text-[11.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {toggleBusy ? "Saving…" : enabled ? "Enabled" : "Disabled"}
+            </span>
+          </div>
         </div>
 
         {/* No per-card "Retry": the health probe is global (it rewrites the
@@ -574,7 +612,7 @@ function Card({
             type="button"
             onClick={() => onAction("test")}
             disabled={!!pingBusy}
-            className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-50"
+            className="rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-50"
             style={{
               background: "var(--color-surface-3)",
               color: "var(--color-text-secondary)",
@@ -588,7 +626,7 @@ function Card({
             type="button"
             onClick={() => onAction("edit")}
             disabled={readOnly}
-            className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-40"
+            className="rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
             style={{
               background: "var(--color-surface-3)",
               color: "var(--color-text-secondary)",
@@ -606,7 +644,7 @@ function Card({
             type="button"
             onClick={() => onAction("delete")}
             disabled={readOnly}
-            className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-40"
+            className="rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
             style={{
               background: "rgba(248, 81, 73, 0.10)",
               color: "var(--color-danger)",
@@ -727,7 +765,7 @@ function EnableDisableSection({ onChanged }: { onChanged: () => void }) {
           </p>
         </div>
         <span
-          className="text-[11px]"
+          className="text-[11.5px]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           {collapsed ? "Show" : "Hide"}
@@ -813,6 +851,9 @@ export function MCPs() {
   // far more reliable than reading mcp-health.json.
   const [pings, setPings] = useState<Record<string, McpPingResult>>({});
   const [pingBusy, setPingBusy] = useState<Set<string>>(new Set());
+  // Per-card enable/disable state. Maps MCP name → enabled (true = not disabled).
+  const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
+  const [toggleBusy, setToggleBusy] = useState<Set<string>>(new Set());
 
   async function testMcp(name: string) {
     setPingBusy((s) => {
@@ -873,10 +914,49 @@ export function MCPs() {
       const list = (await invoke("list_mcps")) as McpInfoExt[];
       setMcps(list);
       setError(null);
+      // Reload enabled/disabled state from settings.json in parallel.
+      try {
+        const snap = (await invoke("settings_read")) as SettingsSnapshot;
+        const servers = (snap.content as Record<string, unknown>).mcpServers as
+          | Record<string, { disabled?: boolean }>
+          | undefined;
+        if (servers) {
+          const map: Record<string, boolean> = {};
+          for (const [name, cfg] of Object.entries(servers)) {
+            map[name] = !cfg.disabled;
+          }
+          setEnabledMap(map);
+        }
+      } catch {
+        // Non-fatal: per-card toggles will show as enabled by default.
+      }
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function toggleEnabled(name: string) {
+    if (toggleBusy.has(name)) return;
+    setToggleBusy((s) => { const n = new Set(s); n.add(name); return n; });
+    try {
+      const snap = (await invoke("settings_read")) as SettingsSnapshot;
+      const next = JSON.parse(JSON.stringify(snap.content)) as Record<string, unknown>;
+      const servers = (next.mcpServers ?? {}) as Record<string, { disabled?: boolean }>;
+      const cfg = servers[name];
+      if (!cfg) return;
+      cfg.disabled = !cfg.disabled;
+      next.mcpServers = servers;
+      const nowEnabled = !cfg.disabled; // cfg.disabled was just set to the new value
+      const res = (await invoke("settings_save", { content: next })) as SettingsSaveResult;
+      if (res.success) {
+        setEnabledMap((m) => ({ ...m, [name]: nowEnabled }));
+      }
+    } catch (e) {
+      showFlash(`Toggle failed: ${e}`);
+    } finally {
+      setToggleBusy((s) => { const n = new Set(s); n.delete(name); return n; });
     }
   }
 
@@ -1227,7 +1307,8 @@ export function MCPs() {
         </div>
       )}
 
-      <div className="space-y-2">
+      {/* v2.6 (card-v26-7): grid 3-col. */}
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {visible.map((m) => (
           <Card
             key={m.name}
@@ -1235,6 +1316,9 @@ export function MCPs() {
             hidden={hidden.has(m.name)}
             ping={pings[m.name]}
             pingBusy={pingBusy.has(m.name)}
+            enabled={enabledMap[m.name] !== false}
+            toggleBusy={toggleBusy.has(m.name)}
+            onToggleEnabled={() => void toggleEnabled(m.name)}
             onAction={(a) => {
               if (a === "hide") toggleHidden(m.name);
               else if (a === "edit") openEdit(m.name);
@@ -1501,7 +1585,7 @@ export function MCPs() {
                 }}
               />
               <p
-                className="mt-2 text-[11px]"
+                className="mt-2 text-[11.5px]"
                 style={{ color: "var(--color-text-faint)" }}
               >
                 Claude is invoked via{" "}
@@ -1551,7 +1635,7 @@ export function MCPs() {
                 {generatedPreview}
               </pre>
               <p
-                className="mt-2 text-[11px]"
+                className="mt-2 text-[11.5px]"
                 style={{ color: "var(--color-text-faint)" }}
               >
                 "Add it" will call <code>add_mcp</code> with this config and

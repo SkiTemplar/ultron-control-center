@@ -40,7 +40,7 @@ export function HeaderBtn({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
+      className="rounded px-2 py-1 text-[11.5px] transition-colors disabled:opacity-40"
       style={{
         background: "var(--color-surface-2)",
         color: danger ? "var(--color-danger)" : "var(--color-text-secondary)",
@@ -75,7 +75,7 @@ export function Pill({
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] transition-colors"
+      className="flex items-center gap-1.5 rounded px-2.5 py-1 text-[11.5px] transition-colors"
       style={{
         background: active ? "var(--color-surface-3)" : "transparent",
         color: active ? "var(--color-text)" : "var(--color-text-tertiary)",

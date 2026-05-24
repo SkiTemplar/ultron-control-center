@@ -594,12 +594,86 @@ pub fn list_hooks_inner() -> Result<HooksList, String> {
     let path = settings_path().ok_or_else(|| "no HOME".to_string())?;
     let exists = path.exists();
     let root = read_settings_value()?;
-    let hooks = flatten_hooks(&root);
+    let mut hooks = flatten_hooks(&root);
+    // v2.6 (card-v26-fb-001): plugin hooks live under
+    // ~/.claude/plugins/cache/<mkt>/<plugin>/<version>/hooks/hooks.json
+    // with the same shape as the user settings.json `hooks` key. Merge
+    // them so "0 hooks" doesn't show when ECC (or any other plugin)
+    // ships a hook bundle.
+    hooks.extend(discover_plugin_hooks());
     Ok(HooksList {
         hooks,
         settings_path: path.to_string_lossy().to_string(),
         settings_exists: exists,
     })
+}
+
+/// Walk `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/hooks/hooks.json`
+/// and flatten each one into Hook records tagged with `source = "plugin:<mkt>/<plugin>"`.
+/// Read-only and tolerant — a malformed plugin hooks.json is silently
+/// skipped so it never breaks the whole listing.
+fn discover_plugin_hooks() -> Vec<Hook> {
+    let mut out: Vec<Hook> = Vec::new();
+    let Some(home) = dirs::home_dir() else {
+        return out;
+    };
+    let cache_root = home.join(".claude").join("plugins").join("cache");
+    if !cache_root.exists() {
+        return out;
+    }
+    let Ok(marketplaces) = fs::read_dir(&cache_root) else {
+        return out;
+    };
+    for mkt in marketplaces.flatten() {
+        let mkt_path = mkt.path();
+        if !mkt_path.is_dir() {
+            continue;
+        }
+        let mkt_name = mkt.file_name().to_string_lossy().to_string();
+        let Ok(plugins) = fs::read_dir(&mkt_path) else {
+            continue;
+        };
+        for plugin in plugins.flatten() {
+            let plugin_path = plugin.path();
+            if !plugin_path.is_dir() {
+                continue;
+            }
+            let plugin_name = plugin.file_name().to_string_lossy().to_string();
+            let Ok(versions) = fs::read_dir(&plugin_path) else {
+                continue;
+            };
+            for version in versions.flatten() {
+                let version_path = version.path();
+                if !version_path.is_dir() {
+                    continue;
+                }
+                let hooks_file = version_path.join("hooks").join("hooks.json");
+                if !hooks_file.exists() {
+                    continue;
+                }
+                let Ok(raw) = fs::read_to_string(&hooks_file) else {
+                    continue;
+                };
+                let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+                    continue;
+                };
+                // Plugin hooks.json may be either { "hooks": { ... } }
+                // (wrapper) or the inner object directly. flatten_hooks
+                // expects the wrapper; if we got the inner, wrap it.
+                let wrapped = if value.get("hooks").is_some() {
+                    value
+                } else {
+                    serde_json::json!({ "hooks": value })
+                };
+                let source = format!("plugin:{}/{}", mkt_name, plugin_name);
+                for mut hook in flatten_hooks(&wrapped) {
+                    hook.source = source.clone();
+                    out.push(hook);
+                }
+            }
+        }
+    }
+    out
 }
 
 pub fn add_hook_inner(

@@ -133,7 +133,7 @@ export function SecurityPanel({
       )}
       {error && (
         <div
-          className="mt-2 rounded px-2 py-1 text-[11px]"
+          className="mt-2 rounded px-2 py-1 text-[11.5px]"
           style={{
             background: "rgba(248, 81, 73, 0.06)",
             border: "1px solid rgba(248, 81, 73, 0.22)",
@@ -148,7 +148,7 @@ export function SecurityPanel({
           {report.findings.map((f, i) => (
             <div
               key={`${f.rule_id}-${i}`}
-              className="rounded p-2 text-[11px]"
+              className="rounded p-2 text-[11.5px]"
               style={{
                 background: "var(--color-surface-1)",
                 border: "1px solid var(--color-border)",
@@ -230,7 +230,7 @@ export function SecurityPanel({
               type="button"
               onClick={submit}
               disabled={!canSubmit}
-              className="rounded px-2 py-1 text-[11px] transition-colors disabled:opacity-40"
+              className="rounded px-2 py-1 text-[11.5px] transition-colors disabled:opacity-40"
               style={{
                 background: "var(--color-surface-2)",
                 color: "var(--color-danger)",

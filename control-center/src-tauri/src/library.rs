@@ -49,6 +49,26 @@ pub struct PinnedAgents {
 }
 
 // ---------------------------------------------------------------------------
+// `gh` subprocess helper — Windows-only CREATE_NO_WINDOW flag
+// ---------------------------------------------------------------------------
+//
+// Plain `std::process::Command::new("gh")` on Windows flashes a console
+// window for the lifetime of the subprocess, which USER flagged as
+// annoying in v2.5.1 ("se lanza una terminal que no se quita"). Setting
+// `CREATE_NO_WINDOW` (0x0800_0000) keeps the spawn fully invisible.
+
+fn gh_command(args: &[String]) -> std::process::Command {
+    let mut cmd = std::process::Command::new("gh");
+    cmd.args(args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0800_0000);
+    }
+    cmd
+}
+
+// ---------------------------------------------------------------------------
 // Search cache (10-min TTL, in-memory)
 // ---------------------------------------------------------------------------
 
@@ -126,7 +146,7 @@ pub async fn search_github_inner(
     ];
 
     let output = tauri::async_runtime::spawn_blocking(move || {
-        std::process::Command::new("gh").args(&args).output()
+        gh_command(&args).output()
     })
     .await
     .map_err(|e| format!("spawn join: {e}"))?
@@ -271,7 +291,7 @@ pub async fn install_from_github_inner(
     let endpoint = format!("repos/{}/{}/contents/{}", owner, repo, path);
     let args: Vec<String> = vec!["api".into(), endpoint];
     let output = tauri::async_runtime::spawn_blocking(move || {
-        std::process::Command::new("gh").args(&args).output()
+        gh_command(&args).output()
     })
     .await
     .map_err(|e| format!("spawn join: {e}"))?

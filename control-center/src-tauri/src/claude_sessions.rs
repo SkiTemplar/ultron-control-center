@@ -236,17 +236,28 @@ pub fn list_claude_sessions_inner(limit: Option<usize>) -> Result<Vec<ClaudeSess
                 continue;
             }
             let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            // UUID-ish files only — Claude session IDs are 8-4-4-4-12.
-            if !fname.chars().any(|c| c == '-') {
+            // v2.6 (card-v26-fb-004): previous filter required '-' anywhere
+            // in the filename AND size >= 100 bytes. Both were too strict
+            // — valid sessions disappeared. Now: skip strictly empty files
+            // and require the filename to start with a hex char so we
+            // don't pick up non-session jsonl logs.
+            let id = fname.trim_end_matches(".jsonl").to_string();
+            if id.is_empty() {
                 continue;
             }
-            let id = fname.trim_end_matches(".jsonl").to_string();
+            if !id
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_hexdigit())
+                .unwrap_or(false)
+            {
+                continue;
+            }
             let meta = match f.metadata() {
                 Ok(m) => m,
                 Err(_) => continue,
             };
-            // Skip tiny files — usually aborts.
-            if meta.len() < 100 {
+            if meta.len() == 0 {
                 continue;
             }
             out.push(ClaudeSession {
@@ -263,6 +274,21 @@ pub fn list_claude_sessions_inner(limit: Option<usize>) -> Result<Vec<ClaudeSess
 
     // Newest activity first.
     out.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
+    // v2.5.2 (fb-046): diagnostic so we can see at a glance how many
+    // sessions and unique workspaces the backend returned. Debug-only.
+    #[cfg(debug_assertions)]
+    {
+        let mut slugs: std::collections::HashSet<&str> = std::collections::HashSet::new();
+        for s in &out {
+            slugs.insert(s.project_slug.as_str());
+        }
+        eprintln!(
+            "[claude_sessions::list_claude_sessions_inner] sessions={} workspaces={} limit={:?}",
+            out.len(),
+            slugs.len(),
+            limit
+        );
+    }
     if let Some(n) = limit {
         out.truncate(n);
     }
@@ -378,12 +404,31 @@ pub struct ClaudeSessionSummary {
 
 fn project_slug_for(path: &str) -> String {
     // Claude Code mangles project paths into directory names by replacing
-    // path separators with `-`. We strip leading separators so e.g.
-    // "C:\Users\USER\.ultron" -> "C-Users-USER-.ultron".
-    path.replace('\\', "-")
-        .replace('/', "-")
-        .trim_matches('-')
-        .to_string()
+    // ANY non-alphanumeric character with `-`. This means `:`, `\`, `/`, and
+    // `.` all become `-`, so consecutive non-alnum runs collapse to multiple
+    // dashes:
+    //   "C:\Users\USER\.ultron" -> "C--Users-USER--ultron"
+    //                                  ^^         ^^
+    //                                  ":\\"      "\\."
+    //
+    // v2.5.2 (fb-046 fix): previous implementation only replaced `\` and `/`,
+    // producing `C:-Users-USER-.ultron` which did NOT match Claude's
+    // folder name, so the Sessions sub-tab found zero sessions for the
+    // active project. Now we mirror Claude's own rule: every non-alnum
+    // char becomes `-`. Trailing/leading dashes are trimmed to be safe.
+    let mut out = String::with_capacity(path.len() + 4);
+    for ch in path.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch);
+        } else {
+            out.push('-');
+        }
+    }
+    // Some users register paths with a trailing separator (`C:\Users\X\`).
+    // After translation that leaves a trailing `-` which would never match
+    // the on-disk folder. Trim just the edges, never the middle (we need
+    // the doubles to survive).
+    out.trim_matches('-').to_string()
 }
 
 #[tauri::command]
@@ -394,6 +439,17 @@ pub async fn project_sessions_list(
         let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
         let slug = project_slug_for(&project_path);
         let dir = home.join(".claude").join("projects").join(&slug);
+        // v2.5.2 (fb-046): diagnostic logging so we can see exactly which
+        // path translation the backend chose. Only emitted in debug builds
+        // to keep release logs quiet.
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "[claude_sessions::project_sessions_list] project_path={:?} slug={:?} dir={:?} exists={}",
+            project_path,
+            slug,
+            dir,
+            dir.exists()
+        );
         if !dir.exists() {
             return Ok::<Vec<ClaudeSessionSummary>, String>(vec![]);
         }

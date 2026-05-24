@@ -11,12 +11,16 @@ import { Agents } from "./Agents";
 import { Rules } from "./Rules";
 import { Catalog } from "./library/Catalog";
 import { Commands } from "./library/Commands";
-import { Sparkle, Bot, BookOpen, Compass, Terminal } from "./library/icons";
+import { PluginsSection } from "./Settings/PluginsSection";
+import { Hooks } from "./Hooks";
+import { Sparkle, Bot, BookOpen, Compass, Terminal, Folder } from "./library/icons";
 
 export type LibrarySubTab =
   | "skills"
   | "agents"
   | "rules"
+  | "plugins"
+  | "hooks"
   | "catalog"
   | "commands";
 
@@ -27,6 +31,11 @@ type SubTabSpec = {
   hint: string;
 };
 
+// v2.6.1: ordered so the "installed" inventory comes first
+// (skills/agents/rules/plugins/hooks), then the live introspection
+// tab (commands), and finally the outward-facing discovery tab (catalog).
+// Catalog moved to the very end per USER's request — it's the entry
+// point for "find me something new", not the daily-driver view.
 const SUB_TABS: SubTabSpec[] = [
   {
     id: "skills",
@@ -47,16 +56,32 @@ const SUB_TABS: SubTabSpec[] = [
     hint: "Coding standards and patterns from ~/.claude/rules/.",
   },
   {
-    id: "catalog",
-    label: "Catalog",
-    Icon: Compass,
-    hint: "Curated picks for graphics, UE5, AI, and MCP work.",
+    // v2.6 (card-v26-fb-021): Plugins moved from Settings to Library so the
+    // user manages the whole "what Claude Code can do" inventory in one tab.
+    id: "plugins",
+    label: "Plugins",
+    Icon: Folder,
+    hint: "Installed plugin bundles (skills + agents + hooks + MCPs).",
+  },
+  {
+    // v2.6: Hooks moved from System tab → Library — it's a Claude-side
+    // concept, not an OS-level one.
+    id: "hooks",
+    label: "Hooks",
+    Icon: Bot,
+    hint: "PreToolUse / PostToolUse / Stop hook scripts from your settings + plugins.",
   },
   {
     id: "commands",
     label: "Commands",
     Icon: Terminal,
     hint: "Every /slash command exposed by your installed plugins.",
+  },
+  {
+    id: "catalog",
+    label: "Catalog",
+    Icon: Compass,
+    hint: "Discover curated picks + search GitHub for new skills, agents and MCP servers.",
   },
 ];
 
@@ -146,6 +171,12 @@ export function Library({ initial }: { initial?: LibrarySubTab } = {}) {
         {sub === "rules" && <Rules />}
         {sub === "catalog" && <Catalog />}
         {sub === "commands" && <Commands />}
+        {sub === "plugins" && (
+          <div className="h-full overflow-auto px-6 py-4">
+            <PluginsSection />
+          </div>
+        )}
+        {sub === "hooks" && <Hooks />}
       </div>
     </div>
   );

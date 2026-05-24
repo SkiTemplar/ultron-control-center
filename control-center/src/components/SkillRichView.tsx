@@ -159,7 +159,7 @@ function ToolChip({ tool }: { tool: string }) {
   const guard = m?.[2];
   return (
     <span
-      className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[10.5px]"
+      className="inline-flex items-center gap-1 rounded px-1.5 py-px text-[11.5px]"
       style={{
         background: "var(--color-surface-3)",
         color: "var(--color-text-secondary)",
@@ -196,7 +196,7 @@ function FrontmatterCard({ fm }: { fm: Frontmatter }) {
       }}
     >
       <div
-        className="text-[10px] font-medium uppercase tracking-[0.06em]"
+        className="text-[11.5px] font-medium uppercase tracking-[0.06em]"
         style={{ color: "var(--color-text-tertiary)" }}
       >
         Frontmatter
@@ -214,7 +214,7 @@ function FrontmatterCard({ fm }: { fm: Frontmatter }) {
       <div className="mt-3 flex flex-wrap gap-1.5">
         {fm.visibility && (
           <span
-            className="rounded px-1.5 py-px text-[10.5px]"
+            className="rounded px-1.5 py-px text-[11.5px]"
             style={{
               background: "rgba(63, 185, 80, 0.08)",
               color: "var(--color-success)",
@@ -227,7 +227,7 @@ function FrontmatterCard({ fm }: { fm: Frontmatter }) {
         )}
         {fm.disableModelInvocation && (
           <span
-            className="rounded px-1.5 py-px text-[10.5px]"
+            className="rounded px-1.5 py-px text-[11.5px]"
             style={{
               background: "rgba(210, 153, 34, 0.08)",
               color: "var(--color-warn)",
@@ -240,7 +240,7 @@ function FrontmatterCard({ fm }: { fm: Frontmatter }) {
         )}
         {fm.category && (
           <span
-            className="rounded px-1.5 py-px text-[10.5px]"
+            className="rounded px-1.5 py-px text-[11.5px]"
             style={{
               background: "var(--color-surface-3)",
               color: "var(--color-text-secondary)",
@@ -254,7 +254,7 @@ function FrontmatterCard({ fm }: { fm: Frontmatter }) {
         {fm.tags?.map((t) => (
           <span
             key={`tag-${t}`}
-            className="rounded px-1.5 py-px text-[10.5px]"
+            className="rounded px-1.5 py-px text-[11.5px]"
             style={{
               background: "var(--color-surface-3)",
               color: "var(--color-text-tertiary)",
@@ -268,7 +268,7 @@ function FrontmatterCard({ fm }: { fm: Frontmatter }) {
       {fm.allowedTools && fm.allowedTools.length > 0 && (
         <div className="mt-3">
           <div
-            className="mb-1 text-[10px] font-medium uppercase tracking-[0.06em]"
+            className="mb-1 text-[11.5px] font-medium uppercase tracking-[0.06em]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             Allowed tools · {fm.allowedTools.length}
@@ -284,7 +284,7 @@ function FrontmatterCard({ fm }: { fm: Frontmatter }) {
       {extras.length > 0 && (
         <div className="mt-3">
           <div
-            className="mb-1 text-[10px] font-medium uppercase tracking-[0.06em]"
+            className="mb-1 text-[11.5px] font-medium uppercase tracking-[0.06em]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             Other

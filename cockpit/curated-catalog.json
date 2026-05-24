@@ -1,7 +1,8 @@
 {
-  "_comment": "Curated catalog of skills + agents recommended for USER's typical work: graphics programming, Unreal Engine 5, AI/ML, MCP development. Each item points at a public GitHub source — the Library -> Catalog tab installs via library_install_from_github. Add/edit freely; the GUI re-reads this file on every Catalog mount.",
-  "schema_version": 1,
-  "updated_at": "2026-05-23",
+  "_comment": "Curated catalog of skills + agents recommended for USER's typical work: graphics programming, Unreal Engine 5, AI/ML, MCP development. Each item points at a public GitHub source — the Library -> Catalog tab installs via library_install_from_github. Add/edit freely; the GUI re-reads this file on every Catalog mount.\n\nv2 (2026-05-24): wshobson/agents repo reshuffled into a plugin marketplace layout (plugins/<plugin>/agents/<name>.md). Anthropic skills moved under skills/<name>/SKILL.md. Old paths now 404 — they are kept here with `dead: true` so the GUI can hide or warn rather than silently linking to a broken URL.",
+  "schema_version": 2,
+  "updated_at": "2026-05-24",
+  "verified_at": "2026-05-24",
   "domains": [
     {
       "id": "graphics",
@@ -15,7 +16,9 @@
           "owner": "wshobson",
           "repo": "agents",
           "path": "graphics-programmer.md",
-          "summary": "GLSL/HLSL/WGSL shaders + OpenGL/Vulkan/DX12/Metal/WebGPU rendering techniques (PBR, deferred, shadow maps, post-processing)."
+          "summary": "GLSL/HLSL/WGSL shaders + OpenGL/Vulkan/DX12/Metal/WebGPU rendering techniques (PBR, deferred, shadow maps, post-processing).",
+          "dead": true,
+          "dead_reason": "Path retired when wshobson/agents migrated to the plugins/<plugin>/agents/ layout in 2026-05. No direct replacement shipped yet."
         },
         {
           "kind": "skill",
@@ -24,7 +27,9 @@
           "owner": "anthropics",
           "repo": "skills",
           "path": "shader-fundamentals/SKILL.md",
-          "summary": "Conceptual shader breakdowns and modern GPU programming patterns."
+          "summary": "Conceptual shader breakdowns and modern GPU programming patterns.",
+          "dead": true,
+          "dead_reason": "Not present in anthropics/skills (canonical Anthropic catalogue). Likely lives only in USER's local ecc plugin."
         }
       ]
     },
@@ -40,7 +45,9 @@
           "owner": "wshobson",
           "repo": "agents",
           "path": "unreal-engine-engineer.md",
-          "summary": "UE5 gameplay programming, Enhanced Input, Gameplay Ability System, network roles."
+          "summary": "UE5 gameplay programming, Enhanced Input, Gameplay Ability System, network roles.",
+          "dead": true,
+          "dead_reason": "Removed from wshobson/agents in the 2026-05 marketplace refactor. The repo's `plugins/game-development/agents/` folder only ships `unity-developer` and `minecraft-bukkit-pro` now."
         },
         {
           "kind": "skill",
@@ -49,7 +56,9 @@
           "owner": "anthropics",
           "repo": "skills",
           "path": "ue5-dev/SKILL.md",
-          "summary": "End-to-end Unreal Engine project assistance with deep API + asset discovery."
+          "summary": "End-to-end Unreal Engine project assistance with deep API + asset discovery.",
+          "dead": true,
+          "dead_reason": "Not present in anthropics/skills upstream — only available via USER's local ecc plugin."
         }
       ]
     },
@@ -64,7 +73,7 @@
           "title": "AI Engineer",
           "owner": "wshobson",
           "repo": "agents",
-          "path": "ai-engineer.md",
+          "path": "plugins/llm-application-dev/agents/ai-engineer.md",
           "summary": "End-to-end AI system architecture: model selection, training, deployment, monitoring."
         },
         {
@@ -73,8 +82,17 @@
           "title": "ML Engineer",
           "owner": "wshobson",
           "repo": "agents",
-          "path": "ml-engineer.md",
+          "path": "plugins/machine-learning-ops/agents/ml-engineer.md",
           "summary": "Production ML pipelines: training, serving, retraining, performance."
+        },
+        {
+          "kind": "agent",
+          "name": "mlops-engineer",
+          "title": "MLOps Engineer",
+          "owner": "wshobson",
+          "repo": "agents",
+          "path": "plugins/machine-learning-ops/agents/mlops-engineer.md",
+          "summary": "MLOps lifecycle: pipelines, model registry, feature stores, monitoring, retraining."
         },
         {
           "kind": "agent",
@@ -83,7 +101,9 @@
           "owner": "wshobson",
           "repo": "agents",
           "path": "llm-architect.md",
-          "summary": "LLM production systems, fine-tuning, RAG, inference infra, multi-model orchestration."
+          "summary": "LLM production systems, fine-tuning, RAG, inference infra, multi-model orchestration.",
+          "dead": true,
+          "dead_reason": "Standalone agent file removed in the wshobson/agents 2026-05 reorg. Closest live replacement is `plugins/llm-application-dev/agents/ai-engineer.md`."
         }
       ]
     },
@@ -99,7 +119,9 @@
           "owner": "wshobson",
           "repo": "agents",
           "path": "mcp-developer.md",
-          "summary": "Builds, debugs, and optimises MCP servers connecting AI to external tools/data."
+          "summary": "Builds, debugs, and optimises MCP servers connecting AI to external tools/data.",
+          "dead": true,
+          "dead_reason": "Removed from wshobson/agents in 2026-05. The repo's MCP coverage now lives under `plugins/protect-mcp/agents/` (policy-enforcer, receipt-verifier) — different focus."
         },
         {
           "kind": "skill",
@@ -107,8 +129,17 @@
           "title": "MCP Builder",
           "owner": "anthropics",
           "repo": "skills",
-          "path": "mcp-builder/SKILL.md",
+          "path": "skills/mcp-builder/SKILL.md",
           "summary": "Step-by-step guide and templates for shipping new MCP servers."
+        },
+        {
+          "kind": "skill",
+          "name": "skill-creator",
+          "title": "Skill Creator",
+          "owner": "anthropics",
+          "repo": "skills",
+          "path": "skills/skill-creator/SKILL.md",
+          "summary": "Create new skills, modify existing ones, run evals. The canonical skill-authoring toolkit."
         }
       ]
     },
@@ -123,7 +154,7 @@
           "title": "CCPM (Claude Code Project Management)",
           "owner": "automazeio",
           "repo": "ccpm",
-          "path": "skills/pm/SKILL.md",
+          "path": "skill/ccpm/SKILL.md",
           "summary": "Decompose PRDs into epics and parallel-executable issues. Worktree-friendly. Strong fit for solo-dev orchestration."
         }
       ]
@@ -166,6 +197,31 @@
           "repo": "unreal-engine-mcp",
           "path": "README.md",
           "summary": "Natural-language control of UE5. Pairs with the existing UE5 Dev skill for hands-on work."
+        }
+      ]
+    },
+    {
+      "id": "document-processing",
+      "label": "Document Processing",
+      "description": "PDF / Office automation skills from Anthropic.",
+      "items": [
+        {
+          "kind": "skill",
+          "name": "pdf",
+          "title": "PDF",
+          "owner": "anthropics",
+          "repo": "skills",
+          "path": "skills/pdf/SKILL.md",
+          "summary": "PDF authoring and processing — extraction, generation, filling, merging."
+        },
+        {
+          "kind": "skill",
+          "name": "docx",
+          "title": "DOCX",
+          "owner": "anthropics",
+          "repo": "skills",
+          "path": "skills/docx/SKILL.md",
+          "summary": "Microsoft Word document creation and editing via python-docx."
         }
       ]
     }

@@ -35,39 +35,9 @@ type PluginEntry = {
   mcp_servers_count: number;
 };
 
-interface Marketplace {
-  id: string;
-  label: string;
-  source: string;
-  notes: string;
-}
-
-const KNOWN_MARKETPLACES: Marketplace[] = [
-  {
-    id: "ecc",
-    label: "ECC (Everything Claude Code)",
-    source: "/plugin marketplace add affaan-m/ECC",
-    notes: "USER's primary stack — skills, agents, hooks, mcps in one bundle.",
-  },
-  {
-    id: "anthropics-skills",
-    label: "Anthropic official skills",
-    source: "/plugin marketplace add anthropics/claude-code-skills",
-    notes: "Reference skills published by Anthropic (skill-creator, etc).",
-  },
-  {
-    id: "wshobson-agents",
-    label: "wshobson/agents",
-    source: "/plugin marketplace add wshobson/agents",
-    notes: "Community-curated agent collection (high-volume, varied quality).",
-  },
-  {
-    id: "superpowers",
-    label: "Superpowers",
-    source: "/plugin marketplace add obra/superpowers-marketplace",
-    notes: "Disciplined-execution skill bundle (writing-plans, TDD, debugging).",
-  },
-];
+// v2.6 (fb-016): "Browse marketplaces" section removed at the user's
+// request — the list of curated marketplaces wasn't going to be used and
+// just added vertical noise below the installed plugins grid.
 
 export function PluginsSection({ onNavigate }: Props) {
   const [plugins, setPlugins] = useState<PluginEntry[] | null>(null);
@@ -157,7 +127,7 @@ export function PluginsSection({ onNavigate }: Props) {
           <button
             type="button"
             onClick={load}
-            className="text-[11px] transition-colors"
+            className="text-[11.5px] transition-colors"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             Refresh
@@ -205,30 +175,27 @@ export function PluginsSection({ onNavigate }: Props) {
             below via Claude Code.
           </div>
         ) : (
-          <div
-            className="overflow-hidden rounded"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            {plugins.map((p, i) => {
+          <div className="grid grid-cols-2 gap-3">
+            {plugins.map((p) => {
+              // Hooks live inside System; skills+agents live under Library.
               const counts: { label: string; n: number; tab: string }[] = [
-                { label: "skills", n: p.skills_count, tab: "skills" },
-                { label: "agents", n: p.agents_count, tab: "agents" },
-                { label: "hooks", n: p.hooks_count, tab: "hooks" },
+                { label: "skills", n: p.skills_count, tab: "library" },
+                { label: "agents", n: p.agents_count, tab: "library" },
+                { label: "hooks", n: p.hooks_count, tab: "system" },
                 { label: "mcp", n: p.mcp_servers_count, tab: "mcps" },
               ];
               const installCmd = `/plugin install ${p.coordinate}`;
               return (
                 <div
                   key={p.coordinate}
-                  className="px-3 py-3"
+                  className="flex flex-col gap-2 rounded p-3"
                   style={{
-                    borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
                   }}
                 >
-                  <div className="flex flex-wrap items-baseline gap-2">
+                  {/* Header row */}
+                  <div className="flex flex-wrap items-baseline gap-1.5">
                     <span
                       className="text-[13px] font-semibold"
                       style={{ color: "var(--color-text)" }}
@@ -246,7 +213,7 @@ export function PluginsSection({ onNavigate }: Props) {
                       v{p.version}
                     </span>
                     <span
-                      className="text-[11px]"
+                      className="text-[10.5px]"
                       style={{ color: "var(--color-text-tertiary)" }}
                     >
                       @{p.marketplace}
@@ -276,70 +243,85 @@ export function PluginsSection({ onNavigate }: Props) {
                     )}
                     {p.last_update_iso && (
                       <span
-                        className="text-[10.5px]"
+                        className="text-[10px]"
                         style={{ color: "var(--color-text-faint)" }}
                       >
-                        updated {p.last_update_iso.slice(0, 10)}
+                        {p.last_update_iso.slice(0, 10)}
                       </span>
                     )}
+                    {(() => {
+                      if (!p.last_update_iso) return null;
+                      const updated = new Date(p.last_update_iso).getTime();
+                      if (Number.isNaN(updated)) return null;
+                      const ageDays = (Date.now() - updated) / (1000 * 60 * 60 * 24);
+                      if (ageDays < 30) return null;
+                      return (
+                        <span
+                          className="rounded px-1.5 py-px text-[9.5px] uppercase tracking-wide"
+                          style={{
+                            background: "rgba(210, 153, 34, 0.12)",
+                            color: "var(--color-warn)",
+                            border: "1px solid rgba(210, 153, 34, 0.30)",
+                          }}
+                          title={`Cached for ${Math.round(ageDays)} days`}
+                        >
+                          {ageDays > 90 ? "stale" : "old"}
+                        </span>
+                      );
+                    })()}
                   </div>
+
+                  {/* Path */}
                   <div
-                    className="mt-1 truncate text-[10.5px]"
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      color: "var(--color-text-faint)",
-                    }}
+                    className="truncate text-[10px]"
+                    style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}
                     title={p.root}
                   >
                     {p.root}
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+
+                  {/* Count shortcut buttons */}
+                  <div className="flex flex-wrap items-center gap-1.5">
                     {counts.map((c) => (
                       <button
                         key={c.label}
                         type="button"
                         onClick={() => onNavigate?.(c.tab)}
-                        className="rounded px-2 py-0.5 text-[11px] transition-colors"
+                        className="rounded px-2 py-0.5 text-[10.5px] transition-colors"
                         style={{
                           background: "var(--color-surface-1)",
-                          color:
-                            c.n > 0
-                              ? "var(--color-text)"
-                              : "var(--color-text-faint)",
+                          color: c.n > 0 ? "var(--color-text)" : "var(--color-text-faint)",
                           border: "1px solid var(--color-border)",
                           cursor: onNavigate ? "pointer" : "default",
                           fontFamily: "var(--font-mono)",
                         }}
-                        title={
-                          onNavigate
-                            ? `Jump to the ${c.label} tab`
-                            : c.label
-                        }
+                        title={onNavigate ? `Jump to ${c.label}` : c.label}
                       >
                         {c.n} {c.label}
                       </button>
                     ))}
-                    <span className="grow" />
+                  </div>
+
+                  {/* Action buttons */}
+                  <div className="mt-auto flex gap-2">
                     <button
                       type="button"
                       onClick={() => copy(installCmd, `update:${p.coordinate}`)}
-                      className="rounded px-2.5 py-1 text-[11px] transition-colors"
+                      className="flex-1 rounded px-2.5 py-1 text-[11.5px] transition-colors"
                       style={{
                         background: "var(--color-surface-1)",
                         color: "var(--color-text)",
                         border: "1px solid var(--color-border-strong)",
                       }}
-                      title="Copy /plugin install <coord> for re-install / update"
+                      title="Copy /plugin install command"
                     >
-                      {copied === `update:${p.coordinate}`
-                        ? "Copied"
-                        : "Update / reinstall"}
+                      {copied === `update:${p.coordinate}` ? "Copied" : "Update / reinstall"}
                     </button>
                     <button
                       type="button"
                       onClick={() => uninstall(p)}
                       disabled={busy === p.coordinate}
-                      className="rounded px-2.5 py-1 text-[11px] transition-colors disabled:opacity-40"
+                      className="rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
                       style={{
                         background: "transparent",
                         color: "var(--color-danger)",
@@ -355,75 +337,6 @@ export function PluginsSection({ onNavigate }: Props) {
             })}
           </div>
         )}
-      </section>
-
-      {/* Browse marketplaces */}
-      <section>
-        <h2 className="text-[14px] font-semibold">Browse marketplaces</h2>
-        <p
-          className="mt-1 text-[11.5px] leading-relaxed"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Click "Copy" on any entry and paste the command into Claude Code to
-          add the marketplace. Once added, run{" "}
-          <span style={{ fontFamily: "var(--font-mono)" }}>
-            /plugin install &lt;name&gt;@&lt;marketplace&gt;
-          </span>{" "}
-          to install individual plugins.
-        </p>
-        <div
-          className="mt-3 overflow-hidden rounded"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          {KNOWN_MARKETPLACES.map((m, i) => (
-            <div
-              key={m.id}
-              className="flex flex-wrap items-center gap-3 px-3 py-3"
-              style={{
-                borderTop: i === 0 ? "none" : "1px solid var(--color-border)",
-              }}
-            >
-              <div className="min-w-0 flex-1">
-                <div
-                  className="text-[12.5px] font-semibold"
-                  style={{ color: "var(--color-text)" }}
-                >
-                  {m.label}
-                </div>
-                <div
-                  className="mt-0.5 text-[11px]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  {m.notes}
-                </div>
-                <div
-                  className="mt-1 truncate text-[10.5px]"
-                  style={{
-                    fontFamily: "var(--font-mono)",
-                    color: "var(--color-text-faint)",
-                  }}
-                  title={m.source}
-                >
-                  {m.source}
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => copy(m.source, `market:${m.id}`)}
-                className="shrink-0 rounded px-2.5 py-1 text-[11px] transition-colors"
-                style={{
-                  background: "var(--color-accent)",
-                  color: "var(--color-accent-text)",
-                }}
-              >
-                {copied === `market:${m.id}` ? "Copied" : "Copy"}
-              </button>
-            </div>
-          ))}
-        </div>
       </section>
     </div>
   );

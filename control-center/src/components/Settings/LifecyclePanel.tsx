@@ -1,38 +1,74 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
 import { confirmDialog } from "../../lib/dialog";
 
 // ---------------------------------------------------------------------------
-// LifecyclePanel (post-cleanup 2026-05-23):
-//   - "Check for updates" button removed (USER owns the binary now, no
-//     remote update channel needed). The top-of-window UpdateBanner +
-//     lib.rs setup auto-check are out of scope for this file.
-//   - Keep: Rebuild from source, Close Control Center, Uninstall.
+// LifecyclePanel — autostart toggle + Rebuild + Close.
+// "Check for updates" removed (USER owns the binary).
+// "Uninstall" removed (deprecated).
 // ---------------------------------------------------------------------------
 
 export function LifecyclePanel() {
+  const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
+  const [autostartBusy, setAutostartBusy] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  // After a Rebuild we offer to fully close the app so the new binary can
-  // replace control-center.exe (locked while this process runs).
   const [showCloseAfterRebuild, setShowCloseAfterRebuild] = useState(false);
 
-  async function run(kind: "uninstall" | "update") {
-    setBusy(kind);
+  // --- autostart helpers ---
+
+  async function purgeLegacy(): Promise<void> {
+    try {
+      await invoke("purge_legacy_autostart");
+    } catch {
+      // best-effort
+    }
+  }
+
+  useEffect(() => {
+    (async () => {
+      await purgeLegacy();
+      try {
+        setAutostartEnabled(await isAutostartEnabled());
+      } catch (e) {
+        setError(String(e));
+      }
+    })();
+  }, []);
+
+  async function toggleAutostart() {
+    if (autostartEnabled === null) return;
+    setAutostartBusy(true);
+    setError(null);
+    try {
+      if (autostartEnabled) {
+        await disableAutostart();
+        setAutostartEnabled(false);
+      } else {
+        await enableAutostart();
+        setAutostartEnabled(true);
+      }
+      await purgeLegacy();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setAutostartBusy(false);
+    }
+  }
+
+  // --- rebuild helper ---
+
+  async function rebuild() {
+    setBusy("update");
     setError(null);
     setStatus(null);
     setShowCloseAfterRebuild(false);
     try {
-      await invoke("run_app_lifecycle", { kind });
-      setStatus(
-        kind === "uninstall"
-          ? "Uninstaller opened in a new terminal. Follow the prompts there."
-          : "Rebuild opened in a new terminal. Takes ~3-5 minutes the first time.",
-      );
-      if (kind === "update") {
-        setShowCloseAfterRebuild(true);
-      }
+      await invoke("run_app_lifecycle", { kind: "update" });
+      setStatus("Rebuild opened in a new terminal. Takes ~3-5 minutes the first time.");
+      setShowCloseAfterRebuild(true);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -43,13 +79,8 @@ export function LifecyclePanel() {
   async function closeControlCenter(reason: "rebuild" | "manual") {
     const msg =
       reason === "rebuild"
-        ? "Close ULTRON Control Center now?\n\n" +
-          "This frees the file lock on control-center.exe so the rebuild " +
-          "can replace it. The current window will exit fully (not just " +
-          "minimize to tray)."
-        : "Close ULTRON Control Center?\n\n" +
-          "This fully exits the app (not just minimize to tray). " +
-          "Global hotkeys stop working until you relaunch.";
+        ? "Close ULTRON Control Center now?\n\nFrees the file lock on control-center.exe so the rebuild can replace it."
+        : "Close ULTRON Control Center?\n\nFully exits the app. Global hotkeys stop working until you relaunch.";
     const ok = await confirmDialog(msg, { title: "Close Control Center", kind: "warning" });
     if (!ok) return;
     try {
@@ -61,18 +92,6 @@ export function LifecyclePanel() {
 
   return (
     <div className="space-y-4">
-      <div>
-        <h3 className="text-[13px] font-semibold">App lifecycle</h3>
-        <p
-          className="mt-1 text-[12px]"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          One-shot actions for the Control Center binary itself. Both open
-          a new terminal window so you can watch the script run; the app
-          keeps working in the meantime.
-        </p>
-      </div>
-
       {status && (
         <div
           className="rounded p-3 text-[12px]"
@@ -98,6 +117,44 @@ export function LifecyclePanel() {
         </div>
       )}
 
+      {/* Start with Windows */}
+      <div
+        className="flex items-center justify-between gap-4 rounded p-4"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border-strong)",
+        }}
+      >
+        <div className="min-w-0">
+          <div className="text-[13px] font-semibold">Start with Windows</div>
+          <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
+            Launches the Control Center at Windows logon via{" "}
+            <code style={{ fontFamily: "var(--font-mono)" }}>HKCU\...\Run</code>.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={toggleAutostart}
+          disabled={autostartBusy || autostartEnabled === null}
+          className="flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50"
+          style={{
+            background: autostartEnabled ? "var(--color-success)" : "var(--color-surface-3)",
+            border: "1px solid var(--color-border-strong)",
+            padding: "1px",
+          }}
+          title={autostartEnabled ? "Disable autostart" : "Enable autostart"}
+        >
+          <span
+            className="block h-3.5 w-3.5 rounded-full transition-transform"
+            style={{
+              background: "var(--color-text)",
+              transform: autostartEnabled ? "translateX(16px)" : "translateX(0)",
+            }}
+          />
+        </button>
+      </div>
+
+      {/* Rebuild from source */}
       <div
         className="rounded p-4"
         style={{
@@ -105,24 +162,18 @@ export function LifecyclePanel() {
           border: "1px solid var(--color-border-strong)",
         }}
       >
-        <div className="flex items-baseline justify-between gap-4">
+        <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[13px] font-semibold">Rebuild from source</div>
-            <p
-              className="mt-1 text-[11.5px]"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              Rebuild the Control Center from the latest source in this
-              repo. Runs <code style={{ fontFamily: "var(--font-mono)" }}>
-              npm run tauri build</code> in <code style={{ fontFamily: "var(--font-mono)" }}>
-              control-center/</code>. The current window keeps running;
-              relaunch after the new binary appears in
-              <code style={{ fontFamily: "var(--font-mono)" }}> src-tauri/target/release/bundle/</code>.
+            <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
+              Runs{" "}
+              <code style={{ fontFamily: "var(--font-mono)" }}>npm run tauri build</code>{" "}
+              in a new terminal. Relaunch after the build finishes.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => void run("update")}
+            onClick={() => void rebuild()}
             disabled={busy !== null}
             className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
             style={{
@@ -143,14 +194,14 @@ export function LifecyclePanel() {
             }}
           >
             <span>
-              Once the rebuild finishes, this process must exit so the new
-              binary can overwrite <code style={{ fontFamily: "var(--font-mono)" }}>control-center.exe</code>.
+              Close this window so the new binary can overwrite{" "}
+              <code style={{ fontFamily: "var(--font-mono)" }}>control-center.exe</code>.
             </span>
             <div className="flex shrink-0 gap-2">
               <button
                 type="button"
                 onClick={() => setShowCloseAfterRebuild(false)}
-                className="rounded px-2.5 py-1 text-[11px]"
+                className="rounded px-2.5 py-1 text-[11.5px]"
                 style={{
                   background: "var(--color-surface-3)",
                   color: "var(--color-text-tertiary)",
@@ -162,19 +213,20 @@ export function LifecyclePanel() {
               <button
                 type="button"
                 onClick={() => void closeControlCenter("rebuild")}
-                className="rounded px-2.5 py-1 text-[11px] font-medium"
+                className="rounded px-2.5 py-1 text-[11.5px] font-medium"
                 style={{
                   background: "var(--color-warn)",
                   color: "var(--color-accent-text)",
                 }}
               >
-                Close Control Center now
+                Close now
               </button>
             </div>
           </div>
         )}
       </div>
 
+      {/* Close Control Center */}
       <div
         className="rounded p-4"
         style={{
@@ -182,17 +234,11 @@ export function LifecyclePanel() {
           border: "1px solid var(--color-border-strong)",
         }}
       >
-        <div className="flex items-baseline justify-between gap-4">
+        <div className="flex items-center justify-between gap-4">
           <div className="min-w-0">
             <div className="text-[13px] font-semibold">Close Control Center</div>
-            <p
-              className="mt-1 text-[11.5px]"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              Fully exit the app. The window X button only minimizes to the
-              system tray so global hotkeys keep working — use this when you
-              actually want the process to stop (e.g. before a rebuild, to
-              free file locks, or to disable the hotkey listener).
+            <p className="mt-0.5 text-[11.5px]" style={{ color: "var(--color-text-secondary)" }}>
+              Fully exits the process (X button only minimizes to tray).
             </p>
           </div>
           <button
@@ -206,52 +252,7 @@ export function LifecyclePanel() {
               border: "1px solid rgba(248, 81, 73, 0.32)",
             }}
           >
-            Close Control Center
-          </button>
-        </div>
-      </div>
-
-      <div
-        className="rounded p-4"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px solid rgba(248, 81, 73, 0.28)",
-        }}
-      >
-        <div className="flex items-baseline justify-between gap-4">
-          <div className="min-w-0">
-            <div
-              className="text-[13px] font-semibold"
-              style={{ color: "var(--color-danger)" }}
-            >
-              Uninstall
-            </div>
-            <p
-              className="mt-1 text-[11.5px]"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              Open the uninstaller in a new terminal. Removes
-              <code style={{ fontFamily: "var(--font-mono)" }}> ~/.ultron/</code>,
-              autostart entry, ULTRON scheduled tasks, Start Menu shortcuts,
-              and hook entries that point at ~/.ultron in
-              <code style={{ fontFamily: "var(--font-mono)" }}> ~/.claude/settings.json</code>.
-              Your Claude Code skills in
-              <code style={{ fontFamily: "var(--font-mono)" }}> ~/.claude/skills/</code> are preserved.
-              The terminal asks for confirmation before doing anything destructive.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => void run("uninstall")}
-            disabled={busy !== null}
-            className="shrink-0 rounded px-4 py-1.5 text-[12.5px] font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-danger)",
-              border: "1px solid rgba(248, 81, 73, 0.32)",
-            }}
-          >
-            {busy === "uninstall" ? "Opening…" : "Uninstall…"}
+            Close
           </button>
         </div>
       </div>

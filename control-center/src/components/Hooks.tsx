@@ -114,6 +114,17 @@ export function Hooks() {
   const [filterEvent, setFilterEvent] = useState<string>("All");
   const [filterText, setFilterText] = useState<string>("");
 
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = (event: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(event)) next.delete(event);
+      else next.add(event);
+      return next;
+    });
+  };
+
   const [addOpen, setAddOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
   const [aiDescription, setAiDescription] = useState("");
@@ -275,7 +286,7 @@ export function Hooks() {
 
   return (
     <div className="flex h-full">
-      <div className="flex-1 overflow-auto px-10 py-8">
+      <div className="flex-1 overflow-auto px-5 py-6">
         <header className="mb-6 flex items-baseline justify-between gap-4">
           <div>
             <h1 className="text-[20px] font-semibold leading-tight">Hooks</h1>
@@ -286,7 +297,7 @@ export function Hooks() {
                   {" "}
                   ·{" "}
                   <code
-                    className="text-[11px]"
+                    className="text-[11.5px]"
                     style={{ color: "var(--color-text-tertiary)" }}
                   >
                     {list.settings_path}
@@ -426,140 +437,195 @@ export function Hooks() {
           />
         )}
 
-        <div className="space-y-6">
+        <div className="space-y-3">
           {grouped.map(([event, items]) => {
             const colors = eventBadgeColor(event);
+            const isCollapsed = collapsedGroups.has(event);
             return (
               <section key={event}>
-                <h2
-                  className="mb-2 inline-block rounded px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
-                  style={{ background: colors.bg, color: colors.fg }}
+                {/* Collapsible section header */}
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(event)}
+                  className="mb-1.5 flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                  aria-expanded={!isCollapsed}
                 >
-                  {event}
-                </h2>
-                <ul className="space-y-1">
-                  {items.map((h) => {
-                    const isSelected = selectedId === h.id;
-                    return (
-                      <li
-                        key={h.id}
-                        onClick={() => setSelectedId(isSelected ? null : h.id)}
-                        className="flex cursor-pointer items-center gap-3 rounded border px-3 py-2 text-[12px] transition-colors"
-                        style={{
-                          borderColor: isSelected
-                            ? "var(--color-accent)"
-                            : "var(--color-border)",
-                          background: isSelected
-                            ? "var(--color-surface-2)"
-                            : "var(--color-surface-1)",
-                          opacity: h.enabled ? 1 : 0.55,
-                        }}
-                      >
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleToggle(h);
-                          }}
-                          aria-label={h.enabled ? `Disable ${h.id}` : `Enable ${h.id}`}
-                          title={h.enabled ? "Click to disable" : "Click to enable"}
-                          className="relative h-4 w-7 shrink-0 rounded-full transition-colors"
+                  <span
+                    className="inline-block rounded px-2 py-0.5 text-[11.5px] font-semibold uppercase tracking-wide"
+                    style={{ background: colors.bg, color: colors.fg }}
+                  >
+                    {event}
+                  </span>
+                  <span
+                    className="text-[10px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {items.length} hook{items.length === 1 ? "" : "s"}
+                  </span>
+                  <span
+                    className="ml-auto text-[10px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {isCollapsed ? "▶" : "▼"}
+                  </span>
+                </button>
+
+                {!isCollapsed && (
+                  <ul className="space-y-1">
+                    {items.map((h) => {
+                      const isSelected = selectedId === h.id;
+                      return (
+                        <li
+                          key={h.id}
+                          onClick={() => setSelectedId(isSelected ? null : h.id)}
+                          className="flex cursor-pointer items-center gap-2 rounded border px-2.5 py-1.5 text-[12px] transition-colors"
                           style={{
-                            background: h.enabled
-                              ? "var(--color-success)"
-                              : "var(--color-surface-3)",
-                            border: "1px solid var(--color-border-strong)",
+                            borderColor: isSelected
+                              ? "var(--color-accent)"
+                              : "var(--color-border)",
+                            background: isSelected
+                              ? "var(--color-surface-2)"
+                              : "var(--color-surface-1)",
+                            opacity: h.enabled ? 1 : 0.55,
                           }}
                         >
-                          <span
-                            className="absolute top-[1px] h-3 w-3 rounded-full transition-transform"
-                            style={{
-                              background: "var(--color-text)",
-                              transform: h.enabled
-                                ? "translateX(13px)"
-                                : "translateX(1px)",
+                          {/* Toggle switch */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleToggle(h);
                             }}
-                          />
-                        </button>
-                        <span
-                          className="rounded px-1.5 py-0.5 text-[10px] font-medium"
-                          style={{
-                            background: "var(--color-surface-3)",
-                            color: "var(--color-text-secondary)",
-                          }}
-                        >
-                          {h.matcher ?? "any"}
-                        </span>
-                        <code
-                          className="flex-1 text-[11px]"
-                          style={{ color: "var(--color-text)" }}
-                          title={h.command}
-                        >
-                          {truncate(h.command, 110)}
-                        </code>
-                        {lastFired[h.id]?.timestamp && (
-                          <span
-                            className="shrink-0 text-[10.5px]"
+                            aria-label={h.enabled ? `Disable ${h.id}` : `Enable ${h.id}`}
+                            title={h.enabled ? "Click to disable" : "Click to enable"}
+                            className="relative h-4 w-7 shrink-0 rounded-full transition-colors"
                             style={{
-                              fontFamily: "var(--font-mono)",
-                              color: "var(--color-text-faint)",
+                              background: h.enabled
+                                ? "var(--color-success)"
+                                : "var(--color-surface-3)",
+                              border: "1px solid var(--color-border-strong)",
                             }}
-                            title={`Last fired ${lastFired[h.id].timestamp ?? ""} in ${lastFired[h.id].project ?? "?"}`}
                           >
-                            {(lastFired[h.id].timestamp ?? "").slice(0, 16).replace("T", " ")}
+                            <span
+                              className="absolute top-[1px] h-3 w-3 rounded-full transition-transform"
+                              style={{
+                                background: "var(--color-text)",
+                                transform: h.enabled
+                                  ? "translateX(13px)"
+                                  : "translateX(1px)",
+                              }}
+                            />
+                          </button>
+
+                          {/* Hook id / name */}
+                          <span
+                            className="min-w-0 flex-1 truncate text-[11.5px] font-medium"
+                            style={{ color: "var(--color-text)" }}
+                            title={`${h.id}\n${h.command}`}
+                          >
+                            {h.id}
                           </span>
-                        )}
-                        <div
-                          className="flex items-center gap-1"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => setTestTarget(h)}
-                            className="rounded px-2 py-0.5 text-[11px]"
+
+                          {/* Matcher badge */}
+                          <span
+                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium"
                             style={{
                               background: "var(--color-surface-3)",
                               color: "var(--color-text-secondary)",
-                              border: "1px solid var(--color-border)",
                             }}
                           >
-                            Test
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setEditTarget(h)}
-                            className="rounded px-2 py-0.5 text-[11px]"
+                            {h.matcher ?? "any"}
+                          </span>
+
+                          {/* Source badge: user vs plugin */}
+                          <span
+                            className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide"
                             style={{
-                              background: "var(--color-surface-3)",
-                              color: "var(--color-text-secondary)",
+                              background:
+                                h.source === "user"
+                                  ? "var(--color-surface-3)"
+                                  : "rgba(168,136,168,0.18)",
+                              color:
+                                h.source === "user"
+                                  ? "var(--color-text-secondary)"
+                                  : "#e0bce0",
                               border: "1px solid var(--color-border)",
                             }}
                           >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const ok = await confirmDialog(
-                                `Delete hook?\n\nEvent: ${h.event}\nMatcher: ${h.matcher ?? "(none)"}\nCommand: ${truncate(h.command, 200)}`,
-                                { title: "Delete hook", kind: "error" }
-                              );
-                              if (ok) handleDelete(h);
-                            }}
-                            className="rounded px-2 py-0.5 text-[11px]"
-                            style={{
-                              background: "var(--color-surface-3)",
-                              color: "var(--color-danger, #f88)",
-                              border: "1px solid var(--color-border)",
-                            }}
+                            {h.source}
+                          </span>
+
+                          {/* Last-fired timestamp */}
+                          {lastFired[h.id]?.timestamp && (
+                            <span
+                              className="shrink-0 text-[10px]"
+                              style={{
+                                fontFamily: "var(--font-mono)",
+                                color: "var(--color-text-faint)",
+                              }}
+                              title={`Last fired ${lastFired[h.id].timestamp ?? ""} in ${lastFired[h.id].project ?? "?"}`}
+                            >
+                              {(lastFired[h.id].timestamp ?? "").slice(0, 16).replace("T", " ")}
+                            </span>
+                          )}
+
+                          {/* Action buttons */}
+                          <div
+                            className="flex shrink-0 items-center gap-1"
+                            onClick={(e) => e.stopPropagation()}
                           >
-                            Delete
-                          </button>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
+                            <button
+                              type="button"
+                              onClick={() => setTestTarget(h)}
+                              className="rounded px-2 py-0.5 text-[11.5px]"
+                              style={{
+                                background: "var(--color-surface-3)",
+                                color: "var(--color-text-secondary)",
+                                border: "1px solid var(--color-border)",
+                              }}
+                            >
+                              Test
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditTarget(h)}
+                              className="rounded px-2 py-0.5 text-[11.5px]"
+                              style={{
+                                background: "var(--color-surface-3)",
+                                color: "var(--color-text-secondary)",
+                                border: "1px solid var(--color-border)",
+                              }}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const ok = await confirmDialog(
+                                  `Delete hook?\n\nEvent: ${h.event}\nMatcher: ${h.matcher ?? "(none)"}\nCommand: ${truncate(h.command, 200)}`,
+                                  { title: "Delete hook", kind: "error" }
+                                );
+                                if (ok) handleDelete(h);
+                              }}
+                              className="rounded px-2 py-0.5 text-[11.5px]"
+                              style={{
+                                background: "var(--color-surface-3)",
+                                color: "var(--color-danger, #f88)",
+                                border: "1px solid var(--color-border)",
+                              }}
+                            >
+                              Del
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </section>
             );
           })}
@@ -634,16 +700,8 @@ function HooksEmptyState({
   onAdd: () => void;
   onAi: () => void;
 }) {
-  async function openEccHookDir() {
-    try {
-      const home = (await invoke("home_dir_str")) as string;
-      const target = `${home}/.claude/plugins/cache/ecc/ecc/2.0.0-rc.1/hooks`;
-      await invoke("open_app_folder", { installLocation: target });
-    } catch {
-      // Falls back to no-op — the directory is informational; the user can
-      // still hand-craft a hook via the Add form.
-    }
-  }
+  // v2.6 (card-v26-fb-028): openEccHookDir + "Browse hook templates" button
+  // both removed — user reported they will never use the templates.
   return (
     <div
       className="rounded p-5"
@@ -708,19 +766,8 @@ function HooksEmptyState({
         >
           Add with AI
         </button>
-        <button
-          type="button"
-          onClick={openEccHookDir}
-          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
-          style={{
-            background: "var(--color-surface-3)",
-            color: "var(--color-text-secondary)",
-            border: "1px solid var(--color-border-strong)",
-          }}
-          title="Open the ECC plugin's hooks/ directory in Explorer"
-        >
-          Browse hook templates
-        </button>
+        {/* v2.6 (card-v26-fb-028): "Browse hook templates" removed —
+            USER doesn't use it. */}
       </div>
     </div>
   );
@@ -743,7 +790,7 @@ function HookEventTile({ name, desc }: { name: string; desc: string }) {
         {name}
       </div>
       <div
-        className="text-[11px] leading-snug"
+        className="text-[11.5px] leading-snug"
         style={{ color: "var(--color-text-tertiary)" }}
       >
         {desc}
@@ -784,14 +831,14 @@ function SidePanel({
         <button
           type="button"
           onClick={onClose}
-          className="rounded px-2 py-0.5 text-[11px]"
+          className="rounded px-2 py-0.5 text-[11.5px]"
           style={{ color: "var(--color-text-secondary)" }}
         >
           Close
         </button>
       </div>
 
-      <div className="mb-3 text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+      <div className="mb-3 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
         <div>
           <strong>Event:</strong> {hook.event}
         </div>
@@ -814,7 +861,7 @@ function SidePanel({
           Command
         </div>
         <pre
-          className="overflow-auto rounded border p-2 text-[11px]"
+          className="overflow-auto rounded border p-2 text-[11.5px]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
@@ -836,7 +883,7 @@ function SidePanel({
             Extra flags
           </div>
           <pre
-            className="overflow-auto rounded border p-2 text-[11px]"
+            className="overflow-auto rounded border p-2 text-[11.5px]"
             style={{
               borderColor: "var(--color-border)",
               background: "var(--color-surface-2)",
@@ -869,7 +916,7 @@ function SidePanel({
         </div>
         {!firesInstrumented && (
           <div
-            className="rounded border px-2 py-1.5 text-[11px]"
+            className="rounded border px-2 py-1.5 text-[11.5px]"
             style={{
               borderColor: "var(--color-border)",
               background: "var(--color-surface-2)",
@@ -883,7 +930,7 @@ function SidePanel({
         )}
         {firesInstrumented && fires.length === 0 && (
           <div
-            className="text-[11px]"
+            className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             No fires logged for this hook yet.
@@ -894,7 +941,7 @@ function SidePanel({
             {fires.map((f, i) => (
               <li
                 key={i}
-                className="rounded border px-2 py-1 text-[11px]"
+                className="rounded border px-2 py-1 text-[11.5px]"
                 style={{
                   borderColor: "var(--color-border)",
                   background: "var(--color-surface-2)",
@@ -1062,7 +1109,7 @@ function HookFormModal({
             value={command}
             onChange={(e) => setCommand(e.target.value)}
             rows={6}
-            className="w-full rounded px-2 py-1 font-mono text-[11px]"
+            className="w-full rounded px-2 py-1 font-mono text-[11.5px]"
             style={{
               background: "var(--color-surface-2)",
               color: "var(--color-text)",
@@ -1073,7 +1120,7 @@ function HookFormModal({
 
         {err && (
           <div
-            className="mb-3 rounded border px-2 py-1 text-[11px]"
+            className="mb-3 rounded border px-2 py-1 text-[11.5px]"
             style={{
               borderColor: "var(--color-border)",
               color: "var(--color-danger, #f88)",
@@ -1165,7 +1212,7 @@ function TestModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded px-2 py-0.5 text-[11px]"
+            className="rounded px-2 py-0.5 text-[11.5px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
             Close
@@ -1173,7 +1220,7 @@ function TestModal({
         </div>
 
         <div
-          className="mb-3 rounded border px-3 py-2 text-[11px]"
+          className="mb-3 rounded border px-3 py-2 text-[11.5px]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
@@ -1193,7 +1240,7 @@ function TestModal({
             value={payload}
             onChange={(e) => setPayload(e.target.value)}
             rows={5}
-            className="w-full rounded px-2 py-1 font-mono text-[11px]"
+            className="w-full rounded px-2 py-1 font-mono text-[11.5px]"
             style={{
               background: "var(--color-surface-2)",
               color: "var(--color-text)",
@@ -1219,7 +1266,7 @@ function TestModal({
 
         {err && (
           <div
-            className="mb-3 rounded border px-2 py-1 text-[11px]"
+            className="mb-3 rounded border px-2 py-1 text-[11.5px]"
             style={{
               borderColor: "var(--color-border)",
               color: "var(--color-danger, #f88)",
@@ -1233,7 +1280,7 @@ function TestModal({
           <div>
             {result.timed_out && (
               <div
-                className="mb-2 rounded border px-2 py-1 text-[11px] font-semibold"
+                className="mb-2 rounded border px-2 py-1 text-[11.5px] font-semibold"
                 style={{
                   borderColor: "var(--color-warn, #f80)",
                   background: "rgba(248,136,0,0.10)",
@@ -1246,7 +1293,7 @@ function TestModal({
             )}
             {!result.timed_out && !result.success && (
               <div
-                className="mb-2 rounded border px-2 py-1 text-[11px] font-semibold"
+                className="mb-2 rounded border px-2 py-1 text-[11.5px] font-semibold"
                 style={{
                   borderColor: "var(--color-danger, #f88)",
                   background: "rgba(248,113,113,0.10)",
@@ -1258,7 +1305,7 @@ function TestModal({
             )}
             {result.success && (
               <div
-                className="mb-2 rounded border px-2 py-1 text-[11px] font-semibold"
+                className="mb-2 rounded border px-2 py-1 text-[11.5px] font-semibold"
                 style={{
                   borderColor: "var(--color-success, #2da)",
                   background: "rgba(45,212,191,0.10)",
@@ -1276,7 +1323,7 @@ function TestModal({
                 stdout
               </div>
               <pre
-                className="max-h-48 overflow-auto rounded border p-2 text-[11px]"
+                className="max-h-48 overflow-auto rounded border p-2 text-[11.5px]"
                 style={{
                   borderColor: "var(--color-border)",
                   background: "var(--color-surface-2)",
@@ -1295,7 +1342,7 @@ function TestModal({
                 stderr
               </div>
               <pre
-                className="max-h-48 overflow-auto rounded border p-2 text-[11px]"
+                className="max-h-48 overflow-auto rounded border p-2 text-[11.5px]"
                 style={{
                   borderColor: "var(--color-border)",
                   background: "var(--color-surface-2)",
@@ -1347,7 +1394,7 @@ function AiModal({
         <div className="mb-3 text-[15px] font-semibold">Add hook with AI</div>
 
         <div
-          className="mb-3 text-[11px]"
+          className="mb-3 text-[11.5px]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           Describe in plain language what the hook should do. Claude opens a

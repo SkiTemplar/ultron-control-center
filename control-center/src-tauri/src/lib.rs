@@ -35,6 +35,7 @@ mod inbox;
 mod installed_apps;
 mod instructions;
 mod kanban;
+mod kg;
 mod library;
 mod logs;
 mod maintenance;
@@ -163,6 +164,7 @@ pub fn run() {
             commands::misc::claude_usage,
             commands::misc::compute_activity_timeline,
             commands::misc::compute_cost,
+            commands::misc::open_folder_in_vscode,
             // -- alerts / changelog --
             commands::alerts::read_alerts,
             commands::alerts::delete_alert_entries,
@@ -222,11 +224,31 @@ pub fn run() {
             commands::projects::launch_all_items,
             commands::projects::project_claude_md_load,
             commands::projects::project_claude_md_save,
+            // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --
+            commands::opengl_project::create_opengl_project,
             // -- per-project notes (Notes sub-tab, v2.x) --
             commands::notes::project_notes_load,
             commands::notes::project_notes_save,
+            commands::notes::notes_list_global,
+            commands::notes::notes_load_global,
+            commands::notes::notes_save_global,
+            commands::notes::notes_delete_global,
+            // -- per-project notebook (v2.6 fb-046) + send-to-project (fb-045) --
+            commands::notes::project_notes_list,
+            commands::notes::project_note_load,
+            commands::notes::project_note_save,
+            commands::notes::project_note_delete,
+            commands::notes::notes_send_to_project,
             // -- ECC local knowledge graph (read-only display) --
             commands::ecc_memory::ecc_memory_read,
+            // -- local Knowledge Graph editor (Control Center-owned, v2.6 fb-047) --
+            commands::kg::kg_read_graph,
+            commands::kg::kg_create_entities,
+            commands::kg::kg_delete_entity,
+            commands::kg::kg_add_observations,
+            commands::kg::kg_create_relations,
+            commands::kg::kg_delete_relation,
+            commands::kg::kg_search_nodes,
             // -- per-project timeline aggregator (Timeline sub-tab, v2.x) --
             commands::timeline::project_timeline_list,
             // -- mem0 --
@@ -234,6 +256,8 @@ pub fn run() {
             commands::mem0::mem0_search,
             commands::mem0::mem0_add,
             commands::mem0::mem0_delete,
+            commands::mem0::mem0_diagnostics,
+            commands::mem0::mem0_test_connection,
             // -- sessions --
             commands::sessions::spawn_session,
             commands::sessions::run_inline,
@@ -249,6 +273,8 @@ pub fn run() {
             commands::settings::backup_status,
             commands::settings::get_backup_sources,
             commands::settings::set_backup_sources,
+            commands::settings::get_backup_schedule,
+            commands::settings::set_backup_schedule,
             // -- system / scheduled tasks --
             commands::system::list_scheduled_tasks,
             commands::system::run_scheduled_task,
@@ -261,6 +287,8 @@ pub fn run() {
             commands::apps::list_installed_apps,
             commands::apps::open_app_folder,
             commands::apps::uninstall_app,
+            commands::apps::appx_query,
+            commands::apps::uninstall_bloatware_app,
             // -- auth + lifecycle --
             commands::lifecycle::auth_status,
             commands::lifecycle::close_control_center,
@@ -271,6 +299,9 @@ pub fn run() {
             commands::diagnostics_native::diagnostic_history_read,
             commands::diagnostics_native::diagnostic_schedule_get,
             commands::diagnostics_native::diagnostic_schedule_set,
+            // -- windows event log (system/diagnostics + dashboard crash card) --
+            commands::event_log::event_log_recent,
+            commands::event_log::open_event_viewer,
             // -- plans --
             commands::plans::list_plans,
             commands::plans::patch_plan_status,
@@ -305,11 +336,16 @@ pub fn run() {
             commands::library::library_install_from_github,
             commands::library::read_curated_catalog,
             commands::library::catalog_fetch_previews,
+            // v2.6.1: GitHub repo discovery for Catalog tab.
+            commands::library::github_search_repos,
+            commands::library::github_search_trending,
             commands::library::agent_create,
             commands::library::skill_create,
             commands::library::library_pin_agent,
             commands::library::library_unpin_agent,
             commands::library::library_list_pinned,
+            // v2.6 (v27-f14): sibling-file listing for Skills/Agents detail.
+            commands::library::list_skill_files,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
             commands::kanban::kanban_save,

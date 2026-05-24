@@ -5,7 +5,7 @@
 // are gone. The new layout is a grid of focused at-a-glance cards plus a
 // reworked "Fix common issues" strip.
 
-import type { AlertEntry, ChangelogEntry, GlobalStatus } from "../types";
+import type { AlertEntry, GlobalStatus } from "../types";
 import packageJson from "../../package.json";
 
 import { AlertsCard } from "./dashboard/AlertsCard";
@@ -15,9 +15,8 @@ import { RecentProjectsCard } from "./dashboard/RecentProjectsCard";
 import { RecentSessionsCard } from "./dashboard/RecentSessionsCard";
 import { PendingKanbanCard } from "./dashboard/PendingKanbanCard";
 import { BackupCard } from "./dashboard/BackupCard";
-import { PcDiagnosticCard } from "./dashboard/PcDiagnosticCard";
+import { CrashEventsCard } from "./dashboard/CrashEventsCard";
 import { FixCommonIssues } from "./dashboard/FixCommonIssues";
-import { relativeTime } from "./dashboard/Card";
 
 const APP_VERSION: string = (packageJson as { version?: string }).version ?? "";
 
@@ -33,7 +32,6 @@ type NavTarget =
   | "projects"
   | "memory"
   | "plans"
-  | "changelog"
   | "notifications"
   | "sessions"
   | "usage"
@@ -42,7 +40,6 @@ type NavTarget =
 
 interface DashboardProps {
   alerts: AlertEntry[];
-  changelog: ChangelogEntry[];
   globalStatus: GlobalStatus;
   /** Wired by App.tsx as `setTab`. */
   onNavigate?: (tab: NavTarget) => void;
@@ -50,12 +47,9 @@ interface DashboardProps {
 
 export function Dashboard({
   alerts,
-  changelog,
   globalStatus,
   onNavigate,
 }: DashboardProps) {
-  const lastChange = changelog[0];
-
   return (
     <div className="px-10 py-8">
       <header className="mb-8">
@@ -87,57 +81,19 @@ export function Dashboard({
         <PendingKanbanCard onOpenProjects={() => onNavigate?.("projects")} />
       </div>
 
-      {/* Row 3 - machine + backup health */}
+      {/* Row 3 - system health */}
       <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <PcDiagnosticCard onOpenDiagnostics={() => onNavigate?.("system")} />
         <BackupCard />
+        <CrashEventsCard />
       </div>
 
       <FixCommonIssues onOpenSettings={() => onNavigate?.("settings")} />
 
-      {/* Latest change strip - preserved from v1 since it's still useful. */}
-      {lastChange && (
-        <section className="mt-8">
-          <h2 className="text-[14px] font-semibold">Latest change</h2>
-          <div
-            className="mt-2 rounded p-4"
-            style={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-border)",
-            }}
-          >
-            <div className="flex items-baseline gap-2">
-              <span
-                className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                {lastChange.type}
-              </span>
-              <span
-                style={{ color: "var(--color-text-tertiary)" }}
-                className="text-[11px]"
-              >
-                {lastChange.scope}
-              </span>
-              <span
-                style={{ color: "var(--color-text-tertiary)" }}
-                className="ml-auto text-[11px]"
-              >
-                {relativeTime(lastChange.ts)}
-              </span>
-            </div>
-            <div className="mt-2 text-[13px] font-medium">
-              {lastChange.title}
-            </div>
-          </div>
-        </section>
-      )}
+      {/* v2.6: Latest-change Dashboard card dropped (kanban card-v26-4). User
+          doesn't need a changelog UI; CHANGELOG.md stays in docs/. */}
 
       <div
-        className="mt-12 text-[11px]"
+        className="mt-8 text-[11.5px]"
         style={{ color: "var(--color-text-faint)" }}
       >
         Global status: {globalStatus}

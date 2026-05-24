@@ -1043,7 +1043,7 @@ export function Plans() {
             key={p}
             type="button"
             onClick={() => togglePriority(p)}
-            className="rounded px-2 py-1 text-[11px] transition-colors"
+            className="rounded px-2 py-1 text-[11.5px] transition-colors"
             style={{
               background: priorityFilter.has(p)
                 ? "var(--color-surface-3)"
@@ -1126,7 +1126,7 @@ export function Plans() {
                 </span>
               </div>
               <span
-                className="tabular-nums text-[11px]"
+                className="tabular-nums text-[11.5px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
                 {grouped[c.key]?.length ?? 0}
@@ -1228,7 +1228,7 @@ export function Plans() {
                   </span>
                 </div>
                 <span
-                  className="tabular-nums text-[11px]"
+                  className="tabular-nums text-[11.5px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
                   {grouped[c.key]?.length ?? 0}
@@ -1311,7 +1311,7 @@ export function Plans() {
               <div>
                 <h3 className="text-[14px] font-semibold">Archived plans</h3>
                 <p
-                  className="mt-0.5 text-[11px]"
+                  className="mt-0.5 text-[11.5px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
                   Resolved more than {archivedDays} days ago — off the kanban

@@ -18,7 +18,7 @@ export function JsonEditor({
   return (
     <div className="space-y-3">
       <div
-        className="text-[11px]"
+        className="text-[11.5px]"
         style={{ color: "var(--color-text-tertiary)" }}
       >
         Editable copy of <span style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</span> · any change takes effect when you click Save (automatic backup)

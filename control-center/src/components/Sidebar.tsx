@@ -12,6 +12,7 @@ export type Tab =
   | "rules"
   | "projects"
   | "memory"
+  | "notes"
   | "plans"
   | "changelog"
   | "notifications"
@@ -60,10 +61,10 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "dashboard", label: "Dashboard", available: true },
       { id: "usage", label: "Usage", available: true, featureKey: "usage" },
-      { id: "notifications", label: "Notifications", available: true, featureKey: "notifications" },
       // v2.5.1: Changelog dropped from sidebar (user does not need it).
       // Still reachable via command palette "Go to Changelog" since the
       // Tab union still includes it and App.tsx still routes it.
+      // Notifications moved to footer block (anchored at bottom like Settings).
     ],
   },
   {
@@ -77,6 +78,10 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       // <Library initial="..." /> so deep-linking still feels native.
       { id: "library", label: "Library", available: true, featureKey: "skills" },
       { id: "memory", label: "Memory", available: true, featureKey: "memory" },
+      // v2.6 (card-v26-fb-005): cross-project markdown notes at
+      // ~/.ultron/cockpit/notes/. Distinct from per-project notes (those
+      // live inside Projects → workspace → Notes sub-tab).
+      { id: "notes", label: "Notes", available: true },
     ],
   },
   {
@@ -91,10 +96,9 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
   },
   // v2.1: "Gaming" and "Personal" tabs deleted (old ULTRON persona stack).
   // "Hooks" lives inside System as a sub-tab since v15.2.
-  {
-    heading: "",
-    items: [{ id: "settings", label: "Settings", available: true }],
-  },
+  // v2.6 (card-v26-fb-015): Settings moved out of SECTIONS — rendered as
+  // a footer block so it anchors at the bottom of the sidebar instead of
+  // floating in the middle on tall screens.
 ];
 
 // v15.3 — persisted toggle for the "More" group. Defaults closed so the
@@ -160,7 +164,7 @@ function SidebarButton({
       type="button"
       disabled={dim}
       onClick={() => item.available && onSelect(item.id)}
-      className="flex w-full items-center justify-between rounded px-2 py-1 text-[13px] transition-colors"
+      className="flex w-full items-center justify-between rounded-md px-2.5 py-2 text-[15px] transition-colors"
       style={{
         background: active ? "var(--color-surface-3)" : "transparent",
         color: active
@@ -262,7 +266,7 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
       {/* Brand */}
       <div className="flex items-center gap-2.5 px-4 py-4">
         <div
-          className="flex h-6 w-6 items-center justify-center rounded text-[11px] font-semibold"
+          className="flex h-6 w-6 items-center justify-center rounded text-[12px] font-semibold"
           style={{
             background: "var(--color-accent)",
             color: "var(--color-accent-text)",
@@ -287,16 +291,16 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
           const primary = visibleItems.filter((it) => (it.tier ?? "primary") === "primary");
           if (primary.length === 0) return null;
           return (
-            <div key={si} className="mb-4">
+            <div key={si} className="mb-5">
               {section.heading && (
                 <div
-                  className="px-2 pb-1.5 text-[10px] font-medium uppercase tracking-[0.08em]"
+                  className="px-2 pb-2 text-[11.5px] font-medium uppercase tracking-[0.08em]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
                   {section.heading}
                 </div>
               )}
-              <div className="space-y-px">
+              <div className="space-y-0.5">
                 {primary.map((item) => (
                   <SidebarButton
                     key={item.id}
@@ -327,7 +331,7 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
               <button
                 type="button"
                 onClick={toggleMore}
-                className="flex w-full items-center justify-between rounded px-2 py-1 text-[10px] font-medium uppercase tracking-[0.08em] transition-colors"
+                className="flex w-full items-center justify-between rounded px-2 py-1 text-[11.5px] font-medium uppercase tracking-[0.08em] transition-colors"
                 style={{
                   background: "transparent",
                   color: "var(--color-text-tertiary)",
@@ -368,9 +372,30 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
             descriptions per toggle). */}
       </nav>
 
+      {/* v2.6 (card-v26-fb-015): Settings + Notifications anchored at the
+          bottom of the sidebar. Separated from the scrollable nav so the
+          user always sees them without scrolling on tall screens. */}
+      <div
+        className="border-t px-2 py-2 space-y-0.5"
+        style={{ borderColor: "var(--color-border)" }}
+      >
+        {features.notifications !== false && (
+          <SidebarButton
+            item={{ id: "notifications", label: "Notifications", available: true }}
+            active={active === "notifications"}
+            onSelect={onSelect}
+          />
+        )}
+        <SidebarButton
+          item={{ id: "settings", label: "Settings", available: true }}
+          active={active === "settings"}
+          onSelect={onSelect}
+        />
+      </div>
+
       {/* Status footer */}
       <div
-        className="flex items-center gap-2 border-t px-4 py-3 text-[11px]"
+        className="flex items-center gap-2 border-t px-4 py-3 text-[11.5px]"
         style={{ borderColor: "var(--color-border)" }}
       >
         <span

@@ -65,7 +65,7 @@ export function ViewToggle({ mode, onChange }: Props) {
             role="radio"
             aria-checked={active}
             onClick={() => onChange(id)}
-            className="flex items-center gap-1 px-2 py-1 text-[11px] font-medium capitalize transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-[11.5px] font-medium capitalize transition-colors"
             style={{
               background: active ? "var(--color-accent)" : "transparent",
               color: active

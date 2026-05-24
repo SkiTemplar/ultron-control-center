@@ -112,6 +112,63 @@ export default function ProjectContext({ projectId, projectPath }: Props) {
             >
               <RefreshCw size={11} />
             </button>
+            {/* v2.6 (card-v26-fb-007): regenerate CLAUDE.md via Claude. */}
+            <button
+              onClick={async () => {
+                const prompt =
+                  "Lee el árbol del proyecto y los 5-10 archivos más importantes (README, package.json / Cargo.toml / pyproject.toml, lib.rs / index.ts / main.py, etc.). Después escribe un CLAUDE.md actualizado:\n\n- Resumen del proyecto en 2-3 líneas\n- Stack técnico\n- Entry points + dónde vive la lógica clave\n- Comandos comunes (build, test, run)\n- Convenciones que un agente nuevo debería saber\n\nMuéstrame el contenido propuesto ANTES de escribir el archivo. Espera mi OK.";
+                try {
+                  if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(prompt);
+                  }
+                  await invoke("spawn_session", {
+                    provider: "claude",
+                    cwd: projectPath,
+                    prompt,
+                    flags: { dangerouslySkipPermissions: false },
+                  });
+                } catch (e) {
+                  console.warn("regenerate spawn_session failed", e);
+                }
+              }}
+              className="rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-2 py-0.5 text-[11.5px]"
+              title="Spawn a Claude session in this project's cwd with a prompt to rewrite CLAUDE.md"
+            >
+              Regenerate with AI
+            </button>
+            {/* v2.6 (card-v26-fb-006): create skill from this project — Claude
+                drafts a SKILL.md based on the project's tree + CLAUDE.md and
+                drops it at ~/.claude/skills/project-<slug>/SKILL.md (so it
+                lands under the "Project" sub-tile in Library/Skills). */}
+            <button
+              onClick={async () => {
+                const slug = projectId.toLowerCase().replace(/[^a-z0-9-]+/g, "-");
+                const prompt =
+                  "Lee este proyecto (árbol, CLAUDE.md si existe, README) y crea un skill nuevo que codifique cómo trabajar aquí.\n\n" +
+                  `Ubicación destino: ~/.claude/skills/project-${slug}/SKILL.md\n\n` +
+                  "Estructura del skill:\n" +
+                  "- Frontmatter YAML: name (kebab-case), description (cuándo activarse, no qué hace).\n" +
+                  "- Cuerpo: cómo arrancar el proyecto, convenciones críticas, gotchas conocidos, comandos comunes, qué NO tocar.\n\n" +
+                  "Muéstrame el contenido propuesto ANTES de escribir el archivo. Espera mi OK. Si la carpeta destino no existe créala.";
+                try {
+                  if (navigator.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(prompt);
+                  }
+                  await invoke("spawn_session", {
+                    provider: "claude",
+                    cwd: projectPath,
+                    prompt,
+                    flags: { dangerouslySkipPermissions: false },
+                  });
+                } catch (e) {
+                  console.warn("create-skill spawn_session failed", e);
+                }
+              }}
+              className="rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-2 py-0.5 text-[11.5px]"
+              title="Spawn a Claude session that drafts a project-specific skill saved under ~/.claude/skills/"
+            >
+              Create skill from project
+            </button>
             <button
               onClick={() => void saveMd()}
               disabled={!dirty || saving}

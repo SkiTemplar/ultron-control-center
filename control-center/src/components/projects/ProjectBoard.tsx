@@ -78,6 +78,73 @@ export default function ProjectBoard({ projectId }: Props) {
     [load, projectId],
   );
 
+  // v2.6 (card-v26-fb-030): rename a column. Mutates the board immutably
+  // and persists via kanban_save (which already accepts the whole board).
+  const renameColumn = useCallback(
+    async (columnId: string, newName: string) => {
+      if (!board) return;
+      const trimmed = newName.trim();
+      if (!trimmed) return;
+      const snapshot = board;
+      const next: KanbanBoard = {
+        ...board,
+        columns: board.columns.map((c) =>
+          c.id === columnId ? { ...c, name: trimmed } : c,
+        ),
+      };
+      setBoard(next);
+      try {
+        await invoke("kanban_save", { projectId, board: next });
+      } catch (e) {
+        setError(String(e));
+        setBoard(snapshot);
+      }
+    },
+    [board, projectId],
+  );
+
+  // v2.6: board UX hardening — search + priority filter chips. Persisted
+  // per-project in localStorage so the user's preferred view sticks across
+  // reloads.
+  const filterKey = `board.filters.${projectId}`;
+  const [boardQuery, setBoardQuery] = useState<string>(() => {
+    try {
+      return localStorage.getItem(`${filterKey}.q`) ?? "";
+    } catch {
+      return "";
+    }
+  });
+  const [priorityFilter, setPriorityFilter] = useState<"all" | "p0" | "p1" | "p2" | "p3">(() => {
+    try {
+      const v = localStorage.getItem(`${filterKey}.p`);
+      if (v === "p0" || v === "p1" || v === "p2" || v === "p3") return v;
+    } catch {
+      /* ignore */
+    }
+    return "all";
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${filterKey}.q`, boardQuery);
+      localStorage.setItem(`${filterKey}.p`, priorityFilter);
+    } catch {
+      /* ignore */
+    }
+  }, [filterKey, boardQuery, priorityFilter]);
+
+  const cardMatches = useCallback(
+    (card: Card): boolean => {
+      if (priorityFilter !== "all") {
+        if (!card.tags.includes(priorityFilter)) return false;
+      }
+      const q = boardQuery.trim().toLowerCase();
+      if (!q) return true;
+      const hay = `${card.title} ${card.description ?? ""} ${card.tags.join(" ")}`.toLowerCase();
+      return hay.includes(q);
+    },
+    [boardQuery, priorityFilter],
+  );
+
   if (error && !board) {
     return (
       <div className="p-4 text-xs text-[var(--color-error)]">
@@ -100,10 +167,78 @@ export default function ProjectBoard({ projectId }: Props) {
           ~/.ultron/plans/PLANS.json). The Plans tab now holds cross-project
           personal items only. */}
       <div className="flex h-full flex-col">
-        <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1 text-[10.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
+        <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-1 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
           <span>Project</span>
           <span className="text-[var(--color-text-faint)]">/</span>
           <span className="text-[var(--color-text-secondary)]">Board</span>
+        </div>
+        {/* v2.6: board toolbar — search + priority filter chips. Persists
+            per-project so the user's view survives reloads. */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-2 text-[11.5px]">
+          <input
+            type="text"
+            value={boardQuery}
+            onChange={(e) => setBoardQuery(e.target.value)}
+            placeholder="Search cards…"
+            className="min-w-[180px] flex-1 rounded px-2 py-1 text-[11.5px] outline-none"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text)",
+              maxWidth: 320,
+            }}
+          />
+          <div
+            className="flex items-center gap-0.5 rounded p-0.5"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Filter by priority"
+          >
+            {(["all", "p0", "p1", "p2", "p3"] as const).map((p) => {
+              const active = priorityFilter === p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPriorityFilter(p)}
+                  className="rounded px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-wide transition-colors"
+                  style={{
+                    background: active
+                      ? "var(--color-surface-3)"
+                      : "transparent",
+                    color: active
+                      ? "var(--color-text)"
+                      : "var(--color-text-tertiary)",
+                  }}
+                >
+                  {p}
+                </button>
+              );
+            })}
+          </div>
+          {(boardQuery || priorityFilter !== "all") && (
+            <button
+              type="button"
+              onClick={() => {
+                setBoardQuery("");
+                setPriorityFilter("all");
+              }}
+              className="rounded px-2 py-0.5 text-[11.5px]"
+              style={{
+                background: "transparent",
+                color: "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border)",
+              }}
+              title="Clear filters"
+            >
+              Clear
+            </button>
+          )}
+          <span className="ml-auto text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
+            {board.cards.filter(cardMatches).length} / {board.cards.length} cards
+          </span>
         </div>
         <div className="flex flex-1 gap-3 overflow-x-auto p-3">
         {[...board.columns]
@@ -115,6 +250,7 @@ export default function ProjectBoard({ projectId }: Props) {
               name={col.name}
               cards={board.cards
                 .filter((c) => c.column_id === col.id)
+                .filter(cardMatches)
                 .sort((a, b) => a.order - b.order)}
               onDropCard={(cardId, beforeCardId) => {
                 const inCol = board.cards
@@ -142,6 +278,7 @@ export default function ProjectBoard({ projectId }: Props) {
                     .map((c) => c.title),
                 )
               }
+              onRename={(newName) => void renameColumn(col.id, newName)}
             />
           ))}
         </div>
@@ -182,6 +319,8 @@ type ColumnProps = {
   onEditCard: (card: Card) => void;
   onDeleteCard: (cardId: string) => void;
   onDispatchPrompt: (prompt: string) => void;
+  // v2.6 (card-v26-fb-030): rename column via double-click on header name.
+  onRename: (newName: string) => void;
 };
 
 /** Per-column orchestrator presets — each entry maps a column name (matched
@@ -307,6 +446,7 @@ function BoardColumn({
   onEditCard,
   onDeleteCard,
   onDispatchPrompt,
+  onRename,
 }: ColumnProps) {
   const { columnDropProps, cardDropProps, hover } = useDroppableColumn(
     columnId,
@@ -315,6 +455,12 @@ function BoardColumn({
   const accent = columnAccent(name);
   const [menuOpen, setMenuOpen] = useState(false);
   const presets = useMemo(() => presetsForColumn(name), [name]);
+  // v2.6 (card-v26-fb-030): inline rename on double-click of the column name.
+  const [editingName, setEditingName] = useState(false);
+  const [draftName, setDraftName] = useState(name);
+  useEffect(() => {
+    if (!editingName) setDraftName(name);
+  }, [name, editingName]);
 
   return (
     <div
@@ -336,7 +482,43 @@ function BoardColumn({
             className="inline-block h-2 w-2 rounded-full"
             style={{ background: accent }}
           />
-          {name}
+          {editingName ? (
+            <input
+              autoFocus
+              type="text"
+              value={draftName}
+              onChange={(e) => setDraftName(e.target.value)}
+              onBlur={() => {
+                setEditingName(false);
+                if (draftName.trim() && draftName.trim() !== name) {
+                  onRename(draftName);
+                }
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  setEditingName(false);
+                  if (draftName.trim() && draftName.trim() !== name) {
+                    onRename(draftName);
+                  }
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  setDraftName(name);
+                  setEditingName(false);
+                }
+              }}
+              className="rounded border border-[var(--color-accent)] bg-[var(--color-surface-1)] px-1 py-0 text-xs font-semibold uppercase tracking-wide"
+              style={{ minWidth: 80, width: `${Math.max(draftName.length + 1, 6)}ch` }}
+            />
+          ) : (
+            <span
+              onDoubleClick={() => setEditingName(true)}
+              title="Double-click to rename"
+              className="cursor-text"
+            >
+              {name}
+            </span>
+          )}
           <span className="ml-1 rounded bg-[var(--color-surface-2)] px-1.5 py-px text-[10px] font-medium tabular-nums normal-case tracking-normal text-[var(--color-text-muted)]">
             {cards.length}
           </span>
@@ -352,11 +534,12 @@ function BoardColumn({
           </button>
           <button
             onClick={onAddCard}
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
+            className="flex items-center gap-1 rounded px-2 py-1 text-[11.5px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
             aria-label="Add card"
             title="Add card"
           >
             <Plus size={12} />
+            Add
           </button>
         </div>
         {menuOpen && (
@@ -364,7 +547,7 @@ function BoardColumn({
             className="absolute right-1 top-9 z-20 w-60 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] shadow-lg"
             onMouseLeave={() => setMenuOpen(false)}
           >
-            <div className="border-b border-[var(--color-border)] px-3 py-1.5 text-[10.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
+            <div className="border-b border-[var(--color-border)] px-3 py-1.5 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
               Dispatch for {name}
             </div>
             {presets.map((p) => (
@@ -388,7 +571,7 @@ function BoardColumn({
         {cards.length === 0 && (
           <button
             onClick={onAddCard}
-            className="block w-full rounded border border-dashed border-[var(--color-border)] px-3 py-4 text-center text-[11px] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
+            className="block w-full rounded border border-dashed border-[var(--color-border)] px-3 py-4 text-center text-[11.5px] text-[var(--color-text-muted)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-text)]"
           >
             <Plus size={11} className="mr-1 inline-block align-text-bottom" />
             Add a card to {name.toLowerCase()}
@@ -458,12 +641,30 @@ function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
           ×
         </button>
       </div>
-      {card.description && (
-        <p className="mb-1.5 line-clamp-2 text-[10.5px] leading-snug text-[var(--color-text-muted)]">
-          {card.description}
-        </p>
-      )}
       <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+        {/* v2.6 (card-v26-fb-029): priority badge from first tag matching
+            /^p\d$/. p0=danger, p1=warn, p2/p3=neutral. Filtered out of the
+            regular tag display below so it doesn't appear twice. */}
+        {(() => {
+          const p = card.tags.find((t) => /^p\d$/.test(t));
+          if (!p) return null;
+          const palette: Record<string, { bg: string; fg: string }> = {
+            p0: { bg: "rgba(248, 81, 73, 0.18)", fg: "var(--color-danger)" },
+            p1: { bg: "rgba(210, 153, 34, 0.18)", fg: "var(--color-warn)" },
+            p2: { bg: "var(--color-surface-3)", fg: "var(--color-text)" },
+            p3: { bg: "var(--color-surface-0)", fg: "var(--color-text-muted)" },
+          };
+          const c = palette[p] ?? palette.p3;
+          return (
+            <span
+              className="rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider"
+              style={{ background: c.bg, color: c.fg }}
+              title={`Priority: ${p.toUpperCase()}`}
+            >
+              {p.toUpperCase()}
+            </span>
+          );
+        })()}
         {card.agent && (
           <span
             className="flex items-center gap-1 rounded bg-[var(--color-surface-0)] px-1.5 py-0.5 font-medium"
@@ -496,7 +697,7 @@ function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
             {lastRun.status.kind}
           </span>
         ) : null}
-        {card.tags.slice(0, 2).map((t) => (
+        {card.tags.filter((t) => !/^p\d$/.test(t)).slice(0, 2).map((t) => (
           <span
             key={t}
             className="rounded bg-[var(--color-surface-0)] px-1.5 py-0.5"
@@ -504,9 +705,9 @@ function BoardCard({ card, dropProps, onEdit, onDelete }: CardProps) {
             {t}
           </span>
         ))}
-        {card.tags.length > 2 && (
+        {card.tags.filter((t) => !/^p\d$/.test(t)).length > 2 && (
           <span className="text-[var(--color-text-muted)]">
-            +{card.tags.length - 2}
+            +{card.tags.filter((t) => !/^p\d$/.test(t)).length - 2}
           </span>
         )}
       </div>

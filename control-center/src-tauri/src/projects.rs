@@ -65,6 +65,23 @@ pub struct ProjectInfo {
     /// `list_projects_inner`. The launch dispatch is provider-agnostic; this
     /// field is pure metadata.
     pub default_provider: Option<String>,
+    /// fb-016 — preferred default shell for new terminals spawned inside
+    /// this project's workspace. One of "powershell" | "powershell-admin" |
+    /// "cmd" | "bash". `None` falls back to the global default. Pure
+    /// metadata — the PTY layer reads it when it spawns a non-AI terminal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_shell: Option<String>,
+    /// fb-016 — override the cwd terminals open in. When set (and a real
+    /// directory on disk) terminals start here instead of `path`. Use case:
+    /// the project lives at `repo/` but most work happens in `repo/app/`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_folder_override: Option<String>,
+    /// fb-016 — free-form notes about the project. Distinct from the Notes
+    /// tab (which manages standalone notes). This is a single textarea the
+    /// user sees in the project edit modal — useful for stack reminders,
+    /// gotchas, todos that don't deserve a kanban card.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -96,12 +113,24 @@ struct RegEntry {
     items: Option<Vec<LauncherItem>>,
     #[serde(default)]
     default_provider: Option<String>,
+    #[serde(default)]
+    default_shell: Option<String>,
+    #[serde(default)]
+    parent_folder_override: Option<String>,
+    #[serde(default)]
+    notes: Option<String>,
 }
 
 /// Allowed values for `Project.default_provider`. Centralised so backend
 /// commands (set_default_provider, create_project, update_project) and the
 /// load-time normaliser stay in lock-step.
 const VALID_PROVIDERS: &[&str] = &["claude", "codex", "gemini"];
+
+/// fb-016 — allowed values for `Project.default_shell`. Anything outside
+/// the allowlist collapses to None at load time so the PTY layer falls
+/// back to the global default. Aliases ("pwsh" → "powershell") accepted
+/// in the normaliser below.
+const VALID_SHELLS: &[&str] = &["powershell", "powershell-admin", "cmd", "bash"];
 
 /// Allowed values for the per-project preferred IDE. Used by the editor
 /// modal dropdown and consumed by `open_project_in_ide` to skip auto-detect.
@@ -122,6 +151,31 @@ const VALID_IDES: &[&str] = &[
     "sublime",
     "zed",
 ];
+
+/// fb-016 — coerce a raw `default_shell` to one of the four supported
+/// shells or None. Accepts a small set of aliases so manually-edited
+/// registries keep working ("pwsh" → "powershell", "powershell admin"
+/// with spaces, etc).
+fn normalise_shell(raw: Option<&str>) -> Option<String> {
+    let s = raw.map(str::trim).filter(|s| !s.is_empty())?;
+    let lower = s.to_ascii_lowercase();
+    let canonical = match lower.as_str() {
+        "powershell" | "pwsh" | "ps" => Some("powershell"),
+        "powershell-admin" | "powershell admin" | "pwsh-admin" | "admin" => {
+            Some("powershell-admin")
+        }
+        "cmd" | "cmd.exe" => Some("cmd"),
+        "bash" | "git-bash" | "wsl" => Some("bash"),
+        _ => None,
+    };
+    canonical.map(|s| s.to_string()).or_else(|| {
+        if VALID_SHELLS.contains(&lower.as_str()) {
+            Some(lower)
+        } else {
+            None
+        }
+    })
+}
 
 fn normalise_provider(raw: Option<&str>) -> String {
     match raw.map(str::trim).filter(|s| !s.is_empty()) {
@@ -400,6 +454,12 @@ pub struct CreateProjectPayload {
     /// One of "claude" | "codex" | "gemini". Anything else (or absent) is
     /// normalised to "claude" before being written to projects.json.
     pub default_provider: Option<String>,
+    /// fb-016 — preferred shell for non-AI terminals (optional).
+    pub default_shell: Option<String>,
+    /// fb-016 — override the cwd that terminals open in (optional).
+    pub parent_folder_override: Option<String>,
+    /// fb-016 — free-form notes (optional).
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -514,7 +574,20 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         .unwrap_or_else(|_| "1970-01-01".to_string());
 
     let default_provider = normalise_provider(p.default_provider.as_deref());
-    let new_entry = serde_json::json!({
+    let default_shell = normalise_shell(p.default_shell.as_deref());
+    let parent_folder_override = p
+        .parent_folder_override
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let notes = p
+        .notes
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let mut new_entry = serde_json::json!({
         "id": id,
         "name": p.name.trim(),
         "path": raw_path,
@@ -529,6 +602,17 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         "items": [],
         "default_provider": default_provider,
     });
+    // fb-016 — only write the new fields when they carry a value so we
+    // don't bloat projects.json with empty strings on every create.
+    if let Some(shell) = default_shell {
+        new_entry["default_shell"] = serde_json::Value::String(shell);
+    }
+    if let Some(folder) = parent_folder_override {
+        new_entry["parent_folder_override"] = serde_json::Value::String(folder);
+    }
+    if let Some(n) = notes {
+        new_entry["notes"] = serde_json::Value::String(n);
+    }
     projects.push(new_entry);
 
     // Update last_scan to now (ISO).
@@ -562,6 +646,14 @@ pub struct UpdateProjectPayload {
     /// existing value untouched (consistent with the rest of the patch
     /// fields). Any non-`claude/codex/gemini` value collapses to "claude".
     pub default_provider: Option<String>,
+    /// fb-016 — patch the default shell. Empty string clears the field
+    /// (loader will read it back as None). Unknown values collapse to None
+    /// at write time so the registry stays clean.
+    pub default_shell: Option<String>,
+    /// fb-016 — patch the parent_folder_override. Empty string clears.
+    pub parent_folder_override: Option<String>,
+    /// fb-016 — patch the free-form notes. Empty string clears.
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -647,6 +739,35 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
         // registry. Storing "" or a typo would force the frontend into a
         // fallback path on every render.
         entry["default_provider"] = serde_json::Value::String(normalise_provider(Some(prov)));
+    }
+    // fb-016 — three new optional fields. Empty string = clear (write Null
+    // so it disappears from projects.json on the next round-trip).
+    if let Some(raw) = p.default_shell.as_deref() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            entry["default_shell"] = serde_json::Value::Null;
+        } else if let Some(canonical) = normalise_shell(Some(trimmed)) {
+            entry["default_shell"] = serde_json::Value::String(canonical);
+        } else {
+            // Unknown value → clear rather than poison the registry.
+            entry["default_shell"] = serde_json::Value::Null;
+        }
+    }
+    if let Some(raw) = p.parent_folder_override.as_deref() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            entry["parent_folder_override"] = serde_json::Value::Null;
+        } else {
+            entry["parent_folder_override"] = serde_json::Value::String(trimmed.to_string());
+        }
+    }
+    if let Some(raw) = p.notes.as_deref() {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            entry["notes"] = serde_json::Value::Null;
+        } else {
+            entry["notes"] = serde_json::Value::String(trimmed.to_string());
+        }
     }
 
     let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
@@ -807,6 +928,22 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
         // canonical value (or "none" when the registry holds a legacy /
         // unsupported string like "external" or "").
         let ide = normalise_ide(p.ide.as_deref());
+        // fb-016 — pass through the new optional fields. `default_shell`
+        // is normalised so a typo on disk (e.g. "pwsh") still surfaces as
+        // a clean canonical value to the UI.
+        let default_shell = normalise_shell(p.default_shell.as_deref());
+        let parent_folder_override = p
+            .parent_folder_override
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
+        let notes = p
+            .notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string);
         out.push(ProjectInfo {
             id: p.id,
             name: p.name,
@@ -819,6 +956,9 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
             tags: p.tags,
             items: synthesised_items,
             default_provider,
+            default_shell,
+            parent_folder_override,
+            notes,
         });
     }
     // v2.x: synthesise a "Home" entry pointing at the user's home directory
@@ -863,6 +1003,9 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
                     },
                 ]),
                 default_provider: Some("claude".to_string()),
+                default_shell: None,
+                parent_folder_override: None,
+                notes: None,
             });
         }
     }

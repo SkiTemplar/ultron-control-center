@@ -27,8 +27,6 @@ import type {
   WorkspaceSummary,
 } from "../types";
 import {
-  FolderOpen,
-  ExternalLink,
   Play,
   Plus,
   History,
@@ -300,7 +298,7 @@ function WorkspacePicker({
       {cwd && (
         <>
           <span
-            className="truncate text-[11px]"
+            className="truncate text-[11.5px]"
             style={{
               fontFamily: "var(--font-mono)",
               color: "var(--color-text-secondary)",
@@ -313,7 +311,7 @@ function WorkspacePicker({
           <button
             type="button"
             onClick={clear}
-            className="text-[11px]"
+            className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             clear
@@ -396,7 +394,7 @@ function WorkspacePicker({
                   </div>
                   {p.path && (
                     <div
-                      className="truncate text-[10.5px]"
+                      className="truncate text-[11.5px]"
                       style={{
                         fontFamily: "var(--font-mono)",
                         color: "var(--color-text-faint)",
@@ -446,7 +444,7 @@ function WorkspacePicker({
             <button
               type="button"
               onClick={() => setOpen(false)}
-              className="text-[11px]"
+              className="text-[11.5px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
               cancel
@@ -467,8 +465,20 @@ type WorkspaceCardProps = {
   busy: boolean;
   onContinue: (ws: WorkspaceSummary) => void;
   onNew: (ws: WorkspaceSummary) => void;
-  onOpenIde: (ws: WorkspaceSummary) => void;
-  onOpenFolder: (ws: WorkspaceSummary) => void;
+  onCreateProject: (ws: WorkspaceSummary) => void;
+  // v2.6 (card-v26-fb-003): inline Custom popover — user picks provider +
+  // model and the parent spawns the session.
+  onCustom: (
+    ws: WorkspaceSummary,
+    opts: { provider: SessionProvider; model: string; prompt: string | null },
+  ) => void;
+  // v2.5.2 (fb-046 + send-context): send-context popover lets the user pick
+  // a provider and spawns a brand new session in the workspace seeded with
+  // a continuation prompt referencing the last session id.
+  onSendContext: (
+    ws: WorkspaceSummary,
+    opts: { provider: SessionProvider; model: string },
+  ) => void;
 };
 
 function WorkspaceCard({
@@ -476,11 +486,23 @@ function WorkspaceCard({
   busy,
   onContinue,
   onNew,
-  onOpenIde,
-  onOpenFolder,
+  onCreateProject,
+  onCustom,
+  onSendContext,
 }: WorkspaceCardProps) {
   const headline = ws.project_name ?? deriveWorkspaceName(ws.cwd);
   const canContinue = !!ws.latest_session_id;
+  // v2.6 (card-v26-fb-003): Custom popover per workspace — inline expand
+  // so the user can pick provider + prompt and launch without touching
+  // a separate Advanced panel.
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customProvider, setCustomProvider] = useState<SessionProvider>("claude");
+  const [customModel, setCustomModel] = useState<string>("");
+  // v2.5.2: Send-context popover — separate from Custom because the
+  // intent (and the prompt the backend receives) is different.
+  const [sendOpen, setSendOpen] = useState(false);
+  const [sendProvider, setSendProvider] = useState<SessionProvider>("claude");
+  const [sendModel, setSendModel] = useState<string>("");
 
   return (
     <div
@@ -499,6 +521,25 @@ function WorkspaceCard({
           >
             {headline}
           </h3>
+          {/* v2.5.2: provider badge — for now every workspace surfaced here
+              is sourced from `~/.claude/projects/`, so the last provider is
+              Claude. Future work can derive this from a per-workspace
+              provider history. Colour is the Claude accent (tinto). */}
+          <span
+            className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-tertiary)",
+              border: "1px solid var(--color-border)",
+            }}
+            title="Last provider used in this workspace"
+          >
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ background: PROVIDERS.claude.accent }}
+            />
+            claude
+          </span>
           {ws.project_id && (
             <span
               className="shrink-0 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
@@ -514,7 +555,7 @@ function WorkspaceCard({
           )}
         </div>
         <div
-          className="mt-1 truncate text-[10.5px]"
+          className="mt-1 truncate text-[11.5px]"
           style={{
             fontFamily: "var(--font-mono)",
             color: "var(--color-text-faint)",
@@ -569,39 +610,258 @@ function WorkspaceCard({
           <Plus size={12} />
           New
         </button>
-        <div className="ml-auto flex items-center gap-1">
-          {ws.project_id && (
-            <button
-              type="button"
-              onClick={() => onOpenIde(ws)}
-              disabled={busy}
-              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] transition-colors disabled:opacity-40"
-              style={{
-                background: "transparent",
-                color: "var(--color-text-tertiary)",
-                border: "1px solid var(--color-border)",
-              }}
-              title="Open in IDE"
-            >
-              <ExternalLink size={11} />
-            </button>
-          )}
+        {/* v2.6 (card-v26-fb-003): per-card Custom launch — inline popover
+            so user picks provider + prompt without leaving the card. */}
+        <button
+          type="button"
+          onClick={() => {
+            setCustomOpen((v) => !v);
+            if (sendOpen) setSendOpen(false);
+          }}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+          style={{
+            background: customOpen
+              ? "var(--color-surface-4)"
+              : "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Custom launch (provider + prompt) in this workspace"
+        >
+          Custom
+        </button>
+        {/* v2.5.2: Send Context → New Session. Disabled when there is no
+            previous session id to reference. */}
+        <button
+          type="button"
+          onClick={() => {
+            setSendOpen((v) => !v);
+            if (customOpen) setCustomOpen(false);
+          }}
+          disabled={busy || !canContinue}
+          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+          style={{
+            background: sendOpen ? "var(--color-surface-4)" : "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title={
+            canContinue
+              ? `Start a new session pre-seeded with a reference to ${ws.latest_session_id}`
+              : "Need at least one prior session to send context from"
+          }
+        >
+          Send Context →
+        </button>
+        {!ws.project_id && (
           <button
             type="button"
-            onClick={() => onOpenFolder(ws)}
+            onClick={() => onCreateProject(ws)}
             disabled={busy}
-            className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-[11px] transition-colors disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-40"
             style={{
-              background: "transparent",
-              color: "var(--color-text-tertiary)",
-              border: "1px solid var(--color-border)",
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
             }}
-            title="Reveal folder in Explorer"
+            title="Register this workspace as a project"
           >
-            <FolderOpen size={11} />
+            + Create Project
           </button>
-        </div>
+        )}
       </div>
+
+      {/* v2.6 (card-v26-fb-003): Custom popover — provider + model only. */}
+      {customOpen && (
+        <div
+          className="mt-3 rounded p-3"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-[11.5px]">
+              <span style={{ color: "var(--color-text-tertiary)" }}>Provider</span>
+              <select
+                value={customProvider}
+                onChange={(e) => {
+                  const p = e.target.value as SessionProvider;
+                  setCustomProvider(p);
+                  setCustomModel(PROVIDERS[p].defaultModel);
+                }}
+                className="rounded px-1.5 py-0.5 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                <option value="claude">Claude</option>
+                <option value="codex">Codex</option>
+                <option value="gemini">Gemini</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 text-[11.5px]">
+              <span style={{ color: "var(--color-text-tertiary)" }}>Model</span>
+              <select
+                value={customModel}
+                onChange={(e) => setCustomModel(e.target.value)}
+                className="rounded px-1.5 py-0.5 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                {PROVIDERS[customProvider].models.map((m) => (
+                  <option key={m.id || "default"} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setCustomOpen(false)}
+                className="rounded px-2.5 py-1 text-[11.5px]"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onCustom(ws, {
+                    provider: customProvider,
+                    model: customModel,
+                    prompt: null,
+                  });
+                  setCustomOpen(false);
+                }}
+                disabled={busy}
+                className="rounded px-2.5 py-1 text-[11.5px] font-medium disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                Launch
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* v2.5.2: Send Context popover — pick destination provider/model and
+          spawn a new session pre-seeded with a continuation prompt that
+          references the latest session id of this workspace. */}
+      {sendOpen && (
+        <div
+          className="mt-3 rounded p-3"
+          style={{
+            background: "var(--color-surface-1)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <div
+            className="mb-2 text-[11.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Spawns a new session in this workspace seeded with a reference to{" "}
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                color: "var(--color-text-secondary)",
+              }}
+            >
+              {ws.latest_session_id?.slice(0, 8) ?? "—"}
+            </span>
+            . The new session will receive a prompt asking it to load and
+            continue context from that session.
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 text-[11.5px]">
+              <span style={{ color: "var(--color-text-tertiary)" }}>Provider</span>
+              <select
+                value={sendProvider}
+                onChange={(e) => {
+                  const p = e.target.value as SessionProvider;
+                  setSendProvider(p);
+                  setSendModel(PROVIDERS[p].defaultModel);
+                }}
+                className="rounded px-1.5 py-0.5 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                <option value="claude">Claude</option>
+                <option value="codex">Codex</option>
+                <option value="gemini">Gemini</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2 text-[11.5px]">
+              <span style={{ color: "var(--color-text-tertiary)" }}>Model</span>
+              <select
+                value={sendModel}
+                onChange={(e) => setSendModel(e.target.value)}
+                className="rounded px-1.5 py-0.5 text-[11.5px]"
+                style={{
+                  background: "var(--color-surface-2)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+              >
+                {PROVIDERS[sendProvider].models.map((m) => (
+                  <option key={m.id || "default"} value={m.id}>
+                    {m.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSendOpen(false)}
+                className="rounded px-2.5 py-1 text-[11.5px]"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onSendContext(ws, {
+                    provider: sendProvider,
+                    model: sendModel,
+                  });
+                  setSendOpen(false);
+                }}
+                disabled={busy || !canContinue}
+                className="rounded px-2.5 py-1 text-[11.5px] font-medium disabled:opacity-40"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "var(--color-accent-text)",
+                }}
+              >
+                Launch with context
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -646,16 +906,36 @@ export function Sessions() {
   function reloadHistory() {
     setHistoryLoading(true);
     invoke<ClaudeSession[]>("list_claude_sessions", { limit: 50 })
-      .then(setHistory)
-      .catch(() => setHistory([]))
+      .then((list) => {
+        // v2.5.2 (fb-046): temporary diagnostic so we can confirm exactly
+        // what the backend hands back when USER says "no encuentra
+        // sesiones del proyecto activo". Strip once fb-046 is closed.
+        // eslint-disable-next-line no-console
+        console.log("[Sessions] list_claude_sessions →", list.length, list);
+        setHistory(list);
+      })
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn("[Sessions] list_claude_sessions failed", e);
+        setHistory([]);
+      })
       .finally(() => setHistoryLoading(false));
   }
 
   function reloadWorkspaces() {
     setWorkspacesLoading(true);
     invoke<WorkspaceSummary[]>("list_workspaces")
-      .then(setWorkspaces)
-      .catch(() => setWorkspaces([]))
+      .then((list) => {
+        // v2.5.2 (fb-046): same diagnostic for the workspace aggregate.
+        // eslint-disable-next-line no-console
+        console.log("[Sessions] list_workspaces →", list.length, list);
+        setWorkspaces(list);
+      })
+      .catch((e) => {
+        // eslint-disable-next-line no-console
+        console.warn("[Sessions] list_workspaces failed", e);
+        setWorkspaces([]);
+      })
       .finally(() => setWorkspacesLoading(false));
   }
 
@@ -759,45 +1039,75 @@ export function Sessions() {
     }
   }
 
-  async function openWorkspaceFolder(ws: WorkspaceSummary) {
-    // Use the same launcher chip pipeline projects.rs already exposes —
-    // simpler than a separate "reveal in explorer" command and handles
-    // the PowerShell quoting safely.
+  // v2.6 (card-v26-fb-003): custom launch from per-card popover.
+  async function customInWorkspace(
+    ws: WorkspaceSummary,
+    opts: { provider: SessionProvider; model: string; prompt: string | null },
+  ) {
     setBusyCwd(ws.cwd);
     setError(null);
     try {
-      await invoke("open_project_in_ide", {
-        path: ws.cwd,
-        preferredIde: null,
+      await invoke("spawn_session", {
+        provider: opts.provider,
+        prompt: opts.prompt,
+        cwd: ws.cwd,
+        flags: { model: opts.model || null },
       });
+      const modelLabel = opts.model ? ` (${opts.model})` : "";
+      setToast(
+        `${opts.provider}${modelLabel} session in ${deriveWorkspaceName(ws.cwd)}`,
+      );
     } catch (e) {
-      // Fallback: a shell-only open via the projects helper — at minimum
-      // we can hand it off to the IDE auto-detect chain. If that also
-      // fails, surface the error so the user knows what went wrong.
       setError(String(e));
     } finally {
       setBusyCwd(null);
     }
   }
 
-  async function openWorkspaceInIde(ws: WorkspaceSummary) {
+  // v2.5.2: spawn a new session in the workspace seeded with a prompt
+  // that references the previous session id. The backend doesn't (yet)
+  // support `--context-from-session=<id>` natively, so this is the simple
+  // version: pass a textual prompt asking the assistant to load and
+  // continue context from the named session. The hook is visible to the
+  // user, who can refine the prompt downstream.
+  async function sendContextFromWorkspace(
+    ws: WorkspaceSummary,
+    opts: { provider: SessionProvider; model: string },
+  ) {
+    if (!ws.latest_session_id) return;
     setBusyCwd(ws.cwd);
     setError(null);
     try {
-      const matched = ws.project_id
-        ? projects.find((p) => p.id === ws.project_id)
-        : null;
-      await invoke("open_project_in_ide", {
-        path: ws.cwd,
-        preferredIde: matched?.ide ?? null,
+      const seed = [
+        `Continuing context from session: ${ws.latest_session_id}.`,
+        `Workspace: ${ws.cwd}.`,
+        `Please load the prior transcript (look under ~/.claude/projects/) and continue from where it left off.`,
+      ].join(" ");
+      await invoke("spawn_session", {
+        provider: opts.provider,
+        prompt: seed,
+        cwd: ws.cwd,
+        flags: { model: opts.model || null },
       });
-      setToast(`Opened ${deriveWorkspaceName(ws.cwd)} in IDE`);
+      const modelLabel = opts.model ? ` (${opts.model})` : "";
+      setToast(
+        `Sent context to new ${opts.provider}${modelLabel} session in ${deriveWorkspaceName(ws.cwd)}`,
+      );
     } catch (e) {
       setError(String(e));
     } finally {
       setBusyCwd(null);
     }
   }
+
+  async function createProjectFromWorkspace(ws: WorkspaceSummary) {
+    // Navigate to Projects tab or simply register via invoke.
+    // For now we open the Projects tab so the user can fill in the form.
+    // The invoke "register_project" may not exist yet, so we use a toast
+    // pointing the user to the Projects tab.
+    setToast(`Go to Projects tab to register "${deriveWorkspaceName(ws.cwd)}"`);
+  }
+
 
   // -------------------------------------------------------------------------
   // Search / filtering
@@ -815,6 +1125,53 @@ export function Sessions() {
       );
     });
   }, [workspaces, normalisedSearch]);
+
+  // v2.5.2: group workspaces by registered project id when possible, and
+  // by the cwd parent directory tail otherwise. Only collapse groups that
+  // hold >5 cards — small groups stay flat so the grid still feels like
+  // one continuous wall of recent work.
+  const GROUP_THRESHOLD = 5;
+  const grouped = useMemo(() => {
+    const groups = new Map<string, { label: string; items: WorkspaceSummary[] }>();
+    for (const ws of filteredWorkspaces) {
+      let key: string;
+      let label: string;
+      if (ws.project_id) {
+        // Cluster ultron / ultron-control-center / ultron-personal under
+        // a shared "ultron" head when project ids share the leading token.
+        const head = ws.project_id.split(/[-_]/, 1)[0] ?? ws.project_id;
+        key = `project:${head}`;
+        label = head;
+      } else {
+        // Use the second-to-last path segment (e.g. ".ultron" or the
+        // parent folder name) so siblings group together.
+        const cleaned = ws.cwd.replace(/[\\/]+$/, "");
+        const parts = cleaned.split(/[\\/]/).filter(Boolean);
+        const tail = parts[parts.length - 2] ?? parts[parts.length - 1] ?? ws.cwd;
+        key = `cwd:${tail.toLowerCase()}`;
+        label = tail;
+      }
+      const entry = groups.get(key) ?? { label, items: [] };
+      entry.items.push(ws);
+      groups.set(key, entry);
+    }
+    // Keep insertion order (which is already sorted by activity from the
+    // backend) but split into "ungrouped" (small) and "grouped" (>5).
+    const ungrouped: WorkspaceSummary[] = [];
+    const collapsible: { key: string; label: string; items: WorkspaceSummary[] }[] = [];
+    for (const [key, value] of groups) {
+      if (value.items.length > GROUP_THRESHOLD) {
+        collapsible.push({ key, label: value.label, items: value.items });
+      } else {
+        ungrouped.push(...value.items);
+      }
+    }
+    return { ungrouped, collapsible };
+  }, [filteredWorkspaces]);
+
+  // Persist which groups the user has expanded across reloads. Default:
+  // collapsed (the whole point of grouping is to reclaim space).
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
   const filteredHistory = useMemo(() => {
     if (!normalisedSearch) return history;
@@ -914,7 +1271,7 @@ export function Sessions() {
             Recent workspaces
           </h2>
           <span
-            className="text-[11px]"
+            className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {workspacesLoading
@@ -950,25 +1307,94 @@ export function Sessions() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-          {filteredWorkspaces.map((ws) => (
-            <WorkspaceCard
-              key={ws.cwd}
-              ws={ws}
-              busy={busyCwd === ws.cwd}
-              onContinue={continueWorkspace}
-              onNew={newInWorkspace}
-              onOpenIde={openWorkspaceInIde}
-              onOpenFolder={openWorkspaceFolder}
-            />
-          ))}
-        </div>
+        {/* v2.5.2: ungrouped workspaces render flat, grouped workspaces
+            sit under collapsible headers so a noisy project (e.g.
+            ultron + ultron-control-center + ultron-personal + …) doesn't
+            dominate the page. */}
+        {grouped.ungrouped.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            {grouped.ungrouped.map((ws) => (
+              <WorkspaceCard
+                key={ws.cwd}
+                ws={ws}
+                busy={busyCwd === ws.cwd}
+                onContinue={continueWorkspace}
+                onNew={newInWorkspace}
+                onCustom={customInWorkspace}
+                onSendContext={sendContextFromWorkspace}
+                onCreateProject={createProjectFromWorkspace}
+              />
+            ))}
+          </div>
+        )}
+
+        {grouped.collapsible.map((g) => {
+          const isOpen = openGroups.has(g.key);
+          return (
+            <div key={g.key} className="mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenGroups((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(g.key)) next.delete(g.key);
+                    else next.add(g.key);
+                    return next;
+                  });
+                }}
+                className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+                style={{
+                  background: "var(--color-surface-2)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                <span
+                  className="inline-block text-[12px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {isOpen ? "▾" : "▸"}
+                </span>
+                <span className="text-[12.5px] font-semibold">{g.label}</span>
+                <span
+                  className="text-[11.5px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {g.items.length} workspaces
+                </span>
+                <span
+                  className="ml-auto text-[11.5px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {isOpen ? "hide" : "show"}
+                </span>
+              </button>
+              {isOpen && (
+                <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {g.items.map((ws) => (
+                    <WorkspaceCard
+                      key={ws.cwd}
+                      ws={ws}
+                      busy={busyCwd === ws.cwd}
+                      onContinue={continueWorkspace}
+                      onNew={newInWorkspace}
+                      onCustom={customInWorkspace}
+                      onSendContext={sendContextFromWorkspace}
+                      onCreateProject={createProjectFromWorkspace}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </section>
 
       {/* ------------------------------------------------------------------
-          Section 2 — Collapsible: All Claude sessions (the old flat list)
+          Section 2 — Collapsible: All Claude sessions
+          v2.6 (card-v26-fb-003): hidden — user wants the per-workspace
+          card to be the only way to see sessions. Code stays.
           ------------------------------------------------------------------ */}
-      <section className="mb-6">
+      <section className="mb-6" style={{ display: "none" }}>
         <button
           type="button"
           onClick={() => setShowAllSessions(!showAllSessions)}
@@ -983,7 +1409,7 @@ export function Sessions() {
             All Claude sessions
           </span>
           <span
-            className="text-[11px]"
+            className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {historyLoading
@@ -991,7 +1417,7 @@ export function Sessions() {
               : `${filteredHistory.length} of ${history.length}`}
           </span>
           <span
-            className="ml-auto text-[11px]"
+            className="ml-auto text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {showAllSessions ? "hide" : "show"}
@@ -1032,7 +1458,7 @@ export function Sessions() {
                 >
                   <div className="flex items-baseline gap-3">
                     <span
-                      className="truncate text-[11px]"
+                      className="truncate text-[11.5px]"
                       style={{
                         fontFamily: "var(--font-mono)",
                         color: "var(--color-text-tertiary)",
@@ -1051,7 +1477,7 @@ export function Sessions() {
                     <button
                       type="button"
                       onClick={() => resumeSession(s)}
-                      className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                      className="shrink-0 rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors"
                       style={{
                         background: "var(--color-accent)",
                         color: "var(--color-accent-text)",
@@ -1087,8 +1513,12 @@ export function Sessions() {
 
       {/* ------------------------------------------------------------------
           Section 3 — Collapsible: Advanced launch (provider / model / presets)
+          v2.6 (card-v26-fb-003): hidden — user explicitly asked to drop
+          this block ("todo el Advanced launch ese lo quiero fuera"). Each
+          workspace card will gain a per-card Custom popover instead.
+          The code stays so we can restore it later if needed.
           ------------------------------------------------------------------ */}
-      <section>
+      <section style={{ display: "none" }}>
         <button
           type="button"
           onClick={() => setShowAdvanced(!showAdvanced)}
@@ -1102,13 +1532,13 @@ export function Sessions() {
             Advanced launch
           </span>
           <span
-            className="text-[11px]"
+            className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             provider · model · presets · quick prompt
           </span>
           <span
-            className="ml-auto text-[11px]"
+            className="ml-auto text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {showAdvanced ? "hide" : "show"}
@@ -1135,7 +1565,7 @@ export function Sessions() {
             {meta.acceptsModel && (
               <div className="mt-4 flex items-center gap-3">
                 <label
-                  className="text-[11px]"
+                  className="text-[11.5px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                   htmlFor="provider-model"
                 >
@@ -1212,7 +1642,7 @@ export function Sessions() {
                       --dangerously-skip-permissions
                     </div>
                     <div
-                      className="mt-0.5 text-[11px]"
+                      className="mt-0.5 text-[11.5px]"
                       style={{ color: "var(--color-text-tertiary)" }}
                     >
                       Skip every tool confirmation. Only in trusted
@@ -1272,7 +1702,7 @@ export function Sessions() {
                   New Session
                 </button>
                 <span
-                  className="ml-auto text-[10.5px]"
+                  className="ml-auto text-[11.5px]"
                   style={{ color: "var(--color-text-faint)" }}
                 >
                   cwd: {cwd || "(none)"}
@@ -1284,7 +1714,7 @@ export function Sessions() {
               <button
                 type="button"
                 onClick={() => setShowInline(!showInline)}
-                className="text-[11px] transition-colors"
+                className="text-[11.5px] transition-colors"
                 style={{ color: "var(--color-text-tertiary)" }}
                 title="Inline mode: run a batch prompt without opening a terminal"
               >
@@ -1334,7 +1764,7 @@ export function Sessions() {
                     <button
                       type="button"
                       onClick={() => setPrompt("")}
-                      className="rounded px-2 py-1.5 text-[11px] transition-colors"
+                      className="rounded px-2 py-1.5 text-[11.5px] transition-colors"
                       style={{
                         background: "transparent",
                         color: "var(--color-text-tertiary)",

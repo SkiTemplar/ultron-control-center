@@ -46,7 +46,7 @@ export function Card({
     >
       <div className="flex items-center justify-between px-4 pt-3">
         <h3
-          className="text-[10.5px] font-medium uppercase tracking-[0.08em]"
+          className="text-[11.5px] font-medium uppercase tracking-[0.08em]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           {title}
@@ -110,7 +110,7 @@ export function SmallButton({
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className="rounded px-2 py-0.5 text-[10.5px] font-medium transition-colors disabled:opacity-50"
+      className="rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors disabled:opacity-50"
       style={{
         background: accent ? "var(--color-accent)" : "var(--color-surface-3)",
         color: accent ? "var(--color-accent-text)" : "var(--color-text)",

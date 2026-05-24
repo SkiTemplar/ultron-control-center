@@ -33,12 +33,28 @@ export function BackupCard() {
   const [report, setReport] = useState<BackupStatusReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // v2.6 (card-v26-fb-014): Run backup now button. Calls the same backend
+  // command Settings → Backups uses. Reloads status afterwards so the
+  // "last backup" timestamp refreshes.
+  const [running, setRunning] = useState(false);
+  const [runMsg, setRunMsg] = useState<string | null>(null);
+
+  async function loadStatus() {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await invoke<BackupStatusReport>("backup_status");
+      setReport(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
-    async function load() {
-      setLoading(true);
-      setError(null);
+    (async () => {
       try {
         const r = await invoke<BackupStatusReport>("backup_status");
         if (!cancelled) setReport(r);
@@ -47,12 +63,26 @@ export function BackupCard() {
       } finally {
         if (!cancelled) setLoading(false);
       }
-    }
-    void load();
+    })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function runBackupNow() {
+    setRunning(true);
+    setRunMsg(null);
+    try {
+      const msg = await invoke<string>("run_backup_now");
+      setRunMsg(typeof msg === "string" && msg ? msg : "Backup started.");
+      window.setTimeout(() => setRunMsg(null), 4000);
+      await loadStatus();
+    } catch (e) {
+      setError(`Backup failed: ${String(e)}`);
+    } finally {
+      setRunning(false);
+    }
+  }
 
   // Newest entry across all sources.
   const latest = report?.entries
@@ -87,13 +117,34 @@ export function BackupCard() {
           : null
       }
       action={
-        report?.root ? (
-          <SmallButton onClick={() => void openRoot()} title="Open backup root">
-            folder
+        <div className="flex items-center gap-1.5">
+          <SmallButton
+            onClick={() => void runBackupNow()}
+            disabled={running}
+            variant="accent"
+            title="Run weekly-backup script now"
+          >
+            {running ? "running…" : "run"}
           </SmallButton>
-        ) : null
+          {report?.root && (
+            <SmallButton onClick={() => void openRoot()} title="Open backup root">
+              folder
+            </SmallButton>
+          )}
+        </div>
       }
     >
+      {runMsg && (
+        <div
+          className="mb-1 rounded px-1.5 py-0.5 text-[10.5px]"
+          style={{
+            background: "rgba(63, 185, 80, 0.08)",
+            color: "var(--color-success)",
+          }}
+        >
+          {runMsg}
+        </div>
+      )}
       {report && report.entries.length > 0 && (
         <div className="space-y-1">
           <div className="flex items-baseline gap-2">
@@ -111,7 +162,7 @@ export function BackupCard() {
             </span>
           </div>
           <div
-            className="truncate text-[11px]"
+            className="truncate text-[11.5px]"
             style={{
               color: "var(--color-text-tertiary)",
               fontFamily: "var(--font-mono, ui-monospace)",
@@ -122,7 +173,7 @@ export function BackupCard() {
           </div>
           {latest && (
             <div
-              className="text-[11px]"
+              className="text-[11.5px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
               Newest mirror: {latest.name}

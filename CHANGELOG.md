@@ -1,5 +1,70 @@
 # Changelog
 
+<!-- v2.7.0 -->
+## v2.7.0 - 2026-05-24
+
+Errores corregidos:
+- Notes: createNew inline input + confirmDialog para delete/discard (sin alertas Tauri nativas)
+- Notes: error al eliminar nota (confirmDialog reemplaza window.confirm)
+- Library Catalog: URLs 404 marcadas con `dead: true` + razón (schema v2)
+- Projects Terminal: wiring SplitPane → ProjectTerminal verificado
+- System Apps: heurística reforzada con 6 reglas (Microsoft Store appx, Windows paths, MS runtime/updates, hardware drivers)
+- Notifications: verificado, no había bug delete vs clear
+- Mem0 cloud: JSONL log + diagnostics panel para debug visible
+- Sessions debug round 2: console.log instrumentation con eslint-disable comment
+
+Añadido:
+- **Projects: New OpenGL Project (vcpkg) button** — genera CMakeLists/CMakePresets/vcpkg.json (glfw3+glad+glm)/common.h/main.cpp Simple|Context/README. Modal con parent folder picker (default sticky en localStorage).
+- **Library Catalog: GitHub trending search** — modos Trending y Search libre. Backend `github_search_repos` y `github_search_trending` via gh subprocess. Catalog movido al final de SUB_TABS.
+- **Diagnostics: auto-load + Event Log parsing** — wevtutil parsing, KNOWN_ERRORS db (12 IDs), severity badges, Open Event Viewer button.
+- **Dashboard: CrashEventsCard** — solo crashes (IDs 41/1001/6008), 'All clear ✓' si no hay.
+- **System: Bloatware sub-tab** — 6 categorías + ~30 apps. Backend `appx_query` + `uninstall_bloatware_app` con pattern allowlist + protected refusal.
+- **System: Troubleshooting sub-tab** — 9 comandos en 3 categorías colapsables (Network, Storage, Shell).
+- **Settings Backup: rewrite completo** — Destination + Folders + Schedule (schtasks WEEKLY) + Force backup now.
+- **Settings General**: simplificado (Welcome screen y autostart eliminados, autostart movido a App Lifecycle).
+- **Settings App Lifecycle**: añade Start with Windows. Uninstall block eliminado. Descripciones acortadas.
+- **Settings Plugins**: grid de 2 columnas. Browse Marketplaces eliminado.
+- **Memory Knowledge Graph: editor local funcional** — backend kg.rs con create_entities/add_observations/create_relations/search_nodes. Persiste en ~/.ultron/cockpit/kg.jsonl (mismo schema MCP). UI 3 paneles con SVG circular graph.
+- **Memory Mem0 diagnostics panel** — JSONL log de todas las llamadas, last_success/last_error, API key check, Test connection button.
+- **Sidebar**: Notifications movido al footer (junto a Settings). Items 15px + spacing aumentado.
+- **Library Hooks**: rediseño con categorías colapsables por evento + cards compactas en filas.
+- **Library Skills/Agents**: solo título en cards (sin descripción). Sibling files inline togglable.
+- **Library Rules**: solo título en cards + padding reducido.
+- **Library Commands**: grid 280px+1fr fijo. Categorías colapsadas por defecto. Preview pane denso.
+- **MCPs**: sin ruta, grid xl 3-col, toggle Enable/Disable individual por card.
+- **Sessions**: quita Open Folder/Open in IDE, añade Create Project, Custom popover simplificado (provider+model+Launch), search bar, agrupación por proyecto, badges de provider, Send Context → New Session.
+- **Projects Kanban**: cards solo título (description en modal), botón Add más visible, collapse-column removido.
+- **Projects CardEditorModal**: Advanced section colapsable + tooltips 'i' explicativos.
+- **Projects Edit Modal**: convertido a overlay (fixed inset). Default provider selector. Nuevos campos: default_shell, parent_folder_override, notes, tags pool clickable.
+- **Projects Notes**: notebook múltiple per-project (~/.ultron/cockpit/projects/<id>/notes/<slug>.md).
+- **Projects ProjectAgents**: rewrite con cards estilo Library + 4 workflow tiles placeholder.
+- **Projects Timeline**: 2-column grid (110px label + 1fr entries). Entradas inline 4-column.
+- **Projects Terminal**: nombres de tabs automáticos (Claude/Codex/Gemini/PowerShell/Admin).
+- **Notes global: Send to Project** — copia la nota al notebook del proyecto elegido.
+- **Settings Button Prompts**: modal overlay para ver/editar. Audit: 2 prompts outdated marcados.
+- **Font sizes**: ~50 archivos auditados — text-[11px] → text-[11.5px] (excepciones documentadas).
+
+Pendiente para sesión adicional (columna Investigar del Kanban):
+- /usage scraping (límite 5h + weekly)
+- Background-tasks free-tier LLM
+- Graphify integration
+- Ralph agentic loop
+- Sessions context transfer backend definitivo
+- ProjectAgents workflows backend (multi-agent dispatch)
+- Knowledge Graph MCP proxy sync
+- Catalog GitHub install flow completo
+
+
+<!-- v2.5.0 -->
+## v2.5.0 - 2026-05-23
+
+Errores corregidos:
+- (sin cambios)
+
+Anadido:
+- (sin cambios)
+
+
 <!-- v2.4.0 -->
 ## v2.4.0 - 2026-05-23
 

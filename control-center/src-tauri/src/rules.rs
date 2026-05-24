@@ -69,11 +69,15 @@ pub fn list_inner() -> Result<Vec<RuleFile>, String> {
 }
 
 pub fn read_inner(path: String) -> Result<String, String> {
+    // v2.6 bug fix: on Windows `canonicalize` returns a UNC path
+    // (`\\?\C:\...`) while `rules_root()` does not — so `starts_with`
+    // rejected every read with "path outside rules root". Canonicalize
+    // both sides so the comparison is consistent.
     let root = rules_root()?;
+    let canonical_root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
     let canonical = std::fs::canonicalize(&path)
         .map_err(|e| format!("canonicalize {path}: {e}"))?;
-    // Sandbox: only allow paths within ~/.claude/rules/.
-    if !canonical.starts_with(&root) {
+    if !canonical.starts_with(&canonical_root) {
         return Err(format!(
             "path {} outside rules root",
             canonical.display()
@@ -113,7 +117,9 @@ pub fn write_inner(name: String, body: String) -> Result<String, String> {
         .ok_or_else(|| "no parent dir".to_string())?;
     let canonical_parent =
         std::fs::canonicalize(parent).map_err(|e| format!("canonicalize parent: {e}"))?;
-    if !canonical_parent.starts_with(&root) {
+    // v2.6 bug fix: canonicalize root too to match Windows UNC prefix.
+    let canonical_root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
+    if !canonical_parent.starts_with(&canonical_root) {
         return Err(format!(
             "path {} outside rules root",
             canonical_parent.display()

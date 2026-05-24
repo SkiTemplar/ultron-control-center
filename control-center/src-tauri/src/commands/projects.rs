@@ -30,6 +30,12 @@ pub async fn create_project(
     language: Option<String>,
     tags: Option<Vec<String>>,
     default_provider: Option<String>,
+    // fb-016 — three new optional fields. Older frontends that don't send
+    // them just leave them as None, which the inner write-path interprets
+    // as "skip", so backwards compat is preserved.
+    default_shell: Option<String>,
+    parent_folder_override: Option<String>,
+    notes: Option<String>,
 ) -> Result<projects::CreateProjectResult, String> {
     // F2: route through *_with_emit so project.created notifications fire
     projects::create_project_inner_with_emit(&app, projects::CreateProjectPayload {
@@ -39,6 +45,9 @@ pub async fn create_project(
         language,
         tags,
         default_provider,
+        default_shell,
+        parent_folder_override,
+        notes,
     })
 }
 
@@ -51,6 +60,11 @@ pub async fn update_project(
     language: Option<String>,
     tags: Option<Vec<String>>,
     default_provider: Option<String>,
+    // fb-016 — patches for the new optional fields. None = leave unchanged,
+    // empty string = clear, anything else = set/normalise.
+    default_shell: Option<String>,
+    parent_folder_override: Option<String>,
+    notes: Option<String>,
 ) -> Result<projects::UpdateProjectResult, String> {
     projects::update_project_inner(projects::UpdateProjectPayload {
         id,
@@ -60,6 +74,9 @@ pub async fn update_project(
         language,
         tags,
         default_provider,
+        default_shell,
+        parent_folder_override,
+        notes,
     })
 }
 

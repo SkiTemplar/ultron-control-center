@@ -108,10 +108,26 @@ fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, 
     }
     match trimmed {
         "claude" | "codex" | "gemini" => {
-            // Windows: wrap with cmd /C so the .cmd shim resolves via PATHEXT.
-            // On non-Windows the bare binary is on PATH already.
+            // v2.6 bug fix: pre-validate the binary exists on PATH. Without
+            // this, codex/gemini just opens a PTY that immediately dies
+            // because cmd.exe ran but the shim wasn't found — the user
+            // sees a blank terminal instead of a clear error. Run `where`
+            // on Windows (POSIX `which` on others) and surface the result.
             #[cfg(windows)]
             {
+                use std::os::windows::process::CommandExt;
+                let mut probe = std::process::Command::new("where");
+                probe.arg(trimmed);
+                probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+                let output = probe.output().map_err(|e| {
+                    format!("PATH probe failed: {e}")
+                })?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "'{}' not found on PATH. Install the CLI first, e.g. `npm install -g @{0}/cli` (or equivalent), then retry.",
+                        trimmed
+                    ));
+                }
                 let mut cmd = CommandBuilder::new("cmd.exe");
                 cmd.arg("/C");
                 cmd.arg(trimmed);
@@ -123,6 +139,16 @@ fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, 
             }
             #[cfg(not(windows))]
             {
+                let output = std::process::Command::new("which")
+                    .arg(trimmed)
+                    .output()
+                    .map_err(|e| format!("PATH probe failed: {e}"))?;
+                if !output.status.success() {
+                    return Err(format!(
+                        "'{}' not found on PATH. Install the CLI first and retry.",
+                        trimmed
+                    ));
+                }
                 let mut cmd = CommandBuilder::new(trimmed);
                 if let Some(a) = agent {
                     cmd.arg("--agent");
@@ -188,6 +214,13 @@ pub fn spawn_inner<R: Runtime>(
     for (k, v) in std::env::vars() {
         cmd.env(k, v);
     }
+    // Force xterm-256color so TUIs (Claude, Codex, Gemini) render the
+    // box-drawing characters + ANSI sequences they rely on. The Control
+    // Center process's TERM is typically empty on Windows, which causes
+    // some CLIs to fall back to a dumb mode where the UI never paints.
+    // COLORTERM lets the TUIs opt into 24-bit colour where supported.
+    cmd.env("TERM", "xterm-256color");
+    cmd.env("COLORTERM", "truecolor");
 
     let child = pair
         .slave

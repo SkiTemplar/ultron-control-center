@@ -16,7 +16,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openPath } from "@tauri-apps/plugin-opener";
 import type { RuleFile } from "../types";
 import { BookOpen, Edit, Folder, Save, Wand, X } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
@@ -169,7 +168,10 @@ export function Rules() {
 
   const handleOpenExternal = async (path: string) => {
     try {
-      await openPath(path);
+      // openPath relies on the Windows file association for .md, which
+      // many users don't have set — falling through to the new VS Code
+      // invocation guarantees the rule opens in a real editor.
+      await invoke("open_folder_in_vscode", { target: path });
     } catch (e) {
       setError(`open ${path}: ${e}`);
     }
@@ -285,7 +287,7 @@ export function Rules() {
         return (
           <li
             key={r.path}
-            className="cursor-pointer rounded-md p-3 text-sm transition-colors"
+            className="cursor-pointer rounded-md px-2.5 py-2 text-sm transition-colors"
             style={{
               border: `1px solid ${
                 isActive
@@ -319,7 +321,7 @@ export function Rules() {
             </div>
             {cat !== NO_CATEGORY && (
               <div
-                className="mb-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+                className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
                 style={{
                   background: "var(--color-surface-3)",
                   color: "var(--color-text-tertiary)",
@@ -328,12 +330,6 @@ export function Rules() {
                 <Folder size={10} /> {cat}
               </div>
             )}
-            <pre
-              className="mb-2 max-h-20 overflow-hidden whitespace-pre-wrap text-xs leading-snug"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              {r.preview || "(sin preview)"}
-            </pre>
             <div className="flex items-center gap-2">
               <button
                 onClick={(e) => {
@@ -593,7 +589,7 @@ export function Rules() {
           </span>
           <button
             onClick={() => setCategory("all")}
-            className="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
+            className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
             style={{
               borderColor:
                 category === "all"
@@ -617,7 +613,7 @@ export function Rules() {
               <button
                 key={c}
                 onClick={() => setCategory(c)}
-                className="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
+                className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
                 style={{
                   borderColor: active
                     ? "var(--color-text)"

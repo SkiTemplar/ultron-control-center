@@ -7,12 +7,14 @@ import type {
   LauncherItemKind,
   ProjectActionResult,
   ProjectInfo,
+  ProjectShell,
   ProjectSubTab,
   SessionProvider,
   KanbanBoard,
   PtySessionSummary,
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
+import NewOpenGlProjectModal from "./projects/NewOpenGlProjectModal";
 
 // ---------------------------------------------------------------------------
 // Launcher item rendering helpers
@@ -133,7 +135,7 @@ function ClaudeMark() {
   return (
     <span
       aria-hidden
-      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11px] font-bold leading-none"
+      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11.5px] font-bold leading-none"
       style={{
         background: "#cc785c",
         color: "#fafaf7",
@@ -150,7 +152,7 @@ function CodexMark() {
   return (
     <span
       aria-hidden
-      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11px] font-bold leading-none"
+      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11.5px] font-bold leading-none"
       style={{
         background: "#10a37f",
         color: "#fafaf7",
@@ -169,7 +171,7 @@ function GeminiMark() {
   return (
     <span
       aria-hidden
-      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11px] font-bold leading-none"
+      className="flex h-[18px] w-[18px] items-center justify-center rounded-[3px] text-[11.5px] font-bold leading-none"
       style={{
         background: "#4285f4",
         color: "#fafaf7",
@@ -681,7 +683,7 @@ function Row({
             </span>
             {p.language && (
               <span
-                className="text-[11px]"
+                className="text-[11.5px]"
                 style={{ color: "var(--color-text-faint)" }}
               >
                 · {p.language}
@@ -804,7 +806,7 @@ function Row({
                   type="button"
                   onClick={onLaunchAll}
                   disabled={launchingAll}
-                  className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+                  className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                   style={{
                     background: "var(--color-accent)",
                     color: "var(--color-accent-text)",
@@ -840,7 +842,7 @@ function Row({
                 type="button"
                 onClick={onOpen}
                 disabled={opening}
-                className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+                className="rounded px-2.5 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
                 style={{
                   background: "var(--color-accent)",
                   color: "var(--color-accent-text)",
@@ -959,7 +961,7 @@ function Row({
         <button
           type="button"
           onClick={onAddItem}
-          className="flex h-7 items-center rounded px-2 text-[11px]"
+          className="flex h-7 items-center rounded px-2 text-[11.5px]"
           style={{
             background: "transparent",
             color: "var(--color-text-tertiary)",
@@ -1474,7 +1476,7 @@ function BlocksProjectView({
             Click to drill in
           </span>
           <span
-            className="rounded px-2 py-0.5 text-[11px] tabular-nums"
+            className="rounded px-2 py-0.5 text-[11.5px] tabular-nums"
             style={{
               background: "var(--color-surface-3)",
               color: "var(--color-text-secondary)",
@@ -1574,8 +1576,12 @@ type ProjectsProps = {
 type ViewMode = "cards" | "list";
 
 export function Projects({ onOpenProject }: ProjectsProps = {}) {
-  // The new card grid is the default; the legacy list view stays available
-  // behind a toggle for users with very dense screens or muscle memory.
+  // viewMode is the SECONDARY toggle that controls how individual project
+  // entries render (card grid vs dense Row list). The PRIMARY hierarchy
+  // toggle (blocks/tree/flat) is initialised separately further down with
+  // `blocks` as its default — that's what gives USER the Spotify-style
+  // folder drill-down on first paint. Keep `cards` as the default here so
+  // flat hierarchy still shows project cards by default.
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     try {
       const v = localStorage.getItem("projects.viewMode");
@@ -1662,10 +1668,27 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
    *  backend stores "" and the loader normalises that back to None).
    *  Allowed values match the backend `VALID_IDES` allowlist. */
   const [wIde, setWIde] = useState("");
+  /** v2.6 — preferred AI provider for the project's "AI" launch button on
+   *  the home grid (cardOpenAi). One of claude / codex / gemini. Backend
+   *  normalises unknown values to "claude" on load. */
+  const [wDefaultProvider, setWDefaultProvider] = useState<SessionProvider>("claude");
+  /** fb-016 — three new optional fields surfaced in the edit modal.
+   *  `default_shell` empty string means "use global default" (the backend
+   *  stores it as NULL on disk). `parent_folder_override` is a free-form
+   *  path; we don't validate it client-side beyond trimming. `notes` is a
+   *  free-form textarea — no markdown rendering here, just stored as-is. */
+  const [wDefaultShell, setWDefaultShell] = useState<ProjectShell | "">("");
+  const [wParentFolderOverride, setWParentFolderOverride] = useState("");
+  const [wNotes, setWNotes] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<ProjectInfo | null>(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  // v2.5.2 — "New OpenGL project (vcpkg)" scaffolder modal. Independent from
+  // the standard project wizard above: this one writes CMakeLists.txt +
+  // vcpkg.json + a GLFW/GLAD main.cpp on disk via the backend command
+  // `create_opengl_project`, replacing the legacy crear_proyecto.bat.
+  const [openglModalOpen, setOpenglModalOpen] = useState(false);
 
   // Add-item modal state.
   const [itemTarget, setItemTarget] = useState<ProjectInfo | null>(null);
@@ -1912,11 +1935,29 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     load();
   }, []);
 
+  // v2.6 — close the wizard modal on ESC. Mirrors the CardEditorModal /
+  // overlay pattern used elsewhere in the projects tab.
+  useEffect(() => {
+    if (!wizardOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setWizardOpen(false);
+        resetWizard();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [wizardOpen]);
+
   function resetWizard() {
     setWName("");
     setWPath("");
     setWTags("");
     setWIde("");
+    setWDefaultProvider("claude");
+    setWDefaultShell("");
+    setWParentFolderOverride("");
+    setWNotes("");
     setEditingId(null);
     setCreateError(null);
   }
@@ -1927,6 +1968,12 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     setWPath(p.path ?? "");
     setWTags(p.tags.join(", "));
     setWIde(p.ide ?? "");
+    setWDefaultProvider(
+      (p.default_provider as SessionProvider | null | undefined) ?? "claude",
+    );
+    setWDefaultShell((p.default_shell as ProjectShell | null | undefined) ?? "");
+    setWParentFolderOverride(p.parent_folder_override ?? "");
+    setWNotes(p.notes ?? "");
     setCreateError(null);
     setWizardOpen(true);
   }
@@ -1945,6 +1992,15 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
       // would mean "leave alone" because of the Option<String> patch
       // semantics on update_project_inner.
       const idePayload = wIde === "" ? "" : wIde;
+      // fb-016 — payloads for the three new optional fields. The empty
+      // string is meaningful for update (clears the field on disk) but for
+      // create we pass null so we don't write empty strings to a brand-new
+      // entry. `default_shell` only sends the value when the user picked
+      // something; "" maps to null in create and "" (clear) in update.
+      const shellPayload: string | null =
+        wDefaultShell === "" ? null : wDefaultShell;
+      const parentFolderTrimmed = wParentFolderOverride.trim();
+      const notesTrimmed = wNotes.trim();
       if (editingId) {
         await invoke("update_project", {
           id: editingId,
@@ -1953,6 +2009,11 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           ide: idePayload,
           language: null,
           tags: tagList,
+          defaultProvider: wDefaultProvider,
+          // For update, pass "" to clear so users can remove the value.
+          defaultShell: wDefaultShell === "" ? "" : wDefaultShell,
+          parentFolderOverride: parentFolderTrimmed,
+          notes: notesTrimmed,
         });
         resetWizard();
         setWizardOpen(false);
@@ -1965,6 +2026,10 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           ide: idePayload || null,
           language: null,
           tags: tagList.length > 0 ? tagList : null,
+          defaultProvider: wDefaultProvider,
+          defaultShell: shellPayload,
+          parentFolderOverride: parentFolderTrimmed || null,
+          notes: notesTrimmed || null,
         })) as CreateProjectResult;
         if (r.success) {
           resetWizard();
@@ -2196,6 +2261,44 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   /** Folder tree built from `filtered` — only consumed when hierarchy === "tree". */
   const folderTree = useMemo(() => buildFolderTree(filtered), [filtered]);
 
+  /** fb-016 — pool of all tags currently in use across every project,
+   *  sorted alphabetically. Rendered as clickable chips inside the edit
+   *  modal so the user can append known tags without retyping. The chip
+   *  click toggles the tag in the comma-separated input. */
+  const tagPool = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of projects) {
+      for (const t of p.tags ?? []) {
+        const trimmed = t.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    }
+    return Array.from(set).sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [projects]);
+
+  /** fb-016 — current tags parsed from the wizard input, used both to
+   *  render chip selection state and to splice/append on chip click. */
+  const wTagsParsed = useMemo(
+    () =>
+      wTags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean),
+    [wTags],
+  );
+
+  function toggleWizardTag(tag: string) {
+    const has = wTagsParsed.some(
+      (t) => t.toLowerCase() === tag.toLowerCase(),
+    );
+    const next = has
+      ? wTagsParsed.filter((t) => t.toLowerCase() !== tag.toLowerCase())
+      : [...wTagsParsed, tag];
+    setWTags(next.join(", "));
+  }
+
   function toggleFolder(fullPath: string) {
     setCollapsedFolders((prev) => {
       const next = new Set(prev);
@@ -2236,6 +2339,19 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           </button>
           <button
             type="button"
+            onClick={() => setOpenglModalOpen(true)}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Scaffold a new OpenGL/vcpkg project (CMakeLists + vcpkg.json + GLFW/GLAD main.cpp) — replaces crear_proyecto.bat"
+          >
+            + OpenGL Project
+          </button>
+          <button
+            type="button"
             onClick={scan}
             disabled={scanning}
             className="rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
@@ -2265,17 +2381,49 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         </div>
       </header>
 
-      {/* New project wizard */}
+      {/* New / edit project wizard — overlay modal (v2.6: was inline). The
+          backdrop blocks clicks on the underlying list. Click outside the
+          panel to dismiss; clicks inside stopPropagation so editing fields
+          doesn't close the modal. */}
       {wizardOpen && (
         <div
-          className="mb-5 rounded p-4"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border-strong)",
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label={editingId ? "Edit project" : "New project"}
+          onClick={() => {
+            setWizardOpen(false);
+            resetWizard();
           }}
         >
-          <div className="mb-3 text-[12px] font-medium" style={{ color: "var(--color-text)" }}>
-            {editingId ? `Edit project: ${editingId}` : "New project"}
+          <div
+            className="my-auto w-full max-w-3xl rounded-lg p-4 shadow-xl"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+          <div className="mb-3 flex items-center justify-between">
+            <div className="text-[12px] font-medium" style={{ color: "var(--color-text)" }}>
+              {editingId ? `Edit project: ${editingId}` : "New project"}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setWizardOpen(false);
+                resetWizard();
+              }}
+              aria-label="Close"
+              className="rounded px-1.5 py-0.5 text-[12px]"
+              style={{
+                background: "transparent",
+                color: "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              ×
+            </button>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -2318,7 +2466,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 <button
                   type="button"
                   onClick={pickWizardPath}
-                  className="rounded px-2 py-1 text-[11px]"
+                  className="rounded px-2 py-1 text-[11.5px]"
                   style={{
                     background: "var(--color-surface-3)",
                     color: "var(--color-text-secondary)",
@@ -2362,7 +2510,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 <option value="sublime">Sublime Text</option>
               </select>
             </div>
-            <div>
+            <div className="col-span-2">
               <label className="text-[10px] uppercase tracking-wide" style={{ color: "var(--color-text-tertiary)" }}>
                 Tags (comma-separated)
               </label>
@@ -2377,6 +2525,195 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                   color: "var(--color-text)",
                   border: "1px solid var(--color-border-strong)",
                   outline: "none",
+                }}
+              />
+              {/* fb-016 — tag pool chip row. Shows every tag already in use
+                  across the registry; click to add/remove from this project.
+                  Hidden when the pool is empty so first-time users don't see
+                  a confusing dead strip. */}
+              {tagPool.length > 0 && (
+                <div className="mt-1.5 flex flex-wrap gap-1">
+                  <span
+                    className="self-center text-[9.5px] uppercase tracking-[0.06em]"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    pool ·
+                  </span>
+                  {tagPool.map((tag) => {
+                    const active = wTagsParsed.some(
+                      (t) => t.toLowerCase() === tag.toLowerCase(),
+                    );
+                    return (
+                      <button
+                        key={tag}
+                        type="button"
+                        onClick={() => toggleWizardTag(tag)}
+                        className="rounded px-1.5 py-px text-[10.5px] transition-colors"
+                        style={{
+                          background: active
+                            ? "var(--color-accent)"
+                            : "var(--color-surface-1)",
+                          color: active
+                            ? "var(--color-accent-text)"
+                            : "var(--color-text-tertiary)",
+                          border: `1px solid ${active ? "var(--color-accent)" : "var(--color-border)"}`,
+                        }}
+                        title={
+                          active
+                            ? `Remove "${tag}" from this project`
+                            : `Add "${tag}" to this project`
+                        }
+                      >
+                        {tag}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+            {/* v2.6 — default AI provider. Drives the "AI" button on the
+                home-grid project card (cardOpenAi) and seeds the provider
+                badge in the card header. Each session can still pick a
+                different provider inside the workspace. */}
+            <div>
+              <label
+                className="text-[10px] uppercase tracking-wide"
+                style={{ color: "var(--color-text-tertiary)" }}
+                title="Provider used when you click the AI button on this project's card."
+              >
+                Default provider
+              </label>
+              <select
+                value={wDefaultProvider}
+                onChange={(e) =>
+                  setWDefaultProvider(e.target.value as SessionProvider)
+                }
+                className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                  outline: "none",
+                }}
+                title="Provider used when you click the AI button on this project's card."
+              >
+                <option value="claude">Claude</option>
+                <option value="gemini">Gemini</option>
+                <option value="codex">Codex</option>
+              </select>
+            </div>
+            {/* fb-016 — Default shell selector. Drives the shell that new
+                terminals open with from this project's workspace. Empty
+                value = use the global default. */}
+            <div>
+              <label
+                className="text-[10px] uppercase tracking-wide"
+                style={{ color: "var(--color-text-tertiary)" }}
+                title="Shell launched when you open a non-AI terminal in this project's workspace."
+              >
+                Default shell
+              </label>
+              <select
+                value={wDefaultShell}
+                onChange={(e) =>
+                  setWDefaultShell(e.target.value as ProjectShell | "")
+                }
+                className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                  outline: "none",
+                }}
+                title="Shell launched when you open a non-AI terminal in this project's workspace."
+              >
+                <option value="">(default — global setting)</option>
+                <option value="powershell">PowerShell</option>
+                <option value="powershell-admin">PowerShell (admin)</option>
+                <option value="cmd">cmd.exe</option>
+                <option value="bash">Bash / Git Bash</option>
+              </select>
+            </div>
+            {/* fb-016 — parent folder override. When set, terminals start
+                here instead of the project's `path`. Useful when work
+                happens in a subdirectory of the repo. Left empty = use the
+                project's path normally. */}
+            <div className="col-span-2">
+              <label
+                className="text-[10px] uppercase tracking-wide"
+                style={{ color: "var(--color-text-tertiary)" }}
+                title="Override the cwd new terminals open in (leave empty to use the project path)."
+              >
+                Parent folder override (optional)
+              </label>
+              <div className="mt-1 flex gap-2">
+                <input
+                  type="text"
+                  value={wParentFolderOverride}
+                  onChange={(e) => setWParentFolderOverride(e.target.value)}
+                  placeholder="(empty — use the project path)"
+                  className="flex-1 rounded px-2 py-1.5 text-[11.5px]"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                    fontFamily: "var(--font-mono)",
+                    outline: "none",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      const picked = await openDialog({
+                        directory: true,
+                        multiple: false,
+                        title: "Parent folder for new terminals",
+                      });
+                      if (typeof picked === "string" && picked) {
+                        setWParentFolderOverride(picked);
+                      }
+                    } catch {
+                      /* user cancelled */
+                    }
+                  }}
+                  className="rounded px-2 py-1 text-[11.5px]"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text-secondary)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title="Pick a folder"
+                >
+                  Folder
+                </button>
+              </div>
+            </div>
+            {/* fb-016 — Notes textarea. Free-form project metadata, distinct
+                from the Notes tab. Stored as a plain string on the registry
+                entry; rendering elsewhere is up to consumers. */}
+            <div className="col-span-2">
+              <label
+                className="text-[10px] uppercase tracking-wide"
+                style={{ color: "var(--color-text-tertiary)" }}
+                title="Free-form notes attached to this project (not the Notes tab)."
+              >
+                Notes (optional)
+              </label>
+              <textarea
+                value={wNotes}
+                onChange={(e) => setWNotes(e.target.value)}
+                rows={4}
+                placeholder="Project-specific reminders, stack notes, todos that don't deserve a kanban card…"
+                className="mt-1 w-full rounded px-2 py-1.5 text-[12.5px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  color: "var(--color-text)",
+                  border: "1px solid var(--color-border-strong)",
+                  outline: "none",
+                  resize: "vertical",
+                  minHeight: 72,
+                  fontFamily: "var(--font-mono)",
                 }}
               />
             </div>
@@ -2419,12 +2756,13 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
             </button>
           </div>
           <p
-            className="mt-3 text-[11px] leading-relaxed"
+            className="mt-3 text-[11.5px] leading-relaxed"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             After creating the project, use "+ Add item" on the row to attach
             launcher items (executables, folders, Claude/Codex sessions).
           </p>
+          </div>
         </div>
       )}
 
@@ -2496,7 +2834,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 key={m}
                 type="button"
                 onClick={() => setViewMode(m)}
-                className="px-2 py-1 text-[11px] font-medium capitalize transition-colors"
+                className="px-2 py-1 text-[11.5px] font-medium capitalize transition-colors"
                 style={{
                   background: active
                     ? "var(--color-accent)"
@@ -2535,7 +2873,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 setHierarchy(m);
                 if (m !== "blocks") setBlockPath([]);
               }}
-              className="rounded px-2 py-0.5 text-[11px] transition-colors"
+              className="rounded px-2 py-0.5 text-[11.5px] transition-colors"
               style={{
                 background: active ? "var(--color-surface-3)" : "transparent",
                 color: active ? "var(--color-text)" : "var(--color-text-tertiary)",
@@ -2759,7 +3097,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                     <button
                       type="button"
                       onClick={iKind === "exe" ? pickItemFile : pickItemFolder}
-                      className="rounded px-2 py-1 text-[11px]"
+                      className="rounded px-2 py-1 text-[11.5px]"
                       style={{
                         background: "var(--color-surface-3)",
                         color: "var(--color-text-secondary)",
@@ -2833,7 +3171,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                     <button
                       type="button"
                       onClick={pickItemFolder}
-                      className="rounded px-2 py-1 text-[11px]"
+                      className="rounded px-2 py-1 text-[11.5px]"
                       style={{
                         background: "var(--color-surface-3)",
                         color: "var(--color-text-secondary)",
@@ -2874,7 +3212,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                     <button
                       type="button"
                       onClick={pickItemFolder}
-                      className="rounded px-2 py-1 text-[11px]"
+                      className="rounded px-2 py-1 text-[11.5px]"
                       style={{
                         background: "var(--color-surface-3)",
                         color: "var(--color-text-secondary)",
@@ -3046,6 +3384,26 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           </div>
         </div>
       )}
+
+      {/* v2.5.2 — OpenGL/vcpkg scaffolder modal. Lives at the page root so it
+          sits above the wizard + delete confirm regardless of which view is
+          currently rendered (cards / list / tree / blocks). On success we
+          refresh the project list — newly-scaffolded folders aren't auto-
+          registered in projects.json, but a `scan` would catch them on the
+          next pass; reloading is the cheap option that keeps the UI honest. */}
+      <NewOpenGlProjectModal
+        open={openglModalOpen}
+        onClose={() => setOpenglModalOpen(false)}
+        onCreated={(projectPath) => {
+          setLastAction({
+            success: true,
+            stdout: `OpenGL project created at ${projectPath}`,
+            stderr: "",
+            exit_code: 0,
+          });
+          void load();
+        }}
+      />
     </div>
   );
 }

@@ -19,9 +19,17 @@ type Props = {
 };
 
 const BASE64 = {
-  decode: (s: string): string => {
+  // Decode to Uint8Array (not a JS string) so xterm.write receives raw
+  // bytes. atob() returns a binary string where each char is one byte —
+  // if we hand that to term.write directly, xterm treats each char as a
+  // UTF-16 code point and any UTF-8 multibyte sequence (acentos, emojis,
+  // box-drawing characters used by Claude/Codex/Gemini TUIs) is broken
+  // into garbage. xterm decodes UTF-8 internally when given a Uint8Array.
+  decode: (s: string): Uint8Array => {
     const bin = atob(s);
-    return bin;
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
   },
   encode: (bytes: Uint8Array): string => {
     let bin = "";
@@ -55,14 +63,11 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
     const fit = new FitAddon();
     term.loadAddon(fit);
 
-    let webgl: WebglAddon | null = null;
-    try {
-      webgl = new WebglAddon();
-      term.loadAddon(webgl);
-    } catch {
-      // WebGL unavailable (some Intel iGPU drivers). Falls back to canvas.
-      webgl = null;
-    }
+    // v2.6 bug fix: WebGL addon disabled — multiple EmbeddedTerminals in
+    // the same window (split-pane, second Claude session) contended for
+    // the WebGL context and left subsequent panes blank. Canvas renderer
+    // is enough for our line counts and renders reliably across instances.
+    const webgl: WebglAddon | null = null as WebglAddon | null;
 
     term.open(container);
     termRef.current = term;
@@ -102,8 +107,8 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
       unlistenData = await listen<PtyDataEvent>(
         `pty:data:${sessionId}`,
         (event) => {
-          const bin = BASE64.decode(event.payload.data);
-          term.write(bin);
+          const bytes = BASE64.decode(event.payload.data);
+          term.write(bytes);
         },
       );
       unlistenExit = await listen<PtyExitEvent>(

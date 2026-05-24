@@ -502,7 +502,27 @@ export type ProjectInfo = {
    *  entries (missing field / typos) to "claude" before returning, so the
    *  UI can safely read it without a null check. */
   default_provider?: SessionProvider | null;
+  /** fb-016 — preferred shell for non-AI terminals spawned in this
+   *  project's workspace. One of "powershell" | "powershell-admin" |
+   *  "cmd" | "bash". `null`/missing = use the global default. */
+  default_shell?: ProjectShell | null;
+  /** fb-016 — override the cwd terminals open in. When set, takes
+   *  precedence over the project's `path`. Useful when work happens in a
+   *  sub-directory of the repo. */
+  parent_folder_override?: string | null;
+  /** fb-016 — free-form project notes (markdown / plain text). Distinct
+   *  from the standalone Notes tab — these live next to the project
+   *  registry entry. */
+  notes?: string | null;
 };
+
+/** fb-016 — allowed values for `Project.default_shell`. Mirrors the Rust
+ *  `VALID_SHELLS` allowlist. */
+export type ProjectShell =
+  | "powershell"
+  | "powershell-admin"
+  | "cmd"
+  | "bash";
 
 export type ProjectActionResult = {
   success: boolean;
@@ -632,6 +652,24 @@ export type UninstallAppResult = {
   stderr: string;
   exit_code: number | null;
   command: string;
+};
+
+// Bloatware sub-tab (System → Bloatware). Pre-curated list of Windows Appx
+// packages most users want to remove. The backend exposes:
+//   - appx_query(pattern)              → is the package installed?
+//   - uninstall_bloatware_app(pattern) → Remove-AppxPackage
+export type AppxQueryResult = {
+  installed: boolean;
+  matches: string[];
+};
+
+export type BloatwareUninstallResult = {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  command: string;
+  removed: string[];
 };
 
 // ---------------------------------------------------------------------------

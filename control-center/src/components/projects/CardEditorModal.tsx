@@ -4,6 +4,11 @@
 // agent-picker dropdown integrates in sub-commit 7), prompt template with
 // {var} preview, cwd override, tags. Save calls kanban_create_card /
 // kanban_update_card. "Run again" calls kanban_dispatch_card.
+//
+// v2.6: the "power user" fields (agent, cwd override, prompt template) live
+// behind a collapsible "Advanced" section so the main form stays focused on
+// title / priority / description / tags. Each advanced field carries a
+// `title` tooltip explaining its purpose.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -41,7 +46,18 @@ export default function CardEditorModal(props: Props) {
     initial?.prompt_template ?? "",
   );
   const [cwd, setCwd] = useState(initial?.cwd ?? "");
-  const [tags, setTags] = useState((initial?.tags ?? []).join(", "));
+  const [tags, setTags] = useState(
+    (initial?.tags ?? []).filter((t) => !/^p\d$/.test(t)).join(", "),
+  );
+  // v2.6: priority selector — extracted from the first `pN` tag, written
+  // back on save so ProjectBoard's badge logic keeps working.
+  const [priority, setPriority] = useState<"" | "p0" | "p1" | "p2" | "p3">(
+    () => {
+      const p = (initial?.tags ?? []).find((t) => /^p\d$/.test(t));
+      if (p === "p0" || p === "p1" || p === "p2" || p === "p3") return p;
+      return "";
+    },
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,7 +84,9 @@ export default function CardEditorModal(props: Props) {
     const tagList = tags
       .split(",")
       .map((t) => t.trim())
-      .filter(Boolean);
+      .filter(Boolean)
+      .filter((t) => !/^p\d$/.test(t)); // strip stale priority tags
+    if (priority) tagList.unshift(priority);
     try {
       if (mode === "create") {
         await invoke("kanban_create_card", {
@@ -140,6 +158,40 @@ export default function CardEditorModal(props: Props) {
               placeholder="Card title"
             />
           </div>
+          {/* v2.6: priority selector. */}
+          <div className="col-span-2 flex items-center gap-2">
+            <label className="text-[var(--color-text-muted)]">Priority</label>
+            <div
+              className="flex items-center gap-0.5 rounded p-0.5"
+              style={{
+                background: "var(--color-surface-1)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              {(["", "p0", "p1", "p2", "p3"] as const).map((p) => {
+                const active = priority === p;
+                const label = p === "" ? "None" : p.toUpperCase();
+                return (
+                  <button
+                    key={p || "none"}
+                    type="button"
+                    onClick={() => setPriority(p)}
+                    className="rounded px-2 py-0.5 text-[11.5px] font-medium uppercase tracking-wide transition-colors"
+                    style={{
+                      background: active
+                        ? "var(--color-surface-3)"
+                        : "transparent",
+                      color: active
+                        ? "var(--color-text)"
+                        : "var(--color-text-tertiary)",
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
           <div className="col-span-2">
             <label className="mb-1 block text-[var(--color-text-muted)]">
               Description (markdown)
@@ -152,42 +204,6 @@ export default function CardEditorModal(props: Props) {
               placeholder="What needs to happen…"
             />
           </div>
-          <div>
-            <label className="mb-1 block text-[var(--color-text-muted)]">Agent</label>
-            <input
-              value={agent ?? ""}
-              onChange={(e) => setAgent(e.target.value)}
-              className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1"
-              placeholder={board.default_agent ?? "(project default)"}
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-[var(--color-text-muted)]">cwd override</label>
-            <input
-              value={cwd ?? ""}
-              onChange={(e) => setCwd(e.target.value)}
-              className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1"
-              placeholder="(project path)"
-            />
-          </div>
-          <div className="col-span-2">
-            <label className="mb-1 block text-[var(--color-text-muted)]">
-              Prompt template (use {"{title}"} {"{description}"} {"{tags}"} {"{card_id}"})
-            </label>
-            <textarea
-              value={promptTemplate ?? ""}
-              onChange={(e) => setPromptTemplate(e.target.value)}
-              rows={3}
-              className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1 font-mono"
-              placeholder={board.default_prompt_template ?? "Free-form template…"}
-            />
-          </div>
-          <div className="col-span-2">
-            <label className="mb-1 block text-[var(--color-text-muted)]">Preview</label>
-            <pre className="max-h-32 overflow-auto rounded-md border border-[var(--color-border)] bg-[var(--color-surface-0)] p-2 font-mono whitespace-pre-wrap">
-              {preview || "(empty)"}
-            </pre>
-          </div>
           <div className="col-span-2">
             <label className="mb-1 block text-[var(--color-text-muted)]">Tags (comma-separated)</label>
             <input
@@ -196,6 +212,92 @@ export default function CardEditorModal(props: Props) {
               className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1"
               placeholder="bug, p1, docs"
             />
+          </div>
+          {/* v2.6 Advanced section — collapsed by default. Holds the
+              power-user fields (agent override, cwd override, prompt
+              template). Each label has a `title` tooltip explaining the
+              intent so first-time users aren't lost. */}
+          <div className="col-span-2">
+            <details className="group rounded-md border border-[var(--color-border)] bg-[var(--color-surface-0)]">
+              <summary className="cursor-pointer list-none px-3 py-2 text-[11.5px] uppercase tracking-wide text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+                <span className="mr-1 inline-block transition-transform group-open:rotate-90">
+                  &#9656;
+                </span>
+                Advanced (agent, cwd, prompt template)
+              </summary>
+              <div className="grid grid-cols-2 gap-4 border-t border-[var(--color-border)] p-3">
+                <div>
+                  <label
+                    className="mb-1 flex items-center gap-1 text-[var(--color-text-muted)]"
+                    title="Agente IA que se ejecutará al lanzar esta card (opcional)"
+                  >
+                    Agent
+                    <span
+                      className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-[var(--color-border)] text-[9px] text-[var(--color-text-muted)]"
+                      title="Agente IA que se ejecutará al lanzar esta card (opcional). Si lo dejas en blanco se usa el agente por defecto del proyecto."
+                      aria-label="Info"
+                    >
+                      i
+                    </span>
+                  </label>
+                  <input
+                    value={agent ?? ""}
+                    onChange={(e) => setAgent(e.target.value)}
+                    className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1"
+                    placeholder={board.default_agent ?? "(project default)"}
+                  />
+                </div>
+                <div>
+                  <label
+                    className="mb-1 flex items-center gap-1 text-[var(--color-text-muted)]"
+                    title="Cambiar el directorio de trabajo solo para esta card (opcional, default: directorio del proyecto)"
+                  >
+                    CWD override
+                    <span
+                      className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-[var(--color-border)] text-[9px] text-[var(--color-text-muted)]"
+                      title="Cambiar el directorio de trabajo solo para esta card (opcional). Por defecto se usa el directorio del proyecto."
+                      aria-label="Info"
+                    >
+                      i
+                    </span>
+                  </label>
+                  <input
+                    value={cwd ?? ""}
+                    onChange={(e) => setCwd(e.target.value)}
+                    className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1"
+                    placeholder="(project path)"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label
+                    className="mb-1 flex items-center gap-1 text-[var(--color-text-muted)]"
+                    title="Plantilla de prompt que se enviará al agente al lanzar (opcional)"
+                  >
+                    Prompt template (use {"{title}"} {"{description}"} {"{tags}"} {"{card_id}"})
+                    <span
+                      className="inline-flex h-3.5 w-3.5 cursor-help items-center justify-center rounded-full border border-[var(--color-border)] text-[9px] text-[var(--color-text-muted)]"
+                      title="Plantilla de prompt que se enviará al agente al lanzar. Soporta los placeholders {title}, {description}, {tags} y {card_id}."
+                      aria-label="Info"
+                    >
+                      i
+                    </span>
+                  </label>
+                  <textarea
+                    value={promptTemplate ?? ""}
+                    onChange={(e) => setPromptTemplate(e.target.value)}
+                    rows={3}
+                    className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1 font-mono"
+                    placeholder={board.default_prompt_template ?? "Free-form template…"}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <label className="mb-1 block text-[var(--color-text-muted)]">Preview</label>
+                  <pre className="max-h-32 overflow-auto rounded-md border border-[var(--color-border)] bg-[var(--color-surface-0)] p-2 font-mono whitespace-pre-wrap">
+                    {preview || "(empty)"}
+                  </pre>
+                </div>
+              </div>
+            </details>
           </div>
           {mode === "edit" && initial && initial.runs.length > 0 && (
             <div className="col-span-2">

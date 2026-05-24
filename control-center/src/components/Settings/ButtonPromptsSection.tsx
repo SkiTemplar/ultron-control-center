@@ -16,8 +16,9 @@ import {
 //   1. Header copy + storage hint.
 //   2. Search input (debounced via `/` keyboard shortcut to focus).
 //   3. Group filter chips derived from the `header` (location) of each entry.
-//   4. 2-column card grid. Each card is collapsible — clicking the card opens
-//      an inline detail panel with the full body, var list, original default
+//   4. 2-column card grid. v2.6 (fb-031): clicking a card opens a centered
+//      MODAL overlay (instead of an inline expanded panel that pushed the
+//      whole section taller) with the full body, var list, original default
 //      (when an override exists) and three actions: copy / edit / reset.
 // ---------------------------------------------------------------------------
 
@@ -83,8 +84,15 @@ export function ButtonPromptsSection() {
   }, [load]);
 
   // "/" focuses the search input unless the user is already typing somewhere.
+  // Esc closes the open modal (v2.6 / fb-031).
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && expanded) {
+        e.preventDefault();
+        setExpanded(null);
+        setEditing(null);
+        return;
+      }
       if (e.key !== SEARCH_FOCUS_KEY) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
@@ -101,7 +109,7 @@ export function ButtonPromptsSection() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [expanded]);
 
   const flashSuccess = useCallback((msg: string) => {
     setSuccess(msg);
@@ -245,7 +253,7 @@ export function ButtonPromptsSection() {
           />
         </div>
         <span
-          className="tabular-nums text-[11px]"
+          className="tabular-nums text-[11.5px]"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           {filter || activeGroups.size > 0
@@ -290,7 +298,7 @@ export function ButtonPromptsSection() {
                 key={g.name}
                 type="button"
                 onClick={() => toggleGroup(g.name)}
-                className="rounded-full px-2.5 py-0.5 text-[11px]"
+                className="rounded-full px-2.5 py-0.5 text-[11.5px]"
                 style={{
                   background: active
                     ? "var(--color-accent)"
@@ -360,7 +368,7 @@ export function ButtonPromptsSection() {
             <button
               type="button"
               onClick={clearFilters}
-              className="rounded px-2.5 py-1 text-[11px]"
+              className="rounded px-2.5 py-1 text-[11.5px]"
               style={{
                 background: "var(--color-surface-3)",
                 color: "var(--color-text)",
@@ -376,52 +384,125 @@ export function ButtonPromptsSection() {
           className="mt-4 grid gap-3"
           style={{ gridTemplateColumns: "repeat(2, minmax(0, 1fr))" }}
         >
-          {filtered.map((b) => {
-            const isOpen = expanded === b.key;
-            const isEditing = editing === b.key;
-            const draft = drafts[b.key] ?? b.prompt;
-            const dirty = draft !== b.prompt;
-            const isBusy = busy === b.key;
-            return (
+          {filtered.map((b) => (
+            <button
+              key={b.key}
+              type="button"
+              onClick={() => {
+                setExpanded(b.key);
+                setEditing(null);
+              }}
+              className="rounded p-3 text-left transition-colors"
+              style={{
+                background: "var(--color-surface-2)",
+                border: `1px solid ${b.overridden ? "var(--color-accent)" : "var(--color-border)"}`,
+                cursor: "pointer",
+              }}
+              title={`Click to inspect "${b.label}"`}
+            >
+              <div className="flex items-baseline justify-between gap-2">
+                <span
+                  className="truncate text-[13px] font-semibold"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {b.label}
+                </span>
+                <span
+                  className="shrink-0 rounded-full px-2 py-px text-[10px]"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text-tertiary)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  {groupOf(b)}
+                </span>
+              </div>
+              {b.overridden && (
+                <div className="mt-1">
+                  <span
+                    className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                    style={{
+                      background: "rgba(88, 166, 255, 0.12)",
+                      color: "var(--color-accent)",
+                    }}
+                  >
+                    custom
+                  </span>
+                </div>
+              )}
+              {b.description && (
+                <div
+                  className="mt-1.5 text-[11.5px]"
+                  style={{
+                    color: "var(--color-text-secondary)",
+                    display: "-webkit-box",
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: "vertical",
+                    overflow: "hidden",
+                  }}
+                >
+                  {b.description}
+                </div>
+              )}
               <div
-                key={b.key}
-                className="rounded"
+                className="mt-1.5 text-[10.5px]"
                 style={{
-                  background: "var(--color-surface-2)",
-                  border: `1px solid ${b.overridden ? "var(--color-accent)" : "var(--color-border)"}`,
-                  gridColumn: isOpen ? "1 / -1" : undefined,
+                  color: "var(--color-text-faint)",
+                  fontFamily: "var(--font-mono)",
                 }}
               >
-                {/* Card head — always visible */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setExpanded(isOpen ? null : b.key);
-                    if (isOpen) setEditing(null);
-                  }}
-                  className="w-full p-3 text-left"
-                  style={{ background: "transparent", cursor: "pointer" }}
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span
-                      className="truncate text-[13px] font-semibold"
+                {b.key}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Modal overlay (v2.6 / fb-031). Replaces the previous inline detail
+          panel so opening a prompt no longer pushes the whole list down. */}
+      {expanded && (() => {
+        const b = catalog?.buttons.find((x) => x.key === expanded);
+        if (!b) return null;
+        const isEditing = editing === b.key;
+        const draft = drafts[b.key] ?? b.prompt;
+        const dirty = draft !== b.prompt;
+        const isBusy = busy === b.key;
+        const close = () => {
+          setExpanded(null);
+          setEditing(null);
+        };
+        return (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: "rgba(0, 0, 0, 0.65)" }}
+            onClick={close}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              onClick={(e) => e.stopPropagation()}
+              className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-lg"
+              style={{
+                background: "var(--color-surface-2)",
+                border: `1px solid ${b.overridden ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+                boxShadow: "0 24px 64px rgba(0, 0, 0, 0.55)",
+              }}
+            >
+              {/* Modal header */}
+              <div
+                className="flex items-start justify-between gap-3 border-b p-4"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <h3
+                      className="truncate text-[15px] font-semibold"
                       style={{ color: "var(--color-text)" }}
                     >
                       {b.label}
-                    </span>
-                    <span
-                      className="shrink-0 rounded-full px-2 py-px text-[10px]"
-                      style={{
-                        background: "var(--color-surface-3)",
-                        color: "var(--color-text-tertiary)",
-                        border: "1px solid var(--color-border)",
-                      }}
-                    >
-                      {groupOf(b)}
-                    </span>
-                  </div>
-                  {b.overridden && (
-                    <div className="mt-1">
+                    </h3>
+                    {b.overridden && (
                       <span
                         className="rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
                         style={{
@@ -431,24 +512,16 @@ export function ButtonPromptsSection() {
                       >
                         custom
                       </span>
-                    </div>
-                  )}
-                  {b.description && (
-                    <div
-                      className="mt-1.5 text-[11.5px]"
-                      style={{
-                        color: "var(--color-text-secondary)",
-                        display: "-webkit-box",
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: "vertical",
-                        overflow: "hidden",
-                      }}
-                    >
-                      {b.description}
-                    </div>
-                  )}
+                    )}
+                  </div>
                   <div
-                    className="mt-1.5 text-[10.5px]"
+                    className="mt-1 text-[11.5px]"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {b.location}
+                  </div>
+                  <div
+                    className="mt-0.5 text-[10.5px]"
                     style={{
                       color: "var(--color-text-faint)",
                       fontFamily: "var(--font-mono)",
@@ -456,155 +529,60 @@ export function ButtonPromptsSection() {
                   >
                     {b.key}
                   </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={close}
+                  className="shrink-0 rounded px-2 py-1 text-[12px]"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  aria-label="Close"
+                >
+                  Close
                 </button>
+              </div>
 
-                {/* Expanded detail panel */}
-                {isOpen && (
-                  <div
-                    className="border-t p-3"
-                    style={{ borderColor: "var(--color-border)" }}
+              {/* Modal body — scrollable */}
+              <div className="flex-1 overflow-y-auto p-4">
+                {b.description && (
+                  <p
+                    className="text-[12px]"
+                    style={{ color: "var(--color-text-secondary)" }}
                   >
-                    <div
-                      className="text-[11px]"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      Location:{" "}
-                      <span style={{ color: "var(--color-text-secondary)" }}>
-                        {b.location}
-                      </span>
-                    </div>
-                    {b.vars.length > 0 && (
+                    {b.description}
+                  </p>
+                )}
+                {b.vars.length > 0 && (
+                  <div
+                    className="mt-2 text-[10.5px]"
+                    style={{
+                      color: "var(--color-text-faint)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                  >
+                    vars: {b.vars.map((v) => `{${v}}`).join(", ")}
+                  </div>
+                )}
+
+                {!isEditing ? (
+                  <div className="mt-3">
+                    {b.overridden ? (
                       <div
-                        className="mt-1.5 text-[10.5px]"
+                        className="grid gap-3"
                         style={{
-                          color: "var(--color-text-faint)",
-                          fontFamily: "var(--font-mono)",
+                          gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
                         }}
                       >
-                        vars: {b.vars.map((v) => `{${v}}`).join(", ")}
-                      </div>
-                    )}
-
-                    {/* Action row */}
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => void onCopy(b)}
-                        disabled={isBusy}
-                        className="rounded px-2.5 py-1 text-[11px] disabled:opacity-40"
-                        style={{
-                          background: "var(--color-accent)",
-                          color: "var(--color-accent-text)",
-                        }}
-                        title="Copy the rendered prompt to the clipboard"
-                      >
-                        Copy to clipboard
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setEditing(isEditing ? null : b.key)
-                        }
-                        disabled={isBusy}
-                        className="rounded px-2.5 py-1 text-[11px] disabled:opacity-40"
-                        style={{
-                          background: "var(--color-surface-3)",
-                          color: "var(--color-text)",
-                          border: "1px solid var(--color-border-strong)",
-                        }}
-                      >
-                        {isEditing ? "Stop editing" : "Edit override"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void onReset(b.key)}
-                        disabled={isBusy || !b.overridden}
-                        className="rounded px-2.5 py-1 text-[11px] disabled:opacity-30"
-                        style={{
-                          background: "transparent",
-                          color: "var(--color-text-tertiary)",
-                          border: "1px solid var(--color-border)",
-                        }}
-                        title="Drop the override and go back to the default"
-                      >
-                        Reset to default
-                      </button>
-                      {isEditing && (
-                        <button
-                          type="button"
-                          onClick={() => void onSave(b.key)}
-                          disabled={isBusy || !dirty}
-                          className="ml-auto rounded px-2.5 py-1 text-[11px] font-medium disabled:opacity-40"
-                          style={{
-                            background: "var(--color-success)",
-                            color: "var(--color-accent-text)",
-                          }}
-                        >
-                          {isBusy ? "Saving…" : "Save override"}
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Body view */}
-                    {!isEditing ? (
-                      <div className="mt-3">
-                        {b.overridden ? (
+                        <div>
                           <div
-                            className="grid gap-3"
-                            style={{
-                              gridTemplateColumns:
-                                "repeat(2, minmax(0, 1fr))",
-                            }}
+                            className="mb-1 text-[10.5px] uppercase tracking-wide"
+                            style={{ color: "var(--color-text-faint)" }}
                           >
-                            <div>
-                              <div
-                                className="mb-1 text-[10.5px] uppercase tracking-wide"
-                                style={{
-                                  color: "var(--color-text-faint)",
-                                }}
-                              >
-                                Effective (custom)
-                              </div>
-                              <pre
-                                className="whitespace-pre-wrap rounded p-2.5 text-[11.5px]"
-                                style={{
-                                  background: "var(--color-surface-1)",
-                                  border:
-                                    "1px solid var(--color-border-strong)",
-                                  color: "var(--color-text)",
-                                  fontFamily: "var(--font-mono)",
-                                  maxHeight: 420,
-                                  overflow: "auto",
-                                }}
-                              >
-                                {b.prompt}
-                              </pre>
-                            </div>
-                            <div>
-                              <div
-                                className="mb-1 text-[10.5px] uppercase tracking-wide"
-                                style={{
-                                  color: "var(--color-text-faint)",
-                                }}
-                              >
-                                Original default
-                              </div>
-                              <pre
-                                className="whitespace-pre-wrap rounded p-2.5 text-[11.5px]"
-                                style={{
-                                  background: "var(--color-surface-1)",
-                                  border: "1px dashed var(--color-border)",
-                                  color: "var(--color-text-secondary)",
-                                  fontFamily: "var(--font-mono)",
-                                  maxHeight: 420,
-                                  overflow: "auto",
-                                }}
-                              >
-                                {b.default_prompt}
-                              </pre>
-                            </div>
+                            Effective (custom)
                           </div>
-                        ) : (
                           <pre
                             className="whitespace-pre-wrap rounded p-2.5 text-[11.5px]"
                             style={{
@@ -618,40 +596,136 @@ export function ButtonPromptsSection() {
                           >
                             {b.prompt}
                           </pre>
-                        )}
+                        </div>
+                        <div>
+                          <div
+                            className="mb-1 text-[10.5px] uppercase tracking-wide"
+                            style={{ color: "var(--color-text-faint)" }}
+                          >
+                            Original default
+                          </div>
+                          <pre
+                            className="whitespace-pre-wrap rounded p-2.5 text-[11.5px]"
+                            style={{
+                              background: "var(--color-surface-1)",
+                              border: "1px dashed var(--color-border)",
+                              color: "var(--color-text-secondary)",
+                              fontFamily: "var(--font-mono)",
+                              maxHeight: 420,
+                              overflow: "auto",
+                            }}
+                          >
+                            {b.default_prompt}
+                          </pre>
+                        </div>
                       </div>
                     ) : (
-                      <textarea
-                        value={draft}
-                        onChange={(e) =>
-                          setDrafts((prev) => ({
-                            ...prev,
-                            [b.key]: e.target.value,
-                          }))
-                        }
-                        rows={Math.min(
-                          18,
-                          Math.max(6, draft.split("\n").length + 1),
-                        )}
-                        className="mt-3 w-full rounded p-2.5 text-[12px]"
+                      <pre
+                        className="whitespace-pre-wrap rounded p-2.5 text-[11.5px]"
                         style={{
                           background: "var(--color-surface-1)",
+                          border: "1px solid var(--color-border-strong)",
                           color: "var(--color-text)",
-                          border: `1px solid ${dirty ? "var(--color-accent)" : "var(--color-border-strong)"}`,
-                          outline: "none",
                           fontFamily: "var(--font-mono)",
-                          resize: "vertical",
+                          maxHeight: 480,
+                          overflow: "auto",
                         }}
-                        spellCheck={false}
-                      />
+                      >
+                        {b.prompt}
+                      </pre>
                     )}
                   </div>
+                ) : (
+                  <textarea
+                    value={draft}
+                    onChange={(e) =>
+                      setDrafts((prev) => ({
+                        ...prev,
+                        [b.key]: e.target.value,
+                      }))
+                    }
+                    rows={Math.min(
+                      24,
+                      Math.max(8, draft.split("\n").length + 1),
+                    )}
+                    className="mt-3 w-full rounded p-2.5 text-[12px]"
+                    style={{
+                      background: "var(--color-surface-1)",
+                      color: "var(--color-text)",
+                      border: `1px solid ${dirty ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+                      outline: "none",
+                      fontFamily: "var(--font-mono)",
+                      resize: "vertical",
+                    }}
+                    spellCheck={false}
+                  />
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
+
+              {/* Modal footer — action row */}
+              <div
+                className="flex flex-wrap items-center gap-1.5 border-t p-3"
+                style={{ borderColor: "var(--color-border)" }}
+              >
+                <button
+                  type="button"
+                  onClick={() => void onCopy(b)}
+                  disabled={isBusy}
+                  className="rounded px-2.5 py-1 text-[11.5px] disabled:opacity-40"
+                  style={{
+                    background: "var(--color-accent)",
+                    color: "var(--color-accent-text)",
+                  }}
+                  title="Copy the rendered prompt to the clipboard"
+                >
+                  Copy to clipboard
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(isEditing ? null : b.key)}
+                  disabled={isBusy}
+                  className="rounded px-2.5 py-1 text-[11.5px] disabled:opacity-40"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                >
+                  {isEditing ? "Stop editing" : "Edit override"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void onReset(b.key)}
+                  disabled={isBusy || !b.overridden}
+                  className="rounded px-2.5 py-1 text-[11.5px] disabled:opacity-30"
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-text-tertiary)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                  title="Drop the override and go back to the default"
+                >
+                  Reset to default
+                </button>
+                {isEditing && (
+                  <button
+                    type="button"
+                    onClick={() => void onSave(b.key)}
+                    disabled={isBusy || !dirty}
+                    className="ml-auto rounded px-2.5 py-1 text-[11.5px] font-medium disabled:opacity-40"
+                    style={{
+                      background: "var(--color-success)",
+                      color: "var(--color-accent-text)",
+                    }}
+                  >
+                    {isBusy ? "Saving…" : "Save override"}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

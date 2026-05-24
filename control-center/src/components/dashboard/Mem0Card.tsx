@@ -79,7 +79,7 @@ export function Mem0Card({ onOpenMemory }: Mem0CardProps) {
             )}
           </div>
           <div
-            className="text-[11px]"
+            className="text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             Key:{" "}
@@ -89,7 +89,7 @@ export function Mem0Card({ onOpenMemory }: Mem0CardProps) {
           </div>
           {status.error && (
             <div
-              className="text-[11px]"
+              className="text-[11.5px]"
               style={{ color: "var(--color-warn)" }}
             >
               {status.error}

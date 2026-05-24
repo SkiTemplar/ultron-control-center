@@ -6,17 +6,131 @@
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
-import type { AgentEntry, RemoteItem, SkillOrigin } from "../types";
-import { SearchGitHubModal } from "./library/SearchGitHubModal";
-import { InstallConfirmModal } from "./library/InstallConfirmModal";
+import type { AgentEntry, SkillOrigin } from "../types";
 import { CreateAgentModal } from "./library/CreateAgentModal";
-import { Bot, Folder, Github, Plus } from "./library/icons";
+import { Bot, Folder, Plus } from "./library/icons";
+
+// v2.6 (v27-f14): sibling-file metadata returned by `list_skill_files`.
+// Agents are typically a single .md so the sibling list usually shows the
+// parent folder content (e.g. plugin agents share a directory with peers).
+type SiblingFile = {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  ext: string | null;
+  size_bytes: number | null;
+};
+
+function AgentFilesInline({ entryPath }: { entryPath: string }) {
+  const [open, setOpen] = useState(false);
+  const [files, setFiles] = useState<SiblingFile[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const ensureLoaded = async () => {
+    if (files || busy) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const list = (await invoke("list_skill_files", {
+        entryPath,
+      })) as SiblingFile[];
+      setFiles(list);
+    } catch (e) {
+      setErr(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = async () => {
+    const next = !open;
+    setOpen(next);
+    if (next) await ensureLoaded();
+  };
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={() => void toggle()}
+        className="rounded-md border px-2 py-0.5 text-[11.5px]"
+        style={{
+          borderColor: "var(--color-border)",
+          background: "transparent",
+          color: "var(--color-text-tertiary)",
+        }}
+      >
+        {open ? "▾ Files" : "▸ Files"}
+        {files && (
+          <span className="ml-1 tabular-nums">{files.length}</span>
+        )}
+      </button>
+      {open && (
+        <div className="mt-1.5">
+          {busy && (
+            <p
+              className="text-[10.5px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              Loading…
+            </p>
+          )}
+          {err && (
+            <p
+              className="text-[10.5px]"
+              style={{ color: "var(--color-danger)" }}
+            >
+              {err}
+            </p>
+          )}
+          {files && files.length === 0 && (
+            <p
+              className="text-[10.5px]"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              No sibling files.
+            </p>
+          )}
+          {files && files.length > 0 && (
+            <ul className="flex flex-wrap gap-1">
+              {files.map((f) => (
+                <li key={f.path}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openPath(f.path).catch((e) =>
+                        setErr(`open ${f.name}: ${e}`),
+                      );
+                    }}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10.5px]"
+                    style={{
+                      background: "var(--color-surface-3)",
+                      color: "var(--color-text)",
+                      border: "1px solid var(--color-border)",
+                      fontFamily: "var(--font-mono)",
+                    }}
+                    title={f.path}
+                  >
+                    {f.is_dir ? "📁" : f.ext ? `.${f.ext}` : "📄"}{" "}
+                    <span>{f.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 import { TreeView, type TreeOrigin } from "./library/TreeView";
 import {
   BlocksView,
   type BlocksItem,
 } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
+import { categorize } from "../lib/skill-categories";
 
 type ProjectLite = { id: string; name: string };
 
@@ -81,10 +195,17 @@ function deriveTopGroup(a: AgentEntry): string {
   return deriveCategory(a);
 }
 
-/// Sub-group within a top-level Blocks tile. For plugin agents, this is the
-/// folder under `agents/` if one exists. For global/project agents, the
-/// category itself becomes the sub-group.
+/// Sub-group within a top-level Blocks tile. For plugin agents this is the
+/// folder under `agents/`. For global/project agents we first try the
+/// `categorize()` domain map (Personas, Game Dev, Quality & Review, …) so
+/// personal agents stop collapsing into "Uncategorized"; fall back to the
+/// path-based category when the slug + description gives no confident hit.
 function deriveSubGroup(a: AgentEntry): string | null {
+  // v2.6 feedback: try the domain map FIRST regardless of origin so ECC
+  // and other plugin agents also land under meaningful sub-tiles
+  // (Personas, Quality & Review, …). Path-based fallback below.
+  const domain = categorize(a.name, a.description);
+  if (domain) return domain;
   const norm = a.path.replace(/\\/g, "/");
   if (a.origin === "plugin") {
     const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md$/);
@@ -103,9 +224,7 @@ export function Agents() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
-  const [installItem, setInstallItem] = useState<RemoteItem | null>(null);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
   const [view, setView] = useLibraryViewMode("agents");
 
@@ -169,7 +288,10 @@ export function Agents() {
 
   const handleOpen = async (path: string) => {
     try {
-      await openPath(path);
+      // Agents are standalone .md files (no folder of siblings) — open the
+      // file directly in VS Code instead of the parent dir, which would
+      // surface every other agent at once.
+      await invoke("open_folder_in_vscode", { target: path });
     } catch (e) {
       setError(`open ${path}: ${e}`);
     }
@@ -260,12 +382,6 @@ export function Agents() {
                 <Folder size={10} /> {cat}
               </div>
             )}
-            <p
-              className="mb-2 text-xs leading-snug"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              {a.description || "(sin descripción)"}
-            </p>
             <button
               onClick={() => handleOpen(a.path)}
               className="rounded-md border px-2 py-0.5 text-xs"
@@ -277,6 +393,8 @@ export function Agents() {
             >
               Open in editor
             </button>
+            {/* v2.6 (v27-f14): sibling files in the agent's folder. */}
+            <AgentFilesInline entryPath={a.path} />
           </li>
         );
       })}
@@ -297,17 +415,6 @@ export function Agents() {
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle mode={view} onChange={setView} />
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs"
-            style={{
-              borderColor: "var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-            }}
-          >
-            <Github size={12} /> Search GitHub
-          </button>
           <button
             onClick={() => setCreateOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
@@ -369,7 +476,7 @@ export function Agents() {
             </span>
             <button
               onClick={() => setCategory("all")}
-              className="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
+              className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
               style={{
                 borderColor:
                   category === "all"
@@ -393,7 +500,7 @@ export function Agents() {
                 <button
                   key={c}
                   onClick={() => setCategory(c)}
-                  className="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
+                  className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
                   style={{
                     borderColor: active
                       ? "var(--color-text)"
@@ -460,9 +567,11 @@ export function Agents() {
             noun="agent"
             emptyLabel="Sin agents para el filtro actual."
             topGroupAccent={(g) => {
-              if (g === "Global") return "rgba(136, 136, 204, 0.40)";
-              if (g === "Project") return "rgba(168, 136, 168, 0.40)";
-              return "rgba(63, 185, 80, 0.32)";
+              // Ultron palette: true-black monochrome. Sutile jerarquía via
+              // alpha del foreground en lugar de tints chromáticos.
+              if (g === "Global") return "rgba(245, 245, 245, 0.22)";
+              if (g === "Project") return "rgba(160, 160, 160, 0.26)";
+              return "rgba(110, 110, 110, 0.22)";
             }}
             renderLeaves={(items) =>
               renderCardGrid(items.map((it) => it.data))
@@ -480,27 +589,6 @@ export function Agents() {
         )}
       </div>
 
-      {searchOpen && (
-        <SearchGitHubModal
-          kind="agent"
-          onClose={() => setSearchOpen(false)}
-          onInstall={(it) => {
-            setSearchOpen(false);
-            setInstallItem(it);
-          }}
-        />
-      )}
-      {installItem && (
-        <InstallConfirmModal
-          item={installItem}
-          kind="agent"
-          onClose={() => setInstallItem(null)}
-          onInstalled={() => {
-            setInstallItem(null);
-            void reload();
-          }}
-        />
-      )}
       {createOpen && (
         <CreateAgentModal
           projects={projects}

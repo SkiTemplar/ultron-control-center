@@ -154,7 +154,7 @@ export function UpdateBanner() {
             ULTRON {info.latest_version} is out — you have {info.current_version}.
           </div>
           <div
-            className="mt-0.5 truncate text-[11px]"
+            className="mt-0.5 truncate text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             Click "Update now" to run <code>git pull + npm install + tauri build</code> in a new window
@@ -167,7 +167,7 @@ export function UpdateBanner() {
           href={info.release_url}
           target="_blank"
           rel="noreferrer noopener"
-          className="rounded px-2 py-1 text-[11px]"
+          className="rounded px-2 py-1 text-[11.5px]"
           style={{
             background: "transparent",
             color: "var(--color-text-tertiary)",

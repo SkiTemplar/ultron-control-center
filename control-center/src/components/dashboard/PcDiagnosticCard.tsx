@@ -157,7 +157,7 @@ export function PcDiagnosticCard({ onOpenDiagnostics }: PcDiagnosticCardProps) {
             {rows.slice(0, 4).map((r) => (
               <li
                 key={r.label}
-                className="flex items-baseline gap-2 text-[11px]"
+                className="flex items-baseline gap-2 text-[11.5px]"
                 style={{ color: "var(--color-text-secondary)" }}
               >
                 <span

@@ -267,7 +267,7 @@ function ArrayField({
               arr.splice(i, 1);
               onChange(arr);
             }}
-            className="shrink-0 rounded px-2 py-0.5 text-[11px]"
+            className="shrink-0 rounded px-2 py-0.5 text-[11.5px]"
             style={{
               background: "transparent",
               color: "var(--color-text-tertiary)",
@@ -289,7 +289,7 @@ function ArrayField({
               typeof sample === "boolean" ? false : "";
           onChange([...value, blank]);
         }}
-        className="rounded px-2 py-0.5 text-[11px]"
+        className="rounded px-2 py-0.5 text-[11.5px]"
         style={{
           background: "var(--color-surface-3)",
           color: "var(--color-text)",
@@ -313,7 +313,7 @@ function ObjectField({
   const keys = Object.keys(value);
   if (keys.length === 0) {
     return (
-      <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+      <span className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
         (empty object)
       </span>
     );
@@ -498,7 +498,7 @@ function HooksEditor({
                         next[event] = arr;
                         onChange(next);
                       }}
-                      className="rounded px-2 py-0.5 text-[11px]"
+                      className="rounded px-2 py-0.5 text-[11.5px]"
                       style={{
                         background: "var(--color-surface-3)",
                         color: "var(--color-text)",
@@ -519,7 +519,7 @@ function HooksEditor({
                   next[event] = arr;
                   onChange(next);
                 }}
-                className="rounded px-2 py-0.5 text-[11px]"
+                className="rounded px-2 py-0.5 text-[11.5px]"
                 style={{
                   background: "var(--color-surface-3)",
                   color: "var(--color-text)",
@@ -674,7 +674,7 @@ export function JsonVisualEditor({
   return (
     <div className="space-y-3">
       <div
-        className="rounded p-2 text-[11px]"
+        className="rounded p-2 text-[11.5px]"
         style={{
           background: "var(--color-surface-1)",
           border: "1px solid var(--color-border)",

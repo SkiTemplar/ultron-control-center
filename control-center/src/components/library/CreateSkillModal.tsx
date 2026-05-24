@@ -924,7 +924,7 @@ function renderBlocks(src: string): React.ReactNode[] {
       out.push(
         <pre
           key={key++}
-          className="overflow-x-auto rounded p-2 font-mono text-[11px]"
+          className="overflow-x-auto rounded p-2 font-mono text-[11.5px]"
           style={{ background: "var(--color-surface-3)" }}
         >
           {code.join("\n")}
@@ -1028,7 +1028,7 @@ function renderInline(text: string): React.ReactNode {
       return (
         <code
           key={idx}
-          className="rounded px-1 font-mono text-[11px]"
+          className="rounded px-1 font-mono text-[11.5px]"
           style={{ background: "var(--color-surface-3)" }}
         >
           {p.slice(1, -1)}

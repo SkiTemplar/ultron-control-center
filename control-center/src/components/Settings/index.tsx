@@ -5,7 +5,7 @@ import { AuthStatus } from "../AuthStatus";
 import { GeneralSection } from "./GeneralSection";
 import { ButtonPromptsSection } from "./ButtonPromptsSection";
 import { JsonEditor } from "./EditorSection";
-import { BackupRootEditor, BackupSourcesEditor, DiskBackupStatus } from "./BackupsSection";
+import { BackupsPanel } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
 import { PluginsSection } from "./PluginsSection";
 
@@ -217,9 +217,7 @@ export function Settings({ onNavigate }: SettingsProps = {}) {
 
         {section === "backups" && snapshot && (
           <div>
-            <BackupRootEditor onChanged={() => { /* DiskBackupStatus refetches on mount */ }} />
-            <BackupSourcesEditor onChanged={() => { /* persisted to backup-config.json; scripts re-read on next run */ }} />
-            <DiskBackupStatus />
+            <BackupsPanel />
             <p
               className="mb-3 mt-6 text-[12px]"
               style={{ color: "var(--color-text-tertiary)" }}
@@ -228,7 +226,7 @@ export function Settings({ onNavigate }: SettingsProps = {}) {
               settings.json. Last 8 shown.
             </p>
             <div
-              className="mb-3 truncate text-[10.5px]"
+              className="mb-3 truncate text-[11.5px]"
               style={{
                 fontFamily: "var(--font-mono)",
                 color: "var(--color-text-faint)",

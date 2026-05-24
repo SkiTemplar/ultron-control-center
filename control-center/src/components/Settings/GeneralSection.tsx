@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { enable as enableAutostart, disable as disableAutostart, isEnabled as isAutostartEnabled } from "@tauri-apps/plugin-autostart";
-import { OPEN_ONBOARDING_EVENT } from "../Onboarding";
 
 // ---------------------------------------------------------------------------
 // HotkeyEditor — single global hotkey (shows/hides the Control Center).
@@ -120,7 +118,7 @@ function HotkeyEditor() {
         <button
           type="button"
           onClick={() => setCapturing(!capturing)}
-          className="rounded px-2.5 py-1 text-[11px]"
+          className="rounded px-2.5 py-1 text-[11.5px]"
           style={{
             background: capturing ? "var(--color-surface-3)" : "transparent",
             color: capturing ? "var(--color-text)" : "var(--color-text-tertiary)",
@@ -142,7 +140,7 @@ function HotkeyEditor() {
         >
           {busy ? "Applying…" : "Apply"}
         </button>
-        <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+        <span className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
           active: <span style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-secondary)" }}>{spec || "—"}</span>
         </span>
       </div>
@@ -374,7 +372,7 @@ function InAppShortcutsEditor() {
           {busy ? "Saving…" : "Save shortcuts"}
         </button>
         {success && (
-          <span className="text-[11px]" style={{ color: "var(--color-success)" }}>
+          <span className="text-[11.5px]" style={{ color: "var(--color-success)" }}>
             {success}
           </span>
         )}
@@ -548,7 +546,7 @@ function ProjectHotkeysEditor() {
               style={{ minHeight: 32 }}
             >
               <span
-                className="w-12 shrink-0 text-[11px]"
+                className="w-12 shrink-0 text-[11.5px]"
                 style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
               >
                 #{slot}
@@ -674,178 +672,40 @@ function ProjectHotkeysEditor() {
 }
 
 // ---------------------------------------------------------------------------
-// GeneralSection — the General tab: autostart toggle + global hotkey +
-// in-app shortcuts + project hotkeys.
+// GeneralSection — simplified. Autostart moved to App Lifecycle tab.
+// Welcome screen removed (personal use, no onboarding needed).
+// HotkeyEditor / InAppShortcutsEditor / ProjectHotkeysEditor definitions
+// are preserved below but not rendered (card-v26-fb-012 decision).
 // ---------------------------------------------------------------------------
 
 export function GeneralSection() {
-  const [enabled, setEnabled] = useState<boolean | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // Wipe legacy autostart artifacts (Startup-folder .lnk, dangling
-  // StartupApproved record) before/after every interaction so the plugin's
-  // registry value is the single source of truth. Best-effort: a failure
-  // here must not block the user from reading the toggle state.
-  async function purgeLegacy(): Promise<string[]> {
-    try {
-      const res = await invoke<{ removed: string[]; warnings: string[] }>(
-        "purge_legacy_autostart",
-      );
-      return res.removed ?? [];
-    } catch {
-      return [];
-    }
-  }
-
-  useEffect(() => {
-    (async () => {
-      await purgeLegacy();
-      try {
-        setEnabled(await isAutostartEnabled());
-      } catch (e) {
-        setError(String(e));
-      }
-    })();
-  }, []);
-
-  async function toggle() {
-    if (enabled === null) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (enabled) {
-        await disableAutostart();
-        setEnabled(false);
-      } else {
-        await enableAutostart();
-        setEnabled(true);
-      }
-      // After every toggle clean any rogue artifact so the registry stays
-      // the only source of truth on subsequent isAutostartEnabled() reads.
-      await purgeLegacy();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   return (
-    <div className="space-y-4">
-      {/* Autostart with Windows */}
-      <div
-        className="flex items-start gap-3 rounded p-4"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-border)",
-        }}
-      >
-        <button
-          type="button"
-          onClick={toggle}
-          disabled={busy || enabled === null}
-          className="mt-0.5 flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50"
-          style={{
-            background: enabled
-              ? "var(--color-success)"
-              : "var(--color-surface-3)",
-            border: "1px solid var(--color-border-strong)",
-            padding: "1px",
-          }}
-          title={
-            enabled
-              ? "Click to stop launching ULTRON at Windows logon"
-              : "Click to launch ULTRON at Windows logon"
-          }
-        >
-          <span
-            className="block h-3.5 w-3.5 rounded-full transition-transform"
-            style={{
-              background: "var(--color-text)",
-              transform: enabled ? "translateX(16px)" : "translateX(0)",
-            }}
-          />
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
-            Start with Windows
-          </div>
-          <p
-            className="mt-1 text-[12px] leading-relaxed"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Adds <span style={{ fontFamily: "var(--font-mono)" }}>HKCU\Software\Microsoft\Windows\CurrentVersion\Run</span>{" "}
-            entry so the Control Center launches on logon with{" "}
-            <span style={{ fontFamily: "var(--font-mono)" }}>--from-autostart</span>.
-            The main window opens automatically and appears in the taskbar.
-          </p>
-        </div>
-      </div>
-
-      {/* Global hotkey */}
-      <HotkeyEditor />
-
-      {/* In-app shortcuts — now editable. Persisted at
-          ~/.ultron/.tmp/in-app-shortcuts.json via get/set_in_app_shortcuts.
-          App.tsx mirrors the map and dispatches keys against it. */}
-      <InAppShortcutsEditor />
-
-      {/* Custom per-project global hotkeys (Settings → Project hotkeys).
-          Distinct from the legacy Ctrl+Alt+1..9 pin-derived slots —
-          these let the user pick (slot, combo, project_id) tuples. */}
-      <ProjectHotkeysEditor />
-
-      {/* Re-open the first-run welcome overlay. The Onboarding component
-          listens for OPEN_ONBOARDING_EVENT on the window. */}
-      <div
-        className="flex items-start gap-3 rounded p-4"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-border)",
-        }}
-      >
-        <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-medium" style={{ color: "var(--color-text)" }}>
-            Welcome screen
-          </div>
-          <p
-            className="mt-1 text-[12px] leading-relaxed"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Re-open the first-run overlay that explains what ULTRON is and
-            defines the core terms (Skill, Agent, MCP, Vault, Plan, Session,
-            Hook).
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() =>
-            window.dispatchEvent(new Event(OPEN_ONBOARDING_EVENT))
-          }
-          className="mt-0.5 shrink-0 rounded px-3 py-1.5 text-[12px] font-medium"
-          style={{
-            background: "var(--color-surface-3)",
-            color: "var(--color-text-secondary)",
-            border: "1px solid var(--color-border-strong)",
-          }}
-        >
-          Show welcome screen
-        </button>
-      </div>
-
-      {error && (
-        <div
-          className="rounded p-3 text-[12px]"
-          style={{
-            background: "rgba(248, 81, 73, 0.06)",
-            border: "1px solid rgba(248, 81, 73, 0.22)",
-            color: "var(--color-danger)",
-          }}
-        >
-          {error}
-        </div>
-      )}
+    <div
+      className="rounded p-4 text-[12.5px]"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+        color: "var(--color-text-tertiary)",
+      }}
+    >
+      Autostart and app lifecycle actions are in the{" "}
+      <strong style={{ color: "var(--color-text-secondary)" }}>
+        App lifecycle
+      </strong>{" "}
+      tab. Hotkey editors are available but currently hidden (see source).
     </div>
   );
 }
+
+// v2.6 (card-v26-fb-012): HotkeyEditor, InAppShortcutsEditor and
+// ProjectHotkeysEditor are not rendered anywhere in this file anymore.
+// We keep their definitions above so the backend wiring isn't dead and
+// they can be restored quickly. Silence TS6133 (unused locals) without
+// exporting them publicly.
+/* eslint-disable @typescript-eslint/no-unused-vars */
+const _keepHotkeyEditor = HotkeyEditor;
+const _keepInAppShortcutsEditor = InAppShortcutsEditor;
+const _keepProjectHotkeysEditor = ProjectHotkeysEditor;
+void _keepHotkeyEditor;
+void _keepInAppShortcutsEditor;
+void _keepProjectHotkeysEditor;

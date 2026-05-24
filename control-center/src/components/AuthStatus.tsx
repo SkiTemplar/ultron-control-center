@@ -80,7 +80,7 @@ export function AuthStatus() {
           type="button"
           onClick={load}
           disabled={refreshing}
-          className="text-[11px] transition-colors disabled:opacity-50"
+          className="text-[11.5px] transition-colors disabled:opacity-50"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           {refreshing ? "Checking…" : "Recheck"}
@@ -161,7 +161,7 @@ export function AuthStatus() {
               </div>
               {!e.binary_present && (
                 <div
-                  className="mt-2 text-[11px]"
+                  className="mt-2 text-[11.5px]"
                   style={{ color: "var(--color-warn)" }}
                 >
                   Binary not found in PATH.
@@ -169,7 +169,7 @@ export function AuthStatus() {
               )}
               {e.note && (
                 <p
-                  className="mt-2 text-[11px] leading-relaxed"
+                  className="mt-2 text-[11.5px] leading-relaxed"
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   {e.note}
@@ -177,7 +177,7 @@ export function AuthStatus() {
               )}
               {!e.logged_in && (
                 <p
-                  className="mt-1 text-[11px]"
+                  className="mt-1 text-[11.5px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
                   → {m.loginHint}

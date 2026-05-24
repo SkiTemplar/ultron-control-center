@@ -23,3 +23,26 @@ pub async fn uninstall_app(
 ) -> Result<installed_apps::UninstallResult, String> {
     installed_apps::uninstall_app_inner(&app, name, provider, package_id).await
 }
+
+// ---------------------------------------------------------------------------
+// Bloatware (System → Bloatware sub-tab). Curated list of Windows preloaded
+// Appx packages the user almost never wants. Backend exposes a query (is it
+// installed?) + a remove (Remove-AppxPackage) path. The pattern is validated
+// against a strict allowlist of characters before any PS interpolation.
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn appx_query(
+    app: tauri::AppHandle,
+    pattern: String,
+) -> Result<installed_apps::AppxQueryResult, String> {
+    installed_apps::appx_query_inner(&app, pattern).await
+}
+
+#[tauri::command]
+pub async fn uninstall_bloatware_app(
+    app: tauri::AppHandle,
+    pattern: String,
+) -> Result<installed_apps::BloatwareUninstallResult, String> {
+    installed_apps::uninstall_bloatware_app_inner(&app, pattern).await
+}

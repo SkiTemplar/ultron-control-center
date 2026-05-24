@@ -220,56 +220,56 @@ export function BlocksView<T>({
     <button
       type="button"
       onClick={onClick}
-      className="group flex h-[120px] flex-col justify-between rounded-lg p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+      className="group flex h-[180px] flex-col justify-between rounded-xl p-5 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
       style={{
         background: "var(--color-surface-2)",
         border: `1px solid ${accent ?? "var(--color-border)"}`,
         // The accent ribbon is a soft tint on the top edge — mimics
         // Spotify's category gradient without going neon.
         boxShadow: accent
-          ? `inset 0 2px 0 ${accent}`
-          : "inset 0 2px 0 var(--color-border)",
+          ? `inset 0 3px 0 ${accent}`
+          : "inset 0 3px 0 var(--color-border)",
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.borderColor =
           accent ?? "var(--color-border-strong)";
-        e.currentTarget.style.transform = "translateY(-2px)";
+        e.currentTarget.style.transform = "translateY(-3px)";
         e.currentTarget.style.boxShadow = `${
-          accent ? `inset 0 2px 0 ${accent}, ` : ""
-        }0 4px 14px rgba(0,0,0,0.22)`;
+          accent ? `inset 0 3px 0 ${accent}, ` : ""
+        }0 6px 20px rgba(0,0,0,0.28)`;
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.borderColor = accent ?? "var(--color-border)";
         e.currentTarget.style.transform = "translateY(0)";
         e.currentTarget.style.boxShadow = accent
-          ? `inset 0 2px 0 ${accent}`
-          : "inset 0 2px 0 var(--color-border)";
+          ? `inset 0 3px 0 ${accent}`
+          : "inset 0 3px 0 var(--color-border)";
       }}
       title={`${count} ${noun}${count === 1 ? "" : "s"} in ${label}`}
     >
       <div
-        className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.06em]"
+        className="flex items-center gap-1.5 text-[11.5px] uppercase tracking-[0.08em]"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        <Folder size={11} />
+        <Folder size={13} />
         {sublabel ?? "Category"}
       </div>
-      <div className="flex items-end justify-between gap-2">
+      <div className="flex items-end justify-between gap-3">
         <div
-          className="truncate text-[16px] font-semibold leading-tight"
+          className="line-clamp-2 text-[26px] font-semibold leading-tight tracking-tight"
           style={{ color: "var(--color-text)" }}
         >
           {label}
         </div>
         <div
-          className="flex shrink-0 items-baseline gap-1 rounded px-2 py-0.5 text-[11px] tabular-nums"
+          className="flex shrink-0 items-baseline gap-1 rounded-md px-2.5 py-1 text-[13px] font-medium tabular-nums"
           style={{
             background: "var(--color-surface-3)",
             color: "var(--color-text-secondary)",
             border: "1px solid var(--color-border)",
           }}
         >
-          <Sparkle size={10} />
+          <Sparkle size={12} />
           {count}
         </div>
       </div>
@@ -282,8 +282,8 @@ export function BlocksView<T>({
   if (top === null) {
     return (
       <div
-        className="grid gap-3"
-        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+        className="grid gap-4"
+        style={{ gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))" }}
       >
         {topGroups.map((g) => (
           <Tile
@@ -320,9 +320,9 @@ export function BlocksView<T>({
       <div>
         {breadcrumb}
         <div
-          className="grid gap-3"
+          className="grid gap-4"
           style={{
-            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+            gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
           }}
         >
           {subGroups.map((g) => (

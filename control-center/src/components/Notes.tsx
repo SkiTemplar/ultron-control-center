@@ -1,24 +1,15 @@
-// ULTRON Control Center 2.6 — Per-project Notes notebook (card-v26-fb-046).
+// ULTRON Control Center 2.6 — Global Notes tab (card-v26-fb-005)
 //
-// Multiple markdown notes scoped to a single project. Two-pane layout that
-// mirrors the global Notes tab:
-//   - left:  list of project notes (sorted by mtime) with inline "+ New"
-//   - right: read-only Markdown preview OR raw textarea editor
-//
-// Persistence: `~/.ultron/cockpit/projects/<project_id>/notes/<slug>.md`
-// owned by `project_notes_list` / `project_note_load` / `project_note_save`
-// / `project_note_delete` (atomic tmp+rename on the Rust side).
-//
-// The legacy single-file `notes.md` continues to be served by
-// `project_notes_load` / `project_notes_save` for back-compat, but this UI
-// only operates on the per-slug notebook directory.
+// Cross-project markdown notes. File-per-note at
+// `~/.ultron/cockpit/notes/<slug>.md`. Two-pane layout:
+//   - left: list of notes sorted by modified time
+//   - right: edit (textarea) or preview (Markdown) for the selected note
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { confirmDialog } from "../../lib/dialog";
-import { Markdown } from "../../lib/markdown";
-
-type Props = { projectId: string };
+import { confirmDialog } from "../lib/dialog";
+import { Markdown } from "../lib/markdown";
+import { notifyInfo, notifyError } from "../lib/notify";
 
 type NoteEntry = {
   slug: string;
@@ -26,6 +17,12 @@ type NoteEntry = {
   size_bytes: number;
   modified_iso: string | null;
   preview: string;
+};
+
+type ProjectInfo = {
+  id: string;
+  name: string | null;
+  path: string | null;
 };
 
 function slugify(input: string): string {
@@ -58,7 +55,7 @@ function relativeTime(iso: string | null): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-export default function ProjectNotes({ projectId }: Props) {
+export function Notes() {
   const [list, setList] = useState<NoteEntry[]>([]);
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
   const [body, setBody] = useState("");
@@ -71,27 +68,28 @@ export default function ProjectNotes({ projectId }: Props) {
   const [creatingNew, setCreatingNew] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const newTitleRef = useRef<HTMLInputElement>(null);
+  // -- send to project (v2.6 fb-045) --
+  const [sendOpen, setSendOpen] = useState(false);
+  const [projects, setProjects] = useState<ProjectInfo[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(false);
+  const sendPopoverRef = useRef<HTMLDivElement>(null);
 
   const loadList = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const r = (await invoke("project_notes_list", { projectId })) as NoteEntry[];
+      const r = (await invoke("notes_list_global")) as NoteEntry[];
       setList(r);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, []);
 
   useEffect(() => {
-    setSelectedSlug(null);
-    setBody("");
-    setOriginalBody("");
-    setEditing(false);
     void loadList();
-  }, [projectId, loadList]);
+  }, [loadList]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -109,7 +107,7 @@ export default function ProjectNotes({ projectId }: Props) {
   async function selectNote(slug: string) {
     if (editing && body !== originalBody) {
       const ok = await confirmDialog("Discard unsaved changes?", {
-        title: "Project notes",
+        title: "Notes",
         kind: "warning",
         okLabel: "Discard",
       });
@@ -119,10 +117,7 @@ export default function ProjectNotes({ projectId }: Props) {
     setEditing(false);
     setError(null);
     try {
-      const text = (await invoke("project_note_load", {
-        projectId,
-        slug,
-      })) as string;
+      const text = (await invoke("notes_load_global", { slug })) as string;
       setBody(text);
       setOriginalBody(text);
     } catch (e) {
@@ -133,6 +128,7 @@ export default function ProjectNotes({ projectId }: Props) {
   function startCreatingNew() {
     setCreatingNew(true);
     setNewTitle("");
+    // Focus the input on the next paint cycle.
     window.setTimeout(() => newTitleRef.current?.focus(), 0);
   }
 
@@ -151,7 +147,7 @@ export default function ProjectNotes({ projectId }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await invoke("project_note_save", { projectId, slug, body: initial });
+      await invoke("notes_save_global", { slug, body: initial });
       await loadList();
       setSelectedSlug(slug);
       setBody(initial);
@@ -174,11 +170,7 @@ export default function ProjectNotes({ projectId }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await invoke("project_note_save", {
-        projectId,
-        slug: selectedSlug,
-        body,
-      });
+      await invoke("notes_save_global", { slug: selectedSlug, body });
       setOriginalBody(body);
       setEditing(false);
       await loadList();
@@ -189,10 +181,56 @@ export default function ProjectNotes({ projectId }: Props) {
     }
   }
 
+  // Close the Send-to-Project popover when clicking outside it.
+  useEffect(() => {
+    if (!sendOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (
+        sendPopoverRef.current &&
+        !sendPopoverRef.current.contains(e.target as Node)
+      ) {
+        setSendOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [sendOpen]);
+
+  async function openSendToProject() {
+    if (!selectedSlug) return;
+    setSendOpen(true);
+    if (projects.length > 0) return;
+    setProjectsLoading(true);
+    try {
+      const r = (await invoke("list_projects")) as ProjectInfo[];
+      setProjects(r);
+    } catch (e) {
+      notifyError(`Failed to load projects: ${e}`, "notes");
+    } finally {
+      setProjectsLoading(false);
+    }
+  }
+
+  async function sendToProject(project: ProjectInfo) {
+    if (!selectedSlug) return;
+    setSendOpen(false);
+    try {
+      const finalSlug = (await invoke("notes_send_to_project", {
+        slug: selectedSlug,
+        projectId: project.id,
+      })) as string;
+      const projectLabel = project.name ?? project.id;
+      const renamed = finalSlug !== selectedSlug ? ` (as ${finalSlug})` : "";
+      notifyInfo(`Sent to project: ${projectLabel}${renamed}`, "notes");
+    } catch (e) {
+      notifyError(`Send to project failed: ${e}`, "notes");
+    }
+  }
+
   async function deleteCurrent() {
     if (!selectedSlug) return;
     const ok = await confirmDialog(`Delete note "${selected?.title}"?`, {
-      title: "Project notes",
+      title: "Notes",
       kind: "error",
       okLabel: "Delete",
     });
@@ -200,7 +238,7 @@ export default function ProjectNotes({ projectId }: Props) {
     setSaving(true);
     setError(null);
     try {
-      await invoke("project_note_delete", { projectId, slug: selectedSlug });
+      await invoke("notes_delete_global", { slug: selectedSlug });
       setSelectedSlug(null);
       setBody("");
       setOriginalBody("");
@@ -218,14 +256,14 @@ export default function ProjectNotes({ projectId }: Props) {
   return (
     <div className="flex h-full">
       <aside
-        className="flex w-64 shrink-0 flex-col border-r"
+        className="flex w-72 shrink-0 flex-col border-r"
         style={{ borderColor: "var(--color-border)" }}
       >
         <div
           className="flex items-center justify-between gap-2 border-b px-3 py-2"
           style={{ borderColor: "var(--color-border)" }}
         >
-          <span className="text-[12.5px] font-semibold">Notes</span>
+          <span className="text-[13px] font-semibold">Notes</span>
           <button
             type="button"
             onClick={startCreatingNew}
@@ -235,7 +273,7 @@ export default function ProjectNotes({ projectId }: Props) {
               background: "var(--color-accent)",
               color: "var(--color-accent-text)",
             }}
-            title="Create a new project note"
+            title="Create a new global note"
           >
             + New
           </button>
@@ -277,7 +315,7 @@ export default function ProjectNotes({ projectId }: Props) {
               type="button"
               onClick={() => void confirmCreateNew()}
               disabled={!newTitle.trim()}
-              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] font-medium disabled:opacity-40"
+              className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] font-medium disabled:opacity-40"
               style={{
                 background: "var(--color-accent)",
                 color: "var(--color-accent-text)",
@@ -288,32 +326,24 @@ export default function ProjectNotes({ projectId }: Props) {
             <button
               type="button"
               onClick={cancelCreateNew}
-              className="shrink-0 rounded px-1.5 py-0.5 text-[11px]"
+              className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px]"
               style={{
                 background: "transparent",
                 color: "var(--color-text-tertiary)",
               }}
             >
-              x
+              ✕
             </button>
           </div>
         )}
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <p
-              className="px-3 py-2 text-[11.5px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
+            <p className="px-3 py-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
               Loading…
             </p>
           ) : filtered.length === 0 ? (
-            <p
-              className="px-3 py-2 text-[11.5px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              {list.length === 0
-                ? "No notes yet. Click + New to create one."
-                : "No matches."}
+            <p className="px-3 py-2 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+              {list.length === 0 ? "No notes yet. Click + New to create one." : "No matches."}
             </p>
           ) : (
             <ul className="space-y-px">
@@ -326,12 +356,8 @@ export default function ProjectNotes({ projectId }: Props) {
                       onClick={() => void selectNote(n.slug)}
                       className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-[12px] transition-colors"
                       style={{
-                        background: active
-                          ? "var(--color-surface-3)"
-                          : "transparent",
-                        color: active
-                          ? "var(--color-text)"
-                          : "var(--color-text-secondary)",
+                        background: active ? "var(--color-surface-3)" : "transparent",
+                        color: active ? "var(--color-text)" : "var(--color-text-secondary)",
                         borderLeft: active
                           ? "2px solid var(--color-accent)"
                           : "2px solid transparent",
@@ -340,7 +366,7 @@ export default function ProjectNotes({ projectId }: Props) {
                       <span className="truncate font-medium">{n.title}</span>
                       {n.preview && (
                         <span
-                          className="line-clamp-1 text-[11px]"
+                          className="line-clamp-1 text-[10.5px]"
                           style={{ color: "var(--color-text-tertiary)" }}
                         >
                           {n.preview}
@@ -367,9 +393,7 @@ export default function ProjectNotes({ projectId }: Props) {
             className="flex h-full items-center justify-center text-[12.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            {list.length === 0
-              ? "Create your first project note."
-              : "Select a note to view or edit it."}
+            {list.length === 0 ? "Create your first note." : "Select a note to view or edit it."}
           </div>
         ) : (
           <>
@@ -379,7 +403,7 @@ export default function ProjectNotes({ projectId }: Props) {
             >
               <div className="min-w-0">
                 <div
-                  className="truncate text-[13.5px] font-semibold"
+                  className="truncate text-[14px] font-semibold"
                   style={{ color: "var(--color-text)" }}
                   title={selected.title}
                 >
@@ -387,13 +411,10 @@ export default function ProjectNotes({ projectId }: Props) {
                 </div>
                 <div
                   className="truncate text-[10.5px]"
-                  style={{
-                    color: "var(--color-text-tertiary)",
-                    fontFamily: "var(--font-mono)",
-                  }}
+                  style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
                   title={selected.slug}
                 >
-                  cockpit/projects/{projectId}/notes/{selected.slug}.md
+                  ~/.ultron/cockpit/notes/{selected.slug}.md
                 </div>
               </div>
               <div className="flex items-center gap-1.5">
@@ -429,7 +450,7 @@ export default function ProjectNotes({ projectId }: Props) {
                       onClick={() => {
                         if (dirty) {
                           void confirmDialog("Discard unsaved changes?", {
-                            title: "Project notes",
+                            title: "Notes",
                             kind: "warning",
                             okLabel: "Discard",
                           }).then((ok) => {
@@ -454,6 +475,70 @@ export default function ProjectNotes({ projectId }: Props) {
                     </button>
                   </>
                 )}
+                <div className="relative" ref={sendPopoverRef}>
+                  <button
+                    type="button"
+                    onClick={() => void openSendToProject()}
+                    disabled={saving || !selectedSlug}
+                    className="rounded-md border px-2.5 py-1 text-[11.5px]"
+                    style={{
+                      background: "var(--color-surface-2)",
+                      borderColor: "var(--color-border-strong)",
+                      color: "var(--color-text)",
+                    }}
+                    title="Copy this note into a project's notebook"
+                  >
+                    Send to Project ▾
+                  </button>
+                  {sendOpen && (
+                    <div
+                      className="absolute right-0 z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-md border shadow-lg"
+                      style={{
+                        background: "var(--color-surface-2)",
+                        borderColor: "var(--color-border-strong)",
+                      }}
+                    >
+                      {projectsLoading ? (
+                        <p
+                          className="px-3 py-2 text-[11.5px]"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                        >
+                          Loading projects…
+                        </p>
+                      ) : projects.length === 0 ? (
+                        <p
+                          className="px-3 py-2 text-[11.5px]"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                        >
+                          No projects registered.
+                        </p>
+                      ) : (
+                        <ul className="py-1">
+                          {projects.map((p) => (
+                            <li key={p.id}>
+                              <button
+                                type="button"
+                                onClick={() => void sendToProject(p)}
+                                className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--color-surface-3)]"
+                                style={{ color: "var(--color-text)" }}
+                              >
+                                <span className="truncate font-medium">
+                                  {p.name ?? p.id}
+                                </span>
+                                <span
+                                  className="truncate text-[10.5px]"
+                                  style={{ color: "var(--color-text-tertiary)" }}
+                                >
+                                  {p.id}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => void deleteCurrent()}
@@ -507,3 +592,5 @@ export default function ProjectNotes({ projectId }: Props) {
     </div>
   );
 }
+
+export default Notes;

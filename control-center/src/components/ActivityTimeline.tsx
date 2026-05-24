@@ -245,7 +245,7 @@ export function ActivityTimeline() {
                 key={w}
                 type="button"
                 onClick={() => setWindow(w as 7 | 30)}
-                className="rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                className="rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors"
                 style={{
                   background: active
                     ? "var(--color-surface-3)"
@@ -276,7 +276,7 @@ export function ActivityTimeline() {
             type="button"
             onClick={() => load(window)}
             disabled={loading}
-            className="rounded px-2 py-0.5 text-[11px] font-medium transition-colors disabled:opacity-50"
+            className="rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors disabled:opacity-50"
             style={{
               background: "var(--color-surface-2)",
               color: "var(--color-text-secondary)",
@@ -483,7 +483,7 @@ export function ActivityTimeline() {
             <div key={`grp-${day}`}>
               <div className="mb-1 flex items-baseline gap-2">
                 <span
-                  className="text-[11px] font-medium tabular-nums"
+                  className="text-[11.5px] font-medium tabular-nums"
                   style={{ color: "var(--color-text-secondary)" }}
                 >
                   {formatDayLabel(day, false)}

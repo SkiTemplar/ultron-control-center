@@ -63,3 +63,48 @@ pub async fn compute_activity_timeline(
 pub async fn compute_cost(window_hours: Option<u32>) -> Result<cost_watchdog::CostSnapshot, String> {
     cost_watchdog::compute_cost_inner(window_hours.unwrap_or(6))
 }
+
+/// Open a folder in Visual Studio Code. The frontend Library uses this
+/// instead of `openPath(file.md)` so the user lands on the whole skill /
+/// agent / rule folder and can navigate sibling README, examples, etc.
+///
+/// Windows-specific: `code` ships as `code.cmd` shim — bare
+/// `Command::new("code")` does not walk PATHEXT, so we wrap with
+/// `cmd.exe /C code <folder>` (same trick as `pty::build_command`). The
+/// `CREATE_NO_WINDOW` flag (0x0800_0000) keeps cmd.exe from flashing a
+/// console window for the half-second the subprocess lives.
+#[tauri::command]
+pub async fn open_folder_in_vscode(target: String) -> Result<(), String> {
+    // Despite the historical name, accepts either a folder or a file path.
+    // VS Code handles both shapes — the frontend Library picks the right
+    // one (skill folder so siblings are visible, vs. a standalone agent or
+    // rule .md when no folder exists).
+    let path = std::path::Path::new(&target);
+    if !path.exists() {
+        return Err(format!("path not found: {target}"));
+    }
+
+    let arg = target.clone();
+    let status = tauri::async_runtime::spawn_blocking(move || {
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let mut cmd = std::process::Command::new("cmd.exe");
+            cmd.arg("/C").arg("code").arg(&arg);
+            cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+            cmd.status()
+        }
+        #[cfg(not(windows))]
+        {
+            std::process::Command::new("code").arg(&arg).status()
+        }
+    })
+    .await
+    .map_err(|e| format!("spawn join: {e}"))?
+    .map_err(|e| format!("spawn code: {e}"))?;
+
+    if !status.success() {
+        return Err(format!("code exited with status {status}"));
+    }
+    Ok(())
+}

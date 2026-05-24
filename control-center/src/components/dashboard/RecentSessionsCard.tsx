@@ -52,6 +52,10 @@ export function RecentSessionsCard({ onOpenSessions }: RecentSessionsCardProps) 
       // the session record only carries a project_slug — spawn_session will
       // route by resumeId regardless.
       await invoke("spawn_session", {
+        // v2.6 bug fix: backend command requires `provider` key. Without it
+        // the Recent sessions resume button failed with "invalid args
+        // `provider` for command `spawn_session`".
+        provider: "claude",
         cwd: null,
         prompt: null,
         flags: {
