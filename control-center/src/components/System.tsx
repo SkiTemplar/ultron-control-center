@@ -41,6 +41,45 @@ const CATEGORY_ORDER: AppCategory[] = [
   "Other",
 ];
 
+// Stable per-app identifier used as the key in the override map. Mirrors the
+// React key already used inside CategoryCard so the two never drift.
+function appId(app: InstalledApp): string {
+  return `${app.provider}|${app.name}|${app.package_id ?? ""}`;
+}
+
+// localStorage key for the manual / AI override map.
+const OVERRIDES_LS_KEY = "ultron.apps.category_overrides";
+
+type CategoryOverrides = Record<string, AppCategory>;
+
+function loadOverrides(): CategoryOverrides {
+  try {
+    const raw = localStorage.getItem(OVERRIDES_LS_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const out: CategoryOverrides = {};
+      for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof v === "string" && (CATEGORY_ORDER as readonly string[]).includes(v)) {
+          out[k] = v as AppCategory;
+        }
+      }
+      return out;
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+function saveOverrides(map: CategoryOverrides) {
+  try {
+    localStorage.setItem(OVERRIDES_LS_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
+
 /** Quick keyword-based classifier. Runs over (name + publisher) so we catch
  *  both "Visual Studio Code" and "Microsoft Corporation" → publisher-based
  *  matches. Cheap and good enough for a first pass. */
@@ -206,6 +245,217 @@ function classifyApp(app: InstalledApp): AppCategory {
 }
 
 // ---------------------------------------------------------------------------
+// Enhanced classifier — publisher-first DB with hand-curated mappings. Used
+// when the user hits "Auto-categorize" so we get better buckets than the
+// quick keyword fallback above.
+// ---------------------------------------------------------------------------
+
+const PUBLISHER_CATEGORY: Array<[RegExp, AppCategory]> = [
+  // Development
+  [/\bjetbrains\b/i, "Development"],
+  [/\bgithub\b/i, "Development"],
+  [/\bgitlab\b/i, "Development"],
+  [/\banthropic\b/i, "Development"],
+  [/\bopenai\b/i, "Development"],
+  [/\bdocker\b/i, "Development"],
+  [/\bhashicorp\b/i, "Development"],
+  [/\bcanonical\b/i, "Development"],
+  [/\bpostman\b/i, "Development"],
+  [/\bsublimehq\b/i, "Development"],
+  [/\bnotepad\+\+\b/i, "Development"],
+  [/\boracle\b/i, "Development"],
+  [/\bpython software foundation\b/i, "Development"],
+  [/\bnode\.?js foundation\b/i, "Development"],
+  [/\brust foundation\b/i, "Development"],
+  [/\bmongodb\b/i, "Development"],
+  [/\bpostgresql\b/i, "Development"],
+
+  // Games / gaming platforms
+  [/\bvalve\b/i, "Games"],
+  [/\bepic games\b/i, "Games"],
+  [/\bubisoft\b/i, "Games"],
+  [/\belectronic arts\b/i, "Games"],
+  [/\briot games\b/i, "Games"],
+  [/\bblizzard\b/i, "Games"],
+  [/\bactivision\b/i, "Games"],
+  [/\brockstar\b/i, "Games"],
+  [/\bmojang\b/i, "Games"],
+  [/\bgog\.com\b/i, "Games"],
+  [/\bcd projekt\b/i, "Games"],
+  [/\bbethesda\b/i, "Games"],
+  [/\b2k games\b/i, "Games"],
+  [/\bsquare enix\b/i, "Games"],
+  [/\bcapcom\b/i, "Games"],
+  [/\bbandai namco\b/i, "Games"],
+
+  // Media / creative
+  [/\badobe\b/i, "Media"],
+  [/\bspotify ab\b/i, "Media"],
+  [/\bspotify\b/i, "Media"],
+  [/\bnetflix\b/i, "Media"],
+  [/\bplex\b/i, "Media"],
+  [/\bvideolan\b/i, "Media"],
+  [/\bblender foundation\b/i, "Media"],
+  [/\bautodesk\b/i, "Media"],
+  [/\bobs project\b/i, "Media"],
+  [/\bobsproject\b/i, "Media"],
+  [/\bxsplit\b/i, "Media"],
+  [/\baudacity\b/i, "Media"],
+  [/\bsteinberg\b/i, "Media"],
+  [/\bnative instruments\b/i, "Media"],
+  [/\bavid technology\b/i, "Media"],
+
+  // Productivity / comms / utilities-for-humans
+  [/\bdiscord inc\b/i, "Productivity"],
+  [/\bdiscord\b/i, "Productivity"],
+  [/\bslack technologies\b/i, "Productivity"],
+  [/\bzoom video communications\b/i, "Productivity"],
+  [/\bnotion labs\b/i, "Productivity"],
+  [/\bgoogle llc\b/i, "Productivity"],
+  [/\bmozilla\b/i, "Productivity"],
+  [/\bbrave software\b/i, "Productivity"],
+  [/\bopera\b/i, "Productivity"],
+  [/\b1password\b/i, "Productivity"],
+  [/\bagilebits\b/i, "Productivity"],
+  [/\bbitwarden\b/i, "Productivity"],
+  [/\bdropbox\b/i, "Productivity"],
+  [/\bevernote\b/i, "Productivity"],
+  [/\bdoist\b/i, "Productivity"],
+  [/\btrello\b/i, "Productivity"],
+  [/\basana\b/i, "Productivity"],
+  [/\blibreoffice\b/i, "Productivity"],
+  [/\bthe document foundation\b/i, "Productivity"],
+
+  // System utilities / drivers / OEM
+  [/\bnvidia corporation\b/i, "System utilities"],
+  [/\bintel corporation\b/i, "System utilities"],
+  [/\badvanced micro devices\b/i, "System utilities"],
+  [/\brealtek\b/i, "System utilities"],
+  [/\bsynaptics\b/i, "System utilities"],
+  [/\bconexant\b/i, "System utilities"],
+  [/\bdell\b/i, "System utilities"],
+  [/\bhp inc\b/i, "System utilities"],
+  [/\blenovo\b/i, "System utilities"],
+  [/\basustek\b/i, "System utilities"],
+  [/\basus\b/i, "System utilities"],
+  [/\bmsi\b/i, "System utilities"],
+  [/\bgigabyte\b/i, "System utilities"],
+  [/\blogitech\b/i, "System utilities"],
+  [/\brazer\b/i, "System utilities"],
+  [/\bcorsair\b/i, "System utilities"],
+];
+
+// Hand-tuned name → category overrides. Applied before publisher rules so
+// well-known apps published by Microsoft / Google / etc. get the right
+// bucket regardless of who shipped them.
+const NAME_CATEGORY: Array<[RegExp, AppCategory]> = [
+  // Development
+  [/\bvisual studio\b/i, "Development"],
+  [/\bvs ?code\b/i, "Development"],
+  [/\bandroid studio\b/i, "Development"],
+  [/\bxcode\b/i, "Development"],
+  [/\bwindows terminal\b/i, "Development"],
+  [/\bpowershell\b/i, "Development"],
+  [/\bwsl\b/i, "Development"],
+  [/\bdocker desktop\b/i, "Development"],
+  [/\bgit (for windows|bash|gui)\b/i, "Development"],
+  [/\bgithub desktop\b/i, "Development"],
+  [/\bsourcetree\b/i, "Development"],
+  [/\bfork\b/i, "Development"],
+  [/\bclaude code\b/i, "Development"],
+  [/\bcursor\b/i, "Development"],
+  [/\bzed\b/i, "Development"],
+  [/\bunity hub\b/i, "Development"],
+  [/\bunreal engine\b/i, "Development"],
+  [/\bepic games launcher\b/i, "Games"], // override -> games launcher
+
+  // Games
+  [/\bsteam\b/i, "Games"],
+  [/\bminecraft\b/i, "Games"],
+  [/\bvalorant\b/i, "Games"],
+  [/\bleague of legends\b/i, "Games"],
+  [/\bbattle\.net\b/i, "Games"],
+  [/\bea (app|desktop|origin)\b/i, "Games"],
+  [/\bgog galaxy\b/i, "Games"],
+  [/\briot client\b/i, "Games"],
+
+  // Media
+  [/\bphotoshop\b/i, "Media"],
+  [/\billustrator\b/i, "Media"],
+  [/\bpremiere\b/i, "Media"],
+  [/\bafter effects\b/i, "Media"],
+  [/\blightroom\b/i, "Media"],
+  [/\baudition\b/i, "Media"],
+  [/\bblender\b/i, "Media"],
+  [/\bkrita\b/i, "Media"],
+  [/\bgimp\b/i, "Media"],
+  [/\binkscape\b/i, "Media"],
+  [/\bfigma\b/i, "Media"],
+  [/\bspotify\b/i, "Media"],
+  [/\bvlc\b/i, "Media"],
+  [/\bplex\b/i, "Media"],
+  [/\bobs studio\b/i, "Media"],
+  [/\bdavinci resolve\b/i, "Media"],
+  [/\bhandbrake\b/i, "Media"],
+
+  // Productivity / comms
+  [/\bdiscord\b/i, "Productivity"],
+  [/\bslack\b/i, "Productivity"],
+  [/\bzoom\b/i, "Productivity"],
+  [/\bmicrosoft teams\b/i, "Productivity"],
+  [/\bnotion\b/i, "Productivity"],
+  [/\bobsidian\b/i, "Productivity"],
+  [/\bevernote\b/i, "Productivity"],
+  [/\bonenote\b/i, "Productivity"],
+  [/\bchrome\b/i, "Productivity"],
+  [/\bfirefox\b/i, "Productivity"],
+  [/\bbrave\b/i, "Productivity"],
+  [/\bedge\b/i, "Productivity"],
+  [/\bopera\b/i, "Productivity"],
+  [/\bthunderbird\b/i, "Productivity"],
+  [/\boutlook\b/i, "Productivity"],
+  [/\bword\b/i, "Productivity"],
+  [/\bexcel\b/i, "Productivity"],
+  [/\bpowerpoint\b/i, "Productivity"],
+  [/\bacrobat\b/i, "Productivity"],
+  [/\b1password\b/i, "Productivity"],
+  [/\bbitwarden\b/i, "Productivity"],
+
+  // System
+  [/\bredistributable\b/i, "System utilities"],
+  [/\b\.net (runtime|framework)\b/i, "System utilities"],
+  [/\bvisual c\+\+\b/i, "System utilities"],
+  [/\bdirectx\b/i, "System utilities"],
+  [/\bpowertoys\b/i, "System utilities"],
+  [/\b7-zip\b/i, "System utilities"],
+  [/\bwinrar\b/i, "System utilities"],
+];
+
+function enhancedClassifyApp(app: InstalledApp): AppCategory {
+  const name = app.name || "";
+  const publisher = app.publisher || "";
+
+  // 1) Hand-tuned name rules first (most specific).
+  for (const [re, cat] of NAME_CATEGORY) {
+    if (re.test(name)) return cat;
+  }
+
+  // 2) Publisher DB.
+  for (const [re, cat] of PUBLISHER_CATEGORY) {
+    if (re.test(publisher)) return cat;
+  }
+
+  // 3) Install-location hint (Steam apps land under steamapps\common).
+  const loc = (app.install_location || "").toLowerCase();
+  if (loc.includes("steamapps\\common")) return "Games";
+  if (loc.includes("\\epic games\\")) return "Games";
+  if (loc.includes("\\riot games\\")) return "Games";
+
+  // 4) Fall back to the original keyword classifier.
+  return classifyApp(app);
+}
+
+// ---------------------------------------------------------------------------
 // Apps panel — Library-style cartillas (one per category) with horizontal,
 // large-typography rows. Replaces the old dense grid layout.
 // ---------------------------------------------------------------------------
@@ -219,11 +469,24 @@ const CATEGORY_DESCRIPTIONS: Record<AppCategory, string> = {
   Other: "Everything that didn't match a known category.",
 };
 
-function classifyAppList(apps: InstalledApp[]): Map<AppCategory, InstalledApp[]> {
+function effectiveCategory(
+  app: InstalledApp,
+  overrides: CategoryOverrides,
+): AppCategory {
+  const id = appId(app);
+  const override = overrides[id];
+  if (override) return override;
+  return classifyApp(app);
+}
+
+function classifyAppList(
+  apps: InstalledApp[],
+  overrides: CategoryOverrides,
+): Map<AppCategory, InstalledApp[]> {
   const buckets = new Map<AppCategory, InstalledApp[]>();
   for (const c of CATEGORY_ORDER) buckets.set(c, []);
   for (const a of apps) {
-    const cat = classifyApp(a);
+    const cat = effectiveCategory(a, overrides);
     const arr = buckets.get(cat) ?? [];
     arr.push(a);
     buckets.set(cat, arr);
@@ -356,12 +619,18 @@ function UninstallModal({
 
 function AppCard({
   app,
+  currentCategory,
+  isManual,
   onOpenFolder,
   onUninstall,
+  onChangeCategory,
 }: {
   app: InstalledApp;
+  currentCategory: AppCategory;
+  isManual: boolean;
   onOpenFolder: (a: InstalledApp) => void;
   onUninstall: (a: InstalledApp) => void;
+  onChangeCategory: (a: InstalledApp, next: AppCategory | null) => void;
 }) {
   const hasFolder = !!app.install_location;
   return (
@@ -373,8 +642,25 @@ function AppCard({
       }}
     >
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[13.5px] font-medium" style={{ color: "var(--color-text)" }} title={app.name}>
-          {app.name}
+        <div
+          className="flex items-center gap-1.5 truncate text-[13.5px] font-medium"
+          style={{ color: "var(--color-text)" }}
+          title={app.name}
+        >
+          <span className="truncate">{app.name}</span>
+          {isManual && (
+            <span
+              className="shrink-0 rounded px-1 py-px text-[10px] font-medium uppercase tracking-wide"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+              title="Category overridden manually (or by Auto-categorize)"
+            >
+              manual
+            </span>
+          )}
         </div>
         <div
           className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px]"
@@ -388,6 +674,46 @@ function AppCard({
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1.5">
+        <select
+          value={currentCategory}
+          onChange={(e) => {
+            const next = e.target.value as AppCategory;
+            // When the user picks the same bucket the auto-classifier would
+            // pick, treat it as a "reset" so we don't pollute the overrides
+            // map with redundant entries.
+            const auto = classifyApp(app);
+            onChangeCategory(app, next === auto && !isManual ? null : next);
+          }}
+          className="rounded px-1.5 py-1 text-[11.5px] font-medium"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+            maxWidth: 140,
+          }}
+          title="Change category for this app"
+        >
+          {CATEGORY_ORDER.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        {isManual && (
+          <button
+            type="button"
+            onClick={() => onChangeCategory(app, null)}
+            className="rounded px-1.5 py-1 text-[11.5px] font-medium transition-colors"
+            style={{
+              background: "var(--color-surface-1)",
+              color: "var(--color-text-tertiary)",
+              border: "1px solid var(--color-border)",
+            }}
+            title="Reset to auto-classified category"
+          >
+            Reset
+          </button>
+        )}
         <button
           type="button"
           onClick={() => onOpenFolder(app)}
@@ -427,14 +753,18 @@ function CategoryCard({
   category,
   apps,
   defaultOpen,
+  overrides,
   onOpenFolder,
   onUninstall,
+  onChangeCategory,
 }: {
   category: AppCategory;
   apps: InstalledApp[];
   defaultOpen: boolean;
+  overrides: CategoryOverrides;
   onOpenFolder: (a: InstalledApp) => void;
   onUninstall: (a: InstalledApp) => void;
+  onChangeCategory: (a: InstalledApp, next: AppCategory | null) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   if (apps.length === 0) return null;
@@ -477,14 +807,20 @@ function CategoryCard({
       </button>
       {open && (
         <div className="grid gap-2 p-3 lg:grid-cols-2 2xl:grid-cols-3">
-          {apps.map((a) => (
-            <AppCard
-              key={`${a.provider}|${a.name}|${a.package_id ?? ""}`}
-              app={a}
-              onOpenFolder={onOpenFolder}
-              onUninstall={onUninstall}
-            />
-          ))}
+          {apps.map((a) => {
+            const id = appId(a);
+            return (
+              <AppCard
+                key={id}
+                app={a}
+                currentCategory={category}
+                isManual={!!overrides[id]}
+                onOpenFolder={onOpenFolder}
+                onUninstall={onUninstall}
+                onChangeCategory={onChangeCategory}
+              />
+            );
+          })}
         </div>
       )}
     </section>
@@ -498,6 +834,54 @@ function AppsPanel() {
   const [query, setQuery] = useState("");
   const [pendingUninstall, setPendingUninstall] = useState<InstalledApp | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [overrides, setOverrides] = useState<CategoryOverrides>(() => loadOverrides());
+
+  // Persist overrides on every change.
+  useEffect(() => {
+    saveOverrides(overrides);
+  }, [overrides]);
+
+  function setOverride(app: InstalledApp, next: AppCategory | null) {
+    const id = appId(app);
+    setOverrides((prev) => {
+      const out = { ...prev };
+      if (next === null) {
+        delete out[id];
+      } else {
+        out[id] = next;
+      }
+      return out;
+    });
+  }
+
+  function autoCategorize(apps: InstalledApp[]) {
+    let changed = 0;
+    setOverrides((prev) => {
+      const out = { ...prev };
+      for (const a of apps) {
+        const auto = classifyApp(a);
+        const enhanced = enhancedClassifyApp(a);
+        const id = appId(a);
+        // Only record an override when the enhanced classifier disagrees
+        // with the cheap one — otherwise the entry is redundant.
+        if (enhanced !== auto) {
+          if (out[id] !== enhanced) changed += 1;
+          out[id] = enhanced;
+        }
+      }
+      return out;
+    });
+    setActionMsg(
+      changed === 0
+        ? "Auto-categorize: no changes — the heuristic already agreed with the publisher DB."
+        : `Auto-categorize: updated ${changed} app${changed === 1 ? "" : "s"}.`,
+    );
+  }
+
+  function clearOverrides() {
+    setOverrides({});
+    setActionMsg("Cleared all manual category overrides.");
+  }
 
   // Hide Windows / OEM noise by default — same heuristic as v2.7 but kept
   // smaller now that the redesign emphasises real apps.
@@ -604,7 +988,12 @@ function AppsPanel() {
     });
   }, [report, query, hideSystem]);
 
-  const grouped = useMemo(() => classifyAppList(filtered), [filtered]);
+  const grouped = useMemo(
+    () => classifyAppList(filtered, overrides),
+    [filtered, overrides],
+  );
+
+  const overrideCount = Object.keys(overrides).length;
 
   async function handleOpenFolder(app: InstalledApp) {
     if (!app.install_location) return;
@@ -644,6 +1033,38 @@ function AppsPanel() {
           title="Hide Microsoft Store + driver / runtime packages"
         >
           {hideSystem ? "Hiding system" : "Show system"}
+        </button>
+        <button
+          type="button"
+          onClick={() => autoCategorize(filtered)}
+          disabled={loading || filtered.length === 0}
+          className="rounded px-3 py-2 text-[12.5px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Re-classify the currently visible apps using an expanded publisher/name database."
+        >
+          Auto-categorize
+        </button>
+        <button
+          type="button"
+          onClick={clearOverrides}
+          disabled={overrideCount === 0}
+          className="rounded px-3 py-2 text-[12.5px] font-medium transition-colors disabled:opacity-30"
+          style={{
+            background: "var(--color-surface-1)",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border)",
+          }}
+          title={
+            overrideCount === 0
+              ? "No overrides to clear"
+              : `Clear ${overrideCount} manual override${overrideCount === 1 ? "" : "s"}`
+          }
+        >
+          Reset categories{overrideCount > 0 ? ` (${overrideCount})` : ""}
         </button>
         <button
           type="button"
@@ -715,8 +1136,10 @@ function AppsPanel() {
               category={cat}
               apps={apps}
               defaultOpen={cat !== "System utilities" && cat !== "Other"}
+              overrides={overrides}
               onOpenFolder={handleOpenFolder}
               onUninstall={setPendingUninstall}
+              onChangeCategory={setOverride}
             />
           );
         })}

@@ -615,6 +615,139 @@ fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String
                 "Stop-Process -Name explorer -Force; Start-Sleep -Milliseconds 400; Start-Process explorer.exe".into(),
             ],
         ),
+        // ---- v2.7.1 additional fixes ----
+        // Reset Windows Update components — broader than `pc-repair-wu`, also
+        // re-registers cryptsvc + catroot2.
+        #[cfg(target_os = "windows")]
+        "pc-reset-wu-components" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Stop-Service -Name wuauserv,bits,cryptsvc,msiserver -Force -ErrorAction SilentlyContinue; Remove-Item -Path \"$env:WINDIR\\SoftwareDistribution\" -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -Path \"$env:WINDIR\\System32\\catroot2\" -Recurse -Force -ErrorAction SilentlyContinue; Start-Service -Name cryptsvc,bits,msiserver,wuauserv -ErrorAction SilentlyContinue".into(),
+            ],
+        ),
+        // Reset Microsoft Store cache (wsreset.exe).
+        #[cfg(target_os = "windows")]
+        "pc-wsreset" => ("wsreset.exe".into(), vec![]),
+        // Restart Bluetooth Support service.
+        #[cfg(target_os = "windows")]
+        "pc-restart-bluetooth" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Restart-Service -Name bthserv -Force".into(),
+            ],
+        ),
+        // Flush the ARP cache.
+        #[cfg(target_os = "windows")]
+        "pc-flush-arp" => (
+            "netsh".into(),
+            vec!["interface".into(), "ip".into(), "delete".into(), "arpcache".into()],
+        ),
+        // Release + renew DHCP + flush DNS + reset Winsock + TCP/IP in one go.
+        // The "kitchen sink" reset.
+        #[cfg(target_os = "windows")]
+        "pc-net-reset-all" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "ipconfig /release; ipconfig /flushdns; ipconfig /renew; netsh winsock reset; netsh int ip reset".into(),
+            ],
+        ),
+        // Re-register all Microsoft Store apps (fixes Start menu / UWP corruption).
+        #[cfg(target_os = "windows")]
+        "pc-reregister-store-apps" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Get-AppxPackage -AllUsers | Foreach { Add-AppxPackage -DisableDevelopmentMode -Register \"$($_.InstallLocation)\\AppXManifest.xml\" -ErrorAction SilentlyContinue }".into(),
+            ],
+        ),
+        // Restart Windows Time service (fixes time-skew / Kerberos issues).
+        #[cfg(target_os = "windows")]
+        "pc-restart-time" => (
+            "powershell.exe".into(),
+            vec![
+                "-NoProfile".into(),
+                "-NonInteractive".into(),
+                "-Command".into(),
+                "Restart-Service -Name w32time -Force; w32tm /resync".into(),
+            ],
+        ),
+        // Open Windows Security (Defender) settings.
+        #[cfg(target_os = "windows")]
+        "pc-windows-security" => (
+            "cmd.exe".into(),
+            vec!["/c".into(), "start".into(), "".into(), "windowsdefender:".into()],
+        ),
+        // Open Sound settings (mmsys.cpl).
+        #[cfg(target_os = "windows")]
+        "pc-sound-settings" => ("mmsys.cpl".into(), vec![]),
+        // Open Network Connections (ncpa.cpl) — the classic adapter view.
+        #[cfg(target_os = "windows")]
+        "pc-network-connections" => ("ncpa.cpl".into(), vec![]),
+        // Run the Audio troubleshooter.
+        #[cfg(target_os = "windows")]
+        "pc-audio-troubleshooter" => (
+            "msdt.exe".into(),
+            vec!["/id".into(), "AudioPlaybackDiagnostic".into()],
+        ),
+        // Run the Bluetooth troubleshooter.
+        #[cfg(target_os = "windows")]
+        "pc-bluetooth-troubleshooter" => (
+            "msdt.exe".into(),
+            vec!["/id".into(), "BluetoothDiagnostic".into()],
+        ),
+        // Run the Search & Indexing troubleshooter.
+        #[cfg(target_os = "windows")]
+        "pc-search-troubleshooter" => (
+            "msdt.exe".into(),
+            vec!["/id".into(), "SearchDiagnostic".into()],
+        ),
+        // Run the Windows Update troubleshooter.
+        #[cfg(target_os = "windows")]
+        "pc-wu-troubleshooter" => (
+            "msdt.exe".into(),
+            vec!["/id".into(), "WindowsUpdateDiagnostic".into()],
+        ),
+        // Open recovery options (advanced startup, system restore).
+        #[cfg(target_os = "windows")]
+        "pc-recovery" => (
+            "cmd.exe".into(),
+            vec!["/c".into(), "start".into(), "".into(), "ms-settings:recovery".into()],
+        ),
+        // Open System Restore (rstrui).
+        #[cfg(target_os = "windows")]
+        "pc-system-restore" => ("rstrui.exe".into(), vec![]),
+        // Open Resource Monitor (resmon).
+        #[cfg(target_os = "windows")]
+        "pc-resource-monitor" => ("resmon.exe".into(), vec![]),
+        // Open Performance Monitor (perfmon).
+        #[cfg(target_os = "windows")]
+        "pc-perfmon" => ("perfmon.exe".into(), vec![]),
+        // Open Disk Management (diskmgmt.msc).
+        #[cfg(target_os = "windows")]
+        "pc-disk-management" => ("diskmgmt.msc".into(), vec![]),
+        // Open Computer Management.
+        #[cfg(target_os = "windows")]
+        "pc-computer-management" => ("compmgmt.msc".into(), vec![]),
+        // Open Task Scheduler.
+        #[cfg(target_os = "windows")]
+        "pc-task-scheduler" => ("taskschd.msc".into(), vec![]),
+        // Open Programs and Features (appwiz.cpl).
+        #[cfg(target_os = "windows")]
+        "pc-programs-features" => ("appwiz.cpl".into(), vec![]),
+        // Open Power Options (powercfg.cpl).
+        #[cfg(target_os = "windows")]
+        "pc-power-options" => ("powercfg.cpl".into(), vec![]),
         other => return Err(format!("unknown maintenance kind: {}", other)),
     })
 }
