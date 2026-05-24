@@ -1,43 +1,39 @@
-// ULTRON Control Center 2.6 — Skills viewer (FULL REDESIGN).
+// ULTRON Control Center 2.7.2 — Skills viewer with Active/Disabled/All tabs.
 //
-// USER's brief: the v2.6.x card layout was "para nada lo que buscaba".
-// He wants the same big-tile pattern the Blocks-view category screen uses,
-// but as the PRIMARY layout for Skills / Agents / Rules — click a card,
-// detail slides in on the right with Edit / Edit with AI / Open Externally.
-//
-// What changed:
-//   - Cards now show ONLY the skill name (+ a cyan sparkle to distinguish
-//     skills from agents/rules at a glance). No description, no chips, no
-//     sibling-file expander — that detail lives in the right pane.
-//   - Default view is the card grid. Tree and Blocks (drill-down) are
-//     preserved for power users via the toggle.
-//   - Selecting a card opens `LibraryDetailPane` on the right. The pane
-//     loads the body via the new `read_text_file` Tauri command (which
-//     handles plugin-scoped paths the slug-based reader can't reach).
-//   - "Open Externally" opens the workspace folder in VS Code with the
-//     specific file focused — multi-file skills surface their helpers.
-//
-// Filters (scope chips, category chips, search) and the New / Refresh
-// buttons are unchanged. `skill_toggle` is still available, but it now
-// lives in the detail pane action bar.
+// Changes vs 2.7.1:
+//   - Three filter tabs: Active (default) · Disabled · All — each with a count badge.
+//   - Inline toggle switch on every Global card (optimistic UI: visual flips
+//     immediately, calls skill_toggle, reverts + shows toast on error).
+//   - "Restart Claude Code to apply changes" banner appears after the first
+//     toggle in the session (changes are not live).
+//   - Cards for disabled skills render with reduced opacity + muted text so
+//     the enabled/disabled state is scannable at a glance.
+//   - Existing detail-pane toggle button is kept as a secondary action.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { SkillEntry, SkillOrigin } from "../types";
 import { CreateSkillModal } from "./library/CreateSkillModal";
 import { Plus, Sparkle } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
-import {
-  BlocksView,
-  type BlocksItem,
-} from "./library/BlocksView";
+import { BlocksView, type BlocksItem } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
 import { categorize } from "../lib/skill-categories";
 import { LibraryDetailPane } from "./library/LibraryDetailPane";
 
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 type ProjectLite = { id: string; name: string };
 
 type ScopeFilter = "all" | SkillOrigin;
+
+type EnableFilter = "active" | "disabled" | "all";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const SCOPES: { id: ScopeFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -48,15 +44,14 @@ const SCOPES: { id: ScopeFilter; label: string }[] = [
 
 const NO_CATEGORY = "uncategorized";
 
-// v2.6 cyan accent — distinguishes skill cards from agents (violet) and
-// rules (lime) at a glance.
+// Cyan accent — distinguishes skill cards from agents (violet) and rules (lime).
 const SKILL_ACCENT = "rgba(56, 189, 248, 0.55)";
 const SKILL_ACCENT_SOFT = "rgba(56, 189, 248, 0.16)";
 
-/// Derive a category from the on-disk path. Examples:
-///   ~/.claude/skills/agent-skills/foo/SKILL.md → "agent-skills"
-///   ~/.claude/skills/foo                       → "uncategorized"
-///   .../plugins/cache/<id>/<plugin>/<ver>/skills/foo → "<plugin>"
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function deriveCategory(s: SkillEntry): string {
   const norm = s.path.replace(/\\/g, "/");
   if (s.origin === "plugin") {
@@ -88,48 +83,170 @@ function deriveSubGroup(s: SkillEntry): string | null {
   return cat;
 }
 
-/// Compute the workspace folder for a skill. SKILL.md lives inside a folder
-/// with examples + helpers — opening that folder in VS Code is what USER
-/// wants ("para que las skills con multiples carpetas abra todo su
-/// workspace"). For flat skills (top-level .md), the folder is the parent.
 function skillWorkspace(s: SkillEntry): { folder: string; file: string } {
   const file = s.path;
   const norm = file.replace(/\\/g, "/");
-  // Standard SKILL.md → folder is the directory above.
   if (/\/SKILL\.md$/i.test(norm)) {
-    return {
-      folder: file.replace(/[\\/]SKILL\.md$/i, ""),
-      file,
-    };
+    return { folder: file.replace(/[\\/]SKILL\.md$/i, ""), file };
   }
-  // Flat .md skill → folder is the parent directory.
+  if (!/\.md$/i.test(norm)) {
+    const sep = file.includes("\\") ? "\\" : "/";
+    return { folder: file, file: file + sep + "SKILL.md" };
+  }
   const lastSep = Math.max(file.lastIndexOf("\\"), file.lastIndexOf("/"));
-  return {
-    folder: lastSep > 0 ? file.slice(0, lastSep) : "",
-    file,
-  };
+  return { folder: lastSep > 0 ? file.slice(0, lastSep) : "", file };
 }
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
+
+interface EnableTabsProps {
+  value: EnableFilter;
+  onChange: (v: EnableFilter) => void;
+  activeCount: number;
+  disabledCount: number;
+}
+
+function EnableTabs({ value, onChange, activeCount, disabledCount }: EnableTabsProps) {
+  const tabs: { id: EnableFilter; label: string; count: number }[] = [
+    { id: "active", label: "Active", count: activeCount },
+    { id: "disabled", label: "Disabled", count: disabledCount },
+    { id: "all", label: "All", count: activeCount + disabledCount },
+  ];
+
+  return (
+    <div
+      className="flex items-center gap-1 rounded-lg p-1"
+      style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+    >
+      {tabs.map((tab) => {
+        const isActive = value === tab.id;
+        return (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => onChange(tab.id)}
+            className="flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors"
+            style={{
+              background: isActive ? "var(--color-surface-4)" : "transparent",
+              color: isActive ? "var(--color-text)" : "var(--color-text-secondary)",
+              border: isActive ? "1px solid var(--color-border-strong)" : "1px solid transparent",
+            }}
+          >
+            {tab.label}
+            <span
+              className="rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums"
+              style={{
+                background: isActive ? SKILL_ACCENT_SOFT : "var(--color-surface-3)",
+                color: isActive ? "#67e8f9" : "var(--color-text-tertiary)",
+              }}
+            >
+              {tab.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+interface ToggleSwitchProps {
+  enabled: boolean;
+  busy: boolean;
+  readonly: boolean;
+  onToggle: () => void;
+}
+
+function ToggleSwitch({ enabled, busy, readonly, onToggle }: ToggleSwitchProps) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      disabled={busy || readonly}
+      title={
+        readonly
+          ? "Only global skills can be toggled"
+          : enabled
+            ? "Disable skill"
+            : "Enable skill"
+      }
+      className="flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-40"
+      style={{
+        background: enabled ? "var(--color-success)" : "var(--color-surface-3)",
+        border: "1px solid var(--color-border-strong)",
+        padding: "1px",
+        cursor: busy || readonly ? "not-allowed" : "pointer",
+      }}
+    >
+      <span
+        className="block h-3.5 w-3.5 rounded-full transition-transform"
+        style={{
+          background: "var(--color-text)",
+          transform: enabled ? "translateX(16px)" : "translateX(0)",
+        }}
+      />
+    </button>
+  );
+}
+
+interface RestartBannerProps {
+  visible: boolean;
+}
+
+function RestartBanner({ visible }: RestartBannerProps) {
+  if (!visible) return null;
+  return (
+    <div
+      className="flex items-center gap-2 rounded-md px-3 py-2 text-xs"
+      style={{
+        background: "rgba(234, 179, 8, 0.08)",
+        border: "1px solid rgba(234, 179, 8, 0.30)",
+        color: "var(--color-warn, #ca8a04)",
+      }}
+    >
+      <span
+        className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+        style={{ background: "var(--color-warn, #ca8a04)" }}
+      />
+      Restart Claude Code to apply skill changes.
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export function Skills() {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
+  const [enableFilter, setEnableFilter] = useState<EnableFilter>("active");
   const [category, setCategory] = useState<string>("all");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
-  // v2.6 redesign: default to "grid" so the card-and-detail flow lands first.
   const [view, setView] = useLibraryViewMode("skills");
-
-  // Detail-pane state.
   const [selected, setSelected] = useState<SkillEntry | null>(null);
+
+  // Optimistic toggle state: maps skill path → optimistic enabled value.
+  const [optimisticMap, setOptimisticMap] = useState<Record<string, boolean>>({});
+  // Tracks which skills have an in-flight toggle request.
+  const [toggleBusy, setToggleBusy] = useState<Set<string>>(new Set());
+  // Flash toast for toggle errors.
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Whether any toggle has happened this session — controls the restart banner.
+  const [hasToggled, setHasToggled] = useState(false);
 
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
-      .then((list) =>
-        setProjects(list.map((p) => ({ id: p.id, name: p.name }))),
-      )
+      .then((list) => setProjects(list.map((p) => ({ id: p.id, name: p.name }))))
       .catch(() => setProjects([]));
   }, []);
 
@@ -137,10 +254,10 @@ export function Skills() {
     setLoading(true);
     setError(null);
     try {
-      const res = (await invoke("list_skills", {
-        projectPath: null,
-      })) as SkillEntry[];
+      const res = (await invoke("list_skills", { projectPath: null })) as SkillEntry[];
       setSkills(res);
+      // Clear optimistic overrides after a fresh fetch — the server is now the truth.
+      setOptimisticMap({});
     } catch (e) {
       setError(String(e));
     } finally {
@@ -152,9 +269,58 @@ export function Skills() {
     void reload();
   }, []);
 
+  // Show a toast and auto-dismiss after 4 s.
+  function showToast(msg: string) {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
+  }
+
+  // Derive effective enabled state: optimistic override > server state.
+  function isEnabled(s: SkillEntry): boolean {
+    if (s.path in optimisticMap) return optimisticMap[s.path];
+    return s.enabled;
+  }
+
+  const handleToggle = async (s: SkillEntry) => {
+    if (s.origin !== "global") return;
+    if (toggleBusy.has(s.path)) return;
+
+    const currentEnabled = isEnabled(s);
+    const nextEnabled = !currentEnabled;
+
+    // Optimistic update.
+    setOptimisticMap((m) => ({ ...m, [s.path]: nextEnabled }));
+    setToggleBusy((b) => { const n = new Set(b); n.add(s.path); return n; });
+    setHasToggled(true);
+
+    try {
+      await invoke("skill_toggle", { name: s.name, enabled: nextEnabled });
+      // Full re-fetch so path (which changes on disk) stays accurate.
+      await reload();
+    } catch (e) {
+      // Revert optimistic override.
+      setOptimisticMap((m) => { const n = { ...m }; delete n[s.path]; return n; });
+      showToast(`Toggle failed for "${s.name}": ${e}`);
+    } finally {
+      setToggleBusy((b) => { const n = new Set(b); n.delete(s.path); return n; });
+    }
+  };
+
+  const buildOnSave = (s: SkillEntry): ((body: string) => Promise<void>) | undefined => {
+    if (s.origin !== "global") return undefined;
+    return async (body: string) => {
+      await invoke("update_skill_md", { name: s.name, content: body });
+      await reload();
+    };
+  };
+
+  // ---------------------------------------------------------------------------
+  // Derived lists
+  // ---------------------------------------------------------------------------
+
   const categories = useMemo(() => {
-    const subset =
-      scope === "all" ? skills : skills.filter((s) => s.origin === scope);
+    const subset = scope === "all" ? skills : skills.filter((s) => s.origin === scope);
     const set = new Set<string>();
     for (const s of subset) set.add(deriveCategory(s));
     return Array.from(set).sort((a, b) => {
@@ -165,46 +331,45 @@ export function Skills() {
   }, [skills, scope]);
 
   useEffect(() => {
-    if (category !== "all" && !categories.includes(category)) {
-      setCategory("all");
-    }
+    if (category !== "all" && !categories.includes(category)) setCategory("all");
   }, [categories, category]);
+
+  // Count by enable state (using optimistic overrides) for the tab badges.
+  const { activeCount, disabledCount } = useMemo(() => {
+    const scopeFiltered = scope === "all" ? skills : skills.filter((s) => s.origin === scope);
+    let a = 0;
+    let d = 0;
+    for (const s of scopeFiltered) {
+      if (isEnabled(s)) a++;
+      else d++;
+    }
+    return { activeCount: a, disabledCount: d };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skills, scope, optimisticMap]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return skills.filter((s) => {
       if (scope !== "all" && s.origin !== scope) return false;
       if (category !== "all" && deriveCategory(s) !== category) return false;
+      // Enable-filter tab.
+      const enabled = isEnabled(s);
+      if (enableFilter === "active" && !enabled) return false;
+      if (enableFilter === "disabled" && enabled) return false;
       if (!q) return true;
       return (
         s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q)
+        s.description.toLowerCase().includes(q) ||
+        s.origin.toLowerCase().includes(q)
       );
     });
-  }, [skills, scope, category, query]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skills, scope, category, enableFilter, query, optimisticMap]);
 
-  const handleToggle = async (s: SkillEntry) => {
-    if (s.origin !== "global") return;
-    try {
-      await invoke("skill_toggle", { name: s.name, enabled: !s.enabled });
-      await reload();
-    } catch (e) {
-      setError(`toggle ${s.name}: ${e}`);
-    }
-  };
+  // ---------------------------------------------------------------------------
+  // Tree / Blocks adapters
+  // ---------------------------------------------------------------------------
 
-  // Save handler passed to the detail pane. Only valid for global skills
-  // (the only origin update_skill_md accepts) — plugin / project skills
-  // are read-only; the pane hides the Edit button when onSave is absent.
-  const buildOnSave = (s: SkillEntry): ((body: string) => Promise<void>) | undefined => {
-    if (s.origin !== "global") return undefined;
-    return async (body: string) => {
-      await invoke("update_skill_md", { name: s.name, content: body });
-      await reload();
-    };
-  };
-
-  // Tree-view origins (legacy power-user mode).
   const treeOrigins: TreeOrigin<SkillEntry>[] = useMemo(() => {
     const buckets: Record<SkillOrigin, Record<string, SkillEntry[]>> = {
       global: {},
@@ -246,25 +411,20 @@ export function Skills() {
     [filtered],
   );
 
-  // ---- Name-only card grid (the redesign) ----
-  //
-  // Tile shape mirrors `BlocksView` Tile — USER wants the same visual
-  // language across categories and entries. Each skill card has:
-  //   - small "Skill" header chip
-  //   - the skill name in big type
-  //   - a tiny origin badge in the corner
-  //   - cyan ribbon at the top to differentiate from agents (violet) / rules
-  // Click → opens the detail pane on the right.
+  // ---------------------------------------------------------------------------
+  // Card grid renderer
+  // ---------------------------------------------------------------------------
 
   const renderCardGrid = (items: SkillEntry[]) => (
     <div
       className="grid gap-3"
-      style={{
-        gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-      }}
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
     >
       {items.map((s) => {
         const isActive = selected?.path === s.path;
+        const enabled = isEnabled(s);
+        const busy = toggleBusy.has(s.path);
+
         return (
           <button
             key={`${s.origin}-${s.path}`}
@@ -272,14 +432,10 @@ export function Skills() {
             onClick={() => setSelected(s)}
             className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
-              background: isActive
-                ? "var(--color-surface-3)"
-                : "var(--color-surface-2)",
-              border: `1px solid ${
-                isActive ? SKILL_ACCENT : "var(--color-border)"
-              }`,
+              background: isActive ? "var(--color-surface-3)" : "var(--color-surface-2)",
+              border: `1px solid ${isActive ? SKILL_ACCENT : "var(--color-border)"}`,
               boxShadow: `inset 0 3px 0 ${SKILL_ACCENT}`,
-              opacity: s.enabled ? 1 : 0.55,
+              opacity: enabled ? 1 : 0.55,
             }}
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = SKILL_ACCENT;
@@ -287,22 +443,51 @@ export function Skills() {
               e.currentTarget.style.boxShadow = `inset 0 3px 0 ${SKILL_ACCENT}, 0 6px 18px rgba(0,0,0,0.28)`;
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = isActive
-                ? SKILL_ACCENT
-                : "var(--color-border)";
+              e.currentTarget.style.borderColor = isActive ? SKILL_ACCENT : "var(--color-border)";
               e.currentTarget.style.transform = "translateY(0)";
               e.currentTarget.style.boxShadow = `inset 0 3px 0 ${SKILL_ACCENT}`;
             }}
             title={s.description || s.name}
           >
+            {/* Header row: label chip + toggle */}
+            <div className="flex items-center justify-between gap-1.5">
+              <div
+                className="flex items-center gap-1 text-[10.5px] uppercase tracking-[0.08em]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                <Sparkle size={12} />
+                Skill
+              </div>
+              <div className="flex items-center gap-1.5">
+                {busy && (
+                  <span
+                    className="text-[9px]"
+                    style={{ color: "var(--color-text-faint)" }}
+                  >
+                    …
+                  </span>
+                )}
+                <ToggleSwitch
+                  enabled={enabled}
+                  busy={busy}
+                  readonly={s.origin !== "global"}
+                  onToggle={() => void handleToggle(s)}
+                />
+              </div>
+            </div>
+
+            {/* Skill name */}
             <div
-              className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.08em]"
-              style={{ color: "var(--color-text-tertiary)" }}
+              className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
+              style={{ color: enabled ? "var(--color-text)" : "var(--color-text-secondary)" }}
             >
-              <Sparkle size={12} />
-              Skill
+              {s.name}
+            </div>
+
+            {/* Footer: origin badge */}
+            <div className="flex items-center justify-between">
               <span
-                className="ml-auto rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
+                className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
                 style={{
                   background: SKILL_ACCENT_SOFT,
                   color: "#67e8f9",
@@ -311,12 +496,14 @@ export function Skills() {
               >
                 {s.origin}
               </span>
-            </div>
-            <div
-              className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
-              style={{ color: "var(--color-text)" }}
-            >
-              {s.name}
+              {!enabled && (
+                <span
+                  className="text-[9.5px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  disabled
+                </span>
+              )}
             </div>
           </button>
         );
@@ -324,15 +511,17 @@ export function Skills() {
     </div>
   );
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
     <div className="flex h-full flex-col gap-4 p-6">
+      {/* Page header */}
       <header className="flex items-center justify-between gap-2">
         <div className="flex items-baseline gap-2">
           <h2 className="text-lg font-semibold">Skills</h2>
-          <span
-            className="text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
+          <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
             {filtered.length} of {skills.length}
           </span>
         </div>
@@ -341,10 +530,7 @@ export function Skills() {
           <button
             onClick={() => setCreateOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
             <Plus size={12} /> New skill
           </button>
@@ -362,6 +548,18 @@ export function Skills() {
         </div>
       </header>
 
+      {/* Restart banner */}
+      <RestartBanner visible={hasToggled} />
+
+      {/* Enable-state tabs */}
+      <EnableTabs
+        value={enableFilter}
+        onChange={setEnableFilter}
+        activeCount={activeCount}
+        disabledCount={disabledCount}
+      />
+
+      {/* Scope chips */}
       <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           {SCOPES.map((s) => {
@@ -372,15 +570,9 @@ export function Skills() {
                 onClick={() => setScope(s.id)}
                 className="rounded-full border px-3 py-1 text-xs transition-colors"
                 style={{
-                  borderColor: isActive
-                    ? "var(--color-accent)"
-                    : "var(--color-border-strong)",
-                  background: isActive
-                    ? "var(--color-accent)"
-                    : "transparent",
-                  color: isActive
-                    ? "var(--color-accent-text)"
-                    : "var(--color-text-secondary)",
+                  borderColor: isActive ? "var(--color-accent)" : "var(--color-border-strong)",
+                  background: isActive ? "var(--color-accent)" : "transparent",
+                  color: isActive ? "var(--color-accent-text)" : "var(--color-text-secondary)",
                 }}
               >
                 {s.label}
@@ -401,18 +593,9 @@ export function Skills() {
               onClick={() => setCategory("all")}
               className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
               style={{
-                borderColor:
-                  category === "all"
-                    ? "var(--color-text)"
-                    : "var(--color-border-strong)",
-                background:
-                  category === "all"
-                    ? "var(--color-surface-4)"
-                    : "transparent",
-                color:
-                  category === "all"
-                    ? "var(--color-text)"
-                    : "var(--color-text-secondary)",
+                borderColor: category === "all" ? "var(--color-text)" : "var(--color-border-strong)",
+                background: category === "all" ? "var(--color-surface-4)" : "transparent",
+                color: category === "all" ? "var(--color-text)" : "var(--color-text-secondary)",
               }}
             >
               All
@@ -425,15 +608,9 @@ export function Skills() {
                   onClick={() => setCategory(c)}
                   className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
                   style={{
-                    borderColor: active
-                      ? "var(--color-text)"
-                      : "var(--color-border-strong)",
-                    background: active
-                      ? "var(--color-surface-4)"
-                      : "transparent",
-                    color: active
-                      ? "var(--color-text)"
-                      : "var(--color-text-secondary)",
+                    borderColor: active ? "var(--color-text)" : "var(--color-border-strong)",
+                    background: active ? "var(--color-surface-4)" : "transparent",
+                    color: active ? "var(--color-text)" : "var(--color-text-secondary)",
                   }}
                 >
                   {c}
@@ -444,10 +621,11 @@ export function Skills() {
         )}
       </div>
 
+      {/* Search */}
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Buscar skills…"
+        placeholder="Search skills by name, description, or origin…"
         className="w-full rounded-md px-3 py-2 text-sm outline-none"
         style={{
           border: "1px solid var(--color-border-strong)",
@@ -456,6 +634,7 @@ export function Skills() {
         }}
       />
 
+      {/* Error */}
       {error && (
         <div
           className="rounded-md p-3 text-xs"
@@ -469,38 +648,59 @@ export function Skills() {
         </div>
       )}
 
-      {/* 2-pane layout: card list on the left, detail pane on the right
-          when a skill is selected. Stacks vertically on narrow viewports. */}
+      {/* Toast */}
+      {toast && (
+        <div
+          className="rounded-md p-3 text-xs"
+          style={{
+            border: "1px solid rgba(248, 81, 73, 0.30)",
+            background: "rgba(248, 81, 73, 0.08)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {toast}
+        </div>
+      )}
+
+      {/* 2-pane: list + detail */}
       <div className="flex flex-1 flex-col gap-3 overflow-hidden lg:flex-row">
         <div
-          className={
-            selected ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"
-          }
+          className={selected ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"}
           style={{ minWidth: 0 }}
         >
           {loading ? (
-            <p
-              className="text-xs"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
+            <p className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
               Loading…
             </p>
           ) : filtered.length === 0 ? (
-            <p
-              className="text-xs"
-              style={{ color: "var(--color-text-tertiary)" }}
+            <div
+              className="flex flex-col items-center justify-center gap-2 rounded-xl py-12 text-center"
+              style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
             >
-              Sin skills para el filtro actual.
-            </p>
+              <p className="text-sm font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                {enableFilter === "disabled"
+                  ? "No disabled skills matching the current filters."
+                  : enableFilter === "active"
+                    ? "No active skills matching the current filters."
+                    : "No skills found."}
+              </p>
+              {enableFilter !== "all" && (
+                <button
+                  onClick={() => setEnableFilter("all")}
+                  className="text-xs underline-offset-2 hover:underline"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Show all
+                </button>
+              )}
+            </div>
           ) : view === "blocks" ? (
             <BlocksView<SkillEntry>
               items={blockItems}
               noun="skill"
-              emptyLabel="Sin skills para el filtro actual."
+              emptyLabel="No skills for the current filter."
               topGroupAccent={() => SKILL_ACCENT}
-              renderLeaves={(items) =>
-                renderCardGrid(items.map((it) => it.data))
-              }
+              renderLeaves={(items) => renderCardGrid(items.map((it) => it.data))}
             />
           ) : view === "tree" ? (
             <TreeView<SkillEntry>
@@ -515,18 +715,14 @@ export function Skills() {
         </div>
 
         {selected && (
-          <div
-            className="overflow-hidden lg:w-[560px] lg:shrink-0"
-            style={{ minWidth: 0 }}
-          >
+          <div className="overflow-hidden lg:w-[560px] lg:shrink-0" style={{ minWidth: 0 }}>
             {(() => {
               const ws = skillWorkspace(selected);
-              const subtitleParts: string[] = [];
-              subtitleParts.push(selected.origin);
+              const subtitleParts: string[] = [selected.origin];
               const cat = deriveCategory(selected);
               if (cat !== NO_CATEGORY) subtitleParts.push(cat);
               if (selected.origin === "global") {
-                subtitleParts.push(selected.enabled ? "enabled" : "disabled");
+                subtitleParts.push(isEnabled(selected) ? "enabled" : "disabled");
               }
               return (
                 <div className="flex h-full flex-col gap-2">
@@ -543,20 +739,25 @@ export function Skills() {
                     <button
                       type="button"
                       onClick={() => void handleToggle(selected)}
-                      className="rounded-md border px-3 py-1.5 text-[11.5px]"
+                      disabled={toggleBusy.has(selected.path)}
+                      className="rounded-md border px-3 py-1.5 text-[11.5px] disabled:opacity-50"
                       style={{
-                        borderColor: selected.enabled
+                        borderColor: isEnabled(selected)
                           ? "var(--color-border-strong)"
                           : "var(--color-accent)",
-                        background: selected.enabled
+                        background: isEnabled(selected)
                           ? "var(--color-surface-2)"
                           : "var(--color-accent)",
-                        color: selected.enabled
+                        color: isEnabled(selected)
                           ? "var(--color-text)"
                           : "var(--color-accent-text)",
                       }}
                     >
-                      {selected.enabled ? "Disable skill" : "Enable skill"}
+                      {toggleBusy.has(selected.path)
+                        ? "Saving…"
+                        : isEnabled(selected)
+                          ? "Disable skill"
+                          : "Enable skill"}
                     </button>
                   )}
                 </div>

@@ -629,23 +629,47 @@ fn plugin_skills_dirs() -> Vec<PathBuf> {
     out
 }
 
-/// Parse `(name, description, has_required_frontmatter)` from a skill dir.
+/// Parse `(name, description, enabled, is_valid_skill)` from a skill dir.
+///
 /// A real skill is a DIRECTORY containing `SKILL.md` whose YAML frontmatter
 /// declares at least `name:` and `description:`. Anything else is rejected
-/// as a false positive (loose markdown files, READMEs, etc.).
+/// as a false positive.
+///
+/// **Disabled detection** — two conventions are supported in parallel:
+///   1. Suffix `.disabled` on the folder itself (e.g. `kotlin-patterns.disabled`).
+///      This is what `Rename-Item` produces on Windows and what the new toggle
+///      logic writes.
+///   2. Legacy `_disabled/` subdirectory parent — kept for backwards compat
+///      with old toggle logic that moved folders into a `_disabled` container.
 fn read_skill_meta(dir: &Path) -> (String, String, bool, bool) {
-    // Returns: (name, description, enabled, is_valid_skill).
-    let name = dir
+    let raw_dir_name = dir
         .file_name()
         .and_then(|s| s.to_str())
-        .unwrap_or("(unnamed)")
-        .to_string();
-    let enabled = !dir
+        .unwrap_or("(unnamed)");
+
+    // Convention 1: suffix `.disabled`
+    let has_suffix = raw_dir_name.ends_with(".disabled");
+    // Convention 2: parent dir named `_disabled`
+    let in_disabled_dir = dir
         .parent()
         .and_then(|p| p.file_name())
         .and_then(|s| s.to_str())
         .map(|s| s == "_disabled")
         .unwrap_or(false);
+
+    let enabled = !has_suffix && !in_disabled_dir;
+
+    // The logical name strips the `.disabled` suffix so the UI always shows
+    // the clean skill name regardless of enabled state.
+    let name = if has_suffix {
+        raw_dir_name
+            .strip_suffix(".disabled")
+            .unwrap_or(raw_dir_name)
+            .to_string()
+    } else {
+        raw_dir_name.to_string()
+    };
+
     let skill_md = dir.join("SKILL.md");
     if !skill_md.is_file() {
         return (name, String::new(), enabled, false);
@@ -703,6 +727,9 @@ fn collect_skills_from(
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("");
+
+        // Legacy convention: `_disabled/` container directory.
+        // Recurse into it and surface each child as a disabled skill.
         if dir_name == "_disabled" {
             if include_disabled {
                 if let Ok(disabled) = std::fs::read_dir(&path) {
@@ -726,6 +753,15 @@ fn collect_skills_from(
             }
             continue;
         }
+
+        // Convention 1: `.disabled` suffix on the folder itself.
+        // `read_skill_meta` strips the suffix from the logical name and sets
+        // `enabled = false` so we only need to gate on `include_disabled`.
+        let has_disabled_suffix = dir_name.ends_with(".disabled");
+        if has_disabled_suffix && !include_disabled {
+            continue;
+        }
+
         let (n, desc, enabled, valid) = read_skill_meta(&path);
         if !valid {
             // Skip directories without a SKILL.md or without the required
@@ -762,40 +798,77 @@ pub fn list_skills_with_origin_inner(
     Ok(out)
 }
 
+/// Toggle a global skill between enabled and disabled.
+///
+/// **Two on-disk conventions are supported:**
+///
+/// | Convention | Enabled path | Disabled path |
+/// |------------|--------------|---------------|
+/// | Suffix (preferred, USER's `Rename-Item` output) | `skills/<name>/` | `skills/<name>.disabled/` |
+/// | Legacy container | `skills/<name>/` | `skills/_disabled/<name>/` |
+///
+/// Toggle resolution order (for enabling):
+///   1. Look for `<name>.disabled/` (suffix convention) — rename to `<name>/`.
+///   2. Look for `_disabled/<name>/` (legacy) — rename to `<name>/`.
+///
+/// Toggle resolution order (for disabling):
+///   1. Look for `<name>/` — rename to `<name>.disabled/` (suffix convention).
+///
+/// Disabling always writes the suffix convention going forward. That keeps the
+/// output consistent with what `Rename-Item` produces on Windows.
 pub fn skill_toggle_inner(name: String, enabled: bool) -> Result<SkillEntry, String> {
-    let root = global_skills_dir()?;
-    let target_enabled_dir = root.join(&name);
-    let disabled_root = root.join("_disabled");
-    let target_disabled_dir = disabled_root.join(&name);
-    if enabled {
-        if !target_disabled_dir.exists() {
-            return Err(format!("skill {name} not found under _disabled"));
-        }
-        if target_enabled_dir.exists() {
-            return Err(format!("skill {name} already enabled"));
-        }
-        std::fs::rename(&target_disabled_dir, &target_enabled_dir)
-            .map_err(|e| format!("rename: {e}"))?;
-    } else {
-        if !target_enabled_dir.exists() {
-            return Err(format!("skill {name} not found"));
-        }
-        if !disabled_root.exists() {
-            std::fs::create_dir_all(&disabled_root)
-                .map_err(|e| format!("create _disabled: {e}"))?;
-        }
-        std::fs::rename(&target_enabled_dir, &target_disabled_dir)
-            .map_err(|e| format!("rename: {e}"))?;
+    // Path traversal guard: name must not contain path separators.
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("invalid skill name: path separators not allowed".to_string());
     }
-    let final_path = if enabled {
-        target_enabled_dir
-    } else {
-        target_disabled_dir
-    };
-    let (n, desc, e, _) = read_skill_meta(&final_path);
+
+    let root = global_skills_dir()?;
+
+    // Candidate paths for each convention.
+    let path_enabled = root.join(&name);
+    let path_suffix_disabled = root.join(format!("{}.disabled", name));
+    let path_legacy_disabled = root.join("_disabled").join(&name);
+
+    if enabled {
+        // Re-enabling: find whichever disabled form exists.
+        let from = if path_suffix_disabled.exists() {
+            path_suffix_disabled
+        } else if path_legacy_disabled.exists() {
+            path_legacy_disabled
+        } else {
+            return Err(format!(
+                "skill '{name}' not found in disabled state (checked {}.disabled and _disabled/{name})",
+                name
+            ));
+        };
+        if path_enabled.exists() {
+            return Err(format!("skill '{name}' already exists at enabled path"));
+        }
+        std::fs::rename(&from, &path_enabled)
+            .map_err(|e| format!("rename {:?} → {:?}: {e}", from, path_enabled))?;
+        let (n, desc, e, _) = read_skill_meta(&path_enabled);
+        return Ok(SkillEntry {
+            name: n,
+            path: path_enabled.to_string_lossy().to_string(),
+            description: desc,
+            origin: SkillOrigin::Global,
+            enabled: e,
+        });
+    }
+
+    // Disabling: always write the suffix convention.
+    if !path_enabled.exists() {
+        return Err(format!("skill '{name}' not found at enabled path"));
+    }
+    if path_suffix_disabled.exists() {
+        return Err(format!("skill '{name}' already disabled (suffix path exists)"));
+    }
+    std::fs::rename(&path_enabled, &path_suffix_disabled)
+        .map_err(|e| format!("rename {:?} → {:?}: {e}", path_enabled, path_suffix_disabled))?;
+    let (n, desc, e, _) = read_skill_meta(&path_suffix_disabled);
     Ok(SkillEntry {
         name: n,
-        path: final_path.to_string_lossy().to_string(),
+        path: path_suffix_disabled.to_string_lossy().to_string(),
         description: desc,
         origin: SkillOrigin::Global,
         enabled: e,
