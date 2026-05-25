@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { DailyPoint, ModelStat, UsageReport, WindowStats } from "../types";
-import { useRoutingTitle } from "../lib/button-prompts";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -484,6 +483,43 @@ function HourHisto({ counts }: { counts: number[] }) {
 }
 
 // ---------------------------------------------------------------------------
+// Subscription limit shortcut — one click opens a Claude terminal with
+// /usage pre-loaded so the user sees the real 5h window and weekly %.
+// ---------------------------------------------------------------------------
+
+function SubscriptionLimitCard({ onOpen, busy }: { onOpen: () => void; busy: boolean }) {
+  return (
+    <div
+      className="mb-6 flex items-center justify-between gap-4 rounded p-4"
+      style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+    >
+      <div>
+        <div
+          className="text-[10px] font-medium uppercase tracking-[0.06em]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Límite de suscripción
+        </div>
+        <p className="mt-1 text-[12.5px]" style={{ color: "var(--color-text-secondary)" }}>
+          Abre una sesión Claude con{" "}
+          <span style={{ fontFamily: "var(--font-mono, monospace)" }}>/usage</span>{" "}
+          para ver el % restante de tu ventana de 5h y uso semanal.
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={onOpen}
+        disabled={busy}
+        className="shrink-0 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+        style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
+      >
+        {busy ? "Abriendo…" : "Abrir /usage"}
+      </button>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -492,10 +528,6 @@ export function Usage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [usageBusy, setUsageBusy] = useState(false);
-  const refreshUsageTitle = useRoutingTitle(
-    "usage.refresh_with_claude",
-    "Open a Claude session with /usage to see live limits and refresh the cache.",
-  );
 
   async function load() {
     setLoading(true);
@@ -567,34 +599,18 @@ export function Usage() {
             Claude Code consumption · source: ~/.claude/stats-cache.json
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={openClaudeUsage}
-            disabled={usageBusy}
-            title={refreshUsageTitle}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-          >
-            {usageBusy ? "Opening…" : "Claude /usage"}
-          </button>
-          <button
-            type="button"
-            onClick={load}
-            disabled={loading}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading}
+          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+        >
+          {loading ? "Loading…" : "Refresh"}
+        </button>
       </header>
 
       {error && (
@@ -609,6 +625,8 @@ export function Usage() {
           {error}
         </div>
       )}
+
+      <SubscriptionLimitCard onOpen={openClaudeUsage} busy={usageBusy} />
 
       {/* Cache freshness warning */}
       {data && data.cache_age_days !== null && data.cache_age_days > 1 && (

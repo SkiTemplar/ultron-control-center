@@ -116,6 +116,69 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
       fitRetryTimer = window.setTimeout(tick, 100);
     });
 
+    // Copy selection to clipboard on mouse-up (xterm v5 has no built-in copyOnSelect).
+    const selDispose = term.onSelectionChange(() => {
+      const sel = term.getSelection();
+      if (sel) void navigator.clipboard.writeText(sel);
+    });
+
+    // Windows Terminal-style copy/paste. xterm.js by default forwards every
+    // keystroke to the PTY, so Ctrl+C arrives as \x03 (SIGINT) and Ctrl+V as
+    // \x16 (literal). On Windows users expect Ctrl+C/Ctrl+V (plus the Shift
+    // variants and Ctrl+Insert/Shift+Insert) to do clipboard ops in terminal
+    // UIs. We intercept at the DOM key event layer BEFORE xterm emits onData:
+    //   - Ctrl+C  : if there's a selection, copy + swallow. Otherwise fall
+    //               through (xterm sends SIGINT to the PTY).
+    //   - Ctrl+V  : read clipboard, write to PTY. Always swallowed.
+    //   - Ctrl+Shift+C / Ctrl+Insert  : force copy.
+    //   - Ctrl+Shift+V / Shift+Insert : alias for paste.
+    // Returning `false` from attachCustomKeyEventHandler tells xterm NOT to
+    // process the event further (no onData emission, no default scroll).
+    const writeToPty = (text: string) => {
+      if (!text) return;
+      const bytes = new TextEncoder().encode(text);
+      void invoke("pty_write", { sessionId, data: BASE64.encode(bytes) });
+    };
+    term.attachCustomKeyEventHandler((event) => {
+      if (event.type !== "keydown") return true;
+      const isCtrl = event.ctrlKey && !event.altKey && !event.metaKey;
+      if (!isCtrl) return true;
+      const key = event.key;
+      const code = event.code;
+
+      const isPaste =
+        key === "v" || key === "V" || code === "KeyV" ||
+        (event.shiftKey && (key === "Insert" || code === "Insert"));
+      if (isPaste) {
+        void navigator.clipboard.readText().then(writeToPty).catch(() => {});
+        event.preventDefault();
+        return false;
+      }
+
+      const isForceCopy =
+        (event.shiftKey && (key === "C" || code === "KeyC")) ||
+        (!event.shiftKey && (key === "Insert" || code === "Insert"));
+      if (isForceCopy) {
+        const sel = term.getSelection();
+        if (sel) void navigator.clipboard.writeText(sel);
+        event.preventDefault();
+        return false;
+      }
+
+      const isCtrlC = !event.shiftKey && (key === "c" || key === "C" || code === "KeyC");
+      if (isCtrlC) {
+        const sel = term.getSelection();
+        if (sel) {
+          void navigator.clipboard.writeText(sel);
+          term.clearSelection();
+          event.preventDefault();
+          return false;
+        }
+        return true;
+      }
+      return true;
+    });
+
     // Forward keystrokes.
     const dataDispose = term.onData((data) => {
       // data is a JS string in UTF-16; encode to bytes then base64.
@@ -182,6 +245,7 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
       cancelAnimationFrame(initialFitFrame);
       if (fitRetryTimer !== null) window.clearTimeout(fitRetryTimer);
       resizeObserver.disconnect();
+      selDispose.dispose();
       dataDispose.dispose();
       if (unlistenData) unlistenData();
       if (unlistenExit) unlistenExit();
@@ -191,11 +255,20 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
     };
   }, [sessionId, onExit]);
 
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text");
+    if (!text || !termRef.current) return;
+    const bytes = new TextEncoder().encode(text);
+    void invoke("pty_write", { sessionId, data: BASE64.encode(bytes) });
+  };
+
   return (
     <div
       ref={containerRef}
       className="h-full w-full bg-[#0d0d11]"
       style={{ minHeight: 200 }}
+      onPaste={handlePaste}
     />
   );
 }

@@ -34,6 +34,9 @@ type TabsState = {
   rename: (id: string, title: string) => void;
   /** Read-and-clear the deep-link sub-tab hint for a project. */
   consumeInitialSubTab: (id: string) => ProjectSubTab | null;
+  /** Per-project active sub-tab — survives navigating away from the Projects main tab. In memory only, not persisted to disk. */
+  subTabs: Record<string, ProjectSubTab>;
+  setProjectSubTab: (id: string, subTab: ProjectSubTab) => void;
 };
 
 const Ctx = createContext<TabsState | null>(null);
@@ -48,6 +51,7 @@ const HOME_TAB: OpenTab = {
 export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<OpenTab[]>([HOME_TAB]);
   const [currentId, setCurrentId] = useState<string>("home");
+  const [subTabs, setSubTabs] = useState<Record<string, ProjectSubTab>>({});
   const persistTimer = useRef<number | null>(null);
   const hydrated = useRef(false);
   // Transient deep-link hints. Keyed by project id, consumed-and-cleared on
@@ -163,6 +167,10 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, title } : t)));
   }, []);
 
+  const setProjectSubTab = useCallback((id: string, subTab: ProjectSubTab) => {
+    setSubTabs((prev) => (prev[id] === subTab ? prev : { ...prev, [id]: subTab }));
+  }, []);
+
   // Ctrl+Tab cycling.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -194,8 +202,10 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
       reorder,
       rename,
       consumeInitialSubTab,
+      subTabs,
+      setProjectSubTab,
     }),
-    [tabs, currentId, open, close, select, reorder, rename, consumeInitialSubTab],
+    [tabs, currentId, open, close, select, reorder, rename, consumeInitialSubTab, subTabs, setProjectSubTab],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

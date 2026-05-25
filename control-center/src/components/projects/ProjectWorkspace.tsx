@@ -7,6 +7,7 @@
 
 import { useEffect, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 import {
   Bot,
   BookOpen,
@@ -58,12 +59,18 @@ const TABS: { id: ProjectSubTab; label: string; Icon: ComponentType<{ size?: num
 ];
 
 export default function ProjectWorkspace({ projectId }: Props) {
-  const { consumeInitialSubTab } = useProjectsTabs();
-  // Read deep-link hint from the home grid's "Open terminal" / "Open AI"
-  // shortcuts ONCE on mount. After that, the user drives the sub-tab.
-  const [subTab, setSubTab] = useState<ProjectSubTab>(
-    () => consumeInitialSubTab(projectId) ?? "board",
-  );
+  const { consumeInitialSubTab, subTabs, setProjectSubTab } = useProjectsTabs();
+
+  // Sub-tab lives in context so it survives navigating away from the Projects
+  // main tab. Deep-link hints (from home-grid shortcuts) override on mount.
+  const subTab: ProjectSubTab = subTabs[projectId] ?? "board";
+  function setSubTab(t: ProjectSubTab) { setProjectSubTab(projectId, t); }
+
+  useEffect(() => {
+    const hint = consumeInitialSubTab(projectId);
+    if (hint) setProjectSubTab(projectId, hint);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [meta, setMeta] = useState<ProjectMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,9 +114,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const openFolder = async () => {
     if (!meta) return;
     try {
-      // `open_project` opens the folder via the configured launcher; this is
-      // the closest existing handler to a "reveal in file manager" action.
-      await invoke("open_project", { id: meta.id });
+      await openPath(meta.path);
     } catch (e) {
       setError(String(e));
     }
@@ -216,7 +221,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
 
       {/* Body */}
       <div className="flex-1 overflow-hidden">
-        {subTab === "board" && <ProjectBoard projectId={projectId} />}
+        {subTab === "board" && <ProjectBoard projectId={projectId} onOpenTerminal={() => setSubTab("terminal")} />}
         {subTab === "terminal" && <ProjectTerminal projectId={projectId} />}
         {subTab === "agents" && (
           <ProjectAgents projectId={projectId} projectPath={meta?.path ?? ""} />

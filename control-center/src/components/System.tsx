@@ -1183,6 +1183,13 @@ export function System() {
   );
 }
 
+const CONTEXT_HINTS: Record<SystemSubTab, string> = {
+  apps:
+    'Abre Apps cuando una instalación quedó abandonada, un programa ralentiza el sistema, o quieres saber qué hay instalado antes de liberar espacio.',
+  diagnostics:
+    'Abre Diagnostics cuando Claude Code no arranca, la terminal no abre, aparecen errores de permisos, o quieres ejecutar fixes del Event Log con un clic.',
+};
+
 function SystemHeader({
   subTab,
   setSubTab,
@@ -1226,6 +1233,12 @@ function SystemHeader({
             </button>
           ))}
         </div>
+        <p
+          className="mt-2 text-[12px] leading-snug"
+          style={{ color: "var(--color-text-faint, var(--color-text-tertiary))" }}
+        >
+          {CONTEXT_HINTS[subTab]}
+        </p>
       </div>
     </header>
   );

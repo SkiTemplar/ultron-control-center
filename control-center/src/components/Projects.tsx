@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   CreateProjectResult,
   LauncherItem,
@@ -16,6 +17,7 @@ import type {
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
 import NewOpenGlProjectModal from "./projects/NewOpenGlProjectModal";
+import BatchDropdown, { type BatchToast } from "./projects/BatchDropdown";
 
 // ---------------------------------------------------------------------------
 // Launcher item rendering helpers
@@ -1713,6 +1715,16 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // projects list resolves; failures are silent (cards just show "—").
   const [stats, setStats] = useState<Record<string, CardStats>>({});
 
+  // Toast emitted by <BatchDropdown> after running a batch script. Auto-fades
+  // after ~6s so it doesn't linger when the user moves on. The `lastAction`
+  // box only surfaces failures; this is the success-side channel.
+  const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
+  useEffect(() => {
+    if (!batchToast) return;
+    const t = window.setTimeout(() => setBatchToast(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [batchToast]);
+
   async function load() {
     setLoading(true);
     try {
@@ -1801,37 +1813,12 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
     }
   }
 
-  /** Card action: open the project's folder in Explorer. Uses launch_item if
-   *  a `folder` chip exists (preserves the user's chosen path), else falls
-   *  back to spawning explorer.exe on `p.path` directly. */
   async function cardOpenFolder(p: ProjectInfo) {
-    setLastAction(null);
+    if (!p.path) return;
     try {
-      const items = p.items ?? [];
-      const folderIdx = items.findIndex((it) => it.kind === "folder");
-      if (folderIdx !== -1) {
-        await invoke("launch_item", { projectId: p.id, index: folderIdx });
-        return;
-      }
-      if (!p.path) {
-        setLastAction({
-          success: false,
-          stdout: "",
-          stderr: "No path configured for this project",
-          exit_code: null,
-        });
-        return;
-      }
-      // No folder chip and no synthesis happened → just open the project
-      // via the legacy openLegacy hook, which reveals the path in Explorer.
-      await openLegacy(p.id);
+      await openPath(p.path);
     } catch (e) {
-      setLastAction({
-        success: false,
-        stdout: "",
-        stderr: `open folder: ${String(e)}`,
-        exit_code: null,
-      });
+      setLastAction({ success: false, stdout: "", stderr: `open folder: ${String(e)}`, exit_code: null });
     }
   }
 
@@ -2329,33 +2316,17 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
 
   return (
     <div className="cc-page projects-page px-10 py-8">
-      <header className="mb-5 flex items-baseline justify-between gap-4">
-        <div>
+      {/* Header — primary "+ New project" CTA now lives inside the project grid
+          itself (and as a pill in the search toolbar for tree/blocks/list views).
+          Header keeps only secondary actions so the title row never competes. */}
+      <header className="mb-5 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0">
           <h1 className="text-[20px] font-semibold leading-tight">Projects</h1>
           <p className="mt-1 text-[13px]" style={{ color: "var(--color-text-secondary)" }}>
             {projects.length} registered · {filtered.length} shown
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => {
-              if (wizardOpen) {
-                setWizardOpen(false);
-                resetWizard();
-              } else {
-                resetWizard();
-                setWizardOpen(true);
-              }
-            }}
-            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-          >
-            + New project
-          </button>
+        <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
             onClick={() => setOpenglModalOpen(true)}
@@ -2383,6 +2354,11 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           >
             {scanning ? "Scanning…" : "Rescan disk"}
           </button>
+          {/* Run batch ▾ — lists pre-approved scripts under ~/.ultron/batches/
+              and executes the selected one. Useful when an AI session has
+              dropped a .bat for an action it can't run inside the sandbox
+              (elevated installs, interactive prompts, etc.). */}
+          <BatchDropdown onResult={setBatchToast} />
           <button
             type="button"
             onClick={load}
@@ -3026,6 +3002,28 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
             );
           })}
         </div>
+        {/* CTA pill sits at the end of the filters row so it is always reachable
+            (incl. tree/blocks/list views where the in-grid tile isn't rendered). */}
+        <button
+          type="button"
+          onClick={() => {
+            if (wizardOpen) {
+              setWizardOpen(false);
+              resetWizard();
+            } else {
+              resetWizard();
+              setWizardOpen(true);
+            }
+          }}
+          className="rounded px-3 py-1.5 text-[11.5px] font-medium transition-colors"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-accent-text)",
+          }}
+          title="Create a new project (wizard)"
+        >
+          + New project
+        </button>
       </div>
 
       {/* Hierarchy toggle — Flat (classic grid) vs Tree (folder breakdown).
@@ -3079,6 +3077,58 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           }}
         >
           {lastAction.stderr || lastAction.stdout || `exit ${lastAction.exit_code}`}
+        </div>
+      )}
+
+      {/* Batch toast — success or failure of the most recent BatchDropdown
+          run. Auto-fades after 6s (see effect on batchToast above). The
+          success-side surface uses the same shape as the error banner so it
+          feels like one cohesive status zone. */}
+      {batchToast && (
+        <div
+          className="mb-4 flex items-start gap-3 rounded p-3 text-[12px]"
+          style={{
+            background:
+              batchToast.kind === "ok"
+                ? "rgba(63, 185, 80, 0.06)"
+                : "rgba(248, 81, 73, 0.06)",
+            border:
+              batchToast.kind === "ok"
+                ? "1px solid rgba(63, 185, 80, 0.22)"
+                : "1px solid rgba(248, 81, 73, 0.22)",
+            color:
+              batchToast.kind === "ok"
+                ? "var(--color-success)"
+                : "var(--color-danger)",
+          }}
+        >
+          <div className="min-w-0 flex-1">
+            <div className="font-medium">{batchToast.title}</div>
+            {batchToast.body && (
+              <pre
+                className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words text-[11px]"
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                {batchToast.body}
+              </pre>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setBatchToast(null)}
+            className="shrink-0 rounded px-1.5 py-0.5 text-[11px]"
+            style={{
+              background: "transparent",
+              color: "var(--color-text-tertiary)",
+              border: "1px solid var(--color-border)",
+            }}
+            aria-label="Dismiss batch result"
+          >
+            ×
+          </button>
         </div>
       )}
 
@@ -3164,6 +3214,32 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 onDelete={() => setPendingDelete(p)}
               />
             ))}
+            {/* In-grid CTA tile — sits beside the project name cards so the
+                primary action lives in the same visual zone as the names. */}
+            <button
+              type="button"
+              onClick={() => {
+                if (wizardOpen) {
+                  setWizardOpen(false);
+                  resetWizard();
+                } else {
+                  resetWizard();
+                  setWizardOpen(true);
+                }
+              }}
+              className="flex min-h-[140px] flex-col items-center justify-center gap-1.5 rounded transition-colors"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text-secondary)",
+                border: "1px dashed var(--color-border-strong)",
+              }}
+              title="Create a new project (wizard)"
+            >
+              <span className="text-[22px] font-light leading-none" style={{ color: "var(--color-accent)" }}>
+                +
+              </span>
+              <span className="text-[12px] font-medium">New project</span>
+            </button>
           </div>
         ) : (
           <div className="space-y-2">

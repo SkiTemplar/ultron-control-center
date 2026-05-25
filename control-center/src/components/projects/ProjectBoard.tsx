@@ -14,7 +14,7 @@ import { useDraggableCard, useDroppableColumn } from "../../hooks/useKanbanDnd";
 import type { Card, KanbanBoard, KanbanArchive, KanbanArchiveSummary } from "../../types";
 import CardEditorModal from "./CardEditorModal";
 
-type Props = { projectId: string };
+type Props = { projectId: string; onOpenTerminal?: () => void };
 
 // v2.6.2 — column name matchers for the "Investigar fused into Backlog" feature.
 // USER's quote: "Investigar prefiero que este en la misma columna que backlog
@@ -46,7 +46,7 @@ function hasInvestigarTag(card: Card): boolean {
   return card.tags.some((t) => INVESTIGAR_TAGS.includes(t.toLowerCase() as typeof INVESTIGAR_TAGS[number]));
 }
 
-export default function ProjectBoard({ projectId }: Props) {
+export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
   const [board, setBoard] = useState<KanbanBoard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<
@@ -548,7 +548,7 @@ export default function ProjectBoard({ projectId }: Props) {
                         col.name,
                         prompt,
                         backlogCards.map((c) => c.title),
-                      )
+                      ).then(() => onOpenTerminal?.())
                     }
                     onRename={(newName) => void renameColumn(col.id, newName)}
                     backlogName={col.name}
@@ -585,7 +585,7 @@ export default function ProjectBoard({ projectId }: Props) {
                       board.cards
                         .filter((c) => c.column_id === col.id)
                         .map((c) => c.title),
-                    )
+                    ).then(() => onOpenTerminal?.())
                   }
                   onRename={(newName) => void renameColumn(col.id, newName)}
                 />
@@ -1267,15 +1267,17 @@ function BoardColumn({
           >
             <Bot size={12} />
           </button>
-          <button
-            onClick={onAddCard}
-            className="flex items-center gap-1 rounded px-2 py-1 text-[11.5px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
-            aria-label="Add card"
-            title="Add card"
-          >
-            <Plus size={12} />
-            Add
-          </button>
+          {isBacklogColumn(name) && (
+            <button
+              onClick={onAddCard}
+              className="flex items-center gap-1 rounded px-2 py-1 text-[11.5px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
+              aria-label="Add card"
+              title="Add card"
+            >
+              <Plus size={12} />
+              Add
+            </button>
+          )}
         </div>
         {menuOpen && (
           <div

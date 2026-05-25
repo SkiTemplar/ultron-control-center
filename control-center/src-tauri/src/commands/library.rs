@@ -374,12 +374,15 @@ pub async fn github_search_repos(
         return Err("query is empty".to_string());
     }
     let lim = limit.unwrap_or(20).clamp(1, 50).to_string();
+    // NOTE: `topics` was removed from the --json field list — recent gh
+    // versions reject it as "Unknown JSON field". GhRepoHit::topics has
+    // #[serde(default)] so the parser still works and the field stays empty.
     let args: Vec<String> = vec![
         "search".into(),
         "repos".into(),
         q,
         "--json".into(),
-        "fullName,owner,name,description,stargazersCount,language,url,updatedAt,topics".into(),
+        "fullName,owner,name,description,stargazersCount,language,url,updatedAt".into(),
         "--limit".into(),
         lim,
         "--sort".into(),
@@ -430,12 +433,14 @@ pub async fn github_search_trending(
 
     let q = format!("{topic_qualifiers} {pushed_window}");
     let lim = limit.unwrap_or(24).clamp(1, 50).to_string();
+    // See github_search_repos: `topics` field was dropped from gh CLI; the
+    // query qualifiers (`topic:...`) still narrow the result set server-side.
     let args: Vec<String> = vec![
         "search".into(),
         "repos".into(),
         q,
         "--json".into(),
-        "fullName,owner,name,description,stargazersCount,language,url,updatedAt,topics".into(),
+        "fullName,owner,name,description,stargazersCount,language,url,updatedAt".into(),
         "--limit".into(),
         lim,
         "--sort".into(),
