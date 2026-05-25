@@ -1,0 +1,917 @@
+{
+  "name": "SPRINT-1",
+  "archived_at": "epoch:1779637872",
+  "cards": [
+    {
+      "id": "card-v26-fb-027-done",
+      "title": "P1 DONE (partial): Sessions tab redesign — Custom popover",
+      "description": "v2.6.",
+      "tags": [
+        "feature",
+        "sessions",
+        "ux",
+        "p1",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-005-done",
+      "title": "P1 DONE: Notes principal global — backend + componente + tab",
+      "description": "v2.6.",
+      "tags": [
+        "feature",
+        "notes",
+        "p1",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-b01-done",
+      "title": "v27 BUG P0 FIX: Last Backup Run status (verified backend sync)",
+      "description": "Investigación: run_backup_now usa command.output() síncrono — backend ya espera fin de proceso. No requirió cambios. backup_status se llamaría con datos actualizados.",
+      "tags": [
+        "bug",
+        "dashboard",
+        "backup",
+        "p0",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-b02-done",
+      "title": "v27 BUG P0 FIX: Catalog GitHub URLs 404",
+      "description": "Wave 2: curated-catalog.json audited (schema v2). Dead URLs marcadas con `dead: true` + `dead_reason`. Catalog.tsx muestra badge 404 con razón.",
+      "tags": [
+        "bug",
+        "library",
+        "catalog",
+        "p0",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-b03-done",
+      "title": "v27 BUG P0 FIX: Notes — error al eliminar nota",
+      "description": "Wave 1: deleteCurrent() ahora usa confirmDialog (in-app popup) en lugar de window.confirm() native. Sin más bugs.",
+      "tags": [
+        "bug",
+        "notes",
+        "p0",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-b04-done",
+      "title": "v27 BUG P0 FIX: Projects Terminal — wiring verified",
+      "description": "Wave 1: SplitPane → ProjectTerminal wiring OK. Agente verificó onSpawn handler. WebGL ya off (v2.6). Si persiste blank screen: punto de investigación = timing safeFit en EmbeddedTerminal.",
+      "tags": [
+        "bug",
+        "terminal",
+        "projects",
+        "p0",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-b05-done",
+      "title": "v27 BUG P1 FIX: System Apps — heurística reforzada",
+      "description": "Wave 2: 6 reglas independientes para flagear apps de sistema: Microsoft Store appx, Windows paths, MS runtime/updates regex, MS+Windows component, hardware-driver publishers, hardware-driver name prefixes.",
+      "tags": [
+        "bug",
+        "system",
+        "apps",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-b06-done",
+      "title": "v27 BUG P1 FIX: Notes — input inline (no Tauri prompt)",
+      "description": "Wave 1: createNew() reemplazado por input inline con estado creatingNew/newTitle. Enter confirma, Esc cancela.",
+      "tags": [
+        "bug",
+        "notes",
+        "ux",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-b07-done",
+      "title": "v27 BUG P1 VERIFIED: Notifications — no hay bug delete vs clear",
+      "description": "Wave 1 agent verificó: solo existen Dismiss (per-fingerprint) y Delete info/Clear all (globales). Sin botón Delete individual, sin bug.",
+      "tags": [
+        "bug",
+        "notifications",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f02-done",
+      "title": "v27 P1 DONE: Library Hooks — categorías colapsables + cartillas",
+      "description": "Wave 1: agrupados por evento (PreToolUse/PostToolUse/Stop/etc.) con headers colapsables, badges de color, contador. Cards compactas en filas con toggle, id, matcher, source badge, last-fired, Test/Edit/Del.",
+      "tags": [
+        "ux",
+        "library",
+        "hooks",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f03-done",
+      "title": "v27 P1 DONE: Library Rules — quitar descripción + espaciado",
+      "description": "Wave 1: eliminado <pre>{r.preview} y padding p-3 → px-2.5 py-2. Cards más compactas.",
+      "tags": [
+        "ux",
+        "library",
+        "rules",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f04-done",
+      "title": "v27 P1 DONE: Sessions UX — quitar folder/open-id + Custom modal simple",
+      "description": "Wave 1: botones Open Folder/Open in IDE eliminados. Botón Create Project si ws.project_id null. Custom popover sin textarea de prompt — solo provider + model + Launch.",
+      "tags": [
+        "ux",
+        "sessions",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f05-done",
+      "title": "v27 P1 DONE: Sessions Send Context (simple version)",
+      "description": "Wave 2: botón 'Send Context → New Session' que pasa contexto via prompt inicial. Backend completo en card-v26-fb-040 (Investigar).",
+      "tags": [
+        "feature",
+        "sessions",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f06-done",
+      "title": "v27 P1 DONE: Projects Kanban — cards solo título + collapse removido + IA button bigger",
+      "description": "Wave 1: estado collapsedCols eliminado, botón Add convertido a '+ Add' prominente, descripción eliminada de BoardCard (visible solo en modal).",
+      "tags": [
+        "feature",
+        "ux",
+        "projects",
+        "kanban",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f07-done",
+      "title": "v27 P1 DONE: Diagnostics auto-load + Event Log parsing + KNOWN_ERRORS db",
+      "description": "Wave 2: Diagnostics.tsx rewrite con auto-run on mount, EventLogPanel sub-component, KNOWN_ERRORS map (IDs 41, 1001, 6008, 7000, 7001, 7011, 7031, 4624, 4625, 4634, 1000, 10010). Backend nuevo: event_log.rs (wevtutil parsing), commands event_log_recent / open_event_viewer.",
+      "tags": [
+        "feature",
+        "system",
+        "diagnostics",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f08-done",
+      "title": "v27 P1 DONE: Notes global — Send to Project",
+      "description": "Wave 3: backend send_global_to_project, frontend dropdown 'Send to Project ▾' junto a Delete. Copia (no mueve) la nota al notebook del proyecto.",
+      "tags": [
+        "feature",
+        "notes",
+        "projects",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f09-done",
+      "title": "v27 P2 DONE: Dashboard layout + drop PC hardware metrics card",
+      "description": "Wave 1: PcDiagnosticCard eliminada del Dashboard. CrashEventsCard añadida (Wave 2). Espacio inferior reducido mt-12 → mt-8.",
+      "tags": [
+        "ux",
+        "dashboard",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f10-done",
+      "title": "v27 P2 DONE: Fixed Common Issues → System Troubleshooting",
+      "description": "Wave 1: nueva sub-tab 'troubleshooting' en System. 9 comandos organizados en 3 categorías colapsables (Network, Storage & Maintenance, Shell & Processes). Cada uno con descripción preventiva.",
+      "tags": [
+        "ux",
+        "dashboard",
+        "system",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f11-done",
+      "title": "v27 P2 DONE: Sidebar — Notifications al footer + items más grandes",
+      "description": "Wave 1: Notifications removido de Overview, añadido al footer encima de Settings. Font 14px→15px, padding py-1.5→py-2, gap entre secciones aumentado.",
+      "tags": [
+        "ux",
+        "notifications",
+        "sidebar",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f12-done",
+      "title": "v27 P2 DONE: System — sección Bloatware (~30 apps + 6 categorías)",
+      "description": "Wave 2: nueva sub-tab 'bloatware' en System. BLOATWARE_CATALOG con 6 categorías (Store games, OEM, Communication, Mixed Reality, Misc, Protected). Backend appx_query + uninstall_bloatware_app con allowlist pattern + protected refusal.",
+      "tags": [
+        "feature",
+        "system",
+        "bloatware",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f13-done",
+      "title": "v27 P2 DONE: MCPs UX — sin ruta, 3-col xl, toggle individual",
+      "description": "Wave 1: command/url preview eliminado de cards. Grid md:grid-cols-2 xl:grid-cols-3. Toggle enable/disable per-card con backend settings_save (disabled de plugin/project = read-only).",
+      "tags": [
+        "ux",
+        "mcps",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f14-done",
+      "title": "v27 P2 DONE: Library Skills/Agents — sibling files inline",
+      "description": "Wave 3: backend list_skill_files devuelve archivos hermanos del SKILL.md/agent .md. UI: toggle '▸ Files' por card que muestra siblings como chips clicables (abren con openPath default editor).",
+      "tags": [
+        "feature",
+        "library",
+        "skills",
+        "agents",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f15-done",
+      "title": "v27 P2 DONE: Sidebar mejoras (font + spacing)",
+      "description": "Wave 1: cubierto junto con v27-f11 (font 15px, padding aumentado).",
+      "tags": [
+        "ux",
+        "sidebar",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f16-done",
+      "title": "v27 P2 DONE: Mem0 cloud — diagnostics panel + JSONL log",
+      "description": "Wave 2: ~/.ultron/logs/mem0.jsonl con todas las llamadas (status, search, add, delete) incluyendo body/HTTP/latency. Mem0DiagnosticsPanel UI muestra last_success, last_error, API key configurada, endpoint, log path, Test connection button.",
+      "tags": [
+        "bug",
+        "memory",
+        "mem0",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f17-done",
+      "title": "v27 P2 DONE: Sessions UX — search + group + provider badges",
+      "description": "Wave 2: barra de búsqueda, agrupación por proyecto >5 sesiones, ordenado por modified_at desc, badge de provider en cada workspace card.",
+      "tags": [
+        "ux",
+        "sessions",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f18-done",
+      "title": "v27 P2 DONE: Projects Kanban — collapse removed + Add button visible",
+      "description": "Wave 1: cubierto junto con v27-f06.",
+      "tags": [
+        "ux",
+        "projects",
+        "kanban",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f19-done",
+      "title": "v27 P2 DONE: CardEditorModal — Advanced section + tooltips i",
+      "description": "Wave 2: campos agent/CWD override/prompt template/preview movidos a <details>Advanced cerrado por defecto. Cada uno con badge 'i' que tiene tooltip explicativo en español.",
+      "tags": [
+        "ux",
+        "projects",
+        "kanban",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f20-done",
+      "title": "v27 P2 DONE: Projects Terminal — auto tab names al spawn",
+      "description": "Wave 1: interceptado onSpawn en TerminalLeaf — antes de llamar padre, setName(providerLabel(p)) → Claude/Codex/Gemini/PowerShell/Admin. Persistido en localStorage.",
+      "tags": [
+        "ux",
+        "terminal",
+        "projects",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f21-done",
+      "title": "v27 P2 DONE: Projects Notes — notebook múltiple",
+      "description": "Wave 3: ProjectNotes.tsx rewrite con dos paneles (list + editor). Backend nuevo: list/load/save/delete project notes en ~/.ultron/cockpit/projects/<id>/notes/<slug>.md. Compat con notes.md legacy.",
+      "tags": [
+        "feature",
+        "notes",
+        "projects",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f22-done",
+      "title": "v27 P2 DONE: Projects Timeline — 2-col grid (110px / 1fr)",
+      "description": "Wave 3: grid 'day label sticky' + entradas 4-column inline (time/kind/title/detail). Aprovecha ancho completo, sin gutter sobrante.",
+      "tags": [
+        "ux",
+        "timeline",
+        "projects",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f23-done",
+      "title": "v27 P2 DONE: Settings General — simplificar + autostart → Lifecycle",
+      "description": "Wave 1: Welcome screen eliminado. Autostart toggle eliminado (movido a LifecyclePanel). GeneralSection ahora solo info panel.",
+      "tags": [
+        "ux",
+        "settings",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f24-done",
+      "title": "v27 P2 DONE: Settings Backup — scheduler + simplificación completa",
+      "description": "Wave 2: BackupsSection rewrite. Destination input + Browse, lista plana de Folders con Add/Remove, Schedule (Day picker + Time + Save), Last backup + Force now. Backend schtasks WEEKLY task UltronBackup-Weekly idempotente.",
+      "tags": [
+        "feature",
+        "settings",
+        "backup",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f25-done",
+      "title": "v27 P2 DONE: Settings App Lifecycle — simplificar + autostart",
+      "description": "Wave 1: bloque Uninstall eliminado (deprecado). Descripciones acortadas a 1 línea. Start with Windows añadido. Rebuild + Close en items-center justify-between.",
+      "tags": [
+        "ux",
+        "settings",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f26-done",
+      "title": "v27 P2 DONE: Settings Plugins — doble columna + shortcuts validados",
+      "description": "Wave 1: grid-cols-2 gap-3. Botones shortcut: skills→library, agents→library, hooks→system (correcto), mcp→mcps.",
+      "tags": [
+        "ux",
+        "settings",
+        "plugins",
+        "library",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f27-done",
+      "title": "v27 P3 DONE: System Apps — heurística reforzada (cubre IA classification need)",
+      "description": "Wave 2 cubierto en v27-b05 con 6 reglas robustas. Análisis IA de classification: postponed (heurística suficiente por ahora).",
+      "tags": [
+        "feature",
+        "system",
+        "apps",
+        "p3",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-f28-done",
+      "title": "v27 P1 DONE: New OpenGL Project (vcpkg) — botón en Projects",
+      "description": "Wave 2: Tauri command create_opengl_project genera CMakeLists/CMakePresets/vcpkg.json (glfw3+glad+glm)/common.h/main.cpp Simple|Context/README. NewOpenGlProjectModal con parent folder picker (default localStorage) + project name + Simple/Context selector. Botón en Projects header.",
+      "tags": [
+        "feature",
+        "projects",
+        "opengl",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-010-done",
+      "title": "v27 P1 DONE: Library Catalog — GitHub trending search + install URL copy",
+      "description": "Wave 2: Catalog.tsx rewrite. Dead entries con badge 404 + reason. Nueva sección 'Search GitHub' con trending + manual modes. Backend nuevo: github_search_repos, github_search_trending (gh search via subprocess). Catalog movido al final de SUB_TABS.",
+      "tags": [
+        "feature",
+        "library",
+        "catalog",
+        "discovery",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-013-done",
+      "title": "v27 P2 DONE: Backup section simplificada",
+      "description": "Cubierto por v27-f24-done (Wave 2 rewrite completo).",
+      "tags": [
+        "ux",
+        "settings",
+        "backup",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-016-done",
+      "title": "v27 P2 DONE: Project edit modal — default_shell + parent_folder_override + notes + tags pool",
+      "description": "Wave 3: 3 nuevos campos opcionales en project schema (compatibilidad mantenida). Tags como input + pool de chips clicables de tags ya usados.",
+      "tags": [
+        "ux",
+        "projects",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-017-done",
+      "title": "v27 P2 DONE: Dashboard PC Diagnostic → solo crash events",
+      "description": "Wave 2: CrashEventsCard con event_log_recent scope=CrashOnly (IDs 41/1001/6008). 'All clear ✓' si no hay crashes. Open Event Viewer al hacer clic.",
+      "tags": [
+        "ux",
+        "dashboard",
+        "system",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-018-done",
+      "title": "v27 P2 DONE: ProjectAgents — UI clean + workflow tiles (placeholders)",
+      "description": "Wave 2: rewrite con cards estilo Library, picker overlay para añadir agentes, 4 workflow tiles placeholder. Backend definitivo de workflows en Investigar (card-v27-inv-02).",
+      "tags": [
+        "feature",
+        "projects",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-023-done",
+      "title": "v27 P2 DONE: Commands tab — proporción correcta",
+      "description": "Wave 3: grid 280px+1fr fijo. Categorías colapsadas por defecto. Last opened persistido en localStorage. Preview pane p-5 + text-[12.5px] + wordBreak break-word.",
+      "tags": [
+        "ux",
+        "commands",
+        "library",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-025-done",
+      "title": "v27 P1 → MOVED: Usage scraping — research a card-v27-inv-01",
+      "description": "Movido a Investigar para sesión adicional. Card original cerrada.",
+      "tags": [
+        "feature",
+        "usage",
+        "research",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-031-done",
+      "title": "v27 P2 DONE: Button Prompts — modal overlay + outdated audit",
+      "description": "Wave 3: inline expand → modal overlay (fixed inset-0). Detalle con Effective/Original/textarea/Save/Reset. Audit: selfimprove.repo_evaluator + logs.summarize_recent marcados como CANDIDATE FOR REMOVAL.",
+      "tags": [
+        "ux",
+        "button-prompts",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-032-done",
+      "title": "v27 P3 PARTIAL: Notifications UX — moved to footer",
+      "description": "Notificaciones movidas al footer (v27-f11). Iteration profundo (severity borders, group consecutive, sticky headers) postponed — feature funcional según USER.",
+      "tags": [
+        "ux",
+        "notifications",
+        "p3",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-044-done",
+      "title": "v27 P1 DONE: Skills/Agents — solo título en cards + detail pane",
+      "description": "Wave 1: descripción eliminada de Skills.tsx y Agents.tsx cards. Detail pane ya existente. Wave 3 añadió siblings files inline.",
+      "tags": [
+        "feature",
+        "library",
+        "skills",
+        "agents",
+        "ux",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-045-done",
+      "title": "v27 P1 DONE: Font sizes globales — sweep ~50 archivos",
+      "description": "Wave 3: text-[11px] → text-[11.5px], text-[10.5px] → text-[11.5px] selectivo. Excepciones mantenidas (tabular-nums timestamps, version badges, hashes). 33+ frontend .tsx + 3 backend rust files touched.",
+      "tags": [
+        "ux",
+        "typography",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-046-done",
+      "title": "v27 P1 INSTRUMENTED: Sessions debug round 2 — console.log temporales",
+      "description": "Wave 2: console.log de diagnóstico añadidos en Sessions.tsx:914,931 con eslint-disable-next-line + comentario 'Strip once fb-046 is closed'. Backend logging informativo. Si reproduce el bug, los logs lo capturarán.",
+      "tags": [
+        "bug",
+        "sessions",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-047-done",
+      "title": "v27 P1 DONE: Knowledge Graph — editor local funcional",
+      "description": "Wave 2: backend nuevo kg.rs con read_graph/create_entities/add_observations/create_relations/delete_entity/search_nodes. Persiste en ~/.ultron/cockpit/kg.jsonl con MISMO schema que MCP plugin_ecc_memory. UI KgEditorPane: list + form + SVG circular graph. Sincronización MCP en Investigar (card-v27-inv-03).",
+      "tags": [
+        "feature",
+        "memory",
+        "mcp",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-048-done",
+      "title": "v27 P2 DONE: Project default provider selector",
+      "description": "Wave 2: backend ya tenía default_provider field. Wave 2 añadió wDefaultProvider state en wizard + select Claude/Gemini/Codex. cardOpenAi ya respetaba p.default_provider ?? 'claude'.",
+      "tags": [
+        "feature",
+        "projects",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-049-done",
+      "title": "v27 P2 DONE: Project edit modal — overlay",
+      "description": "Wave 2: inline wizard → fixed inset-0 z-50 overlay con backdrop bg-black/60, dismiss outside, Esc handler, close button (×).",
+      "tags": [
+        "ux",
+        "projects",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-050-done",
+      "title": "v27 P1 DONE: ProjectAgents — UI clean (cubierto en fb-018)",
+      "description": "Wave 2 cubrió ambos cards: UI clean estilo Library + workflows placeholder + picker overlay.",
+      "tags": [
+        "feature",
+        "projects",
+        "agents",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-051-done",
+      "title": "v27 P2 DONE: Commands UI rediseño (cubierto en fb-023)",
+      "description": "Wave 3 cubrió ambos cards.",
+      "tags": [
+        "ux",
+        "commands",
+        "library",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-052-done",
+      "title": "v27 P2 PARTIAL: Timeline rediseño (cubierto en v27-f22)",
+      "description": "Wave 3 hizo el rediseño layout. Graph mode mayor sigue en Blocked.",
+      "tags": [
+        "ux",
+        "timeline",
+        "projects",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-extra-browse-removed",
+      "title": "v27 P2 DONE: Settings Plugins — Browse Marketplaces eliminado",
+      "description": "Wave 3: KNOWN_MARKETPLACES constant + sección Browse marketplaces completas eliminadas. Solo queda lista de plugins instalados.",
+      "tags": [
+        "ux",
+        "settings",
+        "plugins",
+        "cleanup",
+        "p2",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-002-pending",
+      "title": "v27 P0 VERIFIED: PTY Powershell/Claude/Codex/Gemini — backend OK",
+      "description": "Wave 1 verificó wiring (SplitPane → ProjectTerminal → TerminalLeaf). WebGL off desde v2.6. where/which pre-validation desde v2.6. Si persiste blank screen al rebuildear: usar console.log diagnostics en Sessions (similar fb-046).",
+      "tags": [
+        "bug",
+        "terminal",
+        "sessions",
+        "p0",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-fb-009-done",
+      "title": "v27 P1 DONE: ProjectAgents subtab UI clean (cubierto en fb-050)",
+      "description": "Wave 2 rewrite completo de ProjectAgents.tsx.",
+      "tags": [
+        "ux",
+        "projects",
+        "agents",
+        "p1",
+        "done-v2.7"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-1779763200000-0",
+      "title": "Library Spotify blocks drill-down 3-level (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "ux",
+        "library",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-1779763200000-1",
+      "title": "Open externally → VS Code (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "bug",
+        "library",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-1779763200000-2",
+      "title": "Quitar GitHub search de Skills/Agents (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "ux",
+        "library",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-1779763200000-3",
+      "title": "gh subprocess sin flash CMD (v2.6)",
+      "description": "v2.6 CREATE_NO_WINDOW.",
+      "tags": [
+        "bug",
+        "library",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-pty-where",
+      "title": "PTY: pre-validation Codex/Gemini con where/which (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "bug",
+        "terminal",
+        "p0",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-webgl-off",
+      "title": "Split pane blank fix WebGL disable (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "bug",
+        "terminal",
+        "p0",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-rules-canonical",
+      "title": "Rules path UNC fix (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "bug",
+        "rules",
+        "library",
+        "p0",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-mem0-400",
+      "title": "Mem0 bad request fix + error body (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "bug",
+        "memory",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-terminal-rename",
+      "title": "Terminal pane rename inline (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "ux",
+        "terminal",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v26-done-hooks-library",
+      "title": "Hooks → Library sub-tab + Plugins reorder (v2.6)",
+      "description": "v2.6.",
+      "tags": [
+        "ux",
+        "library",
+        "hooks",
+        "done-v2.6"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    }
+  ]
+}

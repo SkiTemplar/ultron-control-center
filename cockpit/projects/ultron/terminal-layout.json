@@ -3,12 +3,12 @@
   "tabs": [
     {
       "id": "tab-1779632183192-2",
-      "label": "PowerShell",
+      "label": "Claude_ULTRON",
       "default_provider": "powershell",
       "root": {
         "kind": "leaf",
         "id": "leaf-1779632183192-3",
-        "pty_id": null
+        "pty_id": "pty-1779743109928999-0"
       }
     }
   ],

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "tabs": [
+    {
+      "id": "tab-1779637783007661-1",
+      "label": "Claude",
+      "default_provider": "claude",
+      "root": {
+        "kind": "split",
+        "direction": "v",
+        "ratio": 0.5,
+        "left": {
+          "kind": "leaf",
+          "id": "leaf-1779637783007659-0",
+          "pty_id": "pty-1779637784584131-2"
+        },
+        "right": {
+          "kind": "leaf",
+          "id": "leaf-1779637786229-3",
+          "pty_id": "pty-1779637787670652-3"
+        }
+      }
+    }
+  ],
+  "active_tab_id": "tab-1779637783007661-1"
+}
