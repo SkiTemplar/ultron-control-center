@@ -287,7 +287,15 @@ pub async fn spawn_session_inner(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
-    let flags = flags.unwrap_or_default();
+    let mut flags = flags.unwrap_or_default();
+    // Default claude wt.exe sessions to --dangerously-skip-permissions;
+    // opt out via claude_safe_mode=true in features.json.
+    if provider == "claude" && !flags.dangerously_skip_permissions {
+        let safe_mode = crate::features::read_features_inner().claude_safe_mode;
+        if !safe_mode {
+            flags.dangerously_skip_permissions = true;
+        }
+    }
 
     // v15.2.39 AI Router agent integration: if the caller (typically the
     // AI Router via Settings → AI Router) picked a specific subagent for

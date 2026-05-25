@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import type { GlobalStatus } from "../types";
 import { statusColor, statusLabel } from "../lib/status";
 import { useFeatures, type Features } from "../lib/features";
@@ -19,6 +19,8 @@ export type Tab =
   | "sessions"
   | "usage"
   | "system"
+  | "ai-router"
+  | "workdays"
   | "settings";
 
 type Item = {
@@ -71,6 +73,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     heading: "System",
     items: [
       { id: "system", label: "System", available: true },
+      { id: "ai-router", label: "AI Router", available: true },
       { id: "mcps", label: "MCPs", available: true, featureKey: "mcps" },
       // v2.1: Skills + Agents + Rules collapsed into one Library tab with
       // sub-navigation. The 3 individual tab ids remain reachable via the
@@ -89,6 +92,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
+      { id: "workdays", label: "Workdays", available: true },
       // v2.5: Plans tab removed from sidebar (per user). Per-project kanban
       // lives inside Projects -> Board. Cross-project plans accessible only
       // via the command palette ("Go to Plans") if ever needed.
@@ -135,6 +139,8 @@ type Props = {
   active: Tab;
   onSelect: (t: Tab) => void;
   globalStatus: GlobalStatus;
+  lastProjectCtx?: { title: string; subTab: string } | null;
+  onGoBack?: () => void;
 };
 
 // v15.3 — extracted button so both the primary sections and the
@@ -210,7 +216,7 @@ function SidebarButton({
   );
 }
 
-export function Sidebar({ active, onSelect, globalStatus }: Props) {
+export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBack }: Props) {
   const { features } = useFeatures();
   const [moreOpen, setMoreOpen] = useState<boolean>(loadMoreOpen());
 
@@ -302,13 +308,28 @@ export function Sidebar({ active, onSelect, globalStatus }: Props) {
               )}
               <div className="space-y-1">
                 {primary.map((item) => (
-                  <SidebarButton
-                    key={item.id}
-                    item={item}
-                    active={active === item.id}
-                    onSelect={onSelect}
-                    badgeCount={item.id === "dashboard" ? pendingCount : undefined}
-                  />
+                  <Fragment key={item.id}>
+                    <SidebarButton
+                      item={item}
+                      active={active === item.id}
+                      onSelect={onSelect}
+                      badgeCount={item.id === "dashboard" ? pendingCount : undefined}
+                    />
+                    {item.id === "projects" && lastProjectCtx && onGoBack && (
+                      <button
+                        type="button"
+                        onClick={onGoBack}
+                        className="flex w-full items-center gap-1.5 truncate rounded px-3 py-1 text-[11px] transition-colors"
+                        style={{ color: "var(--color-text-tertiary)", background: "transparent" }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "var(--color-surface-2)"; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
+                        title={`Volver a ${lastProjectCtx.title} / ${lastProjectCtx.subTab}`}
+                      >
+                        <span aria-hidden>↩</span>
+                        <span className="truncate">{lastProjectCtx.title} / {lastProjectCtx.subTab.charAt(0).toUpperCase() + lastProjectCtx.subTab.slice(1)}</span>
+                      </button>
+                    )}
+                  </Fragment>
                 ))}
               </div>
             </div>

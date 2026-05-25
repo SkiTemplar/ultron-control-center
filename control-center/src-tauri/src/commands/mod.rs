@@ -20,8 +20,10 @@
 pub mod agents;
 pub mod alerts;
 pub mod apps;
+pub mod batches;
 pub mod button_prompts;
 pub mod commands_registry;
+pub mod detach;
 pub mod diagnostics_native;
 pub mod ecc_memory;
 pub mod event_log;

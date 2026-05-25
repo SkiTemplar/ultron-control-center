@@ -1,66 +1,63 @@
-// ULTRON Control Center — Workdays (jornadas de trabajo)
-//
-// v2.5.3 SKELETON — USER wants a higher-level concept than raw Claude/Codex
-// sessions: a "jornada de trabajo" that aggregates time spent, the type of
-// work (coding / research / admin / meeting), the project worked on, agents
-// used, and kanban changes made during the day.
-//
-// Implementation is staged:
-//   1. THIS COMMIT — stub command + serializable struct so the frontend can
-//      render a placeholder sub-tab without breaking when the user inevitably
-//      asks for the real thing.
-//   2. NEXT SESSION (card-v27-inv-workdays) — backend that derives Workday
-//      entries from:
-//        - claude session jsonl files (~/.claude/projects/<slug>/<id>.jsonl)
-//        - codex/gemini session logs
-//        - kanban runs / status transitions
-//        - active project (terminal layout focused tab)
-//        - manual annotations (`workday_annotate`)
-//      and groups them per local-day with computed duration + summary.
-//
-// The shape below is intentionally conservative so the frontend can model
-// the UI before the backend can guarantee any field. All optional.
-
-use serde::{Deserialize, Serialize};
-
-/// One "jornada de trabajo" — a focused block of work in a single local day.
-/// Aggregates sessions + kanban activity for a single project (or "general"
-/// when no single project dominates).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Workday {
-    /// Stable id (`workday-<yyyymmdd>-<short>`).
-    pub id: String,
-    /// Local ISO date (YYYY-MM-DD).
-    pub date: String,
-    /// Coarse classification — one of "coding", "research", "admin",
-    /// "meeting", "mixed". Derived heuristically; user can override.
-    pub kind: String,
-    /// Project id (from `projects.json`) or `null` if cross-project.
-    pub project_id: Option<String>,
-    /// Human title — e.g. "ultron control-center · v2.6 feedback sweep".
-    pub title: String,
-    /// Minutes of recorded activity. Derived from session timestamps.
-    pub minutes: u32,
-    /// Number of underlying provider sessions counted in this workday.
-    pub session_count: u32,
-    /// Distinct agents / personas invoked (Terry, Don Claudio, Tolkien, …).
-    pub agents_used: Vec<String>,
-    /// Kanban cards touched during the workday.
-    pub kanban_changes: u32,
-    /// Auto-generated summary (one or two sentences). May be empty.
-    pub summary: String,
-}
-
-/// Stub — returns an empty Vec. The frontend renders the "Coming soon"
-/// state when the list is empty. Wire the actual aggregator in the
-/// follow-up session referenced by `card-v27-inv-workdays`.
-pub fn workday_list_inner(_limit: Option<usize>) -> Result<Vec<Workday>, String> {
-    Ok(Vec::new())
-}
+// ULTRON Control Center - Workdays command wrappers (v2.7 full backend)
+use crate::workdays::{self, GoalStatus, Workday, WorkdayMetrics, WorkdayTemplate};
 
 #[tauri::command]
+pub async fn create_workday(title: String, planned_date: Option<String>, template_id: Option<String>, goals: Option<Vec<String>>) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::create_workday_inner(title, planned_date, template_id, goals)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn start_workday(id: String, energy_before: Option<u8>) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::start_workday_inner(id, energy_before)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn pause_workday(id: String, break_seconds_delta: Option<u64>) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::pause_workday_inner(id, break_seconds_delta)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn resume_workday(id: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::resume_workday_inner(id)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn complete_workday(id: String, focus_seconds: Option<u64>, energy_after: Option<u8>, mood_note: Option<String>, retro_good: Option<String>, retro_bad: Option<String>, retro_learned: Option<String>) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::complete_workday_inner(id, focus_seconds, energy_after, mood_note, retro_good, retro_bad, retro_learned)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn archive_workday(id: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::archive_workday_inner(id)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn list_workdays(status_filter: Option<String>, date_from: Option<String>, date_to: Option<String>, limit: Option<usize>) -> Result<Vec<Workday>, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::list_workdays_inner(status_filter, date_from, date_to, limit)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn get_workday_detail(id: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::get_workday_detail_inner(id)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn get_workday_metrics(id: String) -> Result<WorkdayMetrics, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::get_workday_metrics_inner(id)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn link_session(id: String, session_id: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::link_session_inner(id, session_id)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn link_task(id: String, task_id: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::link_task_inner(id, task_id)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn list_templates() -> Result<Vec<WorkdayTemplate>, String> {
+    tauri::async_runtime::spawn_blocking(workdays::list_templates_inner).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn save_template(name: String, default_title: Option<String>, default_goals: Option<Vec<String>>, notes: Option<String>) -> Result<WorkdayTemplate, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::save_template_inner(name, default_title, default_goals, notes)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
+pub async fn update_goal(workday_id: String, goal_id: String, status: GoalStatus, text: Option<String>) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::update_goal_inner(workday_id, goal_id, status, text)).await.map_err(|e| e.to_string())?
+}
+#[tauri::command]
 pub async fn workday_list(limit: Option<usize>) -> Result<Vec<Workday>, String> {
-    tauri::async_runtime::spawn_blocking(move || workday_list_inner(limit))
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || workdays::workday_list_inner(limit)).await.map_err(|e| e.to_string())?
 }

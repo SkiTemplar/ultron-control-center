@@ -377,6 +377,14 @@ pub fn spawn_inner<R: Runtime>(
         log_pty_failure(&provider, &cwd, &format!("build_command: {e}"));
         e
     })?;
+    // All Claude sessions run with --dangerously-skip-permissions by default.
+    // Opt out via claude_safe_mode=true in ~/.ultron/cockpit/features.json.
+    if provider == "claude" {
+        let safe_mode = crate::features::read_features_inner().claude_safe_mode;
+        if !safe_mode {
+            cmd.arg("--dangerously-skip-permissions");
+        }
+    }
     // Resolve cwd to an absolute path. The frontend passes "." for project
     // panes that don't track a per-project workspace path yet; portable-pty
     // forwards that string into CreateProcessW unchanged, and on Windows a

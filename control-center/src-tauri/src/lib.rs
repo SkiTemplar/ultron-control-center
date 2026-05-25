@@ -46,11 +46,13 @@ mod plans;
 mod plugins_info;
 mod project_hotkeys;
 mod projects;
+mod detach;
 mod pty;
 mod rules;
 mod diagnostics_native;
 mod sessions;
 mod settings;
+mod batches;
 mod skills;
 mod system;
 mod tabs;
@@ -60,6 +62,7 @@ mod toast_emit;
 mod tray;
 mod update_checker;
 mod usage;
+mod workdays;
 
 mod commands;
 
@@ -228,6 +231,13 @@ pub fn run() {
             commands::projects::launch_project_executable,
             commands::projects::project_claude_md_load,
             commands::projects::project_claude_md_save,
+            // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
+            commands::batches::list_batches,
+            commands::batches::execute_batch,
+            // -- project detach / reattach (ventanas independientes) --
+            commands::detach::detach_project_window,
+            commands::detach::reattach_project_window,
+            commands::detach::is_project_detached,
             // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --
             commands::opengl_project::create_opengl_project,
             // -- per-project notes (Notes sub-tab, v2.x) --
@@ -270,7 +280,21 @@ pub fn run() {
             commands::sessions::list_claude_sessions,
             commands::sessions::list_workspaces,
             claude_sessions::project_sessions_list,
-            // -- workdays (jornadas de trabajo, v2.5.3 skeleton) --
+            // -- workdays (jornadas de trabajo, v2.7 completo) --
+            commands::workdays::create_workday,
+            commands::workdays::start_workday,
+            commands::workdays::pause_workday,
+            commands::workdays::resume_workday,
+            commands::workdays::complete_workday,
+            commands::workdays::archive_workday,
+            commands::workdays::list_workdays,
+            commands::workdays::get_workday_detail,
+            commands::workdays::link_session,
+            commands::workdays::link_task,
+            commands::workdays::get_workday_metrics,
+            commands::workdays::list_templates,
+            commands::workdays::save_template,
+            commands::workdays::update_goal,
             commands::workdays::workday_list,
             // -- settings + backup --
             commands::settings::settings_read,

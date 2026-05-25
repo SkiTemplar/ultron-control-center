@@ -44,10 +44,17 @@ pub struct Features {
     pub usage: bool,
     #[serde(default = "default_true")]
     pub sessions: bool,
+    // Default false = bypass enabled. Opt-out when true.
+    #[serde(default = "default_false")]
+    pub claude_safe_mode: bool,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_false() -> bool {
+    false
 }
 
 impl Default for Features {
@@ -63,6 +70,7 @@ impl Default for Features {
             notifications: true,
             usage: true,
             sessions: true,
+            claude_safe_mode: false,
         }
     }
 }

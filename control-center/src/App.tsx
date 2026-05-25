@@ -19,6 +19,8 @@ import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsConte
 import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
+import { AIRouter } from "./components/AIRouter";
+import { Workdays } from "./components/Workdays";
 import { Plans } from "./components/Plans";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";
@@ -42,6 +44,33 @@ function AppInner() {
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const { currentId, tabs, subTabs, select } = useProjectsTabs();
+  const [lastProjectCtx, setLastProjectCtx] = useState<{
+    id: string; title: string; subTab: string;
+  } | null>(null);
+  const prevTabRef = useRef<Tab>("projects");
+
+  useEffect(() => {
+    if (prevTabRef.current === "projects" && tab !== "projects" && currentId !== "home") {
+      const found = tabs.find((t) => t.id === currentId);
+      if (found) {
+        setLastProjectCtx({
+          id: currentId,
+          title: found.title,
+          subTab: subTabs[currentId] ?? "board",
+        });
+      }
+    }
+    prevTabRef.current = tab;
+  }, [tab, currentId, tabs, subTabs]);
+
+  function goBackToProject() {
+    if (!lastProjectCtx) return;
+    const exists = tabs.some((t) => t.id === lastProjectCtx.id);
+    if (!exists) { setLastProjectCtx(null); setTab("projects"); return; }
+    select(lastProjectCtx.id);
+    setTab("projects");
+  }
 
   async function refreshAll() {
     try {
@@ -461,7 +490,13 @@ function AppInner() {
 
   return (
     <div className="flex h-full">
-      <Sidebar active={tab} onSelect={setTab} globalStatus={globalStatus} />
+      <Sidebar
+        active={tab}
+        onSelect={setTab}
+        globalStatus={globalStatus}
+        lastProjectCtx={tab !== "projects" ? lastProjectCtx : null}
+        onGoBack={goBackToProject}
+      />
       <main className="flex-1 overflow-auto">
         <UpdateBanner />
         {tab === "dashboard" && (
@@ -496,6 +531,8 @@ function AppInner() {
         {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}
         {tab === "projects" && <ProjectsPane />}
         {tab === "system" && <System />}
+        {tab === "ai-router" && <AIRouter />}
+        {tab === "workdays" && <Workdays />}
         {tab === "plans" && <Plans />}
         {/* v2.1: "gaming" and "personal" tabs removed — they were leftovers
             from the old ULTRON persona stack (Tio Gilito profile + game

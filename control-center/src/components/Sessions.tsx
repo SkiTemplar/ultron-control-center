@@ -781,7 +781,7 @@ function WorkspaceCard({
           type="button"
           onClick={() => onSendContext(ws)}
           disabled={busy || !canSendContext}
-          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40 whitespace-nowrap"
           style={{
             background: "var(--color-surface-3)",
             color: "var(--color-text)",
@@ -793,7 +793,7 @@ function WorkspaceCard({
               : "Need at least one prior session to send context from"
           }
         >
-          Send Context →
+          Send ctx
         </button>
         {!ws.project_id && (
           <button
@@ -1148,9 +1148,24 @@ export function Sessions() {
   }
 
   async function createProjectFromWorkspace(ws: WorkspaceSummary) {
-    // Navigate to Projects tab or simply register via invoke.
-    // For now we open the Projects tab so the user can fill in the form.
-    setToast(`Go to Projects tab to register "${deriveWorkspaceName(ws.cwd)}"`);
+    try {
+      const name = deriveWorkspaceName(ws.cwd);
+      await invoke("create_project", {
+        name,
+        path: ws.cwd,
+        ide: null,
+        language: null,
+        tags: null,
+        defaultProvider: null,
+        defaultShell: null,
+        parentFolderOverride: null,
+        notes: null,
+      });
+      setToast(`Project "${name}" created`);
+      reloadWorkspaces();
+    } catch (e) {
+      setError(String(e));
+    }
   }
 
   // -------------------------------------------------------------------------
