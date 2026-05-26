@@ -174,7 +174,24 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
             <line x1="12" y1="19" x2="20" y2="19" />
           </svg>
         </span>
-        <span>Run batch</span>
+        <span>
+          {runningName ? `Running: ${runningName}` : "Run batch"}
+        </span>
+        {runningName && (
+          <svg
+            width="11"
+            height="11"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            className="animate-spin"
+            aria-hidden
+          >
+            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+          </svg>
+        )}
         {count > 0 && (
           <span
             className="rounded px-1 text-[10px] tabular-nums"
@@ -331,7 +348,7 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
                           </div>
                         </div>
                         <span
-                          className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                          className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
                           style={{
                             background: busy
                               ? "var(--color-accent)"
@@ -342,6 +359,21 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
                             border: `1px solid ${busy ? "var(--color-accent)" : "var(--color-border)"}`,
                           }}
                         >
+                          {busy && (
+                            <svg
+                              width="9"
+                              height="9"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="3"
+                              strokeLinecap="round"
+                              style={{ animation: "spin 0.9s linear infinite" }}
+                              aria-hidden
+                            >
+                              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                            </svg>
+                          )}
                           {busy ? "running" : "run"}
                         </span>
                       </button>

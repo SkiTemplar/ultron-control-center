@@ -47,6 +47,14 @@ pub async fn delete_agent(name: String) -> Result<agents::AgentMutationResult, S
     agents::delete_agent_inner(name)
 }
 
+#[tauri::command]
+pub async fn agent_toggle(
+    name: String,
+    enabled: bool,
+) -> Result<agents::AgentEntry, String> {
+    agents::agent_toggle_inner(name, enabled)
+}
+
 // ---- P4: per-project agent pinning ----
 //
 // v2.6 (card-v26-fb-023): `roles` map persists a user-supplied label for each

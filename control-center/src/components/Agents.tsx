@@ -96,10 +96,13 @@ function deriveSubGroup(a: AgentEntry): string | null {
   return cat;
 }
 
+type EnableFilter = "active" | "disabled" | "all";
+
 export function Agents() {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
   const [category, setCategory] = useState<string>("all");
+  const [enableFilter, setEnableFilter] = useState<EnableFilter>("active");
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,6 +111,9 @@ export function Agents() {
   const [installItem, setInstallItem] = useState<RemoteItem | null>(null);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
   const [view, setView] = useLibraryViewMode("agents");
+  // Mirrors Skills.tsx: tracks in-flight toggle requests so the card can
+  // disable its button while the rename happens on disk.
+  const [toggleBusy, setToggleBusy] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
@@ -154,24 +160,73 @@ export function Agents() {
     }
   }, [categories, category]);
 
+  // Counts for the Active/Disabled/All toolbar — computed BEFORE the enable
+  // filter so the chip numbers stay stable as the user flips between tabs.
+  const enableCounts = useMemo(() => {
+    let active = 0;
+    let disabled = 0;
+    for (const a of agents) {
+      if (scope !== "all" && a.origin !== scope) continue;
+      if (a.enabled) active += 1;
+      else disabled += 1;
+    }
+    return { active, disabled };
+  }, [agents, scope]);
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return agents.filter((a) => {
       if (scope !== "all" && a.origin !== scope) return false;
       if (category !== "all" && deriveCategory(a) !== category) return false;
+      if (enableFilter === "active" && !a.enabled) return false;
+      if (enableFilter === "disabled" && a.enabled) return false;
       if (!q) return true;
       return (
         a.name.toLowerCase().includes(q) ||
         a.description.toLowerCase().includes(q)
       );
     });
-  }, [agents, scope, category, query]);
+  }, [agents, scope, category, enableFilter, query]);
 
   const handleOpen = async (path: string) => {
     try {
       await openPath(path);
     } catch (e) {
       setError(`open ${path}: ${e}`);
+    }
+  };
+
+  // Flip the disabled/enabled flag on a global agent. Mirrors skill_toggle
+  // optimism: update the in-memory list first, revert on backend error so
+  // the user sees instant feedback. Plugin/project agents are read-only.
+  const toggleAgent = async (a: AgentEntry) => {
+    if (a.origin !== "global") return;
+    if (toggleBusy.has(a.path)) return;
+    const next = !a.enabled;
+    setToggleBusy((prev) => new Set(prev).add(a.path));
+    const snapshot = agents;
+    setAgents((prev) =>
+      prev.map((x) =>
+        x.path === a.path ? { ...x, enabled: next } : x,
+      ),
+    );
+    try {
+      const updated = (await invoke("agent_toggle", {
+        name: a.name,
+        enabled: next,
+      })) as AgentEntry;
+      setAgents((prev) =>
+        prev.map((x) => (x.path === a.path ? updated : x)),
+      );
+    } catch (e) {
+      setAgents(snapshot);
+      setError(`toggle ${a.name}: ${e}`);
+    } finally {
+      setToggleBusy((prev) => {
+        const n = new Set(prev);
+        n.delete(a.path);
+        return n;
+      });
     }
   };
 
@@ -266,17 +321,44 @@ export function Agents() {
             >
               {a.description || "(sin descripción)"}
             </p>
-            <button
-              onClick={() => handleOpen(a.path)}
-              className="rounded-md border px-2 py-0.5 text-xs"
-              style={{
-                borderColor: "var(--color-border-strong)",
-                background: "var(--color-surface-3)",
-                color: "var(--color-text)",
-              }}
-            >
-              Open in editor
-            </button>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => handleOpen(a.path)}
+                className="rounded-md border px-2 py-0.5 text-xs"
+                style={{
+                  borderColor: "var(--color-border-strong)",
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text)",
+                }}
+              >
+                Open in editor
+              </button>
+              {a.origin === "global" && (
+                <button
+                  onClick={() => void toggleAgent(a)}
+                  disabled={toggleBusy.has(a.path)}
+                  title={
+                    a.enabled
+                      ? "Disable this agent (renames file to .md.disabled)"
+                      : "Re-enable this agent"
+                  }
+                  className="rounded-md border px-2 py-0.5 text-xs disabled:opacity-50"
+                  style={{
+                    borderColor: a.enabled
+                      ? "rgba(248, 81, 73, 0.30)"
+                      : "rgba(63, 185, 80, 0.30)",
+                    background: a.enabled
+                      ? "rgba(248, 81, 73, 0.08)"
+                      : "rgba(63, 185, 80, 0.08)",
+                    color: a.enabled
+                      ? "var(--color-danger)"
+                      : "var(--color-success)",
+                  }}
+                >
+                  {a.enabled ? "Disable" : "Enable"}
+                </button>
+              )}
+            </div>
           </li>
         );
       })}
@@ -333,6 +415,54 @@ export function Agents() {
       </header>
 
       <div className="flex flex-col gap-2">
+        {/* Active / Disabled / All — same shape as Skills.tsx so users
+            recognise the toggle pattern instantly. Counts reflect the
+            scope filter so they shrink/grow as the user picks a scope. */}
+        <div
+          className="inline-flex items-center gap-1 self-start rounded-lg p-1"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          {([
+            { id: "active" as const, label: "Active", count: enableCounts.active },
+            { id: "disabled" as const, label: "Disabled", count: enableCounts.disabled },
+            { id: "all" as const, label: "All", count: enableCounts.active + enableCounts.disabled },
+          ]).map((tab) => {
+            const isActive = enableFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setEnableFilter(tab.id)}
+                className="flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors"
+                style={{
+                  background: isActive ? "var(--color-surface-4)" : "transparent",
+                  color: isActive ? "var(--color-text)" : "var(--color-text-secondary)",
+                  border: isActive
+                    ? "1px solid var(--color-border-strong)"
+                    : "1px solid transparent",
+                }}
+              >
+                {tab.label}
+                <span
+                  className="rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums"
+                  style={{
+                    background: isActive
+                      ? "var(--color-surface-3)"
+                      : "var(--color-surface-3)",
+                    color: isActive
+                      ? "var(--color-text)"
+                      : "var(--color-text-tertiary)",
+                  }}
+                >
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
         <div className="flex items-center gap-2">
           {SCOPES.map((s) => {
             const isActive = scope === s.id;

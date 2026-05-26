@@ -309,6 +309,10 @@ export type AgentEntry = {
   path: string;
   description: string;
   origin: SkillOrigin;
+  /** `false` when the agent file is `<name>.md.disabled` instead of
+   * `<name>.md`. Only meaningful for global agents — plugin/project agents
+   * always read as enabled here. */
+  enabled: boolean;
 };
 
 export type RuleFile = {

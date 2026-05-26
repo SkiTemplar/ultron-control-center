@@ -414,6 +414,10 @@ pub struct AgentEntry {
     pub path: String,
     pub description: String,
     pub origin: AgentOrigin,
+    /// `false` when the agent file lives at `<name>.md.disabled` instead of
+    /// `<name>.md`. Mirrors the same disable convention skills use so the
+    /// Library tab can render Active/Disabled toggles uniformly.
+    pub enabled: bool,
 }
 
 fn global_agents_dir() -> Result<PathBuf, String> {
@@ -527,17 +531,23 @@ fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
             if !p.is_file() {
                 continue;
             }
-            if p.extension().and_then(|s| s.to_str()) != Some("md") {
-                continue;
-            }
-            // Skip non-agent files (README.md, CHANGELOG.md, etc.) that
-            // happen to share the agents dir.
-            let bn = p
+            // Accept either <name>.md (enabled) or <name>.md.disabled
+            // (disabled via the same suffix convention skills use).
+            let fname_lower = p
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or("")
                 .to_ascii_lowercase();
-            if bn == "readme.md" || bn == "changelog.md" || bn == "license.md" {
+            let (enabled, stem) = if let Some(stem) = fname_lower.strip_suffix(".md.disabled") {
+                (false, stem.to_string())
+            } else if let Some(stem) = fname_lower.strip_suffix(".md") {
+                (true, stem.to_string())
+            } else {
+                continue;
+            };
+            // Skip non-agent files (README.md, CHANGELOG.md, etc.) that
+            // happen to share the agents dir.
+            if stem == "readme" || stem == "changelog" || stem == "license" {
                 continue;
             }
             let (name, description, valid) = read_agent_meta(&p);
@@ -549,6 +559,7 @@ fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
                 path: p.to_string_lossy().to_string(),
                 description,
                 origin: origin.clone(),
+                enabled,
             });
         }
     }
@@ -571,6 +582,60 @@ pub fn list_agents_with_origin_inner(
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(out)
+}
+
+/// Toggle a global agent between `<name>.md` and `<name>.md.disabled`.
+/// Mirrors `skills::skill_toggle_inner` but operates on .md files (agents
+/// are single files, not directories).
+pub fn agent_toggle_inner(name: String, enabled: bool) -> Result<AgentEntry, String> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("invalid agent name: path separators not allowed".to_string());
+    }
+    let root = global_agents_dir()?;
+    let path_enabled = root.join(format!("{}.md", name));
+    let path_disabled = root.join(format!("{}.md.disabled", name));
+
+    if enabled {
+        if !path_disabled.exists() {
+            return Err(format!(
+                "agent '{name}' not found in disabled state (expected {})",
+                path_disabled.display()
+            ));
+        }
+        if path_enabled.exists() {
+            return Err(format!("agent '{name}' already exists at enabled path"));
+        }
+        fs::rename(&path_disabled, &path_enabled)
+            .map_err(|e| format!("rename {:?} → {:?}: {e}", path_disabled, path_enabled))?;
+        let (n, desc, _) = read_agent_meta(&path_enabled);
+        Ok(AgentEntry {
+            name: if n == "(unnamed)" { name } else { n },
+            path: path_enabled.to_string_lossy().to_string(),
+            description: desc,
+            origin: AgentOrigin::Global,
+            enabled: true,
+        })
+    } else {
+        if !path_enabled.exists() {
+            return Err(format!(
+                "agent '{name}' not found at enabled path (expected {})",
+                path_enabled.display()
+            ));
+        }
+        if path_disabled.exists() {
+            return Err(format!("agent '{name}' already disabled"));
+        }
+        fs::rename(&path_enabled, &path_disabled)
+            .map_err(|e| format!("rename {:?} → {:?}: {e}", path_enabled, path_disabled))?;
+        let (n, desc, _) = read_agent_meta(&path_disabled);
+        Ok(AgentEntry {
+            name: if n == "(unnamed)" { name } else { n },
+            path: path_disabled.to_string_lossy().to_string(),
+            description: desc,
+            origin: AgentOrigin::Global,
+            enabled: false,
+        })
+    }
 }
 
 #[cfg(test)]
