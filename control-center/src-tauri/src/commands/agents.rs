@@ -55,6 +55,13 @@ pub async fn agent_toggle(
     agents::agent_toggle_inner(name, enabled)
 }
 
+#[tauri::command]
+pub async fn list_delegations(
+    limit: Option<usize>,
+) -> Result<Vec<agent_orchestration::DelegationLogEntry>, String> {
+    agent_orchestration::list_delegations_inner(limit.unwrap_or(50))
+}
+
 // ---- P4: per-project agent pinning ----
 //
 // v2.6 (card-v26-fb-023): `roles` map persists a user-supplied label for each

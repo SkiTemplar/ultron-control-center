@@ -204,6 +204,7 @@ pub fn run() {
             commands::agents::update_agent_md,
             commands::agents::delete_agent,
             commands::agents::agent_toggle,
+            commands::agents::list_delegations,
             commands::agents::agents_pinned_load,
             commands::agents::agents_pinned_save,
             commands::agents::delegate_task_to_agent,

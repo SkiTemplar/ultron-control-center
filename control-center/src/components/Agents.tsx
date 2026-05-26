@@ -98,6 +98,44 @@ function deriveSubGroup(a: AgentEntry): string | null {
 
 type EnableFilter = "active" | "disabled" | "all";
 
+type DelegationLogEntry = {
+  id: string;
+  agent: string;
+  task_preview: string;
+  cwd: string | null;
+  used_cheap_model: boolean;
+  started_at: string;
+  status: string;
+  session_id: string | null;
+};
+
+function diceBearUrl(slug: string): string {
+  const seed = encodeURIComponent(slug || "agent");
+  return `https://api.dicebear.com/7.x/bottts/svg?seed=${seed}&backgroundColor=1a1a2e,222238`;
+}
+
+function ageFromEpochField(s: string): string {
+  const m = /^epoch:(\d+)$/.exec(s);
+  if (!m) return s;
+  const secs = parseInt(m[1], 10);
+  if (!Number.isFinite(secs)) return s;
+  const diff = Math.max(0, Date.now() / 1000 - secs);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function statusChip(status: string): { bg: string; fg: string; label: string } {
+  if (status === "launched") {
+    return { bg: "rgba(63, 185, 80, 0.14)", fg: "rgb(63, 185, 80)", label: "Launched" };
+  }
+  if (status === "failed") {
+    return { bg: "rgba(248, 81, 73, 0.14)", fg: "rgb(248, 81, 73)", label: "Failed" };
+  }
+  return { bg: "rgba(125, 133, 144, 0.14)", fg: "rgb(125, 133, 144)", label: status };
+}
+
 export function Agents() {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
@@ -114,6 +152,28 @@ export function Agents() {
   // Mirrors Skills.tsx: tracks in-flight toggle requests so the card can
   // disable its button while the rename happens on disk.
   const [toggleBusy, setToggleBusy] = useState<Set<string>>(new Set());
+  // Recent delegations surface — populated from
+  // ~/.ultron/cockpit/delegations.jsonl. Empty array on load failure.
+  const [delegations, setDelegations] = useState<DelegationLogEntry[]>([]);
+  const [showAllRuns, setShowAllRuns] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadDelegations() {
+      try {
+        const list = (await invoke("list_delegations", { limit: 50 })) as DelegationLogEntry[];
+        if (!cancelled) setDelegations(list);
+      } catch {
+        if (!cancelled) setDelegations([]);
+      }
+    }
+    void loadDelegations();
+    const t = setInterval(loadDelegations, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
@@ -584,7 +644,107 @@ export function Agents() {
           >
             Sin agents para el filtro actual.
           </p>
-        ) : view === "blocks" ? (
+        ) : (
+          <>
+            {/* Recent delegations strip — pinned at top, collapses to 3
+                cards by default. Mirrors Cursor 3 "Glass" agent cards:
+                avatar + agent + task + status badge. */}
+            {delegations.length > 0 && (
+              <section className="mb-3">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <span
+                    className="text-[11px] uppercase tracking-wide"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Recent runs ({delegations.length})
+                  </span>
+                  {delegations.length > 3 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowAllRuns((v) => !v)}
+                      className="text-[11px]"
+                      style={{ color: "var(--color-text-secondary)" }}
+                    >
+                      {showAllRuns ? "Show fewer" : `Show all ${delegations.length}`}
+                    </button>
+                  )}
+                </div>
+                <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {(showAllRuns ? delegations : delegations.slice(0, 3)).map((d) => {
+                    const chip = statusChip(d.status);
+                    return (
+                      <li
+                        key={d.id}
+                        className="flex gap-2 rounded-md p-2 text-xs"
+                        style={{
+                          border: "1px solid var(--color-border-strong)",
+                          background: "var(--color-surface-2)",
+                        }}
+                      >
+                        <img
+                          src={diceBearUrl(d.agent)}
+                          alt=""
+                          width={32}
+                          height={32}
+                          className="shrink-0 rounded"
+                          style={{ background: "var(--color-surface-3)" }}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5">
+                            <span
+                              className="truncate font-medium"
+                              style={{ color: "var(--color-text)" }}
+                            >
+                              {d.agent}
+                            </span>
+                            <span
+                              className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium"
+                              style={{ background: chip.bg, color: chip.fg }}
+                            >
+                              {chip.label}
+                            </span>
+                            {d.used_cheap_model && (
+                              <span
+                                className="shrink-0 rounded px-1 py-px text-[9px] uppercase"
+                                style={{
+                                  background: "var(--color-surface-3)",
+                                  color: "var(--color-text-tertiary)",
+                                }}
+                                title="Spawned with Haiku 4.5 (cheap model)"
+                              >
+                                Haiku
+                              </span>
+                            )}
+                          </div>
+                          <p
+                            className="mt-0.5 line-clamp-2 leading-snug"
+                            style={{ color: "var(--color-text-secondary)" }}
+                          >
+                            {d.task_preview}
+                          </p>
+                          <div
+                            className="mt-0.5 flex items-center gap-2 text-[10px]"
+                            style={{ color: "var(--color-text-tertiary)" }}
+                          >
+                            <span>{ageFromEpochField(d.started_at)}</span>
+                            {d.cwd && (
+                              <span
+                                className="truncate"
+                                style={{ fontFamily: "var(--font-mono)" }}
+                                title={d.cwd}
+                              >
+                                {d.cwd}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+            )}
+            {view === "blocks" ? (
           <BlocksView<AgentEntry>
             items={blockItems}
             noun="agent"
@@ -607,6 +767,8 @@ export function Agents() {
           />
         ) : (
           renderCardGrid(filtered)
+        )}
+          </>
         )}
       </div>
 

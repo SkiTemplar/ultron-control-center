@@ -18,6 +18,10 @@
 // agent-centric framing the new UI needs.
 
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::Write;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::sessions::{self, SpawnFlags, SpawnResult};
 
@@ -82,14 +86,117 @@ pub async fn delegate_task_inner(
     if req.use_cheap_model {
         flags.model = Some(resolve_cheap_model());
     }
-    sessions::spawn_session_inner(
+    let cwd_for_log = req.cwd.clone();
+    let result = sessions::spawn_session_inner(
         app,
         "claude".to_string(),
         Some(task.to_string()),
         req.cwd,
         Some(flags),
     )
-    .await
+    .await;
+
+    // Log the delegation regardless of success — failures matter for the
+    // Runs view too (the user wants to see "I tried to delegate to X and
+    // it crashed"). Errors writing the log are silent; the spawn result
+    // is the source of truth for the caller.
+    // SpawnResult does not carry a session_id today; the new session shows
+    // up in `claude_sessions::list_workspaces` once Claude Code writes the
+    // first JSONL line. We log "launched" / "failed" only.
+    let status = if result.is_ok() { "launched" } else { "failed" };
+    let _ = log_delegation(DelegationLogEntry {
+        id: format!("dl-{}", now_secs_safe()),
+        agent: agent_trim.to_string(),
+        task_preview: truncate(task, 200),
+        cwd: cwd_for_log,
+        used_cheap_model: req.use_cheap_model,
+        started_at: format!("epoch:{}", now_secs_safe()),
+        status: status.to_string(),
+        session_id: None,
+    });
+
+    result
+}
+
+// ---------------------------------------------------------------------------
+// Delegation log — append-only JSONL at ~/.ultron/cockpit/delegations.jsonl
+// Powers the Agents > Runs view (status badges + recent delegations list).
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DelegationLogEntry {
+    pub id: String,
+    pub agent: String,
+    pub task_preview: String,
+    pub cwd: Option<String>,
+    pub used_cheap_model: bool,
+    pub started_at: String,
+    /// "launched" when spawn succeeded, "failed" otherwise. Future: track
+    /// "running" / "done" via session_id polling.
+    pub status: String,
+    pub session_id: Option<String>,
+}
+
+fn delegations_path() -> Option<PathBuf> {
+    Some(
+        dirs::home_dir()?
+            .join(".ultron")
+            .join("cockpit")
+            .join("delegations.jsonl"),
+    )
+}
+
+fn now_secs_safe() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    let trimmed = s.trim().replace('\n', " ");
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= max {
+        return trimmed;
+    }
+    let head: String = chars.into_iter().take(max).collect();
+    format!("{}…", head)
+}
+
+fn log_delegation(entry: DelegationLogEntry) -> Result<(), String> {
+    let path = delegations_path().ok_or("no home dir")?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let line = serde_json::to_string(&entry).map_err(|e| e.to_string())?;
+    let mut f = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .map_err(|e| e.to_string())?;
+    f.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
+    f.write_all(b"\n").map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Read up to `limit` of the most recent delegations (newest first). Tolerant
+/// to malformed lines — bad records are skipped silently. Returns an empty
+/// vec when the file is missing.
+pub fn list_delegations_inner(limit: usize) -> Result<Vec<DelegationLogEntry>, String> {
+    let cap = if limit == 0 || limit > 500 { 100 } else { limit };
+    let Some(path) = delegations_path() else { return Ok(Vec::new()) };
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let text = fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let mut out: Vec<DelegationLogEntry> = text
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str::<DelegationLogEntry>(l).ok())
+        .collect();
+    out.reverse();
+    out.truncate(cap);
+    Ok(out)
 }
 
 /// Hard-coded snapshot of the canonical seven alignments. We pin them
