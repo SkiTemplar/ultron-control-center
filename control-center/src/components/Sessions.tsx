@@ -1391,6 +1391,8 @@ export function Sessions() {
                         return next;
                       });
                     }}
+                    aria-expanded={isOpen}
+                    aria-label={`${isOpen ? "Collapse" : "Expand"} ${g.label} workspaces group with ${g.items.length} entries`}
                     className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
                     style={{
                       background: "var(--color-surface-2)",

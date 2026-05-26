@@ -48,6 +48,16 @@ pub struct DelegateRequest {
     pub use_cheap_model: bool,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// Workday id to use as the shared blackboard for this delegation
+    /// (KIRKARDO 7 Paso 1). When Some, we (a) read the most recent context
+    /// entries and inline them as a preamble in the prompt so the agent
+    /// sees what previous steps in the pipeline produced, and (b) append
+    /// an "agent_message" entry after spawn so subsequent agents in the
+    /// chain see this delegation. When None we no-op the blackboard —
+    /// preserves the existing one-shot behaviour for callers that don't
+    /// participate in a workflow.
+    #[serde(default)]
+    pub workday_id: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,14 +97,53 @@ pub async fn delegate_task_inner(
         flags.model = Some(resolve_cheap_model());
     }
     let cwd_for_log = req.cwd.clone();
+
+    // KIRKARDO 7 Paso 1 — Blackboard read: when a workday is provided,
+    // prepend the most recent shared-context entries so the delegated agent
+    // sees what previous workflow steps decided. Capped at 12 entries × 200
+    // chars so the prompt stays under the 16KB ceiling even when the
+    // workday has accumulated dozens of notes.
+    let task_with_blackboard = if let Some(wid) = req.workday_id.as_deref() {
+        match build_blackboard_preamble(wid) {
+            Ok(preamble) if !preamble.is_empty() => {
+                format!("{preamble}\n\n---\n\n{task}")
+            }
+            _ => task.to_string(),
+        }
+    } else {
+        task.to_string()
+    };
+
     let result = sessions::spawn_session_inner(
         app,
         "claude".to_string(),
-        Some(task.to_string()),
+        Some(task_with_blackboard),
         req.cwd,
         Some(flags),
     )
     .await;
+
+    // KIRKARDO 7 Paso 1 — Blackboard write: record this delegation as an
+    // agent_message context entry so subsequent agents in the chain (and
+    // the user via the Workday detail panel) see what was delegated. We
+    // do this best-effort; a workday append failure here does not bubble
+    // up because the spawn itself already happened.
+    if let Some(wid) = req.workday_id.as_deref() {
+        let summary = format!(
+            "[{agent}] {status}: {preview}",
+            agent = agent_trim,
+            status = if result.is_ok() { "delegated" } else { "spawn_failed" },
+            preview = truncate(task, 160),
+        );
+        if let Err(e) = crate::workdays::append_context_inner(
+            wid.to_string(),
+            "agent_message".to_string(),
+            summary,
+            Some(agent_trim.to_string()),
+        ) {
+            eprintln!("[agent_orchestration] blackboard append failed: {e}");
+        }
+    }
 
     // Log the delegation regardless of success — failures matter for the
     // Runs view too (the user wants to see "I tried to delegate to X and
@@ -160,6 +209,40 @@ fn now_secs_safe() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Read the most recent context entries from a workday and render them as
+/// a markdown preamble for an agent delegation. Returns "" when the
+/// workday has no entries or cannot be loaded — both states are silent
+/// because the delegation should still proceed (the blackboard is an
+/// optional enrichment, not a precondition).
+fn build_blackboard_preamble(workday_id: &str) -> Result<String, String> {
+    let wd = crate::workdays::list_workdays_inner(None, None, None, None)?
+        .into_iter()
+        .find(|w| w.id == workday_id)
+        .ok_or_else(|| format!("workday {workday_id} not found"))?;
+    let mut entries: Vec<(&str, &str, &str)> = Vec::new();
+    for e in wd.context.notes.iter().rev().take(4) {
+        entries.push(("note", &e.text, &e.created_at));
+    }
+    for e in wd.context.decisions.iter().rev().take(4) {
+        entries.push(("decision", &e.text, &e.created_at));
+    }
+    for e in wd.context.agent_messages.iter().rev().take(8) {
+        entries.push(("agent", &e.text, &e.created_at));
+    }
+    if entries.is_empty() {
+        return Ok(String::new());
+    }
+    let mut md = String::from(
+        "<workflow_blackboard>\n## Shared context from previous workflow steps\n\n",
+    );
+    for (kind, text, _ts) in entries.iter().take(12) {
+        let line = truncate(text, 200);
+        md.push_str(&format!("- **{kind}**: {line}\n"));
+    }
+    md.push_str("</workflow_blackboard>");
+    Ok(md)
 }
 
 fn truncate(s: &str, max: usize) -> String {

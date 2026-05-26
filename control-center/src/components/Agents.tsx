@@ -510,6 +510,9 @@ export function Agents() {
               <button
                 key={tab.id}
                 type="button"
+                role="tab"
+                aria-selected={isActive}
+                aria-pressed={isActive}
                 onClick={() => setEnableFilter(tab.id)}
                 className="flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors"
                 style={{
