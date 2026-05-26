@@ -336,6 +336,144 @@ fn ingest_mcp_audit(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     }
 }
 
+/// Convert a "epoch:<secs>" string (the workday TS format) to ISO 8601.
+/// Mirrors `recall::format_iso` — duplicated here to keep the two modules
+/// decoupled. Returns None when the value is not a parseable epoch.
+fn workday_ts_to_iso(raw: &str) -> Option<String> {
+    let stripped = raw.strip_prefix("epoch:").unwrap_or(raw);
+    let secs: u64 = stripped.trim().parse().ok()?;
+    Some(epoch_secs_to_iso(secs))
+}
+
+fn epoch_secs_to_iso(secs: u64) -> String {
+    let mut days = (secs / 86_400) as i64;
+    let secs_in_day = (secs % 86_400) as u32;
+    let h = secs_in_day / 3600;
+    let m = (secs_in_day % 3600) / 60;
+    let s = secs_in_day % 60;
+    let mut year = 1970i32;
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let yd: i64 = if leap { 366 } else { 365 };
+        if days < yd { break; }
+        days -= yd;
+        year += 1;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let mdays: [i64; 12] = [
+        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+    ];
+    let mut month = 0usize;
+    while month < 12 && days >= mdays[month] {
+        days -= mdays[month];
+        month += 1;
+    }
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month + 1, days + 1, h, m, s
+    )
+}
+
+/// Workdays + kanban events live in `~/.ultron/cockpit/workdays/wd-*.json`.
+/// We walk the directory, parse each file, and emit:
+///   - 1 event per workday "created" (kind = "created:<status>")
+///   - 1 event per workday "completed" (when end_ts is set)
+///   - 1 event per kanban_move context entry (source = "kanban")
+fn ingest_workdays(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+    let dir = root.join("cockpit").join("workdays");
+    let Ok(entries) = fs::read_dir(&dir) else { return };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(&path) else { continue };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
+            continue;
+        };
+
+        let title = v
+            .get("title")
+            .and_then(|x| x.as_str())
+            .unwrap_or("workday")
+            .to_string();
+        let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("").to_string();
+
+        // Event: workday created
+        if let Some(raw) = v.get("created_at").and_then(|x| x.as_str()) {
+            if let Some(ts) = workday_ts_to_iso(raw) {
+                if let Some(day) = ts_to_day(&ts) {
+                    out.push(TimelineEvent {
+                        ts,
+                        day,
+                        source: "workdays".to_string(),
+                        kind: if status.is_empty() {
+                            "created".to_string()
+                        } else {
+                            format!("created:{}", status)
+                        },
+                        summary: truncate_summary(&title, 160),
+                    });
+                }
+            }
+        }
+
+        // Event: workday completed (end_ts populated)
+        if let Some(raw) = v.get("end_ts").and_then(|x| x.as_str()) {
+            if let Some(ts) = workday_ts_to_iso(raw) {
+                if let Some(day) = ts_to_day(&ts) {
+                    out.push(TimelineEvent {
+                        ts,
+                        day,
+                        source: "workdays".to_string(),
+                        kind: "completed".to_string(),
+                        summary: truncate_summary(&format!("done: {}", title), 160),
+                    });
+                }
+            }
+        }
+
+        // Event(s): kanban_move entries living in the context buckets.
+        let Some(context) = v.get("context") else { continue };
+        let buckets = [
+            "notes",
+            "decisions",
+            "file_changes",
+            "agent_messages",
+        ];
+        for bname in &buckets {
+            let Some(arr) = context.get(*bname).and_then(|x| x.as_array()) else {
+                continue;
+            };
+            for ent in arr {
+                let kind_field = ent
+                    .get("kind")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
+                if !kind_field.starts_with("kanban_move") {
+                    continue;
+                }
+                let raw_created = ent
+                    .get("created_at")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
+                let Some(ts) = workday_ts_to_iso(raw_created) else {
+                    continue;
+                };
+                let Some(day) = ts_to_day(&ts) else { continue };
+                let text = ent.get("text").and_then(|x| x.as_str()).unwrap_or("");
+                out.push(TimelineEvent {
+                    ts,
+                    day,
+                    source: "kanban".to_string(),
+                    kind: kind_field.to_string(),
+                    summary: truncate_summary(text, 160),
+                });
+            }
+        }
+    }
+}
+
 fn ingest_alerts(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join("alerts.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
@@ -387,6 +525,11 @@ pub fn compute_activity_timeline_inner(days: u32) -> Result<TimelineSummary, Str
     ingest_auto_updater(&root, &mut events);
     ingest_mcp_audit(&root, &mut events);
     ingest_alerts(&root, &mut events);
+    // 2026-05-27 — workday lifecycle + kanban_move events. These give the
+    // timeline a "what the user actually did" signal alongside the hook
+    // telemetry, so Backlog/Investigar items that already shipped show up
+    // visibly instead of staying invisible.
+    ingest_workdays(&root, &mut events);
 
     // Drop anything older than the cutoff day. Lexical comparison is safe
     // because both sides are fixed-width YYYY-MM-DD strings.

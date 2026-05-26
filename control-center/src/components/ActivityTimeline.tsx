@@ -63,6 +63,18 @@ const SOURCE_COLORS: Record<string, { bg: string; fg: string; rgb: string }> = {
     fg: "rgb(116, 199, 236)",
     rgb: "116, 199, 236",
   },
+  workdays: {
+    // teal — matches the Workdays tab accent
+    bg: "rgba(20, 184, 166, 0.14)",
+    fg: "rgb(20, 184, 166)",
+    rgb: "20, 184, 166",
+  },
+  kanban: {
+    // amber — distinct from workdays so kanban moves pop in the heatmap
+    bg: "rgba(245, 158, 11, 0.14)",
+    fg: "rgb(245, 158, 11)",
+    rgb: "245, 158, 11",
+  },
 };
 
 const FALLBACK_COLOR = {
