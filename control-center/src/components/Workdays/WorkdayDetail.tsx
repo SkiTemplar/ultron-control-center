@@ -1,4 +1,4 @@
-// WorkdayDetail - vista del workday seleccionado.
+// WorkdayDetail - vista del workday seleccionado con secciones accordion.
 //
 // Tauri commands consumidos:
 //   get_workday_detail(id) -> Workday
@@ -8,18 +8,25 @@
 //   complete_workday(id, ...retro fields) -> Workday
 //   archive_workday(id) -> Workday
 //   update_goal(workday_id, goal_id, status, text?) -> Workday
+//   workday_append_context(workday_id, kind, text, source) -> Workday
+//
+// v2.9: cada seccion es un accordion expandible con estado persistido en
+// localStorage por workday id. Animacion CSS max-height transition.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   GoalStatus,
   Workday,
-  WorkdayContext,
   WorkdayContextEntry,
   WorkdayGoal,
 } from "./types";
 import { getHomeDir, joinPath } from "../../lib/paths";
+
+// ---------------------------------------------------------------------------
+// Tipos
+// ---------------------------------------------------------------------------
 
 interface WorkdayDetailProps {
   workdayId: string;
@@ -27,14 +34,212 @@ interface WorkdayDetailProps {
   onChanged: (wd: Workday) => void;
 }
 
+type SectionKey =
+  | "goals"
+  | "sessions"
+  | "ctx_notes"
+  | "ctx_decisions"
+  | "ctx_file_changes"
+  | "ctx_agent_messages"
+  | "retro";
+
+// Secciones abiertas por defecto cuando no hay estado guardado.
+const DEFAULT_OPEN: SectionKey[] = ["goals"];
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function fmtTs(s?: string): string {
   if (!s) return "-";
-  // backend escribe "epoch:1234567890"
   const m = s.match(/^epoch:(\d+)$/);
   if (!m) return s;
   const d = new Date(Number(m[1]) * 1000);
   return d.toLocaleString();
 }
+
+function storageKey(workdayId: string): string {
+  return `wd-accordion-${workdayId}`;
+}
+
+function loadOpenSections(workdayId: string): Set<SectionKey> {
+  try {
+    const raw = localStorage.getItem(storageKey(workdayId));
+    if (raw) {
+      const parsed = JSON.parse(raw) as SectionKey[];
+      if (Array.isArray(parsed)) return new Set(parsed);
+    }
+  } catch (_) {
+    // localStorage puede fallar en contextos restringidos; ignorar.
+  }
+  return new Set(DEFAULT_OPEN);
+}
+
+function saveOpenSections(workdayId: string, open: Set<SectionKey>): void {
+  try {
+    localStorage.setItem(storageKey(workdayId), JSON.stringify([...open]));
+  } catch (_) {
+    // ignorar
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Accordion primitivo
+// ---------------------------------------------------------------------------
+
+interface AccordionSectionProps {
+  id: SectionKey;
+  label: string;
+  count?: number;
+  lastTs?: string;
+  open: boolean;
+  onToggle: (id: SectionKey) => void;
+  children: React.ReactNode;
+}
+
+function AccordionSection({
+  id,
+  label,
+  count,
+  lastTs,
+  open,
+  onToggle,
+  children,
+}: AccordionSectionProps) {
+  const bodyId = `acc-body-${id}`;
+
+  return (
+    <div
+      style={{
+        borderTop: "1px solid var(--color-border)",
+      }}
+    >
+      {/* Header clickable */}
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={bodyId}
+        onClick={() => onToggle(id)}
+        className="flex w-full items-center gap-2 px-6 py-3 text-left"
+        style={{
+          background: "var(--color-surface-1)",
+          cursor: "pointer",
+        }}
+      >
+        {/* Chevron */}
+        <span
+          style={{
+            display: "inline-block",
+            fontSize: "10px",
+            color: "var(--color-text-tertiary)",
+            transition: "transform 180ms ease",
+            transform: open ? "rotate(90deg)" : "rotate(0deg)",
+            lineHeight: 1,
+            userSelect: "none",
+          }}
+        >
+          ▸
+        </span>
+
+        {/* Titulo */}
+        <span
+          className="flex-1 text-[13px] font-semibold"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          {label}
+        </span>
+
+        {/* Badge count */}
+        {count !== undefined && count > 0 && (
+          <span
+            className="rounded px-1.5 py-0.5 text-[10px] font-medium"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            {count}
+          </span>
+        )}
+
+        {/* Timestamp ultima entrada */}
+        {lastTs && (
+          <span
+            className="text-[10px]"
+            style={{ color: "var(--color-text-faint)" }}
+          >
+            {lastTs}
+          </span>
+        )}
+      </button>
+
+      {/* Body con animacion max-height */}
+      <AccordionBody id={bodyId} open={open}>
+        {children}
+      </AccordionBody>
+    </div>
+  );
+}
+
+interface AccordionBodyProps {
+  id: string;
+  open: boolean;
+  children: React.ReactNode;
+}
+
+function AccordionBody({ id, open, children }: AccordionBodyProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [maxH, setMaxH] = useState<string>(open ? "none" : "0px");
+  const [visible, setVisible] = useState(open);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+
+    if (open) {
+      // Medir altura real y animar hacia ella, luego soltar a "none".
+      setVisible(true);
+      const scrollH = el.scrollHeight;
+      setMaxH(`${scrollH}px`);
+      const tid = window.setTimeout(() => setMaxH("none"), 220);
+      return () => window.clearTimeout(tid);
+    } else {
+      // Fijar max-height al valor actual para que la transicion de cierre
+      // tenga un punto de partida concreto, luego colapsar a 0.
+      const scrollH = el.scrollHeight;
+      setMaxH(`${scrollH}px`);
+      // Un frame de espera garantiza que el browser vea el valor fijado
+      // antes de cambiar a 0.
+      const raf = window.requestAnimationFrame(() => {
+        setMaxH("0px");
+      });
+      const tid = window.setTimeout(() => setVisible(false), 220);
+      return () => {
+        window.cancelAnimationFrame(raf);
+        window.clearTimeout(tid);
+      };
+    }
+  }, [open]);
+
+  return (
+    <div
+      id={id}
+      ref={ref}
+      style={{
+        maxHeight: maxH,
+        overflow: "hidden",
+        transition: "max-height 200ms ease",
+        visibility: visible ? "visible" : "hidden",
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Componente principal
+// ---------------------------------------------------------------------------
 
 export function WorkdayDetail({
   workdayId,
@@ -46,11 +251,16 @@ export function WorkdayDetail({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // retro form (only used when transitioning to completed)
+  // Retro form (solo al transicionar a completed)
   const [retroGood, setRetroGood] = useState("");
   const [retroBad, setRetroBad] = useState("");
   const [retroLearned, setRetroLearned] = useState("");
   const [showCompleteForm, setShowCompleteForm] = useState(false);
+
+  // Estado de secciones abiertas — se inicializa al cargar el workday.
+  const [openSections, setOpenSections] = useState<Set<SectionKey>>(
+    () => new Set(DEFAULT_OPEN),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -63,6 +273,8 @@ export function WorkdayDetail({
         setRetroGood(row.retro_good ?? "");
         setRetroBad(row.retro_bad ?? "");
         setRetroLearned(row.retro_learned ?? "");
+        // Restaurar secciones abiertas desde localStorage para este workday.
+        setOpenSections(loadOpenSections(workdayId));
       })
       .catch((e: unknown) => {
         if (!cancelled) setError(String(e));
@@ -74,6 +286,19 @@ export function WorkdayDetail({
       cancelled = true;
     };
   }, [workdayId, refreshKey]);
+
+  function toggleSection(id: SectionKey) {
+    setOpenSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      saveOpenSections(workdayId, next);
+      return next;
+    });
+  }
 
   async function runCmd(cmd: string, args: Record<string, unknown>) {
     setBusy(true);
@@ -124,6 +349,10 @@ export function WorkdayDetail({
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Estados de carga / error
+  // ---------------------------------------------------------------------------
+
   if (loading && !wd) {
     return (
       <div
@@ -149,13 +378,26 @@ export function WorkdayDetail({
   const canStart = wd.status === "planned";
   const canPause = wd.status === "in_progress";
   const canResume = wd.status === "paused";
-  const canComplete =
-    wd.status === "in_progress" || wd.status === "paused";
+  const canComplete = wd.status === "in_progress" || wd.status === "paused";
   const canArchive = wd.status === "completed";
 
+  // Helpers para timestamps de ultima entrada en cada seccion.
+  function lastEntryTs(entries: { created_at: string }[]): string | undefined {
+    if (!entries.length) return undefined;
+    return fmtTs(entries[entries.length - 1].created_at);
+  }
+
+  const hasRetro =
+    !!wd.retro_good || !!wd.retro_bad || !!wd.retro_learned;
+
   return (
-    <div className="flex h-full flex-col overflow-auto">
-      {/* Header */}
+    <div
+      className="flex h-full flex-col overflow-auto"
+      style={{ background: "var(--color-bg)" }}
+    >
+      {/* ------------------------------------------------------------------ */}
+      {/* Header — titulo + status + meta + acciones                          */}
+      {/* ------------------------------------------------------------------ */}
       <div
         className="flex flex-col gap-2 border-b px-6 py-4"
         style={{
@@ -181,6 +423,7 @@ export function WorkdayDetail({
             {wd.status}
           </span>
         </div>
+
         <div
           className="flex flex-wrap gap-4 text-[12px]"
           style={{ color: "var(--color-text-tertiary)" }}
@@ -192,7 +435,7 @@ export function WorkdayDetail({
           <span>Break: {Math.round(wd.break_seconds / 60)}m</span>
         </div>
 
-        {/* Actions */}
+        {/* Acciones */}
         <div className="mt-2 flex flex-wrap gap-2">
           {canStart && (
             <ActionBtn
@@ -240,7 +483,9 @@ export function WorkdayDetail({
         )}
       </div>
 
-      {/* Complete form */}
+      {/* ------------------------------------------------------------------ */}
+      {/* Complete form (inline, no accordion)                                */}
+      {/* ------------------------------------------------------------------ */}
       {showCompleteForm && (
         <div
           className="flex flex-col gap-2 border-b px-6 py-4"
@@ -286,92 +531,175 @@ export function WorkdayDetail({
         </div>
       )}
 
-      {/* Goals */}
-      <div className="px-6 py-4">
-        <h3
-          className="mb-2 text-[13px] font-semibold"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          Goals ({wd.goals.length})
-        </h3>
-        {wd.goals.length === 0 && (
-          <div
-            className="text-[12px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            No goals yet.
-          </div>
-        )}
-        <ul className="flex flex-col gap-1">
-          {wd.goals.map((g) => (
-            <li
-              key={g.id}
-              className="flex items-start gap-2 rounded px-2 py-1.5"
-              style={{
-                background: "var(--color-surface-1)",
-                border: "1px solid var(--color-border)",
-              }}
+      {/* ------------------------------------------------------------------ */}
+      {/* Secciones accordion                                                  */}
+      {/* ------------------------------------------------------------------ */}
+
+      {/* Goals — abierto por defecto */}
+      <AccordionSection
+        id="goals"
+        label="Goals"
+        count={wd.goals.length}
+        open={openSections.has("goals")}
+        onToggle={toggleSection}
+      >
+        <div className="px-6 pb-4 pt-2">
+          {wd.goals.length === 0 ? (
+            <div
+              className="text-[12px]"
+              style={{ color: "var(--color-text-tertiary)" }}
             >
-              <input
-                type="checkbox"
-                checked={g.status === "done"}
-                disabled={busy}
-                onChange={() => toggleGoal(g)}
-                className="mt-1"
-              />
-              <span
-                className="flex-1 text-[13px]"
-                style={{
-                  color: "var(--color-text)",
-                  textDecoration:
-                    g.status === "done" ? "line-through" : "none",
-                  opacity: g.status === "done" ? 0.6 : 1,
-                }}
-              >
-                {g.text}
-              </span>
-              <span
-                className="text-[10px] uppercase"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {g.status}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
+              No goals yet.
+            </div>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {wd.goals.map((g) => (
+                <li
+                  key={g.id}
+                  className="flex items-start gap-2 rounded px-2 py-1.5"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={g.status === "done"}
+                    disabled={busy}
+                    onChange={() => void toggleGoal(g)}
+                    className="mt-1"
+                  />
+                  <span
+                    className="flex-1 text-[13px]"
+                    style={{
+                      color: "var(--color-text)",
+                      textDecoration:
+                        g.status === "done" ? "line-through" : "none",
+                      opacity: g.status === "done" ? 0.6 : 1,
+                    }}
+                  >
+                    {g.text}
+                  </span>
+                  <span
+                    className="text-[10px] uppercase"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    {g.status}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </AccordionSection>
 
-      {/* Linked sessions (T2 — auto-link drainer) */}
-      <LinkedSessionsBlock sessionIds={wd.linked_sessions} />
+      {/* Linked Sessions */}
+      <AccordionSection
+        id="sessions"
+        label="Linked Sessions"
+        count={wd.linked_sessions.length}
+        open={openSections.has("sessions")}
+        onToggle={toggleSection}
+      >
+        <div className="px-6 pb-4 pt-2">
+          <LinkedSessionsContent sessionIds={wd.linked_sessions} />
+        </div>
+      </AccordionSection>
 
-      {/* Shared context (v2.8 — automatic surface) */}
-      <ContextBlock
+      {/* Context > Notes */}
+      <AccordionSection
+        id="ctx_notes"
+        label="Context — Notes"
+        count={wd.context.notes.length}
+        lastTs={lastEntryTs(wd.context.notes)}
+        open={openSections.has("ctx_notes")}
+        onToggle={toggleSection}
+      >
+        <div className="px-6 pb-4 pt-2">
+          <ContextEntryList entries={wd.context.notes} emptyLabel="No notes." />
+        </div>
+      </AccordionSection>
+
+      {/* Context > Decisions */}
+      <AccordionSection
+        id="ctx_decisions"
+        label="Context — Decisions"
+        count={wd.context.decisions.length}
+        lastTs={lastEntryTs(wd.context.decisions)}
+        open={openSections.has("ctx_decisions")}
+        onToggle={toggleSection}
+      >
+        <div className="px-6 pb-4 pt-2">
+          <ContextEntryList
+            entries={wd.context.decisions}
+            emptyLabel="No decisions."
+          />
+        </div>
+      </AccordionSection>
+
+      {/* Context > File Changes */}
+      <AccordionSection
+        id="ctx_file_changes"
+        label="Context — File Changes"
+        count={wd.context.file_changes.length}
+        lastTs={lastEntryTs(wd.context.file_changes)}
+        open={openSections.has("ctx_file_changes")}
+        onToggle={toggleSection}
+      >
+        <div className="px-6 pb-4 pt-2">
+          <ContextEntryList
+            entries={wd.context.file_changes}
+            emptyLabel="No file changes."
+          />
+        </div>
+      </AccordionSection>
+
+      {/* Context > Agent Messages */}
+      <AccordionSection
+        id="ctx_agent_messages"
+        label="Context — Agent Messages"
+        count={wd.context.agent_messages.length}
+        lastTs={lastEntryTs(wd.context.agent_messages)}
+        open={openSections.has("ctx_agent_messages")}
+        onToggle={toggleSection}
+      >
+        <div className="px-6 pb-4 pt-2">
+          <ContextEntryList
+            entries={wd.context.agent_messages}
+            emptyLabel="No agent messages."
+          />
+        </div>
+      </AccordionSection>
+
+      {/* Append context — siempre visible debajo de los accordions de contexto */}
+      <AppendContextForm
         workdayId={workdayId}
-        context={wd.context}
-        onAppended={(next) => setWd(next)}
         busy={busy}
+        onAppended={(next) => setWd(next)}
       />
 
-      {/* Existing retro display */}
-      {(wd.retro_good || wd.retro_bad || wd.retro_learned) && (
-        <div
-          className="border-t px-6 py-4"
-          style={{ borderColor: "var(--color-border)" }}
+      {/* Retro — collapsed por defecto, solo si hay datos */}
+      {hasRetro && (
+        <AccordionSection
+          id="retro"
+          label="Retrospective"
+          open={openSections.has("retro")}
+          onToggle={toggleSection}
         >
-          <h3
-            className="mb-2 text-[13px] font-semibold"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            Retrospective
-          </h3>
-          <RetroLine label="Good" value={wd.retro_good} />
-          <RetroLine label="Bad" value={wd.retro_bad} />
-          <RetroLine label="Learned" value={wd.retro_learned} />
-        </div>
+          <div className="px-6 pb-4 pt-2">
+            <RetroLine label="Good" value={wd.retro_good} />
+            <RetroLine label="Bad" value={wd.retro_bad} />
+            <RetroLine label="Learned" value={wd.retro_learned} />
+          </div>
+        </AccordionSection>
       )}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Sub-componentes internos
+// ---------------------------------------------------------------------------
 
 interface ActionBtnProps {
   label: string;
@@ -394,7 +722,7 @@ function ActionBtn({
       className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
       style={{
         background: primary ? "var(--color-accent, #2563eb)" : "transparent",
-        color: primary ? "white" : "var(--color-text-secondary)",
+        color: primary ? "var(--color-accent-text, #000)" : "var(--color-text-secondary)",
         border: primary
           ? "1px solid transparent"
           : "1px solid var(--color-border-strong)",
@@ -425,7 +753,7 @@ function RetroField({ label, value, onChange }: RetroFieldProps) {
         rows={2}
         className="rounded px-2 py-1 text-[12px]"
         style={{
-          background: "var(--color-surface-1)",
+          background: "var(--color-surface-2)",
           border: "1px solid var(--color-border-strong)",
           color: "var(--color-text)",
           resize: "vertical",
@@ -435,19 +763,17 @@ function RetroField({ label, value, onChange }: RetroFieldProps) {
   );
 }
 
-interface LinkedSessionsBlockProps {
+// Contenido de linked sessions (extraido del accordion wrapper)
+interface LinkedSessionsContentProps {
   sessionIds: string[];
 }
-function LinkedSessionsBlock({ sessionIds }: LinkedSessionsBlockProps) {
+function LinkedSessionsContent({ sessionIds }: LinkedSessionsContentProps) {
   const [openErr, setOpenErr] = useState<string | null>(null);
 
   async function openTranscript(sessionId: string) {
     setOpenErr(null);
     try {
       const home = await getHomeDir();
-      // The Claude Code session transcripts live in a per-project dir under
-      // ~/.claude/projects/<slug>/<session_id>.jsonl. We don't know the slug
-      // here so try the well-known fallbacks in order.
       const candidates = [
         joinPath(home, ".claude", "session-data", `${sessionId}-session.tmp`),
         joinPath(home, ".claude", "data", "sessions", `${sessionId}.jsonl`),
@@ -458,7 +784,7 @@ function LinkedSessionsBlock({ sessionIds }: LinkedSessionsBlockProps) {
           await openPath(p);
           return;
         } catch (_) {
-          // try next
+          // probar siguiente
         }
       }
       setOpenErr(`No transcript found for ${sessionId}`);
@@ -467,18 +793,19 @@ function LinkedSessionsBlock({ sessionIds }: LinkedSessionsBlockProps) {
     }
   }
 
-  if (!sessionIds || sessionIds.length === 0) return null;
-  return (
-    <div
-      className="border-t px-6 py-4"
-      style={{ borderColor: "var(--color-border)" }}
-    >
-      <h3
-        className="mb-2 text-[13px] font-semibold"
-        style={{ color: "var(--color-text-secondary)" }}
+  if (!sessionIds || sessionIds.length === 0) {
+    return (
+      <div
+        className="text-[12px]"
+        style={{ color: "var(--color-text-tertiary)" }}
       >
-        Linked sessions ({sessionIds.length})
-      </h3>
+        No linked sessions.
+      </div>
+    );
+  }
+
+  return (
+    <>
       {openErr && (
         <div
           className="mb-2 text-[11px]"
@@ -493,7 +820,7 @@ function LinkedSessionsBlock({ sessionIds }: LinkedSessionsBlockProps) {
             key={sid}
             className="flex items-center justify-between rounded px-2 py-1.5"
             style={{
-              background: "var(--color-surface-1)",
+              background: "var(--color-surface-2)",
               border: "1px solid var(--color-border)",
             }}
           >
@@ -518,22 +845,75 @@ function LinkedSessionsBlock({ sessionIds }: LinkedSessionsBlockProps) {
           </li>
         ))}
       </ul>
-    </div>
+    </>
   );
 }
 
-interface ContextBlockProps {
-  workdayId: string;
-  context: WorkdayContext;
-  onAppended: (wd: Workday) => void;
-  busy: boolean;
+// Lista de entradas de contexto
+interface ContextEntryListProps {
+  entries: WorkdayContextEntry[];
+  emptyLabel: string;
 }
-function ContextBlock({
+function ContextEntryList({ entries, emptyLabel }: ContextEntryListProps) {
+  if (!entries || entries.length === 0) {
+    return (
+      <div
+        className="text-[12px]"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        {emptyLabel}
+      </div>
+    );
+  }
+  return (
+    <ul className="flex flex-col gap-1">
+      {entries.map((e) => (
+        <li
+          key={e.id}
+          className="rounded px-2 py-1.5 text-[12px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text)",
+          }}
+        >
+          <div className="flex items-start gap-2">
+            <span
+              className="rounded px-1.5 py-0.5 text-[9px] uppercase"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text-secondary)",
+              }}
+            >
+              {e.kind}
+            </span>
+            <span className="flex-1 whitespace-pre-wrap">{e.text}</span>
+          </div>
+          {e.source && (
+            <div
+              className="mt-1 text-[10px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              source: {e.source}
+            </div>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// Formulario de append context — siempre visible, fuera de accordion.
+interface AppendContextFormProps {
+  workdayId: string;
+  busy: boolean;
+  onAppended: (wd: Workday) => void;
+}
+function AppendContextForm({
   workdayId,
-  context,
-  onAppended,
   busy,
-}: ContextBlockProps) {
+  onAppended,
+}: AppendContextFormProps) {
   const [kind, setKind] = useState<string>("note");
   const [text, setText] = useState<string>("");
   const [appending, setAppending] = useState(false);
@@ -559,135 +939,65 @@ function ContextBlock({
     }
   }
 
-  const total =
-    context.notes.length +
-    context.decisions.length +
-    context.file_changes.length +
-    context.agent_messages.length;
-
   return (
     <div
-      className="border-t px-6 py-4"
+      className="border-t px-6 py-3"
       style={{ borderColor: "var(--color-border)" }}
     >
-      <h3
-        className="mb-2 text-[13px] font-semibold"
-        style={{ color: "var(--color-text-secondary)" }}
-      >
-        Shared context ({total})
-      </h3>
-      <div className="mb-3 flex flex-col gap-2">
-        <div className="flex gap-2">
-          <select
-            value={kind}
-            onChange={(e) => setKind(e.target.value)}
-            disabled={appending || busy}
-            className="rounded px-2 py-1 text-[12px]"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border-strong)",
-              color: "var(--color-text)",
-            }}
-          >
-            <option value="note">Note</option>
-            <option value="decision">Decision</option>
-            <option value="file_change">File change</option>
-            <option value="agent_message">Agent message</option>
-          </select>
-          <input
-            type="text"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Add to shared context..."
-            disabled={appending || busy}
-            className="flex-1 rounded px-2 py-1 text-[12px]"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border-strong)",
-              color: "var(--color-text)",
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") void handleAppend();
-            }}
-          />
-          <button
-            type="button"
-            onClick={() => void handleAppend()}
-            disabled={appending || busy || !text.trim()}
-            className="rounded px-3 py-1 text-[12px] font-medium disabled:opacity-50"
-            style={{
-              background: "var(--color-accent, #2563eb)",
-              color: "white",
-            }}
-          >
-            {appending ? "..." : "Append"}
-          </button>
+      <div className="flex gap-2">
+        <select
+          value={kind}
+          onChange={(e) => setKind(e.target.value)}
+          disabled={appending || busy}
+          className="rounded px-2 py-1 text-[12px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border-strong)",
+            color: "var(--color-text)",
+          }}
+        >
+          <option value="note">Note</option>
+          <option value="decision">Decision</option>
+          <option value="file_change">File change</option>
+          <option value="agent_message">Agent message</option>
+        </select>
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="Add to shared context..."
+          disabled={appending || busy}
+          className="flex-1 rounded px-2 py-1 text-[12px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border-strong)",
+            color: "var(--color-text)",
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void handleAppend();
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => void handleAppend()}
+          disabled={appending || busy || !text.trim()}
+          className="rounded px-3 py-1 text-[12px] font-medium disabled:opacity-50"
+          style={{
+            background: "var(--color-accent, #ffffff)",
+            color: "var(--color-accent-text, #000000)",
+          }}
+        >
+          {appending ? "..." : "Append"}
+        </button>
+      </div>
+      {err && (
+        <div
+          className="mt-1 text-[11px]"
+          style={{ color: "var(--color-danger, #ef4444)" }}
+        >
+          {err}
         </div>
-        {err && (
-          <div
-            className="text-[11px]"
-            style={{ color: "var(--color-danger, #ef4444)" }}
-          >
-            {err}
-          </div>
-        )}
-      </div>
-      <ContextList title="Decisions" entries={context.decisions} />
-      <ContextList title="Notes" entries={context.notes} />
-      <ContextList title="File changes" entries={context.file_changes} />
-      <ContextList title="Agent messages" entries={context.agent_messages} />
-    </div>
-  );
-}
-
-interface ContextListProps {
-  title: string;
-  entries: WorkdayContextEntry[];
-}
-function ContextList({ title, entries }: ContextListProps) {
-  if (!entries || entries.length === 0) return null;
-  return (
-    <div className="mb-3">
-      <div
-        className="mb-1 text-[10px] font-semibold uppercase tracking-wider"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        {title}
-      </div>
-      <ul className="flex flex-col gap-1">
-        {entries.map((e) => (
-          <li
-            key={e.id}
-            className="rounded px-2 py-1.5 text-[12px]"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-text)",
-            }}
-          >
-            <div className="flex items-start gap-2">
-              <span
-                className="rounded px-1.5 py-0.5 text-[9px] uppercase"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                {e.kind}
-              </span>
-              <span className="flex-1 whitespace-pre-wrap">{e.text}</span>
-            </div>
-            {e.source && (
-              <div
-                className="mt-1 text-[10px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                source: {e.source}
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
+      )}
     </div>
   );
 }

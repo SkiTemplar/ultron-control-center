@@ -10,7 +10,14 @@
 //   list_batches() -> Vec<BatchEntry>
 //   execute_batch(name: String) -> BatchRunResult
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 type BatchEntry = {
@@ -38,6 +45,10 @@ type BatchDropdownProps = {
    *  failure). The host renders this in its own surface so the dropdown stays
    *  visually consistent with the rest of the toolbar. */
   onResult?: (toast: BatchToast) => void;
+  /** When true, the trigger button adopts the project-header visual style:
+   *  transparent bg, rgba border, same size as the other header buttons.
+   *  When false (default), uses the original toolbar style. */
+  headerStyle?: boolean;
 };
 
 function formatBytes(n: number): string {
@@ -63,7 +74,10 @@ function clip(s: string, max = 320): string {
   return `${trimmed.slice(0, max)}… (+${trimmed.length - max} chars)`;
 }
 
-export default function BatchDropdown({ onResult }: BatchDropdownProps) {
+export default function BatchDropdown({
+  onResult,
+  headerStyle = false,
+}: BatchDropdownProps) {
   const [open, setOpen] = useState(false);
   const [batches, setBatches] = useState<BatchEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -114,9 +128,7 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
       try {
         const r = await invoke<BatchRunResult>("execute_batch", { name });
         const body =
-          clip(r.stdout) ||
-          clip(r.stderr) ||
-          `exit ${r.exit_code ?? "?"}`;
+          clip(r.stdout) || clip(r.stderr) || `exit ${r.exit_code ?? "?"}`;
         onResult?.({
           kind: r.success ? "ok" : "err",
           title: r.success
@@ -143,17 +155,50 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
 
   const count = batches?.length ?? 0;
 
+  // Trigger button styles: header mode matches the other workspace header
+  // buttons (transparent bg, rgba border, 11px font); default mode keeps the
+  // original toolbar appearance.
+  const triggerClassName = headerStyle
+    ? "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+    : "flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50";
+
+  const triggerStyle = headerStyle
+    ? ({
+        borderColor: "rgba(255,255,255,0.10)",
+        background: "transparent",
+        color: "var(--color-text-muted)",
+      } as CSSProperties)
+    : ({
+        background: "var(--color-surface-3)",
+        color: "var(--color-text)",
+        border: "1px solid var(--color-border-strong)",
+      } as CSSProperties);
+
+  const handleTriggerEnter = headerStyle
+    ? (e: ReactMouseEvent<HTMLButtonElement>) => {
+        e.currentTarget.style.background = "rgba(255,255,255,0.05)";
+        e.currentTarget.style.color = "var(--color-text)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.20)";
+      }
+    : undefined;
+
+  const handleTriggerLeave = headerStyle
+    ? (e: ReactMouseEvent<HTMLButtonElement>) => {
+        e.currentTarget.style.background = "transparent";
+        e.currentTarget.style.color = "var(--color-text-muted)";
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.10)";
+      }
+    : undefined;
+
   return (
     <div ref={rootRef} className="relative">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50"
-        style={{
-          background: "var(--color-surface-3)",
-          color: "var(--color-text)",
-          border: "1px solid var(--color-border-strong)",
-        }}
+        className={triggerClassName}
+        style={triggerStyle}
+        onMouseEnter={handleTriggerEnter}
+        onMouseLeave={handleTriggerLeave}
         title="Execute a pre-approved script from ~/.ultron/batches/ (handy when an AI session left a .bat for you to run)"
         aria-expanded={open}
         aria-haspopup="menu"
@@ -174,9 +219,7 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
             <line x1="12" y1="19" x2="20" y2="19" />
           </svg>
         </span>
-        <span>
-          {runningName ? `Running: ${runningName}` : "Run batch"}
-        </span>
+        <span>{runningName ? `Running: ${runningName}` : "Run batch"}</span>
         {runningName && (
           <svg
             width="11"
@@ -246,9 +289,10 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
                     onResult?.({
                       kind: "ok",
                       title: `Cleanup: ${r.deleted.length} removed`,
-                      body: r.deleted.length === 0
-                        ? `Nothing older than 30 days. Kept ${r.kept}.`
-                        : `Deleted: ${r.deleted.slice(0, 8).join(", ")}${r.deleted.length > 8 ? `, +${r.deleted.length - 8} more` : ""}. Kept ${r.kept}.`,
+                      body:
+                        r.deleted.length === 0
+                          ? `Nothing older than 30 days. Kept ${r.kept}.`
+                          : `Deleted: ${r.deleted.slice(0, 8).join(", ")}${r.deleted.length > 8 ? `, +${r.deleted.length - 8} more` : ""}. Kept ${r.kept}.`,
                     });
                     void refresh();
                   } catch (err) {
@@ -319,7 +363,8 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
                 className="px-3 py-4 text-center text-[12px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                No batches in <span style={{ fontFamily: "var(--font-mono)" }}>
+                No batches in{" "}
+                <span style={{ fontFamily: "var(--font-mono)" }}>
                   ~/.ultron/batches/
                 </span>
                 <div

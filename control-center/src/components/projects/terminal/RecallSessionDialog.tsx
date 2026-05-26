@@ -1,99 +1,174 @@
-// ULTRON Control Center — Recall Last Session dialog.
+// ULTRON Control Center — Recall Last Session dialog (redesign 2026-05-27).
 //
-// Pulls a structured summary of the most recent Claude Code session for the
-// active project (backend `recall_last_session`) and gives the user two ways
-// to act on it: copy a paste-ready prompt to the clipboard, or spawn a fresh
-// Claude PTY in the project terminal preloaded with that prompt.
+// Shows a structured summary of the most recent Claude Code session for the
+// active project. Renders the summary as markdown, exposes a status badge
+// based on the recall source, and offers three footer actions:
+//   • "Inject as prompt"  — calls onInject(suggested_prompt) (parent handles it)
+//   • "Open transcript"   — opens the JSONL file in the system editor
+//   • "Refresh"           — re-fetches the recall payload
 //
-// Markdown rendering is intentionally minimal — we ship summaries that look
-// like plain bullet lists, so we avoid pulling in a full markdown parser and
-// just render the text inside a `<pre>` block. This keeps the bundle small
-// and leaves the door open for a richer renderer later (the summary itself
-// is already markdown-flavoured).
+// Props kept backward-compatible with the v1 API:
+//   projectId?, onClose, onSpawn? (unchanged)
+// New optional prop:
+//   onInject? (string) => void   — if absent, the button is hidden
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { X, History, Clock } from "../icons";
+import { openPath } from "@tauri-apps/plugin-opener";
+import { X, History, RefreshCw } from "../icons";
+import { Markdown } from "../../../lib/markdown";
 import type { RecallResult } from "../../../types";
 
 type Props = {
-  /** Optional project id — when set, recall is scoped to that project. When
-   *  omitted, the global recall command is used (used from the global
-   *  Control Center terminal). */
+  /** Scopes recall to this project. Omit for global recall. */
   projectId?: string;
-  /** Close handler. The dialog never closes itself except via this. */
+  /** Display name used in the header. Falls back to projectId. */
+  projectName?: string;
+  /** Close handler. Dialog never closes itself except via this. */
   onClose: () => void;
-  /** Called when the user clicks "Spawn new Claude session with this prompt".
-   *  The parent decides where to spawn the PTY (per-project ProjectTerminal
-   *  routes it into the active tab; the global terminal opens a new one). */
+  /** Legacy: spawn a new Claude PTY with the suggested prompt. */
   onSpawn?: (prompt: string) => Promise<void> | void;
+  /** New: inject the suggested prompt into the active input. */
+  onInject?: (prompt: string) => void;
 };
+
+// ---------------------------------------------------------------------------
+// Status badge
+// ---------------------------------------------------------------------------
+
+type BadgeVariant = "found" | "fallback" | "none";
+
+function sourceToBadge(source: string, found: boolean): BadgeVariant {
+  if (!found) return "none";
+  if (source === "jsonl") return "found";
+  if (source === "mem0") return "fallback";
+  return "none";
+}
+
+const BADGE_CONFIG: Record<
+  BadgeVariant,
+  { label: string; bg: string; color: string; border: string } | null
+> = {
+  found: {
+    label: "Found JSONL",
+    bg: "rgba(34,197,94,0.12)",
+    color: "#4ade80",
+    border: "rgba(34,197,94,0.3)",
+  },
+  fallback: {
+    label: "Fallback to mem0",
+    bg: "rgba(234,179,8,0.12)",
+    color: "#fbbf24",
+    border: "rgba(234,179,8,0.3)",
+  },
+  none: {
+    label: "Not found",
+    bg: "rgba(107,114,128,0.12)",
+    color: "var(--color-text-tertiary)",
+    border: "rgba(107,114,128,0.25)",
+  },
+};
+
+function StatusBadge({ source, found }: { source: string; found: boolean }) {
+  const variant = sourceToBadge(source, found);
+  const cfg = BADGE_CONFIG[variant];
+  if (!cfg) return null;
+  return (
+    <span
+      style={{
+        background: cfg.bg,
+        color: cfg.color,
+        border: `1px solid ${cfg.border}`,
+        borderRadius: 9999,
+        fontSize: 10,
+        padding: "1px 7px",
+        fontWeight: 500,
+        letterSpacing: "0.02em",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dialog
+// ---------------------------------------------------------------------------
 
 export default function RecallSessionDialog({
   projectId,
+  projectName,
   onClose,
   onSpawn,
+  onInject,
 }: Props) {
   const [result, setResult] = useState<RecallResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState("");
-  const [copied, setCopied] = useState(false);
   const [spawning, setSpawning] = useState(false);
 
-  // Load the recall payload on mount. Re-invokes when projectId changes
-  // (the dialog is keyed by project in ProjectTerminal so this is mostly
-  // mount-time only).
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const cmd = projectId
-          ? "recall_last_session"
-          : "recall_last_session_global";
-        const args = projectId ? { projectId } : {};
-        const r = await invoke<RecallResult>(cmd, args);
-        if (cancelled) return;
-        setResult(r);
-        setDraft(r.suggested_prompt);
-      } catch (e) {
-        if (cancelled) return;
-        setError(String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const displayName = projectName ?? projectId ?? "project";
+
+  const fetchRecall = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const cmd = projectId ? "recall_last_session" : "recall_last_session_global";
+      const args = projectId ? { projectId } : {};
+      const r = await invoke<RecallResult>(cmd, args);
+      setResult(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
   }, [projectId]);
 
-  const handleCopy = useCallback(async () => {
-    if (!draft.trim()) return;
+  useEffect(() => {
+    void fetchRecall();
+  }, [fetchRecall]);
+
+  const handleInject = useCallback(() => {
+    if (!result?.suggested_prompt.trim() || !onInject) return;
+    onInject(result.suggested_prompt);
+    onClose();
+  }, [result, onInject, onClose]);
+
+  const handleOpenTranscript = useCallback(async () => {
+    if (!result?.session_id || !projectId) return;
+    // The JSONL lives at ~/.claude/projects/<slug>/<session_id>.jsonl.
+    // We pass the path hint encoded in the session_id field if the backend
+    // emits a full path, otherwise fall back gracefully.
+    const pathHint = result.session_id.includes("/") || result.session_id.includes("\\")
+      ? result.session_id
+      : null;
+    if (!pathHint) return;
     try {
-      await navigator.clipboard.writeText(draft);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      await openPath(pathHint);
     } catch (e) {
-      setError(`Clipboard error: ${e}`);
+      setError(`Cannot open transcript: ${e}`);
     }
-  }, [draft]);
+  }, [result, projectId]);
 
   const handleSpawn = useCallback(async () => {
-    if (!draft.trim() || !onSpawn) return;
+    if (!result?.suggested_prompt.trim() || !onSpawn) return;
     setSpawning(true);
     setError(null);
     try {
-      await onSpawn(draft);
+      await onSpawn(result.suggested_prompt);
       onClose();
     } catch (e) {
       setError(String(e));
     } finally {
       setSpawning(false);
     }
-  }, [draft, onSpawn, onClose]);
+  }, [result, onSpawn, onClose]);
+
+  // Determine whether "Open transcript" is available.
+  const canOpenTranscript =
+    !!result?.session_id &&
+    (result.session_id.includes("/") || result.session_id.includes("\\"));
 
   return (
     <div
@@ -101,104 +176,173 @@ export default function RecallSessionDialog({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-1)] shadow-xl"
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-[var(--color-border)] shadow-xl"
+        style={{ background: "var(--color-surface-2)" }}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* ---------------------------------------------------------------- */}
+        {/* Header                                                           */}
+        {/* ---------------------------------------------------------------- */}
         <header className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2.5">
-          <div className="flex items-center gap-2">
-            <History size={14} />
-            <h2 className="text-sm font-semibold">Recall last session</h2>
-            {result?.source && result.source !== "none" && (
-              <span
-                className="rounded border border-[var(--color-border)] px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]"
-                title="Origen del resumen"
-              >
-                {result.source}
-              </span>
+          <div className="flex min-w-0 items-center gap-2">
+            <History size={14} className="shrink-0 text-[var(--color-text-muted)]" />
+            <h2 className="truncate text-sm font-semibold text-[var(--color-text)]">
+              Last session in{" "}
+              <span className="text-[var(--color-accent)]">{displayName}</span>
+            </h2>
+            {result && !loading && (
+              <StatusBadge source={result.source} found={result.found} />
             )}
           </div>
           <button
             onClick={onClose}
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
+            className="ml-2 shrink-0 rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)]"
             aria-label="Close"
           >
             <X size={14} />
           </button>
         </header>
 
+        {/* ---------------------------------------------------------------- */}
+        {/* Body                                                             */}
+        {/* ---------------------------------------------------------------- */}
         <div className="flex-1 overflow-y-auto px-4 py-3">
+          {/* Loading */}
           {loading && (
-            <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-              <Clock size={12} />
-              <span>Buscando la última sesión…</span>
+            <div className="flex items-center gap-2 py-6 text-xs text-[var(--color-text-muted)]">
+              <RefreshCw size={14} className="animate-spin" />
+              <span>Fetching last session…</span>
             </div>
           )}
 
+          {/* Error */}
           {!loading && error && (
-            <div className="rounded border border-[var(--color-error)] bg-[var(--color-surface-0)] p-2 text-xs text-[var(--color-error)]">
+            <div
+              className="rounded border px-3 py-2 text-xs"
+              style={{
+                borderColor: "var(--color-error)",
+                background: "rgba(239,68,68,0.06)",
+                color: "var(--color-error)",
+              }}
+            >
               {error}
             </div>
           )}
 
+          {/* Content */}
           {!loading && !error && result && (
             <>
-              {result.last_active_iso && (
-                <div className="mb-2 text-[11px] text-[var(--color-text-muted)]">
-                  Última actividad: {result.last_active_iso}
-                </div>
-              )}
-              <pre className="mb-3 whitespace-pre-wrap break-words rounded border border-[var(--color-border)] bg-[var(--color-surface-0)] p-3 font-mono text-[11px] leading-snug text-[var(--color-text)]">
-                {result.summary_md}
-              </pre>
-              <label
-                htmlFor="recall-prompt"
-                className="mb-1 block text-[11px] uppercase tracking-wide text-[var(--color-text-muted)]"
+              {/* Timestamp + session id row */}
+              <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-1">
+                {result.last_active_iso && (
+                  <span className="text-[11px] text-[var(--color-text-muted)]">
+                    Last activity:{" "}
+                    <span className="text-[var(--color-text-secondary)]">
+                      {result.last_active_iso}
+                    </span>
+                  </span>
+                )}
+                {result.session_id && (
+                  <span
+                    className="max-w-[22ch] truncate text-[11px] text-[var(--color-text-tertiary)]"
+                    style={{ fontFamily: "var(--font-mono)" }}
+                    title={result.session_id}
+                  >
+                    {result.session_id}
+                  </span>
+                )}
+              </div>
+
+              {/* Summary markdown */}
+              <div
+                className="mb-3 rounded border p-3"
+                style={{
+                  borderColor: "var(--color-border)",
+                  background: "var(--color-surface-1)",
+                  fontSize: 12,
+                }}
               >
-                Prompt sugerido (editable)
-              </label>
-              <textarea
-                id="recall-prompt"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                rows={5}
-                className="w-full resize-y rounded border border-[var(--color-border)] bg-[var(--color-surface-0)] p-2 font-mono text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-accent)]"
-                spellCheck={false}
-              />
+                {result.summary_md.trim() ? (
+                  <Markdown source={result.summary_md} />
+                ) : (
+                  <p className="text-[12px] text-[var(--color-text-muted)]">
+                    No summary available.
+                  </p>
+                )}
+              </div>
+
+              {/* Not-found hint */}
               {!result.found && (
-                <p className="mt-2 text-[11px] text-[var(--color-text-muted)]">
-                  No se encontró sesión previa. El prompt sugerido es genérico
-                  — edítalo si quieres.
+                <p className="mt-1 text-[11px] text-[var(--color-text-muted)]">
+                  No previous session found. The suggested prompt is generic — you
+                  can still inject it as a starting point.
                 </p>
               )}
             </>
           )}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] px-4 py-2.5">
-          <button
-            onClick={onClose}
-            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)]"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleCopy}
-            disabled={!draft.trim() || loading}
-            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs hover:bg-[var(--color-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
-            title="Copia el prompt al portapapeles"
-          >
-            {copied ? "Copied!" : "Copy prompt"}
-          </button>
-          {onSpawn && (
+        {/* ---------------------------------------------------------------- */}
+        {/* Footer                                                           */}
+        {/* ---------------------------------------------------------------- */}
+        <footer className="flex items-center justify-between gap-2 border-t border-[var(--color-border)] px-4 py-2.5">
+          {/* Left: secondary actions */}
+          <div className="flex items-center gap-2">
             <button
-              onClick={handleSpawn}
-              disabled={!draft.trim() || loading || spawning}
-              className="rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)]/20 px-3 py-1 text-xs text-[var(--color-accent)] hover:bg-[var(--color-accent)]/30 disabled:cursor-not-allowed disabled:opacity-50"
-              title="Lanza una nueva sesión Claude con este prompt"
+              onClick={() => void fetchRecall()}
+              disabled={loading}
+              className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-3 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50"
+              title="Re-fetch recall"
             >
-              {spawning ? "Spawning…" : "Spawn new Claude session"}
+              <RefreshCw size={11} />
+              Refresh
             </button>
-          )}
+            {canOpenTranscript && (
+              <button
+                onClick={() => void handleOpenTranscript()}
+                disabled={loading}
+                className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-3 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] disabled:cursor-not-allowed disabled:opacity-50"
+                title="Open JSONL transcript in editor"
+              >
+                Open transcript
+              </button>
+            )}
+          </div>
+
+          {/* Right: primary action */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={onClose}
+              className="rounded-md border border-[var(--color-border)] px-3 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-surface-3)]"
+            >
+              Cancel
+            </button>
+            {onInject && (
+              <button
+                onClick={handleInject}
+                disabled={!result?.suggested_prompt.trim() || loading}
+                className="rounded-md px-3 py-1 text-xs font-medium disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  background: "var(--color-accent)",
+                  color: "#000",
+                  border: "1px solid var(--color-accent)",
+                }}
+                title="Inject as prompt in the active terminal input"
+              >
+                Inject as prompt
+              </button>
+            )}
+            {onSpawn && (
+              <button
+                onClick={() => void handleSpawn()}
+                disabled={!result?.suggested_prompt.trim() || loading || spawning}
+                className="rounded-md border border-[var(--color-accent)] px-3 py-1 text-xs text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 disabled:cursor-not-allowed disabled:opacity-50"
+                title="Spawn new Claude session with this prompt"
+              >
+                {spawning ? "Spawning…" : "Spawn session"}
+              </button>
+            )}
+          </div>
         </footer>
       </div>
     </div>

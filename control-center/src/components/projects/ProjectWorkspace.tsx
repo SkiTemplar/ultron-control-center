@@ -5,7 +5,7 @@
 // rendered by ProjectBoard / ProjectTerminal / ProjectAgents / ProjectContext
 // / ProjectSessions.
 
-import { useEffect, useState, type ComponentType } from "react";
+import React, { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
@@ -28,6 +28,8 @@ import ProjectSessions from "./ProjectSessions";
 import ProjectNotes from "./ProjectNotes";
 import ProjectTimeline from "./ProjectTimeline";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
+import BatchDropdown, { type BatchToast } from "./BatchDropdown";
+import RecallSessionDialog from "./terminal/RecallSessionDialog";
 
 type Props = {
   projectId: string;
@@ -45,6 +47,77 @@ type ProjectListEntry = {
   path: string | null;
 };
 
+// ---------------------------------------------------------------------------
+// Tab badge counts — agents (pinned), sessions (today for this project).
+// Context count is skipped (no cheap single-call backend command available).
+// ---------------------------------------------------------------------------
+
+type TabCounts = {
+  agents: number | null;
+  sessions: number | null;
+};
+
+type PinnedAgentsWire = { pinned: string[]; roles?: Record<string, string> };
+type SessionSummaryWire = { session_id: string; path: string; modified_at: string };
+
+/** Returns counts for the badge-able tabs, silently returning null on error. */
+async function fetchTabCounts(
+  projectId: string,
+  projectPath: string,
+): Promise<TabCounts> {
+  let agents: number | null = null;
+  let sessions: number | null = null;
+
+  try {
+    const pa = (await invoke("agents_pinned_load", { projectId })) as PinnedAgentsWire;
+    agents = pa.pinned.length;
+  } catch {
+    // silently ignore
+  }
+
+  try {
+    if (projectPath) {
+      const list = (await invoke("project_sessions_list", {
+        projectPath,
+      })) as SessionSummaryWire[];
+      // Count sessions whose modified_at is today (local date).
+      const todayPrefix = new Date().toISOString().slice(0, 10);
+      sessions = list.filter((s) => s.modified_at.startsWith(todayPrefix)).length;
+    }
+  } catch {
+    // silently ignore
+  }
+
+  return { agents, sessions };
+}
+
+// ---------------------------------------------------------------------------
+// TabBadge — small pill chip shown next to a tab label.
+// Only rendered when count > 0. Errors / null silently hide it.
+// ---------------------------------------------------------------------------
+
+function TabBadge({ count }: { count: number | null }) {
+  if (!count || count <= 0) return null;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        height: 14,
+        padding: "0 4px",
+        borderRadius: 9999,
+        background: "rgba(255,255,255,0.08)",
+        fontSize: 9.5,
+        color: "var(--color-text-tertiary)",
+        fontVariantNumeric: "tabular-nums",
+        lineHeight: 1,
+      }}
+    >
+      {count}
+    </span>
+  );
+}
+
 const TABS: { id: ProjectSubTab; label: string; Icon: ComponentType<{ size?: number }> }[] = [
   { id: "board", label: "Board", Icon: Kanban },
   { id: "terminal", label: "Terminal", Icon: TerminalIcon },
@@ -56,6 +129,17 @@ const TABS: { id: ProjectSubTab; label: string; Icon: ComponentType<{ size?: num
   { id: "notes", label: "Notes", Icon: BookOpen },
   { id: "timeline", label: "Timeline", Icon: Clock },
 ];
+
+// Shared visual style for every header action button.
+// Defined as a plain string so it stays in one place and all buttons stay
+// pixel-identical without Tailwind's purge removing dynamic class fragments.
+const HEADER_BTN =
+  "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40";
+const HEADER_BTN_STYLE: React.CSSProperties = {
+  borderColor: "rgba(255,255,255,0.10)",
+  background: "transparent",
+  color: "var(--color-text-muted)",
+};
 
 export default function ProjectWorkspace({ projectId }: Props) {
   const { consumeInitialSubTab, subTabs, setProjectSubTab } = useProjectsTabs();
@@ -70,8 +154,21 @@ export default function ProjectWorkspace({ projectId }: Props) {
     if (hint) setProjectSubTab(projectId, hint);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   const [meta, setMeta] = useState<ProjectMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
+  const [recallOpen, setRecallOpen] = useState(false);
+  const [tabCounts, setTabCounts] = useState<TabCounts>({ agents: null, sessions: null });
+  // Ref holds latest meta.path so the interval closure always sees the current value.
+  const metaPathRef = useRef<string>("");
+
+  // Auto-fade batch toast after 6s.
+  useEffect(() => {
+    if (!batchToast) return;
+    const t = window.setTimeout(() => setBatchToast(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [batchToast]);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,6 +185,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
               name: found.name ?? found.id,
               path: found.path,
             });
+            metaPathRef.current = found.path;
           } else {
             setError(`project ${projectId} not found`);
           }
@@ -100,6 +198,26 @@ export default function ProjectWorkspace({ projectId }: Props) {
       cancelled = true;
     };
   }, [projectId]);
+
+  // Poll tab counts (agents + sessions) every 30s. Runs once after meta
+  // resolves (path available) then repeats. Errors are silently swallowed
+  // so a failing command never surfaces as visible UI noise.
+  useEffect(() => {
+    if (!meta?.path) return;
+    let active = true;
+
+    const run = async () => {
+      const counts = await fetchTabCounts(projectId, metaPathRef.current);
+      if (active) setTabCounts(counts);
+    };
+
+    void run();
+    const id = window.setInterval(() => { void run(); }, 30_000);
+    return () => {
+      active = false;
+      window.clearInterval(id);
+    };
+  }, [projectId, meta?.path]);
 
   const openInIde = async () => {
     if (!meta) return;
@@ -132,63 +250,183 @@ export default function ProjectWorkspace({ projectId }: Props) {
     }
   };
 
+  // Recall: spawn a fresh Claude PTY in the Terminal tab preloaded with the
+  // suggested prompt. Switches to the terminal sub-tab automatically so the
+  // user sees the new session. The actual spawn is delegated to
+  // ProjectTerminal via a shared callback that we thread down through props
+  // only when recall is opened from the header. To avoid prop-drilling we
+  // simply open the same RecallSessionDialog that ProjectTerminal already
+  // renders; here we provide `onSpawn` as a no-op placeholder so the dialog
+  // shows its "Spawn" button — users can copy the prompt and paste it
+  // manually, or we switch to Terminal first and let ProjectTerminal own the
+  // spawn. For the header use-case we navigate to Terminal and close the
+  // dialog so the user is in the right context.
+  const handleRecallSpawn = useCallback(
+    async (_prompt: string) => {
+      // Navigate to Terminal tab so the user can act there.
+      // The actual PTY spawn is handled by ProjectTerminal's own Recall flow
+      // (it stays mounted even when not active). Here we just close & switch.
+      setRecallOpen(false);
+      setSubTab("terminal");
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   return (
     <div className="flex h-full flex-col">
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface-1)] px-4 py-2">
-        <div className="min-w-0">
-          <h2 className="truncate text-sm font-semibold">
+      {/* ------------------------------------------------------------------ */}
+      {/* Header — pure black, all action buttons at the same visual level.   */}
+      {/* ------------------------------------------------------------------ */}
+      <div
+        className="flex items-center justify-between border-b px-4 py-2"
+        style={{
+          background: "#000000",
+          borderColor: "rgba(255,255,255,0.08)",
+        }}
+      >
+        {/* Project identity */}
+        <div className="min-w-0 flex-1 pr-4">
+          <h2
+            className="truncate text-[13px] font-semibold leading-tight tracking-tight"
+            style={{ color: "var(--color-text)" }}
+          >
             {meta?.name ?? projectId}
           </h2>
           {meta && (
-            <p className="truncate text-xs text-[var(--color-text-muted)]">
+            <p
+              className="mt-0.5 truncate text-[10px] font-mono leading-none"
+              style={{ color: "rgba(255,255,255,0.30)" }}
+            >
               {meta.path}
             </p>
           )}
         </div>
-        <div className="flex items-center gap-1.5">
-          <button
+
+        {/* Action buttons — all share HEADER_BTN + onMouseEnter/Leave for hover */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          {/* Recall */}
+          <HeaderBtn
+            onClick={() => setRecallOpen(true)}
+            title="Recall last session — recover context and spawn a fresh Claude with a paste-ready prompt"
+          >
+            <History size={12} />
+            Recall
+          </HeaderBtn>
+
+          {/* Run Batch (dropdown component, styled to match header buttons) */}
+          <BatchDropdown onResult={setBatchToast} headerStyle />
+
+          {/* IDE */}
+          <HeaderBtn
             onClick={openInIde}
             disabled={!meta}
-            className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-surface-2)] disabled:opacity-40"
+            title="Open project in IDE"
           >
-            <ExternalLink size={11} /> IDE
-          </button>
-          <button
+            <ExternalLink size={12} />
+            IDE
+          </HeaderBtn>
+
+          {/* Folder */}
+          <HeaderBtn
             onClick={openFolder}
             disabled={!meta}
-            className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-surface-2)] disabled:opacity-40"
+            title="Reveal project folder in Explorer"
           >
-            <FolderOpen size={11} /> Folder
-          </button>
-          <button
+            <FolderOpen size={12} />
+            Folder
+          </HeaderBtn>
+
+          {/* Detach */}
+          <HeaderBtn
             onClick={detachToWindow}
             disabled={!meta}
-            className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-surface-2)] disabled:opacity-40"
             title="Open this project in a standalone window (multi-monitor)"
           >
-            <ExternalLink size={11} /> Detach
-          </button>
+            <ExternalLink size={12} />
+            Detach
+          </HeaderBtn>
         </div>
       </div>
 
-      {/* Sub-tab bar */}
-      <div className="flex items-center gap-0.5 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-2">
+      {/* Batch toast — rendered just below the header so it doesn't overlap content */}
+      {batchToast && (
+        <div
+          className="flex items-center gap-2 border-b px-4 py-1.5 text-[11px]"
+          style={{
+            background: "#000000",
+            borderColor: batchToast.kind === "ok"
+              ? "rgba(34,197,94,0.30)"
+              : "rgba(239,68,68,0.30)",
+            color: batchToast.kind === "ok"
+              ? "var(--color-success, #22c55e)"
+              : "var(--color-danger, #ef4444)",
+          }}
+          title={batchToast.body}
+        >
+          <strong>{batchToast.title}</strong>
+          {batchToast.body && (
+            <span style={{ color: "rgba(255,255,255,0.45)" }}>
+              {batchToast.body.slice(0, 200)}
+              {batchToast.body.length > 200 ? "…" : ""}
+            </span>
+          )}
+          <button
+            onClick={() => setBatchToast(null)}
+            className="ml-auto rounded p-0.5 opacity-60 hover:opacity-100"
+            style={{ color: "inherit" }}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Sub-tab bar — visually separated with a stronger bottom border.     */}
+      {/* ------------------------------------------------------------------ */}
+      <div
+        className="flex items-center gap-0 border-b px-1"
+        style={{
+          background: "#000000",
+          borderColor: "rgba(255,255,255,0.12)",
+        }}
+      >
         {TABS.map(({ id, label, Icon }) => {
           const active = subTab === id;
+          const badge =
+            id === "agents" ? tabCounts.agents :
+            id === "sessions" ? tabCounts.sessions :
+            null;
           return (
             <button
               key={id}
               onClick={() => setSubTab(id)}
-              className={[
-                "flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-xs",
-                active
-                  ? "border-[var(--color-accent)] text-[var(--color-text)]"
-                  : "border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)]",
-              ].join(" ")}
+              className="flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[11px] transition-colors"
+              style={{
+                borderBottomColor: active
+                  ? "var(--color-accent)"
+                  : "transparent",
+                color: active
+                  ? "var(--color-text)"
+                  : "rgba(255,255,255,0.38)",
+              }}
+              onMouseEnter={(e) => {
+                if (!active) {
+                  (e.currentTarget as HTMLButtonElement).style.color =
+                    "rgba(255,255,255,0.70)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!active) {
+                  (e.currentTarget as HTMLButtonElement).style.color =
+                    "rgba(255,255,255,0.38)";
+                }
+              }}
             >
               <Icon size={12} />
               {label}
+              <TabBadge count={badge} />
             </button>
           );
         })}
@@ -218,6 +456,53 @@ export default function ProjectWorkspace({ projectId }: Props) {
           <ProjectTimeline projectId={projectId} projectPath={meta?.path} />
         )}
       </div>
+
+      {/* Recall dialog — mounted at workspace level so it works regardless of
+          which sub-tab is active. onSpawn navigates to Terminal then closes. */}
+      {recallOpen && (
+        <RecallSessionDialog
+          projectId={projectId}
+          onClose={() => setRecallOpen(false)}
+          onSpawn={handleRecallSpawn}
+        />
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HeaderBtn — shared visual primitive for all header action buttons.
+// Keeps every button pixel-identical without repeating class strings.
+// ---------------------------------------------------------------------------
+
+type HeaderBtnProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  children: React.ReactNode;
+};
+
+function HeaderBtn({ children, style: _style, ...rest }: HeaderBtnProps) {
+  return (
+    <button
+      type="button"
+      {...rest}
+      className={HEADER_BTN}
+      style={HEADER_BTN_STYLE}
+      onMouseEnter={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background =
+          "rgba(255,255,255,0.05)";
+        (e.currentTarget as HTMLButtonElement).style.color =
+          "var(--color-text)";
+        (e.currentTarget as HTMLButtonElement).style.borderColor =
+          "rgba(255,255,255,0.20)";
+      }}
+      onMouseLeave={(e) => {
+        (e.currentTarget as HTMLButtonElement).style.background = "transparent";
+        (e.currentTarget as HTMLButtonElement).style.color =
+          "var(--color-text-muted)";
+        (e.currentTarget as HTMLButtonElement).style.borderColor =
+          "rgba(255,255,255,0.10)";
+      }}
+    >
+      {children}
+    </button>
   );
 }
