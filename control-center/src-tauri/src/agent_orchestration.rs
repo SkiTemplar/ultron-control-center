@@ -182,8 +182,14 @@ pub async fn delegate_task_inner(
     // surface-only — we surface it on stderr where the dev tools can pick
     // it up but don't propagate it to the caller (a missing log line is
     // not worth tearing down the delegation result the user can see).
+    // Append a microsecond nonce so two delegations in the same second
+    // don't collide on id (KIRKARDO 17 MED).
+    let id_nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_micros() % 10_000)
+        .unwrap_or(0);
     if let Err(e) = log_delegation(DelegationLogEntry {
-        id: format!("dl-{}", now_secs_safe()),
+        id: format!("dl-{}-{:04}", now_secs_safe(), id_nonce),
         agent: agent_trim.to_string(),
         task_preview: truncate(task, 200),
         cwd: cwd_for_log,

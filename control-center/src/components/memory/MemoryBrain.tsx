@@ -338,7 +338,13 @@ export function MemoryBrain() {
               preserveAspectRatio="xMidYMid meet"
               className="block h-full w-full"
               onClick={handleBackgroundClick}
+              role="img"
+              aria-labelledby="memory-brain-title memory-brain-desc"
             >
+              <title id="memory-brain-title">Memory Brain knowledge graph</title>
+              <desc id="memory-brain-desc">
+                {`Concentric layout of ${graph.entities.length} entities and ${graph.relations.length} relations grouped by type. Click a node to pin it, hover to highlight neighbours, or use the filter to dim non-matches.`}
+              </desc>
               {/* Concentric ring guides — one per entity type. */}
               {distinctTypes.map((type) => {
                 const r = ringRadius.get(type)!;
@@ -516,7 +522,7 @@ export function MemoryBrain() {
                   <ul className="space-y-1 text-xs">
                     {selectedEntity.observations.map((o, i) => (
                       <li
-                        key={i}
+                        key={`obs-${i}-${o.slice(0, 24)}`}
                         className="rounded-md bg-[var(--color-surface-3)] px-2 py-1"
                       >
                         {o}
