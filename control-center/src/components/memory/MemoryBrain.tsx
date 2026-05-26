@@ -375,7 +375,7 @@ export function MemoryBrain() {
               })}
 
               {/* Relations — drawn first so nodes paint on top. */}
-              {graph.relations.map((rel, idx) => {
+              {graph.relations.map((rel) => {
                 const a = byName.get(rel.from);
                 const b = byName.get(rel.to);
                 if (!a || !b) return null;
@@ -390,7 +390,7 @@ export function MemoryBrain() {
                   (rel.from === focusName || rel.to === focusName);
                 return (
                   <line
-                    key={`rel-${idx}-${rel.from}-${rel.to}-${rel.relation_type}`}
+                    key={`rel-${rel.from}-${rel.to}-${rel.relation_type}`}
                     x1={a.x}
                     y1={a.y}
                     x2={b.x}

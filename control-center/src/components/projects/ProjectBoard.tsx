@@ -101,7 +101,13 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
             cardId,
             cardTitle: movedCard.title,
             targetColumn: targetCol.name,
-          }).catch(() => {});
+          }).catch((e) => {
+            // KIRKARDO 1 MED — kanban move already succeeded so we don't
+            // bubble this to the UI, but we do log it so a systemic backend
+            // failure (no active workday, perms, JSON corruption) is at
+            // least visible to anyone watching devtools.
+            console.warn("[workday sync]", e);
+          });
         }
       } catch (e) {
         setError(String(e));

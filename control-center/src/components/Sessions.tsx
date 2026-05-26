@@ -843,7 +843,7 @@ function WorkspaceCard({
         {showGitRoot && ws.git_root && (
           <button
             type="button"
-            onClick={() => onNewAtRoot(ws.git_root!)}
+            onClick={() => onNewAtRoot(ws.git_root as string)}
             disabled={busy}
             className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-40"
             style={{
@@ -1118,12 +1118,22 @@ export function Sessions() {
   // bootstrap a project without first having opened a Claude session in
   // that folder.
   async function createProjectFromPicker() {
+    let selected: string | string[] | null;
     try {
-      const selected = await openDialog({
+      selected = await openDialog({
         directory: true,
         multiple: false,
         title: "Pick a folder to register as a project",
       });
+    } catch (e) {
+      // KIRKARDO 5 HIGH — distinguish dialog failure from user cancel
+      // (cancel returns null, fail throws). Surface the actual error so
+      // the user knows "nothing happened" wasn't silent.
+      console.error("[Sessions] openDialog failed", e);
+      setError(`folder picker failed: ${e}`);
+      return;
+    }
+    try {
       if (!selected || typeof selected !== "string") return;
       const name = deriveWorkspaceName(selected);
       await invoke("create_project", {

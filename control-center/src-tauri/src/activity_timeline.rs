@@ -345,7 +345,7 @@ fn workday_ts_to_iso(raw: &str) -> Option<String> {
     Some(epoch_secs_to_iso(secs))
 }
 
-fn epoch_secs_to_iso(secs: u64) -> String {
+pub(crate) fn epoch_secs_to_iso(secs: u64) -> String {
     let mut days = (secs / 86_400) as i64;
     let secs_in_day = (secs % 86_400) as u32;
     let h = secs_in_day / 3600;

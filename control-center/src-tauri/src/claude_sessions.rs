@@ -349,11 +349,24 @@ pub struct WorkspaceSummary {
 /// symlink loop can't hang the call).
 fn find_git_root_above(cwd: &str) -> Option<String> {
     let path = std::path::PathBuf::from(cwd);
+    // Decision: when the cwd no longer exists on disk (project deleted,
+    // drive unmounted, network share down) we return None instead of
+    // walking the literal parent — the workspace card hides the "Use git
+    // root" affordance because acting on it would fail anyway.
     if !path.exists() {
         return None;
     }
     let mut current = path.parent()?.to_path_buf();
+    // Cycle-detection set guards against adversarial symlinks where
+    // `parent()` can return a path already visited (KIRKARDO 3 MED).
+    // The 8-level bound is kept as a defense-in-depth ceiling.
+    let mut seen: std::collections::HashSet<std::path::PathBuf> =
+        std::collections::HashSet::new();
     for _ in 0..8 {
+        if !seen.insert(current.clone()) {
+            // Already visited this exact path — symlink loop, abort.
+            return None;
+        }
         if current.join(".git").is_dir() {
             return Some(current.to_string_lossy().into_owned());
         }

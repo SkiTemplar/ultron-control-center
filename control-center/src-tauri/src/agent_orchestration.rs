@@ -104,16 +104,25 @@ pub async fn delegate_task_inner(
     // up in `claude_sessions::list_workspaces` once Claude Code writes the
     // first JSONL line. We log "launched" / "failed" only.
     let status = if result.is_ok() { "launched" } else { "failed" };
-    let _ = log_delegation(DelegationLogEntry {
+    // Don't silence log failures (KIRKARDO 5 CRIT). The delegation itself
+    // already succeeded by the time we get here, so a log write error is
+    // surface-only — we surface it on stderr where the dev tools can pick
+    // it up but don't propagate it to the caller (a missing log line is
+    // not worth tearing down the delegation result the user can see).
+    if let Err(e) = log_delegation(DelegationLogEntry {
         id: format!("dl-{}", now_secs_safe()),
         agent: agent_trim.to_string(),
         task_preview: truncate(task, 200),
         cwd: cwd_for_log,
         used_cheap_model: req.use_cheap_model,
-        started_at: format!("epoch:{}", now_secs_safe()),
+        // ISO 8601 instead of "epoch:N" (KIRKARDO 2 quick-win) so frontend
+        // sort/display works without parsing the inventado format.
+        started_at: crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
         status: status.to_string(),
         session_id: None,
-    });
+    }) {
+        eprintln!("[agent_orchestration] log_delegation failed: {e}");
+    }
 
     result
 }
@@ -154,13 +163,34 @@ fn now_secs_safe() -> u64 {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    let trimmed = s.trim().replace('\n', " ");
-    let chars: Vec<char> = trimmed.chars().collect();
-    if chars.len() <= max {
-        return trimmed;
+    // Strip control characters (incl. \r, \t, vertical-tab) — \n is already
+    // collapsed below — so the JSONL line stays grep/jq-friendly even when
+    // a task description was pasted from a terminal with weird escapes
+    // (KIRKARDO 3 LOW). Spaces survive.
+    let cleaned: String = s
+        .trim()
+        .chars()
+        .map(|c| if c == '\n' { ' ' } else { c })
+        .filter(|c| !c.is_control() || *c == ' ')
+        .collect();
+    // Single pass: bound iteration to `max` chars instead of allocating
+    // Vec<char> (KIRKARDO 2 MED). The truncated marker '…' only appears
+    // when we actually had to cut.
+    let mut count = 0usize;
+    let mut head = String::with_capacity(max.min(cleaned.len()) + 3);
+    let mut truncated = false;
+    for ch in cleaned.chars() {
+        if count >= max {
+            truncated = true;
+            break;
+        }
+        head.push(ch);
+        count += 1;
     }
-    let head: String = chars.into_iter().take(max).collect();
-    format!("{}…", head)
+    if truncated {
+        head.push('…');
+    }
+    head
 }
 
 fn log_delegation(entry: DelegationLogEntry) -> Result<(), String> {

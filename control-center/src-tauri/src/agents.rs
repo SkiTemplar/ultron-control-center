@@ -533,21 +533,32 @@ fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
             }
             // Accept either <name>.md (enabled) or <name>.md.disabled
             // (disabled via the same suffix convention skills use).
-            let fname_lower = p
+            //
+            // Case handling: filesystem case-sensitivity differs (NTFS is
+            // case-insensitive but preserving, Linux ext4 is sensitive).
+            // We MATCH the suffix case-insensitively but PRESERVE the
+            // original stem case so the resulting AgentEntry.name lines up
+            // with the markdown frontmatter and the actual file path
+            // (KIRKARDO 2 HIGH — previous lowercasing produced
+            // `MyAgent.md` → stem="myagent" mismatching the frontmatter).
+            let fname = p
                 .file_name()
                 .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_ascii_lowercase();
-            let (enabled, stem) = if let Some(stem) = fname_lower.strip_suffix(".md.disabled") {
-                (false, stem.to_string())
-            } else if let Some(stem) = fname_lower.strip_suffix(".md") {
-                (true, stem.to_string())
-            } else {
-                continue;
-            };
+                .unwrap_or("");
+            let fname_lower = fname.to_ascii_lowercase();
+            let (enabled, stem_len) =
+                if let Some(idx) = fname_lower.strip_suffix(".md.disabled").map(|s| s.len()) {
+                    (false, idx)
+                } else if let Some(idx) = fname_lower.strip_suffix(".md").map(|s| s.len()) {
+                    (true, idx)
+                } else {
+                    continue;
+                };
+            let stem = &fname[..stem_len];
             // Skip non-agent files (README.md, CHANGELOG.md, etc.) that
-            // happen to share the agents dir.
-            if stem == "readme" || stem == "changelog" || stem == "license" {
+            // happen to share the agents dir. Compare case-insensitively.
+            let stem_lower = stem.to_ascii_lowercase();
+            if stem_lower == "readme" || stem_lower == "changelog" || stem_lower == "license" {
                 continue;
             }
             let (name, description, valid) = read_agent_meta(&p);
@@ -588,8 +599,24 @@ pub fn list_agents_with_origin_inner(
 /// Mirrors `skills::skill_toggle_inner` but operates on .md files (agents
 /// are single files, not directories).
 pub fn agent_toggle_inner(name: String, enabled: bool) -> Result<AgentEntry, String> {
-    if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err("invalid agent name: path separators not allowed".to_string());
+    // Reject path separators, `..`, null bytes, control chars, and any
+    // non-ASCII-printable character (KIRKARDO 3 MED). The frontend only
+    // ever passes slugs derived from filenames we just listed, so the
+    // strict allowlist is safe in practice and closes the residual risk
+    // of a unicode-confusable name slipping through to fs::rename.
+    if name.is_empty() || name.len() > 128 {
+        return Err("invalid agent name: empty or too long".to_string());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+        || name.contains("..")
+        || name.starts_with('.')
+    {
+        return Err(
+            "invalid agent name: only [a-zA-Z0-9_-.] allowed, no leading dot or '..'"
+                .to_string(),
+        );
     }
     let root = global_agents_dir()?;
     let path_enabled = root.join(format!("{}.md", name));

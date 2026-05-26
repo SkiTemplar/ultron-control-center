@@ -163,8 +163,15 @@ export function Agents() {
       try {
         const list = (await invoke("list_delegations", { limit: 50 })) as DelegationLogEntry[];
         if (!cancelled) setDelegations(list);
-      } catch {
-        if (!cancelled) setDelegations([]);
+      } catch (e) {
+        // KIRKARDO 5 HIGH: surface the load failure instead of silently
+        // showing an empty list. The Recent runs section then renders the
+        // existing error banner above the grid so the user knows the
+        // backend probe didn't return.
+        if (!cancelled) {
+          setDelegations([]);
+          console.warn("[Agents] list_delegations failed", e);
+        }
       }
     }
     void loadDelegations();
@@ -264,7 +271,11 @@ export function Agents() {
     if (toggleBusy.has(a.path)) return;
     const next = !a.enabled;
     setToggleBusy((prev) => new Set(prev).add(a.path));
-    const snapshot = agents;
+    // KIRKARDO 1 HIGH — capture the per-row enabled state, not the whole
+    // list. Two rapid toggles on different agents would otherwise overwrite
+    // each other's optimistic update during revert; here each toggle only
+    // touches its own row.
+    const previousEnabled = a.enabled;
     setAgents((prev) =>
       prev.map((x) =>
         x.path === a.path ? { ...x, enabled: next } : x,
@@ -279,7 +290,11 @@ export function Agents() {
         prev.map((x) => (x.path === a.path ? updated : x)),
       );
     } catch (e) {
-      setAgents(snapshot);
+      setAgents((prev) =>
+        prev.map((x) =>
+          x.path === a.path ? { ...x, enabled: previousEnabled } : x,
+        ),
+      );
       setError(`toggle ${a.name}: ${e}`);
     } finally {
       setToggleBusy((prev) => {
@@ -688,6 +703,12 @@ export function Agents() {
                           height={32}
                           className="shrink-0 rounded"
                           style={{ background: "var(--color-surface-3)" }}
+                          onError={(e) => {
+                            // KIRKARDO 1 HIGH — fall back gracefully when
+                            // offline / dicebear is slow. Hide the broken
+                            // image instead of showing a broken-tile icon.
+                            (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                          }}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
