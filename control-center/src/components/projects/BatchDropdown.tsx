@@ -233,23 +233,61 @@ export default function BatchDropdown({ onResult }: BatchDropdownProps) {
             >
               ~/.ultron/batches
             </div>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                void refresh();
-              }}
-              disabled={loading}
-              className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
-              style={{
-                background: "transparent",
-                color: "var(--color-text-secondary)",
-                border: "1px solid var(--color-border)",
-              }}
-              title="Re-scan the batches folder"
-            >
-              {loading ? "…" : "Refresh"}
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
+                  try {
+                    const r = await invoke<{ deleted: string[]; kept: number }>(
+                      "cleanup_old_batches",
+                      { olderThanDays: 30 },
+                    );
+                    onResult?.({
+                      kind: "ok",
+                      title: `Cleanup: ${r.deleted.length} removed`,
+                      body: r.deleted.length === 0
+                        ? `Nothing older than 30 days. Kept ${r.kept}.`
+                        : `Deleted: ${r.deleted.slice(0, 8).join(", ")}${r.deleted.length > 8 ? `, +${r.deleted.length - 8} more` : ""}. Kept ${r.kept}.`,
+                    });
+                    void refresh();
+                  } catch (err) {
+                    onResult?.({
+                      kind: "err",
+                      title: "Cleanup failed",
+                      body: err instanceof Error ? err.message : String(err),
+                    });
+                  }
+                }}
+                disabled={loading}
+                className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-secondary)",
+                  border: "1px solid var(--color-border)",
+                }}
+                title="Delete batch scripts older than 30 days"
+              >
+                Cleanup 30d
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void refresh();
+                }}
+                disabled={loading}
+                className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-secondary)",
+                  border: "1px solid var(--color-border)",
+                }}
+                title="Re-scan the batches folder"
+              >
+                {loading ? "…" : "Refresh"}
+              </button>
+            </div>
           </div>
 
           {/* Body */}

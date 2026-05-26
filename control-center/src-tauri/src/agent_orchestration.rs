@@ -247,10 +247,9 @@ fn now_secs_safe() -> u64 {
 /// because the delegation should still proceed (the blackboard is an
 /// optional enrichment, not a precondition).
 fn build_blackboard_preamble(workday_id: &str) -> Result<String, String> {
-    let wd = crate::workdays::list_workdays_inner(None, None, None, None)?
-        .into_iter()
-        .find(|w| w.id == workday_id)
-        .ok_or_else(|| format!("workday {workday_id} not found"))?;
+    // KIRKARDO 17 HIGH fix: was list_workdays_inner(..) + filter, O(N) over
+    // every workday on disk. Now uses the O(1) direct path lookup.
+    let wd = crate::workdays::get_workday_by_id(workday_id)?;
     let mut entries: Vec<(&str, &str, &str)> = Vec::new();
     for e in wd.context.notes.iter().rev().take(4) {
         entries.push(("note", &e.text, &e.created_at));
@@ -317,8 +316,13 @@ fn log_delegation(entry: DelegationLogEntry) -> Result<(), String> {
         .append(true)
         .open(&path)
         .map_err(|e| e.to_string())?;
-    f.write_all(line.as_bytes()).map_err(|e| e.to_string())?;
-    f.write_all(b"\n").map_err(|e| e.to_string())?;
+    // KIRKARDO 19 fix: single write_all so two concurrent delegations can't
+    // interleave their JSON body with the newline separator and produce a
+    // malformed JSONL line on Windows (where O_APPEND atomicity is weaker
+    // than POSIX). Avoids the {a}{b}\n\n pattern.
+    let mut buf = line.into_bytes();
+    buf.push(b'\n');
+    f.write_all(&buf).map_err(|e| e.to_string())?;
     Ok(())
 }
 

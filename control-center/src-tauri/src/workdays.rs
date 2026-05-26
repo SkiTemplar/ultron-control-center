@@ -188,6 +188,14 @@ fn persist_workday(wd: &Workday) -> Result<(), String> {
 fn load_from_path(p: &PathBuf) -> Result<Workday, String> {
     serde_json::from_str(&fs::read_to_string(p).map_err(|e| format!("read: {e}"))?).map_err(|e| format!("parse: {e}"))
 }
+/// O(1) lookup of a workday by id (KIRKARDO 17 HIGH fix). External callers
+/// (agent_orchestration blackboard) should prefer this over
+/// `list_workdays_inner(..)` + filter, which deserialises every workday on
+/// disk for a single-record lookup.
+pub fn get_workday_by_id(id: &str) -> Result<Workday, String> {
+    load_wd(id)
+}
+
 fn load_wd(id: &str) -> Result<Workday, String> {
     let p = workday_path(id)?;
     if !p.exists() { return Err(format!("workday {id} not found")); }

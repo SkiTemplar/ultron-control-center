@@ -243,6 +243,7 @@ pub fn run() {
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
+            commands::batches::cleanup_old_batches,
             // -- project detach / reattach (ventanas independientes) --
             commands::detach::detach_project_window,
             commands::detach::reattach_project_window,

@@ -125,3 +125,57 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
         stderr: String::from_utf8_lossy(&output.stderr).to_string(),
     })
 }
+
+#[derive(serde::Serialize)]
+pub struct BatchCleanupReport {
+    pub deleted: Vec<String>,
+    pub kept: usize,
+}
+
+/// Delete batch scripts older than `older_than_days` (mtime). Returns the
+/// list of file names removed plus how many remain. Lets the user keep the
+/// batches folder from growing without bound (USER: "Run Batch con
+/// eliminacion de .bats para que no se queden ilimitados").
+pub fn cleanup_old_batches_inner(older_than_days: u32) -> Result<BatchCleanupReport, String> {
+    let dir = batches_dir()?;
+    if !dir.exists() {
+        return Ok(BatchCleanupReport { deleted: Vec::new(), kept: 0 });
+    }
+    let now = std::time::SystemTime::now();
+    let cutoff_secs = (older_than_days as u64).saturating_mul(86_400);
+    let mut deleted: Vec<String> = Vec::new();
+    let mut kept: usize = 0;
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if !is_allowed_ext(&path) {
+            kept += 1;
+            continue;
+        }
+        let mtime = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok();
+        let age = mtime
+            .and_then(|t| now.duration_since(t).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        if age >= cutoff_secs && cutoff_secs > 0 {
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+            if std::fs::remove_file(&path).is_ok() {
+                deleted.push(name);
+            } else {
+                kept += 1;
+            }
+        } else {
+            kept += 1;
+        }
+    }
+    Ok(BatchCleanupReport { deleted, kept })
+}
