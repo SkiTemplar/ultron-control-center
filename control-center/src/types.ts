@@ -249,6 +249,12 @@ export type WorkspaceSummary = {
   last_activity: string | null;
   session_count: number;
   latest_session_id: string | null;
+  /** Nearest ancestor that contains `.git/`, when distinct from `cwd`.
+   *  When non-null, the workspace card surfaces a "Use git root" chip so the
+   *  user can spawn the next session at the repo root instead of in the
+   *  subfolder Claude originally recorded. Fixes the .ultron/control-center
+   *  vs .ultron friction. */
+  git_root: string | null;
 };
 
 export type RichSystemInfo = {

@@ -331,6 +331,38 @@ pub struct WorkspaceSummary {
     /// UUID of the newest session — the "Continue last session" button
     /// passes this as `resumeId` to `spawn_session`.
     pub latest_session_id: Option<String>,
+    /// Nearest ancestor directory that contains a `.git/` folder, when it
+    /// is different from `cwd`. Lets the UI offer "Use git root" when the
+    /// user launched Claude inside a subfolder (e.g. `.ultron/control-center`
+    /// rather than `.ultron`). `None` when `cwd` itself is the git root or
+    /// no ancestor has `.git/`. Fixes the long-standing "Sessions opens the
+    /// subfolder instead of the project root" friction without rewriting
+    /// the slug resolution.
+    pub git_root: Option<String>,
+}
+
+/// Walk up from `cwd` looking for a `.git/` directory. Returns the path of
+/// the first ancestor that contains `.git/` (NOT `cwd` itself when `cwd` is
+/// already the root — we want to surface only the case where a workspace
+/// lives below a git root). Returns `None` when nothing found within 8
+/// levels (deep enough for any sane repo layout, bounded so a broken
+/// symlink loop can't hang the call).
+fn find_git_root_above(cwd: &str) -> Option<String> {
+    let path = std::path::PathBuf::from(cwd);
+    if !path.exists() {
+        return None;
+    }
+    let mut current = path.parent()?.to_path_buf();
+    for _ in 0..8 {
+        if current.join(".git").is_dir() {
+            return Some(current.to_string_lossy().into_owned());
+        }
+        match current.parent() {
+            Some(p) => current = p.to_path_buf(),
+            None => break,
+        }
+    }
+    None
 }
 
 pub fn list_workspaces_inner() -> Result<Vec<WorkspaceSummary>, String> {
@@ -358,6 +390,7 @@ pub fn list_workspaces_inner() -> Result<Vec<WorkspaceSummary>, String> {
                 last_activity: None,
                 session_count: 0,
                 latest_session_id: None,
+                git_root: None,
             });
         entry.session_count = entry.session_count.saturating_add(1);
         // Sessions arrive sorted newest-first from `list_claude_sessions_inner`,
@@ -383,6 +416,11 @@ pub fn list_workspaces_inner() -> Result<Vec<WorkspaceSummary>, String> {
             ws.project_id = Some(matched.id.clone());
             ws.project_name = matched.name.clone().or_else(|| Some(matched.id.clone()));
         }
+        // Detect the nearest ancestor git root. We deliberately ignore the
+        // case where `cwd` itself contains `.git/` — the UI only needs to
+        // act when the session was launched inside a subfolder of a git
+        // repo (.ultron/control-center → .ultron, etc.).
+        ws.git_root = find_git_root_above(&ws.cwd);
     }
 
     let mut out: Vec<WorkspaceSummary> = by_cwd.into_values().collect();

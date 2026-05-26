@@ -655,6 +655,10 @@ type WorkspaceCardProps = {
   onCreateProject: (ws: WorkspaceSummary) => void;
   onCustom: (ws: WorkspaceSummary) => void;
   onSendContext: (ws: WorkspaceSummary) => void;
+  /** Spawn a fresh session at the workspace's nearest ancestor `.git/`
+   *  parent. Fired by the "Use git root" button which only renders when
+   *  `ws.git_root` is non-null and distinct from `ws.cwd`. */
+  onNewAtRoot: (rootCwd: string) => void;
 };
 
 function WorkspaceCard({
@@ -664,9 +668,21 @@ function WorkspaceCard({
   onCreateProject,
   onCustom,
   onSendContext,
+  onNewAtRoot,
 }: WorkspaceCardProps) {
   const headline = ws.project_name ?? deriveWorkspaceName(ws.cwd);
   const canSendContext = !!ws.latest_session_id;
+  // Show the "Use root" affordance only when there is an ancestor git root
+  // that is genuinely different from the current cwd (path comparison after
+  // normalising separators + case, matching what recall.rs does).
+  function normalisePath(p: string): string {
+    return p.trim().replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
+  }
+  const showGitRoot =
+    ws.git_root && normalisePath(ws.git_root) !== normalisePath(ws.cwd);
+  const gitRootLabel = ws.git_root
+    ? ws.git_root.split(/[\\/]/).filter(Boolean).pop() ?? ws.git_root
+    : "";
 
   return (
     <div
@@ -730,6 +746,19 @@ function WorkspaceCard({
         >
           {ws.cwd}
         </div>
+        {showGitRoot && (
+          <div
+            className="mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+            style={{
+              background: "rgba(245, 158, 11, 0.10)",
+              color: "rgb(245, 158, 11)",
+              border: "1px solid rgba(245, 158, 11, 0.30)",
+            }}
+            title={`This workspace lives inside a git repo rooted at ${ws.git_root}. Use "+ Root" to spawn at the repo root instead.`}
+          >
+            in repo: {gitRootLabel}
+          </div>
+        )}
         <div
           className="mt-2 flex items-center gap-3 text-[10.5px] tabular-nums"
           style={{ color: "var(--color-text-tertiary)" }}
@@ -809,6 +838,22 @@ function WorkspaceCard({
             title="Register this workspace as a project"
           >
             + Create Project
+          </button>
+        )}
+        {showGitRoot && ws.git_root && (
+          <button
+            type="button"
+            onClick={() => onNewAtRoot(ws.git_root!)}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-40"
+            style={{
+              background: "rgba(245, 158, 11, 0.10)",
+              color: "rgb(245, 158, 11)",
+              border: "1px solid rgba(245, 158, 11, 0.30)",
+            }}
+            title={`New session at git repo root (${ws.git_root})`}
+          >
+            + Root
           </button>
         )}
       </div>
@@ -959,6 +1004,27 @@ export function Sessions() {
         flags: {},
       });
       setToast(`New session in ${deriveWorkspaceName(ws.cwd)}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyCwd(null);
+    }
+  }
+
+  // Spawn a session at the nearest ancestor git root (rendered by the
+  // "+ Root" button on each workspace card when ws.git_root is set).
+  async function newAtRoot(rootCwd: string) {
+    setBusyCwd(rootCwd);
+    setError(null);
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: null,
+        cwd: rootCwd,
+        flags: {},
+      });
+      setToast(`New session at ${deriveWorkspaceName(rootCwd)} (git root)`);
+      reloadWorkspaces();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -1295,6 +1361,7 @@ export function Sessions() {
                       setModal({ mode: "send-context", ws: w })
                     }
                     onCreateProject={createProjectFromWorkspace}
+                    onNewAtRoot={newAtRoot}
                   />
                 ))}
               </div>
@@ -1355,6 +1422,7 @@ export function Sessions() {
                             setModal({ mode: "send-context", ws: w })
                           }
                           onCreateProject={createProjectFromWorkspace}
+                          onNewAtRoot={newAtRoot}
                         />
                       ))}
                     </div>
