@@ -132,7 +132,7 @@ pub fn list_inbox_inner(limit: usize) -> Result<Vec<InboxEntry>, String> {
     }
     let cap = limit.clamp(1, 5000);
     let n = lines.len();
-    let start = if n > cap { n - cap } else { 0 };
+    let start = n.saturating_sub(cap);
     let mut out: Vec<InboxEntry> = Vec::with_capacity(n - start);
     // Newest first
     for l in lines[start..].iter().rev() {

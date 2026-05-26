@@ -666,7 +666,6 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
           className="ml-auto inline-flex items-center gap-1 rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-2 py-1 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 disabled:opacity-40"
           title="Analyse this project's CLAUDE.md and propose a 3-7 agent team. You confirm before applying."
         >
-          <span aria-hidden>🤖</span>
           {aiBusy ? "Analysing…" : "AI configure team"}
         </button>
         <button

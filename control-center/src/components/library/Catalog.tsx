@@ -21,55 +21,23 @@
 //   - The legacy curated list survives as a collapsed section at the
 //     bottom so the seed entries are not lost.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
   AlertTriangle,
-  Bot,
   Check,
   Clipboard,
   Compass,
-  Download,
   ExternalLink,
   Github,
   Loader,
   Search,
-  Sparkle,
 } from "./icons";
 
-type CatalogKind = "skill" | "agent";
-
-type CatalogItem = {
-  kind: CatalogKind;
-  name: string;
-  title: string;
-  owner: string;
-  repo: string;
-  path: string;
-  summary: string;
-  dead?: boolean;
-  dead_reason?: string;
-};
-
-type CatalogDomain = {
-  id: string;
-  label: string;
-  description: string;
-  items: CatalogItem[];
-};
-
-type CatalogPayload = {
-  schema_version?: number;
-  updated_at?: string | null;
-  domains: CatalogDomain[];
-};
-
-type ItemState =
-  | { kind: "idle" }
-  | { kind: "installing" }
-  | { kind: "done"; path: string }
-  | { kind: "error"; message: string };
+// CatalogItem / CatalogDomain / CatalogPayload / ItemState were removed
+// when the legacy curated section was retired (2026-05-26). The repo-clone
+// install flow that will replace it owns its own types.
 
 type RepoHit = {
   full_name: string;
@@ -93,10 +61,6 @@ const TABS: { id: SearchTab; label: string; hint: string }[] = [
   { id: "mcps", label: "MCPs", hint: "topic:mcp-server" },
   { id: "repos", label: "Repos", hint: "Free-text repo search" },
 ];
-
-function itemKey(it: CatalogItem): string {
-  return `${it.owner}/${it.repo}/${it.path}`;
-}
 
 function formatStars(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
@@ -131,12 +95,9 @@ function queryForTab(tab: SearchTab, raw: string): string {
 }
 
 export function Catalog() {
-  // Curated catalog (legacy)
-  const [data, setData] = useState<CatalogPayload | null>(null);
-  const [legacyError, setLegacyError] = useState<string | null>(null);
-  const [legacyLoading, setLegacyLoading] = useState(true);
-  const [legacyOpen, setLegacyOpen] = useState(false);
-  const [state, setState] = useState<Record<string, ItemState>>({});
+  // Legacy curated catalog removed (fb-100 follow-up 2026-05-26): the live
+  // GitHub search below covers the discovery surface. The repo-clone install
+  // flow will land in a future iteration with its own state hook.
 
   // Search engine
   const [tab, setTab] = useState<SearchTab>("trending");
@@ -146,28 +107,6 @@ export function Catalog() {
   const [hitsError, setHitsError] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<Record<string, "copied">>({});
   const [refreshTick, setRefreshTick] = useState(0);
-
-  // Load legacy curated catalog lazily (only when user expands it).
-  useEffect(() => {
-    if (!legacyOpen || data) return;
-    let cancelled = false;
-    async function load() {
-      setLegacyLoading(true);
-      try {
-        const res = (await invoke("read_curated_catalog")) as CatalogPayload;
-        if (cancelled) return;
-        setData(res);
-      } catch (e) {
-        if (!cancelled) setLegacyError(String(e));
-      } finally {
-        if (!cancelled) setLegacyLoading(false);
-      }
-    }
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [legacyOpen, data]);
 
   // Run the search whenever the tab changes, when the user submits a
   // manual query (Enter), or when a Refresh is requested.
@@ -205,31 +144,6 @@ export function Catalog() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, refreshTick]);
 
-  async function install(it: CatalogItem) {
-    const key = itemKey(it);
-    setState((s) => ({ ...s, [key]: { kind: "installing" } }));
-    try {
-      const installed = (await invoke("library_install_from_github", {
-        args: {
-          owner: it.owner,
-          repo: it.repo,
-          path: it.path,
-          kind: it.kind,
-          target_scope: "global",
-          target_project_id: null,
-          target_name: null,
-          overwrite: false,
-        },
-      })) as string;
-      setState((s) => ({ ...s, [key]: { kind: "done", path: installed } }));
-    } catch (e) {
-      setState((s) => ({
-        ...s,
-        [key]: { kind: "error", message: String(e) },
-      }));
-    }
-  }
-
   async function openRepo(hit: RepoHit) {
     const url = hit.html_url ?? `https://github.com/${hit.full_name}`;
     try {
@@ -255,11 +169,6 @@ export function Catalog() {
       /* no-op */
     }
   }
-
-  const legacyDomains = useMemo<CatalogDomain[]>(() => {
-    if (!data) return [];
-    return data.domains;
-  }, [data]);
 
   return (
     <div className="flex h-full flex-col">
@@ -529,184 +438,11 @@ export function Catalog() {
           </ul>
         )}
 
-        {/* Legacy curated catalog — kept as a collapsed section so the
-            seed entries are still reachable but no longer dominate the
-            page. */}
-        <section
-          className="mt-6 rounded-md border"
-          style={{
-            background: "var(--color-surface)",
-            borderColor: "var(--color-border)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setLegacyOpen((v) => !v)}
-            className="flex w-full items-center justify-between px-3 py-2 text-left"
-            style={{ color: "var(--color-text)" }}
-          >
-            <span className="inline-flex items-center gap-2 text-[12.5px] font-semibold">
-              <Compass size={13} /> Curated picks (legacy seed)
-            </span>
-            <span
-              className="text-[11.5px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              {legacyOpen ? "Hide" : "Show"}
-            </span>
-          </button>
-
-          {legacyOpen && (
-            <div
-              className="border-t px-3 py-3"
-              style={{ borderColor: "var(--color-border)" }}
-            >
-              {legacyLoading && (
-                <div
-                  className="flex items-center gap-2 text-[12px]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  <Loader size={12} className="animate-spin" /> Loading curated
-                  catalog…
-                </div>
-              )}
-              {legacyError && (
-                <div
-                  className="rounded-md border p-2 text-[11.5px]"
-                  style={{
-                    background: "rgba(248, 81, 73, 0.06)",
-                    borderColor: "rgba(248, 81, 73, 0.22)",
-                    color: "var(--color-danger)",
-                  }}
-                >
-                  {legacyError}
-                </div>
-              )}
-              {legacyDomains.map((domain) => (
-                <section key={domain.id} className="mb-4">
-                  <header className="mb-1">
-                    <h3 className="text-[12.5px] font-semibold">
-                      {domain.label}
-                    </h3>
-                    <p
-                      className="text-[11px]"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      {domain.description}
-                    </p>
-                  </header>
-                  <ul className="grid gap-2 md:grid-cols-2">
-                    {domain.items
-                      .filter((it) => !it.dead)
-                      .map((it) => {
-                        const key = itemKey(it);
-                        const st = state[key] ?? { kind: "idle" };
-                        const isInstalled = st.kind === "done";
-                        const isInstalling = st.kind === "installing";
-                        const KindIcon = it.kind === "skill" ? Sparkle : Bot;
-                        return (
-                          <li
-                            key={key}
-                            className="rounded-md border p-2 text-[11.5px]"
-                            style={{
-                              background: "var(--color-surface-2)",
-                              borderColor: "var(--color-border)",
-                              color: "var(--color-text)",
-                            }}
-                          >
-                            <div className="mb-1 flex items-center gap-1.5">
-                              <KindIcon
-                                size={11}
-                                className="shrink-0 text-[var(--color-text-tertiary)]"
-                              />
-                              <span className="font-medium">{it.title}</span>
-                              <span
-                                className="rounded px-1.5 py-0.5 text-[9.5px] uppercase"
-                                style={{
-                                  background: "var(--color-surface-3)",
-                                  color: "var(--color-text-tertiary)",
-                                }}
-                              >
-                                {it.kind}
-                              </span>
-                            </div>
-                            <p
-                              className="mb-1 text-[11px] leading-snug"
-                              style={{ color: "var(--color-text-secondary)" }}
-                            >
-                              {it.summary}
-                            </p>
-                            <div
-                              className="flex items-center justify-between text-[10px]"
-                              style={{ color: "var(--color-text-tertiary)" }}
-                            >
-                              <span style={{ fontFamily: "var(--font-mono)" }}>
-                                {it.owner}/{it.repo}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => install(it)}
-                                disabled={isInstalling || isInstalled}
-                                className="inline-flex items-center gap-1 rounded px-2 py-0.5"
-                                style={{
-                                  background: isInstalled
-                                    ? "rgba(63, 185, 80, 0.12)"
-                                    : "var(--color-accent)",
-                                  color: isInstalled
-                                    ? "var(--color-success)"
-                                    : "var(--color-accent-text)",
-                                  border: `1px solid ${
-                                    isInstalled
-                                      ? "rgba(63, 185, 80, 0.30)"
-                                      : "var(--color-border-strong)"
-                                  }`,
-                                  cursor:
-                                    isInstalled || isInstalling
-                                      ? "default"
-                                      : "pointer",
-                                }}
-                              >
-                                {isInstalled ? (
-                                  <>
-                                    <Check size={10} /> Installed
-                                  </>
-                                ) : isInstalling ? (
-                                  <>
-                                    <Loader
-                                      size={10}
-                                      className="animate-spin"
-                                    />{" "}
-                                    Installing
-                                  </>
-                                ) : (
-                                  <>
-                                    <Download size={10} /> Install
-                                  </>
-                                )}
-                              </button>
-                            </div>
-                            {st.kind === "error" && (
-                              <div
-                                className="mt-1 rounded px-1.5 py-0.5 text-[10px]"
-                                style={{
-                                  background: "rgba(248, 81, 73, 0.06)",
-                                  color: "var(--color-danger)",
-                                  border:
-                                    "1px solid rgba(248, 81, 73, 0.22)",
-                                }}
-                              >
-                                {st.message}
-                              </div>
-                            )}
-                          </li>
-                        );
-                      })}
-                  </ul>
-                </section>
-              ))}
-            </div>
-          )}
-        </section>
+        {/* Legacy curated catalog removed — GitHub live search (Trending /
+            Skills / Agents / Rules / MCPs / Repos) covers the discovery
+            surface. The seed JSON at ~/.ultron/cockpit/curated-catalog.json
+            is retained for archival purposes but no longer wired into the
+            UI. */}
       </div>
     </div>
   );

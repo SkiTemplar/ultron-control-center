@@ -17,7 +17,9 @@
 // invokes are type-checked.
 
 mod activity_timeline;
+mod agent_orchestration;
 mod agents;
+mod ai_router;
 mod alerts_admin;
 mod auth;
 mod backup_status;
@@ -41,6 +43,7 @@ mod logs;
 mod maintenance;
 mod mcps;
 mod mem0;
+mod memory_status;
 mod notes;
 mod plans;
 mod plugins_info;
@@ -48,6 +51,7 @@ mod project_hotkeys;
 mod projects;
 mod detach;
 mod pty;
+mod recall;
 mod rules;
 mod diagnostics_native;
 mod sessions;
@@ -201,6 +205,9 @@ pub fn run() {
             commands::agents::delete_agent,
             commands::agents::agents_pinned_load,
             commands::agents::agents_pinned_save,
+            commands::agents::delegate_task_to_agent,
+            commands::agents::list_agent_workflows,
+            commands::agents::list_active_hooks,
             // -- rules --
             commands::rules::rules_list,
             commands::rules::rules_read,
@@ -274,12 +281,22 @@ pub fn run() {
             commands::mem0::mem0_diagnostics,
             commands::mem0::mem0_test_connection,
             commands::mem0::mem0_list_all,
+            // -- memory status (Memory tab redesign) --
+            commands::memory_status::memory_status_mem0,
+            commands::memory_status::memory_status_ecc,
+            commands::memory_status::memory_status_graphify,
+            commands::memory_status::memory_status_files,
+            commands::memory_status::memory_sync_mem0_manual,
+            commands::memory_status::memory_graphify_index,
             // -- sessions --
             commands::sessions::spawn_session,
             commands::sessions::run_inline,
             commands::sessions::list_claude_sessions,
             commands::sessions::list_workspaces,
             claude_sessions::project_sessions_list,
+            // -- session recall (per-project + global) --
+            commands::recall::recall_last_session,
+            commands::recall::recall_last_session_global,
             // -- workdays (jornadas de trabajo, v2.7 completo) --
             commands::workdays::create_workday,
             commands::workdays::start_workday,
@@ -296,6 +313,20 @@ pub fn run() {
             commands::workdays::save_template,
             commands::workdays::update_goal,
             commands::workdays::workday_list,
+            commands::workdays::workday_pending_link_record,
+            commands::workdays::workday_drain_pending_links,
+            commands::workdays::workday_auto_link_session,
+            // v2.8 -- automatic workday surface
+            commands::workdays::workday_auto_start_for_project,
+            commands::workdays::workday_auto_for_session,
+            commands::workdays::workday_append_context,
+            commands::workdays::workday_record_kanban_event,
+            commands::workdays::workday_today_timeline,
+            commands::workdays::workday_history,
+            // 2026-05-26 -- workflow-template orchestrator surface
+            commands::workdays::workday_list_templates,
+            commands::workdays::workday_active_today_for_project,
+            commands::workdays::workday_start_with_template,
             // -- settings + backup --
             commands::settings::settings_read,
             commands::settings::settings_save,
@@ -424,6 +455,15 @@ pub fn run() {
             in_app_shortcuts::set_in_app_shortcuts,
             features::read_features,
             features::save_features,
+            // -- AI Router (zone -> provider routing, providers catalog, --
+            // -- health checks, metrics, end-to-end zone test) --
+            ai_router::ai_router_list_zones,
+            ai_router::ai_router_get_zone,
+            ai_router::ai_router_update_zone,
+            ai_router::ai_router_list_providers,
+            ai_router::ai_router_health,
+            ai_router::ai_router_metrics,
+            ai_router::ai_router_test,
         ])
         .setup(|app| {
             // P4 migration: ensure every known project has a kanban.json.
@@ -436,6 +476,11 @@ pub fn run() {
                     }
                 }
             }
+
+            // T2 (2026-05-26): drain queued session<->workday links left by
+            // the workday-session-linker hook when the Control Center was
+            // offline. Idempotent and silent on a clean state.
+            crate::workdays::drain_pending_links_at_startup();
 
             // Persisted main toggle hotkey (Ctrl+Alt+U by default).
             let shortcut_handle = app.global_shortcut();
@@ -494,18 +539,18 @@ pub fn run() {
 fn persist_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::Result<()> {
     let dir = ultron_root()
         .map(|p| p.join("cockpit").join("diagnostics"))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{}.json", report.timestamp));
     let body = serde_json::to_vec_pretty(report)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     std::fs::write(path, body)
 }
 
 fn emit_alert_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::Result<()> {
     let path = ultron_root()
         .map(|p| p.join("cockpit").join("alerts.jsonl"))
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        .map_err(std::io::Error::other)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

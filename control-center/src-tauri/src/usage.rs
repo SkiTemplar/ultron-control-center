@@ -281,11 +281,10 @@ fn compute_live_usage() -> Option<StatsCache> {
                             *hour_counts.entry(h.to_string()).or_insert(0) += 1;
                         }
                     }
-                    "tool_use" => {
-                        if !date.is_empty() {
+                    "tool_use"
+                        if !date.is_empty() => {
                             *daily_tools.entry(date.clone()).or_insert(0) += 1;
                         }
-                    }
                     "assistant" => {
                         let msg = v.get("message").cloned().unwrap_or(serde_json::Value::Null);
                         let model = msg
@@ -441,12 +440,12 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
             report.today.sessions += d.session_count;
             report.today.tool_calls += d.tool_call_count;
         }
-        if age >= 0 && age < 7 {
+        if (0..7).contains(&age) {
             report.last_7_days.messages += d.message_count;
             report.last_7_days.sessions += d.session_count;
             report.last_7_days.tool_calls += d.tool_call_count;
         }
-        if age >= 0 && age < 30 {
+        if (0..30).contains(&age) {
             report.last_30_days.messages += d.message_count;
             report.last_30_days.sessions += d.session_count;
             report.last_30_days.tool_calls += d.tool_call_count;
@@ -472,13 +471,13 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
                 *report.today.tokens_by_model.entry(m.clone()).or_insert(0) += v;
             }
         }
-        if age >= 0 && age < 7 {
+        if (0..7).contains(&age) {
             report.last_7_days.tokens_total += total;
             for (m, v) in &t.tokens_by_model {
                 *report.last_7_days.tokens_by_model.entry(m.clone()).or_insert(0) += v;
             }
         }
-        if age >= 0 && age < 30 {
+        if (0..30).contains(&age) {
             report.last_30_days.tokens_total += total;
             for (m, v) in &t.tokens_by_model {
                 *report.last_30_days.tokens_by_model.entry(m.clone()).or_insert(0) += v;
@@ -490,7 +489,7 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
     let mut all_dates: Vec<String> = activity_by_date.keys().map(|s| s.to_string()).collect();
     all_dates.sort();
     let recent = all_dates.iter().rev().take(14).collect::<Vec<_>>();
-    let mut recent_sorted: Vec<&String> = recent.iter().cloned().collect();
+    let mut recent_sorted: Vec<&String> = recent.to_vec();
     recent_sorted.sort();
     for date in recent_sorted {
         let act = activity_by_date.get(date.as_str());

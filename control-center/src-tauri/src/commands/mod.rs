@@ -38,6 +38,7 @@ pub mod lifecycle;
 pub mod maintenance;
 pub mod mcps;
 pub mod mem0;
+pub mod memory_status;
 pub mod misc;
 pub mod notes;
 pub mod opengl_project;
@@ -45,6 +46,7 @@ pub mod plans;
 pub mod plugins_info;
 pub mod projects;
 pub mod pty;
+pub mod recall;
 pub mod rules;
 pub mod sessions;
 pub mod settings;
@@ -56,19 +58,14 @@ pub mod timeline;
 pub mod workdays;
 
 // ---------------------------------------------------------------------------
-// Shared command-level types and helpers
+// Shared command-level helpers
 // ---------------------------------------------------------------------------
-
-/// Generic command result envelope. A handful of commands shell out to
-/// PowerShell / Python and need to surface stdout/stderr/exit verbatim
-/// instead of the structured result types each domain module exposes.
-#[derive(serde::Serialize)]
-pub struct CmdResult {
-    pub success: bool,
-    pub stdout: String,
-    pub stderr: String,
-    pub exit_code: Option<i32>,
-}
+//
+// v2.7.2: removed the legacy `CmdResult` envelope — it was declared here when
+// the command modules were split out of `lib.rs` but never wired up; each
+// domain module returns its own structured result type now. If we ever need
+// a generic stdout/stderr/exit envelope again, reintroduce it next to the
+// command that actually needs it rather than as a shared dead struct.
 
 /// Reads the last `limit` non-empty lines of a JSONL file, parsed as `T`, in
 /// newest-first order. Malformed lines are silently skipped — `alerts.jsonl`
@@ -91,7 +88,7 @@ where
         }
     }
     let n = lines.len();
-    let start = if n > limit { n - limit } else { 0 };
+    let start = n.saturating_sub(limit);
     let mut out: Vec<T> = Vec::with_capacity(n - start);
     for l in lines[start..].iter().rev() {
         if let Ok(parsed) = serde_json::from_str::<T>(l) {

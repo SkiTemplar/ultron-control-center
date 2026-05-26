@@ -734,7 +734,10 @@ export function Diagnostics() {
   const [fixResult, setFixResult] = useState<string | null>(null);
 
   // Toolbox (Available commands) — collapsible, with filter.
-  const [toolboxOpen, setToolboxOpen] = useState(false);
+  // v2.7.2: Toolbox open by default — USER audit said the bare count was
+  // not useful; he needs to see what each command does. Each ToolboxCard
+  // already renders fix.detail inline, so opening it surfaces the explanations.
+  const [toolboxOpen, setToolboxOpen] = useState(true);
   const [toolboxFilter, setToolboxFilter] = useState("");
 
   // "Solve with AI" modal state.
@@ -1363,11 +1366,15 @@ function ToolboxPanel({
       >
         <div>
           <div className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
-            Toolbox · {allFixes.length} commands
+            Toolbox · {allFixes.length} comandos
           </div>
           <div className="mt-0.5 text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-            Every fix the Control Center can run, grouped by category. Use as a
-            quick reference — you don't need an error to trigger one.
+            Cada tarjeta es una acción que el Control Center puede ejecutar en
+            tu Windows: reparaciones de red, servicios, Windows Update, almacenamiento,
+            shell y diagnósticos integrados. El texto debajo de cada nombre describe
+            exactamente qué comando se lanza y para qué sirve — úsalo como
+            referencia rápida, no necesitas un error para disparar uno. Usa el
+            filtro para buscar por nombre, descripción o categoría.
           </div>
         </div>
         <span

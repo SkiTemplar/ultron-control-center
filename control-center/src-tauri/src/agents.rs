@@ -367,7 +367,7 @@ pub fn delete_agent_inner(name: String) -> Result<AgentMutationResult, String> {
 
 fn validate_slug(name: &str) -> Result<(), String> {
     let len = name.len();
-    if len < 2 || len > 61 {
+    if !(2..=61).contains(&len) {
         return Err(format!("invalid slug length ({}): 2..=61 expected", len));
     }
     let bytes = name.as_bytes();

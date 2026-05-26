@@ -192,8 +192,7 @@ pub async fn search_github_inner(
                         && p.to_ascii_lowercase().ends_with("/readme.md");
                     let is_flat_skill = {
                         // .claude/skills/<name>.md (parent dir literally "skills").
-                        let parent_is_skills = p
-                            .rsplitn(3, '/')
+                        let parent_is_skills = p.rsplit('/')
                             .nth(1)
                             .map(|seg| seg == "skills")
                             .unwrap_or(false);
@@ -212,8 +211,7 @@ pub async fn search_github_inner(
                     // `.claude/agents/README.md` rejection too — README is
                     // not a kebab-case agent slug downstream anyway.
                     let parent_is_agents = h
-                        .path
-                        .rsplitn(3, '/')
+                        .path.rsplit('/')
                         .nth(1)
                         .map(|seg| seg == "agents")
                         .unwrap_or(false);
@@ -242,7 +240,7 @@ pub async fn search_github_inner(
                     let bn_lc = bn.to_ascii_lowercase();
                     if bn_lc == "skill.md" || bn_lc == "readme.md" {
                         // Folder-style: <name>/SKILL.md → parent dir is the name.
-                        h.path.rsplitn(3, '/').nth(1).unwrap_or("").to_string()
+                        h.path.rsplit('/').nth(1).unwrap_or("").to_string()
                     } else {
                         // Flat file: <name>.md → stem of the basename.
                         bn.trim_end_matches(".md").to_string()

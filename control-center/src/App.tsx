@@ -19,7 +19,6 @@ import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsConte
 import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
-import { AIRouter } from "./components/AIRouter";
 import { Workdays } from "./components/Workdays";
 import { Plans } from "./components/Plans";
 import { PopupHost } from "./components/PopupHost";
@@ -531,7 +530,6 @@ function AppInner() {
         {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}
         {tab === "projects" && <ProjectsPane />}
         {tab === "system" && <System />}
-        {tab === "ai-router" && <AIRouter />}
         {tab === "workdays" && <Workdays />}
         {tab === "plans" && <Plans />}
         {/* v2.1: "gaming" and "personal" tabs removed — they were leftovers

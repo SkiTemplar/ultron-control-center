@@ -17,7 +17,6 @@ import type {
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
 import NewOpenGlProjectModal from "./projects/NewOpenGlProjectModal";
-import BatchDropdown, { type BatchToast } from "./projects/BatchDropdown";
 
 // ---------------------------------------------------------------------------
 // Launcher item rendering helpers
@@ -1715,16 +1714,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // projects list resolves; failures are silent (cards just show "—").
   const [stats, setStats] = useState<Record<string, CardStats>>({});
 
-  // Toast emitted by <BatchDropdown> after running a batch script. Auto-fades
-  // after ~6s so it doesn't linger when the user moves on. The `lastAction`
-  // box only surfaces failures; this is the success-side channel.
-  const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
-  useEffect(() => {
-    if (!batchToast) return;
-    const t = window.setTimeout(() => setBatchToast(null), 6000);
-    return () => window.clearTimeout(t);
-  }, [batchToast]);
-
   async function load() {
     setLoading(true);
     try {
@@ -2354,11 +2343,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           >
             {scanning ? "Scanning…" : "Rescan disk"}
           </button>
-          {/* Run batch ▾ — lists pre-approved scripts under ~/.ultron/batches/
-              and executes the selected one. Useful when an AI session has
-              dropped a .bat for an action it can't run inside the sandbox
-              (elevated installs, interactive prompts, etc.). */}
-          <BatchDropdown onResult={setBatchToast} />
           <button
             type="button"
             onClick={load}
@@ -3080,57 +3064,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         </div>
       )}
 
-      {/* Batch toast — success or failure of the most recent BatchDropdown
-          run. Auto-fades after 6s (see effect on batchToast above). The
-          success-side surface uses the same shape as the error banner so it
-          feels like one cohesive status zone. */}
-      {batchToast && (
-        <div
-          className="mb-4 flex items-start gap-3 rounded p-3 text-[12px]"
-          style={{
-            background:
-              batchToast.kind === "ok"
-                ? "rgba(63, 185, 80, 0.06)"
-                : "rgba(248, 81, 73, 0.06)",
-            border:
-              batchToast.kind === "ok"
-                ? "1px solid rgba(63, 185, 80, 0.22)"
-                : "1px solid rgba(248, 81, 73, 0.22)",
-            color:
-              batchToast.kind === "ok"
-                ? "var(--color-success)"
-                : "var(--color-danger)",
-          }}
-        >
-          <div className="min-w-0 flex-1">
-            <div className="font-medium">{batchToast.title}</div>
-            {batchToast.body && (
-              <pre
-                className="mt-1 max-h-32 overflow-auto whitespace-pre-wrap break-words text-[11px]"
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  color: "var(--color-text-secondary)",
-                }}
-              >
-                {batchToast.body}
-              </pre>
-            )}
-          </div>
-          <button
-            type="button"
-            onClick={() => setBatchToast(null)}
-            className="shrink-0 rounded px-1.5 py-0.5 text-[11px]"
-            style={{
-              background: "transparent",
-              color: "var(--color-text-tertiary)",
-              border: "1px solid var(--color-border)",
-            }}
-            aria-label="Dismiss batch result"
-          >
-            ×
-          </button>
-        </div>
-      )}
 
       {loading && projects.length === 0 && (
         <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>

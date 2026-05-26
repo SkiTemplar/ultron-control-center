@@ -179,12 +179,34 @@ function ZoneCard({
 // AIRouterIndex
 // ---------------------------------------------------------------------------
 
+// Local storage key for the dismissable explainer banner. Once a user hides
+// the help text, we don't bring it back — they know what zones are.
+const HELP_DISMISSED_KEY = "ultron.ai-router.help-dismissed";
+
 export function AIRouterIndex() {
   const [zones, setZones] = useState<Zone[]>(DEFAULT_ZONES);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [editZone, setEditZone] = useState<Zone | null>(null);
+  const [helpDismissed, setHelpDismissed] = useState<boolean>(() => {
+    // Defensive read: localStorage can throw in privacy modes / Tauri webviews
+    // with storage disabled. We default to "show help" on any failure.
+    try {
+      return localStorage.getItem(HELP_DISMISSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
+
+  function dismissHelp() {
+    setHelpDismissed(true);
+    try {
+      localStorage.setItem(HELP_DISMISSED_KEY, "1");
+    } catch {
+      // Ignore — banner will just reappear next session.
+    }
+  }
 
   const loadZones = useCallback(async () => {
     setLoading(true);
@@ -226,6 +248,56 @@ export function AIRouterIndex() {
 
   return (
     <div className="p-6">
+      {/* ------------------------------------------------------------------ */}
+      {/* Explainer banner — shown once until dismissed                       */}
+      {/* ------------------------------------------------------------------ */}
+      {!helpDismissed && (
+        <div
+          className="mb-5 rounded-lg border p-4"
+          style={{
+            background: "var(--color-surface-2)",
+            borderColor: "var(--color-border)",
+          }}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1">
+              <p
+                className="text-[12.5px] font-semibold"
+                style={{ color: "var(--color-text)" }}
+              >
+                How the router works
+              </p>
+              <p
+                className="mt-1.5 text-[12px] leading-relaxed"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
+                A <strong>zone</strong> is one operational task in ULTRON
+                (refresh usage stats, fix an alert, consolidate memory, review
+                code…). Each zone has a <strong>primary</strong> provider +
+                model and an ordered <strong>fallback chain</strong>: if the
+                primary fails or is unavailable, the router tries fallback 1,
+                then 2, then 3 before surfacing an error. Task class
+                (trivial / light / medium / heavy) is a suggestion, not a
+                hard limit — pick whatever provider you trust for the job.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissHelp}
+              className="shrink-0 rounded px-2 py-1 text-[11px] transition-colors"
+              style={{
+                background: "var(--color-surface-3)",
+                color: "var(--color-text-tertiary)",
+                border: "1px solid var(--color-border)",
+              }}
+              title="Hide this help banner"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ------------------------------------------------------------------ */}
       {/* Toolbar                                                             */}
       {/* ------------------------------------------------------------------ */}

@@ -179,7 +179,7 @@ fn code_from_combo_name(name: &str) -> Option<Code> {
 
 fn refresh_custom_cache(file: &CustomSlotsFile) {
     let mut out: Vec<(Shortcut, usize)> = Vec::new();
-    for (_, entry) in &file.slots {
+    for entry in file.slots.values() {
         if let Some(sc) = parse_combo(&entry.combo) {
             out.push((sc, entry.slot));
         }
@@ -228,7 +228,7 @@ pub fn register_custom_hotkeys(app: &AppHandle) -> Result<(), String> {
     }
     let file = load_custom_slots();
     let mut new_cache: Vec<(Shortcut, usize)> = Vec::new();
-    for (_, entry) in &file.slots {
+    for entry in file.slots.values() {
         let Some(sc) = parse_combo(&entry.combo) else {
             eprintln!("[ultron] custom slot {} bad combo '{}'", entry.slot, entry.combo);
             continue;

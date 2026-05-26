@@ -257,7 +257,7 @@ fn flatten_hooks(root: &serde_json::Value) -> Vec<Hook> {
 }
 
 fn validate_event(event: &str) -> Result<(), String> {
-    if ALLOWED_EVENTS.iter().any(|e| *e == event) {
+    if ALLOWED_EVENTS.contains(&event) {
         Ok(())
     } else {
         Err(format!(

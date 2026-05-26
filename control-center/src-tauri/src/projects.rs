@@ -1867,8 +1867,7 @@ mod tests {
         // mock here. Instead we replicate the documented invariant in a
         // doc-style test: a slice of LauncherItems should yield exactly the
         // non-folder kinds when filtered the same way as the inner loop.
-        let items = vec![
-            LauncherItem {
+        let items = [LauncherItem {
                 kind: "folder".into(),
                 path: Some(r"C:\proj".into()),
                 cwd: None, args: None, label: None,
@@ -1893,8 +1892,7 @@ mod tests {
                 path: Some(r"C:\proj\sub".into()),
                 cwd: None, args: None, label: None,
                     provider: None,
-            },
-        ];
+            }];
 
         // Match the predicate in launch_all_items_inner — skip kind=="folder".
         let dispatched: Vec<&str> = items

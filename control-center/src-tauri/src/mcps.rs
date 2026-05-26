@@ -580,7 +580,7 @@ fn validate_mcp_config(config: &serde_json::Value) -> Result<(), String> {
         }
         let lower = cmd_trimmed.to_ascii_lowercase();
         let stripped = lower.strip_suffix(".exe").unwrap_or(&lower);
-        if !MCP_COMMAND_ALLOWLIST.iter().any(|c| *c == stripped) {
+        if !MCP_COMMAND_ALLOWLIST.contains(&stripped) {
             return Err(format!(
                 "command '{}' is not in the MCP allowlist (allowed: {})",
                 cmd_trimmed,

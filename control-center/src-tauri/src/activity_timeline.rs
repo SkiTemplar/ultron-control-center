@@ -66,12 +66,12 @@ fn read_tail_lines(path: &PathBuf, max_lines: usize) -> Vec<String> {
     };
     let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
     let n = lines.len();
-    let start = if n > max_lines { n - max_lines } else { 0 };
+    let start = n.saturating_sub(max_lines);
     lines[start..].iter().map(|s| s.to_string()).collect()
 }
 
 fn truncate_summary(s: &str, max: usize) -> String {
-    let cleaned = s.replace('\n', " ").replace('\r', " ");
+    let cleaned = s.replace(['\n', '\r'], " ");
     if cleaned.chars().count() <= max {
         return cleaned;
     }
@@ -399,7 +399,7 @@ pub fn compute_activity_timeline_inner(days: u32) -> Result<TimelineSummary, Str
     // Build the per-day, per-source count matrix from the filtered events.
     let mut day_counts: HashMap<String, HashMap<String, usize>> = HashMap::new();
     for ev in &events {
-        let day_entry = day_counts.entry(ev.day.clone()).or_insert_with(HashMap::new);
+        let day_entry = day_counts.entry(ev.day.clone()).or_default();
         *day_entry.entry(ev.source.clone()).or_insert(0) += 1;
     }
 

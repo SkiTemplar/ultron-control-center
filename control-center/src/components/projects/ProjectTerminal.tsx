@@ -16,8 +16,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { providerLabel } from "./terminal/provider-labels";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { Plus, Terminal as TerminalIcon, X } from "./icons";
+import { History, Plus, Terminal as TerminalIcon, X } from "./icons";
 import SplitPane from "./terminal/SplitPane";
+import BatchDropdown, { type BatchToast } from "./BatchDropdown";
+import RecallSessionDialog from "./terminal/RecallSessionDialog";
 import {
   closeLeaf,
   collectLeaves,
@@ -41,8 +43,17 @@ const SAVE_DEBOUNCE_MS = 400;
 export default function ProjectTerminal({ projectId }: Props) {
   const [layout, setLayout] = useState<ProjectTerminalLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
+  const [recallOpen, setRecallOpen] = useState(false);
   const saveTimer = useRef<number | null>(null);
   const hydrated = useRef(false);
+
+  // Auto-fade batch toast after 6s so it doesn't clutter the terminal area.
+  useEffect(() => {
+    if (!batchToast) return;
+    const t = window.setTimeout(() => setBatchToast(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [batchToast]);
 
   // ------------------------------------------------------------------
   // Load + reattach on mount
@@ -288,6 +299,62 @@ export default function ProjectTerminal({ projectId }: Props) {
   );
 
   // ------------------------------------------------------------------
+  // Recall — spawn a fresh Claude PTY in a new tab and seed it with the
+  // suggested prompt. We add a Tab labelled "Recall", spawn Claude in its
+  // root leaf, then `pty_write` the prompt followed by a CR so Claude
+  // sees it as the user's first message. The prompt is sent base64 to
+  // match the existing pty_write convention (binary-safe).
+  // ------------------------------------------------------------------
+  const spawnRecallSession = useCallback(
+    async (prompt: string) => {
+      const id = (await invoke("pty_spawn", {
+        projectId,
+        cardId: null,
+        provider: "claude",
+        agent: null,
+        cwd: ".",
+        prompt: null,
+      })) as string;
+
+      // Create a fresh tab hosting this new PTY. We mutate the placeholder
+      // leaf's pty_id via setLeafPty (using its own id as the target) so the
+      // pane reattaches to the spawned session on first render.
+      setLayout((prev) => {
+        if (!prev) return prev;
+        const tab = makeTab("Recall");
+        const leafId =
+          tab.root.kind === "leaf" ? tab.root.id : "";
+        const root = leafId ? setLeafPty(tab.root, leafId, id) : tab.root;
+        return {
+          ...prev,
+          tabs: [...prev.tabs, { ...tab, root, default_provider: "claude" }],
+          active_tab_id: tab.id,
+        };
+      });
+
+      // Seed the prompt. We wait a beat so Claude's TUI has finished its
+      // initial paint and is ready to receive keystrokes; otherwise the
+      // first characters get eaten by the splash screen. Encode each
+      // chunk as base64 — pty_write::data is decoded by the backend with
+      // base64::STANDARD.
+      const encodePart = (s: string): string => {
+        let bin = "";
+        for (let i = 0; i < s.length; i++) {
+          bin += String.fromCharCode(s.charCodeAt(i) & 0xff);
+        }
+        return btoa(bin);
+      };
+      const encoded = encodePart(prompt);
+      window.setTimeout(() => {
+        void invoke("pty_write", { sessionId: id, data: encoded }).catch(
+          (e) => setError(`pty_write: ${e}`),
+        );
+      }, 1500);
+    },
+    [projectId],
+  );
+
+  // ------------------------------------------------------------------
   // Render
   // ------------------------------------------------------------------
   if (!layout) {
@@ -311,6 +378,8 @@ export default function ProjectTerminal({ projectId }: Props) {
         onClose={closeTab}
         onRename={renameTab}
         onAddTab={addTab}
+        onBatchResult={setBatchToast}
+        onRecall={() => setRecallOpen(true)}
       />
       <div className="flex-1 overflow-hidden">
         <SplitPane
@@ -324,10 +393,40 @@ export default function ProjectTerminal({ projectId }: Props) {
           onRatioChange={handleRatioChange}
         />
       </div>
+      {batchToast && (
+        <div
+          className="border-t px-3 py-2 text-xs"
+          style={{
+            borderColor: batchToast.kind === "ok"
+              ? "var(--color-success, #22c55e)"
+              : "var(--color-danger, #ef4444)",
+            background: "var(--color-surface-2)",
+            color: batchToast.kind === "ok"
+              ? "var(--color-success, #22c55e)"
+              : "var(--color-danger, #ef4444)",
+          }}
+          title={batchToast.body}
+        >
+          <strong>{batchToast.title}</strong>
+          {batchToast.body && (
+            <span className="ml-2" style={{ color: "var(--color-text-secondary)" }}>
+              {batchToast.body.slice(0, 200)}
+              {batchToast.body.length > 200 ? "…" : ""}
+            </span>
+          )}
+        </div>
+      )}
       {error && (
         <div className="border-t border-[var(--color-error)] bg-[var(--color-surface-2)] px-3 py-1 text-xs text-[var(--color-error)]">
           {error}
         </div>
+      )}
+      {recallOpen && (
+        <RecallSessionDialog
+          projectId={projectId}
+          onClose={() => setRecallOpen(false)}
+          onSpawn={spawnRecallSession}
+        />
       )}
     </div>
   );
@@ -344,6 +443,9 @@ type TabsBarProps = {
   onClose: (id: string) => void;
   onRename: (id: string, label: string) => void;
   onAddTab: () => void;
+  onBatchResult: (toast: BatchToast) => void;
+  /** Opens the Recall Last Session dialog. */
+  onRecall: () => void;
 };
 
 function TabsBar({
@@ -353,6 +455,8 @@ function TabsBar({
   onClose,
   onRename,
   onAddTab,
+  onBatchResult,
+  onRecall,
 }: TabsBarProps) {
   // v2.6.1: double-click an upper tab → inline rename. The previous build
   // used `window.prompt`, which is blocking, ugly in a Tauri window, and the
@@ -440,6 +544,16 @@ function TabsBar({
       >
         <Plus size={11} /> Tab
       </button>
+      <button
+        onClick={onRecall}
+        className="ml-1 flex items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
+        title="Recall last session — recover context and spawn a fresh Claude with a paste-ready prompt"
+      >
+        <History size={11} /> Recall
+      </button>
+      <div className="ml-auto flex items-center pr-1">
+        <BatchDropdown onResult={onBatchResult} />
+      </div>
     </div>
   );
 }

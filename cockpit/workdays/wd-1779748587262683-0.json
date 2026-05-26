@@ -1,0 +1,22 @@
+{
+  "id": "wd-1779748587262683-0",
+  "template_id": null,
+  "title": "test",
+  "status": "paused",
+  "planned_date": "2026-05-25",
+  "start_ts": "epoch:1779748589",
+  "end_ts": null,
+  "focus_seconds": 0,
+  "break_seconds": 0,
+  "energy_before": null,
+  "energy_after": null,
+  "mood_note": null,
+  "retro_good": null,
+  "retro_bad": null,
+  "retro_learned": null,
+  "summary_md": null,
+  "goals": [],
+  "linked_sessions": [],
+  "linked_tasks": [],
+  "created_at": "epoch:1779748587"
+}

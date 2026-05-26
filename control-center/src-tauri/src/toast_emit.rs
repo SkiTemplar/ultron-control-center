@@ -178,7 +178,7 @@ fn append_alert_line(source: &str, severity: &str, message: &str) -> Result<(), 
 /// Strips CR/LF, collapses internal whitespace, caps to 600 chars (alerts
 /// already enforce 600 — we mirror that to stay consistent).
 fn sanitize(msg: &str) -> String {
-    let mut out: String = msg.replace('\r', " ").replace('\n', " ");
+    let mut out: String = msg.replace(['\r', '\n'], " ");
     if out.len() > 600 {
         out.truncate(600);
         out.push('…');

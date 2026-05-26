@@ -11,11 +11,19 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { GoalStatus, Workday, WorkdayGoal } from "./types";
+import { openPath } from "@tauri-apps/plugin-opener";
+import type {
+  GoalStatus,
+  Workday,
+  WorkdayContext,
+  WorkdayContextEntry,
+  WorkdayGoal,
+} from "./types";
+import { getHomeDir, joinPath } from "../../lib/paths";
 
 interface WorkdayDetailProps {
   workdayId: string;
-  refreshKey: number;
+  refreshKey: number | string;
   onChanged: (wd: Workday) => void;
 }
 
@@ -333,6 +341,17 @@ export function WorkdayDetail({
         </ul>
       </div>
 
+      {/* Linked sessions (T2 — auto-link drainer) */}
+      <LinkedSessionsBlock sessionIds={wd.linked_sessions} />
+
+      {/* Shared context (v2.8 — automatic surface) */}
+      <ContextBlock
+        workdayId={workdayId}
+        context={wd.context}
+        onAppended={(next) => setWd(next)}
+        busy={busy}
+      />
+
       {/* Existing retro display */}
       {(wd.retro_good || wd.retro_bad || wd.retro_learned) && (
         <div
@@ -413,6 +432,263 @@ function RetroField({ label, value, onChange }: RetroFieldProps) {
         }}
       />
     </label>
+  );
+}
+
+interface LinkedSessionsBlockProps {
+  sessionIds: string[];
+}
+function LinkedSessionsBlock({ sessionIds }: LinkedSessionsBlockProps) {
+  const [openErr, setOpenErr] = useState<string | null>(null);
+
+  async function openTranscript(sessionId: string) {
+    setOpenErr(null);
+    try {
+      const home = await getHomeDir();
+      // The Claude Code session transcripts live in a per-project dir under
+      // ~/.claude/projects/<slug>/<session_id>.jsonl. We don't know the slug
+      // here so try the well-known fallbacks in order.
+      const candidates = [
+        joinPath(home, ".claude", "session-data", `${sessionId}-session.tmp`),
+        joinPath(home, ".claude", "data", "sessions", `${sessionId}.jsonl`),
+        joinPath(home, ".claude", "observer", "sessions", `${sessionId}.jsonl`),
+      ];
+      for (const p of candidates) {
+        try {
+          await openPath(p);
+          return;
+        } catch (_) {
+          // try next
+        }
+      }
+      setOpenErr(`No transcript found for ${sessionId}`);
+    } catch (e) {
+      setOpenErr(String(e));
+    }
+  }
+
+  if (!sessionIds || sessionIds.length === 0) return null;
+  return (
+    <div
+      className="border-t px-6 py-4"
+      style={{ borderColor: "var(--color-border)" }}
+    >
+      <h3
+        className="mb-2 text-[13px] font-semibold"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
+        Linked sessions ({sessionIds.length})
+      </h3>
+      {openErr && (
+        <div
+          className="mb-2 text-[11px]"
+          style={{ color: "var(--color-danger, #ef4444)" }}
+        >
+          {openErr}
+        </div>
+      )}
+      <ul className="flex flex-col gap-1">
+        {sessionIds.map((sid) => (
+          <li
+            key={sid}
+            className="flex items-center justify-between rounded px-2 py-1.5"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            <span
+              className="font-mono text-[12px]"
+              style={{ color: "var(--color-text)" }}
+            >
+              {sid}
+            </span>
+            <button
+              type="button"
+              onClick={() => void openTranscript(sid)}
+              className="rounded px-2 py-0.5 text-[11px]"
+              style={{
+                background: "transparent",
+                color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border-strong)",
+              }}
+            >
+              Open transcript
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+interface ContextBlockProps {
+  workdayId: string;
+  context: WorkdayContext;
+  onAppended: (wd: Workday) => void;
+  busy: boolean;
+}
+function ContextBlock({
+  workdayId,
+  context,
+  onAppended,
+  busy,
+}: ContextBlockProps) {
+  const [kind, setKind] = useState<string>("note");
+  const [text, setText] = useState<string>("");
+  const [appending, setAppending] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function handleAppend() {
+    if (!text.trim()) return;
+    setAppending(true);
+    setErr(null);
+    try {
+      const next = await invoke<Workday>("workday_append_context", {
+        workdayId,
+        kind,
+        text: text.trim(),
+        source: "ui",
+      });
+      onAppended(next);
+      setText("");
+    } catch (e: unknown) {
+      setErr(String(e));
+    } finally {
+      setAppending(false);
+    }
+  }
+
+  const total =
+    context.notes.length +
+    context.decisions.length +
+    context.file_changes.length +
+    context.agent_messages.length;
+
+  return (
+    <div
+      className="border-t px-6 py-4"
+      style={{ borderColor: "var(--color-border)" }}
+    >
+      <h3
+        className="mb-2 text-[13px] font-semibold"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
+        Shared context ({total})
+      </h3>
+      <div className="mb-3 flex flex-col gap-2">
+        <div className="flex gap-2">
+          <select
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            disabled={appending || busy}
+            className="rounded px-2 py-1 text-[12px]"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text)",
+            }}
+          >
+            <option value="note">Note</option>
+            <option value="decision">Decision</option>
+            <option value="file_change">File change</option>
+            <option value="agent_message">Agent message</option>
+          </select>
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Add to shared context..."
+            disabled={appending || busy}
+            className="flex-1 rounded px-2 py-1 text-[12px]"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text)",
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleAppend();
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => void handleAppend()}
+            disabled={appending || busy || !text.trim()}
+            className="rounded px-3 py-1 text-[12px] font-medium disabled:opacity-50"
+            style={{
+              background: "var(--color-accent, #2563eb)",
+              color: "white",
+            }}
+          >
+            {appending ? "..." : "Append"}
+          </button>
+        </div>
+        {err && (
+          <div
+            className="text-[11px]"
+            style={{ color: "var(--color-danger, #ef4444)" }}
+          >
+            {err}
+          </div>
+        )}
+      </div>
+      <ContextList title="Decisions" entries={context.decisions} />
+      <ContextList title="Notes" entries={context.notes} />
+      <ContextList title="File changes" entries={context.file_changes} />
+      <ContextList title="Agent messages" entries={context.agent_messages} />
+    </div>
+  );
+}
+
+interface ContextListProps {
+  title: string;
+  entries: WorkdayContextEntry[];
+}
+function ContextList({ title, entries }: ContextListProps) {
+  if (!entries || entries.length === 0) return null;
+  return (
+    <div className="mb-3">
+      <div
+        className="mb-1 text-[10px] font-semibold uppercase tracking-wider"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        {title}
+      </div>
+      <ul className="flex flex-col gap-1">
+        {entries.map((e) => (
+          <li
+            key={e.id}
+            className="rounded px-2 py-1.5 text-[12px]"
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text)",
+            }}
+          >
+            <div className="flex items-start gap-2">
+              <span
+                className="rounded px-1.5 py-0.5 text-[9px] uppercase"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-secondary)",
+                }}
+              >
+                {e.kind}
+              </span>
+              <span className="flex-1 whitespace-pre-wrap">{e.text}</span>
+            </div>
+            {e.source && (
+              <div
+                className="mt-1 text-[10px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                source: {e.source}
+              </div>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

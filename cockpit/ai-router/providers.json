@@ -1,0 +1,80 @@
+[
+  {
+    "id": "claude-haiku",
+    "name": "Anthropic Claude Haiku",
+    "cost_per_mtok": 1.25,
+    "supports": ["trivial", "light", "medium"],
+    "api_key_status": "missing",
+    "health_endpoint": "https://api.anthropic.com/v1/models",
+    "kind": "cloud",
+    "key_env_var": "ANTHROPIC_API_KEY",
+    "base_url": "https://api.anthropic.com",
+    "default_model": "claude-haiku-4-5-20251001",
+    "models": ["claude-haiku-4-5-20251001"]
+  },
+  {
+    "id": "codex",
+    "name": "OpenAI Codex (gpt-5)",
+    "cost_per_mtok": 10.0,
+    "supports": ["light", "medium", "heavy"],
+    "api_key_status": "missing",
+    "health_endpoint": "https://api.openai.com/v1/models",
+    "kind": "cloud",
+    "key_env_var": "OPENAI_API_KEY",
+    "base_url": "https://api.openai.com",
+    "default_model": "gpt-5",
+    "models": ["gpt-5", "gpt-4o", "gpt-4o-mini"]
+  },
+  {
+    "id": "gemini",
+    "name": "Google Gemini",
+    "cost_per_mtok": 0.35,
+    "supports": ["trivial", "light", "medium", "heavy"],
+    "api_key_status": "missing",
+    "health_endpoint": "https://generativelanguage.googleapis.com/v1beta/models",
+    "kind": "cloud",
+    "key_env_var": "GEMINI_API_KEY",
+    "base_url": "https://generativelanguage.googleapis.com",
+    "default_model": "gemini-2.5-flash",
+    "models": ["gemini-2.5-flash", "gemini-2.5-pro"]
+  },
+  {
+    "id": "groq",
+    "name": "Groq",
+    "cost_per_mtok": 0.59,
+    "supports": ["trivial", "light"],
+    "api_key_status": "missing",
+    "health_endpoint": "https://api.groq.com/openai/v1/models",
+    "kind": "cloud",
+    "key_env_var": "GROQ_API_KEY",
+    "base_url": "https://api.groq.com/openai",
+    "default_model": "llama-3.3-70b-versatile",
+    "models": ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama (local)",
+    "cost_per_mtok": 0.0,
+    "supports": ["trivial", "light", "medium"],
+    "api_key_status": "configured",
+    "health_endpoint": "http://localhost:11434/api/tags",
+    "kind": "local",
+    "key_env_var": "",
+    "base_url": "http://localhost:11434",
+    "default_model": "qwen2.5-coder:32b",
+    "models": ["qwen2.5-coder:7b", "qwen2.5-coder:32b", "deepseek-coder-v2:16b"]
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "cost_per_mtok": 0.14,
+    "supports": ["light", "medium"],
+    "api_key_status": "missing",
+    "health_endpoint": "https://api.deepseek.com/models",
+    "kind": "cloud",
+    "key_env_var": "DEEPSEEK_API_KEY",
+    "base_url": "https://api.deepseek.com",
+    "default_model": "deepseek-coder",
+    "models": ["deepseek-coder", "deepseek-chat"]
+  }
+]

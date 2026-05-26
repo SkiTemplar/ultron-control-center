@@ -6,6 +6,7 @@ import { ButtonPromptsSection } from "./ButtonPromptsSection";
 import { JsonEditor } from "./EditorSection";
 import { BackupsPanel } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
+import { AIRouter } from "../AIRouter";
 
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
 // top-level tab now. P7 (2.0): "raw" (settings.json) is the default tab and
@@ -13,12 +14,17 @@ import { LifecyclePanel } from "./LifecyclePanel";
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
 // "lifecycle" relabeled to "General" — it now hosts autostart, rebuild,
 // close, and the single global hotkey. Plugins lives in the Library tab.
+// v2.7.2: "ai-router" sub-tab added — AI Router was demoted from a
+// top-level sidebar entry to a Settings sub-tab so the sidebar stays
+// focused on user-facing surfaces. The AIRouter component supports an
+// `embedded` flag that drops its full-page chrome when rendered here.
 type Section =
   | "raw"
   | "general"
   | "auth"
   | "button-prompts"
-  | "backups";
+  | "backups"
+  | "ai-router";
 
 type SettingsProps = {
   onNavigate?: (tab: string) => void;
@@ -153,6 +159,7 @@ export function Settings(_props: SettingsProps = {}) {
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
           { id: "button-prompts" as Section, label: "Button prompts" },
+          { id: "ai-router" as Section, label: "AI Router" },
           { id: "backups" as Section, label: "Backups" },
         ].map((t) => (
           <button
@@ -206,6 +213,7 @@ export function Settings(_props: SettingsProps = {}) {
         {section === "general" && <LifecyclePanel />}
         {section === "auth" && <AuthStatus />}
         {section === "button-prompts" && <ButtonPromptsSection />}
+        {section === "ai-router" && <AIRouter embedded />}
 
         {section === "raw" && draft && (
           <JsonEditor

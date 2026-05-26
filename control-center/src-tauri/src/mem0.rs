@@ -45,29 +45,99 @@ fn log_path() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|h| h.join(".ultron").join("logs").join("mem0.jsonl"))
 }
 
+/// Redact any Mem0 API token (`m0-XXXXX…`) and bare `Token …` headers
+/// from a string before logging it. Mem0 may echo the auth header back in
+/// some error bodies, and our diagnostic log is plaintext — without this
+/// helper a leaked body would persist the live token on disk.
+fn redact(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        // Match the literal prefix "m0-" then consume the [A-Za-z0-9_-]+
+        // tail (Mem0 tokens are url-safe base64-ish).
+        if i + 3 <= bytes.len() && &bytes[i..i + 3] == b"m0-" {
+            let mut j = i + 3;
+            while j < bytes.len() {
+                let c = bytes[j];
+                let alnum = c.is_ascii_alphanumeric() || c == b'_' || c == b'-';
+                if !alnum {
+                    break;
+                }
+                j += 1;
+            }
+            if j > i + 3 {
+                out.push_str("***");
+                i = j;
+                continue;
+            }
+        }
+        // Drop any "Token <secret>" Authorization header value that leaked
+        // into the log body (case-sensitive — that's how Mem0 sends it).
+        if i + 6 <= bytes.len() && &bytes[i..i + 6] == b"Token " {
+            let mut j = i + 6;
+            while j < bytes.len() {
+                let c = bytes[j];
+                if c.is_ascii_whitespace() || c == b'"' || c == b'\'' || c == b',' {
+                    break;
+                }
+                j += 1;
+            }
+            out.push_str("Token [REDACTED]");
+            i = j;
+            continue;
+        }
+        out.push(bytes[i] as char);
+        i += 1;
+    }
+    out
+}
+
 fn body_excerpt(text: &str) -> String {
-    // Trim to 2KB so the log file stays readable.
-    if text.len() <= 2048 {
+    // Trim to 2KB so the log file stays readable, then scrub any token
+    // material that might be present (Mem0 error bodies occasionally echo
+    // the auth header).
+    let truncated = if text.len() <= 2048 {
         text.to_string()
     } else {
         format!("{}…[truncated {} bytes]", &text[..2048], text.len() - 2048)
-    }
+    };
+    redact(&truncated)
 }
 
 fn append_log(entry: &Mem0LogEntry) {
     let Some(path) = log_path() else { return };
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            eprintln!(
+                "[mem0] failed to create log dir {}: {e}",
+                parent.display()
+            );
+            // Without the parent dir the open() below will fail anyway —
+            // bail early so we don't double-log the same root cause.
+            return;
+        }
     }
-    let Ok(line) = serde_json::to_string(entry) else {
-        return;
+    let line = match serde_json::to_string(entry) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("[mem0] failed to serialize log entry: {e}");
+            return;
+        }
     };
-    if let Ok(mut f) = std::fs::OpenOptions::new()
+    match std::fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(&path)
     {
-        let _ = writeln!(f, "{line}");
+        Ok(mut f) => {
+            if let Err(e) = writeln!(f, "{line}") {
+                eprintln!("[mem0] failed to write log line to {}: {e}", path.display());
+            }
+        }
+        Err(e) => {
+            eprintln!("[mem0] failed to open log file {}: {e}", path.display());
+        }
     }
 }
 
@@ -136,22 +206,31 @@ pub struct Mem0Message<'a> {
 }
 
 fn read_api_key() -> Result<String, String> {
+    // Priority order (v2.7.2):
+    //   0. env var MEM0_API_KEY                                (HIGHEST — lets the
+    //      user rotate the token via a single shell var without
+    //      touching settings.json, which is desirable when you keep
+    //      that file under git and don't want secrets in history)
+    //   1. mem0.apiKey                                          (legacy/explicit)
+    //   2. mcpServers.mem0.headers.Authorization                (Claude Code MCP — primary)
+    //   3. mcpServers."mem0-mcp".headers.Authorization          (alternate naming users sometimes pick)
+    //   4. mcp.servers.mem0.headers.Authorization               (very old custom layout, kept for safety)
+    let extract_token = |raw: &str| raw.trim_start_matches("Token ").trim().to_string();
+
+    // Env var wins — rotation without disk writes.
+    if let Ok(env_key) = std::env::var("MEM0_API_KEY") {
+        let trimmed = env_key.trim().to_string();
+        if !trimmed.is_empty() && !trimmed.starts_with("REEMPLAZAR_CON_TU_API_KEY") {
+            return Ok(trimmed);
+        }
+    }
+
     let home = dirs::home_dir().ok_or("no home dir")?;
     let path = home.join(".claude").join("settings.json");
     let text = std::fs::read_to_string(&path)
         .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
     let v: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("settings.json parse: {e}"))?;
-    // The Mem0 key may live in a few places depending on how the user
-    // wired the MCP server. Claude Code stores MCP entries under the
-    // top-level key `mcpServers` (camelCase, single key — not a nested
-    // `mcp.servers`). We check in this order:
-    //   - mem0.apiKey                                          (legacy/explicit)
-    //   - mcpServers.mem0.headers.Authorization                (Claude Code MCP — primary)
-    //   - mcpServers."mem0-mcp".headers.Authorization          (alternate naming users sometimes pick)
-    //   - mcp.servers.mem0.headers.Authorization               (very old custom layout, kept for safety)
-    //   - env var MEM0_API_KEY                                 (last-resort fallback)
-    let extract_token = |raw: &str| raw.trim_start_matches("Token ").trim().to_string();
     let key = if let Some(k) = v.pointer("/mem0/apiKey").and_then(|x| x.as_str()) {
         k.to_string()
     } else if let Some(h) = v
@@ -169,11 +248,9 @@ fn read_api_key() -> Result<String, String> {
         .and_then(|x| x.as_str())
     {
         extract_token(h)
-    } else if let Ok(env_key) = std::env::var("MEM0_API_KEY") {
-        env_key
     } else {
         return Err(
-            "Mem0 API key not found. Add it to settings.json at mcpServers.mem0.headers.Authorization or set MEM0_API_KEY."
+            "Mem0 API key not found. Set MEM0_API_KEY env var or add it to settings.json at mcpServers.mem0.headers.Authorization."
                 .to_string(),
         );
     };
@@ -813,4 +890,98 @@ pub async fn list_all_inner(
         query: Some(user_id_effective.to_string()),
     });
     Ok(memories)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex as StdMutex;
+
+    // Tests in this module mutate process-global state (env vars and HOME
+    // via temporary dirs). Serialize them so they don't race each other.
+    static TEST_ENV_LOCK: StdMutex<()> = StdMutex::new(());
+
+    #[test]
+    fn redact_scrubs_mem0_tokens() {
+        let input = "auth failed for m0-AbCdEf12345XyZ, try again";
+        let out = redact(input);
+        assert!(!out.contains("m0-AbCdEf12345XyZ"), "token must be scrubbed");
+        assert!(out.contains("***"));
+    }
+
+    #[test]
+    fn redact_scrubs_token_authorization_header() {
+        let input = r#"{"error":"bad header","raw":"Token m0-secretvalue"}"#;
+        let out = redact(input);
+        assert!(!out.contains("m0-secretvalue"));
+        assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn redact_leaves_normal_text_alone() {
+        let input = "no secrets here, just text";
+        let out = redact(input);
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn read_api_key_env_var_wins_over_settings_json() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        // Set env var with a non-placeholder value.
+        std::env::set_var("MEM0_API_KEY", "m0-from-env-12345");
+        let key = read_api_key().expect("should read env key");
+        assert_eq!(key, "m0-from-env-12345");
+        std::env::remove_var("MEM0_API_KEY");
+    }
+
+    #[test]
+    fn read_api_key_skips_placeholder_env_var() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        std::env::set_var("MEM0_API_KEY", "REEMPLAZAR_CON_TU_API_KEY_xxx");
+        // With a placeholder env, the function falls through to
+        // settings.json. We can't reliably control settings.json from a
+        // test, but we can at least assert it didn't blindly return
+        // the placeholder.
+        if let Ok(k) = read_api_key() {
+            assert!(!k.starts_with("REEMPLAZAR_CON_TU_API_KEY"));
+        }
+        std::env::remove_var("MEM0_API_KEY");
+    }
+
+    #[test]
+    fn read_api_key_skips_blank_env_var() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        std::env::set_var("MEM0_API_KEY", "   ");
+        // Blank env should fall through too. Same caveat as the
+        // placeholder test — we only assert we didn't return blank.
+        if let Ok(k) = read_api_key() {
+            assert!(!k.trim().is_empty());
+        }
+        std::env::remove_var("MEM0_API_KEY");
+    }
+
+    #[test]
+    fn body_excerpt_truncates_to_2kb() {
+        let huge = "x".repeat(5000);
+        let out = body_excerpt(&huge);
+        assert!(out.len() < huge.len());
+        assert!(out.contains("truncated"));
+    }
+
+    #[test]
+    fn body_excerpt_redacts_tokens_in_payload() {
+        let with_token = r#"{"err":"oops","token":"m0-leakedSecret"}"#;
+        let out = body_excerpt(with_token);
+        assert!(!out.contains("m0-leakedSecret"));
+    }
+
+    #[test]
+    fn mask_key_handles_short_and_long_inputs() {
+        assert_eq!(mask_key("short"), "****");
+        let long = "m0-AbCdEf1234567890";
+        let m = mask_key(long);
+        assert!(m.starts_with("m0-A"));
+        assert!(m.ends_with("7890"));
+        assert!(m.contains('…'));
+    }
 }

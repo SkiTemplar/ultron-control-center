@@ -19,7 +19,6 @@ export type Tab =
   | "sessions"
   | "usage"
   | "system"
-  | "ai-router"
   | "workdays"
   | "settings";
 
@@ -73,7 +72,6 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     heading: "System",
     items: [
       { id: "system", label: "System", available: true },
-      { id: "ai-router", label: "AI Router", available: true },
       { id: "mcps", label: "MCPs", available: true, featureKey: "mcps" },
       // v2.1: Skills + Agents + Rules collapsed into one Library tab with
       // sub-navigation. The 3 individual tab ids remain reachable via the

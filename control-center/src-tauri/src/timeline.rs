@@ -245,8 +245,7 @@ fn list_claude_sessions(project_path: &str) -> Option<Vec<claude_sessions::Claud
 /// that helper — Claude Code slugifies project paths by replacing both
 /// directory separators with `-` and stripping leading separators.
 fn claude_sessions_project_slug(path: &str) -> String {
-    path.replace('\\', "-")
-        .replace('/', "-")
+    path.replace(['\\', '/'], "-")
         .trim_matches('-')
         .to_string()
 }

@@ -15,7 +15,6 @@ import {
   ExternalLink,
   FolderOpen,
   Kanban,
-  Layers,
   Terminal as TerminalIcon,
   Notebook,
   History,
@@ -120,18 +119,14 @@ export default function ProjectWorkspace({ projectId }: Props) {
     }
   };
 
-  const spawnRaw = async (provider: "claude" | "codex" | "gemini") => {
+  const detachToWindow = async () => {
     if (!meta) return;
     try {
-      await invoke("pty_spawn", {
-        projectId,
-        cardId: null,
-        provider,
-        agent: null,
-        cwd: meta.path,
-        prompt: null,
-      });
-      setSubTab("terminal");
+      // Backend reuses an existing detached window when present, otherwise
+      // spawns a new 1000x700 window pointed at /detached/project?id=...
+      // Closing the standalone window emits `project:reattached` back to
+      // the main window so the tab strip can re-add the project tab.
+      await invoke("detach_project_window", { projectId: meta.id });
     } catch (e) {
       setError(String(e));
     }
@@ -166,27 +161,13 @@ export default function ProjectWorkspace({ projectId }: Props) {
           >
             <FolderOpen size={11} /> Folder
           </button>
-          <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
           <button
-            onClick={() => spawnRaw("claude")}
+            onClick={detachToWindow}
             disabled={!meta}
             className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-surface-2)] disabled:opacity-40"
+            title="Open this project in a standalone window (multi-monitor)"
           >
-            <Layers size={11} /> claude
-          </button>
-          <button
-            onClick={() => spawnRaw("codex")}
-            disabled={!meta}
-            className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-surface-2)] disabled:opacity-40"
-          >
-            <Layers size={11} /> codex
-          </button>
-          <button
-            onClick={() => spawnRaw("gemini")}
-            disabled={!meta}
-            className="flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 text-xs hover:bg-[var(--color-surface-2)] disabled:opacity-40"
-          >
-            <Layers size={11} /> gemini
+            <ExternalLink size={11} /> Detach
           </button>
         </div>
       </div>

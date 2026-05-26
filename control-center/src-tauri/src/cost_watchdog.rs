@@ -144,7 +144,7 @@ fn parse_iso_to_epoch(ts: &str) -> Option<i64> {
     let hour: i64 = ts.get(11..13)?.parse().ok()?;
     let minute: i64 = ts.get(14..16)?.parse().ok()?;
     let second: i64 = ts.get(17..19)?.parse().ok()?;
-    if month < 1 || month > 12 || day < 1 || day > 31 {
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
         return None;
     }
     // Days from 1970-01-01 to start of `year`
@@ -192,7 +192,7 @@ fn read_tail_rows(path: PathBuf, max_lines: usize) -> Result<Vec<Row>, String> {
         }
     }
     let n = lines.len();
-    let start = if n > max_lines { n - max_lines } else { 0 };
+    let start = n.saturating_sub(max_lines);
     let mut out: Vec<Row> = Vec::with_capacity(n - start);
     for l in &lines[start..] {
         if let Ok(r) = serde_json::from_str::<Row>(l) {

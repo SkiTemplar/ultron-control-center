@@ -53,10 +53,10 @@ pub async fn record_ui_alert(
     };
     let mut src = source;
     src.truncate(80);
-    let mut msg = message.replace('\r', " ").replace('\n', " ");
+    let mut msg = message.replace(['\r', '\n'], " ");
     if msg.len() > 600 {
         msg.truncate(600);
-        msg.push_str("…");
+        msg.push('…');
     }
     if msg.trim().is_empty() {
         return Ok(());

@@ -242,7 +242,7 @@ pub struct SkillDeleteResult {
 /// Validate slug per the spec: `^[a-z0-9][a-z0-9-]{1,60}$`.
 fn validate_slug(name: &str) -> Result<(), String> {
     let len = name.len();
-    if len < 2 || len > 61 {
+    if !(2..=61).contains(&len) {
         return Err(format!("invalid slug length ({}): 2..=61 expected", len));
     }
     let bytes = name.as_bytes();
@@ -434,9 +434,9 @@ pub(crate) fn format_ymd_local(ts: u64) -> String {
     let days = (ts / 86400) as i64;
     let z = days + 719468;
     let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
-    let doe = (z - era * 146097) as i64;
+    let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let mut y = yoe as i64 + era * 400;
+    let mut y = yoe + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
     let mp = (5 * doy + 2) / 153;
     let d = (doy - (153 * mp + 2) / 5 + 1) as u32;

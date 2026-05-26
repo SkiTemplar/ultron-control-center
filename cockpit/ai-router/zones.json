@@ -1,0 +1,117 @@
+[
+  {
+    "id": "chat",
+    "label": "General chat",
+    "category": "chat",
+    "task_class": "light",
+    "primary": {
+      "provider_id": "claude-haiku",
+      "model": "claude-haiku-4-5-20251001",
+      "max_tokens": 1024
+    },
+    "fallbacks": [
+      {
+        "provider_id": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "max_tokens": 1024
+      }
+    ]
+  },
+  {
+    "id": "code-edit",
+    "label": "Code edit (multi-file)",
+    "category": "code",
+    "task_class": "medium",
+    "primary": {
+      "provider_id": "codex",
+      "model": "gpt-5",
+      "max_tokens": 4096
+    },
+    "fallbacks": [
+      {
+        "provider_id": "deepseek",
+        "model": "deepseek-coder",
+        "max_tokens": 4096
+      }
+    ]
+  },
+  {
+    "id": "code-review",
+    "label": "Code review",
+    "category": "code",
+    "task_class": "light",
+    "primary": {
+      "provider_id": "claude-haiku",
+      "model": "claude-haiku-4-5-20251001",
+      "max_tokens": 2048
+    },
+    "fallbacks": []
+  },
+  {
+    "id": "research-web",
+    "label": "Web research with grounding",
+    "category": "research",
+    "task_class": "medium",
+    "primary": {
+      "provider_id": "gemini",
+      "model": "gemini-2.5-flash",
+      "max_tokens": 4096
+    },
+    "fallbacks": [
+      {
+        "provider_id": "claude-haiku",
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 4096
+      }
+    ]
+  },
+  {
+    "id": "summarize",
+    "label": "Summarize document",
+    "category": "chat",
+    "task_class": "trivial",
+    "primary": {
+      "provider_id": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "max_tokens": 1024
+    },
+    "fallbacks": [
+      {
+        "provider_id": "gemini",
+        "model": "gemini-2.5-flash",
+        "max_tokens": 1024
+      }
+    ]
+  },
+  {
+    "id": "routing-decision",
+    "label": "Router judge (decide which zone to use)",
+    "category": "system",
+    "task_class": "trivial",
+    "primary": {
+      "provider_id": "claude-haiku",
+      "model": "claude-haiku-4-5-20251001",
+      "max_tokens": 256
+    },
+    "fallbacks": [
+      {
+        "provider_id": "groq",
+        "model": "llama-3.3-70b-versatile",
+        "max_tokens": 256
+      }
+    ],
+    "system_prompt": "You classify user prompts into one of the configured zones. Reply with the zone id only."
+  },
+  {
+    "id": "code-fast-local",
+    "label": "Fast offline code completion",
+    "category": "code",
+    "task_class": "light",
+    "primary": {
+      "provider_id": "ollama",
+      "model": "qwen2.5-coder:32b",
+      "max_tokens": 2048
+    },
+    "fallbacks": []
+  }
+]

@@ -21,6 +21,18 @@
 use serde::{Deserialize, Serialize};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+
+// Global write lock — serializes ALL read-modify-write paths against
+// `kg.jsonl`. Without this, two concurrent `create_entities_inner` calls
+// (or any pair of mutators) can interleave their read → mutate → rename
+// sequences and the second writer clobbers the first writer's additions.
+// The lock is held across read_graph_inner + mutate + write_graph so the
+// whole RMW is atomic from the caller's point of view.
+fn kg_write_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct KgEntity {
@@ -43,6 +55,14 @@ pub struct KgGraph {
 }
 
 fn kg_path() -> Result<PathBuf, String> {
+    // Test-only env override — lets integration tests run without
+    // touching the user's real `~/.ultron/cockpit/kg.jsonl`. In
+    // production this var is never set, so this is a zero-cost branch.
+    if let Ok(override_path) = std::env::var("ULTRON_KG_PATH_OVERRIDE") {
+        if !override_path.is_empty() {
+            return Ok(PathBuf::from(override_path));
+        }
+    }
     let home = dirs::home_dir().ok_or("no HOME dir")?;
     Ok(home.join(".ultron").join("cockpit").join("kg.jsonl"))
 }
@@ -165,6 +185,9 @@ fn write_graph(graph: &KgGraph) -> Result<(), String> {
 /// name already exists, its observations are merged (deduped) instead of
 /// duplicating it.
 pub fn create_entities_inner(entities: Vec<KgEntity>) -> Result<KgGraph, String> {
+    let _guard = kg_write_lock()
+        .lock()
+        .map_err(|e| format!("kg lock poisoned: {e}"))?;
     let mut graph = read_graph_inner()?;
     for new_ent in entities {
         let trimmed_name = new_ent.name.trim().to_string();
@@ -199,6 +222,9 @@ pub fn create_entities_inner(entities: Vec<KgEntity>) -> Result<KgGraph, String>
 }
 
 pub fn delete_entity_inner(name: String) -> Result<KgGraph, String> {
+    let _guard = kg_write_lock()
+        .lock()
+        .map_err(|e| format!("kg lock poisoned: {e}"))?;
     let mut graph = read_graph_inner()?;
     graph.entities.retain(|e| e.name != name);
     // Cascade: drop relations that referenced the deleted entity.
@@ -211,6 +237,9 @@ pub fn add_observations_inner(
     name: String,
     observations: Vec<String>,
 ) -> Result<KgGraph, String> {
+    let _guard = kg_write_lock()
+        .lock()
+        .map_err(|e| format!("kg lock poisoned: {e}"))?;
     let mut graph = read_graph_inner()?;
     let Some(ent) = graph.entities.iter_mut().find(|e| e.name == name) else {
         return Err(format!("entity '{name}' not found"));
@@ -229,6 +258,9 @@ pub fn add_observations_inner(
 }
 
 pub fn create_relations_inner(relations: Vec<KgRelation>) -> Result<KgGraph, String> {
+    let _guard = kg_write_lock()
+        .lock()
+        .map_err(|e| format!("kg lock poisoned: {e}"))?;
     let mut graph = read_graph_inner()?;
     let entity_names: std::collections::HashSet<String> =
         graph.entities.iter().map(|e| e.name.clone()).collect();
@@ -269,6 +301,9 @@ pub fn delete_relation_inner(
     to: String,
     relation_type: String,
 ) -> Result<KgGraph, String> {
+    let _guard = kg_write_lock()
+        .lock()
+        .map_err(|e| format!("kg lock poisoned: {e}"))?;
     let mut graph = read_graph_inner()?;
     graph
         .relations
@@ -308,4 +343,177 @@ pub fn search_nodes_inner(query: String) -> Result<KgGraph, String> {
         entities: matches,
         relations,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex as StdMutex;
+
+    // Serialize tests in this module so they don't race on the shared
+    // ULTRON_KG_PATH_OVERRIDE env var. We can't use the production lock
+    // here because each test points at a different temp file.
+    static TEST_ENV_LOCK: StdMutex<()> = StdMutex::new(());
+
+    struct EnvGuard {
+        prev: Option<String>,
+    }
+    impl EnvGuard {
+        fn set(path: &std::path::Path) -> Self {
+            let prev = std::env::var("ULTRON_KG_PATH_OVERRIDE").ok();
+            std::env::set_var("ULTRON_KG_PATH_OVERRIDE", path);
+            EnvGuard { prev }
+        }
+    }
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.prev {
+                Some(v) => std::env::set_var("ULTRON_KG_PATH_OVERRIDE", v),
+                None => std::env::remove_var("ULTRON_KG_PATH_OVERRIDE"),
+            }
+        }
+    }
+
+    fn fresh_temp_path() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("kg.jsonl");
+        (dir, path)
+    }
+
+    #[test]
+    fn create_entities_dedupes_by_name_and_merges_observations() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let (_dir, path) = fresh_temp_path();
+        let _g = EnvGuard::set(&path);
+
+        let first = create_entities_inner(vec![KgEntity {
+            name: "alpha".into(),
+            entity_type: "system".into(),
+            observations: vec!["a".into(), "b".into()],
+        }])
+        .expect("first create");
+        assert_eq!(first.entities.len(), 1);
+
+        // Re-create with overlapping observations + a new one. Should
+        // not duplicate the entity, should dedupe observations.
+        let second = create_entities_inner(vec![KgEntity {
+            name: "alpha".into(),
+            entity_type: "system".into(),
+            observations: vec!["b".into(), "c".into()],
+        }])
+        .expect("second create");
+        assert_eq!(second.entities.len(), 1, "entity should be deduped by name");
+        let obs = &second.entities[0].observations;
+        assert_eq!(obs.len(), 3, "observations should merge without dupes");
+        assert!(obs.iter().any(|o| o == "a"));
+        assert!(obs.iter().any(|o| o == "b"));
+        assert!(obs.iter().any(|o| o == "c"));
+    }
+
+    #[test]
+    fn create_entities_under_concurrent_writers_does_not_lose_data() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let (_dir, path) = fresh_temp_path();
+        let _g = EnvGuard::set(&path);
+
+        // Seed the file so the read_graph_inner path is exercised.
+        create_entities_inner(vec![KgEntity {
+            name: "seed".into(),
+            entity_type: "system".into(),
+            observations: vec![],
+        }])
+        .expect("seed");
+
+        // Spawn two writers each adding 25 unique entities. Without the
+        // global write lock these would interleave RMW cycles and the
+        // second writer would clobber the first writer's adds, leaving
+        // <50 distinct entities. With the lock, total = 50 + 1 (seed).
+        let p1 = path.clone();
+        let h1 = std::thread::spawn(move || {
+            std::env::set_var("ULTRON_KG_PATH_OVERRIDE", &p1);
+            for i in 0..25 {
+                create_entities_inner(vec![KgEntity {
+                    name: format!("t1-{i}"),
+                    entity_type: "node".into(),
+                    observations: vec![],
+                }])
+                .expect("t1 create");
+            }
+        });
+        let p2 = path.clone();
+        let h2 = std::thread::spawn(move || {
+            std::env::set_var("ULTRON_KG_PATH_OVERRIDE", &p2);
+            for i in 0..25 {
+                create_entities_inner(vec![KgEntity {
+                    name: format!("t2-{i}"),
+                    entity_type: "node".into(),
+                    observations: vec![],
+                }])
+                .expect("t2 create");
+            }
+        });
+        h1.join().unwrap();
+        h2.join().unwrap();
+
+        let graph = read_graph_inner().expect("final read");
+        assert_eq!(
+            graph.entities.len(),
+            51,
+            "concurrent writers should not lose entities (seed + 25 + 25)"
+        );
+    }
+
+    #[test]
+    fn create_entities_skips_blank_names() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let (_dir, path) = fresh_temp_path();
+        let _g = EnvGuard::set(&path);
+
+        let g = create_entities_inner(vec![
+            KgEntity {
+                name: "   ".into(),
+                entity_type: "x".into(),
+                observations: vec![],
+            },
+            KgEntity {
+                name: "real".into(),
+                entity_type: "x".into(),
+                observations: vec![],
+            },
+        ])
+        .expect("create");
+        assert_eq!(g.entities.len(), 1);
+        assert_eq!(g.entities[0].name, "real");
+    }
+
+    #[test]
+    fn delete_entity_cascades_relations() {
+        let _lock = TEST_ENV_LOCK.lock().unwrap();
+        let (_dir, path) = fresh_temp_path();
+        let _g = EnvGuard::set(&path);
+
+        create_entities_inner(vec![
+            KgEntity {
+                name: "a".into(),
+                entity_type: "x".into(),
+                observations: vec![],
+            },
+            KgEntity {
+                name: "b".into(),
+                entity_type: "x".into(),
+                observations: vec![],
+            },
+        ])
+        .unwrap();
+        create_relations_inner(vec![KgRelation {
+            from: "a".into(),
+            to: "b".into(),
+            relation_type: "links".into(),
+        }])
+        .unwrap();
+
+        let g = delete_entity_inner("a".into()).unwrap();
+        assert_eq!(g.entities.len(), 1);
+        assert!(g.relations.is_empty(), "relations referencing a should drop");
+    }
 }

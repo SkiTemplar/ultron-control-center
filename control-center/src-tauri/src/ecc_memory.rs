@@ -230,3 +230,176 @@ pub fn bootstrap_ecc_memory_inner() -> Result<String, String> {
         .map_err(|e| format!("write {}: {e}", target.display()))?;
     Ok(target.display().to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_jsonl(dir: &std::path::Path, lines: &[&str]) -> std::path::PathBuf {
+        let path = dir.join("memory.jsonl");
+        let mut f = std::fs::File::create(&path).expect("create jsonl");
+        for line in lines {
+            writeln!(f, "{line}").unwrap();
+        }
+        path
+    }
+
+    fn parse_text_via_reader(text: &str) -> (Vec<EccEntity>, Vec<EccRelation>) {
+        // Mirror the parsing logic so we can assert on malformed input
+        // without having to wire MEMORY_FILE_PATH (which would mutate
+        // process env mid-test).
+        let mut entities = Vec::new();
+        let mut relations = Vec::new();
+        for raw in text.lines() {
+            let line = raw.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let value: serde_json::Value = match serde_json::from_str(line) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+            let kind = value.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match kind {
+                "entity" => {
+                    let name = value
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if !name.is_empty() {
+                        entities.push(EccEntity {
+                            name,
+                            entity_type: value
+                                .get("entityType")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("entity")
+                                .to_string(),
+                            observations: value
+                                .get("observations")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|x| {
+                                            x.as_str().map(|s| s.to_string())
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                        });
+                    }
+                }
+                "relation" => {
+                    let from = value
+                        .get("from")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let to = value
+                        .get("to")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if !from.is_empty() && !to.is_empty() {
+                        relations.push(EccRelation {
+                            from,
+                            to,
+                            relation_type: value
+                                .get("relationType")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("relates_to")
+                                .to_string(),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        (entities, relations)
+    }
+
+    #[test]
+    fn parse_skips_malformed_lines() {
+        let text = concat!(
+            r#"{"type":"entity","name":"good","entityType":"x","observations":["o1"]}"#,
+            "\n",
+            "not valid json at all\n",
+            r#"{"type":"entity","name":"alsoGood","entityType":"x","observations":[]}"#,
+            "\n",
+        );
+        let (entities, _) = parse_text_via_reader(text);
+        assert_eq!(entities.len(), 2);
+        assert_eq!(entities[0].name, "good");
+        assert_eq!(entities[1].name, "alsoGood");
+    }
+
+    #[test]
+    fn parse_skips_empty_name_entities() {
+        let text = concat!(
+            r#"{"type":"entity","name":"","entityType":"x","observations":[]}"#,
+            "\n",
+            r#"{"type":"entity","name":"keep","entityType":"x","observations":[]}"#,
+            "\n",
+        );
+        let (entities, _) = parse_text_via_reader(text);
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].name, "keep");
+    }
+
+    #[test]
+    fn parse_skips_relations_missing_endpoints() {
+        let text = concat!(
+            r#"{"type":"relation","from":"a","to":"","relationType":"links"}"#,
+            "\n",
+            r#"{"type":"relation","from":"","to":"b","relationType":"links"}"#,
+            "\n",
+            r#"{"type":"relation","from":"a","to":"b","relationType":"links"}"#,
+            "\n",
+        );
+        let (_, relations) = parse_text_via_reader(text);
+        assert_eq!(relations.len(), 1);
+    }
+
+    #[test]
+    fn parse_defaults_entity_type_when_missing() {
+        let text = r#"{"type":"entity","name":"x","observations":[]}"#;
+        let (entities, _) = parse_text_via_reader(text);
+        assert_eq!(entities[0].entity_type, "entity");
+    }
+
+    #[test]
+    fn parse_ignores_unknown_kind() {
+        let text = concat!(
+            r#"{"type":"unknown","data":"ignored"}"#,
+            "\n",
+            r#"{"type":"entity","name":"only","entityType":"x","observations":[]}"#,
+            "\n",
+        );
+        let (entities, _) = parse_text_via_reader(text);
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].name, "only");
+    }
+
+    #[test]
+    fn ecc_memory_read_with_temp_file() {
+        // Full integration: write a temp jsonl, point MEMORY_FILE_PATH
+        // at it, and read it back via the real reader.
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = write_jsonl(
+            dir.path(),
+            &[
+                r#"{"type":"entity","name":"e1","entityType":"node","observations":["a","b"]}"#,
+                r#"garbage line skipped"#,
+                r#"{"type":"relation","from":"e1","to":"e2","relationType":"links"}"#,
+            ],
+        );
+        // SAFETY: we leak the lock since multiple ecc tests touch the
+        // same env var; production never sets it.
+        std::env::set_var("MEMORY_FILE_PATH", &path);
+        let snap = ecc_memory_read().expect("read");
+        assert_eq!(snap.entities.len(), 1);
+        assert_eq!(snap.relations.len(), 1);
+        std::env::remove_var("MEMORY_FILE_PATH");
+    }
+}

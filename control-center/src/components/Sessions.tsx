@@ -817,131 +817,10 @@ function WorkspaceCard({
 }
 
 // ---------------------------------------------------------------------------
-// Workdays sub-tab (skeleton)
-// ---------------------------------------------------------------------------
-
-/** Shape mirrors `commands::workdays::Workday` on the Rust side. The
- *  backend currently returns an empty Vec — the UI renders a "Coming soon"
- *  state so USER can review the concept before we wire the aggregator. */
-type Workday = {
-  id: string;
-  date: string;
-  kind: string;
-  project_id: string | null;
-  title: string;
-  minutes: number;
-  session_count: number;
-  agents_used: string[];
-  kanban_changes: number;
-  summary: string;
-};
-
-function WorkdaysPanel() {
-  const [items, setItems] = useState<Workday[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    invoke<Workday[]>("workday_list", { limit: 50 })
-      .then((list) => {
-        if (!cancelled) setItems(list);
-      })
-      .catch((e) => {
-        // eslint-disable-next-line no-console
-        console.warn("[Workdays] workday_list failed", e);
-        if (!cancelled) setItems([]);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  return (
-    <div>
-      <div
-        className="mb-4 rounded p-4"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-border)",
-        }}
-      >
-        <div className="text-[13px] font-semibold">
-          What is a "Workday"?
-        </div>
-        <p
-          className="mt-1 text-[12px] leading-relaxed"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          A focused block of work in a single local day. ULTRON aggregates
-          your Claude / Codex / Gemini sessions, the kanban cards you
-          touched, the agents you invoked and the project you were on into
-          one Workday entry — with computed duration, work kind
-          (coding / research / admin / meeting / mixed) and a short summary.
-        </p>
-        <ul
-          className="mt-3 grid grid-cols-1 gap-1.5 text-[11.5px] md:grid-cols-2"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          <li>
-            <strong style={{ color: "var(--color-text-secondary)" }}>
-              Time invested
-            </strong>{" "}
-            — derived from session transcript timestamps.
-          </li>
-          <li>
-            <strong style={{ color: "var(--color-text-secondary)" }}>
-              Project
-            </strong>{" "}
-            — inferred from the most-used cwd of the day.
-          </li>
-          <li>
-            <strong style={{ color: "var(--color-text-secondary)" }}>
-              Agents used
-            </strong>{" "}
-            — Terry, Don Claudio, Tolkien… counted per workday.
-          </li>
-          <li>
-            <strong style={{ color: "var(--color-text-secondary)" }}>
-              Kanban changes
-            </strong>{" "}
-            — cards created, moved or completed during the day.
-          </li>
-        </ul>
-      </div>
-
-      <div
-        className="rounded p-6 text-center"
-        style={{
-          background: "var(--color-surface-2)",
-          border: "1px dashed var(--color-border-strong)",
-          color: "var(--color-text-tertiary)",
-        }}
-      >
-        <div className="text-[13px] font-semibold">
-          Coming soon · backend in research
-        </div>
-        <p className="mt-1 text-[12px]">
-          {loading
-            ? "Loading…"
-            : items.length === 0
-              ? "No workdays yet — the aggregator ships in a follow-up sprint (see card-v27-inv-workdays in the Investigar column)."
-              : `Loaded ${items.length} workday${items.length === 1 ? "" : "s"}.`}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main panel
 // ---------------------------------------------------------------------------
 
 export function Sessions() {
-  const [tab, setTab] = useState<"sessions" | "workdays">("sessions");
   const [provider, setProvider] = useState<SessionProvider>("claude");
   const [model, setModel] = useState<string>(PROVIDERS["claude"].defaultModel);
   const [prompt, setPrompt] = useState("");
@@ -1168,6 +1047,37 @@ export function Sessions() {
     }
   }
 
+  // Top-right "+" icon flow: pick any folder on disk and register it as a
+  // project. Mirrors the per-card "Create project" affordance so users can
+  // bootstrap a project without first having opened a Claude session in
+  // that folder.
+  async function createProjectFromPicker() {
+    try {
+      const selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "Pick a folder to register as a project",
+      });
+      if (!selected || typeof selected !== "string") return;
+      const name = deriveWorkspaceName(selected);
+      await invoke("create_project", {
+        name,
+        path: selected,
+        ide: null,
+        language: null,
+        tags: null,
+        defaultProvider: null,
+        defaultShell: null,
+        parentFolderOverride: null,
+        notes: null,
+      });
+      setToast(`Project "${name}" created`);
+      reloadWorkspaces();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Search / filtering
   // -------------------------------------------------------------------------
@@ -1248,27 +1158,24 @@ export function Sessions() {
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Pick a recent workspace to start a fresh Claude session — or
-            switch to Workdays to see your day-level activity.
+            Pick a recent workspace to start a fresh Claude session.
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {tab === "sessions" && (
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Filter workspaces & sessions…"
-              className="rounded px-3 py-1.5 text-[12px]"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-                outline: "none",
-                width: 280,
-              }}
-            />
-          )}
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Filter workspaces & sessions…"
+            className="rounded px-3 py-1.5 text-[12px]"
+            style={{
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+              border: "1px solid var(--color-border-strong)",
+              outline: "none",
+              width: 280,
+            }}
+          />
           <button
             type="button"
             onClick={() => {
@@ -1286,50 +1193,22 @@ export function Sessions() {
             <RefreshCw size={12} />
             Refresh
           </button>
+          <button
+            type="button"
+            onClick={() => void createProjectFromPicker()}
+            className="inline-flex h-7 w-7 items-center justify-center rounded transition-colors"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Create a new project from a folder on disk"
+            aria-label="Create new project"
+          >
+            <Plus size={14} />
+          </button>
         </div>
       </header>
-
-      {/* v2.6 round 2: sub-tab switch (Sessions / Workdays). */}
-      <div
-        className="mb-5 inline-flex rounded p-0.5"
-        style={{
-          background: "var(--color-surface-1)",
-          border: "1px solid var(--color-border-strong)",
-        }}
-      >
-        {(["sessions", "workdays"] as const).map((t) => {
-          const isActive = tab === t;
-          const label = t === "sessions" ? "Sessions" : "Workdays";
-          return (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className="rounded px-3 py-1 text-[12px] font-medium transition-colors"
-              style={{
-                background: isActive ? "var(--color-surface-3)" : "transparent",
-                color: isActive
-                  ? "var(--color-text)"
-                  : "var(--color-text-tertiary)",
-              }}
-            >
-              {label}
-              {t === "workdays" && (
-                <span
-                  className="ml-2 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    color: "var(--color-text-tertiary)",
-                    border: "1px solid var(--color-border)",
-                  }}
-                >
-                  preview
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
 
       {toast && (
         <div
@@ -1357,10 +1236,7 @@ export function Sessions() {
         </div>
       )}
 
-      {tab === "workdays" && <WorkdaysPanel />}
-
-      {tab === "sessions" && (
-        <>
+      <>
           {/* ------------------------------------------------------------------
               Section 1 — Recent workspaces (the new headline)
               ------------------------------------------------------------------ */}
@@ -1490,10 +1366,11 @@ export function Sessions() {
 
           {/* ------------------------------------------------------------------
               Section 2 — Collapsible: All Claude sessions
-              Kept hidden by default (toggled via internal state, not shown
-              in the UI for now). Power-user resume lives here.
+              Power-user resume surface. Hidden by default behind a toggle
+              chevron so the workspace cards above stay the headline.
+              Toggle persists in showAllSessions state.
               ------------------------------------------------------------------ */}
-          <section className="mb-6" style={{ display: "none" }}>
+          <section className="mb-6">
             <button
               type="button"
               onClick={() => setShowAllSessions(!showAllSessions)}
@@ -1867,7 +1744,6 @@ export function Sessions() {
             )}
           </section>
         </>
-      )}
 
       {/* v2.6 round 2: Custom / Send-Context modal — single instance at the
           panel level. Cards delegate via setModal(...). */}

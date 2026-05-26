@@ -1,8 +1,13 @@
-// WorkdaysList - lista de workdays con filtro por status + creacion rapida.
+// WorkdaysList - legacy list view kept for compatibility.
 //
-// Tauri commands consumidos:
+// The v2.8 redesign moved away from a manual list with a "+ New" button.
+// Workdays now auto-create on session-start / kanban-move, so the only
+// surface that still mounts this file is any third-party consumer that
+// imported the named export. The component now renders a read-only flat
+// list of recent workdays without the create form.
+//
+// Tauri commands consumed:
 //   list_workdays(status_filter, date_from, date_to, limit) -> Workday[]
-//   create_workday(title, planned_date, template_id, goals) -> Workday
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -12,16 +17,16 @@ interface WorkdaysListProps {
   selectedId: string | null;
   onSelect: (id: string) => void;
   refreshKey: number;
-  onCreated: (wd: Workday) => void;
+  // Kept in the prop type so existing call sites compile, but the new model
+  // never invokes it -- workdays are auto-created.
+  onCreated?: (wd: Workday) => void;
 }
 
 type StatusFilter = "all" | WorkdayStatus;
 
 const STATUS_FILTERS: { id: StatusFilter; label: string }[] = [
   { id: "all", label: "All" },
-  { id: "planned", label: "Planned" },
   { id: "in_progress", label: "Active" },
-  { id: "paused", label: "Paused" },
   { id: "completed", label: "Done" },
   { id: "archived", label: "Archived" },
 ];
@@ -41,26 +46,15 @@ function statusColor(s: WorkdayStatus): string {
   }
 }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function WorkdaysList({
   selectedId,
   onSelect,
   refreshKey,
-  onCreated,
 }: WorkdaysListProps) {
   const [filter, setFilter] = useState<StatusFilter>("all");
   const [items, setItems] = useState<Workday[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // create form state
-  const [showCreate, setShowCreate] = useState(false);
-  const [newTitle, setNewTitle] = useState("");
-  const [newDate, setNewDate] = useState(todayIso());
-  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -86,33 +80,11 @@ export function WorkdaysList({
     };
   }, [filter, refreshKey]);
 
-  async function handleCreate() {
-    if (!newTitle.trim()) return;
-    setCreating(true);
-    try {
-      const wd = await invoke<Workday>("create_workday", {
-        title: newTitle.trim(),
-        plannedDate: newDate || null,
-        templateId: null,
-        goals: null,
-      });
-      onCreated(wd);
-      setNewTitle("");
-      setNewDate(todayIso());
-      setShowCreate(false);
-    } catch (e: unknown) {
-      setError(String(e));
-    } finally {
-      setCreating(false);
-    }
-  }
-
   return (
     <div
       className="flex h-full flex-col"
       style={{ background: "var(--color-surface-1)", minWidth: 320 }}
     >
-      {/* Filter strip */}
       <div
         className="flex flex-wrap items-center gap-1 border-b px-3 py-2"
         style={{ borderColor: "var(--color-border)" }}
@@ -136,82 +108,8 @@ export function WorkdaysList({
             {f.label}
           </button>
         ))}
-        <button
-          type="button"
-          onClick={() => setShowCreate((v) => !v)}
-          className="ml-auto rounded px-2 py-1 text-[11px] font-semibold"
-          style={{
-            background: "var(--color-accent, #2563eb)",
-            color: "white",
-          }}
-        >
-          + New
-        </button>
       </div>
 
-      {/* Create modal (inline) */}
-      {showCreate && (
-        <div
-          className="flex flex-col gap-2 border-b px-3 py-3"
-          style={{
-            borderColor: "var(--color-border)",
-            background: "var(--color-surface-2)",
-          }}
-        >
-          <input
-            type="text"
-            value={newTitle}
-            onChange={(e) => setNewTitle(e.target.value)}
-            placeholder="Workday title"
-            autoFocus
-            className="rounded px-2 py-1 text-[12px]"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border-strong)",
-              color: "var(--color-text)",
-            }}
-          />
-          <input
-            type="date"
-            value={newDate}
-            onChange={(e) => setNewDate(e.target.value)}
-            className="rounded px-2 py-1 text-[12px]"
-            style={{
-              background: "var(--color-surface-1)",
-              border: "1px solid var(--color-border-strong)",
-              color: "var(--color-text)",
-            }}
-          />
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={creating || !newTitle.trim()}
-              className="flex-1 rounded px-2 py-1 text-[11px] font-medium disabled:opacity-50"
-              style={{
-                background: "var(--color-accent, #2563eb)",
-                color: "white",
-              }}
-            >
-              {creating ? "Creating..." : "Create"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowCreate(false)}
-              className="rounded px-2 py-1 text-[11px]"
-              style={{
-                background: "transparent",
-                border: "1px solid var(--color-border)",
-                color: "var(--color-text-secondary)",
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* List */}
       <div className="flex-1 overflow-auto">
         {loading && (
           <div
@@ -234,7 +132,7 @@ export function WorkdaysList({
             className="px-3 py-4 text-[12px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            No workdays yet.
+            No workdays yet -- launch a session to open one automatically.
           </div>
         )}
         {items.map((wd) => {

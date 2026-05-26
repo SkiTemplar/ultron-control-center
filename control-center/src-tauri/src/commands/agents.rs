@@ -1,5 +1,8 @@
 // Agent CRUD + security findings commands.
+use crate::agent_orchestration;
 use crate::agents;
+use crate::hooks_admin;
+use crate::sessions::SpawnResult;
 
 // Origin-aware listing for the Control Center 2.0 Agents viewer.
 // Walks global, project, and plugin trees and tags each entry with its
@@ -83,6 +86,36 @@ pub async fn agents_pinned_load(project_id: String) -> Result<PinnedAgents, Stri
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ---------------------------------------------------------------------------
+// Agents tab redesign — "plantilla de empleados" surface.
+// ---------------------------------------------------------------------------
+//
+// Three commands feed the new UI:
+//   * `delegate_task_to_agent` — spawn a Claude session pre-bound to a
+//     subagent slug. The frontend "Asignar tarea" modal posts here.
+//   * `list_agent_workflows`   — return the canonical seven alignments.
+//   * `list_active_hooks`      — proxy over hooks_admin so the Automations
+//     sub-tab can render the global + plugin hook surface.
+
+#[tauri::command]
+pub async fn delegate_task_to_agent(
+    app: tauri::AppHandle,
+    request: agent_orchestration::DelegateRequest,
+) -> Result<SpawnResult, String> {
+    agent_orchestration::delegate_task_inner(&app, request).await
+}
+
+#[tauri::command]
+pub async fn list_agent_workflows() -> Result<Vec<agent_orchestration::WorkflowDefinition>, String>
+{
+    Ok(agent_orchestration::list_workflows_inner())
+}
+
+#[tauri::command]
+pub async fn list_active_hooks() -> Result<hooks_admin::HooksList, String> {
+    hooks_admin::list_hooks_inner()
 }
 
 #[tauri::command]
