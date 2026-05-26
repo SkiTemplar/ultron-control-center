@@ -5,6 +5,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type { AgentEntry, RemoteItem, SkillOrigin } from "../types";
 import { SearchGitHubModal } from "./library/SearchGitHubModal";
@@ -176,9 +177,20 @@ export function Agents() {
     }
     void loadDelegations();
     const t = setInterval(loadDelegations, 30_000);
+    // KIRKARDO 12 quick-win: react to the workflow:delegated event the
+    // backend emits around every delegate_task_inner call. Cuts the
+    // worst-case visible latency from 30s (polling) to ~50ms.
+    let unlisten: (() => void) | null = null;
+    void listen("workflow:delegated", () => {
+      if (!cancelled) void loadDelegations();
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
     return () => {
       cancelled = true;
       clearInterval(t);
+      if (unlisten) unlisten();
     };
   }, []);
 

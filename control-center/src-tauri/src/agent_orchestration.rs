@@ -114,6 +114,21 @@ pub async fn delegate_task_inner(
         task.to_string()
     };
 
+    // KIRKARDO 12 quick-win — Tauri event stream. Emit before/after the
+    // spawn so the frontend Recent runs strip can refresh immediately
+    // instead of waiting for the 30s poll. The emit failures themselves
+    // are non-fatal: the delegation log is the source of truth.
+    use tauri::Emitter;
+    let _ = app.emit(
+        "workflow:delegating",
+        serde_json::json!({
+            "agent": agent_trim,
+            "task_preview": truncate(task, 160),
+            "use_cheap_model": req.use_cheap_model,
+            "started_at": crate::activity_timeline::epoch_secs_to_iso(now_secs_safe()),
+        }),
+    );
+
     let result = sessions::spawn_session_inner(
         app,
         "claude".to_string(),
@@ -122,6 +137,15 @@ pub async fn delegate_task_inner(
         Some(flags),
     )
     .await;
+
+    let _ = app.emit(
+        "workflow:delegated",
+        serde_json::json!({
+            "agent": agent_trim,
+            "status": if result.is_ok() { "launched" } else { "failed" },
+            "task_preview": truncate(task, 160),
+        }),
+    );
 
     // KIRKARDO 7 Paso 1 — Blackboard write: record this delegation as an
     // agent_message context entry so subsequent agents in the chain (and
