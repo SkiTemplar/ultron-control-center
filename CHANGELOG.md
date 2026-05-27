@@ -1,5 +1,24 @@
 # Changelog
 
+<!-- v2.11.0 -->
+## v2.11.0 - 2026-05-27 (acumula v2.9.1..v2.10.1)
+
+Errores corregidos:
+- KIRKARDO 26 CRITICAL — workflows con agentes REALES + Round 6 sync
+
+Anadido:
+- AI Router pub fn route() + a11y fixes (KIRKARDO 28 + 25)
+- ai_router_usage_summary command + Codex/Gemini subscription roadmap
+- cost_watchdog usa ai_router::route() (PRIMER caller real) + quota 98% design doc
+- Hooks redesign — sidebar categorías, colores por evento, auto-naming AI
+- Fase 1 — 5 bugs P0 + Qwen exclude + Usage UI + Kanban sync masivo
+- Fase 2 Library + Fase 5 Sessions/Dashboard/Usage + Fase 6 Settings parts
+- Fase 3 Projects REDESIGN (Jarvis launcher + Context + Agents + Sessions + Timeline + ApiKeys + BatchDelete)
+- Fase 4 Memory Graphify + Fase 6 System/Workdays + Fase 7 backlog técnico (KIRKARDO 14+19+16+21+26)
+- KIRKARDO 29 — priority field en RegistrySkill + sort determinista
+- Wave 5 — cerrar TODO el backlog técnico activo
+
+
 <!-- v2.10.0 -->
 ## v2.10.0 - 2026-05-27 (Sprint masivo "feedback nocturno" — acumula v2.9.6..v2.9.9)
 
