@@ -1,0 +1,84 @@
+{
+  "version": "3.0.0",
+  "metadata": {
+    "title": "",
+    "subject": "",
+    "generated_at": "",
+    "generator_model": "claude-sonnet-4-6",
+    "source_files": []
+  },
+  "config": {
+    "penalty_per_wrong": 0.25,
+    "default_questions_per_exam": 20,
+    "allow_modes": ["exam", "study"],
+    "show_explanation_in_exam": false
+  },
+  "topics": {
+    "T1": {
+      "name": "<topic-name>",
+      "weight": 1.0,
+      "questions": [
+        {
+          "id": "q-T1-001",
+          "kind": "single",
+          "question": "?",
+          "options": ["a", "b", "c", "d"],
+          "correct": 1,
+          "explanation": "...",
+          "difficulty": "medium",
+          "tags": []
+        },
+        {
+          "id": "q-T1-002",
+          "kind": "multi",
+          "question": "?",
+          "options": ["a", "b", "c", "d"],
+          "correct": [0, 2],
+          "explanation": "...",
+          "difficulty": "hard",
+          "tags": []
+        },
+        {
+          "id": "q-T1-003",
+          "kind": "truefalse",
+          "question": "?",
+          "correct": true,
+          "explanation": "...",
+          "difficulty": "easy",
+          "tags": []
+        },
+        {
+          "id": "q-T1-004",
+          "kind": "fill_blank",
+          "question": "El operador ___ desempaqueta nullable y lanza NPE si null",
+          "correct": "!!",
+          "accept": ["!!", "operador !!"],
+          "explanation": "...",
+          "difficulty": "medium",
+          "tags": []
+        },
+        {
+          "id": "q-T1-005",
+          "kind": "order",
+          "question": "Ordena las fases del ciclo de vida onCreate -> onDestroy",
+          "items": ["onCreate", "onStart", "onResume", "onPause", "onStop", "onDestroy"],
+          "correct_order": [0, 1, 2, 3, 4, 5],
+          "explanation": "...",
+          "difficulty": "medium",
+          "tags": []
+        },
+        {
+          "id": "q-T1-006",
+          "kind": "match",
+          "question": "Empareja cada cmdlet con su Cmdlet equivalente",
+          "left": ["ls", "cd", "rm", "cat"],
+          "right": ["Get-ChildItem", "Set-Location", "Remove-Item", "Get-Content"],
+          "correct_pairs": [[0, 0], [1, 1], [2, 2], [3, 3]],
+          "explanation": "...",
+          "difficulty": "easy",
+          "tags": []
+        }
+      ]
+    }
+  }
+}

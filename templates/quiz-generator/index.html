@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>INSOBC · Quiz de repaso</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">📱</span>
+      <div>
+        <h1>INSOBC · Quiz</h1>
+        <p class="subtitle">Aplicaciones Móviles — Repaso para examen final</p>
+      </div>
+    </div>
+    <div class="topbarRight">
+      <button id="btnHistory" class="btn btn-ghost btnIcon" title="Ver historial de exámenes">📊 Historial</button>
+      <div id="stats" class="stats hidden">
+        <span id="statQuestion"></span>
+        <span id="statScore"></span>
+      </div>
+    </div>
+  </header>
+
+  <main id="app">
+    <!-- ============== PANTALLA DE INICIO ============== -->
+    <section id="screenHome" class="screen">
+      <div class="hero">
+        <h2>Elige un examen</h2>
+        <p>Cada examen tiene <b>20 preguntas</b> de 4 opciones · Acertar suma 1 · Fallar resta <b>0.25</b> (un cuarto) · No responder no resta.</p>
+      </div>
+
+      <div class="modeRow">
+        <h3>Modo</h3>
+        <div class="modeOptions">
+          <label class="modeChip">
+            <input type="radio" name="mode" value="exam" checked />
+            <div>
+              <strong>Modo Examen</strong>
+              <small>Corrección al final · simula el examen real</small>
+            </div>
+          </label>
+          <label class="modeChip">
+            <input type="radio" name="mode" value="study" />
+            <div>
+              <strong>Modo Estudio</strong>
+              <small>Feedback inmediato pregunta a pregunta</small>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <div class="modeRow">
+        <h3>Nº de preguntas</h3>
+        <div class="modeOptions">
+          <label class="modeChip">
+            <input type="radio" name="nq" value="10" />
+            <div><strong>10</strong><small>repaso rápido</small></div>
+          </label>
+          <label class="modeChip">
+            <input type="radio" name="nq" value="20" checked />
+            <div><strong>20</strong><small>tamaño examen</small></div>
+          </label>
+          <label class="modeChip">
+            <input type="radio" name="nq" value="30" />
+            <div><strong>30</strong><small>repaso largo</small></div>
+          </label>
+          <label class="modeChip">
+            <input type="radio" name="nq" value="all" />
+            <div><strong>Todas</strong><small>banco entero</small></div>
+          </label>
+        </div>
+      </div>
+
+      <div class="topicGrid" id="topicGrid">
+        <!-- Generado por JS -->
+      </div>
+
+      <footer class="homeFooter">
+        <p id="bankInfo">Cargando banco de preguntas…</p>
+      </footer>
+    </section>
+
+    <!-- ============== PANTALLA EXAMEN ============== -->
+    <section id="screenExam" class="screen hidden">
+      <div class="examHeader">
+        <button id="btnExit" class="btn btn-ghost">← Salir</button>
+        <h2 id="examTitle"></h2>
+        <span id="examModeTag" class="tag"></span>
+      </div>
+
+      <div class="progressWrap">
+        <div id="progressBar" class="progressBar"></div>
+      </div>
+
+      <article id="questionCard" class="questionCard"></article>
+
+      <div class="navRow">
+        <button id="btnPrev" class="btn btn-ghost">← Anterior</button>
+        <div id="dotIndex" class="dotIndex"></div>
+        <button id="btnNext" class="btn btn-primary">Siguiente →</button>
+      </div>
+
+      <div class="finishRow">
+        <button id="btnFinish" class="btn btn-success hidden">Corregir examen</button>
+      </div>
+    </section>
+
+    <!-- ============== PANTALLA RESULTADOS ============== -->
+    <section id="screenResults" class="screen hidden">
+      <div class="resultHero">
+        <h2>Resultados</h2>
+        <div id="resultBigScore" class="bigScore"></div>
+        <p id="resultBreakdown" class="breakdown"></p>
+        <p id="resultGrade" class="grade"></p>
+      </div>
+
+      <div class="resultActions">
+        <button id="btnRetry" class="btn btn-primary">Reintentar mismo tema</button>
+        <button id="btnReview" class="btn btn-ghost">Ver corrección</button>
+        <button id="btnHome" class="btn btn-ghost">← Volver al inicio</button>
+      </div>
+
+      <section id="reviewList" class="reviewList hidden"></section>
+    </section>
+
+    <!-- ============== PANTALLA HISTORIAL ============== -->
+    <section id="screenHistory" class="screen hidden">
+      <div class="examHeader">
+        <button id="btnHistoryBack" class="btn btn-ghost">← Volver</button>
+        <h2>Historial de exámenes</h2>
+        <button id="btnClearHistory" class="btn btn-ghost dangerBtn">🗑 Vaciar</button>
+      </div>
+
+      <div id="historyStats" class="historyStats"></div>
+      <div id="historyList" class="historyList"></div>
+    </section>
+
+    <!-- ============== DETALLE DE EXAMEN GUARDADO ============== -->
+    <section id="screenHistoryDetail" class="screen hidden">
+      <div class="examHeader">
+        <button id="btnDetailBack" class="btn btn-ghost">← Historial</button>
+        <h2 id="detailTitle"></h2>
+      </div>
+      <div id="detailHero" class="resultHero"></div>
+      <div id="detailReview" class="reviewList"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
