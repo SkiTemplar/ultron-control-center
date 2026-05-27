@@ -277,6 +277,7 @@ pub fn run() {
             work_sessions::project_work_sessions_list,
             work_sessions::project_work_session_link_ai,
             work_sessions::project_work_session_active,
+            work_sessions::project_work_session_auto_link,
             // -- Qdrant semantic recall (KIRKARDO 14 wire) --
             qdrant::recall_semantic,
             qdrant::qdrant_status,

@@ -1133,9 +1133,21 @@ pub fn drain_pending_links_inner() -> Result<DrainReport, String> {
         let mut linked_via_project = false;
         if let Some(cwd) = cwd_match.clone() {
             match auto_workday_for_session_inner(entry.session_id.clone(), cwd) {
-                Ok(Some(_)) => {
+                Ok(Some(workday)) => {
                     report.linked += 1;
                     linked_via_project = true;
+                    // F6+F22: auto-cluster AI sessions into work-sessions using
+                    // a 2h-gap heuristic. Best-effort — failures here must not
+                    // abort the drain. Only fires when the workday has a
+                    // resolved project_id (else there is no per-project file
+                    // to write to).
+                    if let Some(pid) = workday.project_id.clone() {
+                        let _ = crate::work_sessions::auto_link_inner(
+                            pid,
+                            entry.session_id.clone(),
+                            workday.id.clone(),
+                        );
+                    }
                 }
                 Ok(None) => {}
                 Err(e) => {

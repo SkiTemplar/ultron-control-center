@@ -98,7 +98,17 @@ pub struct WorkSession {
     /// Free-form retrospective notes written when the session is closed.
     #[serde(default)]
     pub notes: Option<String>,
+    /// epoch:<secs> — last AI-session link timestamp. Used by `auto_link_inner`
+    /// to decide whether a new AI session joins the active work-session
+    /// (gap < 2h) or splits into a new one. None on legacy records.
+    #[serde(default)]
+    pub last_activity_at: Option<String>,
 }
+
+/// Gap threshold (2 hours): AI sessions arriving within this window after the
+/// last activity of an active work-session are grouped into that same session.
+/// Beyond it, the active session auto-closes and a new one opens.
+pub const AUTO_SPLIT_THRESHOLD_SECS: u64 = 2 * 60 * 60;
 
 // ---------------------------------------------------------------------------
 // Storage helpers
@@ -193,6 +203,7 @@ pub fn start_inner(project_id: String, workday_id: String) -> Result<WorkSession
         cards_touched: Vec::new(),
         files_changed: Vec::new(),
         notes: None,
+        last_activity_at: None,
     };
 
     let path = work_sessions_path(&project_id)?;
@@ -264,6 +275,71 @@ pub fn active_session_inner(project_id: String) -> Result<Option<WorkSession>, S
     Ok(sessions.into_iter().find(|s| s.status == WorkSessionStatus::Active))
 }
 
+fn parse_epoch_secs(ts: &str) -> Option<u64> {
+    ts.strip_prefix("epoch:").and_then(|n| n.parse::<u64>().ok())
+}
+
+/// Auto-link an AI session to a work-session using the 2h gap heuristic.
+///
+/// Rules:
+///   - If active session exists AND (now - last_activity_at) < 2h → append
+///     ai_session_id (idempotent) and bump last_activity_at. Same work block.
+///   - If active session exists AND gap >= 2h → auto-close the previous
+///     (status Completed, ended_at = now, notes hint) and open a new one
+///     pre-linked to this ai_session_id.
+///   - If no active session → open a new one pre-linked.
+///
+/// Idempotent: re-invoking with an already-linked ai_session_id is a no-op
+/// (still bumps last_activity_at so it counts as user activity).
+pub fn auto_link_inner(
+    project_id: String,
+    ai_session_id: String,
+    workday_id: String,
+) -> Result<WorkSession, String> {
+    let now = now_epoch_secs();
+    let now_iso = epoch_iso(now);
+    let sessions = read_all(&project_id)?;
+    let active_opt = sessions
+        .iter()
+        .find(|s| s.status == WorkSessionStatus::Active)
+        .cloned();
+
+    if let Some(active) = active_opt {
+        let last = active
+            .last_activity_at
+            .as_deref()
+            .and_then(parse_epoch_secs)
+            .or_else(|| parse_epoch_secs(&active.started_at))
+            .unwrap_or(0);
+        let gap = now.saturating_sub(last);
+        if gap < AUTO_SPLIT_THRESHOLD_SECS {
+            // Same work-session: append ai_session_id idempotently.
+            let s_id = active.id.clone();
+            return patch_session(&project_id, &s_id, |s| {
+                if !s.ai_session_ids.contains(&ai_session_id) {
+                    s.ai_session_ids.push(ai_session_id.clone());
+                }
+                s.last_activity_at = Some(now_iso.clone());
+            });
+        }
+        // Gap exceeded: close the previous active session.
+        let prev_id = active.id.clone();
+        let _ = end_inner(
+            project_id.clone(),
+            prev_id,
+            Some("auto-closed by gap > 2h".to_string()),
+        );
+    }
+
+    // Open a fresh active session pre-linked to this ai_session_id.
+    let new_session = start_inner(project_id.clone(), workday_id)?;
+    let sid = new_session.id.clone();
+    patch_session(&project_id, &sid, |s| {
+        s.ai_session_ids.push(ai_session_id.clone());
+        s.last_activity_at = Some(now_iso.clone());
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Tauri command wrappers
 // ---------------------------------------------------------------------------
@@ -304,4 +380,16 @@ pub fn project_work_session_active(
     project_id: String,
 ) -> Result<Option<WorkSession>, String> {
     active_session_inner(project_id)
+}
+
+/// Auto-link an AI session to a work-session using the 2h gap heuristic.
+/// Used by the SessionStart hook drain path so the user never has to start
+/// or end a work-session manually.
+#[tauri::command]
+pub fn project_work_session_auto_link(
+    project_id: String,
+    ai_session_id: String,
+    workday_id: String,
+) -> Result<WorkSession, String> {
+    auto_link_inner(project_id, ai_session_id, workday_id)
 }
