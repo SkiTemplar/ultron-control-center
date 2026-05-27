@@ -30,6 +30,10 @@ pub struct SkillInfo {
     pub tags: Vec<String>,
     pub path: Option<String>,
     pub usage_count: u64,
+    /// Routing priority for conflict resolution when multiple skills match the
+    /// same trigger. Range 1–10; higher value wins. Skills without an explicit
+    /// `priority:` frontmatter field default to 5.
+    pub priority: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security: Option<SecurityInfo>,
 }
@@ -73,6 +77,11 @@ struct RegistrySkill {
     path: Option<String>,
     #[serde(default)]
     usage_count: u64,
+    /// Optional priority field written by skill_vault.py registry or parsed
+    /// directly from SKILL.md frontmatter. `None` serialises as absent JSON
+    /// key; the consumer treats it as 5 (mid-range default).
+    #[serde(default)]
+    priority: Option<u8>,
     #[serde(default)]
     security: Option<SecurityInfo>,
 }
@@ -145,6 +154,8 @@ pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
             .map(|t| strip_non_latin(&t))
             .filter(|t| !t.is_empty())
             .collect();
+        // Clamp to 1..=10; absent → 5 (mid-range default).
+        let priority = s.priority.map(|p| p.clamp(1, 10)).unwrap_or(5);
         out.push(SkillInfo {
             name,
             state: s.state.unwrap_or_else(|| "unknown".to_string()),
@@ -153,9 +164,14 @@ pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
             tags: cleaned_tags,
             path: s.path,
             usage_count: s.usage_count,
+            priority,
             security: s.security,
         });
     }
+    // Sort by priority descending so the frontend and any caller that needs
+    // deterministic conflict resolution between same-trigger skills always
+    // receives the highest-priority skill first.
+    out.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.name.cmp(&b.name)));
     Ok(out)
 }
 
@@ -925,5 +941,100 @@ mod tests {
 
         // 2024-02-29 (leap day) 00:00 UTC = 1709164800
         assert_eq!(format_ymd_local(1709164800), "2024-02-29");
+    }
+
+    // -----------------------------------------------------------------------
+    // Priority field — KIRKARDO 29
+    // -----------------------------------------------------------------------
+
+    /// Build a minimal registry.json string with the given skills and parse it
+    /// through `list_skills_inner` logic (using the same types) so we can
+    /// assert on sort order without touching the filesystem.
+    fn parse_registry_skills(json: &str) -> Vec<SkillInfo> {
+        let root: RegistryRoot = serde_json::from_str(json).expect("parse");
+        let mut out = Vec::new();
+        for (key, s) in root.skills.into_iter() {
+            let name = match s.name {
+                Some(n) => n,
+                None => key.split("::").nth(1).unwrap_or(&key).to_string(),
+            };
+            let priority = s.priority.map(|p| p.clamp(1, 10)).unwrap_or(5);
+            out.push(SkillInfo {
+                name,
+                state: s.state.unwrap_or_else(|| "unknown".to_string()),
+                source: s.source,
+                description: s.description.filter(|d| !d.is_empty()),
+                tags: s.tags,
+                path: s.path,
+                usage_count: s.usage_count,
+                priority,
+                security: s.security,
+            });
+        }
+        out.sort_by(|a, b| b.priority.cmp(&a.priority).then(a.name.cmp(&b.name)));
+        out
+    }
+
+    #[test]
+    fn priority_sort_descending_on_trigger_collision() {
+        // Three UI skills with different priorities — mike-tyson (8) must
+        // come first, then ui-ux-pro-max (6), then ui-designer (4).
+        let json = r#"{
+            "skills": {
+                "active::mike-tyson":     {"name":"mike-tyson",    "priority":8},
+                "active::ui-ux-pro-max":  {"name":"ui-ux-pro-max", "priority":6},
+                "active::ui-designer":    {"name":"ui-designer",   "priority":4}
+            }
+        }"#;
+        let skills = parse_registry_skills(json);
+        assert_eq!(skills[0].name, "mike-tyson");
+        assert_eq!(skills[0].priority, 8);
+        assert_eq!(skills[1].name, "ui-ux-pro-max");
+        assert_eq!(skills[1].priority, 6);
+        assert_eq!(skills[2].name, "ui-designer");
+        assert_eq!(skills[2].priority, 4);
+    }
+
+    #[test]
+    fn missing_priority_defaults_to_five() {
+        // A skill without a `priority` key should resolve to 5.
+        let json = r#"{
+            "skills": {
+                "active::no-priority": {"name":"no-priority"}
+            }
+        }"#;
+        let skills = parse_registry_skills(json);
+        assert_eq!(skills[0].priority, 5);
+    }
+
+    #[test]
+    fn priority_out_of_range_is_clamped() {
+        // Values outside 1..=10 are clamped rather than rejected so a corrupt
+        // registry.json does not panic the UI.
+        let json = r#"{
+            "skills": {
+                "active::too-high": {"name":"too-high", "priority":99},
+                "active::too-low":  {"name":"too-low",  "priority":0}
+            }
+        }"#;
+        let skills = parse_registry_skills(json);
+        let high = skills.iter().find(|s| s.name == "too-high").unwrap();
+        let low  = skills.iter().find(|s| s.name == "too-low").unwrap();
+        assert_eq!(high.priority, 10, "values >10 clamped to 10");
+        assert_eq!(low.priority,  1,  "values <1 clamped to 1");
+    }
+
+    #[test]
+    fn tie_broken_alphabetically() {
+        // Two skills with same priority — alphabetical tiebreak must be stable.
+        let json = r#"{
+            "skills": {
+                "active::zebra": {"name":"zebra", "priority":7},
+                "active::alpha": {"name":"alpha", "priority":7}
+            }
+        }"#;
+        let skills = parse_registry_skills(json);
+        assert_eq!(skills[0].name, "alpha");
+        assert_eq!(skills[1].name, "zebra");
     }
 }

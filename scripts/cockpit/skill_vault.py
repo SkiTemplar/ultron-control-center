@@ -59,8 +59,12 @@ def _now() -> str:
 
 
 def _parse_frontmatter(skill_md: Path) -> dict:
-    """Extrae name/description/allowed-tools de la frontmatter YAML de un SKILL.md."""
-    out = {"name": skill_md.parent.name, "description": "", "tags": []}
+    """Extrae name/description/priority/allowed-tools de la frontmatter YAML de un SKILL.md.
+
+    El campo `priority` (entero 1-10) es opcional; si está ausente se omite del
+    dict de salida y los consumers (Rust, registry) lo tratan como 5 (default).
+    """
+    out: dict = {"name": skill_md.parent.name, "description": "", "tags": []}
     try:
         text = skill_md.read_text(encoding="utf-8", errors="replace")
     except OSError:
@@ -85,6 +89,11 @@ def _parse_frontmatter(skill_md: Path) -> dict:
                 collected.append(ln.strip())
             desc = " ".join(x for x in collected if x)
         out["description"] = desc.strip().strip('"').strip("'")[:600]
+    # priority — optional integer 1-10; absent → omitted (callers default to 5)
+    mp = re.search(r"^priority:\s*(\d+)\s*$", block, re.MULTILINE)
+    if mp:
+        raw = int(mp.group(1))
+        out["priority"] = max(1, min(10, raw))  # clamp to valid range
     # tags from kebab name segments + obvious keywords
     out["tags"] = [t for t in re.split(r"[-_/]", out["name"]) if len(t) > 2]
     return out
@@ -343,13 +352,17 @@ def cmd_registry(args) -> int:
             "scanned_at": _now(),
         }
 
-    def _add(name, state, source, path, desc, tags, kind_for_id, security=None):
+    def _add(name, state, source, path, desc, tags, kind_for_id, security=None, priority=None):
         entry = {
             "name": name, "state": state, "source": source, "path": str(path),
             "description": (desc or "")[:600], "tags": tags or [],
             "usage_count": usage.get(name, 0),
             "embedding_id": _embedding_id(kind_for_id, name),
         }
+        # Only write priority when explicitly set — absent means "default 5"
+        # so Rust / frontend apply the same fallback without storing noise.
+        if priority is not None:
+            entry["priority"] = priority
         if security is not None:
             entry["security"] = security
         entries[f"{state}::{name}"] = entry
@@ -364,7 +377,8 @@ def cmd_registry(args) -> int:
                 if sec is not None and sec["decision"] in ("quarantine", "block"):
                     state = "quarantined"
                 _add(d.name, state, "local", d, meta["description"],
-                     meta["tags"], "local", security=sec)
+                     meta["tags"], "local", security=sec,
+                     priority=meta.get("priority"))
     # vaulted — desde INDEX.json (autoritativo) + verifica que el dir exista
     for name, d in idx["skills"].items():
         path = VAULT_DIR / name
@@ -376,7 +390,9 @@ def cmd_registry(args) -> int:
     if PLUGINS_ROOT.exists():
         for sm in sorted(PLUGINS_ROOT.rglob("SKILL.md")):
             meta = _parse_frontmatter(sm)
-            _add(meta["name"] or sm.parent.name, "plugin", "plugin", sm.parent, meta["description"], meta["tags"], "plugin")
+            _add(meta["name"] or sm.parent.name, "plugin", "plugin", sm.parent,
+                 meta["description"], meta["tags"], "plugin",
+                 priority=meta.get("priority"))
 
     by_state: dict[str, int] = {}
     for e in entries.values():
