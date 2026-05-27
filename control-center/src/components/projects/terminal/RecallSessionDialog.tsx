@@ -174,11 +174,19 @@ export default function RecallSessionDialog({
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={onClose}
+      role="presentation"
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="recall-dialog-title"
         className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-[var(--color-border)] shadow-xl"
         style={{ background: "var(--color-surface-2)" }}
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          // ESC closes (Anthropic dialog convention).
+          if (e.key === "Escape") onClose();
+        }}
       >
         {/* ---------------------------------------------------------------- */}
         {/* Header                                                           */}
@@ -186,7 +194,10 @@ export default function RecallSessionDialog({
         <header className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2.5">
           <div className="flex min-w-0 items-center gap-2">
             <History size={14} className="shrink-0 text-[var(--color-text-muted)]" />
-            <h2 className="truncate text-sm font-semibold text-[var(--color-text)]">
+            <h2
+              id="recall-dialog-title"
+              className="truncate text-sm font-semibold text-[var(--color-text)]"
+            >
               Last session in{" "}
               <span className="text-[var(--color-accent)]">{displayName}</span>
             </h2>

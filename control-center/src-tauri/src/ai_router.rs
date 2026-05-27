@@ -918,6 +918,132 @@ pub fn ai_router_test(zone_id: String, sample_prompt: String) -> Result<TestResu
 }
 
 // ---------------------------------------------------------------------------
+// KIRKARDO 28 Paso 1 — Real router with fallback chain.
+//
+// Until this function existed, the router was decorative: only the UI Test
+// button reached the providers, fallbacks lived in JSON but were never
+// followed, metrics stayed at zero forever. This is the entrypoint Rust
+// callers (cost_watchdog summariser, future delegate_task summariser, etc.)
+// can use to actually consume the zone configuration.
+//
+// Contract:
+//   - Loads the zone, validates it exists.
+//   - Tries `zone.primary` first via `try_assignment_call`.
+//   - On error, walks `zone.fallbacks` in order, returning the first
+//     successful response.
+//   - Increments RouterMetrics on every attempt (success and failure).
+//   - Returns Err only when EVERY provider in the chain failed.
+// ---------------------------------------------------------------------------
+pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
+    let zones = load_zones()?;
+    let zone = zones
+        .iter()
+        .find(|z| z.id == zone_id)
+        .ok_or_else(|| format!("zone '{}' not found", zone_id))?;
+
+    let mut last_error = String::new();
+    let chain = std::iter::once(&zone.primary).chain(zone.fallbacks.iter());
+
+    for assignment in chain {
+        let started = Instant::now();
+        let outcome = try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
+        let latency_ms = started.elapsed().as_millis() as u64;
+
+        // Persist metrics for every attempt — only way the dashboard
+        // counts move at all. Best-effort: a metrics write failure does
+        // not abort the route call.
+        let _ = bump_metrics(&assignment.provider_id, &outcome, latency_ms);
+
+        match outcome {
+            Ok(text) => return Ok(text),
+            Err(e) => {
+                last_error = format!("[{}/{}] {}", assignment.provider_id, assignment.model, e);
+                continue;
+            }
+        }
+    }
+    Err(format!(
+        "all providers failed for zone '{}': {}",
+        zone_id, last_error
+    ))
+}
+
+/// Try a single provider+model assignment. Shared with `route()` and
+/// (eventually) `test_zone` once we refactor that call site.
+fn try_assignment_call(
+    assignment: &ZoneAssignment,
+    prompt: &str,
+    system_prompt: Option<&str>,
+) -> Result<String, String> {
+    let providers = load_providers()?;
+    let provider = providers
+        .iter()
+        .find(|p| p.id == assignment.provider_id)
+        .ok_or_else(|| format!("unknown provider '{}'", assignment.provider_id))?;
+
+    if provider.kind == ProviderKind::Cloud && !provider.key_env_var.is_empty() {
+        match std::env::var(&provider.key_env_var) {
+            Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
+            _ => {
+                return Err(format!(
+                    "missing {} env var — set it via the set-api-keys.ps1 batch",
+                    provider.key_env_var
+                ));
+            }
+        }
+    }
+
+    match provider.id.as_str() {
+        "claude-haiku" => call_anthropic(provider, &assignment.model, prompt, system_prompt, assignment.max_tokens),
+        "codex" | "groq" | "deepseek" => call_openai_compat(provider, &assignment.model, prompt, system_prompt, assignment.max_tokens),
+        "gemini" => call_gemini(provider, &assignment.model, prompt, system_prompt, assignment.max_tokens),
+        "ollama" => call_ollama(provider, &assignment.model, prompt, system_prompt, assignment.max_tokens),
+        other => Err(format!("no wrapper implemented for provider '{}'", other)),
+    }
+}
+
+/// Mutate the persisted metrics so the dashboard moves. Failures are
+/// silent (callers don't care; the route already succeeded or already
+/// failed for a different reason). We bucket by provider_id (mapped to
+/// the `by_class` HashMap by reusing it as a string keyspace) because the
+/// existing struct shape was designed before provider-level metrics —
+/// fixing the shape would be a breaking change for the frontend, so we
+/// piggyback the per-provider counts on `by_class` for now.
+fn bump_metrics(provider_id: &str, outcome: &Result<String, String>, latency_ms: u64) -> Result<(), String> {
+    let mut metrics = load_metrics().unwrap_or_default();
+    let pm = metrics
+        .by_class
+        .entry(provider_id.to_string())
+        .or_default();
+    pm.count = pm.count.saturating_add(1);
+    // Running average — keeps it cheap; no need for a full histogram in
+    // the first iteration. tokens stay zero until we wire token counting
+    // from each provider response.
+    if pm.count <= 1 {
+        pm.latency_p95_ms = latency_ms;
+    } else {
+        pm.latency_p95_ms = (pm.latency_p95_ms + latency_ms) / 2;
+    }
+    // Bump fallback_rate when the failure caused a fallback step (caller
+    // does the chain walk; we just count failures here).
+    if outcome.is_err() {
+        // EMA(0.1) over a 0/1 stream — gives an actionable signal without
+        // a per-call vec.
+        metrics.fallback_rate = metrics.fallback_rate * 0.9 + 0.1;
+    } else {
+        metrics.fallback_rate = metrics.fallback_rate * 0.9;
+    }
+    write_json(&metrics_path()?, &metrics)
+}
+
+/// Public Tauri command surface so the frontend (or a future summariser)
+/// can invoke `route` without going through the test surface.
+#[tauri::command]
+pub fn ai_router_route(zone_id: String, prompt: String) -> Result<String, String> {
+    route(&zone_id, &prompt)
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

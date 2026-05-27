@@ -385,7 +385,14 @@ export default function ProjectWorkspace({ projectId }: Props) {
       {/* ------------------------------------------------------------------ */}
       {/* Sub-tab bar — visually separated with a stronger bottom border.     */}
       {/* ------------------------------------------------------------------ */}
+      {/* KIRKARDO 25 a11y fix: role=tablist + role=tab + aria-selected
+          + aria-controls so screen readers announce these as navigation
+          tabs instead of generic buttons. TabBadge contributes to the
+          aria-label of the parent button so the count is announced
+          alongside the tab name. */}
       <div
+        role="tablist"
+        aria-label="Project sections"
         className="flex items-center gap-0 border-b px-1"
         style={{
           background: "#000000",
@@ -398,9 +405,16 @@ export default function ProjectWorkspace({ projectId }: Props) {
             id === "agents" ? tabCounts.agents :
             id === "sessions" ? tabCounts.sessions :
             null;
+          const ariaLabel = badge && badge > 0 ? `${label}, ${badge} items` : label;
           return (
             <button
               key={id}
+              role="tab"
+              aria-selected={active}
+              aria-controls={`project-tabpanel-${id}`}
+              id={`project-tab-${id}`}
+              tabIndex={active ? 0 : -1}
+              aria-label={ariaLabel}
               onClick={() => setSubTab(id)}
               className="flex items-center gap-1.5 border-b-2 px-3 py-1.5 text-[11px] transition-colors"
               style={{
@@ -438,8 +452,15 @@ export default function ProjectWorkspace({ projectId }: Props) {
         </div>
       )}
 
-      {/* Body */}
-      <div className="flex-1 overflow-hidden">
+      {/* Body — role=tabpanel completes the WAI-ARIA tabs pattern paired
+          with the role=tablist above. The id matches the active tab's
+          aria-controls so screen readers can jump back and forth. */}
+      <div
+        role="tabpanel"
+        id={`project-tabpanel-${subTab}`}
+        aria-labelledby={`project-tab-${subTab}`}
+        className="flex-1 overflow-hidden"
+      >
         {subTab === "board" && <ProjectBoard projectId={projectId} onOpenTerminal={() => setSubTab("terminal")} />}
         {subTab === "terminal" && <ProjectTerminal projectId={projectId} />}
         {subTab === "agents" && (
