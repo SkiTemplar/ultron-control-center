@@ -1044,6 +1044,125 @@ pub fn ai_router_route(zone_id: String, prompt: String) -> Result<String, String
 }
 
 // ---------------------------------------------------------------------------
+// Usage summary — per-key + per-provider snapshot the Usage tab consumes
+// (user request 2026-05-27: "analisis de cada una de las keys que tengo
+// activa, cuanto llevo. Verificar que este todo en orden y aplicar
+// fallbacks"). Combines key state + accumulated metrics + zone refs so
+// the UI can render one row per provider with: key OK, traffic so far,
+// in which zones it acts as primary vs fallback.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ProviderUsageRow {
+    pub provider_id: String,
+    pub provider_label: String,
+    pub key_env_var: String,
+    pub key_present: bool,
+    pub key_masked: Option<String>,
+    /// Count of total route attempts hitting this provider (sum of
+    /// success + failure since the metrics file was last reset).
+    pub call_count: u64,
+    /// Running latency average in ms (KIRKARDO 19 — proper p50/p95
+    /// histogram would be more honest, deferred to v2.9.x).
+    pub latency_ms_avg: u64,
+    /// Zones where this provider is the primary choice.
+    pub primary_for_zones: Vec<String>,
+    /// Zones where this provider sits in a fallback slot.
+    pub fallback_for_zones: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UsageSummary {
+    pub providers: Vec<ProviderUsageRow>,
+    /// Global fallback rate across all routes (EMA 0.1 in route()).
+    pub fallback_rate: f64,
+    /// Per-zone fallback chain: { zone_id -> [primary, fallback1, fallback2, ...] }.
+    /// Lets the UI render "if primary X fails, will try Y then Z".
+    pub zone_chains: HashMap<String, Vec<String>>,
+}
+
+fn mask_key(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || looks_like_placeholder(trimmed) {
+        return None;
+    }
+    if trimmed.len() <= 8 {
+        return Some("*".repeat(trimmed.len()));
+    }
+    Some(format!(
+        "{}{}{}",
+        &trimmed[..4],
+        "*".repeat(trimmed.len() - 8),
+        &trimmed[trimmed.len() - 4..]
+    ))
+}
+
+#[tauri::command]
+pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
+    let providers = load_providers()?;
+    let zones = load_zones()?;
+    let metrics = load_metrics().unwrap_or_default();
+
+    let mut rows: Vec<ProviderUsageRow> = Vec::with_capacity(providers.len());
+    for p in &providers {
+        let (key_present, key_masked) = if p.key_env_var.is_empty() {
+            // Ollama-style local providers — no key needed.
+            (true, None)
+        } else {
+            match std::env::var(&p.key_env_var) {
+                Ok(v) => {
+                    let masked = mask_key(&v);
+                    (masked.is_some(), masked)
+                }
+                Err(_) => (false, None),
+            }
+        };
+
+        let mut primary_for_zones: Vec<String> = Vec::new();
+        let mut fallback_for_zones: Vec<String> = Vec::new();
+        for z in &zones {
+            if z.primary.provider_id == p.id {
+                primary_for_zones.push(z.id.clone());
+            }
+            if z.fallbacks.iter().any(|f| f.provider_id == p.id) {
+                fallback_for_zones.push(z.id.clone());
+            }
+        }
+
+        // Provider-level metrics live in `by_class` (we piggyback on it,
+        // see bump_metrics comments).
+        let cm = metrics.by_class.get(&p.id).cloned().unwrap_or_default();
+
+        rows.push(ProviderUsageRow {
+            provider_id: p.id.clone(),
+            provider_label: p.name.clone(),
+            key_env_var: p.key_env_var.clone(),
+            key_present,
+            key_masked,
+            call_count: cm.count,
+            latency_ms_avg: cm.latency_p95_ms,
+            primary_for_zones,
+            fallback_for_zones,
+        });
+    }
+
+    let mut zone_chains: HashMap<String, Vec<String>> = HashMap::new();
+    for z in &zones {
+        let mut chain: Vec<String> = vec![z.primary.provider_id.clone()];
+        for f in &z.fallbacks {
+            chain.push(f.provider_id.clone());
+        }
+        zone_chains.insert(z.id.clone(), chain);
+    }
+
+    Ok(UsageSummary {
+        providers: rows,
+        fallback_rate: metrics.fallback_rate,
+        zone_chains,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

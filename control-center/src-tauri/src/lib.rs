@@ -468,6 +468,7 @@ pub fn run() {
             ai_router::ai_router_metrics,
             ai_router::ai_router_test,
             ai_router::ai_router_route,
+            ai_router::ai_router_usage_summary,
         ])
         .setup(|app| {
             // P4 migration: ensure every known project has a kanban.json.
