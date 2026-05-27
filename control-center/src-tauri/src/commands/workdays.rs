@@ -1,7 +1,8 @@
 // ULTRON Control Center - Workdays command wrappers (v2.8 automatic surface)
+// H29 + H30 (2026-05-27): wipe + day view with hour-blocks added.
 use crate::workdays::{
-    self, DrainReport, GoalStatus, PendingLink, Workday, WorkdayMetrics, WorkdayTemplate,
-    WorkdayTodayView, WorkflowTemplate,
+    self, DrainReport, GoalStatus, PendingLink, Workday, WorkdayDayView, WorkdayMetrics,
+    WorkdayTemplate, WorkdayTodayView, WipeReport, WorkflowTemplate,
 };
 
 #[tauri::command]
@@ -220,4 +221,28 @@ pub async fn workday_start_with_template(
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// -- H29: wipe (2026-05-27) --------------------------------------------------
+
+/// Archive all `wd-*.json` + `_pending-links.jsonl` into a timestamped ZIP,
+/// then delete the originals. Work-sessions under `cockpit/projects/` are
+/// NOT touched.
+#[tauri::command]
+pub async fn workday_wipe_all() -> Result<WipeReport, String> {
+    tauri::async_runtime::spawn_blocking(workdays::wipe_all_with_backup_inner)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+// -- H30: day view with hour-blocks (2026-05-27) -----------------------------
+
+/// Return a full day view for `date` (ISO `YYYY-MM-DD`; defaults to today).
+/// Includes all workdays for that date plus a 24-slot hour-block timeline
+/// derived from workday timestamps and context-entry `created_at` values.
+#[tauri::command]
+pub async fn workday_day_view(date: Option<String>) -> Result<WorkdayDayView, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::day_view_inner(date))
+        .await
+        .map_err(|e| e.to_string())?
 }

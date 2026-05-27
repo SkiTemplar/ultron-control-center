@@ -9,7 +9,17 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Process-wide write lock for kanban RMW operations.
+/// Covers `append_run` and `archive_done` — the two load→mutate→save paths.
+/// Pure reads (`load`, `list_archives`, `load_archive`) are excluded.
+static KANBAN_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn kanban_lock() -> &'static Mutex<()> {
+    KANBAN_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 pub const SCHEMA_VERSION: u32 = 1;
 
@@ -292,6 +302,7 @@ pub fn delete_card(project_id: &str, card_id: &str) -> Result<(), String> {
 }
 
 pub fn append_run(project_id: &str, card_id: &str, run: CardRun) -> Result<(), String> {
+    let _g = kanban_lock().lock().map_err(|_| "kanban lock poisoned".to_string())?;
     let mut board = load(project_id)?;
     let card = board
         .cards
@@ -310,6 +321,45 @@ pub fn column_by_name<'a>(board: &'a KanbanBoard, name: &str) -> Option<&'a Colu
 
 pub fn card_by_id<'a>(board: &'a KanbanBoard, card_id: &str) -> Option<&'a Card> {
     board.cards.iter().find(|c| c.id == card_id)
+}
+
+// KIRKARDO 19 — kanban concurrency lock tests
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kanban_lock_same_static() {
+        let a = kanban_lock() as *const Mutex<()>;
+        let b = kanban_lock() as *const Mutex<()>;
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn kanban_lock_sequential_under_contention() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+        let barrier = Arc::new(Barrier::new(2));
+        let counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let b2 = Arc::clone(&barrier);
+        let c2 = Arc::clone(&counter);
+        let h = thread::spawn(move || {
+            b2.wait();
+            let _g = kanban_lock().lock().unwrap();
+            let v = c2.load(Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            c2.store(v + 1, Ordering::SeqCst);
+        });
+        barrier.wait();
+        {
+            let _g = kanban_lock().lock().unwrap();
+            let v = counter.load(Ordering::SeqCst);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+            counter.store(v + 1, Ordering::SeqCst);
+        }
+        h.join().unwrap();
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
 }
 
 /// Migration: ensure every project listed in `projects.json` has a kanban.json.
@@ -409,6 +459,7 @@ fn archive_path(project_id: &str, sanitised_name: &str) -> Result<PathBuf, Strin
 /// existing archive — we append the new batch instead of clobbering it. This
 /// matches how the user described the feature ("agrupar por sprint").
 pub fn archive_done(project_id: &str, archive_name: &str) -> Result<KanbanArchive, String> {
+    let _g = kanban_lock().lock().map_err(|_| "kanban lock poisoned".to_string())?;
     let safe = sanitise_archive_name(archive_name);
     if safe.is_empty() {
         return Err("archive name is empty after sanitisation".into());

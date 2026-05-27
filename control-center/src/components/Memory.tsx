@@ -18,6 +18,7 @@ import { openPath } from "@tauri-apps/plugin-opener";
 import { getHomeDir, joinPath } from "../lib/paths";
 import type { Mem0Memory, Mem0Status } from "../types";
 import { MemoryBrain } from "./memory/MemoryBrain";
+import { MemoryTree } from "./memory/MemoryTree";
 
 // ---------------------------------------------------------------------------
 // Local type mirrors of crate::memory_status::*
@@ -123,7 +124,7 @@ const DEBOUNCE_MS = 300;
 const DEFAULT_LIMIT = 30;
 const STATUS_REFRESH_MS = 30_000;
 
-type ViewMode = "status" | "brain" | "mem0" | "ecc" | "kg";
+type ViewMode = "tree" | "status" | "brain" | "mem0" | "ecc" | "kg";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -1092,7 +1093,7 @@ function KgEditorPane() {
 // ---------------------------------------------------------------------------
 
 export function Memory() {
-  const [mode, setMode] = useState<ViewMode>("status");
+  const [mode, setMode] = useState<ViewMode>("tree");
 
   const tabBtn = (target: ViewMode, label: string) => {
     const active = mode === target;
@@ -1115,7 +1116,8 @@ export function Memory() {
     <div className="flex h-full flex-col gap-4 p-6">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-lg font-semibold">Memory</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {tabBtn("tree", "Knowledge tree")}
           {tabBtn("status", "Live status")}
           {tabBtn("brain", "Brain")}
           {tabBtn("kg", "KG editor")}
@@ -1124,13 +1126,16 @@ export function Memory() {
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {mode === "tree" && <MemoryTree />}
         {mode === "status" && (
-          <div className="flex flex-col gap-4">
-            <MemoryStatusCards />
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              <Mem0Diagnostics />
-              <GraphifyControls />
+          <div className="h-full overflow-y-auto">
+            <div className="flex flex-col gap-4 p-1">
+              <MemoryStatusCards />
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <Mem0Diagnostics />
+                <GraphifyControls />
+              </div>
             </div>
           </div>
         )}

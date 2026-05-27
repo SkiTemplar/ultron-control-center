@@ -1,4 +1,4 @@
-// ULTRON Control Center 2.0 - Workdays domain
+﻿// ULTRON Control Center 2.0 - Workdays domain
 //
 // 2026-05-26 redesign: automatic workflow tracking.
 //
@@ -31,7 +31,18 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Process-wide write lock for workday RMW (read-modify-write) operations.
+/// All functions that call `load_wd` + `persist_workday` in sequence acquire
+/// this lock before the read so concurrent threads cannot interleave writes.
+/// Read-only helpers (list, metrics, …) are intentionally excluded.
+static WORKDAY_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn workday_lock() -> &'static Mutex<()> {
+    WORKDAY_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 fn new_id(prefix: &str) -> String {
     static C: AtomicU64 = AtomicU64::new(0);
@@ -245,6 +256,7 @@ pub fn create_workday_inner(title: String, planned_date: Option<String>, templat
     persist_workday(&wd)?; Ok(wd)
 }
 pub fn start_workday_inner(id: String, energy_before: Option<u8>) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::InProgress)?;
     wd.status = WorkdayStatus::InProgress; wd.start_ts = Some(now_iso());
@@ -252,6 +264,7 @@ pub fn start_workday_inner(id: String, energy_before: Option<u8>) -> Result<Work
     persist_workday(&wd)?; Ok(wd)
 }
 pub fn pause_workday_inner(id: String, break_seconds_delta: Option<u64>) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::Paused)?;
     wd.status = WorkdayStatus::Paused;
@@ -259,12 +272,14 @@ pub fn pause_workday_inner(id: String, break_seconds_delta: Option<u64>) -> Resu
     persist_workday(&wd)?; Ok(wd)
 }
 pub fn resume_workday_inner(id: String) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::InProgress)?;
     wd.status = WorkdayStatus::InProgress;
     persist_workday(&wd)?; Ok(wd)
 }
 pub fn complete_workday_inner(id: String, focus_seconds: Option<u64>, energy_after: Option<u8>, mood_note: Option<String>, retro_good: Option<String>, retro_bad: Option<String>, retro_learned: Option<String>) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::Completed)?;
     if let Some(s) = focus_seconds { wd.focus_seconds = s; }
@@ -284,6 +299,7 @@ pub fn complete_workday_inner(id: String, focus_seconds: Option<u64>, energy_aft
     Ok(wd)
 }
 pub fn archive_workday_inner(id: String) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::Archived)?;
     wd.status = WorkdayStatus::Archived;
@@ -308,6 +324,7 @@ pub fn list_workdays_inner(status_filter: Option<String>, date_from: Option<Stri
 }
 pub fn get_workday_detail_inner(id: String) -> Result<Workday, String> { load_wd(&id) }
 pub fn link_session_inner(id: String, session_id: String) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     if !wd.linked_sessions.contains(&session_id) {
         wd.linked_sessions.push(session_id.clone());
@@ -562,6 +579,7 @@ pub fn append_context_inner(
     text: String,
     source: Option<String>,
 ) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&workday_id)?;
     let entry = WorkdayContextEntry {
         id: new_id("ctx"),
@@ -593,6 +611,7 @@ pub fn record_kanban_event_inner(
     card_title: String,
     target_column: String,
 ) -> Result<Option<Workday>, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let project_path = crate::projects::list_projects_inner()
         .ok()
         .and_then(|ps| ps.into_iter().find(|p| p.id == project_id))
@@ -836,6 +855,41 @@ pub fn start_with_template_inner(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // KIRKARDO 19 — concurrency lock tests
+
+    #[test]
+    fn workday_lock_same_static() {
+        let a = workday_lock() as *const Mutex<()>;
+        let b = workday_lock() as *const Mutex<()>;
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn workday_lock_sequential_under_contention() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+        let barrier = Arc::new(Barrier::new(2));
+        let counter = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let b2 = Arc::clone(&barrier);
+        let c2 = Arc::clone(&counter);
+        let h = thread::spawn(move || {
+            b2.wait();
+            let _g = workday_lock().lock().unwrap();
+            let v = c2.load(Ordering::SeqCst);
+            thread::sleep(std::time::Duration::from_millis(5));
+            c2.store(v + 1, Ordering::SeqCst);
+        });
+        barrier.wait();
+        {
+            let _g = workday_lock().lock().unwrap();
+            let v = counter.load(Ordering::SeqCst);
+            thread::sleep(std::time::Duration::from_millis(5));
+            counter.store(v + 1, Ordering::SeqCst);
+        }
+        h.join().unwrap();
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
 
     #[test]
     fn list_workflow_templates_returns_seven() {
@@ -1104,3 +1158,279 @@ pub fn drain_pending_links_at_startup() {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// H29 — Wipe workdays (backup + delete)
+// ---------------------------------------------------------------------------
+
+/// Report returned by `wipe_all_with_backup_inner`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WipeReport {
+    /// Absolute path of the ZIP archive. Empty when nothing was wiped.
+    pub archived_path: String,
+    /// Number of `wd-*.json` and `_pending-links.jsonl` files deleted.
+    pub deleted_count: usize,
+}
+
+/// Compress every `wd-*.json` and `_pending-links.jsonl` into a timestamped
+/// ZIP at `~/.ultron/cockpit/workdays/archive-<epoch>.zip`, then delete the
+/// originals. Files under `cockpit/projects/<id>/work-sessions.jsonl` are
+/// NOT touched.
+pub fn wipe_all_with_backup_inner() -> Result<WipeReport, String> {
+    use std::io::Read as IoRead;
+    use zip::write::SimpleFileOptions;
+    use zip::ZipWriter;
+
+    let dir = workdays_dir()?;
+    if !dir.exists() {
+        return Ok(WipeReport {
+            archived_path: String::new(),
+            deleted_count: 0,
+        });
+    }
+
+    let mut targets: Vec<PathBuf> = Vec::new();
+    for e in fs::read_dir(&dir)
+        .map_err(|e| format!("read dir: {e}"))?
+        .flatten()
+    {
+        let p = e.path();
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if (name.starts_with("wd-") && name.ends_with(".json"))
+            || name == "_pending-links.jsonl"
+        {
+            targets.push(p);
+        }
+    }
+
+    if targets.is_empty() {
+        return Ok(WipeReport {
+            archived_path: String::new(),
+            deleted_count: 0,
+        });
+    }
+
+    let epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let archive_path = dir.join(format!("archive-{epoch}.zip"));
+
+    {
+        let file = fs::File::create(&archive_path)
+            .map_err(|e| format!("create zip: {e}"))?;
+        let mut zip = ZipWriter::new(file);
+        let options = SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+
+        for src in &targets {
+            let entry_name = src
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+            zip.start_file(entry_name, options)
+                .map_err(|e| format!("zip entry {entry_name}: {e}"))?;
+            let mut f = fs::File::open(src)
+                .map_err(|e| format!("open {entry_name}: {e}"))?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf)
+                .map_err(|e| format!("read {entry_name}: {e}"))?;
+            std::io::Write::write_all(&mut zip, &buf)
+                .map_err(|e| format!("write zip entry: {e}"))?;
+        }
+        zip.finish().map_err(|e| format!("zip finish: {e}"))?;
+    }
+
+    let mut deleted = 0usize;
+    for src in &targets {
+        match fs::remove_file(src) {
+            Ok(()) => deleted += 1,
+            Err(e) => eprintln!("[ultron] wipe: failed to delete {}: {e}", src.display()),
+        }
+    }
+
+    Ok(WipeReport {
+        archived_path: archive_path.to_string_lossy().into_owned(),
+        deleted_count: deleted,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// H30 — Day view with 24-slot hour-blocks
+// ---------------------------------------------------------------------------
+
+/// Time-of-day period bucket.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum DayPeriod {
+    Night,
+    Morning,
+    Afternoon,
+    Evening,
+}
+
+impl DayPeriod {
+    pub fn from_hour(h: u8) -> Self {
+        match h {
+            6..=11 => DayPeriod::Morning,
+            12..=17 => DayPeriod::Afternoon,
+            18..=23 => DayPeriod::Evening,
+            _ => DayPeriod::Night,
+        }
+    }
+}
+
+/// One hour slot (e.g. 09:00-10:00) in a day view.
+///
+/// `projects` maps `project_id -> estimated seconds` present in this slot.
+/// Presence is derived from workday `start_ts`, `end_ts`, and every
+/// context-entry `created_at` timestamp that falls in this hour.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HourBlock {
+    pub hour_start: u8,
+    pub hour_end: u8,
+    pub period: DayPeriod,
+    pub projects: std::collections::HashMap<String, u64>,
+    pub ai_session_count: u32,
+    pub linked_sessions: Vec<String>,
+}
+
+/// Full day view returned by `workday_day_view`.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WorkdayDayView {
+    pub date: String,
+    pub workdays: Vec<Workday>,
+    pub hour_blocks: Vec<HourBlock>,
+    pub total_seconds: u64,
+    pub project_count: usize,
+    pub session_count: usize,
+}
+
+fn parse_epoch_ts(s: &str) -> Option<i64> {
+    s.strip_prefix("epoch:")?.parse::<i64>().ok()
+}
+
+fn epoch_to_local_hour(epoch_secs: i64) -> u8 {
+    use chrono::{Local, TimeZone, Timelike};
+    Local
+        .timestamp_opt(epoch_secs, 0)
+        .single()
+        .map(|dt| dt.hour() as u8)
+        .unwrap_or(0)
+}
+
+/// Build the 24-slot hour-block vector for a slice of workdays.
+///
+/// Per workday:
+///   1. Collect every timestamp (start_ts + all context-entry created_at).
+///   2. If start_ts + end_ts both exist, mark every hour in that span active.
+///   3. Distribute focus_seconds evenly across distinct active hours.
+///   4. Assign linked session IDs to the workday start hour.
+fn build_hour_blocks(workdays: &[Workday]) -> Vec<HourBlock> {
+    use std::collections::{BTreeSet, HashMap};
+
+    let mut slot_projects: Vec<HashMap<String, u64>> = (0..24).map(|_| HashMap::new()).collect();
+    let mut slot_sessions: Vec<Vec<String>> = (0..24).map(|_| Vec::new()).collect();
+    let mut slot_ai_count: Vec<u32> = vec![0u32; 24];
+
+    for wd in workdays {
+        let project_key = wd.project_id.clone().unwrap_or_else(|| wd.id.clone());
+
+        let mut active_hours: BTreeSet<u8> = BTreeSet::new();
+
+        if let Some(e) = wd.start_ts.as_deref().and_then(parse_epoch_ts) {
+            active_hours.insert(epoch_to_local_hour(e));
+        }
+        for entry in wd
+            .context
+            .notes
+            .iter()
+            .chain(wd.context.decisions.iter())
+            .chain(wd.context.file_changes.iter())
+            .chain(wd.context.agent_messages.iter())
+        {
+            if let Some(e) = parse_epoch_ts(&entry.created_at) {
+                active_hours.insert(epoch_to_local_hour(e));
+            }
+        }
+        if let (Some(s), Some(en)) = (
+            wd.start_ts.as_deref().and_then(parse_epoch_ts),
+            wd.end_ts.as_deref().and_then(parse_epoch_ts),
+        ) {
+            let h0 = epoch_to_local_hour(s);
+            let h1 = epoch_to_local_hour(en);
+            for h in h0..=h1 {
+                active_hours.insert(h);
+            }
+        }
+
+        if active_hours.is_empty() {
+            continue;
+        }
+
+        let n = active_hours.len() as u64;
+        let secs_per_slot = wd.focus_seconds.checked_div(n).unwrap_or(0);
+        for &h in &active_hours {
+            *slot_projects[h as usize]
+                .entry(project_key.clone())
+                .or_insert(0) += secs_per_slot;
+        }
+
+        let session_hour = wd
+            .start_ts
+            .as_deref()
+            .and_then(parse_epoch_ts)
+            .map(epoch_to_local_hour)
+            .unwrap_or_else(|| *active_hours.iter().next().unwrap());
+        let idx = session_hour as usize;
+        for sid in &wd.linked_sessions {
+            if !slot_sessions[idx].contains(sid) {
+                slot_sessions[idx].push(sid.clone());
+                slot_ai_count[idx] += 1;
+            }
+        }
+    }
+
+    (0u8..24)
+        .map(|h| {
+            let i = h as usize;
+            HourBlock {
+                hour_start: h,
+                hour_end: h + 1,
+                period: DayPeriod::from_hour(h),
+                projects: slot_projects[i].clone(),
+                ai_session_count: slot_ai_count[i],
+                linked_sessions: slot_sessions[i].clone(),
+            }
+        })
+        .collect()
+}
+
+/// Return a full day view for `date` (ISO `YYYY-MM-DD`, defaults to today).
+pub fn day_view_inner(date: Option<String>) -> Result<WorkdayDayView, String> {
+    let date = date.unwrap_or_else(today_date);
+    let workdays = list_workdays_inner(None, Some(date.clone()), Some(date.clone()), None)?;
+
+    let total_seconds: u64 = workdays.iter().map(|w| w.focus_seconds).sum();
+
+    let mut project_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut all_sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for wd in &workdays {
+        if let Some(ref pid) = wd.project_id {
+            project_ids.insert(pid.clone());
+        }
+        for sid in &wd.linked_sessions {
+            all_sessions.insert(sid.clone());
+        }
+    }
+
+    Ok(WorkdayDayView {
+        date,
+        hour_blocks: build_hour_blocks(&workdays),
+        total_seconds,
+        project_count: project_ids.len(),
+        session_count: all_sessions.len(),
+        workdays,
+    })
+}
+

@@ -34,8 +34,20 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
+use thiserror::Error;
 
 use crate::claude_sessions::{cwd_from_jsonl, list_workspaces_inner};
+
+/// Typed error for recall operations — KIRKARDO 16.
+#[derive(Debug, Error)]
+pub enum RecallError {
+    #[error("no session found: {0}")]
+    NotFound(String),
+    #[error("I/O error: {0}")]
+    IoError(#[from] std::io::Error),
+    #[error("parse error: {0}")]
+    ParseError(String),
+}
 
 const MAX_MESSAGES: usize = 50;
 const MAX_TOPICS: usize = 8;
@@ -465,51 +477,13 @@ fn mtime_iso(path: &Path) -> Option<String> {
     Some(format_iso(secs))
 }
 
+/// Convert Unix timestamp (UTC seconds) to ISO 8601 string.
+/// Delegates to `chrono` — replaces ~45 LOC hand-rolled calendar (KIRKARDO 16).
 fn format_iso(secs: u64) -> String {
-    let mut days = (secs / 86_400) as i64;
-    let secs_in_day = (secs % 86_400) as u32;
-    let h = secs_in_day / 3600;
-    let m = (secs_in_day % 3600) / 60;
-    let s = secs_in_day % 60;
-    let mut year = 1970i32;
-    loop {
-        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-        let yd: i64 = if leap { 366 } else { 365 };
-        if days < yd {
-            break;
-        }
-        days -= yd;
-        year += 1;
-    }
-    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let mdays: [i64; 12] = [
-        31,
-        if leap { 29 } else { 28 },
-        31,
-        30,
-        31,
-        30,
-        31,
-        31,
-        30,
-        31,
-        30,
-        31,
-    ];
-    let mut month = 0usize;
-    while month < 12 && days >= mdays[month] {
-        days -= mdays[month];
-        month += 1;
-    }
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year,
-        month + 1,
-        days + 1,
-        h,
-        m,
-        s
-    )
+    use chrono::{DateTime, Utc};
+    let dt = DateTime::<Utc>::from_timestamp(secs as i64, 0)
+        .unwrap_or_else(|| DateTime::<Utc>::from_timestamp(0, 0).unwrap());
+    dt.format("%Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -733,6 +707,79 @@ pub async fn recall_last_session_global_inner() -> Result<RecallResult, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // KIRKARDO 16 — format_iso via chrono
+
+    #[test]
+    fn format_iso_epoch() {
+        assert_eq!(format_iso(0), "1970-01-01T00:00:00Z");
+    }
+
+    #[test]
+    fn format_iso_known_date() {
+        // 2026-05-17 00:00:00 UTC
+        assert_eq!(format_iso(1778976000), "2026-05-17T00:00:00Z");
+    }
+
+    #[test]
+    fn format_iso_leap_day() {
+        // 2024-02-29 00:00:00 UTC
+        assert_eq!(format_iso(1709164800), "2024-02-29T00:00:00Z");
+    }
+
+    #[test]
+    fn format_iso_with_time() {
+        // 2026-05-17 13:45:30 UTC = 1778976000 + 49530
+        assert_eq!(format_iso(1779025530), "2026-05-17T13:45:30Z");
+    }
+
+    // KIRKARDO 16 — fixture-based integration tests
+
+    fn fixture(name: &str) -> String {
+        let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let path = base.join("src/tests/fixtures/recall").join(name);
+        std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("fixture {name}: {e}"))
+    }
+
+    #[test]
+    fn fixture_simple_extracts_files_and_decisions() {
+        let d = digest_jsonl(&fixture("session_simple.jsonl"));
+        assert_eq!(d.message_count, 5);
+        assert!(d.files.iter().any(|f| f.contains("oauth")),
+            "expected oauth in files, got {:?}", d.files);
+        assert!(!d.decisions.is_empty(), "expected a decision");
+        assert!(d.last_user_message.is_some());
+        assert!(d.last_assistant_message.is_some());
+    }
+
+    #[test]
+    fn fixture_malformed_tolerates_bad_lines() {
+        let d = digest_jsonl(&fixture("session_malformed.jsonl"));
+        assert!(d.message_count <= 4);
+        assert!(d.last_assistant_message.is_some(),
+            "valid assistant line must still parse");
+    }
+
+    #[test]
+    fn fixture_decisions_extracts_multiple() {
+        let d = digest_jsonl(&fixture("session_decisions.jsonl"));
+        assert!(!d.decisions.is_empty());
+        assert!(d.files.iter().any(|f| f.contains("webhook")));
+    }
+
+    #[test]
+    fn recall_error_not_found_message() {
+        let e = RecallError::NotFound("mi-proyecto".into());
+        assert!(e.to_string().contains("mi-proyecto"));
+    }
+
+    #[test]
+    fn recall_error_parse_error_message() {
+        let e = RecallError::ParseError("bad token at line 3".into());
+        assert!(e.to_string().contains("parse error"));
+        assert!(e.to_string().contains("line 3"));
+    }
 
     fn make_jsonl() -> String {
         // Two user turns + one assistant turn with a tool_use Edit + a

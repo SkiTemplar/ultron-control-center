@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Qué arquitectura usamos para el módulo de pagos"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK, decidimos usar Stripe con webhooks. Decisión: separar el handler de pagos en un microservicio."}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Implementa el webhook handler"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Write","input":{"file_path":"C:/proj/src/payments/webhook.rs"}}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Listo. El webhook handler valida la firma HMAC-SHA256 de Stripe."}]}}

@@ -16,6 +16,7 @@
 // `frontend/src/lib/bindings.ts` from the command signatures so frontend
 // invokes are type-checked.
 
+pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
 mod activity_timeline;
 mod agent_orchestration;
 mod agents;
@@ -59,6 +60,7 @@ mod diagnostics_native;
 mod sessions;
 mod sessions_tags;
 mod work_sessions;
+mod qdrant;
 mod settings;
 mod batches;
 mod env_keys;
@@ -258,6 +260,9 @@ pub fn run() {
             work_sessions::project_work_sessions_list,
             work_sessions::project_work_session_link_ai,
             work_sessions::project_work_session_active,
+            // -- Qdrant semantic recall (KIRKARDO 14 wire) --
+            qdrant::recall_semantic,
+            qdrant::qdrant_status,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
@@ -353,6 +358,9 @@ pub fn run() {
             commands::workdays::workday_list_templates,
             commands::workdays::workday_active_today_for_project,
             commands::workdays::workday_start_with_template,
+            // H29 + H30 (2026-05-27)
+            commands::workdays::workday_wipe_all,
+            commands::workdays::workday_day_view,
             // -- settings + backup --
             commands::settings::settings_read,
             commands::settings::settings_save,

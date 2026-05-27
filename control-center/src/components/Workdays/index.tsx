@@ -1,14 +1,12 @@
-// ULTRON Control Center - Workdays tab (v2.8 automatic timeline)
+// ULTRON Control Center - Workdays tab (v2.9.5 — day timeline + wipe)
 //
-// El antiguo state machine manual (Planned -> InProgress -> Paused ->
-// Completed -> Archived) ha desaparecido del UI. Ahora el workday lo crean
-// los hooks de session-start y los movimientos de kanban automaticamente.
+// Lanes:
+//   "day"       — timeline horizontal de 24h con hour-blocks por proyecto (H30)
+//   "today"     — workday activo + otros workdays del día (vista v2.8)
+//   "templates" — 7 workflow templates de orquestación
+//   "history"   — workdays pasados agrupados por fecha
 //
-// Layout:
-//   - "Today": workday activo (si existe) con goals + context + sessions +
-//     otros workdays de hoy. Se refresca cada 5s para reflejar cambios en
-//     vivo desde sessions / kanban.
-//   - "History": workdays pasados (date != hoy), agrupados por fecha.
+// Settings: botón "Reset workdays" con backup ZIP automático (H29).
 //
 // Backend: src-tauri/src/workdays.rs + commands/workdays.rs.
 
@@ -17,6 +15,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { WorkdaysList } from "./WorkdaysList";
 import { WorkdayDetail } from "./WorkdayDetail";
 import { WorkdayTemplates } from "./WorkdayTemplates";
+import { WorkdayDayTimeline } from "./WorkdayDayTimeline";
+import { WorkdayWipeButton } from "./WorkdayWipeButton";
 import type { Workday, WorkdayTodayView } from "./types";
 
 export type {
@@ -30,14 +30,18 @@ export type {
   WorkdayTodayView,
   WorkflowTemplate,
   GoalStatus,
+  DayPeriod,
+  HourBlock,
+  WipeReport,
+  WorkdayDayView,
 } from "./types";
 
-type Lane = "today" | "templates" | "history";
+type Lane = "day" | "today" | "templates" | "history";
 
 const REFRESH_MS = 5_000;
 
 export function Workdays() {
-  const [lane, setLane] = useState<Lane>("today");
+  const [lane, setLane] = useState<Lane>("day");
   const [todayView, setTodayView] = useState<WorkdayTodayView | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [todayError, setTodayError] = useState<string | null>(null);
@@ -84,7 +88,7 @@ export function Workdays() {
           background: "var(--color-surface-1)",
         }}
       >
-        <div>
+        <div className="flex min-w-0 flex-col">
           <h1
             className="text-[17px] font-semibold"
             style={{ color: "var(--color-text)" }}
@@ -95,35 +99,47 @@ export function Workdays() {
             className="mt-0.5 text-[12px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
-            Automatic project workflow timeline -- sessions, agents and kanban
-            moves all flow in by themselves.
+            Timeline por horas — sesiones, agentes y kanban se registran solos.
           </p>
         </div>
-        <div className="flex gap-1">
-          <LaneBtn
-            label="Today"
-            active={lane === "today"}
-            onClick={() => setLane("today")}
-          />
-          <LaneBtn
-            label="Templates"
-            active={lane === "templates"}
-            onClick={() => {
-              setLane("templates");
-            }}
-          />
-          <LaneBtn
-            label="History"
-            active={lane === "history"}
-            onClick={() => {
-              setLane("history");
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            <LaneBtn
+              label="Day"
+              active={lane === "day"}
+              onClick={() => setLane("day")}
+            />
+            <LaneBtn
+              label="Today"
+              active={lane === "today"}
+              onClick={() => setLane("today")}
+            />
+            <LaneBtn
+              label="Templates"
+              active={lane === "templates"}
+              onClick={() => setLane("templates")}
+            />
+            <LaneBtn
+              label="History"
+              active={lane === "history"}
+              onClick={() => {
+                setLane("history");
+                setSelectedId(null);
+              }}
+            />
+          </div>
+          <WorkdayWipeButton
+            onWiped={() => {
+              setTodayView(null);
               setSelectedId(null);
+              if (lane === "today") void loadToday();
             }}
           />
         </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
+        {lane === "day" && <WorkdayDayTimeline />}
         {lane === "today" && (
           <TodayLane
             view={todayView}

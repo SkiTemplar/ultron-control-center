@@ -104,3 +104,37 @@ export interface WorkflowTemplate {
   agent_slugs: string[];
   prompt_skeleton: string;
 }
+
+// ---------------------------------------------------------------------------
+// H29 — Wipe report
+// ---------------------------------------------------------------------------
+
+export interface WipeReport {
+  archived_path: string;
+  deleted_count: number;
+}
+
+// ---------------------------------------------------------------------------
+// H30 — Day view with hour-blocks
+// ---------------------------------------------------------------------------
+
+export type DayPeriod = "night" | "morning" | "afternoon" | "evening";
+
+export interface HourBlock {
+  hour_start: number;
+  hour_end: number;
+  period: DayPeriod;
+  /** project_id -> estimated seconds present in this slot */
+  projects: Record<string, number>;
+  ai_session_count: number;
+  linked_sessions: string[];
+}
+
+export interface WorkdayDayView {
+  date: string;
+  workdays: Workday[];
+  hour_blocks: HourBlock[];
+  total_seconds: number;
+  project_count: number;
+  session_count: number;
+}

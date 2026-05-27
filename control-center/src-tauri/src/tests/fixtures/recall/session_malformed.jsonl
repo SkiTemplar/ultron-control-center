@@ -1,0 +1,4 @@
+not json at all
+{"type":"user","message":{"content":"hola mundo de prueba largo suficiente"}}
+{"broken":true
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Listo, continuamos con el siguiente paso."}]}}
