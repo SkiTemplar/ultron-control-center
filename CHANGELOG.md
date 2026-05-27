@@ -1,5 +1,84 @@
 # Changelog
 
+<!-- v2.10.0 -->
+## v2.10.0 - 2026-05-27 (Sprint masivo "feedback nocturno" — acumula v2.9.6..v2.9.9)
+
+Sprint en 8 fases lanzado tras feedback verbatim del usuario (35 ítems agrupados en bloques A-I). Pattern: agentes paralelos sobre archivos independientes + wiring final + commits incrementales por wave.
+
+### Fase 1 — 5 bugs P0 (v2.9.6)
+
+- **A1 Notifications TypeError 'count'** — defensive defaults `(group?.count ?? 0)` en dedupe + alertasProp normalizado a `[]` + visibleTotal con fallback
+- **A2 Project Notes y Notes globales no se mostraban** — `loadList()` retorna `Promise<NoteEntry[]>`, sets de selección en mismo tick para que `useMemo(selected)` calcule con datos consistentes
+- **A3 Terminal cwd System32** — `ProjectTerminal` recibe `projectPath`, propaga a `pty_spawn cwd`; respeta `parent_folder_override` (fb-016)
+- **A4 Tauri capabilities opener** — scope ampliado en `capabilities/default.json` (`$HOME`, `$HOME/**`, `.ultron`, `.claude`, `.ultron-vault`, `$APPDATA/**`, `$LOCALAPPDATA/**`, `C:\\Users\\**`, `D:\\**`, `E:\\**`). Sin wildcard `**/*` global
+- **A5 Recall + Run Batch duplicados** — eliminados del header de `ProjectWorkspace` (se mantienen en Terminal toolbar hasta C10)
+
+Features Wave 1:
+- **I35 Qwen excluido del router** — `ai_router_validate_keys` + `ai_router_disabled_providers` commands; `route()` salta providers sin key sin contar métricas
+- **F26 Usage UI** — `AiRouterSection` con FallbackRateGauge, ProviderRow, ZonePipeline, auto-refresh 30s
+
+### Fase 2 — Library polish (v2.9.7)
+
+- **D18 Agents.tsx unifica layout con Skills/Rules** — LibraryDetailPane kind=agent, sidebar categorías derivadas de filesystem (`~/.claude/agents/<folder>/`), accent violet
+- **D19 Plugins update detection** — `plugin_check_updates_bulk` (gh API por SHA, cache 1h en `plugin-update-cache.json`) + `plugin_changelog_summary` (Haiku via AI Router). UI con badge "Update available", ChangelogPanel lazy, Update all bulk
+- **D20 Hooks redesign (v2.9.5 standalone)** — sidebar categorías por evento, color por categoría sin amarillo global, `analyze_hook_name_inner` con AI Router utility zone + heurística fallback, cache en `hooks-names.json`, botón Auto-name all
+- **D21 Catalog AI install** — `library_install_via_ai` clone temp → leer README + manifests → AI Router code-review zone analiza compatibilidad → JSON `{compatible, steps, copy_files, warnings}` → ejecuta con dry-run mode. UI modal preview + confirm
+
+### Fase 3 — Projects REDESIGN completo (v2.9.8)
+
+- **C11 ProjectJarvisLauncher** — landing tab nuevo `jarvis` (default) con 6 intents: Corregir errores (Bug, red) / Desarrollar desde 0 (Sparkles, cyan) / Recuperar de ayer (History, amber) / Equipo de subagentes (Users, violet) / Free prompt (MessageSquare, lime) / Investigar (Search, blue). Cada intent emite `JarvisIntent { id, label, provider, initial_prompt, spawn_kind }` y stash en sessionStorage al pasar a Terminal
+- **C10 Wiring** — nueva sub-tab `jarvis` añadida a `ProjectSubTab` type, `TABS` array reordenado, default subTab cambiado de "board" a "jarvis"
+- **C14 ProjectContext rewrite** — `project_context.rs` aggregator. CLAUDE.md detection en 3 paths (`<path>/CLAUDE.md`, `.claude/CLAUDE.md`, `.github/CLAUDE.md`). Mem0 search por `project.name` (antes filtraba por UUID inexistente → siempre vacío). KG entities filtradas. Kanban bug cards. `decisions.jsonl` parse. Git summary (branch + 10 commits). Next steps (mem0 + In Progress cards). UI: 5 paneles colapsables + Create CLAUDE.md button
+- **C13 ProjectAgents rewrite** — `project_agents.rs` (detect stack, list `~/.claude/agents/`, `ai_router::route("utility")` propone roster JSON `{recommended, gaps, detected_stack}`). 4 commands Tauri. UI elimina "AI Configure Team Beta", cards con "Invoke from active session" que escribe a PTY Running más reciente del proyecto
+- **C12 ProjectSessions rewrite** — `work_sessions.rs` nuevo módulo. WorkSession schema (`id, project_id, workday_id, started_at, ended_at, status, ai_session_ids, cards_touched, files_changed, notes`). Atomic JSONL en `cockpit/projects/<id>/work-sessions.jsonl`. 5 commands Tauri (start/end/list/link_ai/active). Frontend: ActiveSessionBanner con counter live + StartSessionBar con workday dropdown + History list expandable + SessionTimeline horizontal últimas 10
+- **C16 ProjectTimeline polish** — w-110px → w-12 (48px), px-3 → px-1.5, gap-3 → gap-2, label flex-col, min-w-0 truncate. Resolved overflow con números 2 dígitos
+- **C17 Batch + Settings ApiKeys** — `delete_batch_single` (path-traversal validation) + UI con confirm inline. `env_keys.rs` con whitelist 7 vars + `setx` User scope. `Settings/ApiKeysSection.tsx` nueva tab con 7 inputs password-masked + Save all bulk
+
+### Fase 4 — Memory ULTRON-Graphify (v2.9.9)
+
+- **E22 Memory tree tab** — `memory_graph.rs` con `memory_tree_snapshot` (load inicial sin round-trip mem0) + `memory_unified_search` (4 capas paralelas: skills/agents/rules grep, mem0 async, KG, Qdrant stub). `MemoryTree.tsx` (~680 LOC) con tree 280px + detail flex-1 + search sticky. Memory.tsx ahora con 6 tabs (Knowledge tree default, Live status, Brain, KG editor, Mem0, ECC)
+
+### Fase 6 — System + Workdays + Settings (v2.9.9)
+
+- **G27 Diagnostics rewrite** — 13 COMMON_ERRORS catalogados con severidad + descripción + check + fix por cada uno (mem0-unreachable, claude-login-expired, ai-router-no-keys, node-not-found, network-unreachable, port-1420-in-use, gh-cli-missing, tauri-capabilities-denied, qdrant-binary-missing, plugins-out-of-date, hooks-misconfigured, ultron-disk-usage, projects-json-missing, git-uncommitted-cockpit). Header con search + 7 filtros categoría. Botones Diagnose/Fix por error. Recent fixes telemetría localStorage. Windows Toolbox colapsable. Backend `diagnostics_run(error_id)` command
+- **G28 MCPs audit** — `docs/mcps-audit-2026-05-27.md` (read-only). **CRÍTICO: GitHub PAT y mem0 keys EXPUESTOS en plaintext en settings.json — rotar inmediatamente**. Top-3 quitar (0 usos en 30d): sequential-thinking, memory (ECC+System32), mem0 MCP. Top-3 mantener: playwright (135 usos), github-pat (33), exa+context7. Hallazgo: los "chat MCPs" (imessage, telegram, fakechat, discord) NO están instalados — solo aparecen en el catálogo del marketplace
+- **H29 Workdays wipe** — `workday_wipe_all_with_backup` con zip backup antes de delete. UI con confirm modal. `zip = "2"` crate añadido
+- **H30 Workdays day timeline** — `HourBlock` schema + `workday_day_view` command. `WorkdayDayTimeline.tsx` timeline horizontal 24h con periodos morning/afternoon/evening/night y slices por proyecto
+- **I33 Button Prompts cerrado** — audit, `useRoutingTitle` purgada de useState/useEffect huérfanos, `schema_version` corregido a 1
+- **I34 AI Router Metrics no crashea** — `getClass()` guard + `EMPTY_CLASS_METRICS` fallback + `AIRouterErrorBoundary` class component + ZoneEditor toast save + empty state cuando todos los contadores son cero
+
+### Fase 5 — Sessions + Dashboard + Usage (v2.9.7)
+
+- **B6-B9 Sessions** — workspace card con 3 botones fijos `New` (Plus) / `Custom` (Sliders) / `Send ctx` (Share2) flex-1. `+Root` eliminado. `+Create Project` movido al header del grid (no en cards). Buscador global cross-workspace. `sessions_auto_tag` command (Groq llama-3.3 free / Gemini fallback) → 3-5 tags kebab-case en `sessions-tags.jsonl`. Tag chips clicables con mutual exclusion vs search text
+- **F24-F25 Dashboard** — RecentSessionsCard eliminado. `WorkdaysWeekCard` nuevo: barra horizontal stacked 7 días con slices por proyecto, paleta 10 colores, tooltip fixed, dot indicator hoy con glow, métricas header
+
+### Fase 7 — Backlog técnico (v2.9.9, KIRKARDO 14+19+16+21+26)
+
+- **KIRKARDO 21 MemoryStore trait** — `memory/mod.rs` con trait + tipos (`MemoryHit, MemoryDoc, Query, StoreHealth, Capabilities, MemoryError thiserror`). Adapters: `Mem0Store` (wraps mem0 async via `tauri::async_runtime::block_on`), `EccStore` (read-only sobre `ecc_memory`), `KgStore` (read-write sobre kg). `HybridRecall` orchestrator detrás de feature flag `hybrid_recall` (default off). `recall::mem0_fallback` usa `Mem0Store` via trait. Funciones viejas `#[deprecated]`. 21 tests pasan
+- **KIRKARDO 14 Qdrant wire chain** — `qdrant.rs` (~415L) con fastembed BGE-small 384d, `search(collection, query, k) → Vec<QdrantHit>`, `recall_semantic` command Tauri, `qdrant_status` ping para diagnostics. `qdrant-client = "1.10"` + `fastembed = "4"` added. `docs/qdrant-setup.md` con install instructions (Qdrant requiere binary externo, no embebido por size)
+- **KIRKARDO 19 Concurrency locks** — `static WORKDAY_WRITE_LOCK: OnceLock<Mutex<()>>` aplicado en 8 commands RMW de workdays (start/pause/resume/complete/archive/link_session/append_context/record_kanban_event). `static KANBAN_WRITE_LOCK` en `kanban.append_run` y `kanban.archive_done`. Tests con contención simulada
+- **KIRKARDO 16 Recall chrono + tests** — `format_iso` reimplementación (45L) → `chrono::DateTime::<Utc>::from_timestamp` (5L). `RecallError` con `thiserror` (NotFound/IoError/ParseError). 9 unit tests + 3 fixtures JSONL en `tests/fixtures/recall/`
+- **KIRKARDO 26 Database-admin dedup** — `database-admin.md` → `.disabled`, canonical queda `database-administrator.md`, `rules/common/agents.md` actualizado
+- **Skills priority field** — deferido a PR separado por el agent (requiere edición coordinada de `skills.rs` + `skill_vault.py` + 8 SKILL.md afectados)
+
+### Kanban hygiene
+
+- 4 cards movidas a Done: `agents-manifest-fantom`, `workflow-event-stream`, `a11y-tablist-dialog`, `workdays-accordion-polish`
+- 31 cards nuevas del feedback (bloques A1-A5, B6/B9, C10-C17, D18-D21, E22, F24/F26, G27-G28, H29-H32, I33-I35)
+- Fase 8 cierre Investigar (en progreso por agente background)
+
+### Tests
+
+- 156 unit tests Rust passing tras Wave 4 (KIRKARDO 19+16 añadieron ~15)
+- TypeScript `tsc --noEmit` clean
+- `cargo check` clean (warnings: ensure_collection/upsert_point de qdrant son dead-code esperado hasta wire del stop-hook compresor — KIRKARDO 14 paso 2)
+
+### ⚠ Pendiente notable
+
+- **Rotar GitHub PAT y mem0 API key** — expuestos en plaintext en `settings.json` (reportado por G28 audit)
+- H31+H32 (Workday Goals + auto-AI-update) y H32 hook 15min — en progreso por agente background al cierre de la sesión
+- KIRKARDO 14 paso 2 (stop hook compresor) + paso 3 (SessionStart recall inject) — `qdrant.rs` listo, falta hook JS y wire en linker
+
 <!-- v2.9.0 -->
 ## v2.9.0 - 2026-05-26 (acumula v2.5.1..v2.8.9)
 

@@ -361,6 +361,14 @@ pub fn run() {
             // H29 + H30 (2026-05-27)
             commands::workdays::workday_wipe_all,
             commands::workdays::workday_day_view,
+            // H31 + H32 (2026-05-27) — Goals CRUD + AI auto-fill + auto-update scheduler
+            commands::workdays::workday_goals_add,
+            commands::workdays::workday_goals_update,
+            commands::workdays::workday_goals_delete,
+            commands::workdays::workday_goals_auto_fill,
+            commands::workdays::workday_context_auto_append,
+            commands::workdays::workday_active_id_today,
+            commands::workdays::register_workday_autoupdate_task,
             // -- settings + backup --
             commands::settings::settings_read,
             commands::settings::settings_save,

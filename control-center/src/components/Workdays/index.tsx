@@ -29,6 +29,7 @@ export type {
   WorkdayTemplate,
   WorkdayTodayView,
   WorkflowTemplate,
+  GoalSource,
   GoalStatus,
   DayPeriod,
   HourBlock,

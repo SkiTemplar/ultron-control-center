@@ -246,3 +246,82 @@ pub async fn workday_day_view(date: Option<String>) -> Result<WorkdayDayView, St
         .await
         .map_err(|e| e.to_string())?
 }
+
+// -- H31: Goals CRUD + AI auto-fill ------------------------------------------
+
+/// Add a new manual goal to the workday.
+#[tauri::command]
+pub async fn workday_goals_add(workday_id: String, text: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::goals_add_inner(workday_id, text))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Update a goal's status and optionally rename it.
+#[tauri::command]
+pub async fn workday_goals_update(
+    workday_id: String,
+    goal_id: String,
+    status: GoalStatus,
+    text: Option<String>,
+) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        workdays::goals_update_inner(workday_id, goal_id, status, text)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Delete a goal from the workday.
+#[tauri::command]
+pub async fn workday_goals_delete(workday_id: String, goal_id: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        workdays::goals_delete_inner(workday_id, goal_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Scan kanban boards for "In Progress" cards, call AI Router to produce
+/// concise goal texts, and append them to the workday (dedup by text).
+#[tauri::command]
+pub async fn workday_goals_auto_fill(workday_id: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::goals_auto_fill_inner(workday_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+// -- H32: Auto AI update ------------------------------------------------------
+
+/// Append an auto-update summary note to a workday. Called by the 15-min
+/// scheduled hook (`workday-auto-update.js`).
+#[tauri::command]
+pub async fn workday_context_auto_append(
+    workday_id: String,
+    summary: String,
+    payload_json: Option<String>,
+) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        workdays::context_auto_append_inner(workday_id, summary, payload_json)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Return the active workday id for today (in_progress status). Used by
+/// the scheduled hook to resolve the target workday without the UI running.
+#[tauri::command]
+pub async fn workday_active_id_today() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(workdays::active_workday_id_today_inner)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Register (or replace idempotently) a Windows scheduled task that runs
+/// `~/.claude/hooks/workday-auto-update.js` every 15 minutes.
+#[tauri::command]
+pub async fn register_workday_autoupdate_task() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(workdays::register_autoupdate_task_inner)
+        .await
+        .map_err(|e| e.to_string())?
+}

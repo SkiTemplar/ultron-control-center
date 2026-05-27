@@ -17,10 +17,17 @@ export type WorkdayStatus =
 
 export type GoalStatus = "pending" | "done" | "skipped";
 
+/** How the goal was created. Matches GoalSource in workdays.rs. */
+export type GoalSource = "manual" | "ai_inferred" | "kanban";
+
 export interface WorkdayGoal {
   id: string;
   text: string;
   status: GoalStatus;
+  /** Defaults to "manual" for goals created before H31. */
+  source: GoalSource;
+  /** Kanban card id this goal was created from, if any. */
+  linked_card_id?: string;
 }
 
 export interface WorkdayContextEntry {

@@ -75,8 +75,24 @@ impl std::fmt::Display for WorkdayStatus {
 #[serde(rename_all = "snake_case")]
 pub enum GoalStatus { #[default] Pending, Done, Skipped }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum GoalSource { #[default] Manual, AiInferred, Kanban }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WorkdayGoal { pub id: String, pub text: String, #[serde(default)] pub status: GoalStatus }
+pub struct WorkdayGoal {
+    pub id: String,
+    pub text: String,
+    #[serde(default)]
+    pub status: GoalStatus,
+    /// How this goal was created: manual (user typed it), ai_inferred (auto-fill
+    /// from AI scan), or kanban (card move).
+    #[serde(default)]
+    pub source: GoalSource,
+    /// Kanban card id this goal was created from, if any.
+    #[serde(default)]
+    pub linked_card_id: Option<String>,
+}
 
 /// Single entry in the shared workday context.
 ///
@@ -244,7 +260,7 @@ fn gen_summary(wd: &Workday) -> String {
 pub fn create_workday_inner(title: String, planned_date: Option<String>, template_id: Option<String>, goals: Option<Vec<String>>) -> Result<Workday, String> {
     let d = planned_date.unwrap_or_else(today_date);
     let gi: Vec<WorkdayGoal> = goals.unwrap_or_default().into_iter()
-        .map(|text| WorkdayGoal { id: new_id("goal"), text, status: GoalStatus::Pending }).collect();
+        .map(|text| WorkdayGoal { id: new_id("goal"), text, status: GoalStatus::Pending, source: GoalSource::Manual, linked_card_id: None }).collect();
     let wd = Workday { id: new_id("wd"), template_id, workflow_template: None,
         project_id: None, project_cwd: None,
         title, status: WorkdayStatus::Planned, planned_date: d,
@@ -516,7 +532,7 @@ pub fn auto_start_for_project_inner(
         .map(goals_for_workflow)
         .unwrap_or_default()
         .into_iter()
-        .map(|text| WorkdayGoal { id: new_id("goal"), text, status: GoalStatus::Pending })
+        .map(|text| WorkdayGoal { id: new_id("goal"), text, status: GoalStatus::Pending, source: GoalSource::Manual, linked_card_id: None })
         .collect();
     let now = now_iso();
     let wd = Workday {
@@ -630,6 +646,8 @@ pub fn record_kanban_event_inner(
                 id: new_id("goal"),
                 text: goal_text,
                 status: GoalStatus::Done,
+                source: GoalSource::Kanban,
+                linked_card_id: Some(card_id.clone()),
             });
         }
     }
@@ -1404,6 +1422,244 @@ fn build_hour_blocks(workdays: &[Workday]) -> Vec<HourBlock> {
             }
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------
+// H31 — Goals CRUD + AI auto-fill
+// ---------------------------------------------------------------------------
+
+/// Add a new manual goal to the workday. Returns the updated workday.
+pub fn goals_add_inner(workday_id: String, text: String) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
+    let mut wd = load_wd(&workday_id)?;
+    if text.trim().is_empty() {
+        return Err("goal text must not be empty".to_string());
+    }
+    wd.goals.push(WorkdayGoal {
+        id: new_id("goal"),
+        text: text.trim().to_string(),
+        status: GoalStatus::Pending,
+        source: GoalSource::Manual,
+        linked_card_id: None,
+    });
+    persist_workday(&wd)?;
+    Ok(wd)
+}
+
+/// Update the status of an existing goal. Optionally rename it.
+/// Delegates to the existing `update_goal_inner` but re-exposed with the
+/// H31 naming convention so the new commands module can use it uniformly.
+pub fn goals_update_inner(
+    workday_id: String,
+    goal_id: String,
+    status: GoalStatus,
+    text: Option<String>,
+) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
+    let mut wd = load_wd(&workday_id)?;
+    let goal = wd
+        .goals
+        .iter_mut()
+        .find(|x| x.id == goal_id)
+        .ok_or_else(|| format!("goal {goal_id} not found"))?;
+    goal.status = status;
+    if let Some(t) = text {
+        let trimmed = t.trim().to_string();
+        if !trimmed.is_empty() {
+            goal.text = trimmed;
+        }
+    }
+    persist_workday(&wd)?;
+    Ok(wd)
+}
+
+/// Remove a goal from the workday permanently.
+pub fn goals_delete_inner(workday_id: String, goal_id: String) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
+    let mut wd = load_wd(&workday_id)?;
+    let before = wd.goals.len();
+    wd.goals.retain(|g| g.id != goal_id);
+    if wd.goals.len() == before {
+        return Err(format!("goal {goal_id} not found"));
+    }
+    persist_workday(&wd)?;
+    Ok(wd)
+}
+
+/// Scan every kanban board whose project matches the workday's `project_id`,
+/// collect cards whose column is named "In Progress" (case-insensitive), then
+/// call `ai_router::route("utility", …)` with a summarisation prompt to
+/// produce a concise goal per card. Falls back to using the card titles
+/// directly when the AI call fails (no partial writes on error).
+pub fn goals_auto_fill_inner(workday_id: String) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
+    let mut wd = load_wd(&workday_id)?;
+
+    // Gather "In Progress" card titles for the workday's project (or all
+    // projects when project_id is absent — unusual but valid).
+    let project_ids: Vec<String> = match &wd.project_id {
+        Some(id) => vec![id.clone()],
+        None => crate::projects::list_projects_inner()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|p| p.id)
+            .collect(),
+    };
+
+    let mut in_progress_titles: Vec<(String, String)> = Vec::new(); // (card_id, title)
+    for pid in &project_ids {
+        if let Ok(board) = crate::kanban::load(pid) {
+            let ip_col_ids: Vec<&str> = board
+                .columns
+                .iter()
+                .filter(|c| c.name.to_lowercase().contains("in progress"))
+                .map(|c| c.id.as_str())
+                .collect();
+            for card in &board.cards {
+                if ip_col_ids.contains(&card.column_id.as_str()) {
+                    in_progress_titles.push((card.id.clone(), card.title.clone()));
+                }
+            }
+        }
+    }
+
+    if in_progress_titles.is_empty() {
+        // Nothing to fill — return workday unchanged (not an error).
+        return Ok(wd);
+    }
+
+    // Build a compact goal list from card titles.  Try to improve them with
+    // AI; on any failure fall back to the raw titles.
+    let card_list = in_progress_titles
+        .iter()
+        .map(|(_, t)| format!("- {t}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let prompt = format!(
+        "You are a productivity assistant. Given the following kanban cards currently \
+         In Progress, rewrite each as a concise, actionable workday goal (max 80 chars \
+         each). Respond ONLY with a bullet list, one goal per line, same order as input.\n\n\
+         Cards:\n{card_list}"
+    );
+
+    let goal_texts: Vec<String> = match crate::ai_router::route("utility", &prompt) {
+        Ok(response) => {
+            let lines: Vec<String> = response
+                .lines()
+                .map(|l| l.trim_start_matches(['-', '*', ' ', '\t']).trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect();
+            // Guard: if AI returned a different count, fall back to raw titles.
+            if lines.len() == in_progress_titles.len() {
+                lines
+            } else {
+                in_progress_titles.iter().map(|(_, t)| t.clone()).collect()
+            }
+        }
+        Err(_) => in_progress_titles.iter().map(|(_, t)| t.clone()).collect(),
+    };
+
+    // Append only goals not already present (dedup by text).
+    // Collect existing texts first, drop the borrow, then mutate.
+    let existing_texts: std::collections::HashSet<String> =
+        wd.goals.iter().map(|g| g.text.clone()).collect();
+
+    let new_goals: Vec<WorkdayGoal> = in_progress_titles
+        .iter()
+        .zip(goal_texts.iter())
+        .filter(|((_, _), text)| !existing_texts.contains(*text))
+        .map(|((card_id, _), text)| WorkdayGoal {
+            id: new_id("goal"),
+            text: text.clone(),
+            status: GoalStatus::Pending,
+            source: GoalSource::AiInferred,
+            linked_card_id: Some(card_id.clone()),
+        })
+        .collect();
+
+    wd.goals.extend(new_goals);
+
+    persist_workday(&wd)?;
+    Ok(wd)
+}
+
+// ---------------------------------------------------------------------------
+// H32 — Context auto-append (used by the 15-min scheduler hook)
+// ---------------------------------------------------------------------------
+
+/// Append an auto-update context note to a workday. The note lands in
+/// `context.notes` with `kind = "auto_update"`. This is the Tauri-side
+/// receiver that the `workday-auto-update.js` hook writes to via direct JSON
+/// mutation or (when Control Center is running) via this command.
+pub fn context_auto_append_inner(
+    workday_id: String,
+    summary: String,
+    payload_json: Option<String>,
+) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
+    let mut wd = load_wd(&workday_id)?;
+    let text = match payload_json {
+        Some(ref p) if !p.trim().is_empty() => format!("{summary}\n{p}"),
+        _ => summary,
+    };
+    wd.context.notes.push(WorkdayContextEntry {
+        id: new_id("ctx"),
+        kind: "auto_update".to_string(),
+        text,
+        source: Some("scheduler".to_string()),
+        created_at: now_iso(),
+    });
+    persist_workday(&wd)?;
+    Ok(wd)
+}
+
+/// Return the active workday id for today, scanning the workdays directory.
+/// Used by the scheduled hook to know which workday to append to without
+/// requiring the Control Center to be running.
+pub fn active_workday_id_today_inner() -> Result<Option<String>, String> {
+    let today = today_date();
+    let all = list_workdays_inner(Some("in_progress".to_string()), Some(today.clone()), Some(today), None)?;
+    Ok(all.into_iter().next().map(|w| w.id))
+}
+
+/// Register (or replace) a Windows scheduled task that runs the
+/// `workday-auto-update.js` hook every 15 minutes.
+///
+/// Uses `schtasks /CREATE /F` which overwrites any existing task with the
+/// same name — idempotent by construction.
+pub fn register_autoupdate_task_inner() -> Result<String, String> {
+    // Locate the hook script.
+    let hook_path = dirs::home_dir()
+        .ok_or_else(|| "no home dir".to_string())?
+        .join(".claude")
+        .join("hooks")
+        .join("workday-auto-update.js");
+    let hook_str = hook_path.to_string_lossy();
+
+    // Build schtasks command.
+    // /F    — force overwrite if task already exists (idempotent)
+    // /SC MINUTE /MO 15  — every 15 minutes
+    // /RL HIGHEST        — run with elevated privileges so `git` calls work
+    let cmd = format!(
+        r#"schtasks /CREATE /F /SC MINUTE /MO 15 /TN "UltronWorkdayAutoUpdate" /TR "node \"{hook_str}\"" /RL HIGHEST"#
+    );
+
+    let output = std::process::Command::new("cmd")
+        .args(["/C", &cmd])
+        .output()
+        .map_err(|e| format!("schtasks exec failed: {e}"))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if !output.status.success() {
+        return Err(format!(
+            "schtasks failed (exit {}): {stderr}",
+            output.status.code().unwrap_or(-1)
+        ));
+    }
+    Ok(format!("{} Command: {}", stdout.trim(), cmd))
 }
 
 /// Return a full day view for `date` (ISO `YYYY-MM-DD`, defaults to today).

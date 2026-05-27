@@ -18,6 +18,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type {
   GoalStatus,
+  GoalSource,
   Workday,
   WorkdayContextEntry,
   WorkdayGoal,
@@ -341,11 +342,25 @@ export function WorkdayDetail({
 
   async function toggleGoal(goal: WorkdayGoal) {
     const next: GoalStatus = goal.status === "done" ? "pending" : "done";
-    await runCmd("update_goal", {
+    await runCmd("workday_goals_update", {
       workdayId,
       goalId: goal.id,
       status: next,
       text: null,
+    });
+  }
+
+  async function deleteGoal(goalId: string) {
+    await runCmd("workday_goals_delete", { workdayId, goalId });
+  }
+
+  async function renameGoal(goalId: string, text: string) {
+    if (!text.trim()) return;
+    await runCmd("workday_goals_update", {
+      workdayId,
+      goalId,
+      status: wd!.goals.find((g) => g.id === goalId)?.status ?? "pending",
+      text: text.trim(),
     });
   }
 
@@ -535,7 +550,7 @@ export function WorkdayDetail({
       {/* Secciones accordion                                                  */}
       {/* ------------------------------------------------------------------ */}
 
-      {/* Goals — abierto por defecto */}
+      {/* Goals — H31: Add + Auto-fill + inline edit + delete */}
       <AccordionSection
         id="goals"
         label="Goals"
@@ -544,52 +559,15 @@ export function WorkdayDetail({
         onToggle={toggleSection}
       >
         <div className="px-6 pb-4 pt-2">
-          {wd.goals.length === 0 ? (
-            <div
-              className="text-[12px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              No goals yet.
-            </div>
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {wd.goals.map((g) => (
-                <li
-                  key={g.id}
-                  className="flex items-start gap-2 rounded px-2 py-1.5"
-                  style={{
-                    background: "var(--color-surface-2)",
-                    border: "1px solid var(--color-border)",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={g.status === "done"}
-                    disabled={busy}
-                    onChange={() => void toggleGoal(g)}
-                    className="mt-1"
-                  />
-                  <span
-                    className="flex-1 text-[13px]"
-                    style={{
-                      color: "var(--color-text)",
-                      textDecoration:
-                        g.status === "done" ? "line-through" : "none",
-                      opacity: g.status === "done" ? 0.6 : 1,
-                    }}
-                  >
-                    {g.text}
-                  </span>
-                  <span
-                    className="text-[10px] uppercase"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    {g.status}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
+          <GoalsSection
+            workdayId={workdayId}
+            goals={wd.goals}
+            busy={busy}
+            onToggle={toggleGoal}
+            onDelete={deleteGoal}
+            onRename={renameGoal}
+            onUpdated={(next) => { setWd(next); onChanged(next); }}
+          />
         </div>
       </AccordionSection>
 
@@ -1018,6 +996,254 @@ function RetroLine({ label, value }: { label: string; value?: string }) {
       >
         {value}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// H31 — GoalsSection: lista rica con Add, Auto-fill, inline edit, delete
+// ---------------------------------------------------------------------------
+
+const SOURCE_BADGE: Record<GoalSource, string> = {
+  manual: "",
+  ai_inferred: "AI",
+  kanban: "kanban",
+};
+
+interface GoalsSectionProps {
+  workdayId: string;
+  goals: WorkdayGoal[];
+  busy: boolean;
+  onToggle: (goal: WorkdayGoal) => void;
+  onDelete: (goalId: string) => void;
+  onRename: (goalId: string, text: string) => void;
+  onUpdated: (wd: Workday) => void;
+}
+
+function GoalsSection({
+  workdayId,
+  goals,
+  busy,
+  onToggle,
+  onDelete,
+  onRename,
+  onUpdated,
+}: GoalsSectionProps) {
+  const [newText, setNewText] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [filling, setFilling] = useState(false);
+  const [addErr, setAddErr] = useState<string | null>(null);
+  // goalId -> current edit text (undefined = not editing)
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
+
+  async function handleAdd() {
+    if (!newText.trim()) return;
+    setAdding(true);
+    setAddErr(null);
+    try {
+      const next = await invoke<Workday>("workday_goals_add", {
+        workdayId,
+        text: newText.trim(),
+      });
+      onUpdated(next);
+      setNewText("");
+    } catch (e: unknown) {
+      setAddErr(String(e));
+    } finally {
+      setAdding(false);
+    }
+  }
+
+  async function handleAutoFill() {
+    setFilling(true);
+    setAddErr(null);
+    try {
+      const next = await invoke<Workday>("workday_goals_auto_fill", {
+        workdayId,
+      });
+      onUpdated(next);
+    } catch (e: unknown) {
+      setAddErr(String(e));
+    } finally {
+      setFilling(false);
+    }
+  }
+
+  function startEdit(goal: WorkdayGoal) {
+    setEditingId(goal.id);
+    setEditText(goal.text);
+  }
+
+  function commitEdit(goalId: string) {
+    if (editText.trim() && editText.trim() !== goals.find((g) => g.id === goalId)?.text) {
+      onRename(goalId, editText.trim());
+    }
+    setEditingId(null);
+    setEditText("");
+  }
+
+  const isIdle = !busy && !adding && !filling;
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Goal list */}
+      {goals.length === 0 ? (
+        <div
+          className="text-[12px]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          No goals yet. Add one below or use Auto-fill.
+        </div>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {goals.map((g) => (
+            <li
+              key={g.id}
+              className="flex items-center gap-2 rounded px-2 py-1.5"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              {/* Checkbox */}
+              <input
+                type="checkbox"
+                checked={g.status === "done"}
+                disabled={!isIdle}
+                onChange={() => onToggle(g)}
+                className="shrink-0"
+                aria-label={`Mark "${g.text}" as ${g.status === "done" ? "pending" : "done"}`}
+              />
+
+              {/* Text — inline edit on double-click */}
+              {editingId === g.id ? (
+                <input
+                  autoFocus
+                  type="text"
+                  value={editText}
+                  onChange={(e) => setEditText(e.target.value)}
+                  onBlur={() => commitEdit(g.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") commitEdit(g.id);
+                    if (e.key === "Escape") { setEditingId(null); setEditText(""); }
+                  }}
+                  className="flex-1 rounded px-1 py-0.5 text-[13px]"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    border: "1px solid var(--color-border-strong)",
+                    color: "var(--color-text)",
+                  }}
+                />
+              ) : (
+                <span
+                  className="flex-1 cursor-text text-[13px]"
+                  style={{
+                    color: "var(--color-text)",
+                    textDecoration: g.status === "done" ? "line-through" : "none",
+                    opacity: g.status === "done" ? 0.55 : 1,
+                  }}
+                  onDoubleClick={() => isIdle && startEdit(g)}
+                  title="Double-click to edit"
+                >
+                  {g.text}
+                </span>
+              )}
+
+              {/* Source badge — only for non-manual */}
+              {SOURCE_BADGE[g.source] && (
+                <span
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text-tertiary)",
+                  }}
+                >
+                  {SOURCE_BADGE[g.source]}
+                </span>
+              )}
+
+              {/* Status chip */}
+              <span
+                className="shrink-0 text-[10px] uppercase"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {g.status}
+              </span>
+
+              {/* Delete */}
+              <button
+                type="button"
+                onClick={() => onDelete(g.id)}
+                disabled={!isIdle}
+                aria-label={`Delete goal "${g.text}"`}
+                className="shrink-0 rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Add + Auto-fill row */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={newText}
+          onChange={(e) => setNewText(e.target.value)}
+          placeholder="New goal..."
+          disabled={!isIdle}
+          onKeyDown={(e) => { if (e.key === "Enter") void handleAdd(); }}
+          className="flex-1 rounded px-2 py-1 text-[12px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border-strong)",
+            color: "var(--color-text)",
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => void handleAdd()}
+          disabled={!isIdle || !newText.trim()}
+          className="rounded px-3 py-1 text-[12px] font-medium disabled:opacity-50"
+          style={{
+            background: "var(--color-accent, #2563eb)",
+            color: "var(--color-accent-text, #fff)",
+            border: "none",
+          }}
+        >
+          {adding ? "..." : "+ Add goal"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleAutoFill()}
+          disabled={!isIdle}
+          className="rounded px-3 py-1 text-[12px] font-medium disabled:opacity-50"
+          style={{
+            background: "transparent",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Scan kanban In Progress cards and generate goals via AI"
+        >
+          {filling ? "Scanning..." : "Auto-fill from In Progress"}
+        </button>
+      </div>
+
+      {addErr && (
+        <div
+          className="text-[11px]"
+          style={{ color: "var(--color-danger, #ef4444)" }}
+        >
+          {addErr}
+        </div>
+      )}
     </div>
   );
 }
