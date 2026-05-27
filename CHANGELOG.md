@@ -1,5 +1,15 @@
 # Changelog
 
+<!-- v2.13.0 -->
+## v2.13.0 - 2026-05-27 (acumula v2.12.1)
+
+Errores corregidos:
+- (sin cambios)
+
+Anadido:
+- Wave Feedback 2026-05-27e — 17/18 P0/P1 cierres masivos
+
+
 <!-- v2.12.0 -->
 ## v2.12.0 - 2026-05-27 (acumula v2.11.1..v2.11.2)
 
