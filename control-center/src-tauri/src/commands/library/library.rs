@@ -261,7 +261,7 @@ fn extract_summary(body: &str) -> String {
 // Errors are returned as a flat Vec<RepoHit> with the error surfaced via the
 // command-level `Err(String)` so the UI can render a single inline message.
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RepoHit {
     pub full_name: String,
     pub owner: String,

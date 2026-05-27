@@ -219,6 +219,7 @@ pub fn run() {
             commands::agents::agents_pinned_load,
             commands::agents::agents_pinned_save,
             commands::agents::delegate_task_to_agent,
+            commands::agents::delegate_task_launch,
             commands::agents::list_agent_workflows,
             commands::agents::list_active_hooks,
             // -- per-project AI roster + session invocation (P0 2026-05-27) --
@@ -450,6 +451,7 @@ pub fn run() {
             commands::pty::pty_kill,
             commands::pty::pty_list,
             commands::pty::pty_replay,
+            commands::pty::pty_capture_output,
             // -- library (P5 — GitHub search + install + per-project pin) --
             // v2.1: curated catalog feed. v2.2: live preview refresh.
             commands::library::library_search_github,
@@ -468,6 +470,8 @@ pub fn run() {
             commands::library::list_skill_files,
             // v2.9.5: AI-driven install (P1 Library>Catalog)
             commands::library::library_install_via_ai,
+            // v2.9.8: catalog compat analysis + bulk install (card-1779825112840)
+            commands::library::analyze_catalog_compat,
             // -- decision registry (KIRKARDO 24) --
             commands::decisions::decisions_add,
             commands::decisions::decisions_update,

@@ -219,8 +219,24 @@ fn load_from_path(p: &PathBuf) -> Result<Workday, String> {
 /// (agent_orchestration blackboard) should prefer this over
 /// `list_workdays_inner(..)` + filter, which deserialises every workday on
 /// disk for a single-record lookup.
-pub fn get_workday_by_id(id: &str) -> Result<Workday, String> {
-    load_wd(id)
+///
+/// Returns `Ok(None)` when no file exists for `id` (the id is unknown, not
+/// an error), `Ok(Some(_))` when found and parsed successfully, and `Err`
+/// only for genuine I/O or deserialisation failures.
+///
+/// # Examples
+///
+/// ```no_run
+/// // Returns None for a completely unknown id — callers can gracefully skip.
+/// let result = get_workday_by_id("wd-does-not-exist");
+/// assert!(matches!(result, Ok(None)));
+/// ```
+pub fn get_workday_by_id(id: &str) -> Result<Option<Workday>, String> {
+    let p = workday_path(id)?;
+    if !p.exists() {
+        return Ok(None);
+    }
+    load_from_path(&p).map(Some)
 }
 
 fn load_wd(id: &str) -> Result<Workday, String> {

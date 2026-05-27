@@ -5,8 +5,8 @@
 // portable-pty spawn) and we don't want to stall the async runtime.
 
 use crate::pty::{
-    kill_inner, list_inner, replay_inner, resize_inner, spawn_inner, write_inner,
-    PtySessionSummary,
+    capture_output_inner, kill_inner, list_inner, replay_inner, resize_inner, spawn_inner,
+    write_inner, CaptureResult, PtySessionSummary,
 };
 use tauri::{AppHandle, Runtime};
 
@@ -57,4 +57,26 @@ pub async fn pty_list(project_id: String) -> Result<Vec<PtySessionSummary>, Stri
 #[tauri::command]
 pub async fn pty_replay(session_id: String) -> Result<String, String> {
     replay_inner(session_id)
+}
+
+/// Return new PTY output bytes since `since_offset`, base64-encoded.
+///
+/// Used by `delegate_task_inner` for deterministic polling: spawn the PTY,
+/// snapshot the current buffer offset (0 on first call), then call this
+/// repeatedly with the previous `new_offset` to receive only the bytes
+/// produced since the last poll.
+///
+/// - `since_offset == 0` → full buffer (initial replay without subscribing)
+/// - `since_offset >= buffer.len()` → empty `data_b64`, same `new_offset`
+/// - Unknown session → empty `data_b64`, `session_status: null`
+///
+/// Unlike `pty_replay`, this command does NOT flip the `subscribed` flag, so
+/// it is safe to call concurrently with a live terminal tab that is already
+/// receiving `pty:data:<id>` events.
+#[tauri::command]
+pub async fn pty_capture_output(
+    session_id: String,
+    since_offset: usize,
+) -> Result<CaptureResult, String> {
+    capture_output_inner(&session_id, since_offset)
 }

@@ -588,6 +588,58 @@ pub fn replay_inner(session_id: String) -> Result<String, String> {
     Ok(encoded)
 }
 
+/// Return raw output bytes from `since_offset` to the current end of the
+/// session's `output_buffer`, base64-encoded.
+///
+/// This is the deterministic polling primitive for `delegate_task_inner`:
+/// the caller snapshots the current buffer length, spawns the PTY, then
+/// periodically calls this function with the previous snapshot as
+/// `since_offset`. This gives a strictly monotone window of new bytes
+/// without locking the whole session for the duration of the agent run.
+///
+/// Behaviour:
+/// - `since_offset == 0` → return the full buffer (initial poll or replay).
+/// - `since_offset >= buffer.len()` → return an empty string (no new bytes).
+/// - Unknown session → return an empty string (already exited / pruned).
+///
+/// The returned string is base64-encoded raw PTY output (including ANSI
+/// escape codes). Callers that need plain text should strip ANSI sequences
+/// before inspecting the content.
+pub fn capture_output_inner(session_id: &str, since_offset: usize) -> Result<CaptureResult, String> {
+    let reg = registry().lock().map_err(|e| e.to_string())?;
+    let s = match reg.get(session_id) {
+        Some(s) => s,
+        None => {
+            return Ok(CaptureResult {
+                data_b64: String::new(),
+                new_offset: since_offset,
+                session_status: None,
+            })
+        }
+    };
+    let buf = &s.output_buffer;
+    let start = since_offset.min(buf.len());
+    let slice = &buf[start..];
+    let engine = base64::engine::general_purpose::STANDARD;
+    Ok(CaptureResult {
+        data_b64: engine.encode(slice),
+        new_offset: buf.len(),
+        session_status: Some(s.status.clone()),
+    })
+}
+
+/// Result of a [`capture_output_inner`] call.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CaptureResult {
+    /// Base64-encoded raw PTY bytes from `since_offset` to `new_offset`.
+    /// Empty string when there are no new bytes.
+    pub data_b64: String,
+    /// The new offset to pass as `since_offset` on the next poll.
+    pub new_offset: usize,
+    /// Current session status; `None` when the session is unknown.
+    pub session_status: Option<PtyStatus>,
+}
+
 pub fn list_inner(project_id: String) -> Result<Vec<PtySessionSummary>, String> {
     let reg = registry().lock().map_err(|e| e.to_string())?;
     let out: Vec<PtySessionSummary> = reg
@@ -629,5 +681,110 @@ mod tests {
             let r = build_command(p, None);
             assert!(r.is_ok(), "provider {p} should be accepted");
         }
+    }
+
+    // ------------------------------------------------------------------
+    // capture_output_inner tests (operate on the global registry directly)
+    // ------------------------------------------------------------------
+
+    /// Inject a fake PtySession into the registry with pre-populated
+    /// output_buffer so we can test capture_output_inner without a real PTY.
+    ///
+    /// Returns the session id that was inserted.
+    #[cfg(test)]
+    fn insert_fake_session(payload: &[u8]) -> String {
+        use portable_pty::{native_pty_system, PtySize};
+
+        // We need real portable-pty objects for the struct fields. Spawn a
+        // minimal PTY just long enough to extract the handles, then discard
+        // the child process immediately. This keeps the test hermetic — no
+        // shell output leaks into our buffer.
+        let pty_system = native_pty_system();
+        let pair = pty_system
+            .openpty(PtySize {
+                rows: 10,
+                cols: 40,
+                pixel_width: 0,
+                pixel_height: 0,
+            })
+            .expect("openpty for test");
+
+        let mut cmd = portable_pty::CommandBuilder::new_default_prog();
+        let child = pair
+            .slave
+            .spawn_command(cmd)
+            .expect("spawn default prog for test");
+        drop(pair.slave);
+
+        let master = pair.master;
+        let writer = master.take_writer().expect("take_writer for test");
+
+        let id = format!("test-session-{}", payload.len());
+        let session = PtySession {
+            id: id.clone(),
+            project_id: "test-project".to_string(),
+            card_id: None,
+            provider: "test".to_string(),
+            started_at: "epoch:0".to_string(),
+            status: PtyStatus::Running,
+            master,
+            writer,
+            child,
+            output_buffer: payload.to_vec(),
+            subscribed: false,
+        };
+
+        let mut reg = registry().lock().expect("registry lock");
+        reg.insert(id.clone(), session);
+        id
+    }
+
+    #[test]
+    fn capture_output_since_zero_returns_full_buffer() {
+        let payload = b"hello world sentinel";
+        let id = insert_fake_session(payload);
+
+        let result = capture_output_inner(&id, 0).expect("capture_output_inner");
+        assert_eq!(result.new_offset, payload.len());
+
+        let engine = base64::engine::general_purpose::STANDARD;
+        let decoded = engine.decode(&result.data_b64).expect("base64 decode");
+        assert_eq!(decoded, payload);
+    }
+
+    #[test]
+    fn capture_output_since_offset_returns_tail() {
+        let payload = b"AAABBBCCC";
+        let id = insert_fake_session(payload);
+
+        // Offset 3 → should return b"BBBCCC"
+        let result = capture_output_inner(&id, 3).expect("capture_output_inner with offset");
+        assert_eq!(result.new_offset, payload.len());
+
+        let engine = base64::engine::general_purpose::STANDARD;
+        let decoded = engine.decode(&result.data_b64).expect("base64 decode");
+        assert_eq!(decoded, b"BBBCCC");
+    }
+
+    #[test]
+    fn capture_output_unknown_session_returns_empty() {
+        let result =
+            capture_output_inner("nonexistent-session-xyz", 0).expect("should not error");
+        assert!(
+            result.data_b64.is_empty(),
+            "unknown session should return empty data"
+        );
+        assert!(result.session_status.is_none());
+    }
+
+    #[test]
+    fn capture_output_offset_past_end_returns_empty_data() {
+        let payload = b"short";
+        let id = insert_fake_session(payload);
+
+        // Offset beyond buffer length → no new bytes, new_offset == buf.len()
+        let result = capture_output_inner(&id, 9999).expect("capture_output_inner past end");
+        assert!(result.data_b64.is_empty());
+        assert_eq!(result.new_offset, payload.len());
     }
 }

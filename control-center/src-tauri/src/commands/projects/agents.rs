@@ -115,12 +115,32 @@ pub async fn agents_pinned_load(project_id: String) -> Result<PinnedAgents, Stri
 //   * `list_active_hooks`      — proxy over hooks_admin so the Automations
 //     sub-tab can render the global + plugin hook surface.
 
+/// Delegate a task to an agent and **wait for completion** (synchronous hand-off).
+///
+/// Spawns a PTY session, polls the output buffer every 2 s for the
+/// `[AGENT TASK COMPLETE]` sentinel, and returns `DelegateTaskResult`
+/// with the full captured output when the sentinel is found.
+///
+/// On timeout (default 300 s, configurable via `request.timeout_secs`)
+/// the PTY is killed and an `Err("timeout — partial output: …")` is
+/// returned so the orchestrator can escalate to `debugger`.
 #[tauri::command]
 pub async fn delegate_task_to_agent(
     app: tauri::AppHandle,
     request: agent_orchestration::DelegateRequest,
-) -> Result<SpawnResult, String> {
+) -> Result<agent_orchestration::DelegateTaskResult, String> {
     agent_orchestration::delegate_task_inner(&app, request).await
+}
+
+/// Fire-and-forget variant: opens a new terminal window via wt.exe and
+/// returns immediately without waiting for the agent.  Used by the UI
+/// "Launch agent" button where the user monitors progress in the terminal.
+#[tauri::command]
+pub async fn delegate_task_launch(
+    app: tauri::AppHandle,
+    request: agent_orchestration::DelegateRequest,
+) -> Result<SpawnResult, String> {
+    agent_orchestration::delegate_task_fire_and_forget(&app, request).await
 }
 
 #[tauri::command]
