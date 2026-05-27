@@ -610,9 +610,13 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
     });
   }, [toastEnabled]);
 
-  // Stats per severity (after date filter, before dedupe — counts raw alerts)
+  // Stats per severity (after date filter, before dedupe — counts raw alerts).
+  // A1 regression guard: skip null / non-object entries so getTs() never sees them.
   const dateFiltered = useMemo(
-    () => alerts.filter((a) => passesDateFilter(getTs(a), dateFilter)),
+    () =>
+      alerts.filter(
+        (a) => a && typeof a === "object" && passesDateFilter(getTs(a), dateFilter),
+      ),
     [alerts, dateFilter],
   );
 

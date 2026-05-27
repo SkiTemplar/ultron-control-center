@@ -301,8 +301,24 @@ pub fn search(collection: &str, query: &str, k: u32) -> Result<Vec<QdrantHit>, S
 }
 
 // ---------------------------------------------------------------------------
-// Tauri command
+// Tauri commands
 // ---------------------------------------------------------------------------
+
+/// Tauri command: produce a 384-d BGE-small-EN-v1.5 embedding for `text`.
+///
+/// Intended for frontend use cases (e.g. client-side similarity comparison,
+/// debugging). JS hooks cannot call Tauri commands — they must use the
+/// `ultron-embed` sidecar binary instead.
+///
+/// # Errors
+/// - `"spawn_blocking: …"` if the thread-pool is saturated.
+/// - `"fastembed init: …"` on first call if the ONNX model cannot be loaded.
+#[tauri::command]
+pub async fn qdrant_embed_query(text: String) -> Result<Vec<f32>, String> {
+    tauri::async_runtime::spawn_blocking(move || embed(&text))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
+}
 
 /// Tauri command: semantic recall from the `ultron_sessions` Qdrant collection.
 ///

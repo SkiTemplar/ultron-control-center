@@ -13,6 +13,7 @@ import { Bot, Plus } from "./icons";
 import { useDraggableCard, useDroppableColumn } from "../../hooks/useKanbanDnd";
 import type { Card, KanbanBoard, KanbanArchive, KanbanArchiveSummary } from "../../types";
 import CardEditorModal from "./CardEditorModal";
+import DecisionsPanel from "./DecisionsPanel";
 
 type Props = { projectId: string; onOpenTerminal?: () => void };
 
@@ -326,6 +327,9 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
           <span className="text-[var(--color-text-faint)]">/</span>
           <span className="text-[var(--color-text-secondary)]">Board</span>
         </div>
+        {/* DecisionsPanel — collapsible right rail, sibling of the kanban columns.
+            Does NOT participate in drag-drop (KIRKARDO 24). */}
+        <DecisionsPanel projectId={projectId} />
         {/* v2.6: board toolbar — search + priority filter chips. Persists
             per-project so the user's view survives reloads. */}
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-2 text-[11.5px]">

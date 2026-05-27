@@ -3,7 +3,7 @@
 // Three-panel layout:
 //   Left (280px)  : hierarchical tree view of all memory layers
 //   Center (flex) : detail pane for the selected node
-//   Top (sticky)  : unified search across all layers
+//   Top (sticky)  : unified search across all layers (substring | semantic)
 //
 // No external tree library. Tree state managed via useState<Set<string>>.
 // Design: dark-theme CSS vars only.
@@ -17,6 +17,7 @@ import {
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
+import type { QdrantHit } from "../../types";
 
 // ---------------------------------------------------------------------------
 // Types — mirror crate::commands::memory_graph::*
@@ -89,7 +90,8 @@ type NodeKind =
   | "rule"
   | "mem0-entry"
   | "kg-entity"
-  | "kg-type-group";
+  | "kg-type-group"
+  | "qdrant-hit";
 
 interface TreeNode {
   id: string;
@@ -104,6 +106,7 @@ interface TreeNode {
     rule?: RuleHit;
     mem0?: Mem0Memory;
     kg?: KgEntity;
+    qdrantHit?: QdrantHit;
   };
 }
 
@@ -575,6 +578,78 @@ function DetailPane({ node, onDeleteMem0 }: DetailPaneProps) {
         </div>
       );
     }
+
+    case "qdrant-hit": {
+      const hit = payload.qdrantHit!;
+      const p = hit.payload;
+      const pct = Math.round(hit.score * 100);
+      return (
+        <div className="flex flex-col gap-3 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="flex items-center gap-2 text-sm font-semibold">
+              <span>🗄</span> Qdrant hit
+            </h3>
+            <KindChip kind={p.kind} />
+          </div>
+
+          {/* Score bar */}
+          <div className="flex items-center gap-2">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-3)]">
+              <div
+                className="h-full rounded-full bg-[var(--color-accent)]"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <span className="shrink-0 font-mono text-[10px] text-[var(--color-text-tertiary)]">
+              {pct}%
+            </span>
+          </div>
+
+          {/* Full text */}
+          {p.text && (
+            <pre className="whitespace-pre-wrap rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] p-3 text-xs leading-relaxed">
+              {p.text}
+            </pre>
+          )}
+
+          {/* Metadata grid */}
+          <dl className="grid grid-cols-[max-content_1fr] gap-x-3 gap-y-1 text-xs text-[var(--color-text-tertiary)]">
+            <dt>ID</dt>
+            <dd className="font-mono truncate">{hit.id}</dd>
+            {p.project && (
+              <>
+                <dt>Project</dt>
+                <dd className="font-mono truncate">{p.project}</dd>
+              </>
+            )}
+            {p.session_id && (
+              <>
+                <dt>Session</dt>
+                <dd className="font-mono truncate">{p.session_id}</dd>
+              </>
+            )}
+            {p.date && (
+              <>
+                <dt>Date</dt>
+                <dd>{p.date}</dd>
+              </>
+            )}
+            {p.sha_head && (
+              <>
+                <dt>SHA</dt>
+                <dd className="font-mono truncate">{p.sha_head}</dd>
+              </>
+            )}
+            {p.importance != null && (
+              <>
+                <dt>Importance</dt>
+                <dd>{String(p.importance)}</dd>
+              </>
+            )}
+          </dl>
+        </div>
+      );
+    }
   }
 }
 
@@ -853,8 +928,109 @@ function ResultGroup<T>({
 }
 
 // ---------------------------------------------------------------------------
+// KindChip — colour-coded label for Qdrant hit kind
+// ---------------------------------------------------------------------------
+
+const KIND_COLORS: Record<string, string> = {
+  decision: "#6366f1",
+  bug: "#ef4444",
+  feature: "#22c55e",
+  todo: "#f59e0b",
+  file: "#64748b",
+};
+
+function KindChip({ kind }: { kind?: string }) {
+  if (!kind) return null;
+  const bg = KIND_COLORS[kind] ?? "var(--color-surface-3)";
+  return (
+    <span
+      className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium text-white"
+      style={{ background: bg }}
+    >
+      {kind}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SemanticResultsPanel — renders recall_semantic hits below the tree
+// ---------------------------------------------------------------------------
+
+interface SemanticResultsPanelProps {
+  hits: QdrantHit[];
+  query: string;
+  onSelectHit: (hit: QdrantHit) => void;
+}
+
+function SemanticResultsPanel({
+  hits,
+  query,
+  onSelectHit,
+}: SemanticResultsPanelProps) {
+  if (hits.length === 0) {
+    return (
+      <div className="p-4 text-xs text-[var(--color-text-tertiary)]">
+        No semantic results for &ldquo;{query}&rdquo;
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 overflow-y-auto p-3">
+      <p className="text-xs text-[var(--color-text-tertiary)]">
+        {hits.length} semantic {hits.length === 1 ? "result" : "results"} for &ldquo;{query}&rdquo;
+      </p>
+
+      {hits.map((hit) => {
+        const p = hit.payload;
+        const pct = Math.round(hit.score * 100);
+        const preview = p.text
+          ? p.text.slice(0, 120) + (p.text.length > 120 ? "…" : "")
+          : hit.id;
+
+        return (
+          <button
+            key={hit.id}
+            onClick={() => onSelectHit(hit)}
+            className="flex w-full flex-col gap-1.5 rounded border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2 text-left hover:bg-[var(--color-surface-3)]"
+          >
+            {/* Top row: kind chip + score bar + pct */}
+            <div className="flex items-center gap-2">
+              <KindChip kind={p.kind} />
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-3)]">
+                <div
+                  className="h-full rounded-full bg-[var(--color-accent)]"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="shrink-0 font-mono text-[10px] text-[var(--color-text-tertiary)]">
+                {pct}%
+              </span>
+            </div>
+
+            {/* Text preview */}
+            <p className="line-clamp-2 text-[11px] leading-relaxed text-[var(--color-text-primary)]">
+              {preview}
+            </p>
+
+            {/* Footer: project + date */}
+            {(p.project || p.date) && (
+              <p className="truncate text-[10px] text-[var(--color-text-tertiary)]">
+                {[p.project, p.date].filter(Boolean).join(" · ")}
+              </p>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Root export: MemoryTree
 // ---------------------------------------------------------------------------
+
+type SearchMode = "substring" | "semantic";
 
 export function MemoryTree() {
   const [snapshot, setSnapshot] = useState<MemoryTreeSnapshot | null>(null);
@@ -868,11 +1044,21 @@ export function MemoryTree() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<TreeNode | null>(null);
 
-  // Search
+  // Search mode toggle
+  const [searchMode, setSearchMode] = useState<SearchMode>("substring");
+
+  // Substring search
   const [query, setQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchResults, setSearchResults] = useState<UnifiedSearchResults | null>(null);
   const searchAbortRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Semantic search
+  const [semanticQuery, setSemanticQuery] = useState("");
+  const [semanticSearching, setSemanticSearching] = useState(false);
+  const [semanticHits, setSemanticHits] = useState<QdrantHit[] | null>(null);
+  const [semanticError, setSemanticError] = useState<string | null>(null);
+  const semanticAbortRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Mem0 entries loaded separately (snapshot skips cloud call)
   const [mem0Entries, setMem0Entries] = useState<Mem0Memory[]>([]);
@@ -966,6 +1152,20 @@ export function MemoryTree() {
     setSelectedNode(node);
   }, []);
 
+  const selectQdrantHit = useCallback((hit: QdrantHit) => {
+    const label = hit.payload.text
+      ? hit.payload.text.slice(0, 60) + (hit.payload.text.length > 60 ? "…" : "")
+      : hit.id;
+    const node: TreeNode = {
+      id: `qdrant-hit-${hit.id}`,
+      label,
+      icon: "🗄",
+      payload: { kind: "qdrant-hit", qdrantHit: hit },
+    };
+    setSelectedId(node.id);
+    setSelectedNode(node);
+  }, []);
+
   // Delete mem0 entry
   const handleDeleteMem0 = useCallback(async (id: string) => {
     try {
@@ -978,7 +1178,7 @@ export function MemoryTree() {
     }
   }, []);
 
-  // Unified search with debounce
+  // Unified search with debounce (substring mode)
   useEffect(() => {
     if (searchAbortRef.current != null) {
       clearTimeout(searchAbortRef.current);
@@ -1003,34 +1203,131 @@ export function MemoryTree() {
     };
   }, [query]);
 
+  // Semantic search with debounce (semantic mode)
+  useEffect(() => {
+    if (semanticAbortRef.current != null) {
+      clearTimeout(semanticAbortRef.current);
+    }
+    if (!semanticQuery.trim()) {
+      setSemanticHits(null);
+      setSemanticError(null);
+      return;
+    }
+    semanticAbortRef.current = setTimeout(() => {
+      setSemanticSearching(true);
+      setSemanticError(null);
+      invoke<QdrantHit[]>("recall_semantic", {
+        query: semanticQuery.trim(),
+        k: 10,
+      })
+        .then((hits) => setSemanticHits(hits))
+        .catch((err: unknown) => {
+          setSemanticHits([]);
+          setSemanticError(
+            "Qdrant not running — start: D:\\Ultron\\qdrant\\qdrant.exe"
+          );
+          void err;
+        })
+        .finally(() => setSemanticSearching(false));
+    }, DEBOUNCE_MS);
+
+    return () => {
+      if (semanticAbortRef.current != null) clearTimeout(semanticAbortRef.current);
+    };
+  }, [semanticQuery]);
+
   const showSearchResults = query.trim().length > 0;
+  const showSemanticResults = semanticQuery.trim().length > 0;
 
   return (
     <div className="flex h-full flex-col gap-0 overflow-hidden">
       {/* Search bar — sticky top */}
       <div className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
-        <div className="relative">
-          <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-[var(--color-text-tertiary)]">
-            🔍
-          </span>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Buscar en skills, agents, rules, mem0, KG…"
-            className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] py-1.5 pl-7 pr-3 text-xs outline-none focus:border-[var(--color-accent)]"
-          />
-          {searching && (
-            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 animate-pulse text-[10px] text-[var(--color-text-tertiary)]">
-              …
-            </span>
-          )}
+        {/* Mode toggle */}
+        <div className="mb-2 flex items-center gap-1">
+          <button
+            onClick={() => setSearchMode("substring")}
+            className={[
+              "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
+              searchMode === "substring"
+                ? "bg-[var(--color-accent)] text-[var(--color-bg)]"
+                : "text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]",
+            ].join(" ")}
+          >
+            Substring
+          </button>
+          <button
+            onClick={() => setSearchMode("semantic")}
+            className={[
+              "rounded px-2 py-0.5 text-[10px] font-medium transition-colors",
+              searchMode === "semantic"
+                ? "bg-[var(--color-accent)] text-[var(--color-bg)]"
+                : "text-[var(--color-text-tertiary)] hover:text-[var(--color-text-primary)]",
+            ].join(" ")}
+          >
+            Semantic
+          </button>
         </div>
+
+        {/* Input — switches based on mode */}
+        {searchMode === "substring" ? (
+          <div className="relative">
+            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-[var(--color-text-tertiary)]">
+              🔍
+            </span>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar en skills, agents, rules, mem0, KG…"
+              className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] py-1.5 pl-7 pr-3 text-xs outline-none focus:border-[var(--color-accent)]"
+            />
+            {searching && (
+              <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 animate-pulse text-[10px] text-[var(--color-text-tertiary)]">
+                …
+              </span>
+            )}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            <div className="relative">
+              <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-[var(--color-text-tertiary)]">
+                🧬
+              </span>
+              <input
+                type="text"
+                value={semanticQuery}
+                onChange={(e) => setSemanticQuery(e.target.value)}
+                placeholder="Semantic search in Qdrant vault…"
+                className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] py-1.5 pl-7 pr-3 text-xs outline-none focus:border-[var(--color-accent)]"
+              />
+              {semanticSearching && (
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 animate-pulse text-[10px] text-[var(--color-text-tertiary)]">
+                  …
+                </span>
+              )}
+            </div>
+            {/* Qdrant unreachable banner */}
+            {semanticError && (
+              <div
+                className="flex items-start gap-1.5 rounded border px-2 py-1.5 text-[10px] leading-snug"
+                style={{
+                  borderColor: "var(--color-warning, #f59e0b)",
+                  color: "var(--color-warning, #f59e0b)",
+                  background: "rgba(245,158,11,0.08)",
+                }}
+              >
+                <span className="shrink-0">⚠</span>
+                <span>{semanticError}</span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Main body — tree + detail */}
+      {/* Main body — tree + detail/results */}
       <div className="flex min-h-0 flex-1">
-        {/* Left panel — tree */}
+        {/* Left panel — tree (always visible) */}
         <div
           className="flex shrink-0 flex-col overflow-y-auto border-r border-[var(--color-border)]"
           style={{ width: "280px" }}
@@ -1065,9 +1362,15 @@ export function MemoryTree() {
             ))}
         </div>
 
-        {/* Right panel — detail or search results */}
+        {/* Right panel — detail, substring results, or semantic results */}
         <div className="min-h-0 flex-1 overflow-y-auto">
-          {showSearchResults ? (
+          {searchMode === "semantic" && showSemanticResults ? (
+            <SemanticResultsPanel
+              hits={semanticHits ?? []}
+              query={semanticQuery}
+              onSelectHit={selectQdrantHit}
+            />
+          ) : searchMode === "substring" && showSearchResults ? (
             searchResults ? (
               <SearchResultsPanel
                 results={searchResults}

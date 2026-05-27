@@ -9,6 +9,14 @@ edition = "2021"
 name = "control_center_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+# CLI sidecar used by session-recall-inject.js to compute BGE-small embeddings
+# without requiring the full Tauri runtime. Build with:
+#   cargo build --release --bin ultron-embed --features qdrant
+[[bin]]
+name = "ultron-embed"
+path = "src/bin/ultron_embed.rs"
+required-features = ["qdrant"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

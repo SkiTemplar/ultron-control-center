@@ -61,7 +61,7 @@ mod diagnostics_native;
 mod sessions;
 mod sessions_tags;
 mod work_sessions;
-mod qdrant;
+pub mod qdrant;
 mod settings;
 mod batches;
 mod env_keys;
@@ -267,6 +267,7 @@ pub fn run() {
             // -- Qdrant semantic recall (KIRKARDO 14 wire) --
             qdrant::recall_semantic,
             qdrant::qdrant_status,
+            qdrant::qdrant_embed_query,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
