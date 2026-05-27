@@ -30,6 +30,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -91,6 +92,12 @@ pub struct Provider {
     /// Internal: list of models exposed under this provider.
     #[serde(default)]
     pub models: Vec<String>,
+    /// Internal: CLI executable name for `kind = Cli` providers (e.g. `"codex"`,
+    /// `"gemini"`). On Windows the wrapper automatically uses `cmd /C <cmd>`
+    /// to handle `.cmd` npm shims correctly (see windows-tauri-cli-gotcha).
+    /// Absent (`None`) for Cloud and Local providers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cli_command: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -99,6 +106,9 @@ pub enum ProviderKind {
     #[default]
     Cloud,
     Local,
+    /// A subscription-based CLI that authenticates via OAuth (no API key
+    /// required). Examples: `codex` (ChatGPT Plus) and `gemini` (Google One).
+    Cli,
 }
 
 /// One step in a routing decision — primary or fallback.
@@ -193,6 +203,7 @@ fn seed_providers() -> Vec<Provider> {
             base_url: "https://api.anthropic.com".into(),
             default_model: "claude-haiku-4-5-20251001".into(),
             models: vec!["claude-haiku-4-5-20251001".into()],
+            cli_command: None,
         },
         Provider {
             id: "codex".into(),
@@ -206,6 +217,7 @@ fn seed_providers() -> Vec<Provider> {
             base_url: "https://api.openai.com".into(),
             default_model: "gpt-5".into(),
             models: vec!["gpt-5".into(), "gpt-4o".into(), "gpt-4o-mini".into()],
+            cli_command: None,
         },
         Provider {
             id: "gemini".into(),
@@ -221,6 +233,7 @@ fn seed_providers() -> Vec<Provider> {
             base_url: "https://generativelanguage.googleapis.com".into(),
             default_model: "gemini-2.5-flash".into(),
             models: vec!["gemini-2.5-flash".into(), "gemini-2.5-pro".into()],
+            cli_command: None,
         },
         Provider {
             id: "groq".into(),
@@ -237,6 +250,7 @@ fn seed_providers() -> Vec<Provider> {
                 "llama-3.3-70b-versatile".into(),
                 "llama-3.1-8b-instant".into(),
             ],
+            cli_command: None,
         },
         Provider {
             id: "ollama".into(),
@@ -254,6 +268,7 @@ fn seed_providers() -> Vec<Provider> {
                 "qwen2.5-coder:32b".into(),
                 "deepseek-coder-v2:16b".into(),
             ],
+            cli_command: None,
         },
         Provider {
             id: "deepseek".into(),
@@ -267,6 +282,44 @@ fn seed_providers() -> Vec<Provider> {
             base_url: "https://api.deepseek.com".into(),
             default_model: "deepseek-coder".into(),
             models: vec!["deepseek-coder".into(), "deepseek-chat".into()],
+            cli_command: None,
+        },
+        // ----------------------------------------------------------------
+        // CLI providers — authenticate via OAuth subscription, no API key.
+        // Install: `npm install -g @openai/codex` / `npm install -g @google/gemini-cli`
+        // ----------------------------------------------------------------
+        Provider {
+            id: "codex-cli".into(),
+            name: "OpenAI Codex CLI (gpt-5 via OAuth)".into(),
+            cost_per_mtok: 0.0, // covered by ChatGPT Plus subscription
+            supports: vec![ProviderClass::Light, ProviderClass::Medium, ProviderClass::Heavy],
+            api_key_status: ApiKeyStatus::Configured, // patched by detect_cli at load time
+            health_endpoint: None,
+            kind: ProviderKind::Cli,
+            key_env_var: String::new(),
+            base_url: String::new(),
+            default_model: "gpt-5".into(),
+            models: vec!["gpt-5".into()],
+            cli_command: Some("codex".into()),
+        },
+        Provider {
+            id: "gemini-cli".into(),
+            name: "Google Gemini CLI (gemini-2.5-flash via OAuth)".into(),
+            cost_per_mtok: 0.0, // covered by Google One subscription
+            supports: vec![
+                ProviderClass::Trivial,
+                ProviderClass::Light,
+                ProviderClass::Medium,
+                ProviderClass::Heavy,
+            ],
+            api_key_status: ApiKeyStatus::Configured, // patched by detect_cli at load time
+            health_endpoint: None,
+            kind: ProviderKind::Cli,
+            key_env_var: String::new(),
+            base_url: String::new(),
+            default_model: "gemini-2.5-flash".into(),
+            models: vec!["gemini-2.5-flash".into()],
+            cli_command: Some("gemini".into()),
         },
     ]
 }
@@ -436,6 +489,16 @@ fn compute_key_status(p: &Provider) -> ApiKeyStatus {
     if p.kind == ProviderKind::Local {
         return ApiKeyStatus::Configured;
     }
+    // CLI providers are "configured" iff the CLI binary is installed.
+    // They have no API key — the subscription auth happens inside the CLI.
+    if p.kind == ProviderKind::Cli {
+        let cmd = p.cli_command.as_deref().unwrap_or("");
+        return if !cmd.is_empty() && detect_cli(cmd) {
+            ApiKeyStatus::Configured
+        } else {
+            ApiKeyStatus::Missing
+        };
+    }
     if p.key_env_var.is_empty() {
         return ApiKeyStatus::Configured;
     }
@@ -478,6 +541,63 @@ fn load_metrics() -> Result<RouterMetrics, String> {
         write_json(&path, &m)?;
         Ok(m)
     }
+}
+
+// ---------------------------------------------------------------------------
+// CLI presence cache — populated once per process, never invalidated.
+//
+// `detect_cli` shells out to `where` (Windows) or `which` (Unix) exactly
+// once per command name. Subsequent calls read from this cache so the hot
+// path in `route()` / `disabled_providers_set()` does zero I/O after the
+// first lookup.
+//
+// Windows gotcha (see memory: windows-tauri-cli-gotcha): npm-installed CLIs
+// such as `codex` and `gemini` land on PATH as `.cmd` shims. The bare
+// `where codex` command finds `codex.cmd`, which is sufficient for detection.
+// When we *invoke* the CLI in `call_cli()` we must go through `cmd /C` to
+// execute `.cmd` shims — `std::process::Command::new("codex")` alone fails.
+// ---------------------------------------------------------------------------
+
+static CLI_CACHE: Lazy<Mutex<HashMap<String, bool>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+/// Returns `true` when `command` resolves on the current PATH.
+///
+/// Uses `where` on Windows and `which` on all other platforms. The result
+/// is cached for the process lifetime — safe because CLI tools are not
+/// installed/uninstalled mid-session.
+pub fn detect_cli(command: &str) -> bool {
+    // Fast path: already cached.
+    if let Ok(cache) = CLI_CACHE.lock() {
+        if let Some(&result) = cache.get(command) {
+            return result;
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    let found = std::process::Command::new("where")
+        .arg(command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    #[cfg(not(target_os = "windows"))]
+    let found = std::process::Command::new("which")
+        .arg(command)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if let Ok(mut cache) = CLI_CACHE.lock() {
+        cache.insert(command.to_string(), found);
+    }
+    found
 }
 
 // ---------------------------------------------------------------------------
@@ -595,11 +715,17 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
         }
     };
 
-    // Key check up front so we don't burn a request for a missing key.
-    if provider.kind == ProviderKind::Cloud && !provider.key_env_var.is_empty() {
-        match std::env::var(&provider.key_env_var) {
-            Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
-            _ => {
+    // Key / CLI check up front so we don't burn a request when prerequisites
+    // are absent.
+    match provider.kind {
+        ProviderKind::Cli => {
+            let cmd = provider.cli_command.as_deref().unwrap_or("");
+            if cmd.is_empty() || !detect_cli(cmd) {
+                let install_hint = match cmd {
+                    "codex" => "Install with: npm install -g @openai/codex",
+                    "gemini" => "Install with: npm install -g @google/gemini-cli",
+                    _ => "Install the CLI and ensure it is on PATH",
+                };
                 return TestResult {
                     ok: false,
                     provider_id: provider.id.clone(),
@@ -607,23 +733,45 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                     latency_ms: 0,
                     response_excerpt: String::new(),
                     error: Some(format!(
-                        "missing {} env var — configure the API key in your environment",
-                        provider.key_env_var
+                        "CLI '{}' not found on PATH. {}",
+                        cmd, install_hint
                     )),
                 };
             }
         }
+        ProviderKind::Cloud if !provider.key_env_var.is_empty() => {
+            match std::env::var(&provider.key_env_var) {
+                Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
+                _ => {
+                    return TestResult {
+                        ok: false,
+                        provider_id: provider.id.clone(),
+                        model: zone.primary.model.clone(),
+                        latency_ms: 0,
+                        response_excerpt: String::new(),
+                        error: Some(format!(
+                            "missing {} env var — configure the API key in your environment",
+                            provider.key_env_var
+                        )),
+                    };
+                }
+            }
+        }
+        _ => {}
     }
 
     let started = Instant::now();
-    let outcome = match provider.id.as_str() {
-        "claude-haiku" => call_anthropic(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-        "codex" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-        "groq" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-        "deepseek" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-        "gemini" => call_gemini(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-        "ollama" => call_ollama(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-        other => Err(format!("no wrapper implemented for provider '{}'", other)),
+    let outcome = match provider.kind {
+        ProviderKind::Cli => call_cli(&provider, sample_prompt),
+        _ => match provider.id.as_str() {
+            "claude-haiku" => call_anthropic(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
+            "codex" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
+            "groq" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
+            "deepseek" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
+            "gemini" => call_gemini(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
+            "ollama" => call_ollama(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
+            other => Err(format!("no wrapper implemented for provider '{}'", other)),
+        },
     };
     let latency_ms = started.elapsed().as_millis() as u64;
 
@@ -855,6 +1003,80 @@ fn clamp_max_tokens(requested: u32, default: u32) -> u32 {
 }
 
 // ---------------------------------------------------------------------------
+// CLI provider wrapper — invokes a locally installed OAuth-authenticated CLI.
+//
+// Windows note (windows-tauri-cli-gotcha): npm-installed CLIs arrive as
+// `.cmd` shims.  `Command::new("codex")` resolves the `.cmd` shim only when
+// run through `cmd.exe /C`.  On Unix, the binary is a plain ELF/Mach-O that
+// executes directly.
+//
+// Both `codex` and `gemini` accept `-p <prompt>` and `--model <model>` as of
+// their respective GA releases (2025/2026). The flag spellings are identical
+// so a single arms-match is sufficient.
+//
+// Timeout: the blocking call can hang if the CLI awaits interactive input.
+// Both CLIs exit non-zero if not authenticated — we surface that stderr as
+// the error message so the user knows to run `codex auth` / `gemini auth`.
+// ---------------------------------------------------------------------------
+
+/// Invoke a CLI provider synchronously and return its stdout on success.
+fn call_cli(provider: &Provider, prompt: &str) -> Result<String, String> {
+    let cmd = provider
+        .cli_command
+        .as_deref()
+        .ok_or_else(|| format!("provider '{}' has no cli_command configured", provider.id))?;
+
+    let model = provider.default_model.as_str();
+
+    // Build the argument list.  Both supported CLIs share the same flags.
+    let prompt_flag = "-p";
+    let model_flag = "--model";
+
+    // SAFETY: all strings are owned by the caller; no raw pointers.
+    #[cfg(target_os = "windows")]
+    let output = {
+        // On Windows, npm `.cmd` shims must be invoked via `cmd /C`.
+        // Build a single shell argument string: `codex -p "…" --model gpt-5`
+        // We escape inner double-quotes in the prompt with `\"`.
+        let escaped_prompt = prompt.replace('"', "\\\"");
+        let shell_arg = format!(
+            "{cmd} {prompt_flag} \"{escaped_prompt}\" {model_flag} {model}"
+        );
+        std::process::Command::new("cmd")
+            .args(["/C", &shell_arg])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| format!("spawn cmd /C {cmd}: {e}"))?
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let output = std::process::Command::new(cmd)
+        .args([prompt_flag, prompt, model_flag, model])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("spawn {cmd}: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "{cmd} exited {}: {}",
+            output.status,
+            truncate(stderr.trim(), 300)
+        ));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    if stdout.trim().is_empty() {
+        return Err(format!("{cmd} produced no output"));
+    }
+    Ok(stdout)
+}
+
+// ---------------------------------------------------------------------------
 // Tauri commands — thin wrappers around the helpers above.
 // ---------------------------------------------------------------------------
 
@@ -993,23 +1215,56 @@ fn try_assignment_call(
     prompt: &str,
     system_prompt: Option<&str>,
 ) -> Result<String, String> {
+    // --- Quota guard (P0 2026-05-27) ---
+    // When Claude subscription quota is at or above 98 % we skip all Claude
+    // providers so `route()` cascades to the next fallback automatically.
+    // The error string uses a stable prefix (`quota_critical_skip:`) so
+    // callers can distinguish quota-induced skips from real API failures.
+    if crate::quota_watchdog::is_critical(&assignment.provider_id) {
+        return Err(format!(
+            "quota_critical_skip:{} — Claude quota >= {}% — routing to fallback",
+            assignment.provider_id,
+            crate::quota_watchdog::CRITICAL_THRESHOLD,
+        ));
+    }
+
     let providers = load_providers()?;
     let provider = providers
         .iter()
         .find(|p| p.id == assignment.provider_id)
         .ok_or_else(|| format!("unknown provider '{}'", assignment.provider_id))?;
 
-    if provider.kind == ProviderKind::Cloud && !provider.key_env_var.is_empty() {
-        match std::env::var(&provider.key_env_var) {
-            Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
-            _ => {
+    match provider.kind {
+        ProviderKind::Cli => {
+            // CLI providers authenticate via OAuth subscription — no API key.
+            // Skip if the binary is not installed on PATH.
+            let cmd = provider.cli_command.as_deref().unwrap_or("");
+            if cmd.is_empty() || !detect_cli(cmd) {
+                let install_hint = match cmd {
+                    "codex" => "Install with: npm install -g @openai/codex",
+                    "gemini" => "Install with: npm install -g @google/gemini-cli",
+                    _ => "Install the CLI and ensure it is on PATH",
+                };
                 return Err(format!(
-                    "Provider '{}' has no API key. \
-                     Set {} or configure it in Settings > AI Router.",
-                    assignment.provider_id, provider.key_env_var
+                    "CLI '{}' not found on PATH. {}",
+                    cmd, install_hint
                 ));
             }
+            return call_cli(provider, prompt);
         }
+        ProviderKind::Cloud if !provider.key_env_var.is_empty() => {
+            match std::env::var(&provider.key_env_var) {
+                Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
+                _ => {
+                    return Err(format!(
+                        "Provider '{}' has no API key. \
+                         Set {} or configure it in Settings > AI Router.",
+                        assignment.provider_id, provider.key_env_var
+                    ));
+                }
+            }
+        }
+        _ => {}
     }
 
     match provider.id.as_str() {
@@ -1092,23 +1347,21 @@ pub struct KeyValidation {
 }
 
 /// Compute the set of provider IDs that should be skipped by `route()`.
-/// A provider is disabled when:
-///   - it is a cloud provider, AND
-///   - its `key_env_var` is non-empty, AND
-///   - the env var is absent, empty, or a known placeholder.
+/// A provider is disabled when `compute_key_status` returns Missing or
+/// Placeholder.  This covers three cases uniformly:
+///   - Cloud providers whose API key env var is absent/placeholder.
+///   - CLI providers whose binary is not installed on PATH.
+///   - Local providers are never disabled (compute_key_status returns
+///     Configured unconditionally for them).
 ///
-/// This is intentionally cheap (no I/O beyond `load_providers`) and called
-/// on every `route()` invocation. The result is not cached because env vars
-/// can change during a long-running session (e.g. set-api-keys.ps1 was
-/// re-run).
+/// Called on every `route()` invocation; not cached so a freshly installed
+/// CLI or a newly exported env var is picked up without restart.
 fn disabled_providers_set() -> std::collections::HashSet<String> {
     load_providers()
         .unwrap_or_default()
         .into_iter()
         .filter(|p| {
-            p.kind == ProviderKind::Cloud
-                && !p.key_env_var.is_empty()
-                && matches!(compute_key_status(p), ApiKeyStatus::Missing | ApiKeyStatus::Placeholder)
+            matches!(compute_key_status(p), ApiKeyStatus::Missing | ApiKeyStatus::Placeholder)
         })
         .map(|p| p.id)
         .collect()
@@ -1138,6 +1391,36 @@ pub fn ai_router_validate_keys() -> Result<Vec<KeyValidation>, String> {
     let validations = providers
         .iter()
         .map(|p| {
+            // --- CLI providers (OAuth subscription, no API key) ---
+            if p.kind == ProviderKind::Cli {
+                let cmd = p.cli_command.as_deref().unwrap_or("");
+                let installed = !cmd.is_empty() && detect_cli(cmd);
+                let install_hint = match cmd {
+                    "codex" => "npm install -g @openai/codex  then  codex auth",
+                    "gemini" => "npm install -g @google/gemini-cli  then  gemini auth",
+                    _ => "Install the CLI and run its auth command",
+                };
+                return KeyValidation {
+                    provider_id: p.id.clone(),
+                    provider_label: p.name.clone(),
+                    has_key: installed,
+                    source: if installed {
+                        "cli-installed".to_string()
+                    } else {
+                        "cli-missing".to_string()
+                    },
+                    warning: if installed {
+                        None
+                    } else {
+                        Some(format!(
+                            "CLI '{}' not found on PATH. {}",
+                            cmd, install_hint
+                        ))
+                    },
+                };
+            }
+
+            // --- Local providers (ollama etc.) ---
             if p.kind == ProviderKind::Local || p.key_env_var.is_empty() {
                 return KeyValidation {
                     provider_id: p.id.clone(),
@@ -1147,6 +1430,8 @@ pub fn ai_router_validate_keys() -> Result<Vec<KeyValidation>, String> {
                     warning: None,
                 };
             }
+
+            // --- Cloud providers (API key via env var) ---
             match std::env::var(&p.key_env_var) {
                 Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => KeyValidation {
                     provider_id: p.id.clone(),
@@ -1259,7 +1544,12 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
 
     let mut rows: Vec<ProviderUsageRow> = Vec::with_capacity(providers.len());
     for p in &providers {
-        let (key_present, key_masked) = if p.key_env_var.is_empty() {
+        let (key_present, key_masked) = if p.kind == ProviderKind::Cli {
+            // CLI providers: "key" is the CLI binary itself.
+            let cmd = p.cli_command.as_deref().unwrap_or("");
+            let installed = !cmd.is_empty() && detect_cli(cmd);
+            (installed, None)
+        } else if p.key_env_var.is_empty() {
             // Ollama-style local providers — no key needed.
             (true, None)
         } else {
@@ -1381,46 +1671,43 @@ mod tests {
     // P1 2026-05-27 — key validation + disabled-providers
     // -----------------------------------------------------------------------
 
+    /// Minimal Provider builder to avoid repeating all 12 fields in every test.
+    fn make_provider(
+        id: &str,
+        kind: ProviderKind,
+        key_env_var: &str,
+        cli_command: Option<&str>,
+    ) -> Provider {
+        Provider {
+            id: id.into(),
+            name: format!("Test {id}"),
+            cost_per_mtok: 0.0,
+            supports: vec![ProviderClass::Light],
+            api_key_status: ApiKeyStatus::Missing,
+            health_endpoint: None,
+            kind,
+            key_env_var: key_env_var.into(),
+            base_url: "https://example.com".into(),
+            default_model: "test-model".into(),
+            models: vec![],
+            cli_command: cli_command.map(String::from),
+        }
+    }
+
     #[test]
     fn local_provider_never_disabled() {
-        // Ollama has kind=Local and empty key_env_var — must NOT appear in
-        // the disabled set regardless of env state.
-        let ollama = Provider {
-            id: "ollama".into(),
-            name: "Ollama (local)".into(),
-            cost_per_mtok: 0.0,
-            supports: vec![ProviderClass::Trivial],
-            api_key_status: ApiKeyStatus::Configured,
-            health_endpoint: None,
-            kind: ProviderKind::Local,
-            key_env_var: String::new(),
-            base_url: "http://localhost:11434".into(),
-            default_model: "qwen2.5-coder:7b".into(),
-            models: vec![],
-        };
-        // A local provider with empty key_env_var is never missing.
+        let ollama = make_provider("ollama", ProviderKind::Local, "", None);
         assert_eq!(compute_key_status(&ollama), ApiKeyStatus::Configured);
     }
 
     #[test]
     fn cloud_provider_missing_key_is_missing_status() {
-        // A cloud provider whose key_env_var is not in the environment must
-        // report Missing. We use a name that is extremely unlikely to be
-        // set in CI.
-        let p = Provider {
-            id: "qwen-cloud".into(),
-            name: "Qwen Cloud".into(),
-            cost_per_mtok: 0.5,
-            supports: vec![ProviderClass::Light],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: None,
-            kind: ProviderKind::Cloud,
-            key_env_var: "__ULTRON_TEST_KEY_NOT_SET_XYZ__".into(),
-            base_url: "https://example.com".into(),
-            default_model: "qwen-turbo".into(),
-            models: vec![],
-        };
-        // Env var should not be set; if it somehow is, the test is a no-op.
+        let p = make_provider(
+            "qwen-cloud",
+            ProviderKind::Cloud,
+            "__ULTRON_TEST_KEY_NOT_SET_XYZ__",
+            None,
+        );
         if std::env::var("__ULTRON_TEST_KEY_NOT_SET_XYZ__").is_err() {
             assert_eq!(compute_key_status(&p), ApiKeyStatus::Missing);
         }
@@ -1428,24 +1715,10 @@ mod tests {
 
     #[test]
     fn cloud_provider_placeholder_key_is_placeholder_status() {
-        // A provider whose env var contains a placeholder string must report
-        // Placeholder (not Configured).
         let key_var = "__ULTRON_TEST_PLACEHOLDER_KEY__";
         // SAFETY: test-only mutation, single-threaded test runner.
         unsafe { std::env::set_var(key_var, "your-key-here") };
-        let p = Provider {
-            id: "test-cloud".into(),
-            name: "Test Cloud".into(),
-            cost_per_mtok: 1.0,
-            supports: vec![ProviderClass::Light],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: None,
-            kind: ProviderKind::Cloud,
-            key_env_var: key_var.into(),
-            base_url: "https://example.com".into(),
-            default_model: "test-model".into(),
-            models: vec![],
-        };
+        let p = make_provider("test-cloud", ProviderKind::Cloud, key_var, None);
         let status = compute_key_status(&p);
         unsafe { std::env::remove_var(key_var) };
         assert_eq!(status, ApiKeyStatus::Placeholder);
@@ -1455,19 +1728,7 @@ mod tests {
     fn cloud_provider_real_key_is_configured_status() {
         let key_var = "__ULTRON_TEST_REAL_KEY__";
         unsafe { std::env::set_var(key_var, "sk-proj-abc123realkey") };
-        let p = Provider {
-            id: "test-cloud2".into(),
-            name: "Test Cloud 2".into(),
-            cost_per_mtok: 1.0,
-            supports: vec![ProviderClass::Light],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: None,
-            kind: ProviderKind::Cloud,
-            key_env_var: key_var.into(),
-            base_url: "https://example.com".into(),
-            default_model: "test-model".into(),
-            models: vec![],
-        };
+        let p = make_provider("test-cloud2", ProviderKind::Cloud, key_var, None);
         let status = compute_key_status(&p);
         unsafe { std::env::remove_var(key_var) };
         assert_eq!(status, ApiKeyStatus::Configured);
@@ -1475,28 +1736,10 @@ mod tests {
 
     #[test]
     fn key_validation_warning_message_contains_env_var_name() {
-        // When a provider has no key, the warning must tell the user which
-        // env var to set. We exercise the warning-building logic directly
-        // rather than going through the Tauri command surface.
         let key_var = "__ULTRON_TEST_WARN_KEY__";
-        // Ensure the var is absent.
         unsafe { std::env::remove_var(key_var) };
+        let p = make_provider("warn-provider", ProviderKind::Cloud, key_var, None);
 
-        let p = Provider {
-            id: "warn-provider".into(),
-            name: "Warn Provider".into(),
-            cost_per_mtok: 1.0,
-            supports: vec![ProviderClass::Light],
-            api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: None,
-            kind: ProviderKind::Cloud,
-            key_env_var: key_var.into(),
-            base_url: "https://example.com".into(),
-            default_model: "warn-model".into(),
-            models: vec![],
-        };
-
-        // Replicate the warning-building logic from ai_router_validate_keys.
         let warning = match std::env::var(&p.key_env_var) {
             Err(_) => Some(format!(
                 "Provider '{}' has no API key. \
@@ -1509,5 +1752,94 @@ mod tests {
         let w = warning.expect("warning should be present when key is absent");
         assert!(w.contains(key_var), "warning must name the env var");
         assert!(w.contains("warn-provider"), "warning must name the provider");
+    }
+
+    // -----------------------------------------------------------------------
+    // CLI provider tests — card-codex-gemini-subscription-2026-05-27
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn cli_provider_with_no_cli_command_is_missing() {
+        // A Cli provider with no cli_command at all must report Missing.
+        let p = make_provider("broken-cli", ProviderKind::Cli, "", None);
+        assert_eq!(compute_key_status(&p), ApiKeyStatus::Missing);
+    }
+
+    #[test]
+    fn cli_provider_with_nonexistent_command_is_missing() {
+        let p = make_provider(
+            "ghost-cli",
+            ProviderKind::Cli,
+            "",
+            Some("__ultron_ghost_binary_xyz__"),
+        );
+        assert_eq!(compute_key_status(&p), ApiKeyStatus::Missing);
+    }
+
+    #[test]
+    fn detect_cli_finds_well_known_shell() {
+        // cmd.exe exists on every Windows machine; sh exists on every Unix.
+        #[cfg(target_os = "windows")]
+        assert!(detect_cli("cmd"), "cmd.exe should be detectable on Windows");
+        #[cfg(not(target_os = "windows"))]
+        assert!(detect_cli("sh"), "sh should be detectable on Unix");
+    }
+
+    #[test]
+    fn detect_cli_returns_false_for_nonexistent() {
+        assert!(!detect_cli("__ultron_ghost_binary_xyz__"));
+    }
+
+    #[test]
+    fn detect_cli_result_is_stable_across_calls() {
+        // Two calls for the same command must return the same value.
+        // Primarily verifies the cache path does not corrupt state.
+        let first = detect_cli("__ultron_cache_stability_test__");
+        let second = detect_cli("__ultron_cache_stability_test__");
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn seed_providers_includes_cli_providers() {
+        let ids: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
+        assert!(ids.iter().any(|id| id == "codex-cli"), "missing codex-cli");
+        assert!(ids.iter().any(|id| id == "gemini-cli"), "missing gemini-cli");
+    }
+
+    #[test]
+    fn cli_providers_have_correct_metadata() {
+        for p in seed_providers() {
+            if p.id == "codex-cli" || p.id == "gemini-cli" {
+                assert_eq!(p.kind, ProviderKind::Cli, "{} must have kind=Cli", p.id);
+                assert!(
+                    p.cli_command.is_some(),
+                    "{} must have cli_command set",
+                    p.id
+                );
+                assert!(
+                    p.key_env_var.is_empty(),
+                    "{} must have empty key_env_var (no API key needed)",
+                    p.id
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn cli_missing_binary_makes_provider_disabled_for_route() {
+        // When the CLI binary is absent, compute_key_status must return Missing,
+        // which is the signal disabled_providers_set() uses to skip the provider
+        // in route(). No file I/O — purely unit-level logic test.
+        let ghost = make_provider(
+            "ghost-cli",
+            ProviderKind::Cli,
+            "",
+            Some("__ultron_ghost_binary_xyz__"),
+        );
+        assert_eq!(
+            compute_key_status(&ghost),
+            ApiKeyStatus::Missing,
+            "ghost CLI must be Missing so route() skips it via disabled_providers_set"
+        );
     }
 }

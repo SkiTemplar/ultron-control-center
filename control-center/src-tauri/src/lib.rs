@@ -29,6 +29,7 @@ mod claude_sessions;
 mod commands_registry;
 mod codex_fallback;
 mod cost_watchdog;
+mod quota_watchdog;
 mod ecc_memory;
 mod features;
 mod hooks_admin;
@@ -74,6 +75,9 @@ mod tray;
 mod update_checker;
 mod usage;
 mod workdays;
+mod decisions;
+mod workflow_loader;
+mod workflow_runs;
 
 mod commands;
 
@@ -463,6 +467,13 @@ pub fn run() {
             commands::library::list_skill_files,
             // v2.9.5: AI-driven install (P1 Library>Catalog)
             commands::library::library_install_via_ai,
+            // -- decision registry (KIRKARDO 24) --
+            commands::decisions::decisions_add,
+            commands::decisions::decisions_update,
+            commands::decisions::decisions_list,
+            commands::decisions::decisions_delete,
+            commands::decisions::decisions_search,
+            commands::decisions::kanban_decisions_search,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
             commands::kanban::kanban_save,
@@ -521,6 +532,15 @@ pub fn run() {
             // P1 2026-05-27: key-aware routing — validate keys + disabled list
             ai_router::ai_router_validate_keys,
             ai_router::ai_router_disabled_providers,
+            // -- quota watchdog (P0 2026-05-27 — 98% auto-fallback) --
+            quota_watchdog::quota_get_status,
+            quota_watchdog::quota_force_reset,
+            quota_watchdog::quota_simulate_critical,
+            // -- workflow YAML composability + SQLite run history (KIRKARDO 23 P2) --
+            commands::workflows::workflow_record_run,
+            commands::workflows::workflow_update_run,
+            commands::workflows::workflow_get_runs,
+            commands::workflows::workflow_load_user_defined,
         ])
         .setup(|app| {
             // P4 migration: ensure every known project has a kanban.json.
@@ -538,6 +558,15 @@ pub fn run() {
             // the workday-session-linker hook when the Control Center was
             // offline. Idempotent and silent on a clean state.
             crate::workdays::drain_pending_links_at_startup();
+
+            // KIRKARDO 23 P2: initialise the workflow-runs SQLite DB (WAL +
+            // indices). Idempotent — no-op when table already exists.
+            if let Err(e) = crate::workflow_runs::init_db() {
+                eprintln!("[ultron] workflow_runs init_db failed: {e}");
+            }
+
+            // KIRKARDO 23 P2: migrate legacy workflows-old.json → YAML if present.
+            crate::workflow_loader::migrate_legacy_json_if_present();
 
             // Persisted main toggle hotkey (Ctrl+Alt+U by default).
             let shortcut_handle = app.global_shortcut();
@@ -567,6 +596,11 @@ pub fn run() {
             if let Err(e) = tray::init_tray(app.handle()) {
                 eprintln!("[ultron] tray init failed: {}", e);
             }
+
+            // Quota watchdog — polls quota-state.json every 60 s and emits
+            // quota:updated / quota:critical / quota:reset events so the
+            // frontend can update the Usage quota card and Sidebar dot.
+            quota_watchdog::init(app.handle().clone());
 
             // v15.4.2 — fire a startup update check. We spawn it on a
             // background thread + sleep 6s so the webview has time to

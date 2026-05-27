@@ -526,6 +526,241 @@ function SubscriptionLimitCard({ onOpen, busy }: { onOpen: () => void; busy: boo
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Quota Status Card (P0 2026-05-27 — 98% auto-fallback)
+// ---------------------------------------------------------------------------
+
+type QuotaStatus = {
+  claude_pct_used: number;
+  claude_critical: boolean;
+  reset_at: string | null;
+  last_check: string;
+};
+
+function useQuotaStatus() {
+  const [status, setStatus] = useState<QuotaStatus | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = (await invoke("quota_get_status")) as QuotaStatus;
+      setStatus(s);
+    } catch {
+      // Watchdog not registered yet.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const t = setInterval(() => void refresh(), 30_000);
+    return () => clearInterval(t);
+  }, [refresh]);
+
+  useEffect(() => {
+    let u1: (() => void) | null = null;
+    let u2: (() => void) | null = null;
+    let u3: (() => void) | null = null;
+
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen<QuotaStatus>("quota:updated", (e) => setStatus(e.payload)).then(
+        (u) => { u1 = u; }
+      );
+      listen<QuotaStatus>("quota:critical", (e) => setStatus(e.payload)).then(
+        (u) => { u2 = u; }
+      );
+      listen<QuotaStatus>("quota:reset", (e) => setStatus(e.payload)).then(
+        (u) => { u3 = u; }
+      );
+    });
+
+    return () => { u1?.(); u2?.(); u3?.(); };
+  }, []);
+
+  return { status, refresh };
+}
+
+function QuotaGauge({ pct, critical }: { pct: number; critical: boolean }) {
+  const color = critical
+    ? "var(--color-danger)"
+    : pct >= 80
+      ? "var(--color-warn)"
+      : "var(--color-success)";
+  return (
+    <div
+      className="mt-2 h-2 w-full overflow-hidden rounded-full"
+      style={{ background: "var(--color-surface-3)" }}
+      title={`${pct.toFixed(1)}% used`}
+    >
+      <div
+        className="h-full rounded-full transition-all duration-500"
+        style={{ width: `${Math.min(100, pct)}%`, background: color }}
+      />
+    </div>
+  );
+}
+
+function QuotaStatusCard() {
+  const { status, refresh } = useQuotaStatus();
+  const [simBusy, setSimBusy] = useState(false);
+  const [resetBusy, setResetBusy] = useState(false);
+
+  async function handleForceReset() {
+    setResetBusy(true);
+    try {
+      await invoke("quota_force_reset");
+      await refresh();
+    } finally {
+      setResetBusy(false);
+    }
+  }
+
+  async function handleSimulate(pct: number) {
+    setSimBusy(true);
+    try {
+      await invoke("quota_simulate_critical", { pct });
+      await refresh();
+    } finally {
+      setSimBusy(false);
+    }
+  }
+
+  const pct = status?.claude_pct_used ?? 0;
+  const critical = status?.claude_critical ?? false;
+  const resetAt = status?.reset_at ? new Date(status.reset_at) : null;
+
+  const statusColor = critical
+    ? "var(--color-danger)"
+    : pct >= 80
+      ? "var(--color-warn)"
+      : "var(--color-success)";
+
+  const statusLabel = critical
+    ? "CRITICAL — fallback activo"
+    : pct >= 80
+      ? "Advertencia"
+      : "Normal";
+
+  const resetLabel = resetAt
+    ? resetAt.toLocaleString(undefined, {
+        weekday: "short",
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div
+      className="mb-6 rounded p-4"
+      style={{
+        background: critical ? "rgba(248,81,73,0.06)" : "var(--color-surface-2)",
+        border: critical
+          ? "1px solid rgba(248,81,73,0.35)"
+          : "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-baseline justify-between gap-3">
+        <div
+          className="text-[10px] font-medium uppercase tracking-[0.06em]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Quota Claude (suscripción)
+        </div>
+        <span className="text-[10px] font-semibold" style={{ color: statusColor }}>
+          {statusLabel}
+        </span>
+      </div>
+
+      <div className="mt-2 flex items-baseline justify-between gap-3">
+        <div
+          className="text-[22px] font-semibold tabular-nums leading-tight"
+          style={{ color: statusColor }}
+        >
+          {pct.toFixed(1)}
+          <span
+            className="ml-0.5 text-[13px] font-normal"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            %
+          </span>
+        </div>
+        {resetLabel && (
+          <div className="text-right text-[11px]" style={{ color: "var(--color-text-tertiary)" }}>
+            <div className="text-[9px] uppercase tracking-wide">Reset</div>
+            {resetLabel}
+          </div>
+        )}
+      </div>
+
+      <QuotaGauge pct={pct} critical={critical} />
+
+      {critical && (
+        <div
+          className="mt-3 rounded p-2.5 text-[11.5px]"
+          style={{
+            background: "rgba(248,81,73,0.08)",
+            border: "1px solid rgba(248,81,73,0.2)",
+            color: "var(--color-danger)",
+          }}
+        >
+          AI Router saltando proveedores Claude. Usando fallbacks (Groq / DeepSeek
+          / Gemini / Ollama). Cuando los tokens se renueven pulsa «Reset manual»
+          o espera el ciclo automático (60 s).
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        {critical && (
+          <button
+            type="button"
+            onClick={handleForceReset}
+            disabled={resetBusy}
+            className="rounded px-3 py-1 text-[11px] font-medium transition-colors disabled:opacity-50"
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
+          >
+            {resetBusy ? "Reseteando…" : "Reset manual"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => void handleSimulate(99.0)}
+          disabled={simBusy}
+          className="rounded px-2.5 py-1 text-[10.5px] transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text-faint)",
+            border: "1px solid var(--color-border)",
+          }}
+          title="Simular estado crítico (testing)"
+        >
+          Sim 99%
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleSimulate(10.0)}
+          disabled={simBusy}
+          className="rounded px-2.5 py-1 text-[10.5px] transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text-faint)",
+            border: "1px solid var(--color-border)",
+          }}
+          title="Limpiar simulación"
+        >
+          Sim 10%
+        </button>
+        <span
+          className="ml-auto text-[9.5px] tabular-nums"
+          style={{ color: "var(--color-text-faint)" }}
+        >
+          {status ? new Date(status.last_check).toLocaleTimeString() : "—"}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // AI Router — Fallback-rate gauge
 // ---------------------------------------------------------------------------
@@ -616,7 +851,58 @@ function ZoneChip({
   );
 }
 
-function KeyBadge({ present, masked }: { present: boolean; masked: string | null }) {
+function KeyBadge({
+  present,
+  masked,
+  source,
+}: {
+  present: boolean;
+  masked: string | null;
+  /** Optional: drives CLI-specific badge text. Absent for legacy rows. */
+  source?: string;
+}) {
+  // --- CLI providers: binary-presence badge instead of API-key badge ---
+  if (source === "cli-installed") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-medium leading-none"
+        style={{
+          background: "rgba(46,160,67,0.12)",
+          border: "1px solid rgba(46,160,67,0.3)",
+          color: "#3fb950",
+        }}
+        title="CLI installed and available on PATH"
+      >
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ background: "#3fb950" }}
+        />
+        CLI OK
+      </span>
+    );
+  }
+  if (source === "cli-missing") {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-medium leading-none"
+        style={{
+          background: "rgba(248,81,73,0.10)",
+          border: "1px solid rgba(248,81,73,0.28)",
+          color: "#f85149",
+          fontFamily: "var(--font-mono, monospace)",
+        }}
+        title="CLI not found on PATH — install and run auth"
+      >
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ background: "#f85149" }}
+        />
+        CLI missing
+      </span>
+    );
+  }
+
+  // --- Cloud providers: API-key badge ---
   if (present && masked) {
     return (
       <span
@@ -696,7 +982,19 @@ function ProviderRow({ p }: { p: ProviderUsageRow }) {
           >
             {p.provider_label}
           </span>
-          <KeyBadge present={p.key_present} masked={p.key_masked} />
+          <KeyBadge
+            present={p.key_present}
+            masked={p.key_masked}
+            source={
+              // CLI providers have no key_env_var and their id ends in "-cli".
+              // Derive the badge source without a second API call.
+              p.key_env_var === "" && p.provider_id.endsWith("-cli")
+                ? p.key_present
+                  ? "cli-installed"
+                  : "cli-missing"
+                : undefined
+            }
+          />
           {p.key_env_var && (
             <span
               className="text-[9.5px]"
@@ -1106,6 +1404,9 @@ export function Usage() {
       )}
 
       <SubscriptionLimitCard onOpen={openClaudeUsage} busy={usageBusy} />
+
+      {/* Quota 98% auto-fallback status card (P0 2026-05-27) */}
+      <QuotaStatusCard />
 
       {/* Cache freshness warning */}
       {data && data.cache_age_days !== null && data.cache_age_days > 1 && (

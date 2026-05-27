@@ -299,6 +299,15 @@ export type UsageReport = {
 // Mirrors `ai_router::ProviderUsageRow` and `ai_router::UsageSummary` in Rust.
 // ---------------------------------------------------------------------------
 
+/** How a provider authenticates. CLI providers use "cli-installed" or
+ *  "cli-missing" instead of the API-key sources "env" / "none" / "local". */
+export type ProviderKeySource =
+  | "env"
+  | "local"
+  | "none"
+  | "cli-installed"
+  | "cli-missing";
+
 export type ProviderUsageRow = {
   provider_id: string;
   provider_label: string;
@@ -866,6 +875,50 @@ export type TimelineEvent = {
   detail: string | null;
   /** Optional reference id for click-through (card_id, session_id, ...). */
   ref_id: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Decision Registry (KIRKARDO 24)
+// ---------------------------------------------------------------------------
+
+export type DecisionStatus = "proposed" | "accepted" | "superseded" | "rejected";
+
+export type DecisionRecord = {
+  id: string;
+  project_id: string;
+  /** Short title — the "what was decided" */
+  decision: string;
+  /** The reasoning */
+  rationale: string;
+  alternatives_considered: string[];
+  /** "epoch:<secs>" */
+  date: string;
+  status: DecisionStatus;
+  supersedes_id: string | null;
+  context_urls: string[];
+  author: string | null;
+  tags: string[];
+};
+
+export type DecisionPayload = {
+  decision: string;
+  rationale: string;
+  alternatives_considered?: string[];
+  status?: DecisionStatus;
+  supersedes_id?: string | null;
+  context_urls?: string[];
+  author?: string | null;
+  tags?: string[];
+};
+
+export type DecisionPatch = Partial<DecisionPayload> & {
+  supersedes_id?: string | null;
+  author?: string | null;
+};
+
+export type DecisionSearchResult = {
+  record: DecisionRecord;
+  score: number;
 };
 
 // ---------------------------------------------------------------------------

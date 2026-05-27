@@ -76,5 +76,31 @@
     "base_url": "https://api.deepseek.com",
     "default_model": "deepseek-coder",
     "models": ["deepseek-coder", "deepseek-chat"]
+  },
+  {
+    "id": "codex-cli",
+    "name": "OpenAI Codex CLI (gpt-5 via OAuth)",
+    "cost_per_mtok": 0.0,
+    "supports": ["light", "medium", "heavy"],
+    "api_key_status": "configured",
+    "kind": "cli",
+    "key_env_var": "",
+    "base_url": "",
+    "default_model": "gpt-5",
+    "models": ["gpt-5"],
+    "cli_command": "codex"
+  },
+  {
+    "id": "gemini-cli",
+    "name": "Google Gemini CLI (gemini-2.5-flash via OAuth)",
+    "cost_per_mtok": 0.0,
+    "supports": ["trivial", "light", "medium", "heavy"],
+    "api_key_status": "configured",
+    "kind": "cli",
+    "key_env_var": "",
+    "base_url": "",
+    "default_model": "gemini-2.5-flash",
+    "models": ["gemini-2.5-flash"],
+    "cli_command": "gemini"
   }
 ]

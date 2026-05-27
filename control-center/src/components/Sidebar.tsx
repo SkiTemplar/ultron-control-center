@@ -214,6 +214,80 @@ function SidebarButton({
   );
 }
 
+
+// ---------------------------------------------------------------------------
+// Quota dot — listens to quota:updated / quota:critical / quota:reset events
+// and renders a colored indicator in the Sidebar footer next to the global
+// status. Green < 80 %, amber 80-98 %, red >= 98 % (critical).
+// ---------------------------------------------------------------------------
+
+type QuotaDotStatus = {
+  claude_pct_used: number;
+  claude_critical: boolean;
+};
+
+function useQuotaDot(): QuotaDotStatus {
+  const [quota, setQuota] = useState<QuotaDotStatus>({
+    claude_pct_used: 0,
+    claude_critical: false,
+  });
+
+  useEffect(() => {
+    // Fetch initial state.
+    import("@tauri-apps/api/core").then(({ invoke }) => {
+      invoke<QuotaDotStatus>("quota_get_status")
+        .then((s) => setQuota({ claude_pct_used: s.claude_pct_used, claude_critical: s.claude_critical }))
+        .catch(() => {/* watchdog not yet registered */});
+    });
+  }, []);
+
+  useEffect(() => {
+    let u1: (() => void) | null = null;
+    let u2: (() => void) | null = null;
+    let u3: (() => void) | null = null;
+
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      const handler = (e: { payload: QuotaDotStatus }) =>
+        setQuota({ claude_pct_used: e.payload.claude_pct_used, claude_critical: e.payload.claude_critical });
+      listen<QuotaDotStatus>("quota:updated", handler).then((u) => { u1 = u; });
+      listen<QuotaDotStatus>("quota:critical", handler).then((u) => { u2 = u; });
+      listen<QuotaDotStatus>("quota:reset", handler).then((u) => { u3 = u; });
+    });
+
+    return () => { u1?.(); u2?.(); u3?.(); };
+  }, []);
+
+  return quota;
+}
+
+function QuotaDot() {
+  const { claude_pct_used: pct, claude_critical: critical } = useQuotaDot();
+
+  const color = critical
+    ? "var(--color-danger)"
+    : pct >= 80
+      ? "var(--color-warn)"
+      : "var(--color-success)";
+
+  const label = critical
+    ? `Claude quota CRITICAL (${pct.toFixed(0)}%) — fallback activo`
+    : `Claude quota: ${pct.toFixed(0)}%`;
+
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] tabular-nums"
+      style={{ color: "var(--color-text-faint)" }}
+      title={label}
+    >
+      <span
+        className="inline-block h-1.5 w-1.5 rounded-full"
+        style={{ background: color, flexShrink: 0 }}
+      />
+      {pct.toFixed(0)}%
+    </span>
+  );
+}
+
 export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBack }: Props) {
   const { features } = useFeatures();
   const [moreOpen, setMoreOpen] = useState<boolean>(loadMoreOpen());
@@ -423,6 +497,10 @@ export function Sidebar({ active, onSelect, globalStatus, lastProjectCtx, onGoBa
         />
         <span style={{ color: "var(--color-text-secondary)" }}>
           {statusLabel(globalStatus)}
+        </span>
+        {/* Quota dot — green/amber/red reflecting Claude subscription usage */}
+        <span className="ml-auto">
+          <QuotaDot />
         </span>
       </div>
 

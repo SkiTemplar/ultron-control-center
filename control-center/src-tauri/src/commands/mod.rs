@@ -1,71 +1,104 @@
 // ULTRON Control Center — Tauri commands
 //
-// v15.4 architectural split: `lib.rs` used to host every `#[tauri::command]`
-// wrapper inline (1668 LOC). Each command was a thin delegation to a
-// `domain::*_inner` function living in the sibling modules. The wrappers are
-// now grouped by domain in this directory; `lib.rs` only owns the runtime
-// plumbing (plugins, hotkey registration, tray setup) plus the
-// `generate_handler!` invocation. Domain modules under `crate::*` remain
-// unchanged — their `*_inner` API is the contract this layer consumes.
+// Sub-directory layout (post-reorganisation):
+//
+//   batches_sub/   — .bat/.ps1 runner, OpenGL scaffolder, project detach/reattach
+//   kanban_sub/    — Kanban board CRUD + archive
+//   library/       — GitHub search/install, curated catalog, plugins, skills
+//   memory/        — Mem0, KG editor, ECC, recall, memory status, memory graph
+//   misc_sub/      — Root helpers, alerts, MCPs, hotkeys, external editor, slash cmds
+//   notes_sub/     — Per-project notes, global notes, inbox, button prompts
+//   projects/      — Project CRUD, launcher, CLAUDE.md, agent roster
+//   sessions_sub/  — Claude session spawn, PTY, tabs, terminal layout, timeline
+//   system_ops/    — Scheduled tasks, apps, diagnostics, event log, settings, lifecycle
+//   workdays_sub/  — Workday CRUD, goals, templates, auto-surface
+//   workflows/     — Hooks, plans, rules, maintenance,
+//                    workflow_runs (YAML composability + SQLite history, KIRKARDO 23 P2)
+//   decisions.rs   — Decision log CRUD
 //
 // Adding a new command:
-//   1. Add the `#[tauri::command]` wrapper to the matching `commands/<group>.rs`
-//      (create a new group only if no existing one fits).
-//   2. Re-export it via `pub use` below.
-//   3. Reference it from `generate_handler!` in `lib.rs` using the short name.
-//
-// TODO(v15.5): wire `tauri-specta` here to auto-generate
-// `frontend/src/lib/bindings.ts` from these signatures.
+//   1. Add the `#[tauri::command]` wrapper inside the appropriate sub-directory.
+//   2. Register it via `pub mod` + `pub use …::*` in the sub-directory's mod.rs.
+//   3. Reference it from `generate_handler!` in `lib.rs` using
+//      `commands::<sub_dir>::<fn_name>`.
 
-pub mod agents;
-pub mod alerts;
-pub mod apps;
-pub mod batches;
-pub mod button_prompts;
-pub mod commands_registry;
-pub mod detach;
-pub mod diagnostics_native;
-pub mod ecc_memory;
-pub mod event_log;
-pub mod external_editor;
-pub mod hooks;
-pub mod hotkeys;
-pub mod inbox;
-pub mod kanban;
-pub mod kg;
+pub mod batches_sub;
+pub mod decisions;
+pub mod kanban_sub;
 pub mod library;
-pub mod lifecycle;
-pub mod maintenance;
-pub mod mcps;
-pub mod mem0;
-pub mod memory_status;
-pub mod misc;
-pub mod notes;
-pub mod opengl_project;
-pub mod plans;
-pub mod plugins_info;
+pub mod memory;
+pub mod misc_sub;
+pub mod notes_sub;
 pub mod projects;
-pub mod pty;
-pub mod recall;
-pub mod rules;
-pub mod sessions;
-pub mod settings;
-pub mod skills;
-pub mod system;
-pub mod tabs;
-pub mod terminal_layout;
-pub mod timeline;
-pub mod workdays;
+pub mod sessions_sub;
+pub mod system_ops;
+pub mod workdays_sub;
+pub mod workflows;
+
+// ---------------------------------------------------------------------------
+// Flat re-exports — `lib.rs` references commands via the old flat paths
+// (e.g. `commands::agents::list_agents`).  The re-exports below preserve
+// those call sites by delegating to the new sub-directory modules.
+// ---------------------------------------------------------------------------
+
+pub use batches_sub::batches;
+pub use batches_sub::detach;
+pub use batches_sub::opengl_project;
+
+pub use kanban_sub::kanban;
+
+// `library` sub-dir module already exposed via `pub mod library` above;
+// re-exporting its inner `library` sub-module would shadow the name.
+pub use library::plugins_info;
+pub use library::skills;
+
+pub use memory::ecc_memory;
+pub use memory::kg;
+pub use memory::mem0;
+pub use memory::memory_graph;
+pub use memory::memory_status;
+pub use memory::recall;
+
+pub use misc_sub::alerts;
+pub use misc_sub::external_editor;
+pub use misc_sub::hotkeys;
+pub use misc_sub::mcps;
+pub use misc_sub::misc;
+// `commands_registry` was renamed `slash_commands` in the sub-dir refactor;
+// expose the old name for backward compat with `lib.rs` call sites.
+pub use misc_sub::slash_commands as commands_registry;
+
+pub use notes_sub::button_prompts;
+pub use notes_sub::inbox;
+pub use notes_sub::notes;
+
+pub use projects::agents;
+// `projects` sub-dir module already exposed via `pub mod projects` above.
+
+pub use sessions_sub::pty;
+pub use sessions_sub::sessions;
+pub use sessions_sub::tabs;
+pub use sessions_sub::terminal_layout;
+pub use sessions_sub::timeline;
+
+pub use system_ops::apps;
+pub use system_ops::diagnostics_native;
+pub use system_ops::event_log;
+pub use system_ops::lifecycle;
+pub use system_ops::settings;
+pub use system_ops::system;
+
+pub use workdays_sub::workdays;
+
+pub use workflows::hooks;
+pub use workflows::maintenance;
+pub use workflows::plans;
+pub use workflows::rules;
+// workflow_runs sub-module is accessed via commands::workflows::workflow_* in generate_handler!
 
 // ---------------------------------------------------------------------------
 // Shared command-level helpers
 // ---------------------------------------------------------------------------
-//
-// v2.7.2: removed the legacy `CmdResult` envelope — it was declared here when
-// the command modules were split out of `lib.rs` but never wired up; each
-// domain module returns its own structured result type now. If we ever need
-// a generic stdout/stderr/exit envelope again, reintroduce it next to the
-// command that actually needs it rather than as a shared dead struct.
 
 /// Reads the last `limit` non-empty lines of a JSONL file, parsed as `T`, in
 /// newest-first order. Malformed lines are silently skipped — `alerts.jsonl`
