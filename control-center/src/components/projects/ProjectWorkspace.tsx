@@ -124,10 +124,10 @@ function TabBadge({ count }: { count: number | null }) {
 }
 
 const TABS: { id: ProjectSubTab; label: string; Icon: ComponentType<{ size?: number }> }[] = [
-  // v2.9.8: Jarvis is the default landing — pick an intent (fix / new feature /
+  // v2.9.8: Ultron is the default landing — pick an intent (fix / new feature /
   // recall / multi-agent team / free / research) and the rest of the workspace
   // becomes contextual. The legacy sub-tabs remain accessible.
-  { id: "jarvis", label: "Jarvis", Icon: Sparkles },
+  { id: "jarvis", label: "Ultron", Icon: Sparkles },
   { id: "board", label: "Board", Icon: Kanban },
   { id: "terminal", label: "Terminal", Icon: TerminalIcon },
   { id: "agents", label: "Agents", Icon: Bot },
@@ -445,9 +445,9 @@ export default function ProjectWorkspace({ projectId }: Props) {
             projectPath={meta?.terminalCwd ?? null}
             projectName={meta?.name ?? projectId}
             onIntentSelected={(intent: JarvisIntent) => {
-              // For PTY-based intents, switch to Terminal — the user can paste
-              // intent.initial_prompt into a fresh Claude session. Multi-agent
-              // workflow intents will route to a dispatch UI in a later sprint.
+              // Para intents PTY, cambia a Terminal — el usuario puede pegar
+              // intent.initial_prompt en una sesión Claude embebida. Los intents
+              // de tipo workflow se rutearán a un dispatch UI en un sprint futuro.
               setSubTab("terminal");
               // Stash the intent in sessionStorage so ProjectTerminal can pick
               // it up when it spawns a new tab.

@@ -235,7 +235,6 @@ export default function ProjectContext({
   const [mdContent, setMdContent] = useState("");
   const [mdDirty, setMdDirty] = useState(false);
   const [mdSaving, setMdSaving] = useState(false);
-  const [mdCreating, setMdCreating] = useState(false);
 
   // Collapse state — all open by default
   const [openSections, setOpenSections] = useState({
@@ -297,31 +296,14 @@ export default function ProjectContext({
     }
   }, [projectPath, payload?.claude_md_path, mdContent]);
 
-  const createMd = useCallback(async () => {
-    setMdCreating(true);
-    try {
-      const content = (await invoke("project_create_claude_md", {
-        projectPath,
-        projectName,
-      })) as string;
-      setMdContent(content);
-      setMdDirty(false);
-      // Reload to get the detected path
-      await load();
-    } catch (e) {
-      setLoadError(String(e));
-    } finally {
-      setMdCreating(false);
-    }
-  }, [projectPath, projectName, load]);
-
   const toggleSection = (key: keyof typeof openSections) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
   const openInIde = useCallback(() => {
     if (!payload?.claude_md_path) return;
-    void invoke("open_in_vscode", { path: payload.claude_md_path });
+    // open_in_vscode espera folder_path + file_path (ver external_editor.rs)
+    void invoke("open_in_vscode", { folderPath: "", filePath: payload.claude_md_path });
   }, [payload?.claude_md_path]);
 
   // ---------------------------------------------------------------------------
@@ -404,65 +386,48 @@ export default function ProjectContext({
             </section>
           )}
 
-          {/* ── CLAUDE.md ── */}
-          <section className="border-b border-[var(--color-border)]">
-            <SectionHeader
-              title="CLAUDE.md"
-              open={openSections.claudeMd}
-              onToggle={() => toggleSection("claudeMd")}
-              actions={
-                <>
-                  {payload.claude_md !== null && (
-                    <>
-                      <button
-                        onClick={openInIde}
-                        className="rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-2 py-0.5 text-[10px] hover:bg-[var(--color-surface-1)]"
-                        title={`Abrir en IDE: ${payload.claude_md_path ?? ""}`}
-                      >
-                        Editar en IDE
-                      </button>
-                      <button
-                        onClick={() => void saveMd()}
-                        disabled={!mdDirty || mdSaving}
-                        className="flex items-center gap-1 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/20 px-2 py-0.5 text-[var(--color-accent)] disabled:opacity-40"
-                      >
-                        <Save size={10} />
-                        {mdSaving ? "Guardando…" : "Guardar"}
-                      </button>
-                    </>
-                  )}
-                  <button
-                    onClick={() => void load()}
-                    disabled={loading}
-                    className="rounded p-1 hover:bg-[var(--color-surface-2)]"
-                    title="Recargar"
-                  >
-                    <RefreshCw size={10} className={loading ? "animate-spin" : ""} />
-                  </button>
-                </>
-              }
-            />
-            {openSections.claudeMd && (
-              <div className="bg-[var(--color-surface-0)]">
-                {payload.claude_md_path && (
-                  <div className="border-b border-[var(--color-border)] px-3 py-1 font-mono text-[10px] text-[var(--color-text-muted)]">
-                    {payload.claude_md_path}
-                  </div>
-                )}
-                {payload.claude_md === null ? (
-                  <div className="flex flex-col items-center gap-3 p-4 text-center">
-                    <p className="text-[var(--color-text-muted)]">
-                      No existe CLAUDE.md en este proyecto.
-                    </p>
+          {/* ── CLAUDE.md — only render when the file exists ── */}
+          {payload.claude_md !== null && (
+            <section className="border-b border-[var(--color-border)]">
+              <SectionHeader
+                title="CLAUDE.md"
+                open={openSections.claudeMd}
+                onToggle={() => toggleSection("claudeMd")}
+                actions={
+                  <>
                     <button
-                      onClick={() => void createMd()}
-                      disabled={mdCreating}
-                      className="rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)]/20 px-3 py-1.5 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/30 disabled:opacity-50"
+                      onClick={openInIde}
+                      className="rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-2 py-0.5 text-[10px] hover:bg-[var(--color-surface-1)]"
+                      title={`Abrir en IDE: ${payload.claude_md_path ?? ""}`}
                     >
-                      {mdCreating ? "Creando…" : "Crear CLAUDE.md"}
+                      Editar en IDE
                     </button>
-                  </div>
-                ) : (
+                    <button
+                      onClick={() => void saveMd()}
+                      disabled={!mdDirty || mdSaving}
+                      className="flex items-center gap-1 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/20 px-2 py-0.5 text-[var(--color-accent)] disabled:opacity-40"
+                    >
+                      <Save size={10} />
+                      {mdSaving ? "Guardando…" : "Guardar"}
+                    </button>
+                    <button
+                      onClick={() => void load()}
+                      disabled={loading}
+                      className="rounded p-1 hover:bg-[var(--color-surface-2)]"
+                      title="Recargar"
+                    >
+                      <RefreshCw size={10} className={loading ? "animate-spin" : ""} />
+                    </button>
+                  </>
+                }
+              />
+              {openSections.claudeMd && (
+                <div className="bg-[var(--color-surface-0)]">
+                  {payload.claude_md_path && (
+                    <div className="border-b border-[var(--color-border)] px-3 py-1 font-mono text-[10px] text-[var(--color-text-muted)]">
+                      {payload.claude_md_path}
+                    </div>
+                  )}
                   <textarea
                     value={mdContent}
                     onChange={(e) => {
@@ -473,56 +438,49 @@ export default function ProjectContext({
                     placeholder="(CLAUDE.md vacío — escribe para editar)"
                     spellCheck={false}
                   />
-                )}
-              </div>
-            )}
-          </section>
+                </div>
+              )}
+            </section>
+          )}
 
-          {/* ── MEM0 ── */}
-          <section className="border-b border-[var(--color-border)]">
-            <SectionHeader
-              title="Mem0 — memoria del proyecto"
-              count={payload.mem0_entries.length}
-              open={openSections.mem0}
-              onToggle={() => toggleSection("mem0")}
-            />
-            {openSections.mem0 && (
-              <div className="bg-[var(--color-surface-0)] p-2">
-                {payload.mem0_error && (
-                  <div className="mb-2 rounded border border-[var(--color-warning)] bg-[var(--color-warning)]/10 px-2 py-1.5 text-[10px] text-[var(--color-warning)]">
-                    {payload.mem0_error}
-                  </div>
-                )}
-                {payload.mem0_entries.length === 0 ? (
-                  <EmptyState
-                    message={
-                      payload.mem0_error
-                        ? "Configura Mem0 en Settings para ver memorias del proyecto."
-                        : `No hay memorias en Mem0 para "${projectName}". Guarda hallazgos desde el terminal o la memoria global.`
-                    }
-                  />
-                ) : (
-                  <ul className="space-y-1.5">
-                    {payload.mem0_entries.map((m) => (
-                      <li
-                        key={m.id}
-                        className="rounded border border-[var(--color-border)] bg-[var(--color-surface-1)] p-2"
-                      >
-                        <p className="whitespace-pre-wrap leading-relaxed">
-                          {m.memory}
-                        </p>
-                        {m.created_at && (
-                          <div className="mt-1 text-[10px] text-[var(--color-text-muted)]">
-                            {m.created_at}
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            )}
-          </section>
+          {/* ── MEM0 — only render when connected (entries exist or no error) ── */}
+          {(!payload.mem0_error || payload.mem0_entries.length > 0) && (
+            <section className="border-b border-[var(--color-border)]">
+              <SectionHeader
+                title="Mem0 — memoria del proyecto"
+                count={payload.mem0_entries.length}
+                open={openSections.mem0}
+                onToggle={() => toggleSection("mem0")}
+              />
+              {openSections.mem0 && (
+                <div className="bg-[var(--color-surface-0)] p-2">
+                  {payload.mem0_entries.length === 0 ? (
+                    <EmptyState
+                      message={`No hay memorias en Mem0 para "${projectName}". Guarda hallazgos desde el terminal o la memoria global.`}
+                    />
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {payload.mem0_entries.map((m) => (
+                        <li
+                          key={m.id}
+                          className="rounded border border-[var(--color-border)] bg-[var(--color-surface-1)] p-2"
+                        >
+                          <p className="whitespace-pre-wrap leading-relaxed">
+                            {m.memory}
+                          </p>
+                          {m.created_at && (
+                            <div className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                              {m.created_at}
+                            </div>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </section>
+          )}
 
           {/* ── BUGS ACTIVOS ── */}
           <section className="border-b border-[var(--color-border)]">

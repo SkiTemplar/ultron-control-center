@@ -457,7 +457,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // ---------------------------------------------------------------------------
   const sharedCardProps = {
     stats, openInWorkspace, cardOpenFolder, cardOpenIde, cardOpenAi, cardOpenTerminal,
-    startEdit, setPendingDelete,
+    startEdit, setPendingDelete, onCreateProject: openWizard,
   };
 
   // ---------------------------------------------------------------------------
@@ -627,6 +627,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 onOpenTerminal={() => cardOpenTerminal(p)}
                 onEdit={() => startEdit(p)}
                 onDelete={() => setPendingDelete(p)}
+                onCreateProject={openWizard}
               />
             ))}
             {/* In-grid CTA tile */}

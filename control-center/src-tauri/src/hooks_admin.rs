@@ -118,6 +118,10 @@ pub struct Hook {
     /// `~/.claude/settings.json`; project-level overrides under
     /// `~/.claude/settings.local.json` are out of scope.
     pub source: String,
+    /// Human-readable description from the settings.json group entry
+    /// (the `description` field on the outer `{ matcher, hooks, description, id }` object).
+    /// Used by the UI as the initial display name before AI auto-naming.
+    pub description: Option<String>,
     /// Optional flags from the raw entry that we don't otherwise model —
     /// e.g. `asyncRewake`. Surfaced as a JSON blob so the UI can render
     /// them read-only without us having to track every Claude Code flag.
@@ -217,6 +221,13 @@ fn flatten_hooks(root: &serde_json::Value) -> Vec<Hook> {
                 .get("matcher")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            // Read the human-readable description from the group object (outer wrapper),
+            // e.g. `{ matcher, hooks, description, id }`. Falls back to None if absent.
+            let group_description = group_obj
+                .get("description")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.trim().is_empty())
+                .map(|s| s.to_string());
             let Some(inner_arr) = group_obj.get("hooks").and_then(|v| v.as_array()) else {
                 continue;
             };
@@ -256,6 +267,7 @@ fn flatten_hooks(root: &serde_json::Value) -> Vec<Hook> {
                     command: command.to_string(),
                     enabled,
                     source: "user".to_string(),
+                    description: group_description.clone(),
                     extra: serde_json::Value::Object(extra_obj),
                 });
             }
@@ -509,6 +521,7 @@ where
                 command: new_command,
                 enabled,
                 source: "user".to_string(),
+                description: None,
                 extra: serde_json::Value::Object(extra_obj),
             });
         }
@@ -787,6 +800,7 @@ pub fn add_hook_inner(
         command,
         enabled: true,
         source: "user".to_string(),
+        description: None,
         extra: serde_json::Value::Object(serde_json::Map::new()),
     };
     Ok(HookMutationResult {

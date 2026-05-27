@@ -38,6 +38,7 @@ function renderCard(overrides: Partial<ProjectInfo> = {}) {
       onOpenTerminal={noop}
       onEdit={noop}
       onDelete={noop}
+      onCreateProject={noop}
     />,
   );
 }
@@ -58,10 +59,12 @@ describe("ProjectCard", () => {
     expect(screen.getByText("active")).toBeTruthy();
   });
 
-  it("renders tag chips", () => {
-    renderCard();
-    expect(screen.getByText("work")).toBeTruthy();
-    expect(screen.getByText("react")).toBeTruthy();
+  it("does not render tag chips (tags UI removed)", () => {
+    const { container } = renderCard();
+    // Tags are in the data model but not rendered in the card UI
+    expect(container.querySelector('[data-testid="tag-chip"]')).toBeNull();
+    expect(container.textContent).not.toContain("work");
+    expect(container.textContent).not.toContain("react");
   });
 
   it("renders pending and live session stats", () => {
@@ -83,6 +86,7 @@ describe("ProjectCard", () => {
         onOpenTerminal={noop}
         onEdit={noop}
         onDelete={noop}
+        onCreateProject={noop}
       />,
     );
     fireEvent.click(container.firstChild as HTMLElement);
@@ -102,6 +106,7 @@ describe("ProjectCard", () => {
         onOpenTerminal={noop}
         onEdit={onEdit}
         onDelete={noop}
+        onCreateProject={noop}
       />,
     );
     fireEvent.click(screen.getByTitle("Edit project metadata"));
@@ -125,6 +130,7 @@ describe("ProjectCard", () => {
         onOpenTerminal={noop}
         onEdit={noop}
         onDelete={noop}
+        onCreateProject={noop}
       />,
     );
     // Both stats cells show "—" when stats is null

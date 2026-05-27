@@ -74,6 +74,7 @@ export interface ProjectCardProps {
   onOpenTerminal: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onCreateProject: () => void;
 }
 
 export function ProjectCard({
@@ -86,6 +87,7 @@ export function ProjectCard({
   onOpenTerminal,
   onEdit,
   onDelete,
+  onCreateProject,
 }: ProjectCardProps) {
   const b = statusBadge(p.status);
   const provider: SessionProvider =
@@ -174,6 +176,25 @@ export function ProjectCard({
         <div className="flex shrink-0 items-center gap-1" onClick={stop}>
           <button
             type="button"
+            onClick={(e) => { e.stopPropagation(); onCreateProject(); }}
+            className="flex items-center justify-center rounded p-0.5 transition-colors"
+            style={{
+              background: "transparent",
+              color: "var(--color-accent)",
+              border: "1px solid var(--color-accent)",
+              width: 20,
+              height: 20,
+            }}
+            title="Create new project"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+          <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); onEdit(); }}
             className="rounded px-1.5 py-0.5 text-[10px] transition-colors"
             style={{
@@ -200,30 +221,6 @@ export function ProjectCard({
           </button>
         </div>
       </div>
-
-      {/* Tag chips */}
-      {p.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1" onClick={stop}>
-          {p.tags.slice(0, 6).map((t) => (
-            <span
-              key={t}
-              className="rounded px-1.5 py-px text-[9.5px]"
-              style={{
-                background: "var(--color-surface-1)",
-                color: "var(--color-text-tertiary)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              {t}
-            </span>
-          ))}
-          {p.tags.length > 6 && (
-            <span className="text-[9.5px]" style={{ color: "var(--color-text-faint)" }}>
-              +{p.tags.length - 6}
-            </span>
-          )}
-        </div>
-      )}
 
       {/* Action buttons */}
       <div className="mt-auto flex items-center gap-1.5">

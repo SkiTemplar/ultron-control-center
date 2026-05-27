@@ -36,6 +36,8 @@ type HookRecord = {
   command: string;
   enabled: boolean;
   source: string;
+  /** Human-readable description from settings.json group entry (populated by Rust backend). */
+  description: string | null;
   extra: Record<string, unknown>;
 };
 
@@ -406,14 +408,25 @@ export function Hooks() {
 
   const q = filterText.trim().toLowerCase();
 
+  /** Resolve the best available human-readable label for a hook, in priority order:
+   *  1. description field from settings.json (always populated if present)
+   *  2. AI-assigned name from namesCache
+   *  3. undefined (caller renders raw id in monospace)
+   */
+  function resolveDisplayName(h: HookRecord): string | undefined {
+    if (h.description) return h.description;
+    return namesCache[h.id]?.name;
+  }
+
   const filtered = useMemo(() => {
     if (!list) return [];
     return list.hooks.filter((h) => {
       if (!q) return true;
-      const displayName = namesCache[h.id]?.name ?? h.id;
+      const displayName = resolveDisplayName(h) ?? h.id;
       const hay = `${displayName} ${h.id} ${h.matcher ?? ""} ${h.command} ${h.event}`.toLowerCase();
       return hay.includes(q);
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [list, q, namesCache]);
 
   // Events that have at least one hook (considering current text filter)
@@ -546,7 +559,7 @@ export function Hooks() {
             {isExpanded &&
               hooks.map((h) => {
                 const isSelected = selectedId === h.id;
-                const displayName = namesCache[h.id]?.name;
+                const displayName = resolveDisplayName(h);
                 return (
                   <button
                     key={h.id}
@@ -912,7 +925,7 @@ export function Hooks() {
             >
               <HookDetailPane
                 hook={selectedHook}
-                displayName={namesCache[selectedHook.id]?.name}
+                displayName={resolveDisplayName(selectedHook)}
                 lastFired={lastFired[selectedHook.id]}
                 fires={selectedFires}
                 firesInstrumented={fires?.instrumented ?? false}

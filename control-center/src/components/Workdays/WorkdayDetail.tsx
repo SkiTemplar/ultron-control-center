@@ -24,6 +24,7 @@ import type {
   WorkdayGoal,
 } from "./types";
 import { getHomeDir, joinPath } from "../../lib/paths";
+import { WorkdayDaySummary } from "./WorkdayDaySummary";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -545,6 +546,11 @@ export function WorkdayDetail({
           </div>
         </div>
       )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Resumen del día — 5 cards                                           */}
+      {/* ------------------------------------------------------------------ */}
+      <WorkdayDaySummary wd={wd} />
 
       {/* ------------------------------------------------------------------ */}
       {/* Secciones accordion                                                  */}

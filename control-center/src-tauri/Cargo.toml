@@ -46,6 +46,9 @@ thiserror = "1"
 serde_yaml = "0.9"
 rusqlite = { version = "0.31", features = ["bundled"] }
 zip = { version = "2", features = ["deflate"] }
+# Load .env files at startup so users can store provider API keys in
+# ~/.ultron/.env or ~/.ultron/control-center/.env without exporting to shell.
+dotenvy = "0.15"
 # Qdrant semantic recall (optional — enable with --features qdrant).
 # fastembed provides ONNX-based BGE-small-EN-v1.5 (384-d) locally, no API key.
 fastembed = { version = "4", optional = true }

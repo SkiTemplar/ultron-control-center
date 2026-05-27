@@ -21,7 +21,6 @@
 import { useState } from "react";
 import { AIRouterIndex } from "./AIRouterIndex";
 import { ProviderCatalog } from "./ProviderCatalog";
-import { RouterMetrics } from "./RouterMetrics";
 import { AIRouterErrorBoundary } from "./AIRouterErrorBoundary";
 
 // Re-export all shared types so callers can import from the barrel.
@@ -34,12 +33,11 @@ export type {
   TestResult,
 } from "./types";
 
-type RouterSubTab = "zones" | "providers" | "metrics";
+type RouterSubTab = "zones" | "providers";
 
 const SUB_TABS: { id: RouterSubTab; label: string }[] = [
   { id: "zones", label: "Zones" },
   { id: "providers", label: "Providers" },
-  { id: "metrics", label: "Metrics" },
 ];
 
 /**
@@ -93,7 +91,6 @@ export function AIRouter({ embedded = false }: AIRouterProps = {}) {
     <AIRouterErrorBoundary>
       {subTab === "zones" && <AIRouterIndex />}
       {subTab === "providers" && <ProviderCatalog />}
-      {subTab === "metrics" && <RouterMetrics />}
     </AIRouterErrorBoundary>
   );
 

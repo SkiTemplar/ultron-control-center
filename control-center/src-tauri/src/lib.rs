@@ -123,6 +123,18 @@ fn toggle_window(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Load .env files so users can store provider API keys in dotfiles
+    // instead of exporting to the shell. Order: ~/.ultron/.env (preferred),
+    // ~/.ultron/control-center/.env, then cwd/.env. First hit wins per key
+    // (dotenvy::from_filename does not override pre-existing env vars).
+    if let Some(home) = dirs::home_dir() {
+        let _ = dotenvy::from_filename(home.join(".ultron").join(".env"));
+        let _ = dotenvy::from_filename(
+            home.join(".ultron").join("control-center").join(".env"),
+        );
+    }
+    let _ = dotenvy::dotenv();
+
     // Headless mode: when invoked with --run-diagnostic, run all checks,
     // persist to ~/.ultron/cockpit/diagnostics/<ts>.json, emit alert if
     // severity >= error, and exit without UI. Used by the daily
@@ -321,6 +333,9 @@ pub fn run() {
             commands::memory_status::memory_status_files,
             commands::memory_status::memory_sync_mem0_manual,
             commands::memory_status::memory_graphify_index,
+            // -- memory graph (unified search + tree snapshot) --
+            commands::memory_graph::memory_unified_search,
+            commands::memory_graph::memory_tree_snapshot,
             // -- sessions --
             commands::sessions::spawn_session,
             commands::sessions::run_inline,

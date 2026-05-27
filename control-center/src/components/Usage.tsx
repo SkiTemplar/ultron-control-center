@@ -8,6 +8,7 @@ import type {
   UsageReport,
   WindowStats,
 } from "../types";
+import { RouterMetrics } from "./AIRouter/RouterMetrics";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -1139,10 +1140,11 @@ function ZonePipeline({
 }
 
 // ---------------------------------------------------------------------------
-// AI Router — Full section
+// Tab "Router" — provider keys + zone pipelines + fallback gauge
+// (previously AiRouterSection, now its own tab)
 // ---------------------------------------------------------------------------
 
-function AiRouterSection() {
+function RouterTab() {
   const [summary, setSummary] = useState<RouterUsageSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1171,8 +1173,27 @@ function AiRouterSection() {
     : [];
 
   return (
-    <section className="mt-8">
-      {/* Section header */}
+    <div>
+      {/* ------------------------------------------------------------------ */}
+      {/* RouterMetrics — token savings + class distribution (moved from     */}
+      {/* Settings > AI Router > Metrics tab)                                */}
+      {/* ------------------------------------------------------------------ */}
+      <section className="mb-8">
+        <div className="mb-3">
+          <h2 className="text-[13px] font-semibold">AI Router — métricas</h2>
+          <p
+            className="mt-0.5 text-[10.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Tokens ahorrados, distribución por clase y tasa de fallback.
+          </p>
+        </div>
+        <RouterMetrics />
+      </section>
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Provider keys + zone chains                                         */}
+      {/* ------------------------------------------------------------------ */}
       <div className="mb-3 flex items-baseline justify-between gap-3">
         <div>
           <h2 className="text-[13px] font-semibold">AI Router — provider keys</h2>
@@ -1198,7 +1219,6 @@ function AiRouterSection() {
         </button>
       </div>
 
-      {/* Error state */}
       {error && (
         <div
           className="mb-3 flex items-center justify-between gap-4 rounded p-3 text-[12px]"
@@ -1224,7 +1244,6 @@ function AiRouterSection() {
         </div>
       )}
 
-      {/* Loading skeleton (only on first load — no existing data) */}
       {loading && !summary && !error && (
         <div
           className="rounded p-4 text-[12px]"
@@ -1240,10 +1259,11 @@ function AiRouterSection() {
 
       {summary && (
         <>
-          {/* Fallback-rate gauge */}
           <FallbackRateGauge rate={summary.fallback_rate} />
 
-          {/* Provider table */}
+          {/* Only render providers that exist in the summary — safe for any
+              subset of configured providers (Anthropic + Gemini + Groq only,
+              no OpenAI / Ollama required). */}
           {summary.providers.length > 0 ? (
             <div className="mt-4 space-y-2">
               <h3
@@ -1269,7 +1289,6 @@ function AiRouterSection() {
             </div>
           )}
 
-          {/* Zone pipelines */}
           {zoneEntries.length > 0 && (
             <div className="mt-4">
               <h3
@@ -1292,118 +1311,24 @@ function AiRouterSection() {
           )}
         </>
       )}
-    </section>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Main
+// Tab "Overview" — Claude usage stats + quota
 // ---------------------------------------------------------------------------
 
-export function Usage() {
-  const [data, setData] = useState<UsageReport | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [usageBusy, setUsageBusy] = useState(false);
+type OverviewTabProps = {
+  data: UsageReport | null;
+  onOpenUsage: () => void;
+  usageBusy: boolean;
+};
 
-  async function load() {
-    setLoading(true);
-    try {
-      const r = (await invoke("claude_usage")) as UsageReport;
-      setData(r);
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  // Spawns a Claude session in a Windows Terminal tab and seeds the prompt
-  // with `/usage` so the user lands directly on the live usage dashboard.
-  // The local stats-cache.json gets refreshed by Claude itself as a side
-  // effect, so we reload our view too once the user comes back.
-  //
-  // v15.2.40: prompt + provider/model/agent come from the central catalog
-  // (key "usage.refresh_with_claude") + `usage_analyse` zone. Note that
-  // `/usage` is a Claude-specific slash command, so picking codex/gemini
-  // via the AI Router will likely produce a no-op session — the Settings
-  // tooltip warns about this. Auto-mode is safe: the router prefers
-  // Claude when the prompt is a Claude slash command.
-  async function openClaudeUsage() {
-    setUsageBusy(true);
-    setError(null);
-    try {
-      const { resolveAndSpawn } = await import("../lib/button-prompts");
-      await resolveAndSpawn({
-        key: "usage.refresh_with_claude",
-        cwd: null,
-      });
-      // Give Claude a beat to refresh the cache before we reload.
-      setTimeout(load, 4000);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setUsageBusy(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 60_000);
-    // Auto-refresh when the window gets focus — typical scenario: the user
-    // came back from a Claude /usage terminal tab and expects the panel to
-    // reflect whatever the session just wrote into stats-cache.json.
-    const onFocus = () => {
-      load();
-    };
-    window.addEventListener("focus", onFocus);
-    return () => {
-      clearInterval(t);
-      window.removeEventListener("focus", onFocus);
-    };
-  }, []);
-
+function OverviewTab({ data, onOpenUsage, usageBusy }: OverviewTabProps) {
   return (
-    <div className="px-10 py-8">
-      <header className="mb-6 flex items-baseline justify-between gap-4">
-        <div>
-          <h1 className="text-[20px] font-semibold leading-tight">Usage</h1>
-          <p
-            className="mt-1 text-[13px]"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            Claude Code consumption · source: ~/.claude/stats-cache.json
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={load}
-          disabled={loading}
-          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
-          style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
-          }}
-        >
-          {loading ? "Loading…" : "Refresh"}
-        </button>
-      </header>
-
-      {error && (
-        <div
-          className="mb-4 rounded p-3 text-[12.5px]"
-          style={{
-            background: "rgba(248, 81, 73, 0.06)",
-            border: "1px solid rgba(248, 81, 73, 0.22)",
-            color: "var(--color-danger)",
-          }}
-        >
-          {error}
-        </div>
-      )}
-
-      <SubscriptionLimitCard onOpen={openClaudeUsage} busy={usageBusy} />
+    <div>
+      <SubscriptionLimitCard onOpen={onOpenUsage} busy={usageBusy} />
 
       {/* Quota 98% auto-fallback status card (P0 2026-05-27) */}
       <QuotaStatusCard />
@@ -1540,9 +1465,170 @@ export function Usage() {
           )}
         </>
       )}
+    </div>
+  );
+}
 
-      {/* AI Router section — independent from claude_usage; always rendered */}
-      <AiRouterSection />
+// ---------------------------------------------------------------------------
+// Internal tab strip
+// ---------------------------------------------------------------------------
+
+type UsageTab = "overview" | "router";
+
+const USAGE_TABS: { id: UsageTab; label: string }[] = [
+  { id: "overview", label: "Overview" },
+  { id: "router", label: "AI Router" },
+];
+
+function UsageTabStrip({
+  active,
+  onChange,
+}: {
+  active: UsageTab;
+  onChange: (t: UsageTab) => void;
+}) {
+  return (
+    <div
+      className="inline-flex rounded p-0.5"
+      style={{
+        background: "var(--color-surface-1)",
+        border: "1px solid var(--color-border-strong)",
+      }}
+    >
+      {USAGE_TABS.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          onClick={() => onChange(t.id)}
+          className="rounded px-4 py-1.5 text-[12px] font-medium transition-colors"
+          style={{
+            background: active === t.id ? "var(--color-surface-3)" : "transparent",
+            color:
+              active === t.id
+                ? "var(--color-text)"
+                : "var(--color-text-tertiary)",
+          }}
+        >
+          {t.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+export function Usage() {
+  const [data, setData] = useState<UsageReport | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [usageBusy, setUsageBusy] = useState(false);
+  const [activeTab, setActiveTab] = useState<UsageTab>("overview");
+
+  async function load() {
+    setLoading(true);
+    try {
+      const r = (await invoke("claude_usage")) as UsageReport;
+      setData(r);
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Spawns a Claude session in a Windows Terminal tab and seeds the prompt
+  // with `/usage` so the user lands directly on the live usage dashboard.
+  // The local stats-cache.json gets refreshed by Claude itself as a side
+  // effect, so we reload our view too once the user comes back.
+  async function openClaudeUsage() {
+    setUsageBusy(true);
+    setError(null);
+    try {
+      const { resolveAndSpawn } = await import("../lib/button-prompts");
+      await resolveAndSpawn({
+        key: "usage.refresh_with_claude",
+        cwd: null,
+      });
+      // Give Claude a beat to refresh the cache before we reload.
+      setTimeout(load, 4000);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setUsageBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 60_000);
+    // Auto-refresh when the window gets focus — typical scenario: the user
+    // came back from a Claude /usage terminal tab and expects the panel to
+    // reflect whatever the session just wrote into stats-cache.json.
+    const onFocus = () => {
+      load();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  return (
+    <div className="px-10 py-8">
+      <header className="mb-6 flex items-baseline justify-between gap-4">
+        <div>
+          <h1 className="text-[20px] font-semibold leading-tight">Usage</h1>
+          <p
+            className="mt-1 text-[13px]"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            Claude Code consumption · source: ~/.claude/stats-cache.json
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <UsageTabStrip active={activeTab} onChange={setActiveTab} />
+          <button
+            type="button"
+            onClick={load}
+            disabled={loading}
+            className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-50"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+          >
+            {loading ? "Loading…" : "Refresh"}
+          </button>
+        </div>
+      </header>
+
+      {error && (
+        <div
+          className="mb-4 rounded p-3 text-[12.5px]"
+          style={{
+            background: "rgba(248, 81, 73, 0.06)",
+            border: "1px solid rgba(248, 81, 73, 0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          {error}
+        </div>
+      )}
+
+      {activeTab === "overview" && (
+        <OverviewTab
+          data={data}
+          onOpenUsage={openClaudeUsage}
+          usageBusy={usageBusy}
+        />
+      )}
+
+      {activeTab === "router" && <RouterTab />}
     </div>
   );
 }

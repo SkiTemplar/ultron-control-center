@@ -523,51 +523,69 @@ export function ActivityTimeline() {
                   return (
                     <li
                       key={`${ev.source}-${ev.ts}-${i}`}
-                      className="flex items-baseline gap-2 px-3 py-1.5"
+                      className="flex items-start gap-2 px-3 py-2"
                       style={{
                         borderTop:
                           i === 0 ? "none" : "1px solid var(--color-border)",
                       }}
                     >
+                      {/* Timestamp — fixed 46px, top-aligned */}
                       <span
-                        className="tabular-nums"
+                        className="shrink-0 tabular-nums"
                         style={{
                           color: "var(--color-text-faint)",
                           fontFamily: "var(--font-mono, ui-monospace)",
                           fontSize: 10,
-                          minWidth: 46,
+                          width: 46,
+                          paddingTop: 2,
                         }}
                       >
                         {ev.ts.slice(11, 16)}
                       </span>
+
+                      {/* Source badge — fixed ~24px icon width, no min-width */}
                       <span
-                        className="inline-block rounded px-1.5 py-[1px] text-[9.5px] font-medium uppercase tracking-[0.04em]"
+                        className="inline-block shrink-0 rounded px-1.5 py-[2px] text-[9.5px] font-medium uppercase tracking-[0.04em]"
                         style={{
                           background: c.bg,
                           color: c.fg,
-                          minWidth: 92,
-                          textAlign: "center",
+                          whiteSpace: "nowrap",
                         }}
                       >
                         {ev.source}
                       </span>
+
+                      {/* Title block — flex-1, wraps up to 2 lines then ellipsis */}
                       <span
-                        className="rounded px-1 py-[1px] text-[9.5px]"
+                        className="flex-1 min-w-0"
                         style={{
-                          background: "var(--color-surface-3)",
-                          color: "var(--color-text-tertiary)",
-                          fontFamily: "var(--font-mono, ui-monospace)",
+                          color: "var(--color-text)",
+                          display: "-webkit-box",
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: "vertical",
+                          overflow: "hidden",
+                          lineHeight: "1.45",
+                          wordBreak: "break-word",
                         }}
-                      >
-                        {ev.kind || "—"}
-                      </span>
-                      <span
-                        className="flex-1 truncate"
-                        style={{ color: "var(--color-text)" }}
                         title={ev.summary}
                       >
                         {ev.summary || "(no summary)"}
                       </span>
+
+                      {/* Kind badge — optional, right-aligned */}
+                      {ev.kind && (
+                        <span
+                          className="shrink-0 rounded px-1 py-[2px] text-[9.5px]"
+                          style={{
+                            background: "var(--color-surface-3)",
+                            color: "var(--color-text-tertiary)",
+                            fontFamily: "var(--font-mono, ui-monospace)",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {ev.kind}
+                        </span>
+                      )}
                     </li>
                   );
                 })}

@@ -327,3 +327,19 @@ export function ChevronRight({ size, className }: IconProps) {
     </svg>
   );
 }
+
+export function Check({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  );
+}
+
+export function Circle({ size, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="12" cy="12" r="9" />
+    </svg>
+  );
+}

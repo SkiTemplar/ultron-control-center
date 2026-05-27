@@ -142,8 +142,9 @@ pub fn list_global_inner() -> Result<Vec<NoteEntry>, String> {
             .take(3)
             .collect::<Vec<_>>()
             .join(" ");
-        let preview = if preview.len() > 200 {
-            format!("{}…", &preview[..200])
+        let preview = if preview.chars().count() > 200 {
+            let truncated: String = preview.chars().take(200).collect();
+            format!("{}…", truncated)
         } else {
             preview
         };
@@ -254,8 +255,9 @@ pub fn list_project_notes_inner(project_id: &str) -> Result<Vec<NoteEntry>, Stri
             .take(3)
             .collect::<Vec<_>>()
             .join(" ");
-        let preview = if preview.len() > 200 {
-            format!("{}…", &preview[..200])
+        let preview = if preview.chars().count() > 200 {
+            let truncated: String = preview.chars().take(200).collect();
+            format!("{}…", truncated)
         } else {
             preview
         };

@@ -1,8 +1,8 @@
-// ULTRON Control Center 2.0 — ProjectJarvisLauncher
+// ULTRON Control Center 2.0 — ProjectUltronLauncher (antes: ProjectJarvisLauncher)
 //
-// Workflow tipo Jarvis al abrir un proyecto: el usuario elige su intención de
-// trabajo y el componente emite un JarvisIntent listo para ser inyectado como
-// prompt seed en una sesión PTY o disparado como workflow multi-agente.
+// Workflow de inicio al abrir un proyecto: el usuario elige su intención de
+// trabajo y el componente emite un intent listo para ser inyectado como
+// prompt seed en una sesión PTY embebida o disparado como workflow multi-agente.
 //
 // Intenciones disponibles (grid 2×3):
 //   fix          → diagnóstico + fix de errores conocidos

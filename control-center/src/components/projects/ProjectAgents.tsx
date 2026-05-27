@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Pin, Plus, X } from "./icons";
+import { Bot, Check, Circle, Plus, X } from "./icons";
 import type { KanbanBoard } from "../../types";
 import { categorize } from "../../lib/skill-categories";
 
@@ -83,31 +83,6 @@ const NO_CATEGORY = "Uncategorized";
 // ---------------------------------------------------------------------------
 // Visual helpers
 // ---------------------------------------------------------------------------
-
-const ROLE_AVATAR_RULES: { keywords: string[]; emoji: string }[] = [
-  { keywords: ["backend", "api", "server"], emoji: "🛠️" },
-  { keywords: ["frontend", "ui", "ux", "design"], emoji: "🎨" },
-  { keywords: ["test", "qa", "tdd"], emoji: "🧪" },
-  { keywords: ["doc", "writer", "documentation"], emoji: "📚" },
-  { keywords: ["security", "audit", "pentest"], emoji: "🔒" },
-  { keywords: ["review", "reviewer", "critic"], emoji: "🔍" },
-  { keywords: ["architect", "design", "system"], emoji: "🏛️" },
-  { keywords: ["debug", "bug", "fix"], emoji: "🐛" },
-  { keywords: ["devops", "deploy", "ci", "cd"], emoji: "🚀" },
-  { keywords: ["data", "db", "database", "sql"], emoji: "🗄️" },
-  { keywords: ["research", "explore", "investigat"], emoji: "🔬" },
-  { keywords: ["chief", "lead", "manager", "pm"], emoji: "🎩" },
-  { keywords: ["refactor", "clean"], emoji: "🧹" },
-  { keywords: ["perf", "optim"], emoji: "⚡" },
-];
-
-function roleAvatar(role: string | undefined, agentName: string): string {
-  const haystack = `${role ?? ""} ${agentName}`.toLowerCase();
-  for (const rule of ROLE_AVATAR_RULES) {
-    if (rule.keywords.some((k) => haystack.includes(k))) return rule.emoji;
-  }
-  return "🤖";
-}
 
 function originStyle(origin: AgentEntry["origin"]): {
   background: string;
@@ -253,13 +228,7 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
     [projectId, loadAll],
   );
 
-  const pinAgent = useCallback(
-    (slug: string) => {
-      if (pinned.includes(slug)) return;
-      void persistPinned([...pinned, slug], roles);
-    },
-    [pinned, roles, persistPinned],
-  );
+  // TODO: remove orphan pin_agent command (agents_pinned_save is still used by kanban selector)
 
 
   // ---------------------------------------------------------------------------
@@ -573,7 +542,6 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {roster.map((entry) => {
                 const catalogAgent = agentByName.get(entry.name);
-                const avatar = roleAvatar(entry.suggested_role, entry.name);
                 const isEditing = editingRoleFor === entry.name;
                 const isInvoking = invokingFor === entry.name;
                 const isTaskOpen = invokeTaskFor === entry.name;
@@ -599,10 +567,10 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                       <div className="flex items-center gap-2">
                         <span
                           aria-hidden
-                          className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--color-surface-3)] text-[16px] leading-none"
+                          className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--color-surface-3)] text-[var(--color-text-muted)]"
                           title={`Role: ${entry.suggested_role}`}
                         >
-                          {avatar}
+                          <Bot size={14} />
                         </span>
                         <span className="font-semibold text-[var(--color-text)]">
                           {entry.name}
@@ -876,7 +844,6 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                       {proposal.recommended.map((r) => {
                         const selected = proposeSelected.has(r.name);
                         const catalogAgent = agentByName.get(r.name);
-                        const avatar = roleAvatar(r.suggested_role, r.name);
                         return (
                           <button
                             key={r.name}
@@ -900,9 +867,9 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                           >
                             <span
                               aria-hidden
-                              className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--color-surface-3)] text-[16px] leading-none"
+                              className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--color-surface-3)] text-[var(--color-text-muted)]"
                             >
-                              {avatar}
+                              <Bot size={14} />
                             </span>
                             <div className="min-w-0 flex-1">
                               <div className="truncate font-semibold text-[var(--color-text)]">
@@ -917,14 +884,14 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                             </div>
                             <span
                               aria-hidden
-                              className="shrink-0 text-[14px]"
+                              className="grid shrink-0 place-items-center"
                               style={{
                                 color: selected
                                   ? "var(--color-accent)"
                                   : "var(--color-text-faint)",
                               }}
                             >
-                              {selected ? "✓" : "○"}
+                              {selected ? <Check size={14} /> : <Circle size={14} />}
                             </span>
                           </button>
                         );
@@ -945,12 +912,6 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                           key={g.suggested_name}
                           className="flex items-start gap-2 rounded border border-dashed border-[var(--color-border)] px-2 py-1.5"
                         >
-                          <span
-                            aria-hidden
-                            className="mt-0.5 text-[10px] text-[var(--color-text-faint)]"
-                          >
-                            ✦
-                          </span>
                           <div>
                             <span className="font-semibold text-[var(--color-text-secondary)]">
                               {g.suggested_name}
@@ -1138,15 +1099,6 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                                 + Roster
                               </button>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => pinAgent(a.name)}
-                              disabled={pinned.includes(a.name)}
-                              className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[11.5px] hover:bg-[var(--color-surface-3)] disabled:opacity-40"
-                              title="Pin al selector del kanban."
-                            >
-                              <Pin size={11} /> Pin
-                            </button>
                           </div>
                         </div>
                       );

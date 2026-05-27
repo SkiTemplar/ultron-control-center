@@ -273,7 +273,7 @@ function TodayLane({ view, error, selectedId, onSelect }: TodayLaneProps) {
           />
         ))}
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div className="min-w-0 flex-1 overflow-hidden">
         {selectedId ? (
           <WorkdayDetail
             workdayId={selectedId}
@@ -445,7 +445,7 @@ function HistoryLane({ selectedId, onSelect }: HistoryLaneProps) {
           </div>
         ))}
       </div>
-      <div className="flex-1 overflow-hidden">
+      <div className="min-w-0 flex-1 overflow-hidden">
         {selectedId ? (
           <WorkdayDetail
             workdayId={selectedId}
