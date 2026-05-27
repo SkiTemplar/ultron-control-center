@@ -235,3 +235,7 @@ control-center/workflows.json
 
 # v2.4: archived vault dirs
 skill-vault-archived-*/
+
+# v2.11.2: fastembed ONNX model cache (auto-downloaded, ~22MB)
+control-center/.fastembed_cache/
+.fastembed_cache/
