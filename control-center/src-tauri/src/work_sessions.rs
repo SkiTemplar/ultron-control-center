@@ -110,6 +110,11 @@ pub struct WorkSession {
 /// Beyond it, the active session auto-closes and a new one opens.
 pub const AUTO_SPLIT_THRESHOLD_SECS: u64 = 2 * 60 * 60;
 
+/// Upper bound (6 hours): an active work-session that has run continuously
+/// for this long without auto-closing gets force-split. Prevents a marathon
+/// 12h day from being recorded as one monolithic block (KIRKARDO R11.5).
+pub const FORCE_SPLIT_AFTER_SECS: u64 = 6 * 60 * 60;
+
 // ---------------------------------------------------------------------------
 // Storage helpers
 // ---------------------------------------------------------------------------
@@ -257,15 +262,21 @@ pub fn list_inner(project_id: String) -> Result<Vec<WorkSession>, String> {
 }
 
 /// Append an AI session ID to an existing work-session (idempotent).
+/// Also bumps `last_activity_at` so the 2h auto-split heuristic in
+/// `auto_link_inner` treats a manual link as real user activity (KIRKARDO
+/// R11.5 FIX-5: link_ai_inner used to leave the activity clock stale,
+/// which broke the promise that the user never has to touch tiempos).
 pub fn link_ai_inner(
     project_id: String,
     session_id: String,
     ai_session_id: String,
 ) -> Result<WorkSession, String> {
+    let now_iso = epoch_iso(now_epoch_secs());
     patch_session(&project_id, &session_id, |s| {
         if !s.ai_session_ids.contains(&ai_session_id) {
             s.ai_session_ids.push(ai_session_id.clone());
         }
+        s.last_activity_at = Some(now_iso.clone());
     })
 }
 
@@ -311,8 +322,13 @@ pub fn auto_link_inner(
             .and_then(parse_epoch_secs)
             .or_else(|| parse_epoch_secs(&active.started_at))
             .unwrap_or(0);
+        let started = parse_epoch_secs(&active.started_at).unwrap_or(last);
         let gap = now.saturating_sub(last);
-        if gap < AUTO_SPLIT_THRESHOLD_SECS {
+        let total_age = now.saturating_sub(started);
+        // KIRKARDO R11.5 FIX-5: cap continuous sessions at FORCE_SPLIT_AFTER_SECS.
+        // A 12h day with no gap should still produce ~2 blocks, not a monolith.
+        let force_split = total_age >= FORCE_SPLIT_AFTER_SECS;
+        if gap < AUTO_SPLIT_THRESHOLD_SECS && !force_split {
             // Same work-session: append ai_session_id idempotently.
             let s_id = active.id.clone();
             return patch_session(&project_id, &s_id, |s| {

@@ -819,10 +819,27 @@ fn call_anthropic(
     let key = std::env::var(&provider.key_env_var)
         .map_err(|_| format!("missing {} env var", provider.key_env_var))?;
     let url = format!("{}/v1/messages", provider.base_url.trim_end_matches('/'));
+    // KIRKARDO R11.3 FIX-4: wrap the system prompt in an ephemeral cache
+    // breakpoint so Anthropic deduplicates the (usually stable) system text
+    // across calls within the 5-minute window. Saves ~90% on input cost for
+    // hot zones like code-review where the same routing prompt repeats.
+    // Empty/short system prompts fall back to the legacy plain string form
+    // (Anthropic requires cache_control items to have non-trivial content).
+    let system_value = match system {
+        Some(s) if s.len() >= 32 => serde_json::json!([
+            {
+                "type": "text",
+                "text": s,
+                "cache_control": { "type": "ephemeral" }
+            }
+        ]),
+        Some(s) => serde_json::Value::String(s.to_string()),
+        None => serde_json::Value::String(String::new()),
+    };
     let body = serde_json::json!({
         "model": model,
         "max_tokens": clamp_max_tokens(max_tokens, 1024),
-        "system": system.unwrap_or(""),
+        "system": system_value,
         "messages": [{ "role": "user", "content": prompt }],
     });
     let resp = client
@@ -1035,12 +1052,31 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<String, String> {
     // SAFETY: all strings are owned by the caller; no raw pointers.
     #[cfg(target_os = "windows")]
     let output = {
-        // On Windows, npm `.cmd` shims must be invoked via `cmd /C`.
-        // Build a single shell argument string: `codex -p "…" --model gpt-5`
-        // We escape inner double-quotes in the prompt with `\"`.
-        let escaped_prompt = prompt.replace('"', "\\\"");
+        // On Windows, npm `.cmd` shims must be invoked via `cmd /C`. Cmd.exe
+        // interprets `& | < > ^ %` as meta-characters, so a prompt containing
+        // `& calc` would execute `calc.exe` (KIRKARDO R11.1 CVE). We sanitise
+        // the prompt by replacing every cmd-meta char with `_` BEFORE building
+        // the shell string. Inner double-quotes are also stripped — npm CLIs
+        // tolerate single-quoted prompts but cmd.exe quoting of nested quotes
+        // is hostile, so the safest path is to neuter them entirely.
+        // Newlines collapse to spaces because /C accepts a single line.
+        fn sanitize_for_cmd(s: &str) -> String {
+            let mut out = String::with_capacity(s.len());
+            for ch in s.chars() {
+                match ch {
+                    '&' | '|' | '<' | '>' | '^' | '%' | '(' | ')' | '!' | '"' => out.push('_'),
+                    '\r' | '\n' | '\t' => out.push(' '),
+                    c if (c as u32) < 0x20 => out.push(' '),
+                    c => out.push(c),
+                }
+            }
+            out
+        }
+        let safe_prompt = sanitize_for_cmd(prompt);
+        let safe_cmd = sanitize_for_cmd(cmd);
+        let safe_model = sanitize_for_cmd(model);
         let shell_arg = format!(
-            "{cmd} {prompt_flag} \"{escaped_prompt}\" {model_flag} {model}"
+            "{safe_cmd} {prompt_flag} \"{safe_prompt}\" {model_flag} {safe_model}"
         );
         std::process::Command::new("cmd")
             .args(["/C", &shell_arg])
