@@ -1,5 +1,17 @@
 # Changelog
 
+<!-- v2.12.0 -->
+## v2.12.0 - 2026-05-27 (acumula v2.11.1..v2.11.2)
+
+Errores corregidos:
+- (sin cambios)
+
+Anadido:
+- Memory.tsx split (1151→68L) + 6 sub-panes + Qdrant install D: drive
+- auto-mejora KIRKARDO Round 7 — cierre de los 6 hallazgos
+- Wave 6 — cerrar 5 cards Backlog + manual integration fixes
+
+
 <!-- v2.11.0 -->
 ## v2.11.0 - 2026-05-27 (acumula v2.9.1..v2.10.1)
 

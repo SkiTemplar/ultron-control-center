@@ -1329,11 +1329,34 @@ mod tests {
 
     // -- BlackboardBuilder pure-logic (no disk) --------------------------------
 
+    /// A workday whose title is empty AND has no context entries whatsoever
+    /// must produce an empty preamble — the builder has nothing to inject.
+    ///
+    /// A workday that has a title but no context is still emitted (it shows
+    /// the `<workday_summary>` so the agent knows which day it is operating
+    /// in).  This test verifies only the fully-empty edge case: no title,
+    /// no context, no goals.
     #[test]
-    fn blackboard_builder_empty_workday_returns_empty_string() {
-        let wd = make_workday("wd-test-17-bb-empty");
+    fn blackboard_builder_no_title_no_context_returns_empty_string() {
+        let mut wd = make_workday("wd-test-17-bb-empty");
+        wd.title = String::new(); // blank title → build_summary returns None
+        // context is already default (all vecs empty), goals is empty
         let out = BlackboardBuilder::new(&wd).build();
-        assert!(out.is_empty(), "empty workday must produce empty preamble, got: {out:?}");
+        assert!(out.is_empty(), "workday with no title and no context must produce empty preamble, got: {out:?}");
+    }
+
+    /// A workday with a non-empty title but no context entries still emits
+    /// the XML block (with `<workday_summary>`) so the agent knows what
+    /// workday it is operating in.
+    #[test]
+    fn blackboard_builder_titled_workday_no_context_emits_summary_only() {
+        let wd = make_workday("wd-test-17-bb-titled-only");
+        // title = "Test workday", context = default empty
+        let out = BlackboardBuilder::new(&wd).build();
+        assert!(out.contains("<workflow_blackboard"), "must emit opening tag");
+        assert!(out.contains("<workday_summary>"), "must emit summary for titled workday");
+        assert!(!out.contains("<next_steps>"), "no pending goals → no next_steps");
+        assert!(!out.contains("<blockers>"), "no decisions → no blockers");
     }
 
     #[test]
