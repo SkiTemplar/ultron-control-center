@@ -4,6 +4,15 @@ Qdrant is an optional local vector database used for semantic session recall
 (KIRKARDO 14). The Control Center works fine without it — hooks degrade
 gracefully when Qdrant is not running.
 
+## Status on this machine (2026-05-27)
+
+Installed at `D:\Ultron\qdrant\qdrant.exe` (v1.13.0). Auto-start registered as
+Windows scheduled task `UltronQdrant` (run at user logon, restart x3 if fails).
+Config at `D:\Ultron\qdrant\config.yaml`, storage at
+`D:\Ultron\qdrant\storage`, snapshots at `D:\Ultron\qdrant\snapshots`. HTTP on
+`127.0.0.1:6333`, gRPC on `6334`, telemetry disabled. The `qdrant.rs` module
+hits the HTTP API via `reqwest`, so no extra env var is needed by default.
+
 ## Decision: external binary, not embedded
 
 Qdrant is NOT embedded inside the Tauri process. Reasons:
