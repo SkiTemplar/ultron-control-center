@@ -258,10 +258,31 @@ pub fn compute_cost_inner(window_hours: u32) -> Result<CostSnapshot, String> {
     top.truncate(5);
 
     let alert = if usd_high > 20.0 {
-        Some(format!(
-            "Projected daily cost above $20 (high estimate ${:.2}). Consider switching some zones to Codex or Gemini in Settings → AI Router.",
-            usd_high
-        ))
+        // Compose the raw alert first, then try to compress it through
+        // the AI Router 'summarize' zone (KIRKARDO 28 caller gap fix).
+        // The summarize zone defaults to Groq Llama 3.3 70B (free tier,
+        // ~315 tok/s) so this almost-free call gives the router its
+        // first real producer of metrics — count, latency, fallback_rate
+        // start moving away from zero.
+        let raw = format!(
+            "Projected daily cost above $20 (high estimate ${:.2}). Top buckets: {}. Consider switching some zones to Codex or Gemini in Settings → AI Router.",
+            usd_high,
+            top.iter()
+                .map(|(b, t)| format!("{} ({})", b, t))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+        let prompt = format!(
+            "Compress this cost alert into one sentence under 140 chars: {}",
+            raw
+        );
+        match crate::ai_router::route("summarize", &prompt) {
+            Ok(short) => Some(short),
+            // Router unavailable / no keys configured / all providers
+            // failed — degrade gracefully to the verbose alert. We don't
+            // want a missing GROQ_API_KEY to swallow the alert itself.
+            Err(_) => Some(raw),
+        }
     } else {
         None
     };
