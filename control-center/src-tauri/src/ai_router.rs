@@ -808,6 +808,69 @@ fn truncate(s: &str, max: usize) -> String {
 // Per-provider wrappers — each returns the assistant text on success.
 // ---------------------------------------------------------------------------
 
+/// KIRKARDO R11.1 FIX-9: detect HTTP 429 / Anthropic rate-limit responses
+/// and push the signal into `quota_watchdog` so subsequent route() calls
+/// skip the saturated provider without waiting for the 60s poll cycle.
+///
+/// Today only Claude providers are modelled by `quota_watchdog`; other
+/// providers log the event but don't get a quota state update (the watchdog
+/// would need a per-provider map first — tracked as a R11 deferred item).
+///
+/// Parses `retry-after` (seconds OR HTTP-date), `anthropic-ratelimit-tokens-reset`
+/// (RFC 3339), or falls back to `now + 5 min` so the critical flag eventually
+/// clears on its own if the API stops complaining.
+fn react_to_rate_limit(
+    provider: &Provider,
+    status: reqwest::StatusCode,
+    headers: &reqwest::header::HeaderMap,
+    body: &str,
+) {
+    let is_429 = status == reqwest::StatusCode::TOO_MANY_REQUESTS;
+    let body_l = body.to_ascii_lowercase();
+    let is_quota_error = body_l.contains("credit balance")
+        || body_l.contains("rate_limit_error")
+        || body_l.contains("quota_exceeded")
+        || body_l.contains("insufficient_quota");
+    if !is_429 && !is_quota_error {
+        return;
+    }
+    if !provider.id.to_ascii_lowercase().contains("claude") {
+        // Non-Claude providers: nothing to persist today, but eprintln so the
+        // event isn't silent during debug builds.
+        eprintln!(
+            "[ai_router] rate-limit detected on {} (status {}); per-provider quota not yet modelled",
+            provider.id, status
+        );
+        return;
+    }
+    let now = chrono::Utc::now();
+    let parse_seconds = |s: &str| -> Option<chrono::DateTime<chrono::Utc>> {
+        s.trim().parse::<i64>().ok().map(|secs| now + chrono::Duration::seconds(secs))
+    };
+    let parse_http_date = |s: &str| -> Option<chrono::DateTime<chrono::Utc>> {
+        chrono::DateTime::parse_from_rfc2822(s.trim())
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc))
+    };
+    let parse_rfc3339 = |s: &str| -> Option<chrono::DateTime<chrono::Utc>> {
+        chrono::DateTime::parse_from_rfc3339(s.trim())
+            .ok()
+            .map(|d| d.with_timezone(&chrono::Utc))
+    };
+    let reset_at = headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| parse_seconds(s).or_else(|| parse_http_date(s)))
+        .or_else(|| {
+            headers
+                .get("anthropic-ratelimit-tokens-reset")
+                .and_then(|v| v.to_str().ok())
+                .and_then(parse_rfc3339)
+        })
+        .or(Some(now + chrono::Duration::minutes(5)));
+    crate::quota_watchdog::update_from_headers(99.0, reset_at);
+}
+
 fn call_anthropic(
     provider: &Provider,
     model: &str,
@@ -851,8 +914,10 @@ fn call_anthropic(
         .send()
         .map_err(|e| format!("anthropic request failed: {}", e))?;
     let status = resp.status();
+    let headers = resp.headers().clone();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
+        react_to_rate_limit(provider, status, &headers, &text);
         return Err(format!("anthropic {}: {}", status, truncate(&text, 200)));
     }
     let v: serde_json::Value = serde_json::from_str(&text)
@@ -899,8 +964,10 @@ fn call_openai_compat(
         .send()
         .map_err(|e| format!("{} request failed: {}", provider.id, e))?;
     let status = resp.status();
+    let headers = resp.headers().clone();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
+        react_to_rate_limit(provider, status, &headers, &text);
         return Err(format!("{} {}: {}", provider.id, status, truncate(&text, 200)));
     }
     let v: serde_json::Value = serde_json::from_str(&text)
@@ -947,8 +1014,10 @@ fn call_gemini(
         .send()
         .map_err(|e| format!("gemini request failed: {}", e))?;
     let status = resp.status();
+    let headers = resp.headers().clone();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
+        react_to_rate_limit(provider, status, &headers, &text);
         return Err(format!("gemini {}: {}", status, truncate(&text, 200)));
     }
     let v: serde_json::Value = serde_json::from_str(&text)
@@ -1191,6 +1260,22 @@ pub fn ai_router_test(zone_id: String, sample_prompt: String) -> Result<TestResu
 //     successful response.
 //   - Increments RouterMetrics on every attempt (success and failure).
 //   - Returns Err only when EVERY provider in the chain failed.
+//
+// SCOPE NOTE (KIRKARDO R11.4 FIX-11): this function is currently invoked
+// only by the `ai_router_route` Tauri command — i.e. the "Test" button in
+// Settings → AI Router and the Usage panel simulator. Claude Code itself
+// (the CLI hosting this app) does NOT route LLM calls through this code;
+// it talks to Anthropic directly. That means `metrics.json` reflects
+// Tauri-UI-triggered routes only, not real Claude Code traffic.
+//
+// To make the router observe production LLM calls, two options exist:
+//   (A) An external proxy in front of Claude Code's HTTP client that
+//       posts each request through `ai_router_route`. Heavy.
+//   (B) A Claude Code "model_route" plugin/hook that delegates the
+//       provider decision to this router. Lighter; not yet implemented.
+// Until (A) or (B) lands, treat this router as a Tauri-UI affordance for
+// experimenting with zones and fallback chains, NOT as a system-wide
+// routing layer.
 // ---------------------------------------------------------------------------
 pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     let zones = load_zones()?;
