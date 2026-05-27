@@ -22,6 +22,14 @@
 //
 // Mutations route through `settings::settings_save_inner` so we inherit
 // the timestamped backup + atomic tmp+rename write for free.
+//
+// Auto-naming: `analyze_hook_name_inner` assigns a human-readable kebab-case
+// name to a hook based on its command text.  It tries three strategies in
+// order:
+//   1. AI Router `route()` via the "utility" zone (Haiku / Gemini Flash).
+//   2. Heuristic: first comment or exported function name found in the command.
+//   3. Last-resort: prefix of the command verb (first non-option word).
+// Results are cached in ~/.ultron/cockpit/hooks-names.json keyed by hook id.
 
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
@@ -1225,4 +1233,320 @@ pub fn hooks_last_fired_inner(id: String) -> HookLastFired {
         },
         None => HookLastFired { id, timestamp: None, project: None, exit_code: None },
     }
+}
+
+// ---------------------------------------------------------------------------
+// Auto-naming: analyze_hook_name
+// ---------------------------------------------------------------------------
+
+/// Result type for `analyze_hook_name_inner`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HookNameResult {
+    pub id: String,
+    /// Human-readable kebab-case name (2-4 words), e.g. "format-on-save".
+    pub name: String,
+    /// How the name was obtained: "ai", "heuristic", or "fallback".
+    pub strategy: String,
+    /// `true` if this result was served from the on-disk cache.
+    pub cached: bool,
+}
+
+/// Path to the names cache JSON.
+fn names_cache_path() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| {
+        h.join(".ultron")
+            .join("cockpit")
+            .join("hooks-names.json")
+    })
+}
+
+/// Read the entire cache map (hook_id → name_record). Returns an empty map on
+/// any I/O or parse error so callers never have to handle the error case.
+fn read_names_cache() -> serde_json::Map<String, serde_json::Value> {
+    let Some(path) = names_cache_path() else {
+        return serde_json::Map::new();
+    };
+    if !path.exists() {
+        return serde_json::Map::new();
+    }
+    let Ok(raw) = fs::read_to_string(&path) else {
+        return serde_json::Map::new();
+    };
+    match serde_json::from_str::<serde_json::Value>(&raw) {
+        Ok(serde_json::Value::Object(m)) => m,
+        _ => serde_json::Map::new(),
+    }
+}
+
+/// Atomically persist the cache map.
+fn write_names_cache(map: &serde_json::Map<String, serde_json::Value>) -> Result<(), String> {
+    let Some(path) = names_cache_path() else {
+        return Err("no HOME".into());
+    };
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let raw = serde_json::to_string_pretty(&serde_json::Value::Object(map.clone()))
+        .map_err(|e| format!("serialize: {}", e))?;
+    fs::write(&tmp, &raw).map_err(|e| format!("write tmp: {}", e))?;
+    fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
+    Ok(())
+}
+
+/// Heuristic fallback: extract the first meaningful name from the command text.
+///
+/// Priority:
+///   1. First shell comment line: `# my-hook-does-x`
+///   2. First exported function: `function Do-Thing`
+///   3. Python def: `def do_thing(`
+///   4. Verb of the first non-option token on the command line
+fn heuristic_name(command: &str) -> String {
+    // 1. Shell / Python comment
+    for line in command.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix('#') {
+            let candidate = rest.trim().to_string();
+            if !candidate.is_empty() && candidate.len() <= 80 {
+                return to_kebab_fragment(&candidate, 4);
+            }
+        }
+    }
+    // 2. PowerShell function: `function Verb-Noun { ... }`
+    for line in command.lines() {
+        let lower = line.trim().to_lowercase();
+        if lower.starts_with("function ") {
+            if let Some(name) = lower.strip_prefix("function ") {
+                let name = name.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                if !name.is_empty() {
+                    return to_kebab_fragment(&name, 4);
+                }
+            }
+        }
+    }
+    // 3. Python def
+    for line in command.lines() {
+        let lower = line.trim().to_lowercase();
+        if lower.starts_with("def ") {
+            if let Some(name) = lower.strip_prefix("def ") {
+                let name = name
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                    .unwrap_or("")
+                    .replace('_', "-");
+                if !name.is_empty() {
+                    return to_kebab_fragment(&name, 4);
+                }
+            }
+        }
+    }
+    // 4. First meaningful verb from the command line itself
+    let words: Vec<&str> = command
+        .split_whitespace()
+        .filter(|w| !w.starts_with('-') && !w.starts_with('/') && !w.starts_with('$'))
+        .collect();
+    // Try to build a 2-word phrase from the executable + first arg
+    let verb_phrase: Vec<String> = words
+        .iter()
+        .take(2)
+        .map(|w| {
+            // Strip .exe, .py, .ps1 etc. and take only the basename
+            let base = w.split(|c: char| c == '\\' || c == '/').last().unwrap_or(w);
+            let stem = base.split('.').next().unwrap_or(base);
+            stem.to_lowercase().replace('_', "-")
+        })
+        .filter(|s| !s.is_empty())
+        .collect();
+    if verb_phrase.is_empty() {
+        return "hook".to_string();
+    }
+    verb_phrase.join("-")
+}
+
+/// Sanitise an arbitrary string into at most `max_words` kebab-case words.
+fn to_kebab_fragment(input: &str, max_words: usize) -> String {
+    // Split on non-alnum, CamelCase boundaries, and underscores
+    let mut words: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    for ch in input.chars() {
+        if ch.is_alphanumeric() {
+            if ch.is_uppercase() && !buf.is_empty() {
+                words.push(buf.to_lowercase());
+                buf.clear();
+            }
+            buf.push(ch);
+        } else if !buf.is_empty() {
+            words.push(buf.to_lowercase());
+            buf.clear();
+        }
+    }
+    if !buf.is_empty() {
+        words.push(buf.to_lowercase());
+    }
+    // Drop common noise tokens
+    let noise: &[&str] = &["the", "a", "an", "and", "or", "to", "in", "of", "for"];
+    let words: Vec<String> = words
+        .into_iter()
+        .filter(|w| w.len() > 1 && !noise.contains(&w.as_str()))
+        .take(max_words)
+        .collect();
+    if words.is_empty() {
+        return "hook".to_string();
+    }
+    words.join("-")
+}
+
+/// Prompt sent to the AI to request a kebab-case name.
+fn build_naming_prompt(hook_id: &str, event: &str, command: &str) -> String {
+    format!(
+        "You are naming a Claude Code shell hook for a developer.\n\
+        Hook ID (opaque): {id}\n\
+        Event: {event}\n\
+        Command (the shell script / invocation):\n\
+        ---\n{command}\n---\n\n\
+        Respond with ONLY a short kebab-case name (2 to 4 words, no spaces, \
+        no quotes, no punctuation) that describes what this hook does. \
+        Examples: format-on-save  audit-bash-calls  notify-on-stop  \
+        pre-commit-check  cost-watchdog-alert\n\
+        Name:",
+        id = hook_id,
+        event = event,
+        command = command
+    )
+}
+
+/// Extract the first token from an AI response (strips quotes, dots, prose).
+fn parse_ai_name(raw: &str) -> String {
+    let candidate = raw
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or(raw)
+        .trim()
+        .trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
+    // Keep only kebab-safe chars and collapse to max 4 segments
+    let segments: Vec<&str> = candidate
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .take(4)
+        .collect();
+    if segments.is_empty() {
+        return "hook".to_string();
+    }
+    segments.join("-").to_lowercase()
+}
+
+/// Analyse (or return cached) name for a single hook.
+///
+/// Strategy cascade:
+///   1. Return cached entry if present.
+///   2. Call `ai_router::route("utility", prompt)` — uses Haiku/Gemini/Groq.
+///   3. Heuristic extraction from command text.
+///   4. Last-resort "hook" literal.
+pub fn analyze_hook_name_inner(id: String) -> Result<HookNameResult, String> {
+    // --- Check cache first ---
+    let mut cache = read_names_cache();
+    if let Some(cached_val) = cache.get(&id) {
+        if let Some(name) = cached_val.get("name").and_then(|v| v.as_str()) {
+            return Ok(HookNameResult {
+                id,
+                name: name.to_string(),
+                strategy: cached_val
+                    .get("strategy")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("cached")
+                    .to_string(),
+                cached: true,
+            });
+        }
+    }
+
+    // --- Lookup the hook to get its command text ---
+    let list = list_hooks_inner()?;
+    let hook = list
+        .hooks
+        .into_iter()
+        .find(|h| h.id == id)
+        .ok_or_else(|| format!("hook '{}' not found", id))?;
+
+    // --- Attempt AI naming ---
+    let prompt = build_naming_prompt(&hook.id, &hook.event, &hook.command);
+    let (name, strategy) = match crate::ai_router::route("utility", &prompt) {
+        Ok(raw) => {
+            let n = parse_ai_name(&raw);
+            if n.len() >= 3 && n.contains('-') {
+                (n, "ai".to_string())
+            } else {
+                // AI returned something too short/weird — fall back
+                (heuristic_name(&hook.command), "heuristic".to_string())
+            }
+        }
+        Err(_) => {
+            // AI Router unavailable (no key, no zone, network error) — use heuristic
+            (heuristic_name(&hook.command), "heuristic".to_string())
+        }
+    };
+
+    // --- Persist to cache ---
+    let entry = serde_json::json!({ "name": name, "strategy": strategy });
+    cache.insert(id.clone(), entry);
+    // Best-effort: cache write failure does not abort the response.
+    let _ = write_names_cache(&cache);
+
+    Ok(HookNameResult {
+        id,
+        name,
+        strategy,
+        cached: false,
+    })
+}
+
+/// Bulk variant: analyse all hooks that don't have a cached name yet.
+/// Returns the list of newly assigned names (already-cached hooks are skipped).
+pub fn bulk_analyze_hook_names_inner() -> Result<Vec<HookNameResult>, String> {
+    let list = list_hooks_inner()?;
+    let cache = read_names_cache();
+    let mut results: Vec<HookNameResult> = Vec::new();
+
+    for hook in list.hooks.iter() {
+        // Skip already-named hooks
+        if cache.contains_key(&hook.id) {
+            if let Some(cached_val) = cache.get(&hook.id) {
+                if let Some(name) = cached_val.get("name").and_then(|v| v.as_str()) {
+                    results.push(HookNameResult {
+                        id: hook.id.clone(),
+                        name: name.to_string(),
+                        strategy: cached_val
+                            .get("strategy")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("cached")
+                            .to_string(),
+                        cached: true,
+                    });
+                    continue;
+                }
+            }
+        }
+        // Name this hook — ignore per-hook errors and continue bulk
+        match analyze_hook_name_inner(hook.id.clone()) {
+            Ok(r) => results.push(r),
+            Err(e) => {
+                // Push a fallback entry so the bulk caller knows we tried
+                results.push(HookNameResult {
+                    id: hook.id.clone(),
+                    name: heuristic_name(&hook.command),
+                    strategy: format!("fallback({})", e),
+                    cached: false,
+                });
+            }
+        }
+    }
+    Ok(results)
+}
+
+/// Read the current names cache for the frontend (no AI calls, no mutations).
+pub fn get_hook_names_cache_inner() -> serde_json::Map<String, serde_json::Value> {
+    read_names_cache()
 }

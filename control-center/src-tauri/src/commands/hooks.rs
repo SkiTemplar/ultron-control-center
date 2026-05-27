@@ -6,6 +6,26 @@ pub async fn list_hooks() -> Result<hooks_admin::HooksList, String> {
     hooks_admin::list_hooks_inner()
 }
 
+/// Assign a human-readable kebab-case name to a single hook.
+/// Uses AI Router (utility zone) with heuristic fallback.
+/// Results are cached in ~/.ultron/cockpit/hooks-names.json.
+#[tauri::command]
+pub async fn analyze_hook_name(id: String) -> Result<hooks_admin::HookNameResult, String> {
+    hooks_admin::analyze_hook_name_inner(id)
+}
+
+/// Assign names to all hooks that don't have a cached name yet.
+#[tauri::command]
+pub async fn bulk_analyze_hook_names() -> Result<Vec<hooks_admin::HookNameResult>, String> {
+    hooks_admin::bulk_analyze_hook_names_inner()
+}
+
+/// Return the current hooks-names.json cache as a flat object.
+#[tauri::command]
+pub async fn get_hook_names_cache() -> serde_json::Value {
+    serde_json::Value::Object(hooks_admin::get_hook_names_cache_inner())
+}
+
 #[tauri::command]
 pub async fn add_hook(
     event: String,

@@ -386,6 +386,9 @@ pub fn run() {
             commands::hooks::recent_hook_fires,
             commands::hooks::request_hook_via_ai,
             commands::hooks::hooks_last_fired,
+            commands::hooks::analyze_hook_name,
+            commands::hooks::bulk_analyze_hook_names,
+            commands::hooks::get_hook_names_cache,
             // -- plugin info (P7 + v2.2 multi-plugin) --
             commands::plugins_info::read_plugin_info,
             commands::plugins_info::list_all_plugins,
@@ -469,6 +472,9 @@ pub fn run() {
             ai_router::ai_router_test,
             ai_router::ai_router_route,
             ai_router::ai_router_usage_summary,
+            // P1 2026-05-27: key-aware routing — validate keys + disabled list
+            ai_router::ai_router_validate_keys,
+            ai_router::ai_router_disabled_providers,
         ])
         .setup(|app| {
             // P4 migration: ensure every known project has a kanban.json.

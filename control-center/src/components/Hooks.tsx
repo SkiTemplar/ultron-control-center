@@ -1,39 +1,25 @@
-// ULTRON Control Center — Hooks viewer (v2.8 REDESIGN).
+// ULTRON Control Center — Hooks viewer (v2.9 REDESIGN).
 //
-// USER's brief: "Hooks me gusta un poco más pero no usa el diseño de
-// Cajitas que usa Skills, Agents y Rules." Move to the unified Library card
-// pattern:
-//
-//   - Grid of cards where each card is ONE INDIVIDUAL hook (not a category).
-//   - Only the hook id is shown on the card. Amber accent (top ribbon) to
-//     distinguish from Skills (cyan), Agents (violet), Rules (lime). The
-//     event gets a secondary chip in the card corner using its event colour.
-//   - Top toolbar has filter chips by event: All / PreToolUse / PostToolUse
-//     / Stop / etc. — clicking filters the grid; the active chip is tinted
-//     with that event's colour.
-//   - Clicking a card opens a detail pane on the right side (mirrors the
-//     Skills/Agents/Rules 2-pane layout). The pane shows id, event, matcher,
-//     source, last fired, the full command rendered as a code block, and
-//     three action buttons: Test / Edit / Delete.
-//   - The "no instrumentation" banner stays. The "+ Create hook" button
-//     and "Add with AI" entry point stay. The Add / Edit / Test / AI modals
-//     are unchanged from v2.7 — only the listing UI is rebuilt.
+// USER's brief (v2.9 sprint):
+//   1. Mismas categorías colapsables que Skills / Agents / Rules — sidebar
+//      izquierdo con grupos por evento (PreToolUse, PostToolUse, Stop, …).
+//   2. Quitar el color amarillo global. Cada categoría usa su propio color de
+//      evento; el ribbon del card viene del color del evento, no amber fijo.
+//   3. Auto-naming: nuevo command `analyze_hook_name` que invoca AI Router
+//      (Haiku / Gemini) para dar nombre legible en kebab-case. Botón
+//      "Auto-name all" en header para procesar en bulk.
 //
 // Implementation notes:
-//
-//   - We do NOT use the shared LibraryDetailPane because its action bar
-//     (Edit / Edit with AI / Open Externally) doesn't match what a hook
-//     needs (Test / Edit / Delete). Instead we keep a hook-shaped detail
-//     pane that follows the same visual language — rounded card, ribbon
-//     accent, header chip, scrollable body — so the two panes feel like
-//     siblings without forcing inappropriate buttons.
-//   - The amber accent constants mirror the Skills (cyan) / Agents
-//     (violet) / Rules (lime) tokens so the four tabs read as a family.
-//   - Modals (HookFormModal / TestModal / AiModal / empty state) are
-//     preserved verbatim from v2.7 — they're already in good shape and
-//     out of scope for this redesign.
+//   - La barra lateral izquierda lista eventos como grupos colapsables
+//     (mismo patrón que TreeView en Skills). Al hacer click en un grupo se
+//     expande la lista de hooks de ese evento.
+//   - Clicking a card opens HookDetailPane on the right side (unchanged).
+//   - El card muestra el nombre legible (del cache) si está disponible;
+//     si no, el id raw con estilo `font-mono` de menor tamaño para indicar
+//     que aún no se ha nombrado.
+//   - Los modals (HookFormModal / TestModal / AiModal) se conservan intactos.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { confirmDialog } from "../lib/dialog";
 import type { HookLastFired } from "../types";
@@ -89,6 +75,13 @@ type HookFiresReport = {
   instrumented: boolean;
 };
 
+type HookNameResult = {
+  id: string;
+  name: string;
+  strategy: string;
+  cached: boolean;
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -110,65 +103,111 @@ const DEFAULT_PAYLOAD = `{
   "tool_input": { "command": "echo hello" }
 }`;
 
-// v2.8 amber accent — distinguishes hook cards from skills (cyan), agents
-// (violet) and rules (lime) at a glance. The ribbon sits on top of every
-// card and the detail pane header.
-const HOOK_ACCENT = "rgba(251, 191, 36, 0.55)";
-const HOOK_ACCENT_SOFT = "rgba(251, 191, 36, 0.16)";
-const HOOK_ACCENT_TEXT = "#fcd34d";
-const HOOK_ACCENT_BORDER = "rgba(251, 191, 36, 0.45)";
+// ---------------------------------------------------------------------------
+// Per-event color tokens — used for the category sidebar accent, card ribbon,
+// and event badges. NO global amber overlay anymore.
+// ---------------------------------------------------------------------------
 
-function eventBadgeColor(event: string): { bg: string; fg: string; border: string } {
+type EventColors = {
+  ribbon: string;       // top card ribbon + sidebar active bg
+  ribbonBorder: string; // card active border + sidebar chip border
+  chipBg: string;       // event badge bg
+  chipFg: string;       // event badge text
+  chipBorder: string;   // event badge border
+  sidebarActive: string;// sidebar row active background
+};
+
+function eventColors(event: string): EventColors {
   switch (event) {
     case "PreToolUse":
       return {
-        bg: "rgba(96, 165, 250, 0.18)",
-        fg: "#93c5fd",
-        border: "rgba(96, 165, 250, 0.45)",
+        ribbon: "rgba(56, 189, 248, 0.55)",
+        ribbonBorder: "rgba(56, 189, 248, 0.55)",
+        chipBg: "rgba(56, 189, 248, 0.14)",
+        chipFg: "#67e8f9",
+        chipBorder: "rgba(56, 189, 248, 0.45)",
+        sidebarActive: "rgba(56, 189, 248, 0.12)",
       };
     case "PostToolUse":
       return {
-        bg: "rgba(52, 211, 153, 0.18)",
-        fg: "#6ee7b7",
-        border: "rgba(52, 211, 153, 0.45)",
+        ribbon: "rgba(167, 139, 250, 0.55)",
+        ribbonBorder: "rgba(167, 139, 250, 0.55)",
+        chipBg: "rgba(167, 139, 250, 0.14)",
+        chipFg: "#c4b5fd",
+        chipBorder: "rgba(167, 139, 250, 0.45)",
+        sidebarActive: "rgba(167, 139, 250, 0.12)",
       };
     case "UserPromptSubmit":
       return {
-        bg: "rgba(251, 191, 36, 0.18)",
-        fg: "#fcd34d",
-        border: "rgba(251, 191, 36, 0.45)",
+        ribbon: "rgba(251, 191, 36, 0.55)",
+        ribbonBorder: "rgba(251, 191, 36, 0.55)",
+        chipBg: "rgba(251, 191, 36, 0.14)",
+        chipFg: "#fcd34d",
+        chipBorder: "rgba(251, 191, 36, 0.45)",
+        sidebarActive: "rgba(251, 191, 36, 0.10)",
       };
     case "SessionStart":
+      return {
+        ribbon: "rgba(132, 204, 22, 0.55)",
+        ribbonBorder: "rgba(132, 204, 22, 0.55)",
+        chipBg: "rgba(132, 204, 22, 0.14)",
+        chipFg: "#bef264",
+        chipBorder: "rgba(132, 204, 22, 0.45)",
+        sidebarActive: "rgba(132, 204, 22, 0.10)",
+      };
     case "SessionEnd":
       return {
-        bg: "rgba(167, 139, 250, 0.18)",
-        fg: "#c4b5fd",
-        border: "rgba(167, 139, 250, 0.45)",
+        ribbon: "rgba(45, 212, 191, 0.55)",
+        ribbonBorder: "rgba(45, 212, 191, 0.55)",
+        chipBg: "rgba(45, 212, 191, 0.14)",
+        chipFg: "#5eead4",
+        chipBorder: "rgba(45, 212, 191, 0.45)",
+        sidebarActive: "rgba(45, 212, 191, 0.10)",
       };
     case "Stop":
+      return {
+        ribbon: "rgba(248, 113, 113, 0.55)",
+        ribbonBorder: "rgba(248, 113, 113, 0.55)",
+        chipBg: "rgba(248, 113, 113, 0.14)",
+        chipFg: "#fca5a5",
+        chipBorder: "rgba(248, 113, 113, 0.45)",
+        sidebarActive: "rgba(248, 113, 113, 0.10)",
+      };
     case "SubagentStop":
       return {
-        bg: "rgba(248, 113, 113, 0.18)",
-        fg: "#fca5a5",
-        border: "rgba(248, 113, 113, 0.45)",
+        ribbon: "rgba(248, 113, 113, 0.40)",
+        ribbonBorder: "rgba(248, 113, 113, 0.40)",
+        chipBg: "rgba(248, 113, 113, 0.10)",
+        chipFg: "#fca5a5",
+        chipBorder: "rgba(248, 113, 113, 0.35)",
+        sidebarActive: "rgba(248, 113, 113, 0.08)",
       };
     case "PreCompact":
       return {
-        bg: "rgba(244, 114, 182, 0.18)",
-        fg: "#f9a8d4",
-        border: "rgba(244, 114, 182, 0.45)",
+        ribbon: "rgba(244, 114, 182, 0.55)",
+        ribbonBorder: "rgba(244, 114, 182, 0.55)",
+        chipBg: "rgba(244, 114, 182, 0.14)",
+        chipFg: "#f9a8d4",
+        chipBorder: "rgba(244, 114, 182, 0.45)",
+        sidebarActive: "rgba(244, 114, 182, 0.10)",
       };
     case "Notification":
       return {
-        bg: "rgba(45, 212, 191, 0.18)",
-        fg: "#5eead4",
-        border: "rgba(45, 212, 191, 0.45)",
+        ribbon: "rgba(96, 165, 250, 0.55)",
+        ribbonBorder: "rgba(96, 165, 250, 0.55)",
+        chipBg: "rgba(96, 165, 250, 0.14)",
+        chipFg: "#93c5fd",
+        chipBorder: "rgba(96, 165, 250, 0.45)",
+        sidebarActive: "rgba(96, 165, 250, 0.10)",
       };
     default:
       return {
-        bg: "var(--color-surface-3)",
-        fg: "var(--color-text-secondary)",
-        border: "var(--color-border)",
+        ribbon: "var(--color-border-strong)",
+        ribbonBorder: "var(--color-border-strong)",
+        chipBg: "var(--color-surface-3)",
+        chipFg: "var(--color-text-secondary)",
+        chipBorder: "var(--color-border)",
+        sidebarActive: "var(--color-surface-3)",
       };
   }
 }
@@ -182,8 +221,6 @@ function truncate(s: string, n: number): string {
 // Main component
 // ---------------------------------------------------------------------------
 
-type EventFilter = "all" | string;
-
 export function Hooks() {
   const [list, setList] = useState<HooksList | null>(null);
   const [loading, setLoading] = useState(true);
@@ -191,9 +228,10 @@ export function Hooks() {
   const [flash, setFlash] = useState<string | null>(null);
   const [filterText, setFilterText] = useState<string>("");
 
-  // v2.8: filter chips replace the v2.7 category cards. Single-select; the
-  // active chip is tinted with that event's colour.
-  const [eventFilter, setEventFilter] = useState<EventFilter>("all");
+  // Sidebar: which event category is expanded (null = all collapsed)
+  const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
+  // Selected hook id drives the detail pane
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [addOpen, setAddOpen] = useState(false);
   const [aiOpen, setAiOpen] = useState(false);
@@ -202,17 +240,20 @@ export function Hooks() {
 
   const [editTarget, setEditTarget] = useState<HookRecord | null>(null);
   const [testTarget, setTestTarget] = useState<HookRecord | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [fires, setFires] = useState<HookFiresReport | null>(null);
-  // P7: last-fired entry per hook id (timestamp + project slug).
   const [lastFired, setLastFired] = useState<Record<string, HookLastFired>>({});
+
+  // Auto-naming state
+  const [namesCache, setNamesCache] = useState<Record<string, { name: string; strategy: string }>>({});
+  const [namingBusy, setNamingBusy] = useState(false);
+  const [namingProgress, setNamingProgress] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Data loading
   // -------------------------------------------------------------------------
 
-  async function fetchList() {
+  const fetchList = useCallback(async () => {
     try {
       const res = (await invoke("list_hooks")) as HooksList;
       setList(res);
@@ -222,24 +263,33 @@ export function Hooks() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   async function fetchFires() {
     try {
       const res = (await invoke("recent_hook_fires", { limit: 50 })) as HookFiresReport;
       setFires(res);
     } catch (e) {
-      // Non-fatal — instrumentation is optional.
-      console.warn("recent_hook_fires failed", e);
+      // Non-fatal
+    }
+  }
+
+  async function fetchNamesCache() {
+    try {
+      const raw = (await invoke("get_hook_names_cache")) as Record<string, { name: string; strategy: string }>;
+      setNamesCache(raw ?? {});
+    } catch {
+      // Non-fatal
     }
   }
 
   useEffect(() => {
     fetchList();
     fetchFires();
-  }, []);
+    fetchNamesCache();
+  }, [fetchList]);
 
-  // P7: refresh per-hook last fired whenever the list changes.
+  // Refresh per-hook last-fired whenever the list changes
   useEffect(() => {
     const hooks = list?.hooks ?? [];
     if (hooks.length === 0) {
@@ -254,7 +304,7 @@ export function Hooks() {
           const r = (await invoke("hooks_last_fired", { id: h.id })) as HookLastFired;
           map[h.id] = r;
         } catch {
-          /* skip — hook may have never fired */
+          // skip
         }
       }
       if (!cancelled) setLastFired(map);
@@ -313,32 +363,82 @@ export function Hooks() {
   }
 
   // -------------------------------------------------------------------------
-  // Derived
+  // Auto-naming handlers
   // -------------------------------------------------------------------------
 
-  // v2.8: filter pipeline = event filter chip → text search.
+  async function handleAutoNameSingle(hookId: string) {
+    try {
+      const res = (await invoke("analyze_hook_name", { id: hookId })) as HookNameResult;
+      setNamesCache((prev) => ({
+        ...prev,
+        [res.id]: { name: res.name, strategy: res.strategy },
+      }));
+    } catch (e) {
+      showFlash(`Naming failed: ${e}`);
+    }
+  }
+
+  async function handleAutoNameAll() {
+    setNamingBusy(true);
+    setNamingProgress("Analyzing hooks...");
+    try {
+      const results = (await invoke("bulk_analyze_hook_names")) as HookNameResult[];
+      const updates: Record<string, { name: string; strategy: string }> = {};
+      let newCount = 0;
+      for (const r of results) {
+        updates[r.id] = { name: r.name, strategy: r.strategy };
+        if (!r.cached) newCount++;
+      }
+      setNamesCache((prev) => ({ ...prev, ...updates }));
+      setNamingProgress(null);
+      showFlash(`Named ${newCount} hook(s). ${results.length - newCount} already cached.`);
+    } catch (e) {
+      showFlash(`Auto-name failed: ${e}`);
+      setNamingProgress(null);
+    } finally {
+      setNamingBusy(false);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Derived: grouping by event for sidebar
+  // -------------------------------------------------------------------------
+
+  const q = filterText.trim().toLowerCase();
+
   const filtered = useMemo(() => {
     if (!list) return [];
-    const q = filterText.trim().toLowerCase();
     return list.hooks.filter((h) => {
-      if (eventFilter !== "all" && h.event !== eventFilter) return false;
       if (!q) return true;
-      const hay = `${h.id} ${h.matcher ?? ""} ${h.command ?? ""} ${h.event ?? ""}`.toLowerCase();
+      const displayName = namesCache[h.id]?.name ?? h.id;
+      const hay = `${displayName} ${h.id} ${h.matcher ?? ""} ${h.command} ${h.event}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [list, filterText, eventFilter]);
+  }, [list, q, namesCache]);
 
-  // Per-event counts feed the chip labels — keeps users oriented when many
-  // categories are empty.
-  const eventCounts = useMemo(() => {
-    const map = new Map<string, number>();
-    map.set("all", list?.hooks.length ?? 0);
-    for (const e of EVENT_OPTIONS) map.set(e, 0);
-    for (const h of list?.hooks ?? []) {
-      map.set(h.event, (map.get(h.event) ?? 0) + 1);
+  // Events that have at least one hook (considering current text filter)
+  const eventGroups = useMemo(() => {
+    const grouped = new Map<string, HookRecord[]>();
+    for (const h of filtered) {
+      const arr = grouped.get(h.event) ?? [];
+      arr.push(h);
+      grouped.set(h.event, arr);
     }
-    return map;
-  }, [list]);
+    // Preserve EVENT_OPTIONS order; append unknown events at end
+    const result: { event: string; hooks: HookRecord[] }[] = [];
+    for (const ev of EVENT_OPTIONS) {
+      const hooks = grouped.get(ev);
+      if (hooks && hooks.length > 0) {
+        result.push({ event: ev, hooks });
+      }
+    }
+    for (const [ev, hooks] of grouped.entries()) {
+      if (!EVENT_OPTIONS.includes(ev)) {
+        result.push({ event: ev, hooks });
+      }
+    }
+    return result;
+  }, [filtered]);
 
   const selectedHook = useMemo(
     () => list?.hooks.find((h) => h.id === selectedId) ?? null,
@@ -350,21 +450,164 @@ export function Hooks() {
     return fires.fires.filter((f) => f.hook_id === selectedHook.id);
   }, [fires, selectedHook]);
 
+  // Auto-expand the first group when list loads and nothing is selected
+  useEffect(() => {
+    if (!expandedEvent && eventGroups.length > 0 && !selectedId) {
+      setExpandedEvent(eventGroups[0].event);
+    }
+  }, [eventGroups, expandedEvent, selectedId]);
+
   // -------------------------------------------------------------------------
-  // Card grid renderer — mirrors the Skills/Agents/Rules tile shape so the
-  // four library tabs share a visual language.
+  // Sidebar: category list
+  // -------------------------------------------------------------------------
+
+  const renderSidebar = () => (
+    <nav
+      className="flex h-full flex-col overflow-y-auto"
+      style={{
+        width: 220,
+        minWidth: 180,
+        borderRight: "1px solid var(--color-border)",
+        background: "var(--color-surface-1)",
+      }}
+    >
+      <div
+        className="sticky top-0 z-10 px-3 py-2"
+        style={{ background: "var(--color-surface-1)", borderBottom: "1px solid var(--color-border)" }}
+      >
+        <input
+          type="text"
+          value={filterText}
+          onChange={(e) => setFilterText(e.target.value)}
+          placeholder="Search..."
+          className="w-full rounded px-2 py-1 text-[11.5px] outline-none"
+          style={{
+            border: "1px solid var(--color-border-strong)",
+            background: "var(--color-surface-2)",
+            color: "var(--color-text)",
+          }}
+        />
+      </div>
+
+      {eventGroups.length === 0 && !loading && (
+        <div
+          className="px-3 py-2 text-[11.5px]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          {q ? "No matches" : "No hooks"}
+        </div>
+      )}
+
+      {eventGroups.map(({ event, hooks }) => {
+        const colors = eventColors(event);
+        const isExpanded = expandedEvent === event;
+        return (
+          <div key={event}>
+            {/* Category header row */}
+            <button
+              type="button"
+              onClick={() => setExpandedEvent(isExpanded ? null : event)}
+              className="flex w-full items-center gap-1.5 px-3 py-2 text-left transition-colors"
+              style={{
+                background: isExpanded ? colors.sidebarActive : "transparent",
+                borderBottom: "1px solid var(--color-border)",
+              }}
+            >
+              <span
+                className="text-[10px]"
+                style={{
+                  color: isExpanded ? colors.chipFg : "var(--color-text-tertiary)",
+                  transform: isExpanded ? "rotate(90deg)" : "rotate(0)",
+                  display: "inline-block",
+                  transition: "transform 150ms",
+                }}
+              >
+                ▶
+              </span>
+              <span
+                className="flex-1 truncate text-[11.5px] font-medium"
+                style={{ color: isExpanded ? colors.chipFg : "var(--color-text-secondary)" }}
+              >
+                {event}
+              </span>
+              <span
+                className="rounded-full px-1.5 py-0.5 text-[9.5px] tabular-nums"
+                style={{
+                  background: colors.chipBg,
+                  color: colors.chipFg,
+                  border: `1px solid ${colors.chipBorder}`,
+                }}
+              >
+                {hooks.length}
+              </span>
+            </button>
+
+            {/* Hooks in this category */}
+            {isExpanded &&
+              hooks.map((h) => {
+                const isSelected = selectedId === h.id;
+                const displayName = namesCache[h.id]?.name;
+                return (
+                  <button
+                    key={h.id}
+                    type="button"
+                    onClick={() => setSelectedId(isSelected ? null : h.id)}
+                    className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors"
+                    style={{
+                      background: isSelected ? colors.sidebarActive : "transparent",
+                      borderBottom: "1px solid var(--color-border)",
+                      opacity: h.enabled ? 1 : 0.55,
+                      borderLeft: isSelected ? `3px solid ${colors.chipFg}` : "3px solid transparent",
+                    }}
+                  >
+                    {displayName ? (
+                      <span
+                        className="truncate text-[11.5px] font-medium"
+                        style={{ color: isSelected ? "var(--color-text)" : "var(--color-text-secondary)" }}
+                      >
+                        {displayName}
+                      </span>
+                    ) : (
+                      <span
+                        className="truncate text-[10.5px]"
+                        style={{
+                          color: "var(--color-text-tertiary)",
+                          fontFamily: "var(--font-mono)",
+                        }}
+                      >
+                        {h.id}
+                      </span>
+                    )}
+                    {h.matcher && (
+                      <span
+                        className="truncate text-[10px]"
+                        style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
+                      >
+                        {h.matcher}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+          </div>
+        );
+      })}
+    </nav>
+  );
+
+  // -------------------------------------------------------------------------
+  // Main card grid — renders hooks for the expanded event category
   // -------------------------------------------------------------------------
 
   const renderCardGrid = (items: HookRecord[]) => (
     <div
-      className="grid gap-3"
-      style={{
-        gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-      }}
+      className="grid gap-3 p-4"
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
     >
       {items.map((h) => {
         const isActive = selectedId === h.id;
-        const evColor = eventBadgeColor(h.event);
+        const colors = eventColors(h.event);
+        const displayName = namesCache[h.id]?.name;
         return (
           <button
             key={h.id}
@@ -372,56 +615,63 @@ export function Hooks() {
             onClick={() => setSelectedId(isActive ? null : h.id)}
             className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
-              background: isActive
-                ? "var(--color-surface-3)"
-                : "var(--color-surface-2)",
-              border: `1px solid ${
-                isActive ? HOOK_ACCENT : "var(--color-border)"
-              }`,
-              // Primary amber ribbon on top; secondary event-colour stripe
-              // just below it to identify the event at a glance.
-              boxShadow: `inset 0 3px 0 ${HOOK_ACCENT}, inset 0 6px 0 ${evColor.border}`,
+              background: isActive ? "var(--color-surface-3)" : "var(--color-surface-2)",
+              border: `1px solid ${isActive ? colors.ribbonBorder : "var(--color-border)"}`,
+              // Ribbon comes purely from the event color — no amber overlay
+              boxShadow: `inset 0 3px 0 ${colors.ribbon}`,
               opacity: h.enabled ? 1 : 0.55,
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = HOOK_ACCENT;
+              e.currentTarget.style.borderColor = colors.ribbonBorder;
               e.currentTarget.style.transform = "translateY(-2px)";
-              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${HOOK_ACCENT}, inset 0 6px 0 ${evColor.border}, 0 6px 18px rgba(0,0,0,0.28)`;
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${colors.ribbon}, 0 6px 18px rgba(0,0,0,0.28)`;
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = isActive
-                ? HOOK_ACCENT
-                : "var(--color-border)";
+              e.currentTarget.style.borderColor = isActive ? colors.ribbonBorder : "var(--color-border)";
               e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${HOOK_ACCENT}, inset 0 6px 0 ${evColor.border}`;
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${colors.ribbon}`;
             }}
             title={`${h.id}\n${h.command}`}
           >
+            {/* Top row: "Hook" label + event badge */}
             <div
               className="flex items-center gap-1.5 text-[10.5px] uppercase tracking-[0.08em]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              <span style={{ color: HOOK_ACCENT_TEXT }}>Hook</span>
+              <span style={{ color: colors.chipFg }}>Hook</span>
               <span
                 className="ml-auto rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
                 style={{
-                  background: evColor.bg,
-                  color: evColor.fg,
-                  border: `1px solid ${evColor.border}`,
+                  background: colors.chipBg,
+                  color: colors.chipFg,
+                  border: `1px solid ${colors.chipBorder}`,
                 }}
               >
                 {h.event}
               </span>
             </div>
-            <div
-              className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
-              style={{
-                color: "var(--color-text)",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              {h.id}
-            </div>
+
+            {/* Center: display name or raw id */}
+            {displayName ? (
+              <div
+                className="line-clamp-2 text-[16px] font-semibold leading-tight tracking-tight"
+                style={{ color: "var(--color-text)" }}
+              >
+                {displayName}
+              </div>
+            ) : (
+              <div
+                className="line-clamp-3 text-[13px] font-medium leading-tight"
+                style={{
+                  color: "var(--color-text-secondary)",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {h.id}
+              </div>
+            )}
+
+            {/* Bottom row: source, disabled badge, last fired */}
             <div
               className="flex items-center gap-1.5 text-[10px]"
               style={{ color: "var(--color-text-tertiary)" }}
@@ -429,17 +679,15 @@ export function Hooks() {
               <span
                 className="rounded px-1.5 py-px"
                 style={{
-                  background: HOOK_ACCENT_SOFT,
-                  color: HOOK_ACCENT_TEXT,
-                  border: `1px solid ${HOOK_ACCENT_BORDER}`,
+                  background: colors.chipBg,
+                  color: colors.chipFg,
+                  border: `1px solid ${colors.chipBorder}`,
                 }}
               >
                 {h.source}
               </span>
               {!h.enabled && (
-                <span style={{ color: "var(--color-text-faint)" }}>
-                  disabled
-                </span>
+                <span style={{ color: "var(--color-text-faint)" }}>disabled</span>
               )}
               {lastFired[h.id]?.timestamp && (
                 <span
@@ -458,37 +706,71 @@ export function Hooks() {
   );
 
   // -------------------------------------------------------------------------
+  // Determine which hooks to show in the card area
+  // -------------------------------------------------------------------------
+
+  const cardsToShow: HookRecord[] = useMemo(() => {
+    if (expandedEvent) {
+      return filtered.filter((h) => h.event === expandedEvent);
+    }
+    return filtered;
+  }, [filtered, expandedEvent]);
+
+  // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
 
   return (
-    <div className="flex h-full flex-col gap-4 p-6">
-      <header className="flex items-center justify-between gap-2">
+    <div className="flex h-full flex-col gap-0">
+      {/* Top toolbar */}
+      <header
+        className="flex items-center justify-between gap-2 border-b px-4 py-2"
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface-1)" }}
+      >
         <div className="flex items-baseline gap-2">
-          <h2 className="text-lg font-semibold">Hooks</h2>
+          <h2 className="text-[14px] font-semibold">Hooks</h2>
           <span
-            className="text-[11.5px]"
+            className="text-[11px]"
             style={{ color: "var(--color-text-tertiary)" }}
           >
             {filtered.length} of {list?.hooks.length ?? 0}
             {list?.settings_path && (
               <>
-                {" "}
-                ·{" "}
-                <code
-                  className="text-[11px]"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
+                {" "}·{" "}
+                <code className="text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
                   {list.settings_path}
                 </code>
               </>
             )}
           </span>
         </div>
+
         <div className="flex items-center gap-2">
+          {namingProgress && (
+            <span
+              className="text-[11.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {namingProgress}
+            </span>
+          )}
           <button
             type="button"
-            onClick={() => fetchList()}
+            onClick={() => void handleAutoNameAll()}
+            disabled={namingBusy || loading}
+            className="rounded-md border px-3 py-1 text-xs disabled:opacity-50"
+            style={{
+              borderColor: "var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+            }}
+            title="Assign readable names to all hooks using AI Router (Haiku/Gemini) with heuristic fallback"
+          >
+            {namingBusy ? "Naming…" : "Auto-name all"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void fetchList()}
             className="rounded-md border px-3 py-1 text-xs"
             style={{
               borderColor: "var(--color-border-strong)",
@@ -528,7 +810,7 @@ export function Hooks() {
 
       {flash && (
         <div
-          className="rounded border px-3 py-2 text-[12px]"
+          className="border-b px-4 py-1.5 text-[12px]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
@@ -541,7 +823,7 @@ export function Hooks() {
 
       {error && (
         <div
-          className="rounded-md p-3 text-xs"
+          className="mx-4 mt-2 rounded-md p-2 text-xs"
           style={{
             border: "1px solid rgba(248, 81, 73, 0.30)",
             background: "rgba(248, 81, 73, 0.08)",
@@ -552,34 +834,31 @@ export function Hooks() {
         </div>
       )}
 
+      {/* No-settings banner */}
       {list && !list.settings_exists && (
         <div
-          className="rounded border px-3 py-2 text-[12px]"
+          className="border-b px-4 py-1.5 text-[12px]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
             color: "var(--color-text-secondary)",
           }}
         >
-          settings.json does not exist yet. Adding the first hook will create
-          it.
+          settings.json does not exist yet. Adding the first hook will create it.
         </div>
       )}
 
-      {/* v2.8 — Instrumentation banner. Wording preserved verbatim per
-          USER's spec so it reads the same here, in the SidePanel and
-          anywhere else we surface it. */}
+      {/* No-instrumentation banner */}
       {!loading && fires && !fires.instrumented && (
         <div
-          className="rounded border px-3 py-2 text-[12.5px] leading-relaxed"
+          className="border-b px-4 py-1.5 text-[12px] leading-relaxed"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
             color: "var(--color-text-secondary)",
           }}
         >
-          No instrumentation set up yet. To track fires, have your hook
-          append a JSON line to{" "}
+          No instrumentation set up yet. To track fires, append JSON lines to{" "}
           <code style={{ fontFamily: "var(--font-mono)" }}>
             ~/.ultron/.tmp/hook-fires.jsonl
           </code>{" "}
@@ -587,113 +866,53 @@ export function Hooks() {
         </div>
       )}
 
-      {/* v2.8 — Event filter chips. Single-select. The active chip is tinted
-          with that event's colour so the grid below visually "belongs" to
-          the active filter. */}
-      {!loading && list && list.hooks.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span
-            className="mr-1 text-[10.5px] uppercase tracking-wide"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Event
-          </span>
-          {(["all", ...EVENT_OPTIONS] as EventFilter[]).map((ev) => {
-            const active = eventFilter === ev;
-            const count = eventCounts.get(ev) ?? 0;
-            const colors =
-              ev === "all"
-                ? {
-                    bg: HOOK_ACCENT_SOFT,
-                    fg: HOOK_ACCENT_TEXT,
-                    border: HOOK_ACCENT_BORDER,
-                  }
-                : eventBadgeColor(ev);
-            return (
-              <button
-                key={ev}
-                type="button"
-                onClick={() => setEventFilter(ev)}
-                disabled={ev !== "all" && count === 0}
-                className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors disabled:opacity-30"
-                style={{
-                  borderColor: active ? colors.border : "var(--color-border-strong)",
-                  background: active ? colors.bg : "transparent",
-                  color: active ? colors.fg : "var(--color-text-secondary)",
-                }}
-              >
-                <span>{ev === "all" ? "All" : ev}</span>
-                <span
-                  className="tabular-nums text-[10px]"
-                  style={{
-                    color: active ? colors.fg : "var(--color-text-tertiary)",
-                  }}
-                >
-                  {count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <input
-        type="text"
-        value={filterText}
-        onChange={(e) => setFilterText(e.target.value)}
-        placeholder="Search by id / matcher / command..."
-        className="w-full rounded-md px-3 py-2 text-sm outline-none"
-        style={{
-          border: "1px solid var(--color-border-strong)",
-          background: "var(--color-surface-2)",
-          color: "var(--color-text)",
-        }}
-      />
-
       {loading && (
-        <div className="text-[13px]" style={{ color: "var(--color-text-tertiary)" }}>
-          Loading...
+        <div className="px-4 py-3 text-[13px]" style={{ color: "var(--color-text-tertiary)" }}>
+          Loading…
         </div>
       )}
 
+      {/* Empty state */}
       {!loading && list && list.hooks.length === 0 && (
-        <HooksEmptyState
-          onAdd={() => setAddOpen(true)}
-          onAi={() => setAiOpen(true)}
-        />
+        <div className="p-4">
+          <HooksEmptyState onAdd={() => setAddOpen(true)} onAi={() => setAiOpen(true)} />
+        </div>
       )}
 
-      {/* 2-pane layout: card grid on the left, detail pane on the right
-          when a hook is selected. Stacks vertically on narrow viewports. */}
+      {/* 3-pane layout: sidebar | card grid | detail pane */}
       {!loading && list && list.hooks.length > 0 && (
-        <div className="flex flex-1 flex-col gap-3 overflow-hidden lg:flex-row">
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left sidebar */}
+          {renderSidebar()}
+
+          {/* Center: card grid for expanded category */}
           <div
-            className={
-              selectedHook
-                ? "min-w-0 flex-1 overflow-y-auto"
-                : "flex-1 overflow-y-auto"
-            }
+            className={`flex-1 overflow-y-auto ${selectedHook ? "min-w-0" : ""}`}
             style={{ minWidth: 0 }}
           >
-            {filtered.length === 0 ? (
-              <p
-                className="text-xs"
+            {cardsToShow.length === 0 ? (
+              <div
+                className="px-6 py-4 text-xs"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                Sin hooks para el filtro actual.
-              </p>
+                {expandedEvent
+                  ? `No hooks for ${expandedEvent} matching the current filter.`
+                  : "Select a category from the left sidebar."}
+              </div>
             ) : (
-              renderCardGrid(filtered)
+              renderCardGrid(cardsToShow)
             )}
           </div>
 
+          {/* Right: detail pane */}
           {selectedHook && (
             <div
-              className="overflow-hidden lg:w-[560px] lg:shrink-0"
-              style={{ minWidth: 0 }}
+              className="overflow-hidden"
+              style={{ width: 520, minWidth: 300, borderLeft: "1px solid var(--color-border)" }}
             >
               <HookDetailPane
                 hook={selectedHook}
+                displayName={namesCache[selectedHook.id]?.name}
                 lastFired={lastFired[selectedHook.id]}
                 fires={selectedFires}
                 firesInstrumented={fires?.instrumented ?? false}
@@ -701,6 +920,7 @@ export function Hooks() {
                 onTest={() => setTestTarget(selectedHook)}
                 onEdit={() => setEditTarget(selectedHook)}
                 onToggle={() => void handleToggle(selectedHook)}
+                onNameThis={() => void handleAutoNameSingle(selectedHook.id)}
                 onDelete={async () => {
                   const ok = await confirmDialog(
                     `Delete hook?\n\nEvent: ${selectedHook.event}\nMatcher: ${selectedHook.matcher ?? "(none)"}\nCommand: ${truncate(selectedHook.command, 200)}`,
@@ -758,14 +978,12 @@ export function Hooks() {
 }
 
 // ---------------------------------------------------------------------------
-// Detail pane — hook-shaped sibling to LibraryDetailPane. Same visual
-// language (rounded card, ribbon accent, header with chip, scrollable body)
-// but action buttons appropriate for a hook (Test / Edit / Delete) instead
-// of skill-style ones (Edit / Edit with AI / Open Externally).
+// Detail pane
 // ---------------------------------------------------------------------------
 
 function HookDetailPane({
   hook,
+  displayName,
   lastFired,
   fires,
   firesInstrumented,
@@ -773,10 +991,12 @@ function HookDetailPane({
   onTest,
   onEdit,
   onToggle,
+  onNameThis,
   onDelete,
   onClose,
 }: {
   hook: HookRecord;
+  displayName: string | undefined;
   lastFired: HookLastFired | undefined;
   fires: HookFire[];
   firesInstrumented: boolean;
@@ -784,53 +1004,50 @@ function HookDetailPane({
   onTest: () => void;
   onEdit: () => void;
   onToggle: () => void;
+  onNameThis: () => void;
   onDelete: () => void;
   onClose: () => void;
 }) {
-  const evColor = eventBadgeColor(hook.event);
+  const colors = eventColors(hook.event);
 
   return (
     <aside
-      className="flex h-full w-full flex-col overflow-hidden rounded-md"
-      style={{
-        border: "1px solid var(--color-border-strong)",
-        background: "var(--color-surface-2)",
-        boxShadow: `inset 0 3px 0 ${HOOK_ACCENT}`,
-      }}
+      className="flex h-full w-full flex-col overflow-hidden"
+      style={{ background: "var(--color-surface-2)" }}
     >
-      {/* Header */}
+      {/* Header — ribbon comes from event color */}
       <header
         className="flex items-start justify-between gap-2 border-b p-3"
-        style={{ borderColor: "var(--color-border)" }}
+        style={{
+          borderColor: "var(--color-border)",
+          boxShadow: `inset 0 3px 0 ${colors.ribbon}`,
+        }}
       >
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
-            <span
-              className="truncate text-[13.5px] font-semibold"
-              style={{
-                color: "var(--color-text)",
-                fontFamily: "var(--font-mono)",
-              }}
-              title={hook.id}
-            >
-              {hook.id}
-            </span>
-            <span
-              className="ml-1 rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide"
-              style={{
-                background: HOOK_ACCENT_SOFT,
-                color: HOOK_ACCENT_TEXT,
-                border: `1px solid ${HOOK_ACCENT_BORDER}`,
-              }}
-            >
-              Hook
-            </span>
+            {displayName ? (
+              <span
+                className="truncate text-[13.5px] font-semibold"
+                style={{ color: "var(--color-text)" }}
+                title={hook.id}
+              >
+                {displayName}
+              </span>
+            ) : (
+              <span
+                className="truncate text-[12.5px] font-semibold"
+                style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}
+                title={hook.id}
+              >
+                {hook.id}
+              </span>
+            )}
             <span
               className="rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide"
               style={{
-                background: evColor.bg,
-                color: evColor.fg,
-                border: `1px solid ${evColor.border}`,
+                background: colors.chipBg,
+                color: colors.chipFg,
+                border: `1px solid ${colors.chipBorder}`,
               }}
             >
               {hook.event}
@@ -838,11 +1055,11 @@ function HookDetailPane({
           </div>
           <div
             className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[10.5px]"
-            style={{
-              color: "var(--color-text-tertiary)",
-              fontFamily: "var(--font-mono)",
-            }}
+            style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
           >
+            {displayName && (
+              <span style={{ color: "var(--color-text-tertiary)" }}>{hook.id}</span>
+            )}
             <span>matcher: {hook.matcher ?? "(any)"}</span>
             <span>source: {hook.source}</span>
             <span>{hook.enabled ? "enabled" : "disabled"}</span>
@@ -878,10 +1095,7 @@ function HookDetailPane({
           type="button"
           onClick={onTest}
           className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11.5px] font-medium"
-          style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
-          }}
+          style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           title="Run this hook against a mock payload in a sandboxed shell"
         >
           Test
@@ -906,13 +1120,24 @@ function HookDetailPane({
           style={{
             background: "transparent",
             borderColor: "var(--color-border-strong)",
-            color: hook.enabled
-              ? "var(--color-text-secondary)"
-              : HOOK_ACCENT_TEXT,
+            color: hook.enabled ? "var(--color-text-secondary)" : colors.chipFg,
           }}
           title={hook.enabled ? "Disable this hook" : "Enable this hook"}
         >
           {hook.enabled ? "Disable" : "Enable"}
+        </button>
+        <button
+          type="button"
+          onClick={onNameThis}
+          className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-[11.5px]"
+          style={{
+            background: "transparent",
+            borderColor: "var(--color-border-strong)",
+            color: "var(--color-text-secondary)",
+          }}
+          title="Assign a readable name using AI Router (or heuristic fallback)"
+        >
+          Name
         </button>
         <button
           type="button"
@@ -929,7 +1154,7 @@ function HookDetailPane({
         </button>
       </div>
 
-      {/* Body — command + extras + recent fires */}
+      {/* Body */}
       <div className="flex-1 overflow-y-auto p-4">
         <div className="mb-4">
           <div
@@ -975,6 +1200,7 @@ function HookDetailPane({
           </div>
         )}
 
+        {/* Recent fires */}
         <div>
           <div
             className="mb-1 text-[10px] font-medium uppercase tracking-wide"
@@ -991,19 +1217,15 @@ function HookDetailPane({
                 color: "var(--color-text-tertiary)",
               }}
             >
-              No instrumentation set up yet. To track fires, have your hook
-              append a JSON line to{" "}
+              No instrumentation set up yet. Append JSON lines to{" "}
               <code style={{ fontFamily: "var(--font-mono)" }}>
                 ~/.ultron/.tmp/hook-fires.jsonl
-              </code>{" "}
-              (keys: timestamp, event, hook_id, matcher, exit_code).
+              </code>
+              .
             </div>
           )}
           {firesInstrumented && fires.length === 0 && (
-            <div
-              className="text-[11.5px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
+            <div className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
               No fires logged for this hook yet.
             </div>
           )}
@@ -1022,10 +1244,7 @@ function HookDetailPane({
                     {f.timestamp ?? "(no ts)"} · exit{" "}
                     <span
                       style={{
-                        color:
-                          f.exit_code === 0
-                            ? "var(--color-success)"
-                            : "var(--color-warn)",
+                        color: f.exit_code === 0 ? "var(--color-success)" : "var(--color-warn)",
                       }}
                     >
                       {f.exit_code ?? "?"}
@@ -1039,14 +1258,9 @@ function HookDetailPane({
             </ul>
           )}
           {firesLogPath && (
-            <div
-              className="mt-2 text-[10px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
+            <div className="mt-2 text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>
               Log:{" "}
-              <code style={{ fontFamily: "var(--font-mono)" }}>
-                {firesLogPath}
-              </code>
+              <code style={{ fontFamily: "var(--font-mono)" }}>{firesLogPath}</code>
             </div>
           )}
         </div>
@@ -1056,73 +1270,74 @@ function HookDetailPane({
 }
 
 // ---------------------------------------------------------------------------
-// Empty state — shown when settings.json has no hooks configured. Explains
-// what hooks are, what each event fires on, and offers two paths in: the
-// raw "Add hook" form or the AI-assisted modal.
+// Empty state
 // ---------------------------------------------------------------------------
 
-function HooksEmptyState({
-  onAdd,
-  onAi,
-}: {
-  onAdd: () => void;
-  onAi: () => void;
-}) {
+function HooksEmptyState({ onAdd, onAi }: { onAdd: () => void; onAi: () => void }) {
   return (
     <div
       className="rounded p-5"
-      style={{
-        background: "var(--color-surface-2)",
-        border: "1px solid var(--color-border)",
-      }}
+      style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
     >
-      <div
-        className="mb-1 text-[14px] font-semibold"
-        style={{ color: "var(--color-text)" }}
-      >
+      <div className="mb-1 text-[14px] font-semibold" style={{ color: "var(--color-text)" }}>
         No hooks configured
       </div>
       <p
         className="mb-4 text-[12px] leading-relaxed"
         style={{ color: "var(--color-text-secondary)" }}
       >
-        Hooks are shell commands Claude Code runs around tool calls and session
-        lifecycle events. They let you enforce policies (block bad commands),
-        log activity, auto-format files, or trigger external systems — all
-        without modifying Claude's behaviour. They live in{" "}
-        <code style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</code>{" "}
-        under the <code style={{ fontFamily: "var(--font-mono)" }}>hooks</code> key.
+        Hooks are shell commands Claude Code runs around tool calls and session lifecycle events.
+        They live in{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>~/.claude/settings.json</code> under the{" "}
+        <code style={{ fontFamily: "var(--font-mono)" }}>hooks</code> key.
       </p>
       <div className="mb-4 grid grid-cols-1 gap-2 md:grid-cols-3">
-        <HookEventTile
-          name="PreToolUse"
-          desc="Before a tool runs. Exit 2 to block. Good for command audits and policy checks."
-        />
-        <HookEventTile
-          name="PostToolUse"
-          desc="After a tool succeeds. Good for auto-format, lint, dependency updates."
-        />
-        <HookEventTile
-          name="Stop"
-          desc="When Claude finishes responding. Good for end-of-session checks (debug statements, dirty git tree)."
-        />
+        {(["PreToolUse", "PostToolUse", "Stop"] as const).map((ev) => {
+          const colors = eventColors(ev);
+          const desc: Record<string, string> = {
+            PreToolUse: "Before a tool runs. Exit 2 to block. Good for command audits and policy checks.",
+            PostToolUse: "After a tool succeeds. Good for auto-format, lint, dependency updates.",
+            Stop: "When Claude finishes responding. Good for end-of-session checks (debug statements, dirty git tree).",
+          };
+          return (
+            <div
+              key={ev}
+              className="rounded p-2.5"
+              style={{
+                background: "var(--color-surface-1)",
+                border: "1px solid var(--color-border)",
+                boxShadow: `inset 0 3px 0 ${colors.ribbon}`,
+              }}
+            >
+              <div
+                className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide"
+                style={{ background: colors.chipBg, color: colors.chipFg }}
+              >
+                {ev}
+              </div>
+              <div
+                className="text-[11.5px] leading-snug"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {desc[ev]}
+              </div>
+            </div>
+          );
+        })}
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={onAdd}
-          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
-          style={{
-            background: "var(--color-accent)",
-            color: "var(--color-accent-text)",
-          }}
+          className="rounded px-3 py-1.5 text-[12px] font-medium"
+          style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
         >
           Add your first hook
         </button>
         <button
           type="button"
           onClick={onAi}
-          className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
+          className="rounded px-3 py-1.5 text-[12px] font-medium"
           style={{
             background: "var(--color-surface-3)",
             color: "var(--color-text)",
@@ -1132,32 +1347,6 @@ function HooksEmptyState({
         >
           Add with AI
         </button>
-      </div>
-    </div>
-  );
-}
-
-function HookEventTile({ name, desc }: { name: string; desc: string }) {
-  const colors = eventBadgeColor(name);
-  return (
-    <div
-      className="rounded p-2.5"
-      style={{
-        background: "var(--color-surface-1)",
-        border: "1px solid var(--color-border)",
-      }}
-    >
-      <div
-        className="mb-1 inline-block rounded px-1.5 py-0.5 text-[10.5px] font-semibold uppercase tracking-wide"
-        style={{ background: colors.bg, color: colors.fg }}
-      >
-        {name}
-      </div>
-      <div
-        className="text-[11.5px] leading-snug"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        {desc}
       </div>
     </div>
   );
@@ -1204,9 +1393,6 @@ function HookFormModal({
           id: initial.id,
           command,
           enabled: null,
-          // review audit v15.5.4: match add_hook semantics — empty string
-          // matchers (user cleared the input) should be persisted as null
-          // so settings.json doesn't end up with an empty "matcher": "" key.
           matcher: matcher.trim() || null,
         })) as HookMutationResult;
         onSaved(`Updated hook. Backup: ${res.backup_path ?? "n/a"}`);
@@ -1226,10 +1412,7 @@ function HookFormModal({
     >
       <div
         className="w-[560px] rounded-md border p-5 shadow-xl"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "var(--color-surface-1)",
-        }}
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface-1)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 text-[15px] font-semibold">
@@ -1258,10 +1441,7 @@ function HookFormModal({
             ))}
           </select>
           {mode === "edit" && (
-            <div
-              className="mt-1 text-[10px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
+            <div className="mt-1 text-[10px]" style={{ color: "var(--color-text-tertiary)" }}>
               Event is immutable. Delete and re-add to change it.
             </div>
           )}
@@ -1304,10 +1484,7 @@ function HookFormModal({
         {err && (
           <div
             className="mb-3 rounded border px-2 py-1 text-[11.5px]"
-            style={{
-              borderColor: "var(--color-border)",
-              color: "var(--color-danger, #f88)",
-            }}
+            style={{ borderColor: "var(--color-border)", color: "var(--color-danger, #f88)" }}
           >
             {err}
           </div>
@@ -1318,10 +1495,7 @@ function HookFormModal({
             type="button"
             onClick={onClose}
             className="rounded px-3 py-1.5 text-[12px]"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text-secondary)",
-            }}
+            style={{ background: "var(--color-surface-2)", color: "var(--color-text-secondary)" }}
           >
             Cancel
           </button>
@@ -1330,10 +1504,7 @@ function HookFormModal({
             onClick={submit}
             disabled={saving}
             className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
             {saving ? "Saving..." : mode === "add" ? "Add hook" : "Save"}
           </button>
@@ -1344,16 +1515,10 @@ function HookFormModal({
 }
 
 // ---------------------------------------------------------------------------
-// Test modal
+// Test modal (preserved verbatim from v2.7/v2.8)
 // ---------------------------------------------------------------------------
 
-function TestModal({
-  hook,
-  onClose,
-}: {
-  hook: HookRecord;
-  onClose: () => void;
-}) {
+function TestModal({ hook, onClose }: { hook: HookRecord; onClose: () => void }) {
   const [payload, setPayload] = useState<string>(DEFAULT_PAYLOAD);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<HookTestResult | null>(null);
@@ -1384,10 +1549,7 @@ function TestModal({
     >
       <div
         className="w-[700px] rounded-md border p-5 shadow-xl"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "var(--color-surface-1)",
-        }}
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface-1)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -1410,9 +1572,9 @@ function TestModal({
             color: "var(--color-text-tertiary)",
           }}
         >
-          Runs the command in a sandboxed PowerShell with a 5s timeout. The
-          payload is exposed via the <code>CLAUDE_HOOK_PAYLOAD</code> env var.
-          Hooks that block on stdin will hit the timeout.
+          Runs the command in a sandboxed PowerShell with a 5s timeout. The payload is exposed
+          via the <code>CLAUDE_HOOK_PAYLOAD</code> env var. Hooks that block on stdin will hit the
+          timeout.
         </div>
 
         <label className="mb-3 block text-[12px]">
@@ -1438,10 +1600,7 @@ function TestModal({
             onClick={run}
             disabled={running}
             className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
             {running ? "Running..." : "Run"}
           </button>
@@ -1450,10 +1609,7 @@ function TestModal({
         {err && (
           <div
             className="mb-3 rounded border px-2 py-1 text-[11.5px]"
-            style={{
-              borderColor: "var(--color-border)",
-              color: "var(--color-danger, #f88)",
-            }}
+            style={{ borderColor: "var(--color-border)", color: "var(--color-danger, #f88)" }}
           >
             {err}
           </div>
@@ -1470,8 +1626,7 @@ function TestModal({
                   color: "var(--color-warn, #f80)",
                 }}
               >
-                TIMED OUT after 5s — the command likely blocked on stdin or
-                an interactive prompt.
+                TIMED OUT after 5s — the command likely blocked on stdin or an interactive prompt.
               </div>
             )}
             {!result.timed_out && !result.success && (
@@ -1498,44 +1653,27 @@ function TestModal({
                 OK (exit 0) · {result.elapsed_ms}ms
               </div>
             )}
-            <div className="mb-2">
-              <div
-                className="mb-1 text-[10px] uppercase"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                stdout
+            {(["stdout", "stderr"] as const).map((ch) => (
+              <div key={ch} className="mb-2">
+                <div
+                  className="mb-1 text-[10px] uppercase"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {ch}
+                </div>
+                <pre
+                  className="max-h-48 overflow-auto rounded border p-2 text-[11.5px]"
+                  style={{
+                    borderColor: "var(--color-border)",
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text)",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {result[ch] || "(empty)"}
+                </pre>
               </div>
-              <pre
-                className="max-h-48 overflow-auto rounded border p-2 text-[11.5px]"
-                style={{
-                  borderColor: "var(--color-border)",
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text)",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {result.stdout || "(empty)"}
-              </pre>
-            </div>
-            <div>
-              <div
-                className="mb-1 text-[10px] uppercase"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                stderr
-              </div>
-              <pre
-                className="max-h-48 overflow-auto rounded border p-2 text-[11.5px]"
-                style={{
-                  borderColor: "var(--color-border)",
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text)",
-                  whiteSpace: "pre-wrap",
-                }}
-              >
-                {result.stderr || "(empty)"}
-              </pre>
-            </div>
+            ))}
           </div>
         )}
       </div>
@@ -1544,7 +1682,7 @@ function TestModal({
 }
 
 // ---------------------------------------------------------------------------
-// AI modal
+// AI modal (preserved verbatim from v2.7/v2.8)
 // ---------------------------------------------------------------------------
 
 function AiModal({
@@ -1568,21 +1706,14 @@ function AiModal({
     >
       <div
         className="w-[560px] rounded-md border p-5 shadow-xl"
-        style={{
-          borderColor: "var(--color-border)",
-          background: "var(--color-surface-1)",
-        }}
+        style={{ borderColor: "var(--color-border)", background: "var(--color-surface-1)" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 text-[15px] font-semibold">Add hook with AI</div>
 
-        <div
-          className="mb-3 text-[11.5px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          Describe in plain language what the hook should do. Claude opens a
-          new session, drafts the JSON, and you paste the result back into
-          "Add hook" to confirm and write to settings.json.
+        <div className="mb-3 text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+          Describe in plain language what the hook should do. Claude opens a new session, drafts
+          the JSON, and you paste the result back into "Add hook" to confirm.
         </div>
 
         <textarea
@@ -1603,10 +1734,7 @@ function AiModal({
             type="button"
             onClick={onClose}
             className="rounded px-3 py-1.5 text-[12px]"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text-secondary)",
-            }}
+            style={{ background: "var(--color-surface-2)", color: "var(--color-text-secondary)" }}
           >
             Cancel
           </button>
@@ -1615,10 +1743,7 @@ function AiModal({
             onClick={onSubmit}
             disabled={busy || !description.trim()}
             className="rounded px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
             {busy ? "Opening..." : "Open Claude"}
           </button>
