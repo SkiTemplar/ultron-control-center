@@ -114,12 +114,16 @@ fn new_ulid() -> String {
 
 /// Resolve a caller-supplied `cwd` string to an absolute, existing directory.
 ///
-/// The frontend currently passes `"."` for project terminals (we have not
-/// wired per-project workspace paths into the PTY layer yet). `portable-pty`
-/// forwards the string verbatim into `CreateProcessW` on Windows, and a bare
-/// `.` is sensitive to the current process working dir — if that dir was
-/// removed (network mount disconnected, parent process started from a
-/// deleted temp folder, etc.) the spawn fails with no terminal output.
+/// P0 bug fix (2026-05-27): the frontend now passes the project's absolute path
+/// (from `ProjectInfo.path`) instead of `"."`. The old `"."` was sensitive to
+/// the Tauri process working directory which on Windows defaults to
+/// `C:\Windows\System32`, causing every spawned session to open there instead
+/// of the project folder.
+///
+/// `portable-pty` forwards the `cwd` string verbatim into `CreateProcessW`, so
+/// any relative path is interpreted relative to the Tauri process — not the
+/// user's project. This function normalises the path and provides safe fallbacks
+/// in case the supplied path no longer exists (e.g. unmounted network drive).
 ///
 /// Resolution order:
 ///   1. If `cwd` is a valid existing directory, canonicalise + return it.
@@ -385,12 +389,11 @@ pub fn spawn_inner<R: Runtime>(
             cmd.arg("--dangerously-skip-permissions");
         }
     }
-    // Resolve cwd to an absolute path. The frontend passes "." for project
-    // panes that don't track a per-project workspace path yet; portable-pty
-    // forwards that string into CreateProcessW unchanged, and on Windows a
-    // bare "." can fail when the process current dir is on a non-existent
-    // drive (e.g. when launched from a removed network mount). Normalise to
-    // an absolute path falling back to the user home, then the SystemDrive.
+    // Resolve cwd to an absolute path. The frontend now passes the project's
+    // absolute path (ProjectInfo.path); the resolve_cwd helper canonicalises it
+    // and provides safe fallbacks (home dir → SystemDrive root) in case the
+    // directory no longer exists. This replaced the old "." default that caused
+    // sessions to open in C:\Windows\System32 on Windows (P0 bug 2026-05-27).
     let resolved_cwd = resolve_cwd(&cwd);
     cmd.cwd(&resolved_cwd);
 

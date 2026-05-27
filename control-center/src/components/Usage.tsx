@@ -1,6 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { DailyPoint, ModelStat, UsageReport, WindowStats } from "../types";
+import type {
+  DailyPoint,
+  ModelStat,
+  ProviderUsageRow,
+  RouterUsageSummary,
+  UsageReport,
+  WindowStats,
+} from "../types";
 
 // ---------------------------------------------------------------------------
 // Formatting helpers
@@ -520,6 +527,478 @@ function SubscriptionLimitCard({ onOpen, busy }: { onOpen: () => void; busy: boo
 }
 
 // ---------------------------------------------------------------------------
+// AI Router — Fallback-rate gauge
+// ---------------------------------------------------------------------------
+
+function FallbackRateGauge({ rate }: { rate: number }) {
+  const pct = Math.max(0, Math.min(100, rate * 100));
+  const color =
+    pct > 50
+      ? "var(--color-danger)"
+      : pct > 20
+        ? "var(--color-warn)"
+        : "var(--color-success)";
+  const label =
+    pct > 50 ? "High fallback rate" : pct > 20 ? "Moderate" : "Healthy";
+
+  return (
+    <div
+      className="rounded p-4"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div className="flex items-baseline justify-between">
+        <div
+          className="text-[10px] font-medium uppercase tracking-[0.06em]"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          Global fallback rate
+        </div>
+        <span
+          className="text-[10px] font-semibold tabular-nums"
+          style={{ color }}
+        >
+          {pct.toFixed(1)}% — {label}
+        </span>
+      </div>
+      <div
+        className="mt-2 h-2 w-full overflow-hidden rounded-full"
+        style={{ background: "var(--color-surface-3)" }}
+      >
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${pct}%`, background: color }}
+        />
+      </div>
+      <p
+        className="mt-1.5 text-[10.5px]"
+        style={{ color: "var(--color-text-faint)" }}
+      >
+        EMA(0.1) across all route() calls since last metrics reset. Green &lt;
+        20%, amber 20–50%, red &gt; 50%.
+      </p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI Router — Provider row
+// ---------------------------------------------------------------------------
+
+function ZoneChip({
+  zone,
+  variant,
+}: {
+  zone: string;
+  variant: "primary" | "fallback";
+}) {
+  const bg =
+    variant === "primary"
+      ? "rgba(46,160,67,0.15)"
+      : "rgba(130,80,255,0.15)";
+  const border =
+    variant === "primary"
+      ? "rgba(46,160,67,0.35)"
+      : "rgba(130,80,255,0.35)";
+  const textColor =
+    variant === "primary" ? "#3fb950" : "#a78bfa";
+
+  return (
+    <span
+      className="inline-block rounded px-1.5 py-0.5 text-[9.5px] font-medium leading-none"
+      style={{ background: bg, border: `1px solid ${border}`, color: textColor }}
+      title={variant === "primary" ? "Primary provider for this zone" : "Fallback provider for this zone"}
+    >
+      {zone}
+    </span>
+  );
+}
+
+function KeyBadge({ present, masked }: { present: boolean; masked: string | null }) {
+  if (present && masked) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-medium leading-none"
+        style={{
+          background: "rgba(46,160,67,0.12)",
+          border: "1px solid rgba(46,160,67,0.3)",
+          color: "#3fb950",
+          fontFamily: "var(--font-mono, monospace)",
+        }}
+        title="API key present"
+      >
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ background: "#3fb950" }}
+        />
+        {masked}
+      </span>
+    );
+  }
+  if (present) {
+    // Local provider (no key needed)
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-medium leading-none"
+        style={{
+          background: "rgba(46,160,67,0.12)",
+          border: "1px solid rgba(46,160,67,0.3)",
+          color: "#3fb950",
+        }}
+      >
+        <span
+          className="inline-block h-1.5 w-1.5 rounded-full"
+          style={{ background: "#3fb950" }}
+        />
+        local
+      </span>
+    );
+  }
+  return (
+    <span
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] font-medium leading-none"
+      style={{
+        background: "rgba(200,200,200,0.08)",
+        border: "1px solid rgba(200,200,200,0.2)",
+        color: "var(--color-text-faint)",
+        fontFamily: "var(--font-mono, monospace)",
+      }}
+      title="API key missing or placeholder"
+    >
+      <span
+        className="inline-block h-1.5 w-1.5 rounded-full"
+        style={{ background: "var(--color-text-faint)" }}
+      />
+      missing
+    </span>
+  );
+}
+
+function ProviderRow({ p }: { p: ProviderUsageRow }) {
+  return (
+    <div
+      className="rounded p-3"
+      style={{
+        background: "var(--color-surface-2)",
+        border: p.key_present
+          ? "1px solid var(--color-border)"
+          : "1px solid rgba(248,81,73,0.18)",
+      }}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* Left: label + key badge */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className="text-[12.5px] font-medium"
+            style={{ color: "var(--color-text)" }}
+          >
+            {p.provider_label}
+          </span>
+          <KeyBadge present={p.key_present} masked={p.key_masked} />
+          {p.key_env_var && (
+            <span
+              className="text-[9.5px]"
+              style={{
+                color: "var(--color-text-faint)",
+                fontFamily: "var(--font-mono, monospace)",
+              }}
+            >
+              {p.key_env_var}
+            </span>
+          )}
+        </div>
+        {/* Right: call count + latency */}
+        <div className="flex items-baseline gap-3 text-[11.5px] tabular-nums">
+          <div className="text-right">
+            <div
+              className="text-[9px] uppercase"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              Calls
+            </div>
+            <div style={{ color: "var(--color-text-secondary)" }}>
+              {p.call_count.toLocaleString()}
+            </div>
+          </div>
+          <div className="text-right">
+            <div
+              className="text-[9px] uppercase"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              Avg latency
+            </div>
+            <div style={{ color: "var(--color-text-secondary)" }}>
+              {p.latency_ms_avg > 0 ? `${p.latency_ms_avg} ms` : "—"}
+            </div>
+          </div>
+        </div>
+      </div>
+      {/* Zone chips */}
+      {(p.primary_for_zones.length > 0 || p.fallback_for_zones.length > 0) && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {p.primary_for_zones.map((z) => (
+            <ZoneChip key={`p-${z}`} zone={z} variant="primary" />
+          ))}
+          {p.fallback_for_zones.map((z) => (
+            <ZoneChip key={`f-${z}`} zone={z} variant="fallback" />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI Router — Per-zone pipeline visual
+// ---------------------------------------------------------------------------
+
+function ZonePipeline({
+  zoneId,
+  chain,
+  providers,
+}: {
+  zoneId: string;
+  chain: string[];
+  providers: ProviderUsageRow[];
+}) {
+  const providerMap = new Map(providers.map((p) => [p.provider_id, p]));
+
+  return (
+    <div
+      className="rounded p-3"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+      }}
+    >
+      <div
+        className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
+        style={{ color: "var(--color-text-tertiary)" }}
+      >
+        {zoneId}
+      </div>
+      <div className="flex flex-wrap items-center gap-1.5">
+        {chain.map((pid, idx) => {
+          const row = providerMap.get(pid);
+          const isOk = row?.key_present ?? false;
+          const label = row?.provider_label ?? pid;
+          return (
+            <div key={pid} className="flex items-center gap-1.5">
+              {idx > 0 && (
+                <span
+                  className="text-[10px]"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  →
+                </span>
+              )}
+              <span
+                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10.5px] font-medium leading-none"
+                style={{
+                  background: isOk
+                    ? "rgba(46,160,67,0.1)"
+                    : "rgba(248,81,73,0.08)",
+                  border: isOk
+                    ? "1px solid rgba(46,160,67,0.28)"
+                    : "1px solid rgba(248,81,73,0.22)",
+                  color: isOk ? "#3fb950" : "var(--color-danger)",
+                }}
+                title={isOk ? "Key present — ready" : "Key missing"}
+              >
+                <span
+                  className="h-1.5 w-1.5 rounded-full"
+                  style={{
+                    background: isOk ? "#3fb950" : "var(--color-danger)",
+                    flexShrink: 0,
+                  }}
+                />
+                {label}
+                {idx === 0 && (
+                  <span
+                    className="ml-0.5 text-[8.5px] opacity-60"
+                    style={{ color: "inherit" }}
+                  >
+                    primary
+                  </span>
+                )}
+              </span>
+            </div>
+          );
+        })}
+        {chain.length === 0 && (
+          <span
+            className="text-[10.5px]"
+            style={{ color: "var(--color-text-faint)" }}
+          >
+            No providers configured
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI Router — Full section
+// ---------------------------------------------------------------------------
+
+function AiRouterSection() {
+  const [summary, setSummary] = useState<RouterUsageSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = (await invoke("ai_router_usage_summary")) as RouterUsageSummary;
+      setSummary(r);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const t = setInterval(() => void load(), 30_000);
+    return () => clearInterval(t);
+  }, [load]);
+
+  const zoneEntries = summary
+    ? Object.entries(summary.zone_chains).sort(([a], [b]) => a.localeCompare(b))
+    : [];
+
+  return (
+    <section className="mt-8">
+      {/* Section header */}
+      <div className="mb-3 flex items-baseline justify-between gap-3">
+        <div>
+          <h2 className="text-[13px] font-semibold">AI Router — provider keys</h2>
+          <p
+            className="mt-0.5 text-[10.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Live key status, call counts, and zone assignments. Auto-refreshes every 30s.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          disabled={loading}
+          className="shrink-0 rounded px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-50"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text-secondary)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          {loading ? "Loading…" : "Refresh"}
+        </button>
+      </div>
+
+      {/* Error state */}
+      {error && (
+        <div
+          className="mb-3 flex items-center justify-between gap-4 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(248,81,73,0.06)",
+            border: "1px solid rgba(248,81,73,0.22)",
+            color: "var(--color-danger)",
+          }}
+        >
+          <span>Failed to load AI Router summary: {error}</span>
+          <button
+            type="button"
+            onClick={() => void load()}
+            className="shrink-0 rounded px-2 py-0.5 text-[11px] font-medium"
+            style={{
+              background: "rgba(248,81,73,0.12)",
+              border: "1px solid rgba(248,81,73,0.3)",
+              color: "var(--color-danger)",
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Loading skeleton (only on first load — no existing data) */}
+      {loading && !summary && !error && (
+        <div
+          className="rounded p-4 text-[12px]"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            color: "var(--color-text-faint)",
+          }}
+        >
+          Loading provider data…
+        </div>
+      )}
+
+      {summary && (
+        <>
+          {/* Fallback-rate gauge */}
+          <FallbackRateGauge rate={summary.fallback_rate} />
+
+          {/* Provider table */}
+          {summary.providers.length > 0 ? (
+            <div className="mt-4 space-y-2">
+              <h3
+                className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Providers ({summary.providers.length})
+              </h3>
+              {summary.providers.map((p) => (
+                <ProviderRow key={p.provider_id} p={p} />
+              ))}
+            </div>
+          ) : (
+            <div
+              className="mt-3 rounded p-3 text-[12px]"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+                color: "var(--color-text-faint)",
+              }}
+            >
+              No providers configured in the AI Router registry.
+            </div>
+          )}
+
+          {/* Zone pipelines */}
+          {zoneEntries.length > 0 && (
+            <div className="mt-4">
+              <h3
+                className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Zone chains ({zoneEntries.length})
+              </h3>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {zoneEntries.map(([zoneId, chain]) => (
+                  <ZonePipeline
+                    key={zoneId}
+                    zoneId={zoneId}
+                    chain={chain}
+                    providers={summary.providers}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -760,6 +1239,9 @@ export function Usage() {
           )}
         </>
       )}
+
+      {/* AI Router section — independent from claude_usage; always rendered */}
+      <AiRouterSection />
     </div>
   );
 }

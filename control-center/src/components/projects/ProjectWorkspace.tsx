@@ -5,7 +5,7 @@
 // rendered by ProjectBoard / ProjectTerminal / ProjectAgents / ProjectContext
 // / ProjectSessions.
 
-import React, { useCallback, useEffect, useRef, useState, type ComponentType } from "react";
+import React, { useEffect, useRef, useState, type ComponentType } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import {
@@ -28,8 +28,7 @@ import ProjectSessions from "./ProjectSessions";
 import ProjectNotes from "./ProjectNotes";
 import ProjectTimeline from "./ProjectTimeline";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
-import BatchDropdown, { type BatchToast } from "./BatchDropdown";
-import RecallSessionDialog from "./terminal/RecallSessionDialog";
+import { type BatchToast } from "./BatchDropdown";
 
 type Props = {
   projectId: string;
@@ -39,12 +38,16 @@ type ProjectMeta = {
   id: string;
   name: string;
   path: string;
+  /** When set, terminals open here instead of `path`. Mirrors fb-016 field. */
+  terminalCwd: string;
 };
 
 type ProjectListEntry = {
   id: string;
   name: string | null;
   path: string | null;
+  /** fb-016: when set, takes precedence over `path` for terminal cwd. */
+  parent_folder_override?: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -158,7 +161,6 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const [meta, setMeta] = useState<ProjectMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
-  const [recallOpen, setRecallOpen] = useState(false);
   const [tabCounts, setTabCounts] = useState<TabCounts>({ agents: null, sessions: null });
   // Ref holds latest meta.path so the interval closure always sees the current value.
   const metaPathRef = useRef<string>("");
@@ -180,10 +182,13 @@ export default function ProjectWorkspace({ projectId }: Props) {
         const found = list.find((p) => p.id === projectId);
         if (!cancelled) {
           if (found && found.path) {
+            // fb-016: respect parent_folder_override for terminal cwd.
+            const terminalCwd = found.parent_folder_override ?? found.path;
             setMeta({
               id: found.id,
               name: found.name ?? found.id,
               path: found.path,
+              terminalCwd,
             });
             metaPathRef.current = found.path;
           } else {
@@ -250,29 +255,6 @@ export default function ProjectWorkspace({ projectId }: Props) {
     }
   };
 
-  // Recall: spawn a fresh Claude PTY in the Terminal tab preloaded with the
-  // suggested prompt. Switches to the terminal sub-tab automatically so the
-  // user sees the new session. The actual spawn is delegated to
-  // ProjectTerminal via a shared callback that we thread down through props
-  // only when recall is opened from the header. To avoid prop-drilling we
-  // simply open the same RecallSessionDialog that ProjectTerminal already
-  // renders; here we provide `onSpawn` as a no-op placeholder so the dialog
-  // shows its "Spawn" button — users can copy the prompt and paste it
-  // manually, or we switch to Terminal first and let ProjectTerminal own the
-  // spawn. For the header use-case we navigate to Terminal and close the
-  // dialog so the user is in the right context.
-  const handleRecallSpawn = useCallback(
-    async (_prompt: string) => {
-      // Navigate to Terminal tab so the user can act there.
-      // The actual PTY spawn is handled by ProjectTerminal's own Recall flow
-      // (it stays mounted even when not active). Here we just close & switch.
-      setRecallOpen(false);
-      setSubTab("terminal");
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
-  );
-
   return (
     <div className="flex h-full flex-col">
       {/* ------------------------------------------------------------------ */}
@@ -303,20 +285,10 @@ export default function ProjectWorkspace({ projectId }: Props) {
           )}
         </div>
 
-        {/* Action buttons — all share HEADER_BTN + onMouseEnter/Leave for hover */}
+        {/* Action buttons — all share HEADER_BTN + onMouseEnter/Leave for hover.
+            Recall + Run Batch removed from header (duplicated with Terminal toolbar
+            where the actual spawn lives). To be fully removed in Projects redesign C10. */}
         <div className="flex shrink-0 items-center gap-1.5">
-          {/* Recall */}
-          <HeaderBtn
-            onClick={() => setRecallOpen(true)}
-            title="Recall last session — recover context and spawn a fresh Claude with a paste-ready prompt"
-          >
-            <History size={12} />
-            Recall
-          </HeaderBtn>
-
-          {/* Run Batch (dropdown component, styled to match header buttons) */}
-          <BatchDropdown onResult={setBatchToast} headerStyle />
-
           {/* IDE */}
           <HeaderBtn
             onClick={openInIde}
@@ -462,7 +434,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
         className="flex-1 overflow-hidden"
       >
         {subTab === "board" && <ProjectBoard projectId={projectId} onOpenTerminal={() => setSubTab("terminal")} />}
-        {subTab === "terminal" && <ProjectTerminal projectId={projectId} />}
+        {subTab === "terminal" && <ProjectTerminal projectId={projectId} projectPath={meta?.terminalCwd ?? null} />}
         {subTab === "agents" && (
           <ProjectAgents projectId={projectId} projectPath={meta?.path ?? ""} />
         )}
@@ -478,15 +450,6 @@ export default function ProjectWorkspace({ projectId }: Props) {
         )}
       </div>
 
-      {/* Recall dialog — mounted at workspace level so it works regardless of
-          which sub-tab is active. onSpawn navigates to Terminal then closes. */}
-      {recallOpen && (
-        <RecallSessionDialog
-          projectId={projectId}
-          onClose={() => setRecallOpen(false)}
-          onSpawn={handleRecallSpawn}
-        />
-      )}
     </div>
   );
 }

@@ -16,18 +16,38 @@
     {
       "identifier": "opener:allow-open-path",
       "allow": [
-        { "path": "$HOME/.ultron-vault/**" },
+        { "path": "$HOME" },
+        { "path": "$HOME/**" },
+        { "path": "$HOME/.ultron" },
         { "path": "$HOME/.ultron/**" },
-        { "path": "$HOME/.claude/**" }
+        { "path": "$HOME/.ultron-vault" },
+        { "path": "$HOME/.ultron-vault/**" },
+        { "path": "$HOME/.claude" },
+        { "path": "$HOME/.claude/**" },
+        { "path": "$APPDATA/**" },
+        { "path": "$LOCALAPPDATA/**" },
+        { "path": "C:\\Users\\**" },
+        { "path": "D:\\**" },
+        { "path": "E:\\**" }
       ]
     },
     "opener:allow-open-url",
     {
       "identifier": "opener:allow-reveal-item-in-dir",
       "allow": [
-        { "path": "$HOME/.ultron-vault/**" },
+        { "path": "$HOME" },
+        { "path": "$HOME/**" },
+        { "path": "$HOME/.ultron" },
         { "path": "$HOME/.ultron/**" },
-        { "path": "$HOME/.claude/**" }
+        { "path": "$HOME/.ultron-vault" },
+        { "path": "$HOME/.ultron-vault/**" },
+        { "path": "$HOME/.claude" },
+        { "path": "$HOME/.claude/**" },
+        { "path": "$APPDATA/**" },
+        { "path": "$LOCALAPPDATA/**" },
+        { "path": "C:\\Users\\**" },
+        { "path": "D:\\**" },
+        { "path": "E:\\**" }
       ]
     },
     "notification:default",

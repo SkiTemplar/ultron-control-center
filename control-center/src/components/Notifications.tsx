@@ -117,19 +117,20 @@ function getTs(a: AlertEntry): string {
 
 function dedupe(alerts: AlertEntry[]): Grouped[] {
   const map = new Map<string, Grouped>();
-  for (const a of alerts) {
+  for (const a of (alerts ?? [])) {
+    if (!a || typeof a !== "object") continue;
     const fp = fingerprint(a);
     const ts = getTs(a);
     const ex = map.get(fp);
     if (ex) {
-      ex.count += 1;
+      ex.count = (ex.count ?? 0) + 1;
       if (ts && (!ex.last_ts || ts > ex.last_ts)) ex.last_ts = ts;
       if (ts && (!ex.first_ts || ts < ex.first_ts)) ex.first_ts = ts;
     } else {
       map.set(fp, {
-        source: a.source,
-        message: a.message,
-        severity: a.severity,
+        source: a.source ?? "",
+        message: a.message ?? "",
+        severity: a.severity ?? "info",
         count: 1,
         first_ts: ts,
         last_ts: ts,
@@ -549,7 +550,8 @@ function Pill({
 // Main
 // ---------------------------------------------------------------------------
 
-export function Notifications({ alerts, onDeleted }: Props) {
+export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
+  const alerts: AlertEntry[] = alertsProp ?? [];
   const [mutes, setMutes] = useState<Set<string>>(() => loadMutes());
   const [sevFilters, setSevFilters] = useState<Set<SevKey>>(() => loadSevFilters());
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => loadDateFilter());
@@ -654,7 +656,7 @@ export function Notifications({ alerts, onDeleted }: Props) {
     [allGroups, sevFilters, mutes, dismissed],
   );
 
-  const visibleTotal = visibleGroups.reduce((acc, g) => acc + g.count, 0);
+  const visibleTotal = visibleGroups.reduce((acc, g) => acc + (g.count ?? 0), 0);
 
   // "Actionable" = severity that the LLM can do something about.
   // Mirrors the per-row Row component, which only renders Fix buttons

@@ -1,5 +1,29 @@
 # Changelog
 
+<!-- v2.9.0 -->
+## v2.9.0 - 2026-05-26 (acumula v2.5.1..v2.8.9)
+
+Errores corregidos:
+- KIRKARDO round 1 fixes (5 reviewers, 12 issues applied)
+- KIRKARDO round 2 - a11y + hook hardening + blackboard wire
+- KIRKARDO 12 quick-win Tauri event stream + agents.md fantasma fix (external)
+- KIRKARDO Round 4 quick-wins (hook 9/10, others honest)
+- fix+feat(v2.8.9): Round 5 quick-fixes + batch cleanup + KIRKARDO 17 O(1) blackboard
+
+Anadido:
+- extra research + 8 backlog cards in ultron Kanban
+- Oleada 2.1 - agent_toggle + batch spinner
+- nocturnal sprint + Oleada 1 polish
+- + New project layout + system troubleshooting + library catalog fix
+- workdays + ai-router + detach + batches (sprint 2026-05-25)
+- Active/Disabled/All toggle tabs + inline card switch
+- Oleada 2.2 - Timeline ingests workdays + kanban moves
+- Oleada 2.3 - delegations log + Recent runs cards
+- Oleada 3 - D Sessions git_root + G ultron-orchestrator skill + H MemoryBrain
+- batches/set-api-keys.ps1 interactive env var setup + kanban sync
+- UX redesign ProjectWorkspace + Workdays accordion + Recall dialog (3 react-specialist agentes paralelos)
+
+
 <!-- v2.7.1 -->
 ## v2.7.1 - 2026-05-24
 

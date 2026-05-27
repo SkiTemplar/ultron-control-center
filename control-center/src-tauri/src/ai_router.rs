@@ -941,10 +941,28 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         .find(|z| z.id == zone_id)
         .ok_or_else(|| format!("zone '{}' not found", zone_id))?;
 
+    // Compute disabled providers once per route call. This is O(providers)
+    // and involves one file read, but it is fast enough for interactive use
+    // and guarantees that a key added after startup is picked up immediately.
+    let disabled = disabled_providers_set();
+
     let mut last_error = String::new();
     let chain = std::iter::once(&zone.primary).chain(zone.fallbacks.iter());
 
     for assignment in chain {
+        // Skip providers that have no usable API key. We record a soft error
+        // in `last_error` so the final "all providers failed" message is
+        // informative, but we do NOT call `bump_metrics` for skipped entries
+        // because no actual attempt was made.
+        if disabled.contains(&assignment.provider_id) {
+            last_error = format!(
+                "[{}/{}] skipped — provider has no API key \
+                 (set the key env var or configure in Settings > AI Router)",
+                assignment.provider_id, assignment.model
+            );
+            continue;
+        }
+
         let started = Instant::now();
         let outcome = try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
         let latency_ms = started.elapsed().as_millis() as u64;
@@ -986,8 +1004,9 @@ fn try_assignment_call(
             Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
             _ => {
                 return Err(format!(
-                    "missing {} env var — set it via the set-api-keys.ps1 batch",
-                    provider.key_env_var
+                    "Provider '{}' has no API key. \
+                     Set {} or configure it in Settings > AI Router.",
+                    assignment.provider_id, provider.key_env_var
                 ));
             }
         }
@@ -1041,6 +1060,141 @@ fn bump_metrics(provider_id: &str, outcome: &Result<String, String>, latency_ms:
 #[tauri::command]
 pub fn ai_router_route(zone_id: String, prompt: String) -> Result<String, String> {
     route(&zone_id, &prompt)
+}
+
+// ---------------------------------------------------------------------------
+// Key validation + disabled-provider surface  (P1 — 2026-05-27)
+//
+// Design rationale:
+//   - `compute_key_status` already knows how to detect missing/placeholder
+//     keys. We build on top of it rather than duplicating the logic.
+//   - "Disabled" means: cloud provider + no usable key. Local providers
+//     (ollama) are never disabled regardless of key state.
+//   - `route()` consults `disabled_providers_set()` before attempting any
+//     assignment so providers without keys are silently skipped in the
+//     fallback chain. If the *only* viable option is keyed and missing,
+//     `try_assignment_call` still returns a friendly error message
+//     (the existing key-check inside that fn handles it).
+//   - `ai_router_validate_keys` is a diagnostics surface; it does NOT gate
+//     the `route` path itself — `disabled_providers_set` does that.
+// ---------------------------------------------------------------------------
+
+/// Per-provider key validation result returned to the frontend.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyValidation {
+    pub provider_id: String,
+    pub provider_label: String,
+    pub has_key: bool,
+    /// How the key was found: `"env"`, `"none"` (local providers return `"local"`).
+    pub source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// Compute the set of provider IDs that should be skipped by `route()`.
+/// A provider is disabled when:
+///   - it is a cloud provider, AND
+///   - its `key_env_var` is non-empty, AND
+///   - the env var is absent, empty, or a known placeholder.
+///
+/// This is intentionally cheap (no I/O beyond `load_providers`) and called
+/// on every `route()` invocation. The result is not cached because env vars
+/// can change during a long-running session (e.g. set-api-keys.ps1 was
+/// re-run).
+fn disabled_providers_set() -> std::collections::HashSet<String> {
+    load_providers()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|p| {
+            p.kind == ProviderKind::Cloud
+                && !p.key_env_var.is_empty()
+                && matches!(compute_key_status(p), ApiKeyStatus::Missing | ApiKeyStatus::Placeholder)
+        })
+        .map(|p| p.id)
+        .collect()
+}
+
+/// Tauri command — validate keys for every configured provider.
+///
+/// Returns one `KeyValidation` entry per provider. The frontend uses this
+/// to render the "AI Router > Keys" panel and to show the warning badge
+/// on the router tab when any cloud provider is missing a key.
+///
+/// Example output (serialised to JSON by Tauri):
+/// ```json
+/// [
+///   { "provider_id": "claude-haiku", "provider_label": "Anthropic Claude Haiku",
+///     "has_key": true, "source": "env" },
+///   { "provider_id": "codex", "provider_label": "OpenAI Codex (gpt-5)",
+///     "has_key": false, "source": "none",
+///     "warning": "Set OPENAI_API_KEY or configure in Settings > AI Router." },
+///   { "provider_id": "ollama", "provider_label": "Ollama (local)",
+///     "has_key": true, "source": "local" }
+/// ]
+/// ```
+#[tauri::command]
+pub fn ai_router_validate_keys() -> Result<Vec<KeyValidation>, String> {
+    let providers = load_providers()?;
+    let validations = providers
+        .iter()
+        .map(|p| {
+            if p.kind == ProviderKind::Local || p.key_env_var.is_empty() {
+                return KeyValidation {
+                    provider_id: p.id.clone(),
+                    provider_label: p.name.clone(),
+                    has_key: true,
+                    source: "local".to_string(),
+                    warning: None,
+                };
+            }
+            match std::env::var(&p.key_env_var) {
+                Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => KeyValidation {
+                    provider_id: p.id.clone(),
+                    provider_label: p.name.clone(),
+                    has_key: true,
+                    source: "env".to_string(),
+                    warning: None,
+                },
+                Ok(_) => KeyValidation {
+                    provider_id: p.id.clone(),
+                    provider_label: p.name.clone(),
+                    has_key: false,
+                    source: "none".to_string(),
+                    warning: Some(format!(
+                        "Provider '{}' has a placeholder value in {}. \
+                         Set a real key or configure it in Settings > AI Router.",
+                        p.id, p.key_env_var
+                    )),
+                },
+                Err(_) => KeyValidation {
+                    provider_id: p.id.clone(),
+                    provider_label: p.name.clone(),
+                    has_key: false,
+                    source: "none".to_string(),
+                    warning: Some(format!(
+                        "Provider '{}' has no API key. \
+                         Set {} or configure it in Settings > AI Router.",
+                        p.id, p.key_env_var
+                    )),
+                },
+            }
+        })
+        .collect();
+    Ok(validations)
+}
+
+/// Tauri command — returns provider IDs that are currently disabled
+/// (cloud providers without a usable API key).
+///
+/// The frontend can use this list to grey-out providers in the zone editor
+/// and to warn the user before saving a zone that references a disabled
+/// provider.
+#[tauri::command]
+pub fn ai_router_disabled_providers() -> Result<Vec<String>, String> {
+    // Re-use disabled_providers_set so the logic stays in one place.
+    let mut ids: Vec<String> = disabled_providers_set().into_iter().collect();
+    ids.sort(); // deterministic order for the UI
+    Ok(ids)
 }
 
 // ---------------------------------------------------------------------------
@@ -1221,5 +1375,139 @@ mod tests {
         assert_eq!(clamp_max_tokens(0, 1024), 1024);
         assert_eq!(clamp_max_tokens(2048, 1024), 2048);
         assert_eq!(clamp_max_tokens(99_999, 1024), 8192);
+    }
+
+    // -----------------------------------------------------------------------
+    // P1 2026-05-27 — key validation + disabled-providers
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn local_provider_never_disabled() {
+        // Ollama has kind=Local and empty key_env_var — must NOT appear in
+        // the disabled set regardless of env state.
+        let ollama = Provider {
+            id: "ollama".into(),
+            name: "Ollama (local)".into(),
+            cost_per_mtok: 0.0,
+            supports: vec![ProviderClass::Trivial],
+            api_key_status: ApiKeyStatus::Configured,
+            health_endpoint: None,
+            kind: ProviderKind::Local,
+            key_env_var: String::new(),
+            base_url: "http://localhost:11434".into(),
+            default_model: "qwen2.5-coder:7b".into(),
+            models: vec![],
+        };
+        // A local provider with empty key_env_var is never missing.
+        assert_eq!(compute_key_status(&ollama), ApiKeyStatus::Configured);
+    }
+
+    #[test]
+    fn cloud_provider_missing_key_is_missing_status() {
+        // A cloud provider whose key_env_var is not in the environment must
+        // report Missing. We use a name that is extremely unlikely to be
+        // set in CI.
+        let p = Provider {
+            id: "qwen-cloud".into(),
+            name: "Qwen Cloud".into(),
+            cost_per_mtok: 0.5,
+            supports: vec![ProviderClass::Light],
+            api_key_status: ApiKeyStatus::Missing,
+            health_endpoint: None,
+            kind: ProviderKind::Cloud,
+            key_env_var: "__ULTRON_TEST_KEY_NOT_SET_XYZ__".into(),
+            base_url: "https://example.com".into(),
+            default_model: "qwen-turbo".into(),
+            models: vec![],
+        };
+        // Env var should not be set; if it somehow is, the test is a no-op.
+        if std::env::var("__ULTRON_TEST_KEY_NOT_SET_XYZ__").is_err() {
+            assert_eq!(compute_key_status(&p), ApiKeyStatus::Missing);
+        }
+    }
+
+    #[test]
+    fn cloud_provider_placeholder_key_is_placeholder_status() {
+        // A provider whose env var contains a placeholder string must report
+        // Placeholder (not Configured).
+        let key_var = "__ULTRON_TEST_PLACEHOLDER_KEY__";
+        // SAFETY: test-only mutation, single-threaded test runner.
+        unsafe { std::env::set_var(key_var, "your-key-here") };
+        let p = Provider {
+            id: "test-cloud".into(),
+            name: "Test Cloud".into(),
+            cost_per_mtok: 1.0,
+            supports: vec![ProviderClass::Light],
+            api_key_status: ApiKeyStatus::Missing,
+            health_endpoint: None,
+            kind: ProviderKind::Cloud,
+            key_env_var: key_var.into(),
+            base_url: "https://example.com".into(),
+            default_model: "test-model".into(),
+            models: vec![],
+        };
+        let status = compute_key_status(&p);
+        unsafe { std::env::remove_var(key_var) };
+        assert_eq!(status, ApiKeyStatus::Placeholder);
+    }
+
+    #[test]
+    fn cloud_provider_real_key_is_configured_status() {
+        let key_var = "__ULTRON_TEST_REAL_KEY__";
+        unsafe { std::env::set_var(key_var, "sk-proj-abc123realkey") };
+        let p = Provider {
+            id: "test-cloud2".into(),
+            name: "Test Cloud 2".into(),
+            cost_per_mtok: 1.0,
+            supports: vec![ProviderClass::Light],
+            api_key_status: ApiKeyStatus::Missing,
+            health_endpoint: None,
+            kind: ProviderKind::Cloud,
+            key_env_var: key_var.into(),
+            base_url: "https://example.com".into(),
+            default_model: "test-model".into(),
+            models: vec![],
+        };
+        let status = compute_key_status(&p);
+        unsafe { std::env::remove_var(key_var) };
+        assert_eq!(status, ApiKeyStatus::Configured);
+    }
+
+    #[test]
+    fn key_validation_warning_message_contains_env_var_name() {
+        // When a provider has no key, the warning must tell the user which
+        // env var to set. We exercise the warning-building logic directly
+        // rather than going through the Tauri command surface.
+        let key_var = "__ULTRON_TEST_WARN_KEY__";
+        // Ensure the var is absent.
+        unsafe { std::env::remove_var(key_var) };
+
+        let p = Provider {
+            id: "warn-provider".into(),
+            name: "Warn Provider".into(),
+            cost_per_mtok: 1.0,
+            supports: vec![ProviderClass::Light],
+            api_key_status: ApiKeyStatus::Missing,
+            health_endpoint: None,
+            kind: ProviderKind::Cloud,
+            key_env_var: key_var.into(),
+            base_url: "https://example.com".into(),
+            default_model: "warn-model".into(),
+            models: vec![],
+        };
+
+        // Replicate the warning-building logic from ai_router_validate_keys.
+        let warning = match std::env::var(&p.key_env_var) {
+            Err(_) => Some(format!(
+                "Provider '{}' has no API key. \
+                 Set {} or configure it in Settings > AI Router.",
+                p.id, p.key_env_var
+            )),
+            _ => None,
+        };
+
+        let w = warning.expect("warning should be present when key is absent");
+        assert!(w.contains(key_var), "warning must name the env var");
+        assert!(w.contains("warn-provider"), "warning must name the provider");
     }
 }

@@ -75,14 +75,19 @@ export default function ProjectNotes({ projectId }: Props) {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const deletePopoverRef = useRef<HTMLDivElement>(null);
 
-  const loadList = useCallback(async () => {
+  // Returns the refreshed list so callers can batch follow-up state changes
+  // (e.g. setSelectedSlug) in the same render, preventing a flash where the
+  // list is populated but selectedSlug still points to null.
+  const loadList = useCallback(async (): Promise<NoteEntry[]> => {
     setLoading(true);
     setError(null);
     try {
       const r = (await invoke("project_notes_list", { projectId })) as NoteEntry[];
       setList(r);
+      return r;
     } catch (e) {
       setError(String(e));
+      return [];
     } finally {
       setLoading(false);
     }
@@ -155,11 +160,15 @@ export default function ProjectNotes({ projectId }: Props) {
     setError(null);
     try {
       await invoke("project_note_save", { projectId, slug, body: initial });
-      await loadList();
-      setSelectedSlug(slug);
-      setBody(initial);
-      setOriginalBody(initial);
-      setEditing(true);
+      const updated = await loadList();
+      // Guard: only auto-select when the backend confirms the note is visible
+      // in the listing (handles edge cases where the file write races the read).
+      if (updated.some((n) => n.slug === slug)) {
+        setSelectedSlug(slug);
+        setBody(initial);
+        setOriginalBody(initial);
+        setEditing(true);
+      }
     } catch (e) {
       setError(String(e));
     } finally {

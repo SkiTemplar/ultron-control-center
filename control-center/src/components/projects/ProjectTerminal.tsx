@@ -36,11 +36,19 @@ import {
 } from "./terminal/layout-types";
 import type { PtySessionSummary } from "../../types";
 
-type Props = { projectId: string };
+type Props = {
+  projectId: string;
+  /** Absolute path of the project on disk. When non-null it is passed as the
+   * `cwd` for every `pty_spawn` call so sessions open in the project folder
+   * instead of in the Tauri process working directory (System32 on Windows).
+   * Falls back to `"."` when null so legacy callers without a path still work.
+   */
+  projectPath: string | null;
+};
 
 const SAVE_DEBOUNCE_MS = 400;
 
-export default function ProjectTerminal({ projectId }: Props) {
+export default function ProjectTerminal({ projectId, projectPath }: Props) {
   const [layout, setLayout] = useState<ProjectTerminalLayout | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
@@ -240,9 +248,12 @@ export default function ProjectTerminal({ projectId }: Props) {
           cardId: null,
           provider,
           agent: null,
-          cwd: ".",
+          // Use the project's absolute path so the session opens in the
+          // project folder, not in the Tauri process CWD (System32 on Windows).
+          cwd: projectPath ?? ".",
           prompt: null,
         })) as string;
+
         // v2.6.1: also auto-name the upper tab if its label is still the
         // default "Tab N" placeholder. The leaf chrome already auto-names
         // the *pane*; this completes the experience for the tab row at the
@@ -269,7 +280,7 @@ export default function ProjectTerminal({ projectId }: Props) {
         setError(String(e));
       }
     },
-    [projectId],
+    [projectId, projectPath],
   );
 
   const handleAttachExisting = useCallback(
@@ -312,7 +323,8 @@ export default function ProjectTerminal({ projectId }: Props) {
         cardId: null,
         provider: "claude",
         agent: null,
-        cwd: ".",
+        // Same fix as handleSpawnPty: use the project's absolute path.
+        cwd: projectPath ?? ".",
         prompt: null,
       })) as string;
 
@@ -351,7 +363,7 @@ export default function ProjectTerminal({ projectId }: Props) {
         );
       }, 1500);
     },
-    [projectId],
+    [projectId, projectPath],
   );
 
   // ------------------------------------------------------------------
