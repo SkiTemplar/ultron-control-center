@@ -1075,3 +1075,64 @@ export type RecallResult = {
   /** "jsonl" | "mem0" | "none". */
   source: string;
 };
+
+// ---------------------------------------------------------------------------
+// Workdays (v2.8) — mirrors workdays::Workday on the Rust side.
+// ---------------------------------------------------------------------------
+
+export type WorkdayStatus =
+  | "planned"
+  | "in_progress"
+  | "paused"
+  | "completed"
+  | "archived";
+
+export type GoalStatus = "pending" | "done" | "skipped";
+
+export type WorkdayGoal = {
+  id: string;
+  text: string;
+  status: GoalStatus;
+};
+
+export type WorkdayContextEntry = {
+  id: string;
+  kind: string;
+  text: string;
+  source: string | null;
+  created_at: string;
+};
+
+export type WorkdayContext = {
+  notes: WorkdayContextEntry[];
+  decisions: WorkdayContextEntry[];
+  file_changes: WorkdayContextEntry[];
+  agent_messages: WorkdayContextEntry[];
+};
+
+export type Workday = {
+  id: string;
+  template_id: string | null;
+  workflow_template: string | null;
+  project_id: string | null;
+  project_cwd: string | null;
+  title: string;
+  status: WorkdayStatus;
+  planned_date: string;
+  start_ts: string | null;
+  end_ts: string | null;
+  focus_seconds: number;
+  break_seconds: number;
+  energy_before: number | null;
+  energy_after: number | null;
+  mood_note: string | null;
+  retro_good: string | null;
+  retro_bad: string | null;
+  retro_learned: string | null;
+  summary_md: string | null;
+  goals: WorkdayGoal[];
+  linked_sessions: string[];
+  linked_tasks: string[];
+  context: WorkdayContext;
+  created_at: string;
+};

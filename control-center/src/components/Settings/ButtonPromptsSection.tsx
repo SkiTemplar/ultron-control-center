@@ -1,3 +1,13 @@
+// Button Prompts feature — closed in v2.9.x feedback wave.
+//
+// Audit 2026-05-27: all 27 catalog entries verified. No outdated prompts
+// detected. Entries without an active call site (agents.*, memory.*, sessions.*,
+// skills.*, system.*, projects.*, dashboard.pc_diagnose_analyse) are
+// "ready-to-wire" — their destination tabs exist but have not yet been
+// connected to resolveAndSpawn(). They remain in the catalog intentionally.
+// Two previously outdated entries (selfimprove.repo_evaluator,
+// logs.summarize_recent) were already removed in v2.5.2 / fb-031.
+// ---------------------------------------------------------------------------
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {

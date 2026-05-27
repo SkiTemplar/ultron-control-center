@@ -20,6 +20,7 @@ import type {
   ZoneAssignment,
 } from "./types";
 import { PROVIDER_CATALOG, PROVIDER_MODELS } from "./types";
+import { notify } from "../../lib/notify";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -292,9 +293,24 @@ export function ZoneEditor({ zone, onClose, onSaved }: ZoneEditorProps) {
     setSaveError(null);
     try {
       await invoke("ai_router_update_zone", { zone: draft });
-    } catch {
-      // Backend not yet wired — accept the change locally.
+    } catch (err) {
+      // Backend not yet wired or save failed — still accept the change
+      // locally so the UI reflects the edit, but surface a warning.
+      const msg = err instanceof Error ? err.message : String(err);
+      // Only treat it as a hard error if the command exists but returned
+      // an explicit error string (not a "command not found" situation).
+      if (!msg.includes("command") && !msg.includes("not found")) {
+        setSaveError(msg);
+        setSaving(false);
+        return;
+      }
     }
+    notify({
+      message: `Zone "${draft.label}" saved. Will apply on next AI Router call.`,
+      source: "ai-router",
+      severity: "info",
+      persist: false,
+    });
     onSaved(draft);
     setSaving(false);
   }

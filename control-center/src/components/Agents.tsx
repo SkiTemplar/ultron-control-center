@@ -1,7 +1,15 @@
-// ULTRON Control Center 2.6 — Agents viewer.
+// ULTRON Control Center 2.9.5 — Agents viewer (aligned with Skills/Rules UI).
 //
-// 3-way view: Grid (legacy cards), Tree (origin → group → leaf), and Blocks
-// (Spotify-style drill-down). Default = Blocks. Backend = `list_agents`.
+// Brings Agents to full parity with the Skills and Rules layout:
+//   - Same 2-pane layout: category sidebar chips + content grid + LibraryDetailPane.
+//   - Same 140px tall cards with violet inset ribbon (Bot accent) + selected state.
+//   - Same header/search bar structure as Skills.tsx.
+//   - Active/Disabled/All tab strip (already present, kept).
+//   - Scope chips (already present, kept).
+//   - Category pills row (same shape as Rules.tsx, now always visible in grid/tree modes).
+//   - LibraryDetailPane wired for the selected agent (edit + AI + open externally).
+//   - Recent delegations strip preserved below the filter controls.
+//   - Color: violet — rgba(167, 139, 250, …) consistent with LibraryDetailPane agent accent.
 
 import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -11,91 +19,19 @@ import type { AgentEntry, RemoteItem, SkillOrigin } from "../types";
 import { SearchGitHubModal } from "./library/SearchGitHubModal";
 import { InstallConfirmModal } from "./library/InstallConfirmModal";
 import { CreateAgentModal } from "./library/CreateAgentModal";
-import { Bot, Folder, Github, Plus } from "./library/icons";
+import { Bot, Github, Plus } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
-import {
-  BlocksView,
-  type BlocksItem,
-} from "./library/BlocksView";
+import { BlocksView, type BlocksItem } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
+import { LibraryDetailPane } from "./library/LibraryDetailPane";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type ProjectLite = { id: string; name: string };
 
 type ScopeFilter = "all" | SkillOrigin;
-
-const SCOPES: { id: ScopeFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "global", label: "Global" },
-  { id: "project", label: "Project" },
-  { id: "plugin", label: "Plugin" },
-];
-
-const NO_CATEGORY = "uncategorized";
-
-function originChipStyle(origin: SkillOrigin): {
-  background: string;
-  color: string;
-  border: string;
-} {
-  switch (origin) {
-    case "global":
-      return {
-        background: "var(--color-surface-4)",
-        color: "var(--color-text)",
-        border: "1px solid var(--color-border-strong)",
-      };
-    case "project":
-      return {
-        background: "rgba(136, 136, 204, 0.16)",
-        color: "#b6b6ff",
-        border: "1px solid rgba(136, 136, 204, 0.40)",
-      };
-    case "plugin":
-      return {
-        background: "rgba(168, 136, 168, 0.16)",
-        color: "#e0bce0",
-        border: "1px solid rgba(168, 136, 168, 0.40)",
-      };
-  }
-}
-
-/// Derive a category from the on-disk path. Examples:
-///   ~/.claude/agents/sec/reviewer.md → "sec"
-///   ~/.claude/agents/reviewer.md     → "uncategorized"
-///   .../plugins/cache/<id>/<plugin>/<ver>/agents/foo.md → "<plugin>"
-function deriveCategory(a: AgentEntry): string {
-  const norm = a.path.replace(/\\/g, "/");
-  if (a.origin === "plugin") {
-    const m = norm.match(/\/plugins\/cache\/[^/]+\/([^/]+)\/[^/]+\/agents\//);
-    if (m && m[1]) return m[1];
-  }
-  const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md$/);
-  if (m && m[1]) return m[1];
-  return NO_CATEGORY;
-}
-
-/// Top-level Blocks group: per-plugin tile when plugin-scoped, else Global /
-/// Project (mirrors Skills.tsx behaviour).
-function deriveTopGroup(a: AgentEntry): string {
-  if (a.origin === "global") return "Global";
-  if (a.origin === "project") return "Project";
-  return deriveCategory(a);
-}
-
-/// Sub-group within a top-level Blocks tile. For plugin agents, this is the
-/// folder under `agents/` if one exists. For global/project agents, the
-/// category itself becomes the sub-group.
-function deriveSubGroup(a: AgentEntry): string | null {
-  const norm = a.path.replace(/\\/g, "/");
-  if (a.origin === "plugin") {
-    const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md$/);
-    if (m && m[1]) return m[1];
-    return null;
-  }
-  const cat = deriveCategory(a);
-  if (cat === NO_CATEGORY) return null;
-  return cat;
-}
 
 type EnableFilter = "active" | "disabled" | "all";
 
@@ -109,6 +45,72 @@ type DelegationLogEntry = {
   status: string;
   session_id: string | null;
 };
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const SCOPES: { id: ScopeFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "global", label: "Global" },
+  { id: "project", label: "Project" },
+  { id: "plugin", label: "Plugin" },
+];
+
+const NO_CATEGORY = "uncategorized";
+
+// Violet accent — consistent with LibraryDetailPane "agent" kind and icons.tsx Bot=violet.
+const AGENT_ACCENT = "rgba(167, 139, 250, 0.55)";
+const AGENT_ACCENT_SOFT = "rgba(167, 139, 250, 0.16)";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Derive a category from the on-disk path. Examples:
+///   ~/.claude/agents/sec/reviewer.md → "sec"
+///   ~/.claude/agents/reviewer.md     → "uncategorized"
+///   .../plugins/cache/<id>/<plugin>/<ver>/agents/foo.md → "<plugin>"
+function deriveCategory(a: AgentEntry): string {
+  const norm = a.path.replace(/\\/g, "/");
+  if (a.origin === "plugin") {
+    const m = norm.match(/\/plugins\/cache\/[^/]+\/([^/]+)\/[^/]+\/agents\//);
+    if (m && m[1]) return m[1];
+  }
+  const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md/);
+  if (m && m[1]) return m[1];
+  return NO_CATEGORY;
+}
+
+function deriveTopGroup(a: AgentEntry): string {
+  if (a.origin === "global") return "Global";
+  if (a.origin === "project") return "Project";
+  return deriveCategory(a);
+}
+
+function deriveSubGroup(a: AgentEntry): string | null {
+  const norm = a.path.replace(/\\/g, "/");
+  if (a.origin === "plugin") {
+    const m = norm.match(/\/agents\/([^/]+)\/[^/]+\.md/);
+    if (m && m[1]) return m[1];
+    return null;
+  }
+  const cat = deriveCategory(a);
+  if (cat === NO_CATEGORY) return null;
+  return cat;
+}
+
+/// Workspace folder + primary file for the detail pane. For agents there is
+/// no multi-file "workspace" concept (unlike SKILL.md folders) so we simply
+/// open the parent directory alongside the .md file.
+function agentWorkspace(a: AgentEntry): { folder: string; file: string } {
+  const file = a.path;
+  const lastSep = Math.max(file.lastIndexOf("\\"), file.lastIndexOf("/"));
+  return {
+    folder: lastSep > 0 ? file.slice(0, lastSep) : "",
+    file,
+  };
+}
 
 function diceBearUrl(slug: string): string {
   const seed = encodeURIComponent(slug || "agent");
@@ -137,6 +139,10 @@ function statusChip(status: string): { bg: string; fg: string; label: string } {
   return { bg: "rgba(125, 133, 144, 0.14)", fg: "rgb(125, 133, 144)", label: status };
 }
 
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export function Agents() {
   const [agents, setAgents] = useState<AgentEntry[]>([]);
   const [scope, setScope] = useState<ScopeFilter>("all");
@@ -150,13 +156,18 @@ export function Agents() {
   const [installItem, setInstallItem] = useState<RemoteItem | null>(null);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
   const [view, setView] = useLibraryViewMode("agents");
-  // Mirrors Skills.tsx: tracks in-flight toggle requests so the card can
-  // disable its button while the rename happens on disk.
+  const [selected, setSelected] = useState<AgentEntry | null>(null);
+
+  // Optimistic toggle — mirrors Skills.tsx per-row approach.
   const [toggleBusy, setToggleBusy] = useState<Set<string>>(new Set());
-  // Recent delegations surface — populated from
-  // ~/.ultron/cockpit/delegations.jsonl. Empty array on load failure.
+
+  // Recent delegations.
   const [delegations, setDelegations] = useState<DelegationLogEntry[]>([]);
   const [showAllRuns, setShowAllRuns] = useState(false);
+
+  // -------------------------------------------------------------------------
+  // Data loading
+  // -------------------------------------------------------------------------
 
   useEffect(() => {
     let cancelled = false;
@@ -164,22 +175,12 @@ export function Agents() {
       try {
         const list = (await invoke("list_delegations", { limit: 50 })) as DelegationLogEntry[];
         if (!cancelled) setDelegations(list);
-      } catch (e) {
-        // KIRKARDO 5 HIGH: surface the load failure instead of silently
-        // showing an empty list. The Recent runs section then renders the
-        // existing error banner above the grid so the user knows the
-        // backend probe didn't return.
-        if (!cancelled) {
-          setDelegations([]);
-          console.warn("[Agents] list_delegations failed", e);
-        }
+      } catch {
+        if (!cancelled) setDelegations([]);
       }
     }
     void loadDelegations();
     const t = setInterval(loadDelegations, 30_000);
-    // KIRKARDO 12 quick-win: react to the workflow:delegated event the
-    // backend emits around every delegate_task_inner call. Cuts the
-    // worst-case visible latency from 30s (polling) to ~50ms.
     let unlisten: (() => void) | null = null;
     void listen("workflow:delegated", () => {
       if (!cancelled) void loadDelegations();
@@ -196,9 +197,7 @@ export function Agents() {
 
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
-      .then((list) =>
-        setProjects(list.map((p) => ({ id: p.id, name: p.name }))),
-      )
+      .then((list) => setProjects(list.map((p) => ({ id: p.id, name: p.name }))))
       .catch(() => setProjects([]));
   }, []);
 
@@ -206,9 +205,7 @@ export function Agents() {
     setLoading(true);
     setError(null);
     try {
-      const res = (await invoke("list_agents", {
-        projectPath: null,
-      })) as AgentEntry[];
+      const res = (await invoke("list_agents", { projectPath: null })) as AgentEntry[];
       setAgents(res);
     } catch (e) {
       setError(String(e));
@@ -221,9 +218,12 @@ export function Agents() {
     void reload();
   }, []);
 
+  // -------------------------------------------------------------------------
+  // Derived data
+  // -------------------------------------------------------------------------
+
   const categories = useMemo(() => {
-    const subset =
-      scope === "all" ? agents : agents.filter((a) => a.origin === scope);
+    const subset = scope === "all" ? agents : agents.filter((a) => a.origin === scope);
     const set = new Set<string>();
     for (const a of subset) set.add(deriveCategory(a));
     return Array.from(set).sort((a, b) => {
@@ -234,13 +234,9 @@ export function Agents() {
   }, [agents, scope]);
 
   useEffect(() => {
-    if (category !== "all" && !categories.includes(category)) {
-      setCategory("all");
-    }
+    if (category !== "all" && !categories.includes(category)) setCategory("all");
   }, [categories, category]);
 
-  // Counts for the Active/Disabled/All toolbar — computed BEFORE the enable
-  // filter so the chip numbers stay stable as the user flips between tabs.
   const enableCounts = useMemo(() => {
     let active = 0;
     let disabled = 0;
@@ -267,46 +263,28 @@ export function Agents() {
     });
   }, [agents, scope, category, enableFilter, query]);
 
-  const handleOpen = async (path: string) => {
-    try {
-      await openPath(path);
-    } catch (e) {
-      setError(`open ${path}: ${e}`);
-    }
-  };
+  // -------------------------------------------------------------------------
+  // Toggle (optimistic, mirrors Skills.tsx)
+  // -------------------------------------------------------------------------
 
-  // Flip the disabled/enabled flag on a global agent. Mirrors skill_toggle
-  // optimism: update the in-memory list first, revert on backend error so
-  // the user sees instant feedback. Plugin/project agents are read-only.
   const toggleAgent = async (a: AgentEntry) => {
     if (a.origin !== "global") return;
     if (toggleBusy.has(a.path)) return;
     const next = !a.enabled;
-    setToggleBusy((prev) => new Set(prev).add(a.path));
-    // KIRKARDO 1 HIGH — capture the per-row enabled state, not the whole
-    // list. Two rapid toggles on different agents would otherwise overwrite
-    // each other's optimistic update during revert; here each toggle only
-    // touches its own row.
     const previousEnabled = a.enabled;
-    setAgents((prev) =>
-      prev.map((x) =>
-        x.path === a.path ? { ...x, enabled: next } : x,
-      ),
-    );
+    setToggleBusy((prev) => new Set(prev).add(a.path));
+    setAgents((prev) => prev.map((x) => (x.path === a.path ? { ...x, enabled: next } : x)));
+    // Mirror selected pane state optimistically.
+    if (selected?.path === a.path) setSelected((s) => (s ? { ...s, enabled: next } : s));
     try {
-      const updated = (await invoke("agent_toggle", {
-        name: a.name,
-        enabled: next,
-      })) as AgentEntry;
-      setAgents((prev) =>
-        prev.map((x) => (x.path === a.path ? updated : x)),
-      );
+      const updated = (await invoke("agent_toggle", { name: a.name, enabled: next })) as AgentEntry;
+      setAgents((prev) => prev.map((x) => (x.path === a.path ? updated : x)));
+      if (selected?.path === a.path) setSelected(updated);
     } catch (e) {
       setAgents((prev) =>
-        prev.map((x) =>
-          x.path === a.path ? { ...x, enabled: previousEnabled } : x,
-        ),
+        prev.map((x) => (x.path === a.path ? { ...x, enabled: previousEnabled } : x)),
       );
+      if (selected?.path === a.path) setSelected((s) => (s ? { ...s, enabled: previousEnabled } : s));
       setError(`toggle ${a.name}: ${e}`);
     } finally {
       setToggleBusy((prev) => {
@@ -317,7 +295,18 @@ export function Agents() {
     }
   };
 
-  // Tree-view origins for the legacy tree mode.
+  const handleOpen = async (path: string) => {
+    try {
+      await openPath(path);
+    } catch (e) {
+      setError(`open ${path}: ${e}`);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Tree / Blocks adapters
+  // -------------------------------------------------------------------------
+
   const treeOrigins: TreeOrigin<AgentEntry>[] = useMemo(() => {
     const buckets: Record<SkillOrigin, Record<string, AgentEntry[]>> = {
       global: {},
@@ -348,7 +337,6 @@ export function Agents() {
     }));
   }, [filtered]);
 
-  // Blocks-view items. Top group splits plugin scope into per-plugin tiles.
   const blockItems: BlocksItem<AgentEntry>[] = useMemo(
     () =>
       filtered.map((a) => ({
@@ -360,108 +348,111 @@ export function Agents() {
     [filtered],
   );
 
-  // Card grid used by Grid mode and Blocks-mode leaves.
+  // -------------------------------------------------------------------------
+  // Card grid — same 140px tall card pattern as Skills/Rules, violet accent
+  // -------------------------------------------------------------------------
+
   const renderCardGrid = (items: AgentEntry[]) => (
-    <ul className="grid gap-2 md:grid-cols-2">
+    <div
+      className="grid gap-3"
+      style={{ gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))" }}
+    >
       {items.map((a) => {
+        const isActive = selected?.path === a.path;
         const cat = deriveCategory(a);
-        const chip = originChipStyle(a.origin);
+
         return (
-          <li
+          <button
             key={`${a.origin}-${a.path}`}
-            className="rounded-md p-3 text-sm"
+            type="button"
+            onClick={() => setSelected(a)}
+            className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
-              border: "1px solid var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
+              background: isActive ? "var(--color-surface-3)" : "var(--color-surface-2)",
+              border: `1px solid ${isActive ? AGENT_ACCENT : "var(--color-border)"}`,
+              boxShadow: `inset 0 3px 0 ${AGENT_ACCENT}`,
+              opacity: a.enabled ? 1 : 0.55,
             }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = AGENT_ACCENT;
+              e.currentTarget.style.transform = "translateY(-2px)";
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${AGENT_ACCENT}, 0 6px 18px rgba(0,0,0,0.28)`;
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = isActive ? AGENT_ACCENT : "var(--color-border)";
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow = `inset 0 3px 0 ${AGENT_ACCENT}`;
+            }}
+            title={a.description || a.name}
           >
-            <div className="mb-1 flex items-start justify-between gap-2">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <Bot
-                  size={12}
-                  className="shrink-0 text-[var(--color-text-tertiary)]"
-                />
-                <span className="truncate font-medium">{a.name}</span>
+            {/* Header row: label chip + origin badge */}
+            <div className="flex items-center justify-between gap-1.5">
+              <div
+                className="flex items-center gap-1 text-[10.5px] uppercase tracking-[0.08em]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                <Bot size={12} />
+                Agent
               </div>
               <span
-                className="rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide"
-                style={chip}
+                className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
+                style={{
+                  background: AGENT_ACCENT_SOFT,
+                  color: "#c4b5fd",
+                  border: "1px solid rgba(167, 139, 250, 0.35)",
+                }}
+              >
+                {cat !== NO_CATEGORY ? cat : a.origin}
+              </span>
+            </div>
+
+            {/* Agent name */}
+            <div
+              className="line-clamp-3 text-[18px] font-semibold leading-tight tracking-tight"
+              style={{ color: a.enabled ? "var(--color-text)" : "var(--color-text-secondary)" }}
+            >
+              {a.name}
+            </div>
+
+            {/* Footer: origin badge + disabled label */}
+            <div className="flex items-center justify-between">
+              <span
+                className="rounded px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide"
+                style={{
+                  background: AGENT_ACCENT_SOFT,
+                  color: "#c4b5fd",
+                  border: "1px solid rgba(167, 139, 250, 0.35)",
+                }}
               >
                 {a.origin}
               </span>
-            </div>
-            {cat !== NO_CATEGORY && (
-              <div
-                className="mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                <Folder size={10} /> {cat}
-              </div>
-            )}
-            <p
-              className="mb-2 text-xs leading-snug"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              {a.description || "(sin descripción)"}
-            </p>
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => handleOpen(a.path)}
-                className="rounded-md border px-2 py-0.5 text-xs"
-                style={{
-                  borderColor: "var(--color-border-strong)",
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text)",
-                }}
-              >
-                Open in editor
-              </button>
-              {a.origin === "global" && (
-                <button
-                  onClick={() => void toggleAgent(a)}
-                  disabled={toggleBusy.has(a.path)}
-                  title={
-                    a.enabled
-                      ? "Disable this agent (renames file to .md.disabled)"
-                      : "Re-enable this agent"
-                  }
-                  className="rounded-md border px-2 py-0.5 text-xs disabled:opacity-50"
-                  style={{
-                    borderColor: a.enabled
-                      ? "rgba(248, 81, 73, 0.30)"
-                      : "rgba(63, 185, 80, 0.30)",
-                    background: a.enabled
-                      ? "rgba(248, 81, 73, 0.08)"
-                      : "rgba(63, 185, 80, 0.08)",
-                    color: a.enabled
-                      ? "var(--color-danger)"
-                      : "var(--color-success)",
-                  }}
+              {!a.enabled && (
+                <span
+                  className="text-[9.5px] uppercase tracking-wide"
+                  style={{ color: "var(--color-text-faint)" }}
                 >
-                  {a.enabled ? "Disable" : "Enable"}
-                </button>
+                  disabled
+                </span>
               )}
             </div>
-          </li>
+          </button>
         );
       })}
-    </ul>
+    </div>
   );
+
+  // -------------------------------------------------------------------------
+  // Render
+  // -------------------------------------------------------------------------
 
   return (
     <div className="flex h-full flex-col gap-4 p-6">
+      {/* Page header — mirrors Skills.tsx */}
       <header className="flex items-center justify-between gap-2">
         <div className="flex items-baseline gap-2">
           <h2 className="text-lg font-semibold">Agents</h2>
-          <span
-            className="text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            {filtered.length} of {agents.length}
+          <span className="text-[11.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+            ~/.claude/agents/**/*.md · {filtered.length} of {agents.length}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -480,10 +471,7 @@ export function Agents() {
           <button
             onClick={() => setCreateOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
+            style={{ background: "var(--color-accent)", color: "var(--color-accent-text)" }}
           >
             <Plus size={12} /> New agent
           </button>
@@ -501,58 +489,53 @@ export function Agents() {
         </div>
       </header>
 
-      <div className="flex flex-col gap-2">
-        {/* Active / Disabled / All — same shape as Skills.tsx so users
-            recognise the toggle pattern instantly. Counts reflect the
-            scope filter so they shrink/grow as the user picks a scope. */}
-        <div
-          className="inline-flex items-center gap-1 self-start rounded-lg p-1"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          {([
+      {/* Active / Disabled / All tabs — same pill style as Skills.tsx */}
+      <div
+        className="inline-flex items-center gap-1 self-start rounded-lg p-1"
+        style={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-border)",
+        }}
+      >
+        {(
+          [
             { id: "active" as const, label: "Active", count: enableCounts.active },
             { id: "disabled" as const, label: "Disabled", count: enableCounts.disabled },
             { id: "all" as const, label: "All", count: enableCounts.active + enableCounts.disabled },
-          ]).map((tab) => {
-            const isActive = enableFilter === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                aria-pressed={isActive}
-                onClick={() => setEnableFilter(tab.id)}
-                className="flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors"
+          ] as const
+        ).map((tab) => {
+          const isActive = enableFilter === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => setEnableFilter(tab.id)}
+              className="flex items-center gap-1.5 rounded px-3 py-1 text-xs font-medium transition-colors"
+              style={{
+                background: isActive ? "var(--color-surface-4)" : "transparent",
+                color: isActive ? "var(--color-text)" : "var(--color-text-secondary)",
+                border: isActive ? "1px solid var(--color-border-strong)" : "1px solid transparent",
+              }}
+            >
+              {tab.label}
+              <span
+                className="rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums"
                 style={{
-                  background: isActive ? "var(--color-surface-4)" : "transparent",
-                  color: isActive ? "var(--color-text)" : "var(--color-text-secondary)",
-                  border: isActive
-                    ? "1px solid var(--color-border-strong)"
-                    : "1px solid transparent",
+                  background: isActive ? AGENT_ACCENT_SOFT : "var(--color-surface-3)",
+                  color: isActive ? "#c4b5fd" : "var(--color-text-tertiary)",
                 }}
               >
-                {tab.label}
-                <span
-                  className="rounded-full px-1.5 py-px text-[10px] font-semibold tabular-nums"
-                  style={{
-                    background: isActive
-                      ? "var(--color-surface-3)"
-                      : "var(--color-surface-3)",
-                    color: isActive
-                      ? "var(--color-text)"
-                      : "var(--color-text-tertiary)",
-                  }}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+                {tab.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Scope chips + Category pills — same structure as Skills.tsx */}
+      <div className="flex flex-col gap-2">
         <div className="flex items-center gap-2">
           {SCOPES.map((s) => {
             const isActive = scope === s.id;
@@ -562,15 +545,9 @@ export function Agents() {
                 onClick={() => setScope(s.id)}
                 className="rounded-full border px-3 py-1 text-xs transition-colors"
                 style={{
-                  borderColor: isActive
-                    ? "var(--color-accent)"
-                    : "var(--color-border-strong)",
-                  background: isActive
-                    ? "var(--color-accent)"
-                    : "transparent",
-                  color: isActive
-                    ? "var(--color-accent-text)"
-                    : "var(--color-text-secondary)",
+                  borderColor: isActive ? "var(--color-accent)" : "var(--color-border-strong)",
+                  background: isActive ? "var(--color-accent)" : "transparent",
+                  color: isActive ? "var(--color-accent-text)" : "var(--color-text-secondary)",
                 }}
               >
                 {s.label}
@@ -589,20 +566,11 @@ export function Agents() {
             </span>
             <button
               onClick={() => setCategory("all")}
-              className="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
+              className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
               style={{
-                borderColor:
-                  category === "all"
-                    ? "var(--color-text)"
-                    : "var(--color-border-strong)",
-                background:
-                  category === "all"
-                    ? "var(--color-surface-4)"
-                    : "transparent",
-                color:
-                  category === "all"
-                    ? "var(--color-text)"
-                    : "var(--color-text-secondary)",
+                borderColor: category === "all" ? "var(--color-text)" : "var(--color-border-strong)",
+                background: category === "all" ? "var(--color-surface-4)" : "transparent",
+                color: category === "all" ? "var(--color-text)" : "var(--color-text-secondary)",
               }}
             >
               All
@@ -613,17 +581,11 @@ export function Agents() {
                 <button
                   key={c}
                   onClick={() => setCategory(c)}
-                  className="rounded-full border px-2.5 py-0.5 text-[11px] transition-colors"
+                  className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
                   style={{
-                    borderColor: active
-                      ? "var(--color-text)"
-                      : "var(--color-border-strong)",
-                    background: active
-                      ? "var(--color-surface-4)"
-                      : "transparent",
-                    color: active
-                      ? "var(--color-text)"
-                      : "var(--color-text-secondary)",
+                    borderColor: active ? "var(--color-text)" : "var(--color-border-strong)",
+                    background: active ? "var(--color-surface-4)" : "transparent",
+                    color: active ? "var(--color-text)" : "var(--color-text-secondary)",
                   }}
                 >
                   {c}
@@ -634,10 +596,11 @@ export function Agents() {
         )}
       </div>
 
+      {/* Search bar — identical to Skills/Rules */}
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Buscar agents…"
+        placeholder="Search agents by name or description…"
         className="w-full rounded-md px-3 py-2 text-sm outline-none"
         style={{
           border: "1px solid var(--color-border-strong)",
@@ -646,6 +609,7 @@ export function Agents() {
         }}
       />
 
+      {/* Error banner */}
       {error && (
         <div
           className="rounded-md p-3 text-xs"
@@ -659,155 +623,246 @@ export function Agents() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto">
-        {loading ? (
-          <p
-            className="text-xs"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Loading…
-          </p>
-        ) : filtered.length === 0 ? (
-          <p
-            className="text-xs"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Sin agents para el filtro actual.
-          </p>
-        ) : (
-          <>
-            {/* Recent delegations strip — pinned at top, collapses to 3
-                cards by default. Mirrors Cursor 3 "Glass" agent cards:
-                avatar + agent + task + status badge. */}
-            {delegations.length > 0 && (
-              <section className="mb-3">
-                <div className="mb-1.5 flex items-center justify-between">
-                  <span
-                    className="text-[11px] uppercase tracking-wide"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    Recent runs ({delegations.length})
-                  </span>
-                  {delegations.length > 3 && (
+      {/* 2-pane: list + detail — same structure as Skills.tsx */}
+      <div className="flex flex-1 flex-col gap-3 overflow-hidden lg:flex-row">
+        <div
+          className={selected ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"}
+          style={{ minWidth: 0 }}
+        >
+          {loading ? (
+            <p className="text-xs" style={{ color: "var(--color-text-tertiary)" }}>
+              Loading…
+            </p>
+          ) : filtered.length === 0 ? (
+            <div
+              className="flex flex-col items-center justify-center gap-2 rounded-xl py-12 text-center"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border)",
+              }}
+            >
+              <p className="text-sm font-medium" style={{ color: "var(--color-text-secondary)" }}>
+                {enableFilter === "disabled"
+                  ? "No disabled agents matching the current filters."
+                  : enableFilter === "active"
+                    ? "No active agents matching the current filters."
+                    : "No agents found."}
+              </p>
+              {enableFilter !== "all" && (
+                <button
+                  onClick={() => setEnableFilter("all")}
+                  className="text-xs underline-offset-2 hover:underline"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  Show all
+                </button>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Recent delegations strip — pinned above the grid */}
+              {delegations.length > 0 && (
+                <section className="mb-4">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span
+                      className="text-[11px] uppercase tracking-wide"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      Recent runs ({delegations.length})
+                    </span>
+                    {delegations.length > 3 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowAllRuns((v) => !v)}
+                        className="text-[11px]"
+                        style={{ color: "var(--color-text-secondary)" }}
+                      >
+                        {showAllRuns ? "Show fewer" : `Show all ${delegations.length}`}
+                      </button>
+                    )}
+                  </div>
+                  <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                    {(showAllRuns ? delegations : delegations.slice(0, 3)).map((d) => {
+                      const chip = statusChip(d.status);
+                      return (
+                        <li
+                          key={d.id}
+                          className="flex gap-2 rounded-md p-2 text-xs"
+                          style={{
+                            border: "1px solid var(--color-border-strong)",
+                            background: "var(--color-surface-2)",
+                          }}
+                        >
+                          <img
+                            src={diceBearUrl(d.agent)}
+                            alt=""
+                            width={32}
+                            height={32}
+                            className="shrink-0 rounded"
+                            style={{ background: "var(--color-surface-3)" }}
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
+                            }}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span
+                                className="truncate font-medium"
+                                style={{ color: "var(--color-text)" }}
+                              >
+                                {d.agent}
+                              </span>
+                              <span
+                                className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium"
+                                style={{ background: chip.bg, color: chip.fg }}
+                              >
+                                {chip.label}
+                              </span>
+                              {d.used_cheap_model && (
+                                <span
+                                  className="shrink-0 rounded px-1 py-px text-[9px] uppercase"
+                                  style={{
+                                    background: "var(--color-surface-3)",
+                                    color: "var(--color-text-tertiary)",
+                                  }}
+                                  title="Spawned with Haiku 4.5 (cheap model)"
+                                >
+                                  Haiku
+                                </span>
+                              )}
+                            </div>
+                            <p
+                              className="mt-0.5 line-clamp-2 leading-snug"
+                              style={{ color: "var(--color-text-secondary)" }}
+                            >
+                              {d.task_preview}
+                            </p>
+                            <div
+                              className="mt-0.5 flex items-center gap-2 text-[10px]"
+                              style={{ color: "var(--color-text-tertiary)" }}
+                            >
+                              <span>{ageFromEpochField(d.started_at)}</span>
+                              {d.cwd && (
+                                <span
+                                  className="truncate"
+                                  style={{ fontFamily: "var(--font-mono)" }}
+                                  title={d.cwd}
+                                >
+                                  {d.cwd}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              )}
+
+              {/* Main content: Blocks / Tree / Grid */}
+              {view === "blocks" ? (
+                <BlocksView<AgentEntry>
+                  items={blockItems}
+                  noun="agent"
+                  emptyLabel="No agents for the current filter."
+                  topGroupAccent={(g) => {
+                    if (g === "Global") return AGENT_ACCENT;
+                    if (g === "Project") return "rgba(168, 136, 168, 0.40)";
+                    return "rgba(63, 185, 80, 0.32)";
+                  }}
+                  renderLeaves={(items) => renderCardGrid(items.map((it) => it.data))}
+                />
+              ) : view === "tree" ? (
+                <TreeView<AgentEntry>
+                  origins={treeOrigins}
+                  selectedKey={selected ? `${selected.origin}-${selected.path}` : null}
+                  onSelect={(leaf) => setSelected(leaf.data)}
+                  query={query}
+                />
+              ) : (
+                renderCardGrid(filtered)
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Detail pane — same 560px panel as Skills/Rules */}
+        {selected && (
+          <div className="overflow-hidden lg:w-[560px] lg:shrink-0" style={{ minWidth: 0 }}>
+            {(() => {
+              const ws = agentWorkspace(selected);
+              const subtitleParts: string[] = [selected.origin];
+              const cat = deriveCategory(selected);
+              if (cat !== NO_CATEGORY) subtitleParts.push(cat);
+              subtitleParts.push(selected.enabled ? "enabled" : "disabled");
+              return (
+                <div className="flex h-full flex-col gap-2">
+                  <LibraryDetailPane
+                    kind="agent"
+                    name={selected.name}
+                    subtitle={subtitleParts.join(" · ")}
+                    filePath={ws.file}
+                    folderPath={ws.folder}
+                    onSave={
+                      selected.origin === "global"
+                        ? async (body: string) => {
+                            await invoke("update_agent_md", { name: selected.name, content: body });
+                            await reload();
+                          }
+                        : undefined
+                    }
+                    onClose={() => setSelected(null)}
+                  />
+                  {/* Secondary toggle button below the detail pane — mirrors Skills.tsx */}
+                  {selected.origin === "global" && (
                     <button
                       type="button"
-                      onClick={() => setShowAllRuns((v) => !v)}
-                      className="text-[11px]"
-                      style={{ color: "var(--color-text-secondary)" }}
+                      onClick={() => void toggleAgent(selected)}
+                      disabled={toggleBusy.has(selected.path)}
+                      className="rounded-md border px-3 py-1.5 text-[11.5px] disabled:opacity-50"
+                      style={{
+                        borderColor: selected.enabled
+                          ? "var(--color-border-strong)"
+                          : "var(--color-accent)",
+                        background: selected.enabled
+                          ? "var(--color-surface-2)"
+                          : "var(--color-accent)",
+                        color: selected.enabled
+                          ? "var(--color-text)"
+                          : "var(--color-accent-text)",
+                      }}
                     >
-                      {showAllRuns ? "Show fewer" : `Show all ${delegations.length}`}
+                      {toggleBusy.has(selected.path)
+                        ? "Saving…"
+                        : selected.enabled
+                          ? "Disable agent"
+                          : "Enable agent"}
+                    </button>
+                  )}
+                  {/* Open in editor fallback for non-global agents */}
+                  {selected.origin !== "global" && (
+                    <button
+                      type="button"
+                      onClick={() => void handleOpen(selected.path)}
+                      className="rounded-md border px-3 py-1.5 text-[11.5px]"
+                      style={{
+                        borderColor: "var(--color-border-strong)",
+                        background: "var(--color-surface-2)",
+                        color: "var(--color-text)",
+                      }}
+                    >
+                      Open in editor
                     </button>
                   )}
                 </div>
-                <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                  {(showAllRuns ? delegations : delegations.slice(0, 3)).map((d) => {
-                    const chip = statusChip(d.status);
-                    return (
-                      <li
-                        key={d.id}
-                        className="flex gap-2 rounded-md p-2 text-xs"
-                        style={{
-                          border: "1px solid var(--color-border-strong)",
-                          background: "var(--color-surface-2)",
-                        }}
-                      >
-                        <img
-                          src={diceBearUrl(d.agent)}
-                          alt=""
-                          width={32}
-                          height={32}
-                          className="shrink-0 rounded"
-                          style={{ background: "var(--color-surface-3)" }}
-                          onError={(e) => {
-                            // KIRKARDO 1 HIGH — fall back gracefully when
-                            // offline / dicebear is slow. Hide the broken
-                            // image instead of showing a broken-tile icon.
-                            (e.currentTarget as HTMLImageElement).style.visibility = "hidden";
-                          }}
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span
-                              className="truncate font-medium"
-                              style={{ color: "var(--color-text)" }}
-                            >
-                              {d.agent}
-                            </span>
-                            <span
-                              className="shrink-0 rounded px-1.5 py-px text-[10px] font-medium"
-                              style={{ background: chip.bg, color: chip.fg }}
-                            >
-                              {chip.label}
-                            </span>
-                            {d.used_cheap_model && (
-                              <span
-                                className="shrink-0 rounded px-1 py-px text-[9px] uppercase"
-                                style={{
-                                  background: "var(--color-surface-3)",
-                                  color: "var(--color-text-tertiary)",
-                                }}
-                                title="Spawned with Haiku 4.5 (cheap model)"
-                              >
-                                Haiku
-                              </span>
-                            )}
-                          </div>
-                          <p
-                            className="mt-0.5 line-clamp-2 leading-snug"
-                            style={{ color: "var(--color-text-secondary)" }}
-                          >
-                            {d.task_preview}
-                          </p>
-                          <div
-                            className="mt-0.5 flex items-center gap-2 text-[10px]"
-                            style={{ color: "var(--color-text-tertiary)" }}
-                          >
-                            <span>{ageFromEpochField(d.started_at)}</span>
-                            {d.cwd && (
-                              <span
-                                className="truncate"
-                                style={{ fontFamily: "var(--font-mono)" }}
-                                title={d.cwd}
-                              >
-                                {d.cwd}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </section>
-            )}
-            {view === "blocks" ? (
-          <BlocksView<AgentEntry>
-            items={blockItems}
-            noun="agent"
-            emptyLabel="Sin agents para el filtro actual."
-            topGroupAccent={(g) => {
-              if (g === "Global") return "rgba(136, 136, 204, 0.40)";
-              if (g === "Project") return "rgba(168, 136, 168, 0.40)";
-              return "rgba(63, 185, 80, 0.32)";
-            }}
-            renderLeaves={(items) =>
-              renderCardGrid(items.map((it) => it.data))
-            }
-          />
-        ) : view === "tree" ? (
-          <TreeView<AgentEntry>
-            origins={treeOrigins}
-            selectedKey={null}
-            onSelect={(leaf) => void handleOpen(leaf.data.path)}
-            query={query}
-          />
-        ) : (
-          renderCardGrid(filtered)
-        )}
-          </>
+              );
+            })()}
+          </div>
         )}
       </div>
 
+      {/* Modals */}
       {searchOpen && (
         <SearchGitHubModal
           kind="agent"

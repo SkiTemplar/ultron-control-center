@@ -55,6 +55,7 @@ mod recall;
 mod rules;
 mod diagnostics_native;
 mod sessions;
+mod sessions_tags;
 mod settings;
 mod batches;
 mod skills;
@@ -297,6 +298,10 @@ pub fn run() {
             commands::sessions::list_claude_sessions,
             commands::sessions::list_workspaces,
             claude_sessions::project_sessions_list,
+            // -- session auto-tags (P1 2026-05-27) --
+            sessions_tags::sessions_tags_load,
+            sessions_tags::sessions_auto_tag,
+            sessions_tags::sessions_bulk_auto_tag,
             // -- session recall (per-project + global) --
             commands::recall::recall_last_session,
             commands::recall::recall_last_session_global,
@@ -394,6 +399,9 @@ pub fn run() {
             commands::plugins_info::list_all_plugins,
             commands::plugins_info::uninstall_plugin_cache,
             commands::plugins_info::check_plugin_updates,
+            // v2.9.5 — SHA-aware bulk update check + AI changelog summary
+            commands::plugins_info::plugin_check_updates_bulk,
+            commands::plugins_info::plugin_changelog_summary,
             // -- pty (embedded terminal, P3) --
             commands::pty::pty_spawn,
             commands::pty::pty_write,
@@ -417,6 +425,8 @@ pub fn run() {
             commands::library::library_list_pinned,
             // v2.6 (v27-f14): sibling-file listing for Skills/Agents detail.
             commands::library::list_skill_files,
+            // v2.9.5: AI-driven install (P1 Library>Catalog)
+            commands::library::library_install_via_ai,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
             commands::kanban::kanban_save,

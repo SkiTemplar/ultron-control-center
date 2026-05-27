@@ -5,7 +5,7 @@
 // (and any user override stored on disk) becomes the single source of truth
 // without having to recompile when prompts change.
 
-import { useEffect, useState } from "react";
+// No React runtime imports needed — useRoutingTitle is a pure function stub.
 import { invoke } from "@tauri-apps/api/core";
 
 export type ButtonPrompt = {
@@ -212,14 +212,16 @@ export async function resolveAndSpawn(
 }
 
 /**
- * Back-compat hook: returns `baseTitle` unchanged. Originally appended an AI
- * Router routing hint; the router has been removed so this is a no-op.
+ * Back-compat stub: returns `baseTitle` unchanged.
+ *
+ * Originally appended an AI Router routing hint to button titles; the router
+ * was removed in v2.9.2. All call sites (Plans, Notifications, MCPs) still
+ * import this so they compile without changes — the return value is identical
+ * to `baseTitle` in every case.
+ *
+ * Do NOT add React state or side-effects here. This must remain a pure
+ * synchronous function so callers don't need to change their render logic.
  */
 export function useRoutingTitle(_key: string, baseTitle = ""): string {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_state] = useState<string>("");
-  useEffect(() => {
-    /* no-op */
-  }, []);
   return baseTitle;
 }

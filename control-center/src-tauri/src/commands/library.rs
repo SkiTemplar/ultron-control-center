@@ -547,6 +547,26 @@ pub fn list_skill_files(entry_path: String) -> Result<Vec<SiblingFile>, String> 
     Ok(out)
 }
 
+// ---------------------------------------------------------------------------
+// AI-driven install (v2.9.5 — P1 Library>Catalog)
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Deserialize)]
+pub struct AiInstallArgs {
+    pub repo_url: String,
+    pub target_scope: library::TargetScope,
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+/// Analyse a GitHub repo with the AI Router and (optionally) execute the
+/// install. Returns an `AiInstallResult` that the UI previews before the
+/// user confirms execution (or falls back to clipboard if AI is unavailable).
+#[tauri::command]
+pub async fn library_install_via_ai(args: AiInstallArgs) -> Result<library::AiInstallResult, String> {
+    library::install_via_ai_inner(args.repo_url, args.target_scope, args.dry_run).await
+}
+
 #[cfg(test)]
 mod catalog_tests {
     use super::extract_summary;

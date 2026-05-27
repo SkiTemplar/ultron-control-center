@@ -1,0 +1,57 @@
+{
+  "id": "wd-1779841139809698-0",
+  "template_id": null,
+  "workflow_template": null,
+  "project_id": "ultron",
+  "project_cwd": "C:\\Users\\USER\\.ultron",
+  "title": "ultron - 2026-05-27",
+  "status": "paused",
+  "planned_date": "2026-05-27",
+  "start_ts": "epoch:1779841139",
+  "end_ts": null,
+  "focus_seconds": 0,
+  "break_seconds": 0,
+  "energy_before": null,
+  "energy_after": null,
+  "mood_note": null,
+  "retro_good": null,
+  "retro_bad": null,
+  "retro_learned": null,
+  "summary_md": null,
+  "goals": [],
+  "linked_sessions": [
+    "aac09e1f-fff0-454c-8dea-7ca9c19201cd",
+    "acb76b59-cedc-4db1-b05b-ea73e2194774",
+    "6c3fcd19-2b26-45b5-b889-6b02fbe67f2e"
+  ],
+  "linked_tasks": [],
+  "context": {
+    "notes": [
+      {
+        "id": "ctx-1779841139816505-1",
+        "kind": "session_start",
+        "text": "session linked: aac09e1f-fff0-454c-8dea-7ca9c19201cd",
+        "source": "auto-linker",
+        "created_at": "epoch:1779841139"
+      },
+      {
+        "id": "ctx-1779841139843681-5",
+        "kind": "session_start",
+        "text": "session linked: acb76b59-cedc-4db1-b05b-ea73e2194774",
+        "source": "auto-linker",
+        "created_at": "epoch:1779841139"
+      },
+      {
+        "id": "ctx-1779841333294446-0",
+        "kind": "session_start",
+        "text": "session linked: 6c3fcd19-2b26-45b5-b889-6b02fbe67f2e",
+        "source": "auto-linker",
+        "created_at": "epoch:1779841333"
+      }
+    ],
+    "decisions": [],
+    "file_changes": [],
+    "agent_messages": []
+  },
+  "created_at": "epoch:1779841139"
+}

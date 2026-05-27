@@ -8,6 +8,15 @@
 //
 // Data source: ai_router_metrics() Tauri command.
 // Uses a static placeholder when the command is unavailable.
+//
+// DEFENSIVE NOTE (2026-05-27 fix):
+//   The backend stores metrics keyed by provider_id (e.g. "claude-haiku"),
+//   not by ProviderClass ("trivial"/"light"/"medium"/"heavy"). The by_class
+//   map may therefore not contain the four class keys the table expects.
+//   Every access to by_class[cls] is now guarded with ?? EMPTY_CLASS_METRICS
+//   to prevent "Cannot read property 'count' of undefined" crashes.
+//   Additionally, when the file exists but all counters are zero we show an
+//   empty-state message instead of a useless all-zero table.
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -16,6 +25,8 @@ import type { ProviderClass, RouterMetrics as RouterMetricsType } from "./types"
 // ---------------------------------------------------------------------------
 // Placeholder data shown when the backend is not yet wired.
 // ---------------------------------------------------------------------------
+
+const EMPTY_CLASS_METRICS = { count: 0, tokens: 0, latency_p95_ms: 0 };
 
 const PLACEHOLDER_METRICS: RouterMetricsType = {
   tokens_saved_total: 0,
@@ -102,6 +113,38 @@ function StatCard({
 }
 
 // ---------------------------------------------------------------------------
+// Empty-state when no route() calls have been made yet.
+// ---------------------------------------------------------------------------
+
+function MetricsEmptyState() {
+  return (
+    <div
+      className="flex flex-col items-center justify-center gap-3 rounded-lg p-8"
+      style={{
+        background: "var(--color-surface-2)",
+        border: "1px solid var(--color-border)",
+        minHeight: 160,
+      }}
+    >
+      <span
+        className="text-[13px] font-medium"
+        style={{ color: "var(--color-text-secondary)" }}
+      >
+        No metrics yet
+      </span>
+      <span
+        className="text-center text-[12px] max-w-[340px]"
+        style={{ color: "var(--color-text-faint)" }}
+      >
+        Make a few AI Router calls to populate this dashboard. Use the
+        Zones tab to configure providers, then trigger a route via the
+        Test button or by running an agent workflow.
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // RouterMetrics
 // ---------------------------------------------------------------------------
 
@@ -109,16 +152,37 @@ export function RouterMetrics() {
   const [metrics, setMetrics] = useState<RouterMetricsType>(PLACEHOLDER_METRICS);
   const [loading, setLoading] = useState(true);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [backendError, setBackendError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setBackendError(null);
     try {
-      const result = (await invoke("ai_router_metrics")) as RouterMetricsType;
-      setMetrics(result);
+      const raw = (await invoke("ai_router_metrics")) as unknown;
+
+      // Defensive normalisation: the backend may return by_class keyed by
+      // provider_id instead of ProviderClass. We merge whatever arrives into
+      // our four expected class keys, defaulting missing ones to zero.
+      const result = raw as RouterMetricsType;
+      const normalised: RouterMetricsType = {
+        tokens_saved_total: result?.tokens_saved_total ?? 0,
+        cost_saved_usd: result?.cost_saved_usd ?? 0,
+        fallback_rate: result?.fallback_rate ?? 0,
+        by_class: {
+          trivial: result?.by_class?.["trivial"] ?? EMPTY_CLASS_METRICS,
+          light: result?.by_class?.["light"] ?? EMPTY_CLASS_METRICS,
+          medium: result?.by_class?.["medium"] ?? EMPTY_CLASS_METRICS,
+          heavy: result?.by_class?.["heavy"] ?? EMPTY_CLASS_METRICS,
+        },
+      };
+      setMetrics(normalised);
       setLastRefreshed(new Date());
-    } catch {
-      // Backend not yet wired — keep placeholder but mark loaded.
+    } catch (err) {
+      // Backend not yet wired — keep placeholder but surface the reason.
       setMetrics(PLACEHOLDER_METRICS);
+      setBackendError(
+        err instanceof Error ? err.message : String(err)
+      );
     } finally {
       setLoading(false);
     }
@@ -128,20 +192,50 @@ export function RouterMetrics() {
     void load();
   }, [load]);
 
+  // Guard every by_class access — never assume the key exists.
+  const getClass = (cls: ProviderClass) =>
+    metrics.by_class?.[cls] ?? EMPTY_CLASS_METRICS;
+
   const totalCalls = CLASS_ORDER.reduce(
-    (sum, cls) => sum + metrics.by_class[cls].count,
+    (sum, cls) => sum + (getClass(cls).count),
     0,
   );
 
   const totalTokens = CLASS_ORDER.reduce(
-    (sum, cls) => sum + metrics.by_class[cls].tokens,
+    (sum, cls) => sum + (getClass(cls).tokens),
     0,
   );
+
+  // Show an empty state when the file exists but nothing has been recorded
+  // yet. "No metrics" = all counters at zero and no backend error.
+  const isEmpty =
+    !loading &&
+    backendError === null &&
+    totalCalls === 0 &&
+    metrics.tokens_saved_total === 0 &&
+    metrics.fallback_rate === 0;
 
   return (
     <div className="p-6 space-y-6">
       {/* ------------------------------------------------------------------ */}
-      {/* Top-line stats                                                      */}
+      {/* Backend-error banner (only when the command itself failed)          */}
+      {/* ------------------------------------------------------------------ */}
+      {backendError !== null && (
+        <div
+          className="rounded p-3 text-[12px]"
+          style={{
+            background: "var(--color-danger-bg, #3a1a1a)",
+            color: "var(--color-danger)",
+            border: "1px solid var(--color-danger)",
+          }}
+        >
+          <span className="font-semibold">Metrics command failed: </span>
+          {backendError}
+        </div>
+      )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Top-line stats — shown even when empty so layout does not jump      */}
       {/* ------------------------------------------------------------------ */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
         <StatCard
@@ -163,10 +257,10 @@ export function RouterMetrics() {
         />
         <StatCard
           label="Fallback rate"
-          value={`${(metrics.fallback_rate * 100).toFixed(1)}%`}
+          value={`${((metrics.fallback_rate ?? 0) * 100).toFixed(1)}%`}
           sub="calls that hit a fallback"
           color={
-            metrics.fallback_rate > 0.15
+            (metrics.fallback_rate ?? 0) > 0.15
               ? "var(--color-danger)"
               : "var(--color-text)"
           }
@@ -174,128 +268,132 @@ export function RouterMetrics() {
       </div>
 
       {/* ------------------------------------------------------------------ */}
-      {/* Class breakdown                                                     */}
+      {/* Class breakdown OR empty state                                      */}
       {/* ------------------------------------------------------------------ */}
-      <div>
-        <h2
-          className="mb-3 text-[13px] font-semibold"
-          style={{ color: "var(--color-text-secondary)" }}
-        >
-          Distribution by task class
-        </h2>
-        <div
-          className="overflow-hidden rounded-lg"
-          style={{
-            border: "1px solid var(--color-border)",
-            background: "var(--color-surface-2)",
-          }}
-        >
-          <table className="w-full table-auto text-left">
-            <thead>
-              <tr
-                style={{
-                  borderBottom: "1px solid var(--color-border)",
-                  background: "var(--color-surface-1)",
-                }}
-              >
-                {["Class", "Invocations", "Tokens", "p95 Latency", "Share"].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {CLASS_ORDER.map((cls) => {
-                const cm = metrics.by_class[cls];
-                const share =
-                  totalCalls > 0 ? (cm.count / totalCalls) * 100 : 0;
-                const color = CLASS_COLORS[cls];
-
-                return (
-                  <tr
-                    key={cls}
-                    style={{ borderBottom: "1px solid var(--color-border)" }}
-                  >
-                    {/* Class badge */}
-                    <td className="px-4 py-3">
-                      <span
-                        className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
-                        style={{
-                          background: `${color}22`,
-                          color,
-                          border: `1px solid ${color}44`,
-                        }}
+      {isEmpty ? (
+        <MetricsEmptyState />
+      ) : (
+        <div>
+          <h2
+            className="mb-3 text-[13px] font-semibold"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            Distribution by task class
+          </h2>
+          <div
+            className="overflow-hidden rounded-lg"
+            style={{
+              border: "1px solid var(--color-border)",
+              background: "var(--color-surface-2)",
+            }}
+          >
+            <table className="w-full table-auto text-left">
+              <thead>
+                <tr
+                  style={{
+                    borderBottom: "1px solid var(--color-border)",
+                    background: "var(--color-surface-1)",
+                  }}
+                >
+                  {["Class", "Invocations", "Tokens", "p95 Latency", "Share"].map(
+                    (h) => (
+                      <th
+                        key={h}
+                        className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide"
+                        style={{ color: "var(--color-text-tertiary)" }}
                       >
-                        {cls}
-                      </span>
-                    </td>
+                        {h}
+                      </th>
+                    ),
+                  )}
+                </tr>
+              </thead>
+              <tbody>
+                {CLASS_ORDER.map((cls) => {
+                  const cm = getClass(cls);
+                  const share =
+                    totalCalls > 0 ? (cm.count / totalCalls) * 100 : 0;
+                  const color = CLASS_COLORS[cls];
 
-                    {/* Count */}
-                    <td
-                      className="px-4 py-3 text-[12px] tabular-nums"
-                      style={{ color: "var(--color-text)" }}
+                  return (
+                    <tr
+                      key={cls}
+                      style={{ borderBottom: "1px solid var(--color-border)" }}
                     >
-                      {formatNum(cm.count)}
-                    </td>
-
-                    {/* Tokens */}
-                    <td
-                      className="px-4 py-3 text-[12px] tabular-nums"
-                      style={{ color: "var(--color-text-secondary)" }}
-                    >
-                      {formatNum(cm.tokens)}
-                    </td>
-
-                    {/* p95 latency */}
-                    <td
-                      className="px-4 py-3 text-[12px] tabular-nums"
-                      style={{ color: "var(--color-text-secondary)" }}
-                    >
-                      {cm.latency_p95_ms > 0
-                        ? `${cm.latency_p95_ms.toLocaleString()} ms`
-                        : "—"}
-                    </td>
-
-                    {/* Share bar */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="h-1.5 rounded-full overflow-hidden"
+                      {/* Class badge */}
+                      <td className="px-4 py-3">
+                        <span
+                          className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
                           style={{
-                            width: 80,
-                            background: "var(--color-surface-1)",
+                            background: `${color}22`,
+                            color,
+                            border: `1px solid ${color}44`,
                           }}
                         >
-                          <div
-                            className="h-full rounded-full transition-all"
-                            style={{
-                              width: `${Math.min(share, 100)}%`,
-                              background: color,
-                            }}
-                          />
-                        </div>
-                        <span
-                          className="text-[11px] tabular-nums"
-                          style={{ color: "var(--color-text-faint)" }}
-                        >
-                          {share.toFixed(1)}%
+                          {cls}
                         </span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      </td>
+
+                      {/* Count */}
+                      <td
+                        className="px-4 py-3 text-[12px] tabular-nums"
+                        style={{ color: "var(--color-text)" }}
+                      >
+                        {formatNum(cm.count)}
+                      </td>
+
+                      {/* Tokens */}
+                      <td
+                        className="px-4 py-3 text-[12px] tabular-nums"
+                        style={{ color: "var(--color-text-secondary)" }}
+                      >
+                        {formatNum(cm.tokens)}
+                      </td>
+
+                      {/* p95 latency */}
+                      <td
+                        className="px-4 py-3 text-[12px] tabular-nums"
+                        style={{ color: "var(--color-text-secondary)" }}
+                      >
+                        {cm.latency_p95_ms > 0
+                          ? `${cm.latency_p95_ms.toLocaleString()} ms`
+                          : "—"}
+                      </td>
+
+                      {/* Share bar */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          <div
+                            className="h-1.5 rounded-full overflow-hidden"
+                            style={{
+                              width: 80,
+                              background: "var(--color-surface-1)",
+                            }}
+                          >
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${Math.min(share, 100)}%`,
+                                background: color,
+                              }}
+                            />
+                          </div>
+                          <span
+                            className="text-[11px] tabular-nums"
+                            style={{ color: "var(--color-text-faint)" }}
+                          >
+                            {share.toFixed(1)}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* ------------------------------------------------------------------ */}
       {/* Footer                                                              */}

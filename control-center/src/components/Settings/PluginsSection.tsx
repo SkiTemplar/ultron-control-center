@@ -1,31 +1,31 @@
-// Plugins panel (rewrite 2026-05-23).
+// Plugins panel — v2.9.5 SHA-aware update system.
 //
-// Lists every plugin under ~/.claude/plugins/cache/<marketplace>/<plugin>/
-// (not just ECC). Per row: name, version, marketplace, install state, the
-// per-component counts (skills/agents/hooks/mcp), an update button that
-// copies `/plugin install <coord>` to the clipboard so the user can paste
-// it into Claude Code, and an uninstall button that wipes the cache dir
-// after confirmation.
+// Previous versions (v2.6 fb-022) detected updates by comparing the
+// marketplace repo's `pushedAt` timestamp against the local cache mtime,
+// which fired false positives whenever any file in the marketplace changed
+// (even unrelated plugins).
 //
-// Backend: list_all_plugins + uninstall_plugin_cache (plugins_info.rs).
-//
-// v2.6 fb-022:
-//   - 3-column grid (was 2): the cards are wide enough that 3 fit cleanly.
-//   - Action buttons are width-fit so they don't stretch across the card.
-//   - New toolbar button "Search for updates" → check_plugin_updates calls
-//     `gh repo view --json pushedAt` for each marketplace and we badge any
-//     plugin whose remote push timestamp is newer than the local cache.
-//   - Live "Update available" badges on the card header. Clicking the Update
-//     button still copies `/plugin install <coord>` to the clipboard so the
-//     user can paste into Claude Code.
+// v2.9.5 improvements:
+//   - Calls `plugin_check_updates_bulk` which compares the `gitCommitSha`
+//     from `installed_plugins.json` against the HEAD commit of the plugin's
+//     specific sub-path in the upstream repo. Plugins without a stored SHA
+//     fall back to ISO timestamp comparison.
+//   - Results are cached 1 h on disk so the panel doesn't hammer the
+//     GitHub API on every open.
+//   - Each card has an expandable "Changelog" section that streams an AI
+//     summary (via `plugin_changelog_summary`) from Haiku / Gemini Flash.
+//   - "Update all" button in the header copies all outstanding update
+//     commands to the clipboard as a newline-separated list.
+//   - "Check updates" button in the header accepts a `force` flag to bypass
+//     the cache.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { confirmDialog } from "../../lib/dialog";
 
-type Props = {
-  onNavigate?: (tab: string) => void;
-};
+// ---------------------------------------------------------------------------
+// Types (mirror Rust structs)
+// ---------------------------------------------------------------------------
 
 type PluginEntry = {
   name: string;
@@ -41,19 +41,132 @@ type PluginEntry = {
   mcp_servers_count: number;
 };
 
-type PluginUpdateStatus = {
+/** Rich update record from `plugin_check_updates_bulk`. */
+type PluginBulkUpdate = {
+  coordinate: string;
   name: string;
   marketplace: string;
-  coordinate: string;
-  local_iso: string | null;
-  remote_pushed_iso: string | null;
+  installed_sha: string | null;
+  latest_sha: string | null;
   update_available: boolean;
+  latest_commit_msg: string;
+  latest_commit_date: string;
+  last_check: string;
   error: string | null;
 };
 
-// v2.6 (fb-016): "Browse marketplaces" section removed at the user's
-// request — the list of curated marketplaces wasn't going to be used and
-// just added vertical noise below the installed plugins grid.
+type Props = {
+  onNavigate?: (tab: string) => void;
+};
+
+// ---------------------------------------------------------------------------
+// Helper: short SHA display
+// ---------------------------------------------------------------------------
+
+function shortSha(sha: string | null | undefined): string {
+  if (!sha) return "";
+  return sha.slice(0, 8);
+}
+
+// ---------------------------------------------------------------------------
+// ChangelogPanel — lazy-loaded per-plugin changelog summary
+// ---------------------------------------------------------------------------
+
+type ChangelogPanelProps = {
+  coordinate: string;
+  installedSha: string | null;
+};
+
+function ChangelogPanel({ coordinate, installedSha }: ChangelogPanelProps) {
+  const [summary, setSummary] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // Abort ref: if the user closes and reopens quickly we cancel the in-flight
+  // invoke by ignoring stale responses.
+  const activeCoord = useRef<string>(coordinate);
+
+  useEffect(() => {
+    activeCoord.current = coordinate;
+    setLoading(true);
+    setSummary(null);
+    setErr(null);
+
+    invoke<string>("plugin_changelog_summary", {
+      coordinate,
+      installedSha,
+    })
+      .then((text) => {
+        if (activeCoord.current !== coordinate) return;
+        setSummary(text);
+      })
+      .catch((e) => {
+        if (activeCoord.current !== coordinate) return;
+        setErr(String(e));
+      })
+      .finally(() => {
+        if (activeCoord.current === coordinate) setLoading(false);
+      });
+  }, [coordinate, installedSha]);
+
+  if (loading) {
+    return (
+      <div
+        className="mt-2 rounded p-2 text-[11px]"
+        style={{
+          background: "var(--color-surface-1)",
+          border: "1px solid var(--color-border)",
+          color: "var(--color-text-tertiary)",
+        }}
+      >
+        <span
+          aria-hidden
+          className="mr-1.5 inline-block h-2.5 w-2.5 animate-spin rounded-full align-middle"
+          style={{
+            border: "1.5px solid var(--color-border-strong)",
+            borderTopColor: "var(--color-accent)",
+          }}
+        />
+        Loading changelog…
+      </div>
+    );
+  }
+
+  if (err) {
+    return (
+      <div
+        className="mt-2 rounded p-2 text-[11px]"
+        style={{
+          background: "rgba(248, 81, 73, 0.06)",
+          border: "1px solid rgba(248, 81, 73, 0.22)",
+          color: "var(--color-danger)",
+        }}
+      >
+        {err}
+      </div>
+    );
+  }
+
+  if (!summary) return null;
+
+  return (
+    <div
+      className="mt-2 rounded p-2 text-[11px] leading-relaxed"
+      style={{
+        background: "var(--color-surface-1)",
+        border: "1px solid var(--color-border)",
+        color: "var(--color-text-secondary)",
+        whiteSpace: "pre-wrap",
+        fontFamily: "var(--font-mono)",
+      }}
+    >
+      {summary}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 export function PluginsSection({ onNavigate }: Props) {
   const [plugins, setPlugins] = useState<PluginEntry[] | null>(null);
@@ -61,10 +174,18 @@ export function PluginsSection({ onNavigate }: Props) {
   const [busy, setBusy] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
-  // v2.6 fb-022 — per-coordinate update status (keyed by `<plugin>@<market>`).
-  const [updates, setUpdates] = useState<Record<string, PluginUpdateStatus>>({});
+
+  // SHA-aware update state (v2.9.5)
+  const [updates, setUpdates] = useState<Record<string, PluginBulkUpdate>>({});
   const [checking, setChecking] = useState(false);
   const [checkSummary, setCheckSummary] = useState<string | null>(null);
+  const [checkErr, setCheckErr] = useState<string | null>(null);
+
+  // Per-card expanded changelog panels
+  const [expandedChangelog, setExpandedChangelog] = useState<string | null>(null);
+
+  // "Update all" state
+  const [copiedAll, setCopiedAll] = useState(false);
 
   const load = useCallback(() => {
     setErr(null);
@@ -76,6 +197,20 @@ export function PluginsSection({ onNavigate }: Props) {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Auto-check on mount using cached results (force=false) — silent, no
+  // spinner so the panel doesn't feel heavy on every open.
+  useEffect(() => {
+    invoke<PluginBulkUpdate[]>("plugin_check_updates_bulk", { force: false })
+      .then((rows) => {
+        const next: Record<string, PluginBulkUpdate> = {};
+        for (const r of rows) next[r.coordinate] = r;
+        setUpdates(next);
+      })
+      .catch(() => {
+        // Silent auto-check failure — user can retry manually.
+      });
+  }, []);
 
   async function copy(text: string, key: string) {
     try {
@@ -116,30 +251,52 @@ export function PluginsSection({ onNavigate }: Props) {
     }
   }
 
+  /** Force-refresh from GitHub, bypassing the 1-hour cache. */
   async function checkForUpdates() {
     setChecking(true);
     setCheckSummary(null);
-    setErr(null);
+    setCheckErr(null);
     try {
-      const rows = await invoke<PluginUpdateStatus[]>("check_plugin_updates");
-      const next: Record<string, PluginUpdateStatus> = {};
-      for (const r of rows) {
-        next[r.coordinate] = r;
-      }
+      const rows = await invoke<PluginBulkUpdate[]>("plugin_check_updates_bulk", {
+        force: true,
+      });
+      const next: Record<string, PluginBulkUpdate> = {};
+      for (const r of rows) next[r.coordinate] = r;
       setUpdates(next);
-      const availableCount = rows.filter((r) => r.update_available).length;
-      const errorCount = rows.filter((r) => r.error).length;
+
+      const available = rows.filter((r) => r.update_available).length;
+      const errors = rows.filter((r) => r.error && !r.update_available).length;
       setCheckSummary(
-        `${availableCount} update${availableCount === 1 ? "" : "s"} available` +
-          (errorCount > 0 ? ` · ${errorCount} could not be checked` : ""),
+        `${available} update${available === 1 ? "" : "s"} available` +
+          (errors > 0 ? ` · ${errors} could not be checked` : ""),
       );
-      window.setTimeout(() => setCheckSummary(null), 6000);
+      window.setTimeout(() => setCheckSummary(null), 8000);
     } catch (e) {
-      setErr(String(e));
+      setCheckErr(String(e));
     } finally {
       setChecking(false);
     }
   }
+
+  /** Copy `/plugin install <coord>` for every plugin with an update. */
+  async function updateAll() {
+    const cmds = (plugins ?? [])
+      .filter((p) => updates[p.coordinate]?.update_available)
+      .map((p) => `/plugin install ${p.coordinate}`)
+      .join("\n");
+    if (!cmds) return;
+    try {
+      await navigator.clipboard.writeText(cmds);
+      setCopiedAll(true);
+      window.setTimeout(() => setCopiedAll(false), 2000);
+    } catch (e) {
+      setErr(`Clipboard copy failed: ${String(e)}`);
+    }
+  }
+
+  const updatesAvailableCount = (plugins ?? []).filter(
+    (p) => updates[p.coordinate]?.update_available,
+  ).length;
 
   if (err) {
     return (
@@ -152,9 +309,17 @@ export function PluginsSection({ onNavigate }: Props) {
         }}
       >
         {err}
+        <button
+          type="button"
+          className="ml-3 underline"
+          onClick={() => { setErr(null); load(); }}
+        >
+          Retry
+        </button>
       </div>
     );
   }
+
   if (!plugins) {
     return (
       <div className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
@@ -165,11 +330,32 @@ export function PluginsSection({ onNavigate }: Props) {
 
   return (
     <div className="space-y-6">
-      {/* Installed plugins list */}
       <section>
-        <div className="mb-2 flex items-baseline justify-between gap-2">
+        {/* ---- Header row ---- */}
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
           <h2 className="text-[14px] font-semibold">Installed plugins</h2>
-          <div className="flex items-center gap-2">
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Update all */}
+            {updatesAvailableCount > 0 && (
+              <button
+                type="button"
+                onClick={updateAll}
+                className="inline-flex items-center gap-1.5 rounded px-2.5 py-0.5 text-[11.5px] transition-colors"
+                style={{
+                  background: "rgba(56, 139, 253, 0.14)",
+                  color: "#79b8ff",
+                  border: "1px solid rgba(56, 139, 253, 0.40)",
+                }}
+                title={`Copy /plugin install commands for all ${updatesAvailableCount} available updates`}
+              >
+                {copiedAll
+                  ? "Copied!"
+                  : `Update all (${updatesAvailableCount})`}
+              </button>
+            )}
+
+            {/* Check updates */}
             <button
               type="button"
               onClick={checkForUpdates}
@@ -180,7 +366,7 @@ export function PluginsSection({ onNavigate }: Props) {
                 color: "var(--color-text)",
                 border: "1px solid var(--color-border-strong)",
               }}
-              title="Ask GitHub (via gh) whether any plugin marketplace has been pushed since the local cache was written."
+              title="Compare installed SHAs against upstream commits via gh API. Results cached 1 h."
             >
               {checking && (
                 <span
@@ -192,8 +378,9 @@ export function PluginsSection({ onNavigate }: Props) {
                   }}
                 />
               )}
-              {checking ? "Checking…" : "Search for updates"}
+              {checking ? "Checking…" : "Check updates"}
             </button>
+
             <button
               type="button"
               onClick={load}
@@ -204,6 +391,8 @@ export function PluginsSection({ onNavigate }: Props) {
             </button>
           </div>
         </div>
+
+        {/* Description */}
         <p
           className="mb-3 text-[11.5px] leading-relaxed"
           style={{ color: "var(--color-text-tertiary)" }}
@@ -212,14 +401,15 @@ export function PluginsSection({ onNavigate }: Props) {
           <span style={{ fontFamily: "var(--font-mono)" }}>
             ~/.claude/plugins/cache/&lt;marketplace&gt;/&lt;plugin&gt;/&lt;version&gt;/
           </span>
-          . Counts reflect the most recently installed version on disk; the
-          "active" badge means the plugin is also referenced in{" "}
-          <span style={{ fontFamily: "var(--font-mono)" }}>
-            installed_plugins.json
-          </span>
-          .
+          . Update detection uses the{" "}
+          <span style={{ fontFamily: "var(--font-mono)" }}>gitCommitSha</span>{" "}
+          from{" "}
+          <span style={{ fontFamily: "var(--font-mono)" }}>installed_plugins.json</span>
+          {" "}compared against the upstream commit at the plugin's path. Results
+          are cached 1 h.
         </p>
 
+        {/* Banners */}
         {checkSummary && (
           <div
             className="mb-3 rounded p-2 text-[11.5px]"
@@ -230,6 +420,19 @@ export function PluginsSection({ onNavigate }: Props) {
             }}
           >
             {checkSummary}
+          </div>
+        )}
+
+        {checkErr && (
+          <div
+            className="mb-3 rounded p-2 text-[11.5px]"
+            style={{
+              background: "rgba(248, 81, 73, 0.06)",
+              border: "1px solid rgba(248, 81, 73, 0.22)",
+              color: "var(--color-danger)",
+            }}
+          >
+            Update check failed: {checkErr}
           </div>
         )}
 
@@ -246,6 +449,7 @@ export function PluginsSection({ onNavigate }: Props) {
           </div>
         )}
 
+        {/* Empty state */}
         {plugins.length === 0 ? (
           <div
             className="rounded p-4 text-[12.5px]"
@@ -255,13 +459,13 @@ export function PluginsSection({ onNavigate }: Props) {
               color: "var(--color-text-tertiary)",
             }}
           >
-            No plugins found in the cache. Install one from a marketplace
-            below via Claude Code.
+            No plugins found in the cache. Install one via{" "}
+            <span style={{ fontFamily: "var(--font-mono)" }}>/plugin install</span>{" "}
+            inside Claude Code.
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-3">
             {plugins.map((p) => {
-              // Hooks live inside System; skills+agents live under Library.
               const counts: { label: string; n: number; tab: string }[] = [
                 { label: "skills", n: p.skills_count, tab: "library" },
                 { label: "agents", n: p.agents_count, tab: "library" },
@@ -270,16 +474,21 @@ export function PluginsSection({ onNavigate }: Props) {
               ];
               const installCmd = `/plugin install ${p.coordinate}`;
               const update = updates[p.coordinate];
+              const hasUpdate = update?.update_available === true;
+              const isExpanded = expandedChangelog === p.coordinate;
+
               return (
                 <div
                   key={p.coordinate}
                   className="flex flex-col gap-2 rounded p-3"
                   style={{
                     background: "var(--color-surface-2)",
-                    border: "1px solid var(--color-border)",
+                    border: hasUpdate
+                      ? "1px solid rgba(56, 139, 253, 0.40)"
+                      : "1px solid var(--color-border)",
                   }}
                 >
-                  {/* Header row */}
+                  {/* ---- Card header ---- */}
                   <div className="flex flex-wrap items-baseline gap-1.5">
                     <span
                       className="text-[13px] font-semibold"
@@ -287,6 +496,7 @@ export function PluginsSection({ onNavigate }: Props) {
                     >
                       {p.name}
                     </span>
+
                     <span
                       className="rounded px-1.5 py-px text-[10px]"
                       style={{
@@ -297,12 +507,15 @@ export function PluginsSection({ onNavigate }: Props) {
                     >
                       v{p.version}
                     </span>
+
                     <span
                       className="text-[10.5px]"
                       style={{ color: "var(--color-text-tertiary)" }}
                     >
                       @{p.marketplace}
                     </span>
+
+                    {/* Active / cached badge */}
                     {p.installed ? (
                       <span
                         className="rounded px-1.5 py-px text-[9.5px] uppercase tracking-wide"
@@ -326,23 +539,49 @@ export function PluginsSection({ onNavigate }: Props) {
                         cached
                       </span>
                     )}
-                    {update?.update_available && (
+
+                    {/* Update available badge — red/blue pill */}
+                    {hasUpdate && (
                       <span
-                        className="rounded px-1.5 py-px text-[9.5px] uppercase tracking-wide"
+                        className="rounded px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide"
                         style={{
-                          background: "rgba(56, 139, 253, 0.14)",
-                          color: "#79b8ff",
-                          border: "1px solid rgba(56, 139, 253, 0.40)",
+                          background: "rgba(248, 81, 73, 0.12)",
+                          color: "#ff7b72",
+                          border: "1px solid rgba(248, 81, 73, 0.40)",
                         }}
                         title={
-                          update.remote_pushed_iso
-                            ? `Remote push: ${update.remote_pushed_iso}`
+                          update.latest_sha
+                            ? `Installed: ${shortSha(update.installed_sha)} · Remote: ${shortSha(update.latest_sha)}`
                             : "Update available"
                         }
                       >
                         Update available
                       </span>
                     )}
+
+                    {/* Stale/old warning (no confirmed update, just age) */}
+                    {!hasUpdate && p.last_update_iso && (() => {
+                      const ageDays =
+                        (Date.now() - new Date(p.last_update_iso).getTime()) /
+                        86_400_000;
+                      if (ageDays < 30) return null;
+                      return (
+                        <span
+                          key="age"
+                          className="rounded px-1.5 py-px text-[9.5px] uppercase tracking-wide"
+                          style={{
+                            background: "rgba(210, 153, 34, 0.12)",
+                            color: "var(--color-warn)",
+                            border: "1px solid rgba(210, 153, 34, 0.30)",
+                          }}
+                          title={`Cached ${Math.round(ageDays)} days ago`}
+                        >
+                          {ageDays > 90 ? "stale" : "old"}
+                        </span>
+                      );
+                    })()}
+
+                    {/* Date */}
                     {p.last_update_iso && (
                       <span
                         className="text-[10px]"
@@ -351,32 +590,59 @@ export function PluginsSection({ onNavigate }: Props) {
                         {p.last_update_iso.slice(0, 10)}
                       </span>
                     )}
-                    {(() => {
-                      if (!p.last_update_iso) return null;
-                      const updated = new Date(p.last_update_iso).getTime();
-                      if (Number.isNaN(updated)) return null;
-                      const ageDays = (Date.now() - updated) / (1000 * 60 * 60 * 24);
-                      if (ageDays < 30) return null;
-                      return (
-                        <span
-                          className="rounded px-1.5 py-px text-[9.5px] uppercase tracking-wide"
-                          style={{
-                            background: "rgba(210, 153, 34, 0.12)",
-                            color: "var(--color-warn)",
-                            border: "1px solid rgba(210, 153, 34, 0.30)",
-                          }}
-                          title={`Cached for ${Math.round(ageDays)} days`}
-                        >
-                          {ageDays > 90 ? "stale" : "old"}
-                        </span>
-                      );
-                    })()}
                   </div>
+
+                  {/* SHA diff row — visible only after a check */}
+                  {update && (update.installed_sha || update.latest_sha) && (
+                    <div
+                      className="text-[10px]"
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        color: "var(--color-text-faint)",
+                      }}
+                    >
+                      {update.installed_sha && (
+                        <span title="Installed commit SHA">
+                          local {shortSha(update.installed_sha)}
+                        </span>
+                      )}
+                      {update.installed_sha && update.latest_sha && (
+                        <span className="mx-1">→</span>
+                      )}
+                      {update.latest_sha && (
+                        <span
+                          title={
+                            update.latest_commit_msg
+                              ? `Latest: ${update.latest_commit_msg}`
+                              : "Latest remote commit SHA"
+                          }
+                          style={{
+                            color: hasUpdate ? "#79b8ff" : "var(--color-text-faint)",
+                          }}
+                        >
+                          remote {shortSha(update.latest_sha)}
+                        </span>
+                      )}
+                      {update.latest_commit_msg && (
+                        <span
+                          className="ml-2 truncate"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                          title={update.latest_commit_msg}
+                        >
+                          — {update.latest_commit_msg.slice(0, 48)}
+                          {update.latest_commit_msg.length > 48 ? "…" : ""}
+                        </span>
+                      )}
+                    </div>
+                  )}
 
                   {/* Path */}
                   <div
                     className="truncate text-[10px]"
-                    style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      color: "var(--color-text-faint)",
+                    }}
                     title={p.root}
                   >
                     {p.root}
@@ -392,7 +658,10 @@ export function PluginsSection({ onNavigate }: Props) {
                         className="rounded px-2 py-0.5 text-[10.5px] transition-colors"
                         style={{
                           background: "var(--color-surface-1)",
-                          color: c.n > 0 ? "var(--color-text)" : "var(--color-text-faint)",
+                          color:
+                            c.n > 0
+                              ? "var(--color-text)"
+                              : "var(--color-text-faint)",
                           border: "1px solid var(--color-border)",
                           cursor: onNavigate ? "pointer" : "default",
                           fontFamily: "var(--font-mono)",
@@ -404,41 +673,70 @@ export function PluginsSection({ onNavigate }: Props) {
                     ))}
                   </div>
 
-                  {/* Action buttons — width-fit so they don't stretch across
-                      the (wide) card. Per fb-022 the buttons hugged the full
-                      card width and looked oversized; w-fit keeps them
-                      proportional and aligned to the left. */}
+                  {/* Changelog panel (lazy) */}
+                  {isExpanded && (
+                    <ChangelogPanel
+                      coordinate={p.coordinate}
+                      installedSha={update?.installed_sha ?? null}
+                    />
+                  )}
+
+                  {/* Action buttons */}
                   <div className="mt-auto flex flex-wrap items-center gap-2">
+                    {/* Update / reinstall */}
                     <button
                       type="button"
                       onClick={() => copy(installCmd, `update:${p.coordinate}`)}
-                      className="w-fit max-w-[120px] rounded px-2.5 py-1 text-[11.5px] transition-colors"
+                      className="w-fit rounded px-2.5 py-1 text-[11.5px] transition-colors"
                       style={{
-                        background: update?.update_available
-                          ? "rgba(56, 139, 253, 0.14)"
+                        background: hasUpdate
+                          ? "rgba(248, 81, 73, 0.12)"
                           : "var(--color-surface-1)",
-                        color: update?.update_available ? "#79b8ff" : "var(--color-text)",
-                        border: update?.update_available
-                          ? "1px solid rgba(56, 139, 253, 0.40)"
+                        color: hasUpdate ? "#ff7b72" : "var(--color-text)",
+                        border: hasUpdate
+                          ? "1px solid rgba(248, 81, 73, 0.40)"
                           : "1px solid var(--color-border-strong)",
                       }}
                       title={
-                        update?.update_available
-                          ? "Copy /plugin install command — remote is newer than your cache."
-                          : "Copy /plugin install command"
+                        hasUpdate
+                          ? `Copy /plugin install ${p.coordinate} — update available`
+                          : `Copy /plugin install ${p.coordinate}`
                       }
                     >
                       {copied === `update:${p.coordinate}`
-                        ? "Copied"
-                        : update?.update_available
+                        ? "Copied!"
+                        : hasUpdate
                           ? "Update"
-                          : "Update / reinstall"}
+                          : "Reinstall"}
                     </button>
+
+                    {/* Changelog toggle */}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setExpandedChangelog((prev) =>
+                          prev === p.coordinate ? null : p.coordinate,
+                        )
+                      }
+                      className="w-fit rounded px-2.5 py-1 text-[11.5px] transition-colors"
+                      style={{
+                        background: isExpanded
+                          ? "var(--color-surface-3)"
+                          : "var(--color-surface-1)",
+                        color: "var(--color-text-secondary)",
+                        border: "1px solid var(--color-border)",
+                      }}
+                      title="Show AI-generated changelog summary for recent upstream commits"
+                    >
+                      {isExpanded ? "Hide changelog" : "Changelog"}
+                    </button>
+
+                    {/* Uninstall */}
                     <button
                       type="button"
                       onClick={() => uninstall(p)}
                       disabled={busy === p.coordinate}
-                      className="w-fit max-w-[120px] rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
+                      className="w-fit rounded px-2.5 py-1 text-[11.5px] transition-colors disabled:opacity-40"
                       style={{
                         background: "transparent",
                         color: "var(--color-danger)",
@@ -448,13 +746,15 @@ export function PluginsSection({ onNavigate }: Props) {
                     >
                       {busy === p.coordinate ? "Removing…" : "Uninstall"}
                     </button>
-                    {update?.error && !update.update_available && (
+
+                    {/* Update check error indicator */}
+                    {update?.error && !hasUpdate && (
                       <span
                         className="text-[10px]"
                         style={{ color: "var(--color-text-faint)" }}
                         title={update.error}
                       >
-                        Update check failed
+                        Check failed
                       </span>
                     )}
                   </div>

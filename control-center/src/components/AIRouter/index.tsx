@@ -22,6 +22,7 @@ import { useState } from "react";
 import { AIRouterIndex } from "./AIRouterIndex";
 import { ProviderCatalog } from "./ProviderCatalog";
 import { RouterMetrics } from "./RouterMetrics";
+import { AIRouterErrorBoundary } from "./AIRouterErrorBoundary";
 
 // Re-export all shared types so callers can import from the barrel.
 export type {
@@ -89,11 +90,11 @@ export function AIRouter({ embedded = false }: AIRouterProps = {}) {
   );
 
   const body = (
-    <>
+    <AIRouterErrorBoundary>
       {subTab === "zones" && <AIRouterIndex />}
       {subTab === "providers" && <ProviderCatalog />}
       {subTab === "metrics" && <RouterMetrics />}
-    </>
+    </AIRouterErrorBoundary>
   );
 
   // ---------------------------------------------------------------------

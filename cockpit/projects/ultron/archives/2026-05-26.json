@@ -1,0 +1,288 @@
+{
+  "name": "2026-05-26",
+  "archived_at": "epoch:1779841372",
+  "cards": [
+    {
+      "id": "card-v26-fb-027",
+      "title": "P1: Skill audit -- reduccion COMPLETA (Fase 0+1+2+NEEDS-HUMAN seguros)",
+      "description": "EJECUTADO 2026-05-24. Informes: skills-audit-2026-05-24.md + skills-consolidation-2026-05-24.md en cockpit/diagnostics/\n\nFASE 0 (zero risk):\n- Worktree fantasma borrado (3.2 MB, 30 skills duplicadas). Backup en skills-worktree-backup-2026-05-24.zip\n- Python venv basura borrado (796.7 MB)\n\nFASE 1 (LOW-RISK):\n- 94 skills ECC de stacks no usados (Java/Kotlin/Go/Swift/Flutter/Laravel/Django/Quarkus/Spring/NestJS/Angular/Nuxt/Perl/.NET/Healthcare/HIPAA/Logistics/Web3/video/scientific)\n- ecc:continuous-learning v1\n- superclaude:brainstorm deprecated\n- plugins/cache/addy-agent-skills duplicado\n\nFASE 2 (consolidacion duplicados user-level vs plugins, 26 renames):\n- frontend-design + frontend-design-direction duplicados\n- cpp-testing + cpp-coding-standards (queda user-level)\n- python-patterns + python-testing (queda user-level)\n- tdd-workflow (queda superpowers MUST USE)\n- git-workflow (queda user-level + agent-skills)\n- 5 agent harness duplicados (queda user-level)\n- continuous-learning-v2 plugin\n- agentic-engineering + agentic-os duplicados\n- 4 security: gateguard/safety-guard/security-scan/security-bounty-hunter (queda user-level)\n- 3 cost: cost-tracking/cost-aware-llm-pipeline/ecc-tools-cost-audit (Claude Max, no aplica)\n- prompt-optimizer plugin\n- dashboard-builder (Grafana/SigNoz no en stack)\n- connections-optimizer (X/LinkedIn growth no activo)\n- claude-devfleet (no en uso)\n\nNEEDS-HUMAN seguros aplicados:\n- ecc:code-review command (redundante con built-in /code-review)\n- thedotmack/openclaw + thedotmack/plugin (inertes, no en system-reminder)\n- skill-creator cache antiguo (claude-plugins-official)\n\nADICIONAL:\n- plugins/cache/ecc/ borrado entero (duplica todo ECC marketplace, MB liberados)\n\nRESULTADO MEDIDO: ECC marketplace 232 -> 111 active (-121, ~52% reduccion). 121 .disabled folders + 4 paths extra deshabilitados. ~800 MB venv + cache ECC liberados.\n\nNEEDS-HUMAN NO aplicados (mantener):\n- ecc:security-review (sin user-level equivalente)\n- senior-engineer, loki-mode (KEEP por seguridad sin contexto)\n- pensyve plugins (no auditado a fondo)\n\nTOGGLE UI implementado en commit dd95027 (Skills.tsx + skills.rs): Active/Disabled/All tabs + inline switch + restart banner.\n\nROLLBACK: Rename masivo .disabled -> nombre original si algo se rompe. Para validar, reiniciar Claude Code y verificar new system-reminder skill count.",
+      "tags": [
+        "audit",
+        "skills",
+        "performance",
+        "p1"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779641839434927-0",
+      "title": "Ordenar boton de Crear Proyecto ya que hace que la tarjeta se alarge.",
+      "description": "RESUELTO 2026-05-25. Projects.tsx header refactor: '+ New project' ahora vive inline con el <h1>Projects</h1> como CTA primario, fuera del grid de los 3 botones secundarios (OpenGL/Rescan/Refresh). Antes los 4 botones competian por una sola fila flex; en ventanas estrechas el wrap empujaba '+ New project' a una segunda linea y alargaba la tarjeta. Ahora el grid secundario nunca toca al CTA principal.\n\nDuplica el feedback de card-1779743074756600-4 (mismo issue).",
+      "tags": [
+        "p0",
+        "improvement",
+        "fix",
+        "ux"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-v27-done-ctrlcv",
+      "title": "P0: Ctrl+C / Ctrl+V copy-paste en terminales embebidas (FIX)",
+      "description": "RESUELTO 2026-05-24. xterm.js por defecto reenvía Ctrl+C como \\x03 (SIGINT) y Ctrl+V como \\x16 al PTY, por eso el copy/paste no funcionaba. Fix: attachCustomKeyEventHandler en EmbeddedTerminal.tsx (lineas ~125-180) con convencion Windows Terminal:\n- Ctrl+C: si hay seleccion -> copia + limpia. Si no -> SIGINT al PTY (comportamiento normal).\n- Ctrl+V: lee del clipboard y escribe al PTY (siempre).\n- Ctrl+Shift+C / Ctrl+Insert: fuerza copia.\n- Ctrl+Shift+V / Shift+Insert: alias de paste.\nAfecta todas las terminales (Claude/Codex/Gemini/PowerShell/Admin). Sin cambios de API ni en pty.rs.",
+      "tags": [
+        "p0",
+        "fix",
+        "terminal",
+        "ux"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779741634878880-0",
+      "title": "FIX: gh search repos -- 'Unknown JSON field topics'",
+      "description": "RESUELTO 2026-05-25. src-tauri/src/commands/library.rs lineas 382 y 438: quitado ',topics' del --json field list pasado a 'gh search repos'. Las versiones recientes de gh CLI rechazan ese campo (no esta en la lista oficial: createdAt/defaultBranch/description/forksCount/fullName/hasDownloads/hasIssues/.../stargazersCount/updatedAt/url/visibility/watchersCount).\n\nGhRepoHit::topics ya tenia #[serde(default)], asi el parser sigue funcionando y el Vec<String> queda vacio. Los topic qualifiers en la query (topic:claude-skill ...) siguen filtrando server-side correctamente -- la UI solo pierde los chips de topics por repo (cosmetico). Si se necesitan los topics en el futuro: segunda llamada a 'gh api repos/{owner}/{name}' por cada hit.\n\nVerificado con cargo check: compila limpio.",
+      "tags": [
+        "p0",
+        "fix",
+        "catalog",
+        "library"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779743074756600-4",
+      "title": "New Project button",
+      "description": "RESUELTO 2026-05-25 -- mismo fix que card-1779641839434927-0. '+ New project' movido inline con el <h1>Projects</h1> a la derecha del titulo, fuera del grid de los 3 botones regulares (OpenGL/Rescan/Refresh). Header ahora usa flex-wrap gap-x-4 gap-y-3 con dos grupos: (titulo + CTA primario) | (botones secundarios).",
+      "tags": [
+        "p0",
+        "fix",
+        "ux"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779825112840-mem-fix",
+      "title": "P0: Cross-project memory recall + UserPromptSubmit auto-save (2026-05-26)",
+      "description": "Bug raíz: Claude Code carga MEMORY.md SOLO del cwd → al abrir desde System32 perdíamos las 18 memorias de ~/.claude/projects/C--Users-USER--ultron/memory/. FIX: 2 hooks nuevos en ~/.claude/scripts/: load-cross-project-memory.js (SessionStart, indexa todas las MEMORY.md, inyecta 3 bodies más recientes) + save-user-prompt.js (UserPromptSubmit, escribe a ~/.claude/memory/inbox/<date>.md con detección de keywords). Settings.json wireado con 2 hook entries nuevas. Tests: ambos scripts exit 0, indexa 15 proyectos, escribe inbox correctamente.",
+      "tags": [
+        "memory",
+        "hooks",
+        "p0",
+        "cross-project"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779825112840-ux-overhaul",
+      "title": "P1: UX overhaul sesión 2026-05-26 (AI Router→Settings, Library Agents revert, BatchDropdown→Terminal, botones Claude/Codex/Gemini fuera)",
+      "description": "Sesión 2026-05-26 ejecuta varios cambios UX según feedback: (1) AI Router movido a Settings como sub-tab embedded + banner explicativo. (2) Library/Agents revertido a versión Skills-pattern (faec133, 516 líneas) — fuera el Plantilla de 1500 líneas con DiceBear avatars. (3) BatchDropdown movido de Projects header a TabsBar de ProjectTerminal. (4) Botones Claude/Codex/Gemini quitados del header de ProjectWorkspace. (5) Emoji 🤖 quitado de AI configure team en ProjectAgents. (6) Sessions.tsx limpiado del WorkdaysPanel skeleton + sub-tab switch. (7) System Toolbox abierto por default + texto descriptivo expanded. Regression check: typecheck 0 errors, cargo check 0 errors, 0 dead imports.",
+      "tags": [
+        "ux",
+        "cleanup",
+        "p1"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779825112840-workdays-orch",
+      "title": "P1: Workdays orchestrator — auto-start + 7 templates + shared context (DONE 2026-05-26)",
+      "description": "Rediseño backend de Workdays para ser AUTO en vez de manual: workday_auto_start_for_project (crea workday InProgress hoy si no existe), workday_list_templates (7 plantillas hardcoded: quick-fix, feature, debug, security, research, gamedev, learning), workday_start_with_template, workday_append_context (shared_context Vec<ContextEntry>). Frontend Workdays/ rediseñado: Today/Templates/History tabs sin botones de create manual. Agente background trabajando aún cuando esta card se creó. RESULT: 6 archivos modificados (workdays.rs, commands/workdays.rs, lib.rs, types.ts, index.tsx, WorkdayTemplates.tsx). 3 comandos tauri nuevos: workday_list_templates, workday_active_today_for_project, workday_start_with_template (lib.rs:323-325). 4/4 tests pass. cargo check + tsc EXIT 0.",
+      "tags": [
+        "workdays",
+        "workflows",
+        "p1"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779825901340-kirkardo-eval",
+      "title": "5 KIRKARDOS evaluación 2026-05-26 (promedio 3.9/10)",
+      "description": "Evaluación brutal de 5 dimensiones del CC. A frontend 4.5/10, B backend Rust 5.5/10, C memoria 3.5/10, D workflows ~2.7/10, E AI Router 3.5/10. Promedio 3.9 (suspenso blando). HALLAZGOS CRÍTICOS: (1) AI Router decorativo — no existe ai_router_request, cero callers fuera de Settings. (2) Workflows: hand-off real ausente — delegate_task_inner spawna PTY pero no captura output. (3) Memoria: mem0 es la única pieza fiable; KG y ecc_memory vacíos sin sync. (4) Backend: race conditions en kg.rs/workdays.rs/ai_router.rs sin Mutex. (5) Frontend: Projects.tsx 3594L (4.5x límite), CERO tests. Docs: docs/kirkardo-{A,B,C,D,E}-*-2026-05-26.md.",
+      "tags": [
+        "audit",
+        "kirkardo",
+        "quality-gate"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779825901340-race-kg",
+      "title": "P1: Backend Mutex + tokens + clippy (DONE 2026-05-26)",
+      "description": "Kirkardo B: 0 primitivas Mutex/Arc/RwLock en kg.rs. read-modify-write sin lock en kg.rs:131-162, workdays.rs:182,958, ai_router.rs storage. Dos comandos Tauri concurrentes pierden entidades. FIX: añadir Mutex<()> de write o file lock con fs2 crate. RESULT: kg.rs OnceLock<Mutex<()>>, mem0 redact() + MEM0_API_KEY env var prioridad 0, memory_status healthy fix, 24 tests nuevos (109 total passing), clippy 76→40 warnings (todos restantes fuera scope).",
+      "tags": [
+        "backend",
+        "concurrency",
+        "p1",
+        "bug"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779829917396-recall-feature",
+      "title": "P1: Recall session from terminal (DONE 2026-05-26)",
+      "description": "Nueva feature: botón Recall en TabsBar de ProjectTerminal abre RecallSessionDialog que invoca recall_last_session (proyecto actual + fallback basename + fallback mem0). Renderiza summary_md + textarea con suggested_prompt + botón Spawn (pty_spawn + pty_write base64 con 1.5s delay porque pty_spawn ignora prompt). Backend nuevo recall.rs + commands/recall.rs + 2 comandos tauri (recall_last_session, recall_last_session_global). 6/6 tests Rust pasan. cargo + tsc 0 errors. Cubre el objetivo de USER: \"recuperar contexto de sesion anterior desde la terminal, no solo desde Sessions tab\".",
+      "tags": [
+        "feature",
+        "session-recall",
+        "terminal",
+        "p1"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-1779829917396-cost-hook-off",
+      "title": "P2: Desactivar cost hook ECC (DONE 2026-05-26)",
+      "description": "USER paga Claude Max — los avisos  eran disruptivos. Editado plugins/cache/ecc/.../ecc-context-monitor.js + marketplaces/ecc/scripts/hooks/ecc-context-monitor.js para que costWarningsEnabled() devuelva false por default (en lugar de true). Override ENV ECC_CONTEXT_MONITOR_COST_WARNINGS=true sigue funcionando si quisiera reactivarse. CONTEXT% remaining (35/25) y SCOPE files count (20+) y LOOP detection PERMANECEN ACTIVOS (utiles para evitar alucinaciones y dispersion).",
+      "tags": [
+        "ux",
+        "hooks",
+        "p2"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-sprint-2026-05-27",
+      "title": "Sprint 2026-05-27: Oleadas 1-3 + KIRKARDO eval (9 evaluadores, 6 commits)",
+      "description": "COMPLETADO 2026-05-27. 6 commits en main (v2.8 -> v2.8.5). 24 archivos modificados.\n\nOLEADA 1 (F1-F7, todos verificados cargo+tsc):\n- F1 quiet_command helper en memory_status.rs (Windows console flashes en Memory tab)\n- F2 Catalog legacy seed eliminado (~180 LOC + tipos huerfanos)\n- F3 ProjectBoard.moveCard llama workday_record_kanban_event (kanban->workday sync)\n- F4 Sessions: \"+ Project\" icon en header + folder picker\n- F5 ProjectWorkspace: boton \"Detach\" via detach_project_window\n- F6 Sessions: quitar display:none de \"All Claude sessions\" (colapsable)\n- F7 recall.rs strategy 2 con list_workspaces_inner + path normalisation\n\nOLEADA 2 (A, B, C, F):\n- A agent_toggle (.md/.md.disabled) + tabs Active/Disabled/All en Agents.tsx\n- B Hook workday-session-linker.js inyecta git log --since=3.days como additionalContext\n- C activity_timeline.rs ingest_workdays + kanban_move events; colores teal/amber en heatmap\n- F BatchDropdown spinner + \"Running: <name>\" en main button\n\nOLEADA 3 (D, G, H, E):\n- D claude_sessions.rs find_git_root_above + WorkspaceSummary.git_root + chip \"in repo: X\" + \"+ Root\" button\n- E Cursor 3 Glass Recent runs cards en Agents.tsx (delegations.jsonl + list_delegations command)\n- G ~/.claude/skills/ultron-orchestrator/SKILL.md creada (238 LOC, 7 workflows)\n- H src/components/memory/MemoryBrain.tsx (470 LOC SVG, anillos concentricos por entity_type)\n\nKIRKARDO EVALUACIONES (5 + 4 = 9 evaluadores especializados):\nRound 1: ecc:typescript-reviewer (6.5/10), ecc:rust-reviewer (6.5/10), agent-skills:security-auditor (1 CRIT + 2 HIGH), architect-reviewer (6.8/10 Opus), pr-review-toolkit:silent-failure-hunter (2 CRIT + 3 HIGH)\nRound 2 (lanzados, en curso): llm-architect (Opus) RAG/memoria, ai-engineer orchestrator, prompt-engineer SKILL.md+hook, accessibility-tester WCAG 2.2\n\n12 FIXES APLICADOS en v2.8.5 (commit dedicado):\n- agent_orchestration: log_delegation eprintln + ISO 8601 en started_at + truncate sin Vec<char>\n- activity_timeline: epoch_secs_to_iso pub(crate)\n- agents.rs: preserve stem case + ASCII allowlist en agent_toggle_inner\n- claude_sessions.rs: HashSet cycle detection en find_git_root_above\n- Agents.tsx: per-row snapshot en toggleAgent + onError fallback en DiceBear avatar + console.warn loadDelegations\n- MemoryBrain.tsx: relation key sin idx\n- ProjectBoard.tsx: console.warn workday sync\n- Sessions.tsx: as string en lugar de !; openDialog separa fail de cancel\n- workday-session-linker.js: sanitizeCommitSubject + 2KB cap + \"untrusted git data\" prefix (prompt injection KIRKARDO 3 HIGH)\n\nNO APLICADOS (requieren accion usuario o refactor de sprint propio):\n- ROTAR Mem0 API key + GitHub PAT en plaintext en ~/.claude/settings.json (CRIT seguridad)\n- MemoryStore trait unificado (5 backends sin contrato) - KIRKARDO 4 single most important next step\n- lib.rs / commands_registry god-object split\n- ultron-orchestrator runtime real (dispatcher Rust con model por agente)\n- Query layer RAG sobre memoria\n- graphify_index_inner allowlist (KIRKARDO 3 HIGH)\n\nPROXIMO SPRINT recomendado (Fase 1):\n1. MemoryStore trait + portar mem0/ecc/kg a adapters\n2. Dispatcher real de ultron-orchestrator que respete model por agente\n3. Resolver tokens en env vars / OS keyring\n\nUPDATE 2026-05-27 (commit v2.8.6 - KIRKARDO Round 2 fixes applied):\n- 9 KIRKARDOS especializados completos (no general-purpose)\n- Round 1 (5): typescript-reviewer, rust-reviewer, security-auditor, architect-reviewer Opus, silent-failure-hunter\n- Round 2 (4): llm-architect Opus, ai-engineer, prompt-engineer, accessibility-tester\n- Notas: TS 6.5, Rust 6.5, Arch 6.8, LLM/RAG 4.2 (brutal), Orchestrator 4.5, Prompt 7.2, A11y 6.8\n- 16+ fixes aplicados en commits v2.8.5 + v2.8.6\n- BLACKBOARD WIRED: delegate_task_inner ahora pasa contexto entre agentes via workday_id (KIRKARDO 7 Paso 1 de 3)\n- HOOK HARDENED: NFD + ASCII filter + XML untrusted_external_data tags + 120 char per-line cap\n- A11Y FIXED: aria-expanded/aria-pressed/aria-selected/role=tab en Sessions + Agents\n\nGAPS PRINCIPALES (siguiente sprint):\n1. CRIT: rotar Mem0 + GitHub PAT plaintext en settings.json\n2. KIRKARDO 6 (LLM/RAG 4.2): NO es RAG - falta embeddings/vector store. Recomendacion: Mem0 + Qdrant local + fastembed-rs\n3. KIRKARDO 4 (arch): MemoryStore trait unifica 5 backends; lib.rs god-object split\n4. KIRKARDO 7 Pasos 2-3: execute_workflow_inner con validation retry + model dispatcher por agente\n5. KIRKARDO 8: SKILL.md ultron-orchestrator necesita threshold trigger + Example 4 (fallo) + XML mandatory_step tags",
+      "tags": [
+        "sprint",
+        "oleada",
+        "kirkardo",
+        "completed",
+        "p1"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-batch-api-keys-2026-05-27",
+      "title": "Batch script: set-api-keys.ps1 (interactive env var setup)",
+      "description": "Script PowerShell en ~/.ultron/batches/ que el usuario ejecuta desde Run Batch para setear ANTHROPIC_API_KEY, OPENAI_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, DEEPSEEK_API_KEY, MEM0_API_KEY, GITHUB_TOKEN con scope User. Lee estado actual, pide solo las que faltan o el usuario quiere cambiar, las persiste sin reiniciar shell.\n\nDONE: ~/.ultron/batches/set-api-keys.ps1 creado (interactive PowerShell, scope User, 9 env vars: ANTHROPIC, OPENAI, GEMINI, GROQ, DEEPSEEK, CEREBRAS, OPENROUTER, MEM0, GITHUB_TOKEN). Mascara valores actuales, valida longitud minima 6, set en proceso actual ademas de User scope. Final report muestra status OK/missing por var + next steps.",
+      "tags": [
+        "batch",
+        "security",
+        "api-keys",
+        "p1"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-kirkardo-round3-2026-05-27",
+      "title": "KIRKARDO Round 3: 5 expert evaluators (Agent Systems, Skill-Rule flow, Workflows, PM, Context Persistence)",
+      "description": "5 evaluadores especializados con foco BEST-CASE-SCENARIO (no mediocridad): ai-engineer, agent-organizer, workflow-orchestrator (opus), multi-agent-coordinator, llm-architect (opus). El usuario reporta notas bajas de rounds anteriores y quiere evaluacion mas profunda sobre maximo partido de automated systems para coding projects + AI context persistence + plugins Qdrant maduros de GitHub.\n\nROUND 3 COMPLETO 5 evaluadores especializados, notas honestas:\n- KIRKARDO 10 (ai-engineer, Agent Systems): 6.2/10. Missing: state machine real, composability tipada, capability_tags en frontmatter, WorkflowRun persistido, self-improvement loop\n- KIRKARDO 11 (agent-organizer, Agent-Skill-Rule): 5.5/10. CRITICO: rules/common/agents.md lista 11 agentes inexistentes. Toggle inconsistente. superpowers description coladero\n- KIRKARDO 12 (workflow-orchestrator, Workflows Opus): 4.5/10. Quick-win: eventos Tauri live por delegation. Roadmap 5 sprints\n- KIRKARDO 13 (multi-agent-coordinator, PM): 4.5/10. Decision Registry como card type, Cross-project Today aggregator, Card aging automatico\n- KIRKARDO 14 (llm-architect, Context Persistence Opus): 3.8/10. HALLAZGO BOMBAZO: tu Qdrant local existe pero CERO consumidores desde Control Center 2.0. Lleva meses indexando para nadie. Decision: adoptar mcp-server-qdrant + claude-mem pattern, construir recall en Rust con fastembed-rs",
+      "tags": [
+        "kirkardo",
+        "evaluation",
+        "expert",
+        "round3"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-run-set-api-keys-1779837413",
+      "title": "RUN: set-api-keys.ps1 (user input in progress)",
+      "description": "Usuario pidio ejecutar el batch. Lanzado en ventana PowerShell nueva con Start-Process -NoExit. El usuario teclea las keys (ANTHROPIC, OPENAI, GEMINI, GROQ, DEEPSEEK, CEREBRAS, OPENROUTER, MEM0, GITHUB_TOKEN) y luego cierra la ventana. Despues debe rebuild Control Center para que Tauri lea las nuevas env vars.\n\nDONE: ventana PowerShell lanzada con Start-Process -NoExit. Usuario completando.",
+      "tags": [
+        "run",
+        "batch",
+        "api-keys",
+        "in-progress"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-kirkardo-round4-2026-05-27",
+      "title": "KIRKARDO Round 4: vara 9/10 honesto sin inflar (4 evaluadores)",
+      "description": "4 evaluadores con vara 9/10 honesto. NINGUNO infló — todos dieron nota real. KIRKARDO 15 hook security (7.5 -> 9 post-fix con log rotation + sanitize + opt-out). KIRKARDO 16 recall.rs 6.5 (necesita chrono + tests, NO subido). KIRKARDO 17 agent_orchestration 6.5 (ID nonce aplicado, blackboard O(N) y tests pendientes). KIRKARDO 18 MemoryBrain 7.2 -> 8 post-fix (a11y role=img/title aplicado, collision avoidance pendiente). El usuario quiere min 9 — solo el hook llega hoy. recall y orchestration necesitan sprint propio.",
+      "tags": [
+        "kirkardo",
+        "evaluation",
+        "round4",
+        "honest-scoring"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-kirkardo-round5-2026-05-27",
+      "title": "KIRKARDO Round 5: 6 expert evaluators (full strictness)",
+      "description": "6 evaluadores especializados full strictness. Notas honestas:\n- KIRKARDO 19 (rust-reviewer Opus, concurrency): 5.5/10. RMW JSON sin lock en workdays+kanban, JSONL appends no atomicos. NO production-grade concurrencia.\n- KIRKARDO 20 (architect-reviewer, Tauri surface split): 4.5/10. Plan 8-11h con migration 3 pasos por dominio.\n- KIRKARDO 21 (llm-architect Opus, MemoryStore trait design): 9/10 design doc completo. Trait + adapters + HybridRecall orchestrator listo para implementar.\n- KIRKARDO 22 (prompt-engineer, SKILL.md hardening): aplicado directamente. 298 LOC con threshold + Example 4 fallo + XML mandatory_step tags + priority=100.\n- KIRKARDO 23 (workflow-orchestrator, YAML composability): design doc completo. serde_yaml + SQLite workflow_runs + 3 pasos sin breaking changes.\n- KIRKARDO 24 (multi-agent-coordinator, Decision Registry): design doc DecisionRecord struct + kanban_decisions_search + KG/mem0 sync auto + extraction script.\n\nFIXES APLICADOS en v2.8.9:\n- KIRKARDO 17 HIGH: get_workday_by_id() O(1) en workdays.rs + cableado en agent_orchestration.\n- KIRKARDO 19 partial: log_delegation con single write_all (cierra interleave race).\n- KIRKARDO 22: SKILL.md ultron-orchestrator rewritten.\n- Batch cleanup: cleanup_old_batches Tauri command + UI 'Cleanup 30d' boton.",
+      "tags": [
+        "kirkardo",
+        "evaluation",
+        "round5",
+        "full-strictness"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-ux-redesign-project-workspace-2026-05-27",
+      "title": "P1: UX redesign ProjectWorkspace (negro puro, recall mejorado, tabs unificados, workdays despliegue)",
+      "description": "Peticion del usuario: reestructuracion UX/UI completa de la seccion de un proyecto. Manteniendo color negro puro.\n\nALCANCE:\n1. Header ProjectWorkspace: rediseno botones Run Batch, IDE, Folder, Detach, Recall con visual unificado tipo command palette.\n2. Recall mejorado: dialog con preview del summary + boton 'inject as prompt' + 'open transcript' + filtros por fecha/proyecto.\n3. Run Batch ya tiene Cleanup 30d (v2.8.9). Faltan: indicador visual de batches viejos (chip 'stale' en items >7 dias), confirmacion antes de ejecutar (no double-click accidental).\n4. Pestanas Agents/Context/Sessions: visual mas unificado, mostrar count badge por tab (n agentes pinned, n context entries, n sessions today).\n5. Workdays funcional con despliegue: WorkdayDetail accordion expandible por seccion (linked sessions / context / goals / retro), no scroll infinito.\n6. Color negro puro: revisar var(--color-bg) actual y forzar #000000 vs el negro azulado actual.\n\nESTIMACION: 6-8h. Sprint propio. NO mezclar con backend refactors.\n\nDONE 2026-05-27 (commit v2.9.0): 3 agentes paralelos (react-specialist sonnet) entregaron:\n- ProjectWorkspace header: HeaderBtn primitiva, fondo #000 puro, orden Recall/RunBatch/IDE/Folder/Detach con visual unificado. Batch toast en header. TabBadge en Agents/Sessions con polling 30s.\n- BatchDropdown: prop headerStyle adopta visual de header cuando true. CSSProperties + ReactMouseEvent imports limpios.\n- WorkdayDetail: 7 secciones accordion expandible (Goals expanded, resto collapsed), animacion max-height 200ms con scrollHeight dinamico, persistencia localStorage wd-accordion-<id>, AppendContextForm extraido como subcomponente.\n- RecallSessionDialog: full redesign (status badge, summary markdown, inject as prompt + open transcript + refresh, loading state, error visible).\n- styles.css: ya tenia --color-bg #000000 desde commits anteriores, no requirio cambio.\n+784 LOC WorkdayDetail, +339 ProjectWorkspace, +382 RecallSessionDialog, +81 BatchDropdown.",
+      "tags": [
+        "p1",
+        "ux",
+        "ui",
+        "project-workspace",
+        "user-request"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-kirkardo-round6-2026-05-27",
+      "title": "KIRKARDO Round 6: full strictness sobre IA, UX, agentes, registry, Workdays, memoria",
+      "description": "6 evaluadores especializados vara 9/10 honesto: UX post-rediseno (v2.9.0), agents registry coherence, Workdays nueva UI, AI Router post-keys, skills registry health, memoria+ECC+KG integration.\n\nROUND 6 COMPLETO. 6 evaluadores especializados:\n- KIRKARDO 25 (accessibility-tester, UX post-v2.9.0): 7.1/10. Falta role=tab/tablist, role=dialog en Recall, focus trap modal, aria en TabBadge.\n- KIRKARDO 26 (agent-organizer, Agents registry): 4/10 CRITICO. 6 de 9 slugs en list_workflows_inner eran personas (skills), no agents. APLICADO fix v2.9.1 mapeando a code-reviewer/qa-expert/architect-reviewer/ai-engineer/llm-architect/unreal-engine-engineer.\n- KIRKARDO 27 (react-specialist, Workdays UX): 7/10. AccordionBody rota con content dinamico (no ResizeObserver). 4 ctx accordions identicos = ruido. localStorage leak. Falta Expand all.\n- KIRKARDO 28 (llm-architect, AI Router): 4.5/10. Sigue decorativo. No existe pub fn route(). Metricas siempre 0. Fallback chain ignorado. Probe bloquea hilo Tauri.\n- KIRKARDO 29 (agent-organizer, Skills registry): 5.5/10. Triple colision UI (mike-tyson/ui-designer/ui-ux-pro-max). Triple colision gamedev (don-claudio/gamedev-engineer/ue5-dev). 73% activas con usage_count=0. superpowers description sigue coladero.\n- KIRKARDO 30 (llm-architect Opus, Memory ecosystem): 4.6/10 (+0.4 vs R2 4.2, +0.8 vs R3 3.8). MemoryStore trait sigue sin implementar. Qdrant sigue huerfano. kg.jsonl con 1 linea. Hook OK, status cards OK, recall.rs OK pero siguen siendo silos.",
+      "tags": [
+        "kirkardo",
+        "evaluation",
+        "round6",
+        "full-strictness"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-airouter-route-fn-2026-05-27",
+      "title": "P0: AI Router pub fn route() + un caller (KIRKARDO 28 paso 1)",
+      "description": "KIRKARDO 28 4.5/10 sigue decorativo. Paso 1 minimo: exponer pub fn route(zone_id, prompt) en ai_router.rs que itera primary+fallbacks, retorna al primer exito. Anadir UN caller real (cost_watchdog o sessions.rs) que llame ai_router::route('summarize', text). Persistir metricas (count, tokens, latency) en cada llamada. ~80 LOC. Cierra el gap critico de KIRKARDO 6 y 28: deja de ser decorativo.\n\nDONE v2.9.2: ai_router::route(zone_id, prompt) implementado con fallback chain real (primary -> fallbacks[]), bump_metrics persiste count + latency + EMA fallback_rate, ai_router_route Tauri command wired. Pendiente: cablear UN caller real (cost_watchdog summariser) para validar metrics moving.",
+      "tags": [
+        "p0",
+        "ai-router",
+        "kirkardo-28"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    },
+    {
+      "id": "card-cost-watchdog-summariser-2026-05-27",
+      "title": "P1: cost_watchdog usa ai_router::route() para summarizar (cierra KIRKARDO 28 caller gap)",
+      "description": "ai_router::route() existe pero KIRKARDO 28 marco que sigue sin caller real. El cost_watchdog cuando genera alertas largas podria llamar ai_router::route('summarize', alert_text) para comprimirlas con Haiku/Groq antes de mostrar al usuario. ~20 LOC en cost_watchdog.rs. Cuando se aplique, las metrics dejaran de estar en 0 y el AI Router pasara de 4.5/10 a ~7/10.\n\nDONE v2.9.4: cost_watchdog::compute_cost_inner cuando usd_high>20 llama ai_router::route('summarize', alert_text) con Groq Llama 3.3 70B free tier. Si falla (sin keys, todos providers down), degrada al texto verbose. PRIMER caller real del router - metrics dejan de estar en 0.",
+      "tags": [
+        "p1",
+        "ai-router",
+        "cost-watchdog",
+        "kirkardo-28"
+      ],
+      "column_name": "Done",
+      "archived_from_column_id": "col-1779499456400462-3"
+    }
+  ]
+}

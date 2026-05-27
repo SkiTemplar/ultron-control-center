@@ -1,47 +1,45 @@
 // ULTRON Control Center — Sessions tab.
 //
-// Redesigned as a workspace picker. The previous version led with a Codex
-// fallback button, a provider matrix and a long flat list of sessions —
-// most of which the user never touched. The new layout puts what USER
-// asked for first: pick a recent workspace and start a fresh session.
+// v2.9.5 (P1 2026-05-27) — Redesign botones + buscador global + auto-tags.
 //
-//   1. "Recent workspaces" — auto-detected from `~/.claude/projects/`,
-//      enriched with `projects.json` names where the cwd matches.
-//      Each card has: New session · Custom · Send Context (modals).
-//   2. "All Claude sessions" — the old flat list, kept for power users.
-//      Collapsed by default so it stops dominating the page.
+// CAMBIOS respecto a v2.9.0:
+//   - WorkspaceCard: eliminados "+Root" y "+Create Project" del pie de tarjeta.
+//     Los 3 botones fijos son: New (Plus), Custom (Sliders), Send Context (Share2).
+//     "Create Project" sube al header del grid como botón icono arriba-derecha.
+//   - Header: buscador global "Search sessions by keyword..." que filtra por
+//     short_title / preview / tags en TODAS las sesiones de TODOS los workspaces.
+//   - Auto-tag: chips de tags debajo del título en cada card. Click en chip filtra.
+//     Botón "Auto-tag all" en header (bulk via sessions_bulk_auto_tag).
+//     Tags persisten en ~/.ultron/cockpit/sessions-tags.jsonl (carga en mount).
 //
-// v2.6 (feedback round 2):
-//   - "Continue" button removed (user: "no me sirve").
-//   - Custom and Send-Context popovers became MODAL overlays — no more
-//     inline expansion that grows the card.
-//   - Workspace cards stopped showing the session id / epoch. The headline
-//     is the project name or a derived workspace name, and the secondary
-//     line is the cwd. Anything machine-readable lives on hover.
-//   - New sub-tab "Workdays" (skeleton). Concept: a "jornada de trabajo"
-//      aggregates Claude/Codex/Gemini sessions + kanban activity + agents
-//      used into a single day-level entry with computed duration. Full
-//      implementation tracked under card-v27-inv-workdays.
+// Iconos: Plus (New), Sliders (Custom), Share2 (Send Context), Tag (auto-tag),
+//         Search (buscador), RefreshCw, History, Plus (create project badge).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type {
   ClaudeSession,
-  ProjectInfo,
   SessionProvider,
   SpawnFlags,
   WorkspaceSummary,
 } from "../types";
 import {
-  Plus,
   History,
+  Loader,
+  Plus,
   RefreshCw,
+  Search,
+  Share2,
+  Sliders,
+  Tag,
+  Tags,
 } from "./projects/icons";
 
-// Session presets — persisted across launches in localStorage. Keep the keys
-// stable so existing users don't lose their preferred config when the app
-// updates.
+// ---------------------------------------------------------------------------
+// Presets — persisted across launches
+// ---------------------------------------------------------------------------
+
 const PRESETS_KEY = "ultron.cc.session_presets.v1";
 
 type Presets = {
@@ -70,6 +68,25 @@ function savePresets(p: Presets) {
   } catch {}
 }
 
+// ---------------------------------------------------------------------------
+// Tag store — loaded from sessions-tags.jsonl on mount, updated in-memory
+// ---------------------------------------------------------------------------
+
+type TagEntry = {
+  session_id: string;
+  tags: string[];
+  generated_at: string;
+};
+
+type AutoTagRequest = {
+  session_id: string;
+  first_prompt: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function formatRel(iso: string | null): string {
   if (!iso) return "—";
   const t = new Date(iso).getTime();
@@ -90,8 +107,6 @@ function formatBytes(b: number): string {
   return `${(b / 1024 / 1024).toFixed(2)} MB`;
 }
 
-/** Derive a readable headline from a cwd when the workspace is not
- *  registered in `projects.json`. We use the tail directory name. */
 function deriveWorkspaceName(cwd: string): string {
   const cleaned = cwd.replace(/[\\/]+$/, "");
   const idx = Math.max(cleaned.lastIndexOf("\\"), cleaned.lastIndexOf("/"));
@@ -150,55 +165,8 @@ const PROVIDERS: Record<SessionProvider, ProviderMeta> = {
   },
 };
 
-const PROVIDER_LIST: SessionProvider[] = ["claude", "gemini", "codex"];
-
 // ---------------------------------------------------------------------------
-// Provider tab control
-// ---------------------------------------------------------------------------
-
-function ProviderTabs({
-  active,
-  onChange,
-}: {
-  active: SessionProvider;
-  onChange: (p: SessionProvider) => void;
-}) {
-  return (
-    <div
-      className="inline-flex rounded p-0.5"
-      style={{
-        background: "var(--color-surface-1)",
-        border: "1px solid var(--color-border-strong)",
-      }}
-    >
-      {PROVIDER_LIST.map((p) => {
-        const m = PROVIDERS[p];
-        const isActive = p === active;
-        return (
-          <button
-            key={p}
-            type="button"
-            onClick={() => onChange(p)}
-            className="flex items-center gap-1.5 rounded px-3 py-1 text-[12px] font-medium transition-colors"
-            style={{
-              background: isActive ? "var(--color-surface-3)" : "transparent",
-              color: isActive ? "var(--color-text)" : "var(--color-text-tertiary)",
-            }}
-          >
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ background: m.accent, opacity: isActive ? 1 : 0.5 }}
-            />
-            {m.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Workspace chip (advanced launch flow)
+// Workspace picker — modal-level CWD selector (Advanced launch only)
 // ---------------------------------------------------------------------------
 
 const WORKSPACE_KEY = "ultron.cc.session.cwd.v1";
@@ -217,258 +185,11 @@ function saveCwd(v: string) {
   } catch {}
 }
 
-function WorkspacePicker({
-  cwd,
-  onChange,
-  projects,
-}: {
-  cwd: string;
-  onChange: (v: string) => void;
-  projects: ProjectInfo[];
-}) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [search, setSearch] = useState("");
-  const popRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onDoc(e: MouseEvent) {
-      if (popRef.current && !popRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
-
-  async function pickCustom() {
-    setBusy(true);
-    try {
-      const path = await openDialog({
-        directory: true,
-        multiple: false,
-        title: "Choose a workspace directory",
-      });
-      if (typeof path === "string" && path) {
-        onChange(path);
-        setOpen(false);
-      }
-    } catch {
-      // dialog cancelled — ignore
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function pickProject(p: ProjectInfo) {
-    if (p.path) {
-      onChange(p.path);
-      setOpen(false);
-    }
-  }
-
-  function clear() {
-    onChange("");
-  }
-
-  const q = search.trim().toLowerCase();
-  const filteredProjects = q
-    ? projects.filter(
-        (p) =>
-          p.id.toLowerCase().includes(q) ||
-          (p.name ?? "").toLowerCase().includes(q) ||
-          (p.path ?? "").toLowerCase().includes(q),
-      )
-    : projects;
-
-  const currentLabel = cwd
-    ? projects.find((p) => p.path === cwd)?.id ?? cwd
-    : null;
-
-  return (
-    <div className="relative flex flex-wrap items-center gap-2" ref={popRef}>
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className="rounded px-2.5 py-1 text-[11.5px] transition-colors"
-        style={{
-          background: "var(--color-surface-3)",
-          color: "var(--color-text-secondary)",
-          border: "1px solid var(--color-border-strong)",
-        }}
-        title="Pick from registered projects or choose any directory"
-      >
-        {cwd ? "Change workspace" : "Choose workspace"}
-      </button>
-      {cwd && (
-        <>
-          <span
-            className="truncate text-[11.5px]"
-            style={{
-              fontFamily: "var(--font-mono)",
-              color: "var(--color-text-secondary)",
-              maxWidth: 380,
-            }}
-            title={cwd}
-          >
-            {currentLabel}
-          </span>
-          <button
-            type="button"
-            onClick={clear}
-            className="text-[11.5px]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            clear
-          </button>
-        </>
-      )}
-
-      {open && (
-        <div
-          className="absolute right-0 top-full z-50 mt-2 w-[420px] rounded shadow-lg"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border-strong)",
-            boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
-          }}
-        >
-          <div
-            className="border-b px-3 py-2"
-            style={{ borderColor: "var(--color-border)" }}
-          >
-            <input
-              type="text"
-              placeholder="Search projects…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              autoFocus
-              className="w-full rounded px-2 py-1 text-[12px]"
-              style={{
-                background: "var(--color-surface-1)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-                outline: "none",
-              }}
-            />
-          </div>
-
-          <div className="max-h-72 overflow-auto px-2 py-2">
-            <div
-              className="px-2 pb-1 text-[10px] font-medium uppercase tracking-[0.06em]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Registered projects {projects.length > 0 && `(${projects.length})`}
-            </div>
-            {filteredProjects.length === 0 && (
-              <div
-                className="px-2 py-3 text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {projects.length === 0
-                  ? "No projects in registry. Run `ultron scan`."
-                  : "No match."}
-              </div>
-            )}
-            {filteredProjects.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => pickProject(p)}
-                disabled={!p.path}
-                className="flex w-full items-baseline gap-3 rounded px-2 py-1.5 text-left transition-colors disabled:opacity-50"
-                style={{
-                  background: cwd === p.path ? "var(--color-surface-3)" : "transparent",
-                }}
-                onMouseEnter={(e) => {
-                  if (cwd !== p.path)
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      "var(--color-surface-2)";
-                }}
-                onMouseLeave={(e) => {
-                  if (cwd !== p.path)
-                    (e.currentTarget as HTMLButtonElement).style.background = "transparent";
-                }}
-              >
-                <div className="min-w-0 flex-1">
-                  <div
-                    className="truncate text-[12.5px] font-medium"
-                    style={{ color: "var(--color-text)" }}
-                  >
-                    {p.id}
-                  </div>
-                  {p.path && (
-                    <div
-                      className="truncate text-[11.5px]"
-                      style={{
-                        fontFamily: "var(--font-mono)",
-                        color: "var(--color-text-faint)",
-                      }}
-                    >
-                      {p.path}
-                    </div>
-                  )}
-                </div>
-                {p.ide && (
-                  <span
-                    className="shrink-0 text-[10px]"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    {p.ide}
-                  </span>
-                )}
-                {p.last_active && (
-                  <span
-                    className="shrink-0 tabular-nums text-[10px]"
-                    style={{ color: "var(--color-text-faint)" }}
-                  >
-                    {p.last_active}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          <div
-            className="flex items-center justify-between border-t px-3 py-2"
-            style={{ borderColor: "var(--color-border)" }}
-          >
-            <button
-              type="button"
-              onClick={pickCustom}
-              disabled={busy}
-              className="rounded px-2 py-1 text-[11.5px] transition-colors disabled:opacity-50"
-              style={{
-                background: "var(--color-surface-3)",
-                color: "var(--color-text-secondary)",
-                border: "1px solid var(--color-border-strong)",
-              }}
-            >
-              {busy ? "Opening…" : "Choose custom directory…"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setOpen(false)}
-              className="text-[11.5px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              cancel
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Provider/model picker modal — shared by Custom and Send-Context flows
 // ---------------------------------------------------------------------------
 
 type LauncherModalProps = {
-  /** "custom" launches a clean session; "send-context" pre-seeds a prompt
-   *  asking the new session to continue from the prior session id. */
   mode: "custom" | "send-context";
   workspace: WorkspaceSummary;
   busy: boolean;
@@ -486,7 +207,6 @@ function LauncherModal({
   const [provider, setProvider] = useState<SessionProvider>("claude");
   const [model, setModel] = useState<string>(PROVIDERS.claude.defaultModel);
 
-  // Close on Escape — matches the CardEditorModal pattern.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -505,7 +225,6 @@ function LauncherModal({
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
       onMouseDown={(e) => {
-        // Click on backdrop closes; clicks inside the card stop here.
         if (e.target === e.currentTarget) onClose();
       }}
     >
@@ -551,8 +270,7 @@ function LauncherModal({
                 color: "var(--color-text-secondary)",
               }}
             >
-              Spawns a new session in this workspace seeded with a reference
-              to{" "}
+              Spawns a new session seeded with a reference to{" "}
               <span
                 style={{
                   fontFamily: "var(--font-mono)",
@@ -645,99 +363,136 @@ function LauncherModal({
 }
 
 // ---------------------------------------------------------------------------
-// Workspace card — the headline UI
+// Tag chips — renders below workspace card title; click to filter
+// ---------------------------------------------------------------------------
+
+function TagChips({
+  tags,
+  activeTagFilter,
+  onTagClick,
+}: {
+  tags: string[];
+  activeTagFilter: string | null;
+  onTagClick: (tag: string) => void;
+}) {
+  if (tags.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1">
+      {tags.map((tag) => {
+        const isActive = activeTagFilter === tag;
+        return (
+          <button
+            key={tag}
+            type="button"
+            onClick={() => onTagClick(tag)}
+            className="rounded px-1.5 py-0.5 text-[10px] transition-colors"
+            style={{
+              background: isActive
+                ? "var(--color-accent)"
+                : "var(--color-surface-3)",
+              color: isActive
+                ? "var(--color-accent-text)"
+                : "var(--color-text-tertiary)",
+              border: isActive
+                ? "1px solid var(--color-accent)"
+                : "1px solid var(--color-border)",
+            }}
+            title={`Filter by tag "${tag}"`}
+          >
+            {tag}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Workspace card — 3 fixed buttons + optional "Create project" moved to grid header
 // ---------------------------------------------------------------------------
 
 type WorkspaceCardProps = {
   ws: WorkspaceSummary;
   busy: boolean;
+  tags: string[];
+  activeTagFilter: string | null;
   onNew: (ws: WorkspaceSummary) => void;
-  onCreateProject: (ws: WorkspaceSummary) => void;
   onCustom: (ws: WorkspaceSummary) => void;
   onSendContext: (ws: WorkspaceSummary) => void;
-  /** Spawn a fresh session at the workspace's nearest ancestor `.git/`
-   *  parent. Fired by the "Use git root" button which only renders when
-   *  `ws.git_root` is non-null and distinct from `ws.cwd`. */
-  onNewAtRoot: (rootCwd: string) => void;
+  onTagClick: (tag: string) => void;
+  onAutoTag: (ws: WorkspaceSummary) => void;
+  taggingBusy: boolean;
 };
 
 function WorkspaceCard({
   ws,
   busy,
+  tags,
+  activeTagFilter,
   onNew,
-  onCreateProject,
   onCustom,
   onSendContext,
-  onNewAtRoot,
+  onTagClick,
+  onAutoTag,
+  taggingBusy,
 }: WorkspaceCardProps) {
   const headline = ws.project_name ?? deriveWorkspaceName(ws.cwd);
   const canSendContext = !!ws.latest_session_id;
-  // Show the "Use root" affordance only when there is an ancestor git root
-  // that is genuinely different from the current cwd (path comparison after
-  // normalising separators + case, matching what recall.rs does).
-  function normalisePath(p: string): string {
-    return p.trim().replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
-  }
-  const showGitRoot =
-    ws.git_root && normalisePath(ws.git_root) !== normalisePath(ws.cwd);
-  const gitRootLabel = ws.git_root
-    ? ws.git_root.split(/[\\/]/).filter(Boolean).pop() ?? ws.git_root
-    : "";
 
   return (
     <div
-      className="flex h-full flex-col rounded-lg p-5 transition-colors"
+      className="flex h-full flex-col rounded-lg p-4 transition-colors"
       style={{
         background: "var(--color-surface-2)",
         border: "1px solid var(--color-border)",
       }}
     >
+      {/* Header row */}
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <h3
-            className="truncate text-[16px] font-semibold leading-tight"
-            style={{ color: "var(--color-text)" }}
-            title={headline}
-          >
-            {headline}
-          </h3>
-          {/* v2.5.2: provider badge — for now every workspace surfaced here
-              is sourced from `~/.claude/projects/`, so the last provider is
-              Claude. Future work can derive this from a per-workspace
-              provider history. Colour is the Claude accent. */}
-          <span
-            className="shrink-0 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text-tertiary)",
-              border: "1px solid var(--color-border)",
-            }}
-            title="Last provider used in this workspace"
-          >
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <h3
+              className="truncate text-[15px] font-semibold leading-tight"
+              style={{ color: "var(--color-text)" }}
+              title={headline}
+            >
+              {headline}
+            </h3>
+          </div>
+          {/* Badges */}
+          <div className="flex shrink-0 items-center gap-1">
             <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ background: PROVIDERS.claude.accent }}
-            />
-            claude
-          </span>
-          {ws.project_id && (
-            <span
-              className="shrink-0 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
+              className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
               style={{
                 background: "var(--color-surface-3)",
                 color: "var(--color-text-tertiary)",
                 border: "1px solid var(--color-border)",
               }}
-              title={`Registered as ${ws.project_id}`}
             >
-              registered
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ background: PROVIDERS.claude.accent }}
+              />
+              claude
             </span>
-          )}
+            {ws.project_id && (
+              <span
+                className="rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border)",
+                }}
+              >
+                registered
+              </span>
+            )}
+          </div>
         </div>
-        {/* v2.6 round 2: secondary line is the cwd only — the session id /
-            epoch the user explicitly asked us to remove no longer appears. */}
+
+        {/* cwd monospace line */}
         <div
-          className="mt-1 truncate text-[11.5px]"
+          className="mt-1 truncate text-[11px]"
           style={{
             fontFamily: "var(--font-mono)",
             color: "var(--color-text-faint)",
@@ -746,19 +501,15 @@ function WorkspaceCard({
         >
           {ws.cwd}
         </div>
-        {showGitRoot && (
-          <div
-            className="mt-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
-            style={{
-              background: "rgba(245, 158, 11, 0.10)",
-              color: "rgb(245, 158, 11)",
-              border: "1px solid rgba(245, 158, 11, 0.30)",
-            }}
-            title={`This workspace lives inside a git repo rooted at ${ws.git_root}. Use "+ Root" to spawn at the repo root instead.`}
-          >
-            in repo: {gitRootLabel}
-          </div>
-        )}
+
+        {/* Tags chips */}
+        <TagChips
+          tags={tags}
+          activeTagFilter={activeTagFilter}
+          onTagClick={onTagClick}
+        />
+
+        {/* Meta row */}
         <div
           className="mt-2 flex items-center gap-3 text-[10.5px] tabular-nums"
           style={{ color: "var(--color-text-tertiary)" }}
@@ -771,14 +522,14 @@ function WorkspaceCard({
         </div>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        {/* v2.6 round 2: "Continue" removed entirely — USER: "no me
-            sirve". `claude -r <id>` resume lives in the All Sessions list. */}
+      {/* Action row — exactly 3 fixed buttons */}
+      <div className="mt-3 flex items-center gap-1.5">
+        {/* New */}
         <button
           type="button"
           onClick={() => onNew(ws)}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-40"
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-40"
           style={{
             background: "var(--color-accent)",
             color: "var(--color-accent-text)",
@@ -788,29 +539,30 @@ function WorkspaceCard({
           <Plus size={12} />
           New
         </button>
-        {/* v2.6 round 2: Custom opens a MODAL — the card no longer grows
-            inline with extra rows. */}
+
+        {/* Custom */}
         <button
           type="button"
           onClick={() => onCustom(ws)}
           disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
           style={{
             background: "var(--color-surface-3)",
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
-          title="Custom launch (provider + model) in this workspace"
+          title="Custom launch — choose provider and model"
         >
+          <Sliders size={11} />
           Custom
         </button>
-        {/* v2.6 round 2: Send Context also opens a MODAL. Disabled when
-            there is no previous session id to reference. */}
+
+        {/* Send Context */}
         <button
           type="button"
           onClick={() => onSendContext(ws)}
           disabled={busy || !canSendContext}
-          className="inline-flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40 whitespace-nowrap"
+          className="inline-flex flex-1 items-center justify-center gap-1.5 rounded px-2.5 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40 whitespace-nowrap"
           style={{
             background: "var(--color-surface-3)",
             color: "var(--color-text)",
@@ -818,44 +570,30 @@ function WorkspaceCard({
           }}
           title={
             canSendContext
-              ? `Start a new session pre-seeded with a reference to the latest session in this workspace`
-              : "Need at least one prior session to send context from"
+              ? "Start a new session seeded with context from the latest session"
+              : "No prior session to send context from"
           }
         >
+          <Share2 size={11} />
           Send ctx
         </button>
-        {!ws.project_id && (
-          <button
-            type="button"
-            onClick={() => onCreateProject(ws)}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-surface-3)",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Register this workspace as a project"
-          >
-            + Create Project
-          </button>
-        )}
-        {showGitRoot && ws.git_root && (
-          <button
-            type="button"
-            onClick={() => onNewAtRoot(ws.git_root as string)}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] font-medium transition-colors disabled:opacity-40"
-            style={{
-              background: "rgba(245, 158, 11, 0.10)",
-              color: "rgb(245, 158, 11)",
-              border: "1px solid rgba(245, 158, 11, 0.30)",
-            }}
-            title={`New session at git repo root (${ws.git_root})`}
-          >
-            + Root
-          </button>
-        )}
+
+        {/* Auto-tag (per-card) */}
+        <button
+          type="button"
+          onClick={() => onAutoTag(ws)}
+          disabled={taggingBusy}
+          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-40"
+          style={{
+            background: "var(--color-surface-3)",
+            color: "var(--color-text-tertiary)",
+            border: "1px solid var(--color-border-strong)",
+          }}
+          title="Auto-tag this workspace session"
+          aria-label="Auto-tag session"
+        >
+          {taggingBusy ? <Loader size={11} /> : <Tag size={11} />}
+        </button>
       </div>
     </div>
   );
@@ -866,33 +604,42 @@ function WorkspaceCard({
 // ---------------------------------------------------------------------------
 
 export function Sessions() {
-  const [provider, setProvider] = useState<SessionProvider>("claude");
-  const [model, setModel] = useState<string>(PROVIDERS["claude"].defaultModel);
-  const [prompt, setPrompt] = useState("");
-  const [cwd, setCwd] = useState<string>(() => loadCwd());
+  // --- provider / advanced state (model + cwd kept for flagsForProvider) ---
+  const [model] = useState<string>(PROVIDERS["claude"].defaultModel);
+  const [cwd] = useState<string>(() => loadCwd());
   const [error, setError] = useState<string | null>(null);
-  const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [presets, setPresets] = useState<Presets>(() => loadPresets());
+  const [presets] = useState<Presets>(() => loadPresets());
   const [history, setHistory] = useState<ClaudeSession[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [workspaces, setWorkspaces] = useState<WorkspaceSummary[]>([]);
   const [workspacesLoading, setWorkspacesLoading] = useState(false);
-  const [showInline, setShowInline] = useState(false);
   const [showAllSessions, setShowAllSessions] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [search, setSearch] = useState("");
-  const [busyCwd, setBusyCwd] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
-  // v2.6 round 2: Custom + Send-Context modals live at the panel level so
-  // only one is open at a time and the workspace card stays compact.
+
+  // --- global search (workspaces + sessions + tags) ---
+  const [search, setSearch] = useState("");
+
+  // --- tag filter (click on chip sets this) ---
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
+
+  // --- tags store: session_id -> tags[] ---
+  const [tagsMap, setTagsMap] = useState<Map<string, string[]>>(new Map());
+  const [bulkTaggingBusy, setBulkTaggingBusy] = useState(false);
+  // Track which workspace is currently being single-tagged
+  const [taggingCwd, setTaggingCwd] = useState<string | null>(null);
+
+  // --- modals ---
+  const [busyCwd, setBusyCwd] = useState<string | null>(null);
   const [modal, setModal] = useState<
     | { mode: "custom"; ws: WorkspaceSummary }
     | { mode: "send-context"; ws: WorkspaceSummary }
     | null
   >(null);
 
-  // Toasts auto-dismiss after 3s. Single channel — newer messages replace
-  // older ones, which is fine for the low-frequency operations on this page.
+  // --- grouped workspace open/close ---
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+
+  // Toast auto-dismiss
   useEffect(() => {
     if (!toast) return;
     const id = window.setTimeout(() => setToast(null), 3000);
@@ -902,279 +649,201 @@ export function Sessions() {
   useEffect(() => saveCwd(cwd), [cwd]);
   useEffect(() => savePresets(presets), [presets]);
 
-  // Load Claude session history once when the tab mounts. We cap at 50
-  // entries — enough for the collapsible "All sessions" list without
-  // dragging in the entire archive.
+  // ---------------------------------------------------------------------------
+  // Data loaders
+  // ---------------------------------------------------------------------------
+
   function reloadHistory() {
     setHistoryLoading(true);
-    invoke<ClaudeSession[]>("list_claude_sessions", { limit: 50 })
-      .then((list) => {
-        setHistory(list);
-      })
-      .catch((e) => {
-        // eslint-disable-next-line no-console
-        console.warn("[Sessions] list_claude_sessions failed", e);
-        setHistory([]);
-      })
+    invoke<ClaudeSession[]>("list_claude_sessions", { limit: 200 })
+      .then((list) => setHistory(list))
+      .catch(() => setHistory([]))
       .finally(() => setHistoryLoading(false));
   }
 
   function reloadWorkspaces() {
     setWorkspacesLoading(true);
     invoke<WorkspaceSummary[]>("list_workspaces")
-      .then((list) => {
-        setWorkspaces(list);
-      })
-      .catch((e) => {
-        // eslint-disable-next-line no-console
-        console.warn("[Sessions] list_workspaces failed", e);
-        setWorkspaces([]);
-      })
+      .then((list) => setWorkspaces(list))
+      .catch(() => setWorkspaces([]))
       .finally(() => setWorkspacesLoading(false));
+  }
+
+  function reloadTags() {
+    invoke<TagEntry[]>("sessions_tags_load")
+      .then((entries) => {
+        const m = new Map<string, string[]>();
+        for (const e of entries) {
+          m.set(e.session_id, e.tags);
+        }
+        setTagsMap(m);
+      })
+      .catch(() => {
+        // Tags are optional — don't surface errors here
+      });
   }
 
   useEffect(() => {
     reloadHistory();
     reloadWorkspaces();
+    reloadTags();
   }, []);
 
-  // When provider changes, default the model to the provider's default.
-  useEffect(() => {
-    setModel(PROVIDERS[provider].defaultModel);
-  }, [provider]);
+  // ---------------------------------------------------------------------------
+  // Tag helpers
+  // ---------------------------------------------------------------------------
 
-  useEffect(() => {
-    invoke<ProjectInfo[]>("list_projects")
-      .then((list) => setProjects(list))
-      .catch(() => setProjects([]));
-  }, []);
+  /**
+   * Returns all tags attached to sessions that live under a given workspace cwd.
+   * We match sessions by project_label (which is the cwd recovered from the JSONL).
+   */
+  const tagsForWorkspace = useCallback(
+    (ws: WorkspaceSummary): string[] => {
+      // Collect tags from all sessions whose project_label matches this cwd.
+      const norm = (s: string) => s.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
+      const cwdNorm = norm(ws.cwd);
+      const tagSet = new Set<string>();
+      for (const s of history) {
+        if (norm(s.project_label) === cwdNorm) {
+          const sessionTags = tagsMap.get(s.id) ?? [];
+          for (const t of sessionTags) tagSet.add(t);
+        }
+      }
+      // Also check by latest_session_id directly
+      if (ws.latest_session_id) {
+        const direct = tagsMap.get(ws.latest_session_id) ?? [];
+        for (const t of direct) tagSet.add(t);
+      }
+      return Array.from(tagSet);
+    },
+    [history, tagsMap],
+  );
 
-  function flagsForProvider(extra: Partial<SpawnFlags> = {}): SpawnFlags {
-    return {
-      dangerouslySkipPermissions: presets.dangerouslySkipPermissions,
-      effort: presets.effort ? presets.effort : null,
-      model: model || null,
-      ...extra,
-    };
-  }
+  // ---------------------------------------------------------------------------
+  // Auto-tag actions
+  // ---------------------------------------------------------------------------
 
-  async function openSession(withPrompt: boolean) {
-    setError(null);
-    try {
-      await invoke("spawn_session", {
-        provider,
-        prompt: withPrompt && prompt.trim() ? prompt : null,
-        cwd: cwd || null,
-        flags: flagsForProvider(),
-      });
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  async function resumeSession(s: ClaudeSession) {
-    setError(null);
-    try {
-      // Sessions belong to a specific cwd (Claude indexes by it). We use the
-      // recovered project_label as cwd so the new wt.exe tab lands in the
-      // same directory before -r resolves the session.
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt: null,
-        cwd: s.project_label,
-        flags: flagsForProvider({ resumeId: s.id }),
-      });
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  // -------------------------------------------------------------------------
-  // Workspace card actions
-  // -------------------------------------------------------------------------
-
-  async function newInWorkspace(ws: WorkspaceSummary) {
-    setBusyCwd(ws.cwd);
-    setError(null);
-    try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt: null,
-        cwd: ws.cwd,
-        flags: {},
-      });
-      setToast(`New session in ${deriveWorkspaceName(ws.cwd)}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusyCwd(null);
-    }
-  }
-
-  // Spawn a session at the nearest ancestor git root (rendered by the
-  // "+ Root" button on each workspace card when ws.git_root is set).
-  async function newAtRoot(rootCwd: string) {
-    setBusyCwd(rootCwd);
-    setError(null);
-    try {
-      await invoke("spawn_session", {
-        provider: "claude",
-        prompt: null,
-        cwd: rootCwd,
-        flags: {},
-      });
-      setToast(`New session at ${deriveWorkspaceName(rootCwd)} (git root)`);
-      reloadWorkspaces();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusyCwd(null);
-    }
-  }
-
-  // v2.6 round 2: custom launch from MODAL.
-  async function customInWorkspace(
-    ws: WorkspaceSummary,
-    opts: { provider: SessionProvider; model: string },
-  ) {
-    setBusyCwd(ws.cwd);
-    setError(null);
-    try {
-      await invoke("spawn_session", {
-        provider: opts.provider,
-        prompt: null,
-        cwd: ws.cwd,
-        flags: { model: opts.model || null },
-      });
-      const modelLabel = opts.model ? ` (${opts.model})` : "";
-      setToast(
-        `${opts.provider}${modelLabel} session in ${deriveWorkspaceName(ws.cwd)}`,
-      );
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusyCwd(null);
-    }
-  }
-
-  // v2.5.2: spawn a new session in the workspace seeded with a prompt
-  // that references the previous session id. The backend doesn't (yet)
-  // support `--context-from-session=<id>` natively, so this is the simple
-  // version: pass a textual prompt asking the assistant to load and
-  // continue context from the named session.
-  async function sendContextFromWorkspace(
-    ws: WorkspaceSummary,
-    opts: { provider: SessionProvider; model: string },
-  ) {
+  async function autoTagWorkspace(ws: WorkspaceSummary) {
     if (!ws.latest_session_id) return;
-    setBusyCwd(ws.cwd);
-    setError(null);
+    setTaggingCwd(ws.cwd);
     try {
-      const seed = [
-        `Continuing context from session: ${ws.latest_session_id}.`,
-        `Workspace: ${ws.cwd}.`,
-        `Please load the prior transcript (look under ~/.claude/projects/) and continue from where it left off.`,
-      ].join(" ");
-      await invoke("spawn_session", {
-        provider: opts.provider,
-        prompt: seed,
-        cwd: ws.cwd,
-        flags: { model: opts.model || null },
+      // Find the preview (first prompt) from history
+      const session = history.find((s) => s.id === ws.latest_session_id);
+      const entry = await invoke<TagEntry>("sessions_auto_tag", {
+        sessionId: ws.latest_session_id,
+        firstPrompt: session?.preview ?? null,
       });
-      const modelLabel = opts.model ? ` (${opts.model})` : "";
-      setToast(
-        `Sent context to new ${opts.provider}${modelLabel} session in ${deriveWorkspaceName(ws.cwd)}`,
-      );
+      setTagsMap((prev) => {
+        const next = new Map(prev);
+        next.set(entry.session_id, entry.tags);
+        return next;
+      });
+      if (entry.tags.length > 0) {
+        setToast(`Tagged: ${entry.tags.join(", ")}`);
+      } else {
+        setToast("No tags generated — configure a provider key in AI Router");
+      }
     } catch (e) {
       setError(String(e));
     } finally {
-      setBusyCwd(null);
+      setTaggingCwd(null);
     }
   }
 
-  async function createProjectFromWorkspace(ws: WorkspaceSummary) {
+  async function bulkAutoTag() {
+    if (bulkTaggingBusy) return;
+    setBulkTaggingBusy(true);
     try {
-      const name = deriveWorkspaceName(ws.cwd);
-      await invoke("create_project", {
-        name,
-        path: ws.cwd,
-        ide: null,
-        language: null,
-        tags: null,
-        defaultProvider: null,
-        defaultShell: null,
-        parentFolderOverride: null,
-        notes: null,
+      // Build requests from all sessions that have a preview
+      const requests: AutoTagRequest[] = history
+        .filter((s) => s.preview)
+        .map((s) => ({ session_id: s.id, first_prompt: s.preview ?? null }));
+
+      if (requests.length === 0) {
+        setToast("No sessions with content to tag");
+        return;
+      }
+
+      const entries = await invoke<TagEntry[]>("sessions_bulk_auto_tag", {
+        requests,
       });
-      setToast(`Project "${name}" created`);
-      reloadWorkspaces();
+      const m = new Map(tagsMap);
+      for (const e of entries) {
+        if (e.tags.length > 0) m.set(e.session_id, e.tags);
+      }
+      setTagsMap(m);
+      const tagged = entries.filter((e) => e.tags.length > 0).length;
+      setToast(`Auto-tagged ${tagged} of ${entries.length} sessions`);
     } catch (e) {
       setError(String(e));
+    } finally {
+      setBulkTaggingBusy(false);
     }
   }
 
-  // Top-right "+" icon flow: pick any folder on disk and register it as a
-  // project. Mirrors the per-card "Create project" affordance so users can
-  // bootstrap a project without first having opened a Claude session in
-  // that folder.
-  async function createProjectFromPicker() {
-    let selected: string | string[] | null;
-    try {
-      selected = await openDialog({
-        directory: true,
-        multiple: false,
-        title: "Pick a folder to register as a project",
-      });
-    } catch (e) {
-      // KIRKARDO 5 HIGH — distinguish dialog failure from user cancel
-      // (cancel returns null, fail throws). Surface the actual error so
-      // the user knows "nothing happened" wasn't silent.
-      console.error("[Sessions] openDialog failed", e);
-      setError(`folder picker failed: ${e}`);
-      return;
-    }
-    try {
-      if (!selected || typeof selected !== "string") return;
-      const name = deriveWorkspaceName(selected);
-      await invoke("create_project", {
-        name,
-        path: selected,
-        ide: null,
-        language: null,
-        tags: null,
-        defaultProvider: null,
-        defaultShell: null,
-        parentFolderOverride: null,
-        notes: null,
-      });
-      setToast(`Project "${name}" created`);
-      reloadWorkspaces();
-    } catch (e) {
-      setError(String(e));
-    }
+  // ---------------------------------------------------------------------------
+  // Tag chip click — set or clear tag filter
+  // ---------------------------------------------------------------------------
+
+  function handleTagClick(tag: string) {
+    setTagFilter((prev) => (prev === tag ? null : tag));
+    // Clear text search when filtering by tag to avoid confusion
+    setSearch("");
   }
 
-  // -------------------------------------------------------------------------
-  // Search / filtering
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------------
+  // Search + filter logic
+  // ---------------------------------------------------------------------------
 
   const normalisedSearch = search.trim().toLowerCase();
-  const filteredWorkspaces = useMemo(() => {
-    if (!normalisedSearch) return workspaces;
-    return workspaces.filter((w) => {
-      const name = (w.project_name ?? deriveWorkspaceName(w.cwd)).toLowerCase();
-      return (
-        name.includes(normalisedSearch) ||
-        w.cwd.toLowerCase().includes(normalisedSearch) ||
-        (w.project_id ?? "").toLowerCase().includes(normalisedSearch)
-      );
-    });
-  }, [workspaces, normalisedSearch]);
 
-  // v2.5.2: group workspaces by registered project id when possible, and
-  // by the cwd parent directory tail otherwise. Only collapse groups that
-  // hold >5 cards — small groups stay flat so the grid still feels like
-  // one continuous wall of recent work.
+  /**
+   * A workspace passes the filter when:
+   *   - No text search AND no tag filter: always passes
+   *   - Text search: match workspace name, cwd, or project_id OR any session
+   *     preview/tags under it
+   *   - Tag filter: workspace has at least one session with that tag
+   */
+  const filteredWorkspaces = useMemo(() => {
+    if (!normalisedSearch && !tagFilter) return workspaces;
+
+    return workspaces.filter((ws) => {
+      // Tag filter check
+      if (tagFilter) {
+        const wsTags = tagsForWorkspace(ws);
+        if (!wsTags.includes(tagFilter)) return false;
+      }
+
+      // Text search check
+      if (normalisedSearch) {
+        const name = (
+          ws.project_name ?? deriveWorkspaceName(ws.cwd)
+        ).toLowerCase();
+        const cwdMatch = ws.cwd.toLowerCase().includes(normalisedSearch);
+        const nameMatch = name.includes(normalisedSearch);
+        const projMatch = (ws.project_id ?? "")
+          .toLowerCase()
+          .includes(normalisedSearch);
+
+        // Also search in session previews and tags for this workspace
+        const norm = (s: string) =>
+          s.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
+        const cwdNorm = norm(ws.cwd);
+        const sessionMatch = history.some((s) => {
+          if (norm(s.project_label) !== cwdNorm) return false;
+          if ((s.preview ?? "").toLowerCase().includes(normalisedSearch)) return true;
+          const sTags = tagsMap.get(s.id) ?? [];
+          return sTags.some((t) => t.includes(normalisedSearch));
+        });
+
+        if (!cwdMatch && !nameMatch && !projMatch && !sessionMatch) return false;
+      }
+
+      return true;
+    });
+  }, [workspaces, normalisedSearch, tagFilter, tagsForWorkspace, history, tagsMap]);
+
+  // Group logic (same as before)
   const GROUP_THRESHOLD = 5;
   const grouped = useMemo(() => {
     const groups = new Map<string, { label: string; items: WorkspaceSummary[] }>();
@@ -1208,23 +877,173 @@ export function Sessions() {
     return { ungrouped, collapsible };
   }, [filteredWorkspaces]);
 
-  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
-
+  // All-sessions list filter
   const filteredHistory = useMemo(() => {
-    if (!normalisedSearch) return history;
+    if (!normalisedSearch && !tagFilter) return history;
     return history.filter((s) => {
-      return (
-        s.project_label.toLowerCase().includes(normalisedSearch) ||
-        s.id.toLowerCase().includes(normalisedSearch) ||
-        (s.preview ?? "").toLowerCase().includes(normalisedSearch)
-      );
+      if (tagFilter) {
+        const sTags = tagsMap.get(s.id) ?? [];
+        if (!sTags.includes(tagFilter)) return false;
+      }
+      if (normalisedSearch) {
+        const inLabel = s.project_label.toLowerCase().includes(normalisedSearch);
+        const inId = s.id.toLowerCase().includes(normalisedSearch);
+        const inPreview = (s.preview ?? "").toLowerCase().includes(normalisedSearch);
+        const inTags = (tagsMap.get(s.id) ?? []).some((t) =>
+          t.includes(normalisedSearch),
+        );
+        if (!inLabel && !inId && !inPreview && !inTags) return false;
+      }
+      return true;
     });
-  }, [history, normalisedSearch]);
+  }, [history, normalisedSearch, tagFilter, tagsMap]);
 
-  const meta = PROVIDERS[provider];
+  // ---------------------------------------------------------------------------
+  // Workspace actions
+  // ---------------------------------------------------------------------------
+
+  function flagsForProvider(extra: Partial<SpawnFlags> = {}): SpawnFlags {
+    return {
+      dangerouslySkipPermissions: presets.dangerouslySkipPermissions,
+      effort: presets.effort ? presets.effort : null,
+      model: model || null,
+      ...extra,
+    };
+  }
+
+  async function newInWorkspace(ws: WorkspaceSummary) {
+    setBusyCwd(ws.cwd);
+    setError(null);
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: null,
+        cwd: ws.cwd,
+        flags: {},
+      });
+      setToast(`New session in ${deriveWorkspaceName(ws.cwd)}`);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyCwd(null);
+    }
+  }
+
+  async function customInWorkspace(
+    ws: WorkspaceSummary,
+    opts: { provider: SessionProvider; model: string },
+  ) {
+    setBusyCwd(ws.cwd);
+    setError(null);
+    try {
+      await invoke("spawn_session", {
+        provider: opts.provider,
+        prompt: null,
+        cwd: ws.cwd,
+        flags: { model: opts.model || null },
+      });
+      const modelLabel = opts.model ? ` (${opts.model})` : "";
+      setToast(
+        `${opts.provider}${modelLabel} session in ${deriveWorkspaceName(ws.cwd)}`,
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyCwd(null);
+    }
+  }
+
+  async function sendContextFromWorkspace(
+    ws: WorkspaceSummary,
+    opts: { provider: SessionProvider; model: string },
+  ) {
+    if (!ws.latest_session_id) return;
+    setBusyCwd(ws.cwd);
+    setError(null);
+    try {
+      const seed = [
+        `Continuing context from session: ${ws.latest_session_id}.`,
+        `Workspace: ${ws.cwd}.`,
+        `Please load the prior transcript (look under ~/.claude/projects/) and continue from where it left off.`,
+      ].join(" ");
+      await invoke("spawn_session", {
+        provider: opts.provider,
+        prompt: seed,
+        cwd: ws.cwd,
+        flags: { model: opts.model || null },
+      });
+      const modelLabel = opts.model ? ` (${opts.model})` : "";
+      setToast(
+        `Sent context to new ${opts.provider}${modelLabel} session in ${deriveWorkspaceName(ws.cwd)}`,
+      );
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusyCwd(null);
+    }
+  }
+
+  async function resumeSession(s: ClaudeSession) {
+    setError(null);
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt: null,
+        cwd: s.project_label,
+        flags: flagsForProvider({ resumeId: s.id }),
+      });
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Create Project from picker (header button above grid)
+  // ---------------------------------------------------------------------------
+
+  async function createProjectFromPicker() {
+    let selected: string | string[] | null;
+    try {
+      selected = await openDialog({
+        directory: true,
+        multiple: false,
+        title: "Pick a folder to register as a project",
+      });
+    } catch (e) {
+      console.error("[Sessions] openDialog failed", e);
+      setError(`folder picker failed: ${e}`);
+      return;
+    }
+    try {
+      if (!selected || typeof selected !== "string") return;
+      const name = deriveWorkspaceName(selected);
+      await invoke("create_project", {
+        name,
+        path: selected,
+        ide: null,
+        language: null,
+        tags: null,
+        defaultProvider: null,
+        defaultShell: null,
+        parentFolderOverride: null,
+        notes: null,
+      });
+      setToast(`Project "${name}" created`);
+      reloadWorkspaces();
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
     <div className="px-10 py-8">
+      {/* -------------------------------------------------------------------- */}
+      {/* Header                                                                 */}
+      {/* -------------------------------------------------------------------- */}
       <header className="mb-5 flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-[20px] font-semibold leading-tight">
@@ -1237,26 +1056,76 @@ export function Sessions() {
             Pick a recent workspace to start a fresh Claude session.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Filter workspaces & sessions…"
-            className="rounded px-3 py-1.5 text-[12px]"
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Global search */}
+          <div className="relative">
+            <Search
+              size={13}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+              // inline style via parent span — icon is inside the input
+            />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                if (tagFilter) setTagFilter(null);
+              }}
+              placeholder="Search sessions by keyword..."
+              className="rounded pl-8 pr-3 py-1.5 text-[12px]"
+              style={{
+                background: "var(--color-surface-2)",
+                color: "var(--color-text)",
+                border: "1px solid var(--color-border-strong)",
+                outline: "none",
+                width: 260,
+              }}
+            />
+          </div>
+
+          {/* Tag filter badge when active */}
+          {tagFilter && (
+            <button
+              type="button"
+              onClick={() => setTagFilter(null)}
+              className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-[11.5px]"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-accent-text)",
+              }}
+              title="Clear tag filter"
+            >
+              <Tags size={11} />
+              {tagFilter}
+              <span className="ml-0.5 opacity-70">x</span>
+            </button>
+          )}
+
+          {/* Auto-tag all */}
+          <button
+            type="button"
+            onClick={() => void bulkAutoTag()}
+            disabled={bulkTaggingBusy || historyLoading}
+            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] transition-colors disabled:opacity-40"
             style={{
               background: "var(--color-surface-2)",
-              color: "var(--color-text)",
+              color: "var(--color-text-secondary)",
               border: "1px solid var(--color-border-strong)",
-              outline: "none",
-              width: 280,
             }}
-          />
+            title="Auto-tag all sessions using AI Router (Groq/Gemini)"
+          >
+            {bulkTaggingBusy ? <Loader size={12} /> : <Tags size={12} />}
+            {bulkTaggingBusy ? "Tagging…" : "Auto-tag all"}
+          </button>
+
+          {/* Refresh */}
           <button
             type="button"
             onClick={() => {
               reloadWorkspaces();
               reloadHistory();
+              reloadTags();
             }}
             className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-[11.5px] transition-colors"
             style={{
@@ -1269,23 +1138,10 @@ export function Sessions() {
             <RefreshCw size={12} />
             Refresh
           </button>
-          <button
-            type="button"
-            onClick={() => void createProjectFromPicker()}
-            className="inline-flex h-7 w-7 items-center justify-center rounded transition-colors"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Create a new project from a folder on disk"
-            aria-label="Create new project"
-          >
-            <Plus size={14} />
-          </button>
         </div>
       </header>
 
+      {/* Toast */}
       {toast && (
         <div
           className="fixed bottom-6 right-6 z-[80] rounded px-3 py-2 text-[12px] shadow-lg"
@@ -1299,6 +1155,7 @@ export function Sessions() {
         </div>
       )}
 
+      {/* Error */}
       {error && (
         <div
           className="mb-4 rounded px-3 py-2 text-[12px]"
@@ -1312,521 +1169,307 @@ export function Sessions() {
         </div>
       )}
 
-      <>
-          {/* ------------------------------------------------------------------
-              Section 1 — Recent workspaces (the new headline)
-              ------------------------------------------------------------------ */}
-          <section className="mb-6">
-            <div className="mb-3 flex items-baseline justify-between">
-              <h2 className="text-[14px] font-semibold leading-tight">
-                Recent workspaces
-              </h2>
-              <span
-                className="text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {workspacesLoading
-                  ? "Loading…"
-                  : `${filteredWorkspaces.length} of ${workspaces.length}`}
-              </span>
-            </div>
+      {/* -------------------------------------------------------------------- */}
+      {/* Section 1 — Recent workspaces                                         */}
+      {/* -------------------------------------------------------------------- */}
+      <section className="mb-6">
+        {/* Section header row: title + count + Create Project button */}
+        <div className="mb-3 flex items-center justify-between">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-[14px] font-semibold leading-tight">
+              Recent workspaces
+            </h2>
+            <span
+              className="text-[11.5px]"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {workspacesLoading
+                ? "Loading…"
+                : `${filteredWorkspaces.length} of ${workspaces.length}`}
+            </span>
+          </div>
 
-            {!workspacesLoading && workspaces.length === 0 && (
-              <div
-                className="rounded p-6 text-center text-[12.5px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  border: "1px solid var(--color-border)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                No Claude workspaces yet. Open a Claude session in any folder and
-                it will appear here automatically.
-              </div>
-            )}
+          {/* Create Project — moved here from per-card */}
+          <button
+            type="button"
+            onClick={() => void createProjectFromPicker()}
+            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] font-medium transition-colors"
+            style={{
+              background: "var(--color-accent)",
+              color: "var(--color-accent-text)",
+            }}
+            title="Register a folder on disk as a new project"
+          >
+            <Plus size={12} />
+            Create Project
+          </button>
+        </div>
 
-            {!workspacesLoading && workspaces.length > 0 && filteredWorkspaces.length === 0 && (
-              <div
-                className="rounded p-6 text-center text-[12.5px]"
-                style={{
-                  background: "var(--color-surface-2)",
-                  border: "1px solid var(--color-border)",
-                  color: "var(--color-text-tertiary)",
-                }}
-              >
-                No workspace matches "{search}".
-              </div>
-            )}
+        {!workspacesLoading && workspaces.length === 0 && (
+          <div
+            className="rounded p-6 text-center text-[12.5px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-tertiary)",
+            }}
+          >
+            No Claude workspaces yet. Open a Claude session in any folder and
+            it will appear here automatically.
+          </div>
+        )}
 
-            {grouped.ungrouped.length > 0 && (
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                {grouped.ungrouped.map((ws) => (
-                  <WorkspaceCard
-                    key={ws.cwd}
-                    ws={ws}
-                    busy={busyCwd === ws.cwd}
-                    onNew={newInWorkspace}
-                    onCustom={(w) => setModal({ mode: "custom", ws: w })}
-                    onSendContext={(w) =>
-                      setModal({ mode: "send-context", ws: w })
-                    }
-                    onCreateProject={createProjectFromWorkspace}
-                    onNewAtRoot={newAtRoot}
-                  />
-                ))}
-              </div>
-            )}
-
-            {grouped.collapsible.map((g) => {
-              const isOpen = openGroups.has(g.key);
-              return (
-                <div key={g.key} className="mt-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenGroups((prev) => {
-                        const next = new Set(prev);
-                        if (next.has(g.key)) next.delete(g.key);
-                        else next.add(g.key);
-                        return next;
-                      });
-                    }}
-                    aria-expanded={isOpen}
-                    aria-label={`${isOpen ? "Collapse" : "Expand"} ${g.label} workspaces group with ${g.items.length} entries`}
-                    className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
-                    style={{
-                      background: "var(--color-surface-2)",
-                      border: "1px solid var(--color-border)",
-                    }}
-                  >
-                    <span
-                      className="inline-block text-[12px]"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      {isOpen ? "▾" : "▸"}
-                    </span>
-                    <span className="text-[12.5px] font-semibold">{g.label}</span>
-                    <span
-                      className="text-[11.5px]"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      {g.items.length} workspaces
-                    </span>
-                    <span
-                      className="ml-auto text-[11.5px]"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                    >
-                      {isOpen ? "hide" : "show"}
-                    </span>
-                  </button>
-                  {isOpen && (
-                    <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-                      {g.items.map((ws) => (
-                        <WorkspaceCard
-                          key={ws.cwd}
-                          ws={ws}
-                          busy={busyCwd === ws.cwd}
-                          onNew={newInWorkspace}
-                          onCustom={(w) =>
-                            setModal({ mode: "custom", ws: w })
-                          }
-                          onSendContext={(w) =>
-                            setModal({ mode: "send-context", ws: w })
-                          }
-                          onCreateProject={createProjectFromWorkspace}
-                          onNewAtRoot={newAtRoot}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </section>
-
-          {/* ------------------------------------------------------------------
-              Section 2 — Collapsible: All Claude sessions
-              Power-user resume surface. Hidden by default behind a toggle
-              chevron so the workspace cards above stay the headline.
-              Toggle persists in showAllSessions state.
-              ------------------------------------------------------------------ */}
-          <section className="mb-6">
-            <button
-              type="button"
-              onClick={() => setShowAllSessions(!showAllSessions)}
-              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+        {!workspacesLoading &&
+          workspaces.length > 0 &&
+          filteredWorkspaces.length === 0 && (
+            <div
+              className="rounded p-6 text-center text-[12.5px]"
               style={{
                 background: "var(--color-surface-2)",
                 border: "1px solid var(--color-border)",
+                color: "var(--color-text-tertiary)",
               }}
             >
-              <History size={13} />
-              <span className="text-[12.5px] font-semibold">
-                All Claude sessions
-              </span>
-              <span
-                className="text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {historyLoading
-                  ? "loading…"
-                  : `${filteredHistory.length} of ${history.length}`}
-              </span>
-              <span
-                className="ml-auto text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {showAllSessions ? "hide" : "show"}
-              </span>
-            </button>
+              {tagFilter
+                ? `No workspace has sessions tagged "${tagFilter}".`
+                : `No workspace matches "${search}".`}
+            </div>
+          )}
 
-            {showAllSessions && (
-              <div
-                className="mt-2 rounded p-4"
+        {/* Ungrouped cards */}
+        {grouped.ungrouped.length > 0 && (
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            {grouped.ungrouped.map((ws) => (
+              <WorkspaceCard
+                key={ws.cwd}
+                ws={ws}
+                busy={busyCwd === ws.cwd}
+                tags={tagsForWorkspace(ws)}
+                activeTagFilter={tagFilter}
+                onNew={newInWorkspace}
+                onCustom={(w) => setModal({ mode: "custom", ws: w })}
+                onSendContext={(w) => setModal({ mode: "send-context", ws: w })}
+                onTagClick={handleTagClick}
+                onAutoTag={autoTagWorkspace}
+                taggingBusy={taggingCwd === ws.cwd}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Collapsible groups */}
+        {grouped.collapsible.map((g) => {
+          const isOpen = openGroups.has(g.key);
+          return (
+            <div key={g.key} className="mt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setOpenGroups((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(g.key)) next.delete(g.key);
+                    else next.add(g.key);
+                    return next;
+                  });
+                }}
+                aria-expanded={isOpen}
+                aria-label={`${isOpen ? "Collapse" : "Expand"} ${g.label} workspaces group`}
+                className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
                 style={{
                   background: "var(--color-surface-2)",
                   border: "1px solid var(--color-border)",
                 }}
               >
-                {!historyLoading && filteredHistory.length === 0 && (
+                <span
+                  className="inline-block text-[12px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {isOpen ? "▾" : "▸"}
+                </span>
+                <span className="text-[12.5px] font-semibold">{g.label}</span>
+                <span
+                  className="text-[11.5px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {g.items.length} workspaces
+                </span>
+                <span
+                  className="ml-auto text-[11.5px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {isOpen ? "hide" : "show"}
+                </span>
+              </button>
+              {isOpen && (
+                <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {g.items.map((ws) => (
+                    <WorkspaceCard
+                      key={ws.cwd}
+                      ws={ws}
+                      busy={busyCwd === ws.cwd}
+                      tags={tagsForWorkspace(ws)}
+                      activeTagFilter={tagFilter}
+                      onNew={newInWorkspace}
+                      onCustom={(w) => setModal({ mode: "custom", ws: w })}
+                      onSendContext={(w) =>
+                        setModal({ mode: "send-context", ws: w })
+                      }
+                      onTagClick={handleTagClick}
+                      onAutoTag={autoTagWorkspace}
+                      taggingBusy={taggingCwd === ws.cwd}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </section>
+
+      {/* -------------------------------------------------------------------- */}
+      {/* Section 2 — All Claude sessions (power-user resume list)              */}
+      {/* -------------------------------------------------------------------- */}
+      <section className="mb-6">
+        <button
+          type="button"
+          onClick={() => setShowAllSessions(!showAllSessions)}
+          className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+          }}
+        >
+          <History size={13} />
+          <span className="text-[12.5px] font-semibold">
+            All Claude sessions
+          </span>
+          <span
+            className="text-[11.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {historyLoading
+              ? "loading…"
+              : `${filteredHistory.length} of ${history.length}`}
+          </span>
+          <span
+            className="ml-auto text-[11.5px]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            {showAllSessions ? "hide" : "show"}
+          </span>
+        </button>
+
+        {showAllSessions && (
+          <div
+            className="mt-2 rounded p-4"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+            }}
+          >
+            {!historyLoading && filteredHistory.length === 0 && (
+              <div
+                className="rounded p-4 text-center text-[12px]"
+                style={{
+                  background: "var(--color-surface-1)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-tertiary)",
+                }}
+              >
+                {history.length === 0
+                  ? "No sessions recorded yet."
+                  : tagFilter
+                    ? `No session tagged "${tagFilter}".`
+                    : `No session matches "${search}".`}
+              </div>
+            )}
+            <div className="space-y-1.5">
+              {filteredHistory.map((s) => {
+                const sTags = tagsMap.get(s.id) ?? [];
+                return (
                   <div
-                    className="rounded p-4 text-center text-[12px]"
+                    key={`${s.project_slug}-${s.id}`}
+                    className="rounded p-3 transition-colors"
                     style={{
                       background: "var(--color-surface-1)",
                       border: "1px solid var(--color-border)",
-                      color: "var(--color-text-tertiary)",
                     }}
                   >
-                    {history.length === 0
-                      ? "No sessions recorded yet."
-                      : `No session matches "${search}".`}
-                  </div>
-                )}
-                <div className="space-y-1.5">
-                  {filteredHistory.map((s) => (
-                    <div
-                      key={`${s.project_slug}-${s.id}`}
-                      className="rounded p-3 transition-colors"
-                      style={{
-                        background: "var(--color-surface-1)",
-                        border: "1px solid var(--color-border)",
-                      }}
-                    >
-                      <div className="flex items-baseline gap-3">
-                        <span
-                          className="truncate text-[11.5px]"
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            color: "var(--color-text-tertiary)",
-                          }}
-                          title={s.project_label}
-                        >
-                          {s.project_label}
-                        </span>
-                        <span
-                          className="ml-auto shrink-0 tabular-nums text-[10.5px]"
-                          style={{ color: "var(--color-text-faint)" }}
-                        >
-                          {formatRel(s.last_activity)} · {s.line_count} turns ·{" "}
-                          {formatBytes(s.size_bytes)}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => resumeSession(s)}
-                          className="shrink-0 rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors"
-                          style={{
-                            background: "var(--color-accent)",
-                            color: "var(--color-accent-text)",
-                          }}
-                          title={`claude -r ${s.id}`}
-                        >
-                          Resume
-                        </button>
-                      </div>
-                      {s.preview && (
-                        <div
-                          className="mt-1 line-clamp-2 text-[12px] leading-relaxed"
-                          style={{ color: "var(--color-text-secondary)" }}
-                        >
-                          {s.preview}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </section>
-
-          {/* ------------------------------------------------------------------
-              Section 3 — Advanced launch (hidden, retained for future use)
-              ------------------------------------------------------------------ */}
-          <section style={{ display: "none" }}>
-            <button
-              type="button"
-              onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex w-full items-center gap-2 rounded px-3 py-2 text-left transition-colors"
-              style={{
-                background: "var(--color-surface-2)",
-                border: "1px solid var(--color-border)",
-              }}
-            >
-              <span className="text-[12.5px] font-semibold">
-                Advanced launch
-              </span>
-              <span
-                className="text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                provider · model · presets · quick prompt
-              </span>
-              <span
-                className="ml-auto text-[11.5px]"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {showAdvanced ? "hide" : "show"}
-              </span>
-            </button>
-
-            {showAdvanced && (
-              <section
-                className="mt-2 rounded p-5"
-                style={{
-                  background: "var(--color-surface-2)",
-                  border: "1px solid var(--color-border)",
-                }}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <ProviderTabs active={provider} onChange={setProvider} />
-                  <WorkspacePicker
-                    cwd={cwd}
-                    onChange={setCwd}
-                    projects={projects}
-                  />
-                </div>
-
-                {meta.acceptsModel && (
-                  <div className="mt-4 flex items-center gap-3">
-                    <label
-                      className="text-[11.5px]"
-                      style={{ color: "var(--color-text-tertiary)" }}
-                      htmlFor="provider-model"
-                    >
-                      Model
-                    </label>
-                    <select
-                      id="provider-model"
-                      value={model}
-                      onChange={(e) => setModel(e.target.value)}
-                      className="rounded px-2 py-1 text-[12px]"
-                      style={{
-                        background: "var(--color-surface-1)",
-                        color: "var(--color-text)",
-                        border: "1px solid var(--color-border-strong)",
-                      }}
-                    >
-                      {meta.models.map((m) => (
-                        <option key={m.id || "default"} value={m.id}>
-                          {m.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
-                <div
-                  className="mt-4 rounded p-4"
-                  style={{
-                    background: "var(--color-surface-1)",
-                    border: "1px solid var(--color-border)",
-                  }}
-                >
-                  <div
-                    className="text-[10px] font-medium uppercase tracking-[0.06em]"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                  >
-                    Presets · applied on launch and remembered across sessions
-                  </div>
-                  <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <label
-                      className="flex items-start gap-2 rounded p-2.5 transition-colors"
-                      style={{
-                        background: presets.dangerouslySkipPermissions
-                          ? "rgba(248, 81, 73, 0.06)"
-                          : "var(--color-surface-2)",
-                        border: `1px solid ${
-                          presets.dangerouslySkipPermissions
-                            ? "rgba(248, 81, 73, 0.22)"
-                            : "var(--color-border)"
-                        }`,
-                        cursor: "pointer",
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={presets.dangerouslySkipPermissions}
-                        onChange={(e) =>
-                          setPresets({
-                            ...presets,
-                            dangerouslySkipPermissions: e.target.checked,
-                          })
-                        }
-                        className="mt-0.5 h-3.5 w-3.5"
-                      />
-                      <div className="min-w-0">
-                        <div
-                          className="text-[12.5px] font-medium"
-                          style={{
-                            color: presets.dangerouslySkipPermissions
-                              ? "var(--color-danger)"
-                              : "var(--color-text)",
-                          }}
-                        >
-                          --dangerously-skip-permissions
-                        </div>
-                        <div
-                          className="mt-0.5 text-[11.5px]"
-                          style={{ color: "var(--color-text-tertiary)" }}
-                        >
-                          Skip every tool confirmation. Only in trusted
-                          environments.
-                        </div>
-                      </div>
-                    </label>
-
-                    <div>
-                      <label
-                        className="block text-[10px] uppercase tracking-wide"
-                        style={{ color: "var(--color-text-tertiary)" }}
-                        htmlFor="effort-select"
-                      >
-                        --effort
-                      </label>
-                      <select
-                        id="effort-select"
-                        value={presets.effort}
-                        onChange={(e) =>
-                          setPresets({
-                            ...presets,
-                            effort: e.target.value as Presets["effort"],
-                          })
-                        }
-                        className="mt-1 w-full rounded px-2 py-1 text-[12px]"
+                    <div className="flex items-baseline gap-3">
+                      <span
+                        className="truncate text-[11.5px]"
                         style={{
-                          background: "var(--color-surface-2)",
-                          color: "var(--color-text)",
-                          border: "1px solid var(--color-border-strong)",
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--color-text-tertiary)",
                         }}
+                        title={s.project_label}
                       >
-                        <option value="">default</option>
-                        <option value="low">low</option>
-                        <option value="medium">medium</option>
-                        <option value="high">high</option>
-                        <option value="xhigh">xhigh</option>
-                        <option value="max">max</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div
-                    className="mt-4 flex flex-wrap items-center gap-2 border-t pt-4"
-                    style={{ borderColor: "var(--color-border)" }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => openSession(false)}
-                      className="rounded px-4 py-2 text-[13px] font-semibold transition-colors"
-                      style={{
-                        background: "var(--color-accent)",
-                        color: "var(--color-accent-text)",
-                      }}
-                      title={`Launch a clean ${meta.label} session in ${cwd || "(no workspace)"}`}
-                    >
-                      New Session
-                    </button>
-                    <span
-                      className="ml-auto text-[11.5px]"
-                      style={{ color: "var(--color-text-faint)" }}
-                    >
-                      cwd: {cwd || "(none)"}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="mt-4 flex items-center justify-between">
-                  <button
-                    type="button"
-                    onClick={() => setShowInline(!showInline)}
-                    className="text-[11.5px] transition-colors"
-                    style={{ color: "var(--color-text-tertiary)" }}
-                    title="Inline mode: run a batch prompt without opening a terminal"
-                  >
-                    {showInline ? "Hide quick prompt" : "Show quick prompt"}
-                  </button>
-                </div>
-
-                {showInline && (
-                  <>
-                    <textarea
-                      value={prompt}
-                      onChange={(e) => setPrompt(e.target.value)}
-                      placeholder={`Prompt for ${meta.label}…  (Ctrl+Enter to open session with prompt)`}
-                      rows={6}
-                      onKeyDown={(e) => {
-                        if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                          e.preventDefault();
-                          if (prompt.trim()) openSession(true);
-                        }
-                      }}
-                      className="mt-3 w-full rounded px-3 py-2 text-[12.5px] leading-relaxed"
-                      style={{
-                        background: "var(--color-surface-1)",
-                        color: "var(--color-text)",
-                        border: "1px solid var(--color-border-strong)",
-                        fontFamily: "var(--font-mono)",
-                        outline: "none",
-                        resize: "vertical",
-                      }}
-                    />
-
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {s.project_label}
+                      </span>
+                      <span
+                        className="ml-auto shrink-0 tabular-nums text-[10.5px]"
+                        style={{ color: "var(--color-text-faint)" }}
+                      >
+                        {formatRel(s.last_activity)} · {s.line_count} turns ·{" "}
+                        {formatBytes(s.size_bytes)}
+                      </span>
                       <button
                         type="button"
-                        onClick={() => openSession(true)}
-                        disabled={!prompt.trim()}
-                        className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+                        onClick={() => resumeSession(s)}
+                        className="shrink-0 rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors"
                         style={{
                           background: "var(--color-accent)",
                           color: "var(--color-accent-text)",
                         }}
-                        title="Open a new terminal session pre-populated with this prompt"
+                        title={`claude -r ${s.id}`}
                       >
-                        Open session with prompt
+                        Resume
                       </button>
-                      <div className="ml-auto flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setPrompt("")}
-                          className="rounded px-2 py-1.5 text-[11.5px] transition-colors"
-                          style={{
-                            background: "transparent",
-                            color: "var(--color-text-tertiary)",
-                            border: "1px solid var(--color-border-strong)",
-                          }}
-                        >
-                          Clear
-                        </button>
-                      </div>
                     </div>
-                  </>
-                )}
-              </section>
-            )}
-          </section>
-        </>
+                    {s.preview && (
+                      <div
+                        className="mt-1 line-clamp-2 text-[12px] leading-relaxed"
+                        style={{ color: "var(--color-text-secondary)" }}
+                      >
+                        {s.preview}
+                      </div>
+                    )}
+                    {sTags.length > 0 && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {sTags.map((tag) => (
+                          <button
+                            key={tag}
+                            type="button"
+                            onClick={() => handleTagClick(tag)}
+                            className="rounded px-1.5 py-0.5 text-[10px]"
+                            style={{
+                              background:
+                                tagFilter === tag
+                                  ? "var(--color-accent)"
+                                  : "var(--color-surface-3)",
+                              color:
+                                tagFilter === tag
+                                  ? "var(--color-accent-text)"
+                                  : "var(--color-text-tertiary)",
+                              border: "1px solid var(--color-border)",
+                            }}
+                          >
+                            {tag}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </section>
 
-      {/* v2.6 round 2: Custom / Send-Context modal — single instance at the
-          panel level. Cards delegate via setModal(...). */}
+      {/* -------------------------------------------------------------------- */}
+      {/* Launcher modal (Custom / Send Context)                                */}
+      {/* -------------------------------------------------------------------- */}
       {modal && (
         <LauncherModal
           mode={modal.mode}

@@ -10,7 +10,7 @@
 // Layout outline:
 //   Row 1 (banner): Notifications — full width, status snapshot.
 //   Row 2 (status trio): Mem0 · Pending · Backup (3 columns, all "lg" size).
-//   Row 3 (lists pair): Recent sessions · Recent projects (2 columns).
+//   Row 3 (pair): Workdays week chart · Recent projects (2 columns).
 //   Row 4 (footer card): Crash events — read-only, no event-viewer button.
 //
 // Cards that were dropped:
@@ -25,7 +25,7 @@ import { AlertsCard } from "./dashboard/AlertsCard";
 import { Mem0Card } from "./dashboard/Mem0Card";
 import { PluginStatusCard } from "./dashboard/PluginStatusCard";
 import { RecentProjectsCard } from "./dashboard/RecentProjectsCard";
-import { RecentSessionsCard } from "./dashboard/RecentSessionsCard";
+import { WorkdaysWeekCard } from "./dashboard/WorkdaysWeekCard";
 import { PendingKanbanCard } from "./dashboard/PendingKanbanCard";
 import { BackupCard } from "./dashboard/BackupCard";
 import { CrashEventsCard } from "./dashboard/CrashEventsCard";
@@ -101,9 +101,9 @@ export function Dashboard({
         <BackupCard />
       </div>
 
-      {/* Row 3 — Recent sessions · Recent projects */}
+      {/* Row 3 — Workdays week · Recent projects */}
       <div className="mb-4 grid gap-4 lg:grid-cols-2">
-        <RecentSessionsCard onOpenSessions={() => onNavigate?.("sessions")} />
+        <WorkdaysWeekCard />
         <RecentProjectsCard onOpenProjects={() => onNavigate?.("projects")} />
       </div>
 
