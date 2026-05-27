@@ -351,6 +351,24 @@ pub fn list_delegations_inner(limit: usize) -> Result<Vec<DelegationLogEntry>, S
 /// If the user edits the skill markdown the workflow definitions still
 /// remain consistent with the documented semantics.
 pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
+    // KIRKARDO 26 CRITICAL fix: the previous version referenced 6 ghost
+    // slugs (terry-davis, kirkardo, don-claudio, einstein, novalbos,
+    // ue5-dev) that exist as SKILLS in ~/.claude/skills/ but NOT as
+    // agents in ~/.claude/agents/. Tauri's delegate_task spawns by
+    // subagent_type which must resolve to an actual .md file in agents/.
+    // 5 of 7 workflows were silently no-op'ing the persona steps.
+    //
+    // New mapping uses agents that exist on disk (verified 2026-05-27):
+    //   terry-davis        → code-reviewer
+    //   kirkardo           → qa-expert
+    //   don-claudio        → architect-reviewer
+    //   einstein           → ai-engineer
+    //   novalbos           → llm-architect
+    //   ue5-dev            → unreal-engine-engineer
+    //
+    // The personas still live as skills and continue to be invokable by
+    // name from the user prompt; this list is strictly about subagent
+    // delegation that touches ~/.claude/agents/.
     vec![
         WorkflowDefinition {
             id: "quick".to_string(),
@@ -358,11 +376,11 @@ pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
             description: "Obvious bugs, simple fixes, fast technical answers.".to_string(),
             steps: vec![
                 WorkflowStep {
-                    agent: "terry-davis".to_string(),
-                    note: Some("Quick mode".to_string()),
+                    agent: "code-reviewer".to_string(),
+                    note: Some("Quick surgical fix".to_string()),
                 },
                 WorkflowStep {
-                    agent: "kirkardo".to_string(),
+                    agent: "qa-expert".to_string(),
                     note: Some("30s validation".to_string()),
                 },
             ],
@@ -373,15 +391,15 @@ pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
             description: "New features in any project — design first.".to_string(),
             steps: vec![
                 WorkflowStep {
-                    agent: "don-claudio".to_string(),
+                    agent: "architect-reviewer".to_string(),
                     note: Some("Architect".to_string()),
                 },
                 WorkflowStep {
-                    agent: "terry-davis".to_string(),
+                    agent: "fullstack-developer".to_string(),
                     note: Some("TDD implementation".to_string()),
                 },
                 WorkflowStep {
-                    agent: "kirkardo".to_string(),
+                    agent: "code-reviewer".to_string(),
                     note: Some("Quality PR".to_string()),
                 },
             ],
@@ -396,11 +414,11 @@ pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
                     note: Some("Systematic debugging".to_string()),
                 },
                 WorkflowStep {
-                    agent: "terry-davis".to_string(),
-                    note: Some("Quick surgical fix".to_string()),
+                    agent: "error-detective".to_string(),
+                    note: Some("Cross-service correlation".to_string()),
                 },
                 WorkflowStep {
-                    agent: "kirkardo".to_string(),
+                    agent: "qa-expert".to_string(),
                     note: Some("Verify fix".to_string()),
                 },
             ],
@@ -419,7 +437,7 @@ pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
                     note: Some("Dependencies + taint".to_string()),
                 },
                 WorkflowStep {
-                    agent: "kirkardo".to_string(),
+                    agent: "code-reviewer".to_string(),
                     note: Some("Final verdict".to_string()),
                 },
             ],
@@ -430,19 +448,19 @@ pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
             description: "Features that need understanding something new first.".to_string(),
             steps: vec![
                 WorkflowStep {
-                    agent: "einstein".to_string(),
+                    agent: "ai-engineer".to_string(),
                     note: Some("Theory + papers".to_string()),
                 },
                 WorkflowStep {
-                    agent: "novalbos".to_string(),
-                    note: Some("Deep dive".to_string()),
+                    agent: "llm-architect".to_string(),
+                    note: Some("Architecture deep dive".to_string()),
                 },
                 WorkflowStep {
-                    agent: "don-claudio".to_string(),
+                    agent: "architect-reviewer".to_string(),
                     note: Some("Translate to design".to_string()),
                 },
                 WorkflowStep {
-                    agent: "terry-davis".to_string(),
+                    agent: "fullstack-developer".to_string(),
                     note: Some("Implementation".to_string()),
                 },
             ],
@@ -453,19 +471,19 @@ pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
             description: "Tortunabo / other game projects — engine-specific stack.".to_string(),
             steps: vec![
                 WorkflowStep {
-                    agent: "don-claudio".to_string(),
+                    agent: "architect-reviewer".to_string(),
                     note: Some("Multiplayer / engine architect".to_string()),
                 },
                 WorkflowStep {
-                    agent: "ue5-dev".to_string(),
-                    note: Some("Context discovery".to_string()),
+                    agent: "unreal-engine-engineer".to_string(),
+                    note: Some("UE5 C++ + Blueprints".to_string()),
                 },
                 WorkflowStep {
-                    agent: "terry-davis".to_string(),
-                    note: Some("TDD C++/C#".to_string()),
+                    agent: "cpp-pro".to_string(),
+                    note: Some("Modern C++ gameplay".to_string()),
                 },
                 WorkflowStep {
-                    agent: "kirkardo".to_string(),
+                    agent: "qa-expert".to_string(),
                     note: Some("Review".to_string()),
                 },
             ],
@@ -476,15 +494,15 @@ pub fn list_workflows_inner() -> Vec<WorkflowDefinition> {
             description: "Learn something new deeply, not just copy it.".to_string(),
             steps: vec![
                 WorkflowStep {
-                    agent: "novalbos".to_string(),
+                    agent: "llm-architect".to_string(),
                     note: Some("Deep explanation + notes".to_string()),
                 },
                 WorkflowStep {
-                    agent: "terry-davis".to_string(),
+                    agent: "code-reviewer".to_string(),
                     note: Some("Working example".to_string()),
                 },
                 WorkflowStep {
-                    agent: "kirkardo".to_string(),
+                    agent: "qa-expert".to_string(),
                     note: Some("Verify correctness".to_string()),
                 },
             ],
