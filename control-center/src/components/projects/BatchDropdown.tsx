@@ -83,6 +83,8 @@ export default function BatchDropdown({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runningName, setRunningName] = useState<string | null>(null);
+  /** Name of the batch currently pending delete confirmation (inline). */
+  const [pendingDeleteName, setPendingDeleteName] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const refresh = useCallback(async () => {
@@ -148,6 +150,28 @@ export default function BatchDropdown({
       } finally {
         setRunningName(null);
         setOpen(false);
+      }
+    },
+    [onResult, refresh],
+  );
+
+  const deleteSingle = useCallback(
+    async (name: string) => {
+      setPendingDeleteName(null);
+      try {
+        await invoke<void>("delete_batch_single", { name });
+        onResult?.({
+          kind: "ok",
+          title: `Deleted: ${name}`,
+          body: "Batch script removed from ~/.ultron/batches/",
+        });
+        void refresh();
+      } catch (e: unknown) {
+        onResult?.({
+          kind: "err",
+          title: `Delete failed: ${name}`,
+          body: e instanceof Error ? e.message : String(e),
+        });
       }
     },
     [onResult, refresh],
@@ -312,7 +336,7 @@ export default function BatchDropdown({
                 }}
                 title="Delete batch scripts older than 30 days"
               >
-                Cleanup 30d
+                Clean old
               </button>
               <button
                 type="button"
@@ -380,86 +404,187 @@ export default function BatchDropdown({
               <ul className="flex flex-col gap-0.5">
                 {batches.map((b) => {
                   const busy = runningName === b.name;
+                  const pendingDelete = pendingDeleteName === b.name;
                   return (
-                    <li key={b.path}>
-                      <button
-                        type="button"
-                        role="menuitem"
-                        disabled={busy || runningName !== null}
-                        onClick={() => void run(b.name)}
-                        className="group flex w-full items-center gap-2 rounded px-2 py-1.5 text-left transition-colors disabled:opacity-50"
-                        style={{
-                          background: "transparent",
-                          color: "var(--color-text)",
-                          border: "1px solid transparent",
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background =
-                            "var(--color-surface-3)";
-                          e.currentTarget.style.borderColor =
-                            "var(--color-border)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "transparent";
-                          e.currentTarget.style.borderColor = "transparent";
-                        }}
-                        title={`${b.path}\n${formatBytes(b.size_bytes)} · modified ${formatAge(b.modified_epoch)}`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div
-                            className="truncate text-[12px] font-medium"
-                            style={{
-                              fontFamily: "var(--font-mono)",
-                              color: "var(--color-text)",
-                            }}
-                          >
-                            {b.name}
-                          </div>
-                          <div
-                            className="mt-px flex items-center gap-2 text-[10px]"
-                            style={{ color: "var(--color-text-tertiary)" }}
-                          >
-                            <span className="tabular-nums">
-                              {formatBytes(b.size_bytes)}
-                            </span>
-                            <span style={{ color: "var(--color-text-faint)" }}>
-                              ·
-                            </span>
-                            <span className="tabular-nums">
-                              {formatAge(b.modified_epoch)}
-                            </span>
-                          </div>
-                        </div>
-                        <span
-                          className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                    <li key={b.path} className="group/item">
+                      {/* Confirm-delete inline bar — shown instead of the run
+                          row when the user clicks X on this item. */}
+                      {pendingDelete ? (
+                        <div
+                          className="flex items-center gap-2 rounded px-2 py-1.5"
                           style={{
-                            background: busy
-                              ? "var(--color-accent)"
-                              : "var(--color-surface-1)",
-                            color: busy
-                              ? "var(--color-accent-text)"
-                              : "var(--color-text-secondary)",
-                            border: `1px solid ${busy ? "var(--color-accent)" : "var(--color-border)"}`,
+                            background: "rgba(248, 81, 73, 0.06)",
+                            border: "1px solid rgba(248, 81, 73, 0.22)",
                           }}
                         >
-                          {busy && (
+                          <span
+                            className="min-w-0 flex-1 truncate text-[11.5px]"
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              color: "var(--color-danger)",
+                            }}
+                          >
+                            Delete {b.name}?
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => void deleteSingle(b.name)}
+                            className="rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                            style={{
+                              background: "rgba(248,81,73,0.15)",
+                              color: "var(--color-danger)",
+                              border: "1px solid rgba(248,81,73,0.40)",
+                            }}
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPendingDeleteName(null)}
+                            className="rounded px-2 py-0.5 text-[11px] transition-colors"
+                            style={{
+                              background: "transparent",
+                              color: "var(--color-text-secondary)",
+                              border: "1px solid var(--color-border)",
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1">
+                          {/* Run button — takes all available width */}
+                          <button
+                            type="button"
+                            role="menuitem"
+                            disabled={busy || runningName !== null}
+                            onClick={() => void run(b.name)}
+                            className="flex min-w-0 flex-1 items-center gap-2 rounded px-2 py-1.5 text-left transition-colors disabled:opacity-50"
+                            style={{
+                              background: "transparent",
+                              color: "var(--color-text)",
+                              border: "1px solid transparent",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.background =
+                                "var(--color-surface-3)";
+                              e.currentTarget.style.borderColor =
+                                "var(--color-border)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = "transparent";
+                              e.currentTarget.style.borderColor = "transparent";
+                            }}
+                            title={`${b.path}\n${formatBytes(b.size_bytes)} · modified ${formatAge(b.modified_epoch)}`}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div
+                                className="truncate text-[12px] font-medium"
+                                style={{
+                                  fontFamily: "var(--font-mono)",
+                                  color: "var(--color-text)",
+                                }}
+                              >
+                                {b.name}
+                              </div>
+                              <div
+                                className="mt-px flex items-center gap-2 text-[10px]"
+                                style={{ color: "var(--color-text-tertiary)" }}
+                              >
+                                <span className="tabular-nums">
+                                  {formatBytes(b.size_bytes)}
+                                </span>
+                                <span
+                                  style={{ color: "var(--color-text-faint)" }}
+                                >
+                                  ·
+                                </span>
+                                <span className="tabular-nums">
+                                  {formatAge(b.modified_epoch)}
+                                </span>
+                              </div>
+                            </div>
+                            <span
+                              className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-px text-[10px] font-medium uppercase tracking-wide"
+                              style={{
+                                background: busy
+                                  ? "var(--color-accent)"
+                                  : "var(--color-surface-1)",
+                                color: busy
+                                  ? "var(--color-accent-text)"
+                                  : "var(--color-text-secondary)",
+                                border: `1px solid ${busy ? "var(--color-accent)" : "var(--color-border)"}`,
+                              }}
+                            >
+                              {busy && (
+                                <svg
+                                  width="9"
+                                  height="9"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="3"
+                                  strokeLinecap="round"
+                                  style={{
+                                    animation: "spin 0.9s linear infinite",
+                                  }}
+                                  aria-hidden
+                                >
+                                  <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                                </svg>
+                              )}
+                              {busy ? "running" : "run"}
+                            </span>
+                          </button>
+
+                          {/* Delete (X) button — only visible on hover */}
+                          <button
+                            type="button"
+                            disabled={busy || runningName !== null}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPendingDeleteName(b.name);
+                            }}
+                            title={`Delete ${b.name}`}
+                            className="flex shrink-0 items-center justify-center rounded p-1 opacity-0 transition-opacity group-hover/item:opacity-100 disabled:pointer-events-none"
+                            style={{
+                              background: "transparent",
+                              color: "var(--color-text-tertiary)",
+                              border: "1px solid transparent",
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.color =
+                                "var(--color-danger)";
+                              e.currentTarget.style.background =
+                                "rgba(248,81,73,0.08)";
+                              e.currentTarget.style.borderColor =
+                                "rgba(248,81,73,0.25)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.color =
+                                "var(--color-text-tertiary)";
+                              e.currentTarget.style.background = "transparent";
+                              e.currentTarget.style.borderColor = "transparent";
+                            }}
+                            aria-label={`Eliminar ${b.name}`}
+                          >
+                            {/* X icon inline */}
                             <svg
-                              width="9"
-                              height="9"
+                              width="11"
+                              height="11"
                               viewBox="0 0 24 24"
                               fill="none"
                               stroke="currentColor"
-                              strokeWidth="3"
+                              strokeWidth="2.5"
                               strokeLinecap="round"
-                              style={{ animation: "spin 0.9s linear infinite" }}
                               aria-hidden
                             >
-                              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                              <line x1="18" y1="6" x2="6" y2="18" />
+                              <line x1="6" y1="6" x2="18" y2="18" />
                             </svg>
-                          )}
-                          {busy ? "running" : "run"}
-                        </span>
-                      </button>
+                          </button>
+                        </div>
+                      )}
                     </li>
                   );
                 })}

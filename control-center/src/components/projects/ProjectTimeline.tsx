@@ -142,7 +142,7 @@ export default function ProjectTimeline({ projectId, projectPath }: Props) {
         </div>
       )}
 
-      <div className="flex-1 overflow-auto px-3 py-2">
+      <div className="flex-1 overflow-auto px-1.5 py-2">
         {!loading && events.length === 0 && (
           <div className="mx-auto mt-12 max-w-md rounded border border-dashed border-[var(--color-border)] p-6 text-center text-[12px] text-[var(--color-text-muted)]">
             <p className="font-medium text-[var(--color-text-secondary)]">
@@ -166,19 +166,19 @@ export default function ProjectTimeline({ projectId, projectPath }: Props) {
           return (
             <section
               key={group.day}
-              className="mb-4 grid items-start gap-3"
-              style={{ gridTemplateColumns: "110px 1fr" }}
+              className="mb-4 grid items-start gap-2"
+              style={{ gridTemplateColumns: "48px 1fr" }}
             >
               <button
                 type="button"
                 onClick={() => toggleDay(group.day)}
-                className="sticky top-0 z-10 flex w-full items-center justify-end gap-1 bg-[var(--color-surface-0)] py-1 text-right text-[10.5px] font-semibold uppercase tracking-[0.06em] tabular-nums text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
+                className="sticky top-0 z-10 flex w-12 flex-col items-end gap-0.5 bg-[var(--color-surface-0)] py-1 text-right text-[10px] font-semibold uppercase tracking-[0.06em] tabular-nums text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-secondary)]"
                 style={{ backdropFilter: "blur(2px)" }}
                 aria-expanded={!collapsed}
                 title={`${collapsed ? "Expand" : "Collapse"} ${formatDay(group.day)} (${group.events.length} events)`}
               >
-                <span aria-hidden>{collapsed ? "▸" : "▾"}</span>
-                <span>{formatDay(group.day)}</span>
+                <span aria-hidden className="text-[9px]">{collapsed ? "▸" : "▾"}</span>
+                <span className="w-full truncate leading-tight">{formatDay(group.day)}</span>
                 <span className="text-[var(--color-text-faint)]">
                   ·{group.events.length}
                 </span>
@@ -220,13 +220,13 @@ export default function ProjectTimeline({ projectId, projectPath }: Props) {
                           {meta.label}
                         </span>
                         <span
-                          className="truncate text-[12.5px] leading-snug text-[var(--color-text)]"
+                          className="min-w-0 truncate text-[12.5px] leading-snug text-[var(--color-text)]"
                           title={ev.title}
                         >
                           {ev.title}
                         </span>
                         <span
-                          className="truncate text-[11.5px] text-[var(--color-text-muted)]"
+                          className="min-w-0 truncate text-[11.5px] text-[var(--color-text-muted)]"
                           title={ev.detail ?? ""}
                         >
                           {ev.detail ?? ""}

@@ -47,8 +47,10 @@ mod memory_status;
 mod notes;
 mod plans;
 mod plugins_info;
+mod project_agents;
 mod project_hotkeys;
 mod projects;
+mod project_context;
 mod detach;
 mod pty;
 mod recall;
@@ -56,8 +58,10 @@ mod rules;
 mod diagnostics_native;
 mod sessions;
 mod sessions_tags;
+mod work_sessions;
 mod settings;
 mod batches;
+mod env_keys;
 mod skills;
 mod system;
 mod tabs;
@@ -211,6 +215,11 @@ pub fn run() {
             commands::agents::delegate_task_to_agent,
             commands::agents::list_agent_workflows,
             commands::agents::list_active_hooks,
+            // -- per-project AI roster + session invocation (P0 2026-05-27) --
+            commands::agents::project_propose_agent_roster,
+            commands::agents::project_roster_save,
+            commands::agents::project_roster_load,
+            commands::agents::project_invoke_agent_from_session,
             // -- rules --
             commands::rules::rules_list,
             commands::rules::rules_read,
@@ -241,9 +250,18 @@ pub fn run() {
             commands::projects::launch_project_executable,
             commands::projects::project_claude_md_load,
             commands::projects::project_claude_md_save,
+            commands::projects::project_context_load,
+            commands::projects::project_create_claude_md,
+            // -- work-sessions (project-level work blocks linked to workdays, C12) --
+            work_sessions::project_work_session_start,
+            work_sessions::project_work_session_end,
+            work_sessions::project_work_sessions_list,
+            work_sessions::project_work_session_link_ai,
+            work_sessions::project_work_session_active,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
+            commands::batches::delete_batch_single,
             commands::batches::cleanup_old_batches,
             // -- project detach / reattach (ventanas independientes) --
             commands::detach::detach_project_window,
@@ -346,6 +364,8 @@ pub fn run() {
             commands::settings::set_backup_sources,
             commands::settings::get_backup_schedule,
             commands::settings::set_backup_schedule,
+            // -- API keys (Windows setx, User scope) --
+            commands::settings::set_env_vars_keys,
             // -- system / scheduled tasks --
             commands::system::list_scheduled_tasks,
             commands::system::run_scheduled_task,

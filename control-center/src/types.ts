@@ -836,6 +836,7 @@ export type OpenTab = {
 };
 
 export type ProjectSubTab =
+  | "jarvis"
   | "board"
   | "terminal"
   | "agents"

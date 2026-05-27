@@ -1,5 +1,6 @@
 // Project CRUD + launcher + open-in-IDE commands.
 use crate::projects;
+use crate::project_context;
 
 #[tauri::command]
 pub async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
@@ -259,6 +260,9 @@ pub async fn open_project_in_ide(
 }
 
 // ---- P4: per-project CLAUDE.md editor ----
+// NOTE: project_claude_md_load / project_claude_md_save remain here for
+// backward compat with the legacy editor. The richer `project_context_load`
+// command below supersedes them for the new Context tab.
 
 fn resolve_claude_md(project_path: &str) -> std::path::PathBuf {
     let p = std::path::PathBuf::from(project_path);
@@ -296,6 +300,35 @@ pub async fn project_claude_md_save(
         std::fs::write(&tmp, content).map_err(|e| format!("write tmp: {e}"))?;
         std::fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))?;
         Ok::<(), String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ---- v2.9.5: rich project context aggregator ----
+
+/// Load all context signals for the per-project Context sub-tab in one call:
+/// CLAUDE.md content + path, Mem0 memories, KG entities, bug cards,
+/// decision records, git summary, and next-step suggestions.
+#[tauri::command]
+pub async fn project_context_load(
+    project_id: String,
+    project_name: String,
+    project_path: String,
+) -> Result<project_context::ProjectContextPayload, String> {
+    project_context::load_inner(project_id, project_name, project_path).await
+}
+
+/// Create a starter CLAUDE.md stub at <project_path>/CLAUDE.md.
+/// Returns the generated content so the UI can display it immediately.
+/// Errors if the file already exists.
+#[tauri::command]
+pub async fn project_create_claude_md(
+    project_path: String,
+    project_name: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project_context::create_claude_md_stub(&project_path, &project_name)
     })
     .await
     .map_err(|e| e.to_string())?

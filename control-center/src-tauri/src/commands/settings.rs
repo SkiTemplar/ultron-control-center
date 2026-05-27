@@ -1,5 +1,6 @@
 // Settings.json / backup root / autostart commands.
-use crate::{backup_status, settings};
+use crate::{backup_status, env_keys, settings};
+use std::collections::HashMap;
 
 #[tauri::command]
 pub async fn settings_read() -> Result<settings::SettingsSnapshot, String> {
@@ -59,4 +60,18 @@ pub async fn set_backup_schedule(
         day,
         time,
     })
+}
+
+/// Persiste API keys de proveedores IA como variables de entorno de usuario
+/// Windows via `setx`. Sólo acepta los nombres de variable de la whitelist
+/// interna (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.). Valores vacíos se
+/// omiten. El cambio surte efecto en sesiones nuevas; la sesión actual NO
+/// lo recibe — el frontend debe notificar al usuario que reinicie.
+#[tauri::command]
+pub async fn set_env_vars_keys(
+    keys: HashMap<String, String>,
+) -> Result<env_keys::EnvKeysSaveResult, String> {
+    tauri::async_runtime::spawn_blocking(move || env_keys::set_env_vars_keys_inner(keys))
+        .await
+        .map_err(|e| e.to_string())?
 }

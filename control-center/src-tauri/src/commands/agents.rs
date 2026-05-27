@@ -2,6 +2,7 @@
 use crate::agent_orchestration;
 use crate::agents;
 use crate::hooks_admin;
+use crate::project_agents;
 use crate::sessions::SpawnResult;
 
 // Origin-aware listing for the Control Center 2.0 Agents viewer.
@@ -131,6 +132,75 @@ pub async fn list_agent_workflows() -> Result<Vec<agent_orchestration::WorkflowD
 #[tauri::command]
 pub async fn list_active_hooks() -> Result<hooks_admin::HooksList, String> {
     hooks_admin::list_hooks_inner()
+}
+
+// ---------------------------------------------------------------------------
+// P0 — AI-assisted roster proposal + invoke-from-session
+// ---------------------------------------------------------------------------
+
+/// Ask the AI Router to propose an optimal agent roster for the project.
+///
+/// Reads manifest files (CLAUDE.md, package.json, Cargo.toml, …) to detect the
+/// stack, lists available agents from ~/.claude/agents/, and calls
+/// `ai_router::route("utility", ...)` with a structured prompt.  Returns a
+/// `AgentRosterProposal` with `recommended` + `gaps`; the frontend shows a
+/// confirmation modal before persisting via `project_roster_save`.
+#[tauri::command]
+pub async fn project_propose_agent_roster(
+    project_id: String,
+    project_path: String,
+) -> Result<project_agents::AgentRosterProposal, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project_agents::propose_roster_inner(&project_id, &project_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Persist a confirmed roster to
+/// `~/.ultron/cockpit/projects/<id>/agent-roster.json`.
+#[tauri::command]
+pub async fn project_roster_save(
+    project_id: String,
+    entries: Vec<project_agents::RosterEntry>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let file = project_agents::AgentRosterFile { entries };
+        project_agents::roster_save(&project_id, &file)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Load the persisted roster for a project.
+#[tauri::command]
+pub async fn project_roster_load(
+    project_id: String,
+) -> Result<project_agents::AgentRosterFile, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project_agents::roster_load(&project_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Write a sub-agent delegation line into the most-recent running PTY for
+/// `project_id`.  Returns `InvokeResult { pty_id, sent }`.
+///
+/// Session selection: picks the `Running` PTY with the latest `started_at`.
+/// If no running session exists, returns an error the UI displays with a
+/// "Open Terminal" CTA.
+#[tauri::command]
+pub async fn project_invoke_agent_from_session(
+    project_id: String,
+    agent_name: String,
+    task_prompt: String,
+) -> Result<project_agents::InvokeResult, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project_agents::invoke_from_session_inner(&project_id, &agent_name, &task_prompt)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

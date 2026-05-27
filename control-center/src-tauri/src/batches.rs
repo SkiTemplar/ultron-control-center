@@ -132,6 +132,28 @@ pub struct BatchCleanupReport {
     pub kept: usize,
 }
 
+/// Delete a single batch script by name (not full path — prevents path traversal).
+/// Validates the resolved path is inside `~/.ultron/batches/` before removing.
+pub fn delete_batch_single_inner(name: String) -> Result<(), String> {
+    // Reject names that look like path traversal before we even touch the FS.
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        return Err("invalid batch name: must be a bare filename with no path separators".to_string());
+    }
+    let dir = batches_dir()?;
+    let cand = dir.join(&name);
+    if !cand.exists() {
+        return Err(format!("batch '{name}' not found"));
+    }
+    if !cand.is_file() {
+        return Err(format!("'{name}' is not a file"));
+    }
+    if !is_allowed_ext(&cand) {
+        return Err(format!("extension not allowed for '{name}'"));
+    }
+    validate_inside(&cand, &dir)?;
+    std::fs::remove_file(&cand).map_err(|e| format!("delete '{name}': {e}"))
+}
+
 /// Delete batch scripts older than `older_than_days` (mtime). Returns the
 /// list of file names removed plus how many remain. Lets the user keep the
 /// batches folder from growing without bound (USER: "Run Batch con

@@ -18,6 +18,7 @@ import {
   Terminal as TerminalIcon,
   Notebook,
   History,
+  Sparkles,
 } from "./icons";
 import type { ProjectSubTab } from "../../types";
 import ProjectBoard from "./ProjectBoard";
@@ -27,6 +28,7 @@ import ProjectContext from "./ProjectContext";
 import ProjectSessions from "./ProjectSessions";
 import ProjectNotes from "./ProjectNotes";
 import ProjectTimeline from "./ProjectTimeline";
+import ProjectJarvisLauncher, { type JarvisIntent } from "./ProjectJarvisLauncher";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 import { type BatchToast } from "./BatchDropdown";
 
@@ -122,13 +124,17 @@ function TabBadge({ count }: { count: number | null }) {
 }
 
 const TABS: { id: ProjectSubTab; label: string; Icon: ComponentType<{ size?: number }> }[] = [
+  // v2.9.8: Jarvis is the default landing — pick an intent (fix / new feature /
+  // recall / multi-agent team / free / research) and the rest of the workspace
+  // becomes contextual. The legacy sub-tabs remain accessible.
+  { id: "jarvis", label: "Jarvis", Icon: Sparkles },
   { id: "board", label: "Board", Icon: Kanban },
   { id: "terminal", label: "Terminal", Icon: TerminalIcon },
   { id: "agents", label: "Agents", Icon: Bot },
   { id: "context", label: "Context", Icon: Notebook },
   { id: "sessions", label: "Sessions", Icon: History },
-  // v2.x: Notes (freeform markdown editor, file: cockpit/projects/<id>/notes.md)
-  // and Timeline (read-only chronological feed: kanban moves + sessions + backups).
+  // Notes (freeform markdown editor) and Timeline (read-only chronological
+  // feed of kanban moves + sessions + backups).
   { id: "notes", label: "Notes", Icon: BookOpen },
   { id: "timeline", label: "Timeline", Icon: Clock },
 ];
@@ -149,7 +155,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
 
   // Sub-tab lives in context so it survives navigating away from the Projects
   // main tab. Deep-link hints (from home-grid shortcuts) override on mount.
-  const subTab: ProjectSubTab = subTabs[projectId] ?? "board";
+  const subTab: ProjectSubTab = subTabs[projectId] ?? "jarvis";
   function setSubTab(t: ProjectSubTab) { setProjectSubTab(projectId, t); }
 
   useEffect(() => {
@@ -433,13 +439,36 @@ export default function ProjectWorkspace({ projectId }: Props) {
         aria-labelledby={`project-tab-${subTab}`}
         className="flex-1 overflow-hidden"
       >
+        {subTab === "jarvis" && (
+          <ProjectJarvisLauncher
+            projectId={projectId}
+            projectPath={meta?.terminalCwd ?? null}
+            projectName={meta?.name ?? projectId}
+            onIntentSelected={(intent: JarvisIntent) => {
+              // For PTY-based intents, switch to Terminal — the user can paste
+              // intent.initial_prompt into a fresh Claude session. Multi-agent
+              // workflow intents will route to a dispatch UI in a later sprint.
+              setSubTab("terminal");
+              // Stash the intent in sessionStorage so ProjectTerminal can pick
+              // it up when it spawns a new tab.
+              try {
+                sessionStorage.setItem(
+                  `jarvis-intent-${projectId}`,
+                  JSON.stringify(intent),
+                );
+              } catch {
+                // sessionStorage can fail in restricted contexts — non-fatal.
+              }
+            }}
+          />
+        )}
         {subTab === "board" && <ProjectBoard projectId={projectId} onOpenTerminal={() => setSubTab("terminal")} />}
         {subTab === "terminal" && <ProjectTerminal projectId={projectId} projectPath={meta?.terminalCwd ?? null} />}
         {subTab === "agents" && (
           <ProjectAgents projectId={projectId} projectPath={meta?.path ?? ""} />
         )}
         {subTab === "context" && (
-          <ProjectContext projectId={projectId} projectPath={meta?.path ?? ""} />
+          <ProjectContext projectId={projectId} projectPath={meta?.path ?? ""} projectName={meta?.name ?? projectId} />
         )}
         {subTab === "sessions" && (
           <ProjectSessions projectId={projectId} projectPath={meta?.path ?? ""} />

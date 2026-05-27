@@ -1,40 +1,36 @@
-// ULTRON Control Center 2.6 — Per-project Agents view
+// ULTRON Control Center — ProjectAgents (P0 rewrite 2026-05-27)
 //
-// v2.6 rewrite: clean two-section layout.
-//   1. Agent Team — Library-style card grid (origin badge + description +
-//      editable role badge + "Remove from project"). Empty state nudges the
-//      user to add one with the picker below.
-//   2. Workflows — predefined multi-agent recipe tiles (Chief of staff,
-//      Backend review, Frontend review, Code audit). Each tile carries a
-//      Beta pill until the orchestration backend lands.
-//   3. "+ Add agent to project" opens an overlay picker with a category
-//      sidebar (Personas, Rust, TypeScript / JS, Agent Frameworks, …) +
-//      a filterable grid of agents. Categories come from
-//      `lib/skill-categories.ts` so global skills and agents share the same
-//      domain taxonomy.
+// Orquestador real conectado a sesión activa.
 //
-// v2.6 (card-v26-fb-023): roles per pinned agent. The role string is stored
-// alongside the `pinned[]` array in `~/.ultron/cockpit/projects/<id>/pinned-agents.json`
-// under a `roles: { [agentName]: string }` map (backend
-// `commands::agents::PinnedAgents`).
+// Secciones:
+//   1. Agent Team — cards de la plantilla del proyecto (agent-roster.json).
+//      Cada card tiene botón "Invoke from session" que escribe la instrucción
+//      en la PTY activa del proyecto.
+//   2. "Propose roster (AI)" — llama a project_propose_agent_roster + modal
+//      de confirmación con recommended + gaps. Confirmar persiste el roster.
+//   3. "+ Add agent" — picker overlay del catálogo global (conservado de v2.6).
+//   4. Generate — CreateSkillFromProjectButton (conservado).
 //
-// v2.6 (card-v26-fb-024 follow-up): "AI configure team" + Launch all + role
-// avatars + workflow tooltips. The AI flow uses a heuristic-first approach:
-// load CLAUDE.md, scan for language/stack tokens, and propose a 3-7 agent
-// team from the global catalogue. The user confirms before applying.
-// Launch all spawns one Claude session per pinned agent, each scoped by the
-// user's role assignment so different terminals get different framings.
+// Identificación de sesión activa: project_invoke_agent_from_session elige
+// la PTY Running más reciente del proyecto (lógica en el backend).
+// Si no hay sesión activa, el botón muestra "No hay sesión activa" y un
+// link a la pestaña Terminal.
 //
-// Backend wiring: `agents_pinned_load`, `agents_pinned_save`, `list_agents`,
-// `kanban_load` / `kanban_save` for the default-agent select,
-// `project_claude_md_load` for the AI-configure heuristics, `spawn_session`
-// for per-agent terminal launch.
+// Lo eliminado vs v2.6:
+//   - Tile "AI Configure Team Beta" (heurístico local sin AI real).
+//   - Sección Workflows con pills Beta y toasts vacíos.
+//   - proposeTeam() / detectLanguages() / LANG_RULES — toda la lógica
+//     heurística local. El backend la hace mejor con ai_router.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Pin, PinOff, Plus, X } from "./icons";
+import { Pin, Plus, X } from "./icons";
 import type { KanbanBoard } from "../../types";
 import { categorize } from "../../lib/skill-categories";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 type Props = { projectId: string; projectPath: string };
 
@@ -45,60 +41,49 @@ type AgentEntry = {
   origin: "global" | "project" | "plugin";
 };
 
-// Mirrors the backend `commands::agents::PinnedAgents` shape. `roles` is
-// optional on the wire (older files were `{ pinned: [...] }` only) so we
-// default to an empty object after loading.
 type PinnedAgents = {
   pinned: string[];
   roles?: Record<string, string>;
 };
 
-type Workflow = {
-  id: string;
-  label: string;
-  description: string;
-  accent: string;
+// Roster types — mirror project_agents.rs
+type RosterEntry = {
+  name: string;
+  reason: string;
+  suggested_role: string;
 };
 
-const WORKFLOWS: Workflow[] = [
-  {
-    id: "chief-of-staff",
-    label: "Chief of staff",
-    description:
-      "Triage open cards, summarise pending work, and assign next actions across pinned agents.",
-    accent: "var(--color-accent)",
-  },
-  {
-    id: "backend-review",
-    label: "Backend review",
-    description:
-      "Run a focused review on backend code: API surface, persistence, error handling.",
-    accent: "#7aa2f7",
-  },
-  {
-    id: "frontend-review",
-    label: "Frontend review",
-    description:
-      "Audit UI: component structure, accessibility, design tokens, render perf.",
-    accent: "#f7768e",
-  },
-  {
-    id: "code-audit",
-    label: "Code audit",
-    description:
-      "Repo-wide static audit: dead code, unused deps, secret leaks, lint debt.",
-    accent: "#e0af68",
-  },
-];
+type GapEntry = {
+  suggested_name: string;
+  reason: string;
+};
+
+type AgentRosterProposal = {
+  recommended: RosterEntry[];
+  gaps: GapEntry[];
+  detected_stack: string[];
+};
+
+type AgentRosterFile = {
+  entries: RosterEntry[];
+};
+
+type InvokeResult = {
+  pty_id: string;
+  sent: boolean;
+};
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 const ALL_CATEGORIES = "__all__";
 const NO_CATEGORY = "Uncategorized";
 
 // ---------------------------------------------------------------------------
-// Role → avatar emoji map. Keyword-matched against the role string the user
-// typed (case-insensitive). First match wins. Defaults to a robot face so
-// every card has SOMETHING visual even when the role is custom.
+// Visual helpers
 // ---------------------------------------------------------------------------
+
 const ROLE_AVATAR_RULES: { keywords: string[]; emoji: string }[] = [
   { keywords: ["backend", "api", "server"], emoji: "🛠️" },
   { keywords: ["frontend", "ui", "ux", "design"], emoji: "🎨" },
@@ -122,192 +107,6 @@ function roleAvatar(role: string | undefined, agentName: string): string {
     if (rule.keywords.some((k) => haystack.includes(k))) return rule.emoji;
   }
   return "🤖";
-}
-
-// ---------------------------------------------------------------------------
-// Heuristic team proposal — no backend needed. Reads CLAUDE.md tokens to
-// guess project language(s) and proposes a balanced team from the global
-// agent list. The user confirms before applying.
-// ---------------------------------------------------------------------------
-type TeamProposal = {
-  agent: AgentEntry;
-  suggestedRole: string;
-};
-
-const LANGUAGE_TOKENS: { keyword: string; lang: string }[] = [
-  { keyword: "rust", lang: "rust" },
-  { keyword: "cargo", lang: "rust" },
-  { keyword: "typescript", lang: "typescript" },
-  { keyword: ".ts", lang: "typescript" },
-  { keyword: "tsx", lang: "typescript" },
-  { keyword: "next.js", lang: "typescript" },
-  { keyword: "react", lang: "typescript" },
-  { keyword: "tauri", lang: "rust" },
-  { keyword: "python", lang: "python" },
-  { keyword: ".py", lang: "python" },
-  { keyword: "fastapi", lang: "python" },
-  { keyword: "django", lang: "python" },
-  { keyword: "go ", lang: "go" },
-  { keyword: "golang", lang: "go" },
-  { keyword: "c++", lang: "cpp" },
-  { keyword: "cpp", lang: "cpp" },
-  { keyword: "unreal", lang: "gamedev" },
-  { keyword: "unity", lang: "gamedev" },
-];
-
-function detectLanguages(claudeMd: string): Set<string> {
-  const found = new Set<string>();
-  const hay = claudeMd.toLowerCase();
-  for (const t of LANGUAGE_TOKENS) {
-    if (hay.includes(t.keyword)) found.add(t.lang);
-  }
-  return found;
-}
-
-// Suggestion rules: each rule lists candidate agent slugs (in priority
-// order) + a role. The first slug in `candidates` that exists in `agents`
-// is picked. Defaults come first so every project gets a baseline team.
-type TeamRule = {
-  reason: string;
-  role: string;
-  candidates: string[];
-};
-
-const DEFAULT_RULES: TeamRule[] = [
-  {
-    reason: "Universal code reviewer",
-    role: "Code reviewer",
-    candidates: ["code-reviewer", "senior-engineer", "second-opinion"],
-  },
-  {
-    reason: "Architecture decisions",
-    role: "Architect",
-    candidates: ["architect-reviewer", "hexagonal-architecture", "senior-engineer"],
-  },
-  {
-    reason: "Bug hunting",
-    role: "Debugger",
-    candidates: ["debugger", "error-detective", "error-handling"],
-  },
-  {
-    reason: "Security audits",
-    role: "Security auditor",
-    candidates: ["security-bounty-hunter", "security-scan", "gateguard"],
-  },
-];
-
-const LANG_RULES: Record<string, TeamRule[]> = {
-  rust: [
-    {
-      reason: "Rust reviewer",
-      role: "Rust reviewer",
-      candidates: ["rust-engineer", "rust-patterns", "ecc:rust-review"],
-    },
-    {
-      reason: "Rust testing",
-      role: "Rust test writer",
-      candidates: ["rust-testing", "ecc:rust-test"],
-    },
-  ],
-  typescript: [
-    {
-      reason: "TypeScript reviewer",
-      role: "TypeScript reviewer",
-      candidates: ["typescript-pro", "react-specialist", "frontend-developer"],
-    },
-    {
-      reason: "Next.js / build",
-      role: "Build engineer",
-      candidates: ["nextjs-turbopack", "vite-patterns"],
-    },
-  ],
-  python: [
-    {
-      reason: "Python reviewer",
-      role: "Python reviewer",
-      candidates: ["python-pro", "python-patterns"],
-    },
-    {
-      reason: "Python testing",
-      role: "Python test writer",
-      candidates: ["python-testing"],
-    },
-  ],
-  go: [
-    {
-      reason: "Go reviewer",
-      role: "Go reviewer",
-      candidates: ["golang-pro", "golang-patterns"],
-    },
-  ],
-  cpp: [
-    {
-      reason: "C++ specialist",
-      role: "C++ engineer",
-      candidates: ["cpp-pro", "cpp-coding-standards"],
-    },
-  ],
-  gamedev: [
-    {
-      reason: "Game dev engineer",
-      role: "Gameplay engineer",
-      candidates: ["gamedev-engineer", "ue5-dev", "don-claudio"],
-    },
-  ],
-};
-
-function proposeTeam(
-  claudeMd: string,
-  agents: AgentEntry[],
-  alreadyPinned: string[],
-): TeamProposal[] {
-  const byName = new Map(agents.map((a) => [a.name, a] as const));
-  const langs = detectLanguages(claudeMd);
-  const picks: TeamProposal[] = [];
-  const used = new Set<string>(alreadyPinned);
-
-  const applyRule = (rule: TeamRule) => {
-    for (const slug of rule.candidates) {
-      if (used.has(slug)) continue;
-      const a = byName.get(slug);
-      if (a) {
-        picks.push({ agent: a, suggestedRole: rule.role });
-        used.add(slug);
-        return;
-      }
-    }
-  };
-
-  // Apply language-specific rules first so they take priority within the 7-cap.
-  for (const lang of langs) {
-    const rules = LANG_RULES[lang];
-    if (!rules) continue;
-    for (const r of rules) {
-      if (picks.length >= 7) return picks;
-      applyRule(r);
-    }
-  }
-  // Then defaults to round out the team.
-  for (const r of DEFAULT_RULES) {
-    if (picks.length >= 7) break;
-    applyRule(r);
-  }
-  // Minimum team size of 3 — top up with the first unused, highest-signal
-  // agents from the catalogue (alphabetical, global-origin first).
-  if (picks.length < 3) {
-    const fallback = [...agents]
-      .filter((a) => !used.has(a.name))
-      .sort((a, b) => {
-        if (a.origin !== b.origin) return a.origin === "global" ? -1 : 1;
-        return a.name.localeCompare(b.name);
-      });
-    for (const a of fallback) {
-      if (picks.length >= 3) break;
-      picks.push({ agent: a, suggestedRole: "Generalist" });
-      used.add(a.name);
-    }
-  }
-  return picks;
 }
 
 function originStyle(origin: AgentEntry["origin"]): {
@@ -337,11 +136,6 @@ function originStyle(origin: AgentEntry["origin"]): {
   }
 }
 
-// Derive a category for picker grouping. Reuses the domain taxonomy from
-// `skill-categories.ts` so skills and agents end up in the same buckets
-// (Personas, Rust, TypeScript / JS, …). Falls back to the plugin slug for
-// plugin-origin agents that aren't in the EXACT_MAP, and finally to
-// "Uncategorized" so nothing silently disappears from the picker.
 function deriveCategory(a: AgentEntry): string {
   const domain = categorize(a.name, a.description);
   if (domain) return domain;
@@ -353,38 +147,63 @@ function deriveCategory(a: AgentEntry): string {
   return NO_CATEGORY;
 }
 
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
 export default function ProjectAgents({ projectId, projectPath }: Props) {
+  // Global agent catalogue (for picker)
+  const [agents, setAgents] = useState<AgentEntry[]>([]);
+  // Legacy pinned list — kept for the kanban default-agent select and picker
   const [pinned, setPinned] = useState<string[]>([]);
   const [roles, setRoles] = useState<Record<string, string>>({});
-  const [agents, setAgents] = useState<AgentEntry[]>([]);
+  // New: roster from agent-roster.json
+  const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [board, setBoard] = useState<KanbanBoard | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Picker overlay state
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerQuery, setPickerQuery] = useState("");
   const [pickerCategory, setPickerCategory] = useState<string>(ALL_CATEGORIES);
-  const [toast, setToast] = useState<string | null>(null);
-  // Inline role editor — only one row is editable at a time.
+
+  // Inline role editor for roster cards
   const [editingRoleFor, setEditingRoleFor] = useState<string | null>(null);
   const [roleDraft, setRoleDraft] = useState("");
-  // AI configure-team modal state.
-  const [aiOpen, setAiOpen] = useState(false);
-  const [aiProposal, setAiProposal] = useState<TeamProposal[]>([]);
-  const [aiSelected, setAiSelected] = useState<Set<string>>(new Set());
-  const [aiBusy, setAiBusy] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [aiDetectedLangs, setAiDetectedLangs] = useState<string[]>([]);
+
+  // Invoke-from-session state per card
+  const [invokingFor, setInvokingFor] = useState<string | null>(null);
+  const [invokeTaskFor, setInvokeTaskFor] = useState<string | null>(null);
+  const [invokePrompt, setInvokePrompt] = useState("");
+
+  // AI propose roster modal
+  const [proposeOpen, setProposeOpen] = useState(false);
+  const [proposal, setProposal] = useState<AgentRosterProposal | null>(null);
+  const [proposeBusy, setProposeBusy] = useState(false);
+  const [proposeError, setProposeError] = useState<string | null>(null);
+  const [proposeSelected, setProposeSelected] = useState<Set<string>>(new Set());
+
+  // Abort controller for in-flight invoke requests
+  const invokeAbort = useRef<AbortController | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Load
+  // ---------------------------------------------------------------------------
 
   const loadAll = useCallback(async () => {
     try {
-      const [p, list, b] = await Promise.all([
+      const [p, list, b, rosterFile] = await Promise.all([
         invoke("agents_pinned_load", { projectId }) as Promise<PinnedAgents>,
         invoke("list_agents", { projectPath: null }) as Promise<AgentEntry[]>,
         invoke("kanban_load", { projectId }) as Promise<KanbanBoard>,
+        invoke("project_roster_load", { projectId }) as Promise<AgentRosterFile>,
       ]);
       setPinned(p.pinned);
       setRoles(p.roles ?? {});
       setAgents(list);
       setBoard(b);
+      setRoster(rosterFile.entries);
     } catch (e) {
       setError(String(e));
     }
@@ -394,36 +213,30 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
     void loadAll();
   }, [loadAll]);
 
-  // Auto-dismiss toast after 3s — used by workflow placeholders.
+  // Auto-dismiss toast
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3000);
+    const t = setTimeout(() => setToast(null), 3500);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // ESC closes the picker overlay.
+  // ESC closes modals
   useEffect(() => {
-    if (!pickerOpen) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setPickerOpen(false);
+      if (e.key !== "Escape") return;
+      if (pickerOpen) setPickerOpen(false);
+      if (proposeOpen) setProposeOpen(false);
+      if (invokeTaskFor) setInvokeTaskFor(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pickerOpen]);
+  }, [pickerOpen, proposeOpen, invokeTaskFor]);
 
-  // ESC closes the AI configure modal.
-  useEffect(() => {
-    if (!aiOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setAiOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [aiOpen]);
+  // ---------------------------------------------------------------------------
+  // Persist pinned (for picker and kanban default-agent)
+  // ---------------------------------------------------------------------------
 
-  // Persist both the pinned list and roles together. The backend always
-  // overwrites the whole struct so we send the latest of each.
-  const persist = useCallback(
+  const persistPinned = useCallback(
     async (nextPinned: string[], nextRoles: Record<string, string>) => {
       setPinned(nextPinned);
       setRoles(nextRoles);
@@ -443,38 +256,54 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
   const pinAgent = useCallback(
     (slug: string) => {
       if (pinned.includes(slug)) return;
-      void persist([...pinned, slug], roles);
+      void persistPinned([...pinned, slug], roles);
     },
-    [pinned, roles, persist],
+    [pinned, roles, persistPinned],
   );
 
-  const unpinAgent = useCallback(
-    (slug: string) => {
-      const nextRoles = { ...roles };
-      delete nextRoles[slug];
-      void persist(
-        pinned.filter((p) => p !== slug),
-        nextRoles,
-      );
-    },
-    [pinned, roles, persist],
-  );
 
-  const saveRole = useCallback(
-    (slug: string, role: string) => {
-      const trimmed = role.trim();
-      const nextRoles = { ...roles };
-      if (trimmed === "") {
-        delete nextRoles[slug];
-      } else {
-        nextRoles[slug] = trimmed;
+  // ---------------------------------------------------------------------------
+  // Roster persistence
+  // ---------------------------------------------------------------------------
+
+  const persistRoster = useCallback(
+    async (entries: RosterEntry[]) => {
+      setRoster(entries);
+      try {
+        await invoke("project_roster_save", { projectId, entries });
+      } catch (e) {
+        setError(String(e));
+        await loadAll();
       }
-      void persist(pinned, nextRoles);
+    },
+    [projectId, loadAll],
+  );
+
+  const removeFromRoster = useCallback(
+    (name: string) => {
+      void persistRoster(roster.filter((e) => e.name !== name));
+    },
+    [roster, persistRoster],
+  );
+
+  const saveRosterRole = useCallback(
+    (name: string, role: string) => {
+      const trimmed = role.trim();
+      const next = roster.map((e) =>
+        e.name === name
+          ? { ...e, suggested_role: trimmed || e.suggested_role }
+          : e,
+      );
+      void persistRoster(next);
       setEditingRoleFor(null);
       setRoleDraft("");
     },
-    [pinned, roles, persist],
+    [roster, persistRoster],
   );
+
+  // ---------------------------------------------------------------------------
+  // Kanban default agent
+  // ---------------------------------------------------------------------------
 
   const setDefaultAgent = useCallback(
     async (slug: string | null) => {
@@ -490,122 +319,112 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
     [board],
   );
 
-  // Pinned-agent cards: filter the global list by `pinned[]` and keep the
-  // user's pin order so reordering (future) maps to display order. Defined
-  // here (above the AI-configure / launch-all callbacks) because both
-  // callbacks depend on it.
-  const pinnedAgents = useMemo(() => {
-    const byName = new Map(agents.map((a) => [a.name, a] as const));
-    return pinned
-      .map((name) => byName.get(name))
-      .filter((a): a is AgentEntry => Boolean(a));
-  }, [agents, pinned]);
+  // ---------------------------------------------------------------------------
+  // Invoke from active session
+  // ---------------------------------------------------------------------------
 
-  // ---------------------------------------------------------------------
-  // AI configure team — heuristic flow. We load CLAUDE.md, detect language
-  // tokens, propose 3-7 agents from the catalogue, and surface them in a
-  // confirmation modal. The user reviews + applies. No backend round-trip
-  // needed — keeps the flow snappy and deterministic.
-  // ---------------------------------------------------------------------
-  const openAiConfigure = useCallback(async () => {
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      let md = "";
+  const invokeFromSession = useCallback(
+    async (agentName: string, taskPrompt: string) => {
+      // Cancel any previous in-flight invoke
+      invokeAbort.current?.abort();
+      const ctrl = new AbortController();
+      invokeAbort.current = ctrl;
+
+      setInvokingFor(agentName);
       try {
-        md = (await invoke("project_claude_md_load", {
-          projectPath,
-        })) as string;
-      } catch {
-        // Project may not have CLAUDE.md yet — still propose defaults.
-        md = "";
+        const result = (await invoke("project_invoke_agent_from_session", {
+          projectId,
+          agentName,
+          taskPrompt,
+        })) as InvokeResult;
+        if (!ctrl.signal.aborted) {
+          setToast(
+            result.sent
+              ? `Delegado a ${agentName} en sesión ${result.pty_id.slice(-8)}`
+              : `No se pudo enviar a ${agentName}`,
+          );
+          setInvokeTaskFor(null);
+          setInvokePrompt("");
+        }
+      } catch (e) {
+        if (!ctrl.signal.aborted) {
+          setToast(String(e));
+        }
+      } finally {
+        if (!ctrl.signal.aborted) setInvokingFor(null);
       }
-      const langs = Array.from(detectLanguages(md));
-      const proposal = proposeTeam(md, agents, pinned);
-      setAiDetectedLangs(langs);
-      setAiProposal(proposal);
-      setAiSelected(new Set(proposal.map((p) => p.agent.name)));
-      setAiOpen(true);
+    },
+    [projectId],
+  );
+
+  // ---------------------------------------------------------------------------
+  // AI propose roster
+  // ---------------------------------------------------------------------------
+
+  const openPropose = useCallback(async () => {
+    setProposeBusy(true);
+    setProposeError(null);
+    setProposal(null);
+    setProposeOpen(true);
+    try {
+      const result = (await invoke("project_propose_agent_roster", {
+        projectId,
+        projectPath,
+      })) as AgentRosterProposal;
+      setProposal(result);
+      setProposeSelected(new Set(result.recommended.map((r) => r.name)));
     } catch (e) {
-      setAiError(String(e));
+      setProposeError(String(e));
     } finally {
-      setAiBusy(false);
+      setProposeBusy(false);
     }
-  }, [projectPath, agents, pinned]);
+  }, [projectId, projectPath]);
 
-  const applyAiTeam = useCallback(async () => {
-    if (aiProposal.length === 0) return;
-    const selected = aiProposal.filter((p) => aiSelected.has(p.agent.name));
-    if (selected.length === 0) return;
-    const nextPinned = [...pinned];
-    const nextRoles = { ...roles };
-    for (const p of selected) {
-      if (!nextPinned.includes(p.agent.name)) nextPinned.push(p.agent.name);
-      // Don't clobber an existing role the user already set.
-      if (!nextRoles[p.agent.name]) nextRoles[p.agent.name] = p.suggestedRole;
-    }
-    await persist(nextPinned, nextRoles);
-    setAiOpen(false);
-    setToast(
-      `Team configured with ${selected.length} agent${selected.length === 1 ? "" : "s"} based on AI analysis`,
+  const applyProposal = useCallback(async () => {
+    if (!proposal) return;
+    const selected = proposal.recommended.filter((r) =>
+      proposeSelected.has(r.name),
     );
-  }, [aiProposal, aiSelected, pinned, roles, persist]);
-
-  // ---------------------------------------------------------------------
-  // Launch all — spawn one Claude session per pinned agent, prepending a
-  // short role framing so each terminal opens with context. Sessions are
-  // started in parallel; failures show up in `error` but won't abort the
-  // batch (Promise.allSettled).
-  // ---------------------------------------------------------------------
-  const launchAllAgents = useCallback(async () => {
-    if (pinnedAgents.length === 0) return;
-    const tasks = pinnedAgents.map(async (a) => {
-      const role = roles[a.name] ?? "Generalist";
-      const prompt =
-        `You are joining the project as: ${role}.\n` +
-        `Agent profile: ${a.name}.\n` +
-        `Read CLAUDE.md (if it exists) and the project tree, then propose your first 3 next actions in that role. Wait for my OK before taking any.`;
-      return invoke("spawn_session", {
-        provider: "claude",
-        cwd: projectPath,
-        prompt,
-        flags: { dangerouslySkipPermissions: false },
-      });
-    });
-    const results = await Promise.allSettled(tasks);
-    const failed = results.filter((r) => r.status === "rejected").length;
-    if (failed === 0) {
-      setToast(`Launched ${pinnedAgents.length} agent session(s) in parallel`);
-    } else {
-      setToast(
-        `Launched ${pinnedAgents.length - failed}/${pinnedAgents.length} agents — ${failed} failed`,
-      );
+    if (selected.length === 0) return;
+    // Merge into roster — skip duplicates, keep existing roles
+    const existingNames = new Set(roster.map((e) => e.name));
+    const toAdd = selected.filter((r) => !existingNames.has(r.name));
+    await persistRoster([...roster, ...toAdd]);
+    // Also pin new agents so they show in the kanban selector
+    const newPinned = toAdd
+      .map((r) => r.name)
+      .filter((n) => !pinned.includes(n));
+    if (newPinned.length > 0) {
+      await persistPinned([...pinned, ...newPinned], roles);
     }
-  }, [pinnedAgents, roles, projectPath]);
+    setProposeOpen(false);
+    setToast(
+      `${toAdd.length} agente${toAdd.length === 1 ? "" : "s"} añadido${toAdd.length === 1 ? "" : "s"} al roster`,
+    );
+  }, [proposal, proposeSelected, roster, pinned, roles, persistRoster, persistPinned]);
 
-  // Picker candidates — every agent NOT currently pinned, filtered by query
-  // AND category. Sorted alphabetically per category.
+  // ---------------------------------------------------------------------------
+  // Picker helpers
+  // ---------------------------------------------------------------------------
+
   const pickerCandidates = useMemo(() => {
     const q = pickerQuery.trim().toLowerCase();
     return agents
       .filter((a) => !pinned.includes(a.name))
-      .filter((a) =>
-        q === ""
-          ? true
-          : a.name.toLowerCase().includes(q) ||
-            a.description.toLowerCase().includes(q),
+      .filter(
+        (a) =>
+          q === "" ||
+          a.name.toLowerCase().includes(q) ||
+          a.description.toLowerCase().includes(q),
       )
-      .filter((a) =>
-        pickerCategory === ALL_CATEGORIES
-          ? true
-          : deriveCategory(a) === pickerCategory,
+      .filter(
+        (a) =>
+          pickerCategory === ALL_CATEGORIES ||
+          deriveCategory(a) === pickerCategory,
       )
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [agents, pinned, pickerQuery, pickerCategory]);
 
-  // Build the category sidebar from the SAME unpinned-set so empty
-  // categories don't show up (would be confusing). Each entry carries a
-  // count so the user can see e.g. "Personas (12)".
   const pickerCategoryCounts = useMemo(() => {
     const q = pickerQuery.trim().toLowerCase();
     const counts = new Map<string, number>();
@@ -615,9 +434,8 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
         q !== "" &&
         !a.name.toLowerCase().includes(q) &&
         !a.description.toLowerCase().includes(q)
-      ) {
+      )
         continue;
-      }
       const cat = deriveCategory(a);
       counts.set(cat, (counts.get(cat) ?? 0) + 1);
     }
@@ -627,7 +445,6 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
   const sortedCategories = useMemo(() => {
     const list = Array.from(pickerCategoryCounts.entries());
     list.sort((a, b) => {
-      // Uncategorized always last
       if (a[0] === NO_CATEGORY) return 1;
       if (b[0] === NO_CATEGORY) return -1;
       return a[0].localeCompare(b[0]);
@@ -637,37 +454,60 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
 
   const totalUnpinned = useMemo(
     () =>
-      Array.from(pickerCategoryCounts.values()).reduce((sum, n) => sum + n, 0),
+      Array.from(pickerCategoryCounts.values()).reduce(
+        (sum, n) => sum + n,
+        0,
+      ),
     [pickerCategoryCounts],
   );
 
+  // Agent catalogue lookup (for picker-added agents not yet in roster)
+  const agentByName = useMemo(
+    () => new Map(agents.map((a) => [a.name, a] as const)),
+    [agents],
+  );
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      {/* Header: default-agent select + add-agent action */}
+      {/* ── Header ── */}
       <div className="flex items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface-1)] px-3 py-2 text-xs">
         <span className="text-[var(--color-text-muted)]">Default agent:</span>
         <select
           value={board?.default_agent ?? ""}
           onChange={(e) => void setDefaultAgent(e.target.value || null)}
           className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] px-2 py-1"
-          title="Used when a kanban card has no explicit agent override."
+          title="Usado por el kanban cuando una card no tiene agente explícito."
         >
-          <option value="">(none)</option>
-          {pinnedAgents.map((a) => (
-            <option key={a.name} value={a.name}>
-              {a.name}
+          <option value="">(ninguno)</option>
+          {roster.map((e) => (
+            <option key={e.name} value={e.name}>
+              {e.name}
             </option>
           ))}
+          {pinned
+            .filter((n) => !roster.some((e) => e.name === n))
+            .map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
         </select>
+
+        {/* Propose roster (AI) — llama al backend real */}
         <button
           type="button"
-          onClick={() => void openAiConfigure()}
-          disabled={aiBusy}
-          className="ml-auto inline-flex items-center gap-1 rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-2 py-1 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 disabled:opacity-40"
-          title="Analyse this project's CLAUDE.md and propose a 3-7 agent team. You confirm before applying."
+          onClick={() => void openPropose()}
+          disabled={proposeBusy}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)]/15 px-2 py-1 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/25 disabled:opacity-40"
+          title="El AI Router analiza el stack del proyecto y sugiere los agentes óptimos."
         >
-          {aiBusy ? "Analysing…" : "AI configure team"}
+          {proposeBusy ? "Analizando…" : "Propose roster (AI)"}
         </button>
+
         <button
           type="button"
           onClick={() => {
@@ -676,45 +516,46 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
             setPickerOpen(true);
           }}
           className="inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] px-2 py-1 hover:bg-[var(--color-surface-2)]"
-          title="Pick an agent from the global catalogue and pin it to this project."
+          title="Añadir agente del catálogo global al proyecto."
         >
           <Plus size={12} />
-          Add agent to project
+          Add agent
         </button>
+
         {error && (
-          <span className="ml-2 text-[var(--color-error)]" title={error}>
+          <span
+            className="ml-2 text-[var(--color-error)]"
+            title={error}
+            onClick={() => setError(null)}
+          >
             error
           </span>
         )}
       </div>
 
+      {/* ── Main scroll area ── */}
       <div className="flex-1 overflow-y-auto px-3 py-3">
-        {/* Agent Team — Library-style cards (renamed from "Pinned agents" in
-            v2.6 fb-023). Each card carries the role badge under the name. */}
+        {/* Agent Team */}
         <section className="mb-5">
-          <div className="mb-1 flex items-center gap-2">
-            <h3 className="text-[11.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
-              Agent Team ({pinnedAgents.length})
-            </h3>
-            {pinnedAgents.length > 0 && (
+          <h3 className="mb-1 text-[11.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
+            Agent Team ({roster.length})
+          </h3>
+          <p className="mb-2 text-[11.5px] text-[var(--color-text-muted)]">
+            Plantilla de agentes del proyecto. "Invoke from session" escribe la
+            instrucción en la terminal activa; Claude Code delega al subagente.
+          </p>
+
+          {roster.length === 0 ? (
+            <div className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-surface-0)] p-4 text-center text-xs text-[var(--color-text-muted)]">
+              El roster está vacío.{" "}
               <button
                 type="button"
-                onClick={() => void launchAllAgents()}
-                className="ml-auto inline-flex items-center gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] px-2 py-0.5 text-[10.5px] uppercase tracking-wide text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
-                title="Spawn one Claude session per pinned agent in parallel. Each terminal opens framed by the agent's role."
+                className="underline"
+                onClick={() => void openPropose()}
               >
-                <span aria-hidden>▶</span> Launch all
-              </button>
-            )}
-          </div>
-          <p className="mb-2 text-[11.5px] text-[var(--color-text-muted)]">
-            Tu equipo de agentes para este proyecto. Cada uno se asigna a un
-            rol específico. Usa "AI configure team" para que el sistema
-            proponga un equipo basado en CLAUDE.md.
-          </p>
-          {pinnedAgents.length === 0 ? (
-            <div className="rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-surface-0)] p-4 text-center text-xs text-[var(--color-text-muted)]">
-              No agents pinned yet. Use{" "}
+                Proponer roster con AI
+              </button>{" "}
+              o{" "}
               <button
                 type="button"
                 className="underline"
@@ -724,108 +565,194 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                   setPickerOpen(true);
                 }}
               >
-                Add agent to project
-              </button>{" "}
-              to surface the agents you want for this workspace.
+                añadir agente manualmente
+              </button>
+              .
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {pinnedAgents.map((a) => {
-                const chip = originStyle(a.origin);
-                const role = roles[a.name] ?? "";
-                const isEditing = editingRoleFor === a.name;
-                const avatar = roleAvatar(role, a.name);
+              {roster.map((entry) => {
+                const catalogAgent = agentByName.get(entry.name);
+                const avatar = roleAvatar(entry.suggested_role, entry.name);
+                const isEditing = editingRoleFor === entry.name;
+                const isInvoking = invokingFor === entry.name;
+                const isTaskOpen = invokeTaskFor === entry.name;
+                const chip = catalogAgent
+                  ? originStyle(catalogAgent.origin)
+                  : {
+                      background: "var(--color-surface-3)",
+                      color: "var(--color-text-muted)",
+                      border: "1px solid var(--color-border)",
+                    };
+
                 return (
                   <div
-                    key={a.name}
+                    key={entry.name}
                     className="flex flex-col gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-xs transition-colors hover:border-[var(--color-border-strong)]"
-                    title={a.description || `${a.name} (${a.origin} agent)`}
+                    title={
+                      catalogAgent?.description ||
+                      `${entry.name} — ${entry.reason}`
+                    }
                   >
+                    {/* Card header */}
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2">
                         <span
                           aria-hidden
                           className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--color-surface-3)] text-[16px] leading-none"
-                          title={role ? `Role: ${role}` : "No role assigned"}
+                          title={`Role: ${entry.suggested_role}`}
                         >
                           {avatar}
                         </span>
-                        <div className="flex flex-col gap-0.5">
-                          <span className="flex items-center gap-1 font-semibold text-[var(--color-text)]">
-                            <Pin size={11} />
-                            {a.name}
-                          </span>
-                        </div>
+                        <span className="font-semibold text-[var(--color-text)]">
+                          {entry.name}
+                        </span>
                       </div>
                       <span
                         className="rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
                         style={chip}
                       >
-                        {a.origin}
+                        {catalogAgent?.origin ?? "roster"}
                       </span>
                     </div>
 
-                    {/* Role badge — inline editable. Clicking the badge
-                        swaps to a text input; Enter saves, Esc cancels. */}
+                    {/* Role badge — inline editable */}
                     <div>
                       {isEditing ? (
                         <input
                           autoFocus
                           value={roleDraft}
                           onChange={(e) => setRoleDraft(e.target.value)}
-                          onBlur={() => saveRole(a.name, roleDraft)}
+                          onBlur={() => saveRosterRole(entry.name, roleDraft)}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
-                              saveRole(a.name, roleDraft);
+                              saveRosterRole(entry.name, roleDraft);
                             } else if (e.key === "Escape") {
                               setEditingRoleFor(null);
                               setRoleDraft("");
                             }
                           }}
-                          placeholder="Role (e.g. Backend reviewer, QA)…"
+                          placeholder="Role (p.ej. Backend reviewer, QA)…"
                           className="w-full rounded border border-[var(--color-border-strong)] bg-[var(--color-surface-0)] px-1.5 py-0.5 text-[11px] outline-none"
                         />
                       ) : (
                         <button
                           type="button"
                           onClick={() => {
-                            setEditingRoleFor(a.name);
-                            setRoleDraft(role);
+                            setEditingRoleFor(entry.name);
+                            setRoleDraft(entry.suggested_role);
                           }}
                           className="inline-flex items-center gap-1 rounded border border-dashed border-[var(--color-border)] px-1.5 py-0.5 text-[10.5px] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-2)]"
-                          title="Edit the role this agent plays on the project."
+                          title="Editar el rol de este agente en el proyecto."
                         >
-                          {role ? (
+                          {entry.suggested_role ? (
                             <span style={{ color: "var(--color-text)" }}>
-                              {role}
+                              {entry.suggested_role}
                             </span>
                           ) : (
                             <span className="italic text-[var(--color-text-faint)]">
-                              + Assign role
+                              + Asignar rol
                             </span>
                           )}
                         </button>
                       )}
                     </div>
 
-                    <p className="line-clamp-3 flex-1 text-[var(--color-text-muted)]">
-                      {a.description || (
+                    {/* Description / reason */}
+                    <p className="line-clamp-2 flex-1 text-[var(--color-text-muted)]">
+                      {catalogAgent?.description || entry.reason || (
                         <span className="italic text-[var(--color-text-faint)]">
-                          No description.
+                          Sin descripción.
                         </span>
                       )}
                     </p>
-                    <div className="mt-1 flex items-center justify-end">
-                      <button
-                        type="button"
-                        onClick={() => unpinAgent(a.name)}
-                        className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-0.5 text-[11.5px] text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
-                        title="Unpin this agent from the project (does not delete the agent)."
-                      >
-                        <PinOff size={11} /> Remove from project
-                      </button>
-                    </div>
+
+                    {/* Invoke task input — expands inline */}
+                    {isTaskOpen && (
+                      <div className="flex flex-col gap-1.5 rounded border border-[var(--color-accent)]/40 bg-[var(--color-surface-0)] p-2">
+                        <label className="text-[10.5px] text-[var(--color-text-secondary)]">
+                          Tarea para{" "}
+                          <span className="font-semibold text-[var(--color-accent)]">
+                            {entry.name}
+                          </span>
+                          :
+                        </label>
+                        <textarea
+                          autoFocus
+                          value={invokePrompt}
+                          onChange={(e) => setInvokePrompt(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                              e.preventDefault();
+                              if (invokePrompt.trim()) {
+                                void invokeFromSession(
+                                  entry.name,
+                                  invokePrompt.trim(),
+                                );
+                              }
+                            } else if (e.key === "Escape") {
+                              setInvokeTaskFor(null);
+                              setInvokePrompt("");
+                            }
+                          }}
+                          placeholder="Describe la tarea… (Ctrl+Enter para enviar)"
+                          rows={2}
+                          className="w-full resize-none rounded border border-[var(--color-border)] bg-[var(--color-surface-1)] px-2 py-1 text-[11px] outline-none"
+                        />
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInvokeTaskFor(null);
+                              setInvokePrompt("");
+                            }}
+                            className="rounded border border-[var(--color-border)] px-2 py-0.5 text-[10.5px] hover:bg-[var(--color-surface-2)]"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!invokePrompt.trim() || isInvoking}
+                            onClick={() =>
+                              void invokeFromSession(
+                                entry.name,
+                                invokePrompt.trim(),
+                              )
+                            }
+                            className="rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/20 px-2 py-0.5 text-[10.5px] text-[var(--color-accent)] disabled:opacity-40"
+                          >
+                            {isInvoking ? "Enviando…" : "Enviar"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Footer actions */}
+                    {!isTaskOpen && (
+                      <div className="mt-1 flex items-center justify-between gap-1">
+                        <button
+                          type="button"
+                          disabled={isInvoking}
+                          onClick={() => {
+                            setInvokeTaskFor(entry.name);
+                            setInvokePrompt("");
+                          }}
+                          className="inline-flex items-center gap-1 rounded border border-[var(--color-accent)]/60 bg-[var(--color-accent)]/10 px-2 py-0.5 text-[11px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20 disabled:opacity-40"
+                          title="Escribe la instrucción en la sesión activa del proyecto."
+                        >
+                          {isInvoking ? "Invocando…" : "Invoke from session"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeFromRoster(entry.name)}
+                          className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-0.5 text-[10.5px] text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]"
+                          title="Quitar del roster del proyecto."
+                        >
+                          <X size={10} /> Quitar
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -833,54 +760,17 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
           )}
         </section>
 
-        {/* Workflows — predefined multi-agent recipe tiles. Each tile
-            carries a "Beta" pill until the orchestration backend lands. */}
-        <section>
-          <h3 className="mb-2 text-[11.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
-            Workflows
-          </h3>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {WORKFLOWS.map((w) => (
-              <button
-                key={w.id}
-                type="button"
-                onClick={() =>
-                  setToast(`Workflow "${w.label}" would launch (backend coming soon)`)
-                }
-                className="flex flex-col items-start gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-left text-xs transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-2)]"
-                title={`${w.label}: ${w.description}\n\n(Workflow orchestration backend not implemented yet — clicking shows a placeholder toast.)`}
-              >
-                <div className="flex w-full items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ background: w.accent }}
-                  />
-                  <span className="font-semibold text-[var(--color-text)]">
-                    {w.label}
-                  </span>
-                  <span
-                    className="ml-auto rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
-                    style={{
-                      background: "rgba(56, 139, 253, 0.14)",
-                      color: "#79b8ff",
-                      border: "1px solid rgba(56, 139, 253, 0.40)",
-                    }}
-                    title="Workflow orchestration backend not implemented yet."
-                  >
-                    Beta
-                  </span>
-                </div>
-                <p className="text-[var(--color-text-muted)]">{w.description}</p>
-              </button>
-            ))}
+        {/* No-session hint — shown only when roster has agents */}
+        {roster.length > 0 && (
+          <div className="mb-4 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-2 text-[11px] text-[var(--color-text-muted)]">
+            "Invoke from session" escribe en la terminal activa del proyecto.
+            Si no hay ninguna abierta, el botón devolverá un error con
+            instrucciones para abrir una.
           </div>
-        </section>
+        )}
 
-        {/* Create skill from project — moved here from Context tab in v2.6
-            fb-024 so project-scoped skill generation lives alongside the
-            other agent/team controls. */}
-        <section className="mt-5">
+        {/* Generate skill */}
+        <section className="mt-2">
           <h3 className="mb-2 text-[11.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
             Generate
           </h3>
@@ -891,7 +781,7 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
         </section>
       </div>
 
-      {/* Toast — workflow-launch placeholder feedback. */}
+      {/* ── Toast ── */}
       {toast && (
         <div
           role="status"
@@ -901,159 +791,206 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
         </div>
       )}
 
-      {/* AI configure-team modal — proposes a 3-7 agent team based on the
-          project's CLAUDE.md. Heuristic: detect language tokens, then map
-          to DEFAULT_RULES + LANG_RULES. The user can deselect agents
-          before applying. */}
-      {aiOpen && (
+      {/* ── Propose roster modal ── */}
+      {proposeOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
           role="dialog"
           aria-modal="true"
-          aria-label="AI configure team"
-          onClick={() => setAiOpen(false)}
+          aria-label="Propose agent roster"
+          onClick={() => setProposeOpen(false)}
         >
           <div
             className="flex w-full max-w-2xl flex-col gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-4 text-xs shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold">
-                <span aria-hidden className="mr-1">🤖</span>
-                AI configure team
-              </h2>
+              <h2 className="text-sm font-semibold">Propose roster (AI)</h2>
               <button
                 type="button"
-                onClick={() => setAiOpen(false)}
-                aria-label="Close"
+                onClick={() => setProposeOpen(false)}
+                aria-label="Cerrar"
                 className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-3)]"
               >
                 <X size={12} />
               </button>
             </div>
-            <p className="text-[var(--color-text-secondary)]">
-              Análisis del proyecto:{" "}
-              {aiDetectedLangs.length === 0 ? (
-                <span className="italic text-[var(--color-text-muted)]">
-                  no se detectó stack específico — se proponen agentes
-                  generales.
-                </span>
-              ) : (
-                <>
-                  stack detectado:{" "}
-                  {aiDetectedLangs.map((l) => (
+
+            {/* Stack detected */}
+            {proposal && (
+              <p className="text-[var(--color-text-secondary)]">
+                Stack detectado:{" "}
+                {proposal.detected_stack.length === 0 ? (
+                  <span className="italic text-[var(--color-text-muted)]">
+                    no se detectó stack — se proponen agentes generales.
+                  </span>
+                ) : (
+                  proposal.detected_stack.map((s) => (
                     <span
-                      key={l}
+                      key={s}
                       className="mr-1 inline-block rounded bg-[var(--color-surface-3)] px-1.5 py-0.5 text-[10.5px]"
                     >
-                      {l}
+                      {s}
                     </span>
-                  ))}
-                </>
-              )}
-            </p>
-            {aiProposal.length === 0 ? (
-              <div className="rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-center text-[var(--color-text-muted)]">
-                No se pudieron sugerir agentes nuevos (puede que ya tengas
-                pineados los relevantes).
-              </div>
-            ) : (
-              <div className="max-h-[50vh] overflow-y-auto rounded border border-[var(--color-border)] bg-[var(--color-surface-1)] p-2">
-                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                  {aiProposal.map((p) => {
-                    const selected = aiSelected.has(p.agent.name);
-                    const avatar = roleAvatar(p.suggestedRole, p.agent.name);
-                    const chip = originStyle(p.agent.origin);
-                    return (
-                      <button
-                        key={p.agent.name}
-                        type="button"
-                        onClick={() => {
-                          const next = new Set(aiSelected);
-                          if (next.has(p.agent.name)) {
-                            next.delete(p.agent.name);
-                          } else {
-                            next.add(p.agent.name);
-                          }
-                          setAiSelected(next);
-                        }}
-                        className="flex items-start gap-2 rounded-md border p-2 text-left transition-colors"
-                        style={{
-                          background: selected
-                            ? "var(--color-surface-3)"
-                            : "var(--color-surface-1)",
-                          borderColor: selected
-                            ? "var(--color-accent)"
-                            : "var(--color-border)",
-                        }}
-                        title={p.agent.description || p.agent.name}
-                      >
-                        <span
-                          aria-hidden
-                          className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--color-surface-3)] text-[16px] leading-none"
-                        >
-                          {avatar}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="truncate font-semibold text-[var(--color-text)]">
-                              {p.agent.name}
-                            </span>
-                            <span
-                              className="shrink-0 rounded px-1 py-0.5 text-[9px] uppercase tracking-wide"
-                              style={chip}
-                            >
-                              {p.agent.origin}
-                            </span>
-                          </div>
-                          <div className="text-[10.5px] text-[var(--color-accent)]">
-                            Role: {p.suggestedRole}
-                          </div>
-                          <p className="mt-0.5 line-clamp-2 text-[10.5px] text-[var(--color-text-muted)]">
-                            {p.agent.description || "No description."}
-                          </p>
-                        </div>
-                        <span
-                          aria-hidden
-                          className="text-[14px]"
-                          style={{
-                            color: selected
-                              ? "var(--color-accent)"
-                              : "var(--color-text-faint)",
-                          }}
-                        >
-                          {selected ? "✓" : "○"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                  ))
+                )}
+              </p>
+            )}
+
+            {/* Loading skeleton */}
+            {proposeBusy && (
+              <div className="flex flex-col gap-1.5 py-4">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="h-12 animate-pulse rounded bg-[var(--color-surface-3)]"
+                  />
+                ))}
+                <p className="mt-1 text-center text-[10.5px] text-[var(--color-text-muted)]">
+                  El AI Router analiza el proyecto…
+                </p>
               </div>
             )}
-            {aiError && (
+
+            {/* Error */}
+            {proposeError && (
               <div className="rounded border border-[var(--color-error)] bg-[var(--color-surface-1)] p-2 text-[var(--color-error)]">
-                {aiError}
+                {proposeError}
               </div>
             )}
+
+            {/* Recommended */}
+            {!proposeBusy && proposal && (
+              <>
+                {proposal.recommended.length === 0 ? (
+                  <div className="rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-center text-[var(--color-text-muted)]">
+                    No hay agentes nuevos que sugerir — el roster ya tiene los
+                    relevantes.
+                  </div>
+                ) : (
+                  <div className="max-h-[40vh] overflow-y-auto rounded border border-[var(--color-border)] bg-[var(--color-surface-1)] p-2">
+                    <p className="mb-1.5 text-[10.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                      Recomendados ({proposal.recommended.length})
+                    </p>
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                      {proposal.recommended.map((r) => {
+                        const selected = proposeSelected.has(r.name);
+                        const catalogAgent = agentByName.get(r.name);
+                        const avatar = roleAvatar(r.suggested_role, r.name);
+                        return (
+                          <button
+                            key={r.name}
+                            type="button"
+                            onClick={() => {
+                              const next = new Set(proposeSelected);
+                              if (next.has(r.name)) next.delete(r.name);
+                              else next.add(r.name);
+                              setProposeSelected(next);
+                            }}
+                            className="flex items-start gap-2 rounded-md border p-2 text-left transition-colors"
+                            style={{
+                              background: selected
+                                ? "var(--color-surface-3)"
+                                : "var(--color-surface-1)",
+                              borderColor: selected
+                                ? "var(--color-accent)"
+                                : "var(--color-border)",
+                            }}
+                            title={catalogAgent?.description || r.reason}
+                          >
+                            <span
+                              aria-hidden
+                              className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--color-surface-3)] text-[16px] leading-none"
+                            >
+                              {avatar}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate font-semibold text-[var(--color-text)]">
+                                {r.name}
+                              </div>
+                              <div className="text-[10.5px] text-[var(--color-accent)]">
+                                {r.suggested_role}
+                              </div>
+                              <p className="mt-0.5 line-clamp-2 text-[10.5px] text-[var(--color-text-muted)]">
+                                {r.reason}
+                              </p>
+                            </div>
+                            <span
+                              aria-hidden
+                              className="shrink-0 text-[14px]"
+                              style={{
+                                color: selected
+                                  ? "var(--color-accent)"
+                                  : "var(--color-text-faint)",
+                              }}
+                            >
+                              {selected ? "✓" : "○"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Gaps */}
+                {proposal.gaps.length > 0 && (
+                  <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface-1)] p-2">
+                    <p className="mb-1.5 text-[10.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                      Gaps detectados — agentes que no existen aún
+                    </p>
+                    <div className="flex flex-col gap-1">
+                      {proposal.gaps.map((g) => (
+                        <div
+                          key={g.suggested_name}
+                          className="flex items-start gap-2 rounded border border-dashed border-[var(--color-border)] px-2 py-1.5"
+                        >
+                          <span
+                            aria-hidden
+                            className="mt-0.5 text-[10px] text-[var(--color-text-faint)]"
+                          >
+                            ✦
+                          </span>
+                          <div>
+                            <span className="font-semibold text-[var(--color-text-secondary)]">
+                              {g.suggested_name}
+                            </span>
+                            <span className="ml-1.5 text-[var(--color-text-muted)]">
+                              — {g.reason}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
             <div className="flex items-center justify-between gap-2 pt-1 text-[var(--color-text-muted)]">
               <span>
-                {aiSelected.size} de {aiProposal.length} seleccionados
+                {proposeSelected.size} de{" "}
+                {proposal?.recommended.length ?? 0} seleccionados
               </span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setAiOpen(false)}
+                  onClick={() => setProposeOpen(false)}
                   className="rounded-md border border-[var(--color-border)] px-3 py-1 hover:bg-[var(--color-surface-3)]"
                 >
-                  Cancel
+                  Cancelar
                 </button>
                 <button
                   type="button"
-                  onClick={() => void applyAiTeam()}
-                  disabled={aiSelected.size === 0}
+                  onClick={() => void applyProposal()}
+                  disabled={
+                    proposeBusy ||
+                    proposeSelected.size === 0 ||
+                    proposal === null
+                  }
                   className="rounded-md border border-[var(--color-accent)] bg-[var(--color-accent)]/20 px-3 py-1 text-[var(--color-accent)] disabled:opacity-40"
                 >
-                  Apply team
+                  Aplicar roster
                 </button>
               </div>
             </div>
@@ -1061,10 +998,7 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
         </div>
       )}
 
-      {/* Picker overlay — pin a new agent from the global catalogue.
-          Sidebar (left) lists every category present in the unpinned
-          set, plus an "All" entry. Grid (right) renders the agents that
-          match the selected category + the query string. */}
+      {/* ── Add agent picker overlay ── */}
       {pickerOpen && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 p-6"
@@ -1082,7 +1016,7 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
               <button
                 type="button"
                 onClick={() => setPickerOpen(false)}
-                aria-label="Close"
+                aria-label="Cerrar"
                 className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-3)]"
               >
                 <X size={12} />
@@ -1092,13 +1026,12 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
               <input
                 value={pickerQuery}
                 onChange={(e) => setPickerQuery(e.target.value)}
-                placeholder="Filter agents by name or description…"
+                placeholder="Filtrar agentes por nombre o descripción…"
                 className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] px-2 py-1.5 text-xs outline-none"
                 autoFocus
               />
             </div>
             <div className="flex max-h-[60vh] min-h-[300px]">
-              {/* Category sidebar */}
               <aside className="w-44 shrink-0 overflow-y-auto border-r border-[var(--color-border)] p-2">
                 <button
                   type="button"
@@ -1152,18 +1085,18 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                 ))}
               </aside>
 
-              {/* Agent grid */}
               <div className="flex-1 overflow-y-auto p-2">
                 {pickerCandidates.length === 0 ? (
                   <div className="p-4 text-center text-xs text-[var(--color-text-muted)]">
                     {pinned.length === agents.length
-                      ? "Every available agent is already pinned."
-                      : "No agents match your filter."}
+                      ? "Todos los agentes disponibles ya están en el proyecto."
+                      : "Ningún agente coincide con el filtro."}
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 gap-1.5 md:grid-cols-2">
                     {pickerCandidates.map((a) => {
                       const chip = originStyle(a.origin);
+                      const inRoster = roster.some((e) => e.name === a.name);
                       return (
                         <div
                           key={a.name}
@@ -1185,14 +1118,36 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                               {a.description}
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => pinAgent(a.name)}
-                            className="inline-flex shrink-0 items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[11.5px] hover:bg-[var(--color-surface-3)]"
-                            title="Pin this agent to the project."
-                          >
-                            <Pin size={11} /> Pin
-                          </button>
+                          <div className="flex shrink-0 flex-col gap-1">
+                            {!inRoster && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void persistRoster([
+                                    ...roster,
+                                    {
+                                      name: a.name,
+                                      reason: "Added manually",
+                                      suggested_role: "",
+                                    },
+                                  ]);
+                                }}
+                                className="inline-flex items-center gap-1 rounded border border-[var(--color-accent)]/60 bg-[var(--color-accent)]/10 px-2 py-1 text-[11px] text-[var(--color-accent)] hover:bg-[var(--color-accent)]/20"
+                                title="Añadir al roster del proyecto."
+                              >
+                                + Roster
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => pinAgent(a.name)}
+                              disabled={pinned.includes(a.name)}
+                              className="inline-flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[11.5px] hover:bg-[var(--color-surface-3)] disabled:opacity-40"
+                              title="Pin al selector del kanban."
+                            >
+                              <Pin size={11} /> Pin
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
@@ -1206,7 +1161,7 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                 onClick={() => setPickerOpen(false)}
                 className="rounded-md border border-[var(--color-border)] px-3 py-1 hover:bg-[var(--color-surface-3)]"
               >
-                Done
+                Listo
               </button>
             </div>
           </div>
@@ -1217,14 +1172,9 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
 }
 
 // ---------------------------------------------------------------------------
-// Create skill from project — moved out of Context tab in v2.6 fb-024.
-//
-// Renders a button + an informational modal that explains exactly what the
-// generated skill will do and where it will land before spawning the Claude
-// session. The destination (`~/.claude/skills/project-<slug>/`) matches the
-// "Project" sub-tile in the Skills section of Library so the new skill is
-// discoverable from the Library tab right after creation.
+// CreateSkillFromProjectButton — unchanged from v2.6
 // ---------------------------------------------------------------------------
+
 function CreateSkillFromProjectButton({
   projectId,
   projectPath,
@@ -1241,7 +1191,6 @@ function CreateSkillFromProjectButton({
   );
   const destination = `~/.claude/skills/project-${slug}/`;
 
-  // ESC closes the modal.
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1290,7 +1239,7 @@ function CreateSkillFromProjectButton({
         type="button"
         onClick={() => setOpen(true)}
         className="flex flex-col items-start gap-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-left text-xs transition-colors hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-2)]"
-        title="Generate a project-scoped skill from this project's tree + CLAUDE.md."
+        title="Genera un skill con SKILL.md para este proyecto."
       >
         <div className="flex w-full items-center gap-2">
           <span
@@ -1327,25 +1276,22 @@ function CreateSkillFromProjectButton({
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                aria-label="Close"
+                aria-label="Cerrar"
                 className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-3)]"
               >
                 <X size={12} />
               </button>
             </div>
             <p className="text-[var(--color-text-secondary)]">
-              Esto pedirá a Claude que analice el proyecto y proponga una
-              skill útil. La skill se creará en{" "}
+              Esto pedirá a Claude que analice el proyecto y proponga una skill
+              útil. La skill se creará en{" "}
               <span style={{ fontFamily: "var(--font-mono)" }}>
                 {destination}
               </span>{" "}
-              y aparecerá automáticamente en Library → Skills (sub-tile
-              "Project").
+              y aparecerá automáticamente en Library → Skills.
             </p>
             <ul className="list-disc space-y-0.5 pl-5 text-[var(--color-text-muted)]">
-              <li>
-                Claude leerá el árbol del proyecto, el CLAUDE.md y el README.
-              </li>
+              <li>Claude leerá el árbol del proyecto, el CLAUDE.md y el README.</li>
               <li>
                 Generará un SKILL.md con frontmatter (
                 <span style={{ fontFamily: "var(--font-mono)" }}>
@@ -1354,8 +1300,8 @@ function CreateSkillFromProjectButton({
                 ).
               </li>
               <li>
-                Te enseñará el contenido propuesto antes de escribirlo —
-                puedes vetar o pedir cambios.
+                Te enseñará el contenido propuesto antes de escribirlo — puedes
+                vetar o pedir cambios.
               </li>
             </ul>
             {err && (
@@ -1370,7 +1316,7 @@ function CreateSkillFromProjectButton({
                 disabled={spawning}
                 className="rounded-md border border-[var(--color-border)] px-3 py-1 hover:bg-[var(--color-surface-3)] disabled:opacity-40"
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 type="button"

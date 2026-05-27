@@ -7,6 +7,7 @@ import { JsonEditor } from "./EditorSection";
 import { BackupsPanel } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
 import { AIRouter } from "../AIRouter";
+import { ApiKeysSection } from "./ApiKeysSection";
 
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
 // top-level tab now. P7 (2.0): "raw" (settings.json) is the default tab and
@@ -22,6 +23,7 @@ type Section =
   | "raw"
   | "general"
   | "auth"
+  | "api-keys"
   | "button-prompts"
   | "backups"
   | "ai-router";
@@ -158,6 +160,7 @@ export function Settings(_props: SettingsProps = {}) {
           { id: "raw" as Section, label: "settings.json" },
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
+          { id: "api-keys" as Section, label: "API Keys" },
           { id: "button-prompts" as Section, label: "Button prompts" },
           { id: "ai-router" as Section, label: "AI Router" },
           { id: "backups" as Section, label: "Backups" },
@@ -212,6 +215,7 @@ export function Settings(_props: SettingsProps = {}) {
             GeneralSection placeholder is no longer imported. */}
         {section === "general" && <LifecyclePanel />}
         {section === "auth" && <AuthStatus />}
+        {section === "api-keys" && <ApiKeysSection />}
         {section === "button-prompts" && <ButtonPromptsSection />}
         {section === "ai-router" && <AIRouter embedded />}
 
