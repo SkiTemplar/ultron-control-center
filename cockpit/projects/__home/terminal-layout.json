@@ -3,12 +3,12 @@
   "tabs": [
     {
       "id": "tab-1779568845138199-7",
-      "label": "Tab 1",
-      "default_provider": null,
+      "label": "Codex",
+      "default_provider": "codex",
       "root": {
         "kind": "leaf",
         "id": "leaf-1779568845138198-6",
-        "pty_id": null
+        "pty_id": "pty-1779919796338170-0"
       }
     }
   ],

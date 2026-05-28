@@ -3,12 +3,12 @@
   "tabs": [
     {
       "id": "tab-1779871725987-5",
-      "label": "Tab 2",
-      "default_provider": null,
+      "label": "Claude",
+      "default_provider": "claude",
       "root": {
         "kind": "leaf",
         "id": "leaf-1779871725987-6",
-        "pty_id": null
+        "pty_id": "pty-1779983449264699-1"
       }
     }
   ],

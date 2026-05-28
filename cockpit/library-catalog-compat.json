@@ -1,0 +1,268 @@
+{
+  "written_at_secs": 1779911392,
+  "input_key": "AgriciDaniel/claude-blog,Bhanunamikaze/Agentic-SEO-Skill,Crestdrasnip/Claude-Zeroclaw,Hao0321/claude-skill-social-post,JamesShi96/project-butler,JuneYaooo/gpt-image2-ppt-skills,KAOPU-XiaoPu/web-design,PleasePrompto/google-ai-mode-skill,Storybloq/storybloq,alirezarezvani/ClaudeForge,alirezarezvani/claude-code-aso-skill,arkylab/aspm,assafelovic/skyll,axiaoge2/Apple-Hig-Designer,bitwize-music-studio/claude-ai-music-skills,ckelsoe/prompt-architect,dominikmartn/hue,dpconde/claude-android-skill,eugeniughelbur/obsidian-second-brain,felixrieseberg/claude-coach,iamzifei/wechat-article-publisher-skill,irenerachel/visual-style-ppt-skill,kimlawtech/korean-privacy-terms,likaku/Mck-ppt-design-skill,mohitagw15856/pm-claude-skills,oaustegard/claude-skills,tt-a1i/archify,wrsmith108/linear-claude-skill,zarazhangrui/frontend-slides,zouchenzhen/thesis-defense-pptx-skill",
+  "reports": [
+    {
+      "item_id": "zarazhangrui/frontend-slides",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: javascript",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "eugeniughelbur/obsidian-second-brain",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "mohitagw15856/pm-claude-skills",
+      "compat_score": 0.4,
+      "reasons": [
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "AgriciDaniel/claude-blog",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "JuneYaooo/gpt-image2-ppt-skills",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "dominikmartn/hue",
+      "compat_score": 0.4,
+      "reasons": [
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "Bhanunamikaze/Agentic-SEO-Skill",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "Storybloq/storybloq",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: typescript",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "tt-a1i/archify",
+      "compat_score": 0.4,
+      "reasons": [
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "KAOPU-XiaoPu/web-design",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "alirezarezvani/ClaudeForge",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "alirezarezvani/claude-code-aso-skill",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "kimlawtech/korean-privacy-terms",
+      "compat_score": 0.4,
+      "reasons": [
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "dpconde/claude-android-skill",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "assafelovic/skyll",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "bitwize-music-studio/claude-ai-music-skills",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "ckelsoe/prompt-architect",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "PleasePrompto/google-ai-mode-skill",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "likaku/Mck-ppt-design-skill",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "JamesShi96/project-butler",
+      "compat_score": 0.4,
+      "reasons": [
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "irenerachel/visual-style-ppt-skill",
+      "compat_score": 0.4,
+      "reasons": [
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "iamzifei/wechat-article-publisher-skill",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "zouchenzhen/thesis-defense-pptx-skill",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "felixrieseberg/claude-coach",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: typescript",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "oaustegard/claude-skills",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: python",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "axiaoge2/Apple-Hig-Designer",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: javascript",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "wrsmith108/linear-claude-skill",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: typescript",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "arkylab/aspm",
+      "compat_score": 0.4,
+      "reasons": [
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "Hao0321/claude-skill-social-post",
+      "compat_score": 0.4,
+      "reasons": [
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    },
+    {
+      "item_id": "Crestdrasnip/Claude-Zeroclaw",
+      "compat_score": 0.7,
+      "reasons": [
+        "language match: typescript",
+        "no dependency conflicts detected"
+      ],
+      "blocked_by": null
+    }
+  ]
+}

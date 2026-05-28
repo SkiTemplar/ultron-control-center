@@ -1,0 +1,287 @@
+{
+  "timestamp": "2026-05-28T13-39-04Z",
+  "system": {
+    "os": "Windows",
+    "kernel": "26200",
+    "hostname": "LAPTOP-USER",
+    "uptime_seconds": 226,
+    "cpu_brand": "13th Gen Intel(R) Core(TM) i9-13950HX",
+    "cpu_cores": 32,
+    "cpu_usage_percent": 1.0687869,
+    "ram_total_mb": 32467,
+    "ram_used_mb": 9259,
+    "ram_usage_percent": 28.518188,
+    "severity": "ok"
+  },
+  "disks": [
+    {
+      "mount": "C:\\",
+      "total_gb": 952.7460899353027,
+      "free_gb": 121.07473754882812,
+      "used_percent": 87.29202,
+      "severity": "warn"
+    }
+  ],
+  "top_processes": [
+    {
+      "pid": 21596,
+      "name": "msedgewebview2.exe",
+      "cpu_percent": 7.692308,
+      "mem_mb": 121
+    },
+    {
+      "pid": 4708,
+      "name": "audiodg.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 28
+    },
+    {
+      "pid": 16476,
+      "name": "RuntimeBroker.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 14
+    },
+    {
+      "pid": 6092,
+      "name": "MsMpEng.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 411
+    },
+    {
+      "pid": 16568,
+      "name": "Intel_PIE_Service.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 12
+    },
+    {
+      "pid": 1176,
+      "name": "smss.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 1
+    },
+    {
+      "pid": 5708,
+      "name": "MSI_Companion_Service.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 26
+    },
+    {
+      "pid": 6180,
+      "name": "SearchProtocolHost.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 21
+    },
+    {
+      "pid": 5592,
+      "name": "KAPSService.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 21
+    },
+    {
+      "pid": 23480,
+      "name": "svchost.exe",
+      "cpu_percent": 0.0,
+      "mem_mb": 29
+    }
+  ],
+  "event_log": [
+    {
+      "log_name": "",
+      "source": "Application Error",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Nombre de aplicación con errores: PhoneExperienceHost.exe, versión: 1.26032.102.0, marca de tiempo: 0x69e20000\r\nNombre del módulo con errores: KERNELBASE.dll, versión: 10.0.26100.8457, marca de tiempo: 0x18603c3f\r\nCódigo de excepción: 0xe0434352\r\nDesplazamiento con errores: 0x00000000000bfe0a\r\nId. de proceso con errores: 0x5A40\r\nTiempo de inicio de aplicación con errores: 0x1DCEEA6FC0BD9BE\r\nRuta de aplicación con errores: C:\\Program Files\\WindowsApps\\Microsoft.YourPhone_1.26032.102.0_x64__8wekyb3d8bbwe\\PhoneExperienceHost.exe\r\nRuta de módulo con errores: C:\\WINDOWS\\System32\\KERNELBASE.dll\r\nId. de informe: b9d5cdb2-08b3-46e2-bc7c-d9adbe75c825\r\nNombre completo del paquete con errores: Microsoft.YourPhone_1.26032.102.0_x64__8wekyb3d8bbwe\r\nId. de aplicación relacionado con el paquete con errores: App",
+      "time_generated": "20260528133707.072592-000"
+    },
+    {
+      "log_name": "",
+      "source": ".NET Runtime",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Application: PhoneExperienceHost.exe\nCoreCLR Version: 10.0.726.21808\n.NET Version: 10.0.7\nDescription: The process was terminated due to an unhandled exception.\nException Info: System.ArgumentNullException: Value cannot be null. (Parameter 'deviceInfo')\r\n   at YourPhone.Connectivity.Bluetooth.Shims.DeviceInformation..ctor(DeviceInformation deviceInfo)\r\n   at YourPhone.Connectivity.Bluetooth.Shims.BluetoothDevice.get_DeviceInformation()\r\n   at YourPhone.Connectivity.Bluetooth.Managed.Devices.BluetoothClassicDeviceFinder.DoContainerIdsMatch(IDeviceInformation incomingDeviceInformation, String bluetoothClassicId)\r\n   at YourPhone.Connectivity.Bluetooth.Managed.Devices.BluetoothClassicDeviceFinder.IsActiveDeviceAsync(IDeviceInformation deviceInformation, IDeviceData device)\r\n   at YourPhone.Connectivity.Bluetooth.Managed.Services.BluetoothStateService.OnPairedDeviceAddedAsync(IDeviceInformation addedInfo)\r\n   at System.Threading.ThreadPoolWorkQueue.Dispatch()\r\n   at System.Threading.PortableThreadPool.WorkerThread.WorkerThreadStart()\r\n   at System.Threading.Thread.StartCallback()\n",
+      "time_generated": "20260528133707.028658-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-Perflib",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Windows no puede cargar el archivo DLL del contador extensible \"C:\\WINDOWS\\system32\\sysmain.dll\" (código de error de Win32 No se puede encontrar el módulo especificado.).",
+      "time_generated": "20260528133624.226689-000"
+    },
+    {
+      "log_name": "",
+      "source": "IPF",
+      "level": "Error",
+      "event_id": 0,
+      "message": "ESIF(2.3.20303.5058) TYPE: ERROR MODULE: IPF TIME 79277816 ms\n\n[<IPFSRV>AuthMgr_EsifPrimitive@ipfsrv_authmgr.c#1940]<79277814 ms>: \nUnauthorized EsifPrimitive: SET_PROC_NUMBER_OFFLINE_CORES (153)",
+      "time_generated": "20260528073439.305405-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-WindowsUpdateClient",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Error de instalación: error de Windows al instalar la siguiente actualización, error 0x80240016: Razer Inc - HIDClass - 6.2.9200.16547.",
+      "time_generated": "20260528133823.990870-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-WindowsUpdateClient",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Error de instalación: error de Windows al instalar la siguiente actualización, error 0x80240016: Razer Inc - HIDClass - 6.2.9200.16547.",
+      "time_generated": "20260528133745.513935-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-WindowsUpdateClient",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Error de instalación: error de Windows al instalar la siguiente actualización, error 0x80240016: Razer Inc - HIDClass - 6.2.9200.16547.",
+      "time_generated": "20260528133745.464581-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-DeviceAssociationService",
+      "level": "Error",
+      "event_id": 0,
+      "message": "El servicio de asociación de dispositivos detectó un error de detección de puntos de conexión.",
+      "time_generated": "20260528133706.979434-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-WindowsUpdateClient",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Error de instalación: error de Windows al instalar la siguiente actualización, error 0x80240016: Razer Inc - HIDClass - 6.2.9200.16547.",
+      "time_generated": "20260528133626.791812-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-WindowsUpdateClient",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Error de instalación: error de Windows al instalar la siguiente actualización, error 0x80240016: Razer Inc - HIDClass - 6.2.9200.16547.",
+      "time_generated": "20260528133626.754889-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-WindowsUpdateClient",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Error de instalación: error de Windows al instalar la siguiente actualización, error 0x80240016: Lenovo - MEDIA - 1.31.38.54.",
+      "time_generated": "20260528133626.138676-000"
+    },
+    {
+      "log_name": "",
+      "source": "Service Control Manager",
+      "level": "Error",
+      "event_id": 0,
+      "message": "El servicio Steam Client Service no pudo iniciarse debido al siguiente error: \r\nEl servicio no respondió a tiempo a la solicitud de inicio o de control.",
+      "time_generated": "20260528133621.747028-000"
+    },
+    {
+      "log_name": "",
+      "source": "Service Control Manager",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Se agotó el tiempo de espera (90000 ms) para la conexión con el servicio Steam Client Service.",
+      "time_generated": "20260528133621.747028-000"
+    },
+    {
+      "log_name": "",
+      "source": "Service Control Manager",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Se agotó el tiempo de espera (90000 ms) para la conexión con el servicio Intel(R) Platform License Manager Service.",
+      "time_generated": "20260528133555.518222-000"
+    },
+    {
+      "log_name": "",
+      "source": "EventLog",
+      "level": "Error",
+      "event_id": 0,
+      "message": "El cierre anterior del sistema a las 11:04:50 del ‎28/‎05/‎2026 resultó inesperado.",
+      "time_generated": "20260528133554.569090-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-Kernel-Boot",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Error de Windows en el inicio rápido con el estado de error 0xC00000D4.",
+      "time_generated": "20260528133519.383757-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-DistributedCOM",
+      "level": "Error",
+      "event_id": 0,
+      "message": "El servidor Microsoft.AAD.BrokerPlugin_1000.19580.1000.2_neutral_neutral_cw5n1h2txyewy!Windows.Security.Authentication.Web.Core.BackgroundGetTokenTask.ClassId.WebAccountProvider no se registró con DCOM dentro del tiempo de espera requerido.",
+      "time_generated": "20260528091114.069316-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-DistributedCOM",
+      "level": "Error",
+      "event_id": 0,
+      "message": "El servidor Microsoft.AAD.BrokerPlugin_1000.19580.1000.2_neutral_neutral_cw5n1h2txyewy!Windows.Security.Authentication.Web.Core.BackgroundGetTokenTask.ClassId.WebAccountProvider no se registró con DCOM dentro del tiempo de espera requerido.",
+      "time_generated": "20260528091113.992964-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-NDIS",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Minipuerto Microsoft Wi-Fi Direct Virtual Adapter #2, {3d7f0110-5e39-4545-943a-7c72363c9680}, tuvo el evento Fatal error: The miniport has failed a power transition to operational power",
+      "time_generated": "20260528073439.654403-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-DistributedCOM",
+      "level": "Error",
+      "event_id": 0,
+      "message": "El servidor Windows.Gaming.GameBar.PresenceServer.Internal.PresenceWriter no se registró con DCOM dentro del tiempo de espera requerido.",
+      "time_generated": "20260527214623.186233-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-DistributedCOM",
+      "level": "Error",
+      "event_id": 0,
+      "message": "El servidor Windows.Gaming.GameBar.PresenceServer.Internal.PresenceWriter no se registró con DCOM dentro del tiempo de espera requerido.",
+      "time_generated": "20260527211223.203203-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-WindowsUpdateClient",
+      "level": "Error",
+      "event_id": 0,
+      "message": "Error de instalación: error de Windows al instalar la siguiente actualización, error 0x80073D02: 9PLM9XGG6VKS-OpenAI.Codex.",
+      "time_generated": "20260527210434.871214-000"
+    },
+    {
+      "log_name": "",
+      "source": "Microsoft-Windows-HAL",
+      "level": "Error",
+      "event_id": 0,
+      "message": "No se estableció el reloj en tiempo real de hardware debido a un error en la evaluación del método de dispositivo de alarma y hora ACPI.  Estado: 0xC0000001.",
+      "time_generated": "20260527181016.436580-000"
+    }
+  ],
+  "network": {
+    "reachable": true,
+    "latency_ms": 4,
+    "severity": "ok"
+  },
+  "app": {
+    "projects_json_ok": true,
+    "claude_in_path": true,
+    "codex_in_path": true,
+    "gemini_in_path": true,
+    "mem0_configured": false,
+    "severity": "warn"
+  },
+  "max_severity": "warn"
+}
