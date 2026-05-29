@@ -553,6 +553,54 @@ export function WorkdayDetail({
       <WorkdayDaySummary wd={wd} />
 
       {/* ------------------------------------------------------------------ */}
+      {/* Resumen IA automático (2026-05-30) — auto-contexto de la jornada    */}
+      {/* ------------------------------------------------------------------ */}
+      <div
+        className="mx-4 mt-3 rounded-lg p-3"
+        style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+      >
+        <div className="mb-1.5 flex items-center justify-between gap-2">
+          <span
+            className="text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Resumen IA
+            {wd.ai_summary?.generated_at && (
+              <span className="ml-2 normal-case" style={{ color: "var(--color-text-faint)" }}>
+                · {fmtTs(wd.ai_summary.generated_at)}
+              </span>
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => void runCmd("workday_ai_summary_generate", { workdayId })}
+            disabled={busy}
+            className="rounded px-2 py-0.5 text-[11px] transition-colors disabled:opacity-40"
+            style={{
+              background: "var(--color-surface-3)",
+              color: "var(--color-text-secondary)",
+              border: "1px solid var(--color-border-strong)",
+            }}
+            title="Regenerar el resumen de la jornada con IA (route utility)"
+          >
+            {busy ? "…" : "Regenerar"}
+          </button>
+        </div>
+        {wd.ai_summary?.text ? (
+          <div
+            className="whitespace-pre-wrap text-[12.5px] leading-relaxed"
+            style={{ color: "var(--color-text-secondary)" }}
+          >
+            {wd.ai_summary.text}
+          </div>
+        ) : (
+          <div className="text-[12px]" style={{ color: "var(--color-text-faint)" }}>
+            Se genera al acumular actividad (o pulsa «Regenerar»).
+          </div>
+        )}
+      </div>
+
+      {/* ------------------------------------------------------------------ */}
       {/* Secciones accordion                                                  */}
       {/* ------------------------------------------------------------------ */}
 

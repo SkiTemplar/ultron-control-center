@@ -389,6 +389,7 @@ pub fn run() {
             commands::workdays::workday_goals_update,
             commands::workdays::workday_goals_delete,
             commands::workdays::workday_goals_auto_fill,
+            commands::workdays::workday_ai_summary_generate,
             commands::workdays::workday_context_auto_append,
             commands::workdays::workday_active_id_today,
             commands::workdays::register_workday_autoupdate_task,

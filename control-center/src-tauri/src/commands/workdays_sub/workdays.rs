@@ -270,6 +270,14 @@ pub async fn workday_goals_auto_fill(workday_id: String) -> Result<Workday, Stri
         .map_err(|e| e.to_string())?
 }
 
+/// Genera/regenera el resumen IA de la jornada (auto-contexto, 2026-05-30).
+#[tauri::command]
+pub async fn workday_ai_summary_generate(workday_id: String) -> Result<Workday, String> {
+    tauri::async_runtime::spawn_blocking(move || workdays::ai_summary_generate_inner(workday_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
 // -- H32: Auto AI update ------------------------------------------------------
 
 /// Append an auto-update summary note to a workday. Called by the 15-min

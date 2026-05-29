@@ -45,6 +45,14 @@ export interface WorkdayContext {
   agent_messages: WorkdayContextEntry[];
 }
 
+export interface WorkdayAiSummary {
+  text: string;
+  generated_at: string;
+  model?: string | null;
+  source: string;
+  covers_until: string;
+}
+
 export interface Workday {
   id: string;
   template_id?: string;
@@ -65,6 +73,8 @@ export interface Workday {
   retro_bad?: string;
   retro_learned?: string;
   summary_md?: string;
+  /** Resumen automático IA de la jornada (auto-contexto). */
+  ai_summary?: WorkdayAiSummary;
   goals: WorkdayGoal[];
   linked_sessions: string[];
   linked_tasks: string[];

@@ -126,6 +126,23 @@ pub struct WorkdayContext {
     pub agent_messages: Vec<WorkdayContextEntry>,
 }
 
+/// Resumen automático de la jornada generado por IA (route("utility")).
+/// Separado de `summary_md` (manual) para no pisarlo. `covers_until` permite
+/// regeneración incremental: solo se re-procesa la actividad posterior.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorkdayAiSummary {
+    pub text: String,
+    pub generated_at: String,
+    #[serde(default)]
+    pub model: Option<String>,
+    /// "auto" (scheduler 15min) | "manual" (botón Regenerar).
+    #[serde(default)]
+    pub source: String,
+    /// epoch hasta donde cubre el resumen (para no reprocesar todo el día).
+    #[serde(default)]
+    pub covers_until: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workday {
     pub id: String,
@@ -155,6 +172,8 @@ pub struct Workday {
     #[serde(default)] pub retro_bad: Option<String>,
     #[serde(default)] pub retro_learned: Option<String>,
     #[serde(default)] pub summary_md: Option<String>,
+    /// Resumen automático IA de la jornada (auto-contexto). Distinto de summary_md.
+    #[serde(default)] pub ai_summary: Option<WorkdayAiSummary>,
     #[serde(default)] pub goals: Vec<WorkdayGoal>,
     #[serde(default)] pub linked_sessions: Vec<String>,
     #[serde(default)] pub linked_tasks: Vec<String>,
@@ -283,6 +302,7 @@ pub fn create_workday_inner(title: String, planned_date: Option<String>, templat
         start_ts: None, end_ts: None, focus_seconds: 0, break_seconds: 0,
         energy_before: None, energy_after: None, mood_note: None,
         retro_good: None, retro_bad: None, retro_learned: None, summary_md: None,
+        ai_summary: None,
         goals: gi, linked_sessions: Vec::new(), linked_tasks: Vec::new(),
         context: WorkdayContext::default(), created_at: now_iso() };
     persist_workday(&wd)?; Ok(wd)
@@ -571,6 +591,7 @@ pub fn auto_start_for_project_inner(
         retro_bad: None,
         retro_learned: None,
         summary_md: None,
+        ai_summary: None,
         goals,
         linked_sessions: Vec::new(),
         linked_tasks: Vec::new(),
@@ -1610,6 +1631,92 @@ pub fn goals_auto_fill_inner(workday_id: String) -> Result<Workday, String> {
 
     persist_workday(&wd)?;
     Ok(wd)
+}
+
+// ---------------------------------------------------------------------------
+// Auto-resumen IA de la jornada (2026-05-30) — "que fuese automático lo de contexto"
+// ---------------------------------------------------------------------------
+
+/// Extrae el número de un timestamp "epoch:N". 0 si no parsea.
+fn epoch_secs(ts: &str) -> u64 {
+    ts.strip_prefix("epoch:").and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0)
+}
+
+/// Genera (o regenera) el resumen IA de la jornada vía `ai_router::route("utility")`.
+/// Compone el prompt con los goals + la actividad del contexto (notas/decisiones/
+/// file_changes) posterior a `ai_summary.covers_until` (incremental). Fallback duro:
+/// si la IA falla y ya había un resumen, lo conserva (nunca deja el panel en blanco).
+pub fn ai_summary_generate_inner(workday_id: String) -> Result<Workday, String> {
+    let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
+    let mut wd = load_wd(&workday_id)?;
+
+    // Punto de corte incremental: desde el último resumen, o desde el inicio.
+    let since = wd
+        .ai_summary
+        .as_ref()
+        .map(|s| epoch_secs(&s.covers_until))
+        .filter(|n| *n > 0)
+        .or_else(|| wd.start_ts.as_deref().map(epoch_secs))
+        .unwrap_or(0);
+
+    // Actividad relevante posterior al corte.
+    let recent = |entries: &[WorkdayContextEntry]| -> Vec<String> {
+        entries
+            .iter()
+            .filter(|e| epoch_secs(&e.created_at) >= since)
+            .map(|e| format!("- [{}] {}", e.kind, e.text))
+            .collect()
+    };
+    let mut activity: Vec<String> = Vec::new();
+    activity.extend(recent(&wd.context.notes));
+    activity.extend(recent(&wd.context.decisions));
+    activity.extend(recent(&wd.context.file_changes));
+
+    let goals_line = if wd.goals.is_empty() {
+        "(sin goals)".to_string()
+    } else {
+        wd.goals
+            .iter()
+            .map(|g| format!("- [{:?}] {}", g.status, g.text))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let activity_block = if activity.is_empty() {
+        "(sin actividad nueva registrada)".to_string()
+    } else {
+        activity.join("\n")
+    };
+
+    let prompt = format!(
+        "Eres un asistente de productividad. Resume la jornada de trabajo en 3-5 viñetas \
+         markdown CORTAS (qué se hizo, decisiones clave, progreso de objetivos). Español, \
+         conciso, sin preámbulo. Responde SOLO el resumen.\n\n\
+         Objetivos:\n{goals_line}\n\nActividad:\n{activity_block}"
+    );
+
+    let now = now_iso();
+    match crate::ai_router::route("utility", &prompt) {
+        Ok(text) if !text.trim().is_empty() => {
+            wd.ai_summary = Some(WorkdayAiSummary {
+                text: text.trim().to_string(),
+                generated_at: now.clone(),
+                model: None,
+                source: "manual".to_string(),
+                covers_until: now,
+            });
+            persist_workday(&wd)?;
+            Ok(wd)
+        }
+        // Fallback: conserva el resumen previo si existe; si no, error informativo.
+        other => {
+            if wd.ai_summary.is_some() {
+                Ok(wd)
+            } else {
+                let why = other.err().unwrap_or_else(|| "respuesta vacía".to_string());
+                Err(format!("no se pudo generar el resumen IA: {why}"))
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
