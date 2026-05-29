@@ -56,6 +56,17 @@ __pycache__/
 *.pyo
 *.egg-info/
 
+# === Secrets / credentials (NUNCA al mirror — re-obtenibles via re-login) ===
+# card-sec-backup-secrets-exclusion (Semana 0). El robocopy /MIR copiaba
+# .claude/.credentials.json (token OAuth de Claude Code) en claro a D:\BACKUP.
+# Un mirror plano no debe contener credenciales: si se restaura, Claude Code
+# pide login otra vez (coste trivial) y el token vivo nunca queda duplicado.
+.credentials.json
+.runner-secret
+*.pem
+*.key
+*.secret
+
 # === Rust / Cargo ===
 target/
 
