@@ -463,149 +463,61 @@ export function Hooks() {
     return fires.fires.filter((f) => f.hook_id === selectedHook.id);
   }, [fires, selectedHook]);
 
-  // Auto-expand the first group when list loads and nothing is selected
-  useEffect(() => {
-    if (!expandedEvent && eventGroups.length > 0 && !selectedId) {
-      setExpandedEvent(eventGroups[0].event);
-    }
-  }, [eventGroups, expandedEvent, selectedId]);
+  // Default view = "All" (expandedEvent null). El filtro por evento se hace
+  // con las pills de categoria estilo Skills (ver renderEventPills), no con
+  // un sidebar.
 
   // -------------------------------------------------------------------------
-  // Sidebar: category list
+  // Category pills (estilo Skills) — fila horizontal de eventos, NO sidebar.
+  // "All" + una pill por evento con su color y count. Click filtra el grid.
   // -------------------------------------------------------------------------
 
-  const renderSidebar = () => (
-    <nav
-      className="flex h-full flex-col overflow-y-auto"
-      style={{
-        width: 220,
-        minWidth: 180,
-        borderRight: "1px solid var(--color-border)",
-        background: "var(--color-surface-1)",
-      }}
-    >
-      <div
-        className="sticky top-0 z-10 px-3 py-2"
-        style={{ background: "var(--color-surface-1)", borderBottom: "1px solid var(--color-border)" }}
+  const renderEventPills = () => (
+    <div className="flex flex-wrap items-center gap-1.5">
+      <span
+        className="text-[10.5px] uppercase tracking-wide"
+        style={{ color: "var(--color-text-tertiary)" }}
       >
-        <input
-          type="text"
-          value={filterText}
-          onChange={(e) => setFilterText(e.target.value)}
-          placeholder="Search..."
-          className="w-full rounded px-2 py-1 text-[11.5px] outline-none"
-          style={{
-            border: "1px solid var(--color-border-strong)",
-            background: "var(--color-surface-2)",
-            color: "var(--color-text)",
-          }}
-        />
-      </div>
-
-      {eventGroups.length === 0 && !loading && (
-        <div
-          className="px-3 py-2 text-[11.5px]"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          {q ? "No matches" : "No hooks"}
-        </div>
-      )}
-
+        Evento
+      </span>
+      <button
+        type="button"
+        onClick={() => setExpandedEvent(null)}
+        className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
+        style={{
+          borderColor: expandedEvent === null ? "var(--color-text)" : "var(--color-border-strong)",
+          background: expandedEvent === null ? "var(--color-surface-4)" : "transparent",
+          color: expandedEvent === null ? "var(--color-text)" : "var(--color-text-secondary)",
+        }}
+      >
+        All
+        <span className="ml-1 tabular-nums opacity-70">{filtered.length}</span>
+      </button>
       {eventGroups.map(({ event, hooks }) => {
+        const active = expandedEvent === event;
         const colors = eventColors(event);
-        const isExpanded = expandedEvent === event;
         return (
-          <div key={event}>
-            {/* Category header row */}
-            <button
-              type="button"
-              onClick={() => setExpandedEvent(isExpanded ? null : event)}
-              className="flex w-full items-center gap-1.5 px-3 py-2 text-left transition-colors"
-              style={{
-                background: isExpanded ? colors.sidebarActive : "transparent",
-                borderBottom: "1px solid var(--color-border)",
-              }}
-            >
-              <span
-                className="text-[10px]"
-                style={{
-                  color: isExpanded ? colors.chipFg : "var(--color-text-tertiary)",
-                  transform: isExpanded ? "rotate(90deg)" : "rotate(0)",
-                  display: "inline-block",
-                  transition: "transform 150ms",
-                }}
-              >
-                ▶
-              </span>
-              <span
-                className="flex-1 truncate text-[11.5px] font-medium"
-                style={{ color: isExpanded ? colors.chipFg : "var(--color-text-secondary)" }}
-              >
-                {event}
-              </span>
-              <span
-                className="rounded-full px-1.5 py-0.5 text-[9.5px] tabular-nums"
-                style={{
-                  background: colors.chipBg,
-                  color: colors.chipFg,
-                  border: `1px solid ${colors.chipBorder}`,
-                }}
-              >
-                {hooks.length}
-              </span>
-            </button>
-
-            {/* Hooks in this category */}
-            {isExpanded &&
-              hooks.map((h) => {
-                const isSelected = selectedId === h.id;
-                const displayName = resolveDisplayName(h);
-                return (
-                  <button
-                    key={h.id}
-                    type="button"
-                    onClick={() => setSelectedId(isSelected ? null : h.id)}
-                    className="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors"
-                    style={{
-                      background: isSelected ? colors.sidebarActive : "transparent",
-                      borderBottom: "1px solid var(--color-border)",
-                      opacity: h.enabled ? 1 : 0.55,
-                      borderLeft: isSelected ? `3px solid ${colors.chipFg}` : "3px solid transparent",
-                    }}
-                  >
-                    {displayName ? (
-                      <span
-                        className="truncate text-[11.5px] font-medium"
-                        style={{ color: isSelected ? "var(--color-text)" : "var(--color-text-secondary)" }}
-                      >
-                        {displayName}
-                      </span>
-                    ) : (
-                      <span
-                        className="truncate text-[10.5px]"
-                        style={{
-                          color: "var(--color-text-tertiary)",
-                          fontFamily: "var(--font-mono)",
-                        }}
-                      >
-                        {h.id}
-                      </span>
-                    )}
-                    {h.matcher && (
-                      <span
-                        className="truncate text-[10px]"
-                        style={{ color: "var(--color-text-tertiary)", fontFamily: "var(--font-mono)" }}
-                      >
-                        {h.matcher}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-          </div>
+          <button
+            key={event}
+            type="button"
+            onClick={() => setExpandedEvent(active ? null : event)}
+            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
+            style={{
+              borderColor: active ? colors.chipFg : "var(--color-border-strong)",
+              background: active ? colors.chipBg : "transparent",
+              color: active ? colors.chipFg : "var(--color-text-secondary)",
+            }}
+          >
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ background: colors.chipFg }}
+            />
+            {event}
+            <span className="tabular-nums opacity-70">{hooks.length}</span>
+          </button>
         );
       })}
-    </nav>
+    </div>
   );
 
   // -------------------------------------------------------------------------
@@ -892,30 +804,47 @@ export function Hooks() {
         </div>
       )}
 
-      {/* 3-pane layout: sidebar | card grid | detail pane */}
+      {/* Layout estilo Skills: search + pills de categoria + (grid | detail) */}
       {!loading && list && list.hooks.length > 0 && (
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left sidebar */}
-          {renderSidebar()}
+        <div className="flex h-full flex-col gap-3 p-4">
+          {/* Search */}
+          <input
+            type="text"
+            value={filterText}
+            onChange={(e) => setFilterText(e.target.value)}
+            placeholder="Search hooks by name, command, matcher or event…"
+            className="w-full rounded-md px-3 py-2 text-sm outline-none"
+            style={{
+              border: "1px solid var(--color-border-strong)",
+              background: "var(--color-surface-2)",
+              color: "var(--color-text)",
+            }}
+          />
 
-          {/* Center: card grid for expanded category */}
-          <div
-            className={`flex-1 overflow-y-auto ${selectedHook ? "min-w-0" : ""}`}
-            style={{ minWidth: 0 }}
-          >
-            {cardsToShow.length === 0 ? (
-              <div
-                className="px-6 py-4 text-xs"
-                style={{ color: "var(--color-text-tertiary)" }}
-              >
-                {expandedEvent
-                  ? `No hooks for ${expandedEvent} matching the current filter.`
-                  : "Select a category from the left sidebar."}
-              </div>
-            ) : (
-              renderCardGrid(cardsToShow)
-            )}
-          </div>
+          {/* Category pills */}
+          {renderEventPills()}
+
+          {/* Grid de cartillas | detail pane */}
+          <div className="flex flex-1 gap-3 overflow-hidden">
+            <div
+              className={selectedHook ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"}
+              style={{ minWidth: 0 }}
+            >
+              {cardsToShow.length === 0 ? (
+                <div
+                  className="px-2 py-4 text-xs"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {expandedEvent
+                    ? `No hay hooks de ${expandedEvent} que coincidan con el filtro.`
+                    : q
+                      ? "Ningún hook coincide con la búsqueda."
+                      : "No hay hooks."}
+                </div>
+              ) : (
+                renderCardGrid(cardsToShow)
+              )}
+            </div>
 
           {/* Right: detail pane */}
           {selectedHook && (
@@ -945,6 +874,7 @@ export function Hooks() {
               />
             </div>
           )}
+          </div>
         </div>
       )}
 
