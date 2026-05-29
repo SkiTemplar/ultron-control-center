@@ -138,8 +138,41 @@ pub struct Zone {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ClassMetrics {
     pub count: u64,
+    /// Output tokens accumulated across all calls to this provider (antes
+    /// nunca se poblaba; ahora se llena desde la respuesta del proveedor).
     pub tokens: u64,
     pub latency_p95_ms: u64,
+    /// Calls that succeeded (outcome.is_ok()). success_rate = success_count/count.
+    #[serde(default)]
+    pub success_count: u64,
+}
+
+/// Token usage extraido de la respuesta de un proveedor.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
+pub struct TokenUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// Resultado de una llamada a un proveedor: texto + uso de tokens. Sustituye
+/// al `String` plano para poder trackear stats reales (tokens/cost/success).
+#[derive(Debug, Clone, Default)]
+pub struct CallOutcome {
+    pub text: String,
+    pub usage: TokenUsage,
+}
+
+/// Metricas por MODELO concreto (key = "provider_id::model"). Lo que el
+/// rediseno funcional necesita: call count, success rate, tokens y latencia
+/// por cada modelo realmente usado.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ModelMetrics {
+    pub provider_id: String,
+    pub model: String,
+    pub count: u64,
+    pub success_count: u64,
+    pub output_tokens: u64,
+    pub latency_ms_avg: u64,
 }
 
 /// Per-provider request counter for the CURRENT day. Used to compute the
@@ -163,6 +196,10 @@ pub struct RouterMetrics {
     /// Per-provider request counts for the current day (free-tier gauge).
     #[serde(default)]
     pub daily: HashMap<String, DailyUsage>,
+    /// Per-model metrics (key = "provider_id::model"). Alimenta la matriz
+    /// provider/modelo del rediseno del AI Router.
+    #[serde(default)]
+    pub by_model: HashMap<String, ModelMetrics>,
 }
 
 /// Approximate published free-tier DAILY request limit (RPD) per provider.
@@ -805,12 +842,12 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
     let latency_ms = started.elapsed().as_millis() as u64;
 
     match outcome {
-        Ok(text) => TestResult {
+        Ok(co) => TestResult {
             ok: true,
             provider_id: provider.id,
             model: zone.primary.model.clone(),
             latency_ms,
-            response_excerpt: truncate(&text, 280),
+            response_excerpt: truncate(&co.text, 280),
             error: None,
         },
         Err(e) => TestResult {
@@ -906,7 +943,7 @@ fn call_anthropic(
     prompt: &str,
     system: Option<&str>,
     max_tokens: u32,
-) -> Result<String, String> {
+) -> Result<CallOutcome, String> {
     let client = http_client()?;
     let key = std::env::var(&provider.key_env_var)
         .map_err(|_| format!("missing {} env var", provider.key_env_var))?;
@@ -951,12 +988,18 @@ fn call_anthropic(
     }
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| format!("parse anthropic response: {}", e))?;
-    Ok(v.get("content")
+    let out = v
+        .get("content")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("text"))
         .and_then(|t| t.as_str())
         .unwrap_or("(no text in response)")
-        .to_string())
+        .to_string();
+    let usage = TokenUsage {
+        input_tokens: v.pointer("/usage/input_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
+        output_tokens: v.pointer("/usage/output_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
+    };
+    Ok(CallOutcome { text: out, usage })
 }
 
 fn call_openai_compat(
@@ -965,7 +1008,7 @@ fn call_openai_compat(
     prompt: &str,
     system: Option<&str>,
     max_tokens: u32,
-) -> Result<String, String> {
+) -> Result<CallOutcome, String> {
     let client = http_client()?;
     let key = std::env::var(&provider.key_env_var)
         .map_err(|_| format!("missing {} env var", provider.key_env_var))?;
@@ -1001,13 +1044,19 @@ fn call_openai_compat(
     }
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| format!("parse {} response: {}", provider.id, e))?;
-    Ok(v.get("choices")
+    let out = v
+        .get("choices")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
         .and_then(|c| c.as_str())
         .unwrap_or("(no text in response)")
-        .to_string())
+        .to_string();
+    let usage = TokenUsage {
+        input_tokens: v.pointer("/usage/prompt_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
+        output_tokens: v.pointer("/usage/completion_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
+    };
+    Ok(CallOutcome { text: out, usage })
 }
 
 fn call_gemini(
@@ -1016,7 +1065,7 @@ fn call_gemini(
     prompt: &str,
     system: Option<&str>,
     max_tokens: u32,
-) -> Result<String, String> {
+) -> Result<CallOutcome, String> {
     let client = http_client()?;
     let key = std::env::var(&provider.key_env_var)
         .map_err(|_| format!("missing {} env var", provider.key_env_var))?;
@@ -1051,7 +1100,8 @@ fn call_gemini(
     }
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| format!("parse gemini response: {}", e))?;
-    Ok(v.get("candidates")
+    let out = v
+        .get("candidates")
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("content"))
         .and_then(|c| c.get("parts"))
@@ -1059,7 +1109,12 @@ fn call_gemini(
         .and_then(|p| p.get("text"))
         .and_then(|t| t.as_str())
         .unwrap_or("(no text in response)")
-        .to_string())
+        .to_string();
+    let usage = TokenUsage {
+        input_tokens: v.pointer("/usageMetadata/promptTokenCount").and_then(|x| x.as_u64()).unwrap_or(0),
+        output_tokens: v.pointer("/usageMetadata/candidatesTokenCount").and_then(|x| x.as_u64()).unwrap_or(0),
+    };
+    Ok(CallOutcome { text: out, usage })
 }
 
 fn call_ollama(
@@ -1068,7 +1123,7 @@ fn call_ollama(
     prompt: &str,
     system: Option<&str>,
     _max_tokens: u32,
-) -> Result<String, String> {
+) -> Result<CallOutcome, String> {
     let client = http_client()?;
     // Pre-flight: ollama must actually be running locally.
     let tags_url = format!("{}/api/tags", provider.base_url.trim_end_matches('/'));
@@ -1103,10 +1158,16 @@ fn call_ollama(
     }
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| format!("parse ollama response: {}", e))?;
-    Ok(v.get("response")
+    let out = v
+        .get("response")
         .and_then(|r| r.as_str())
         .unwrap_or("(no response field)")
-        .to_string())
+        .to_string();
+    let usage = TokenUsage {
+        input_tokens: v.get("prompt_eval_count").and_then(|x| x.as_u64()).unwrap_or(0),
+        output_tokens: v.get("eval_count").and_then(|x| x.as_u64()).unwrap_or(0),
+    };
+    Ok(CallOutcome { text: out, usage })
 }
 
 fn clamp_max_tokens(requested: u32, default: u32) -> u32 {
@@ -1135,7 +1196,8 @@ fn clamp_max_tokens(requested: u32, default: u32) -> u32 {
 // ---------------------------------------------------------------------------
 
 /// Invoke a CLI provider synchronously and return its stdout on success.
-fn call_cli(provider: &Provider, prompt: &str) -> Result<String, String> {
+/// CLI providers no exponen contadores de tokens, asi que usage queda en 0.
+fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, String> {
     let cmd = provider
         .cli_command
         .as_deref()
@@ -1207,7 +1269,7 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<String, String> {
     if stdout.trim().is_empty() {
         return Err(format!("{cmd} produced no output"));
     }
-    Ok(stdout)
+    Ok(CallOutcome { text: stdout, usage: TokenUsage::default() })
 }
 
 // ---------------------------------------------------------------------------
@@ -1318,6 +1380,19 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     // and guarantees that a key added after startup is picked up immediately.
     let disabled = disabled_providers_set();
 
+    // Load providers once to look up cost_per_mtok (for savings stats). The
+    // "savings" baseline is the PRIMARY provider's cost: cuando una ruta cae a
+    // un proveedor mas barato que el primario, contamos lo ahorrado.
+    let providers = load_providers().unwrap_or_default();
+    let cost_of = |pid: &str| -> f64 {
+        providers
+            .iter()
+            .find(|p| p.id == pid)
+            .map(|p| p.cost_per_mtok)
+            .unwrap_or(0.0)
+    };
+    let primary_cost = cost_of(&zone.primary.provider_id);
+
     let mut last_error = String::new();
     let chain = std::iter::once(&zone.primary).chain(zone.fallbacks.iter());
 
@@ -1339,13 +1414,23 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         let outcome = try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
         let latency_ms = started.elapsed().as_millis() as u64;
 
-        // Persist metrics for every attempt — only way the dashboard
-        // counts move at all. Best-effort: a metrics write failure does
-        // not abort the route call.
-        let _ = bump_metrics(&assignment.provider_id, &outcome, latency_ms);
+        let success = outcome.is_ok();
+        let out_tokens = outcome.as_ref().map(|c| c.usage.output_tokens).unwrap_or(0);
+
+        // Persist metrics for every attempt — only way the dashboard counts
+        // move at all. Best-effort: a metrics write failure does not abort.
+        let _ = bump_metrics(MetricSample {
+            provider_id: &assignment.provider_id,
+            model: &assignment.model,
+            success,
+            output_tokens: out_tokens,
+            cost_per_mtok: cost_of(&assignment.provider_id),
+            primary_cost_per_mtok: primary_cost,
+            latency_ms,
+        });
 
         match outcome {
-            Ok(text) => return Ok(text),
+            Ok(co) => return Ok(co.text),
             Err(e) => {
                 last_error = format!("[{}/{}] {}", assignment.provider_id, assignment.model, e);
                 continue;
@@ -1364,7 +1449,7 @@ fn try_assignment_call(
     assignment: &ZoneAssignment,
     prompt: &str,
     system_prompt: Option<&str>,
-) -> Result<String, String> {
+) -> Result<CallOutcome, String> {
     // --- Quota guard (P0 2026-05-27) ---
     // When Claude subscription quota is at or above 98 % we skip all Claude
     // providers so `route()` cascades to the next fallback automatically.
@@ -1426,46 +1511,80 @@ fn try_assignment_call(
     }
 }
 
-/// Mutate the persisted metrics so the dashboard moves. Failures are
-/// silent (callers don't care; the route already succeeded or already
-/// failed for a different reason). We bucket by provider_id (mapped to
-/// the `by_class` HashMap by reusing it as a string keyspace) because the
-/// existing struct shape was designed before provider-level metrics —
-/// fixing the shape would be a breaking change for the frontend, so we
-/// piggyback the per-provider counts on `by_class` for now.
-fn bump_metrics(provider_id: &str, outcome: &Result<String, String>, latency_ms: u64) -> Result<(), String> {
+/// Una muestra de métricas tras un intento de ruta. Agrupa los parámetros
+/// para evitar una firma con 7 argumentos posicionales.
+struct MetricSample<'a> {
+    provider_id: &'a str,
+    model: &'a str,
+    success: bool,
+    output_tokens: u64,
+    cost_per_mtok: f64,
+    primary_cost_per_mtok: f64,
+    latency_ms: u64,
+}
+
+/// Mutate the persisted metrics so the dashboard moves. Best-effort (un fallo
+/// de escritura no aborta la ruta). Trackea: por-proveedor (by_class) y
+/// por-modelo (by_model) count/success/tokens/latencia, contador diario para
+/// el gauge free-tier, fallback_rate (EMA), y tokens/cost "ahorrados" cuando
+/// la ruta cae a un proveedor más barato que el primario.
+fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     let mut metrics = load_metrics().unwrap_or_default();
-    let pm = metrics
-        .by_class
-        .entry(provider_id.to_string())
-        .or_default();
+
+    // --- Per-provider (by_class) ---
+    let pm = metrics.by_class.entry(s.provider_id.to_string()).or_default();
     pm.count = pm.count.saturating_add(1);
-    // Running average — keeps it cheap; no need for a full histogram in
-    // the first iteration. tokens stay zero until we wire token counting
-    // from each provider response.
+    if s.success {
+        pm.success_count = pm.success_count.saturating_add(1);
+    }
+    pm.tokens = pm.tokens.saturating_add(s.output_tokens);
     if pm.count <= 1 {
-        pm.latency_p95_ms = latency_ms;
+        pm.latency_p95_ms = s.latency_ms;
     } else {
-        pm.latency_p95_ms = (pm.latency_p95_ms + latency_ms) / 2;
+        pm.latency_p95_ms = (pm.latency_p95_ms + s.latency_ms) / 2;
     }
-    // Bump fallback_rate when the failure caused a fallback step (caller
-    // does the chain walk; we just count failures here).
-    if outcome.is_err() {
-        // EMA(0.1) over a 0/1 stream — gives an actionable signal without
-        // a per-call vec.
+
+    // --- Per-model (by_model), key = "provider::model" ---
+    let key = format!("{}::{}", s.provider_id, s.model);
+    let mm = metrics.by_model.entry(key).or_default();
+    mm.provider_id = s.provider_id.to_string();
+    mm.model = s.model.to_string();
+    mm.count = mm.count.saturating_add(1);
+    if s.success {
+        mm.success_count = mm.success_count.saturating_add(1);
+    }
+    mm.output_tokens = mm.output_tokens.saturating_add(s.output_tokens);
+    mm.latency_ms_avg = if mm.count <= 1 {
+        s.latency_ms
+    } else {
+        (mm.latency_ms_avg + s.latency_ms) / 2
+    };
+
+    // --- Fallback rate (EMA 0.1 over the 0/1 failure stream) ---
+    if s.success {
+        metrics.fallback_rate *= 0.9;
+    } else {
         metrics.fallback_rate = metrics.fallback_rate * 0.9 + 0.1;
-    } else {
-        metrics.fallback_rate = metrics.fallback_rate * 0.9;
     }
-    // Per-provider daily counter for the free-tier gauge. Resets when the
-    // stored date no longer matches today (UTC).
+
+    // --- Savings: tokens servidos por un proveedor más barato que el
+    // primario = tokens "descargados" de Claude; coste ahorrado = diferencia
+    // de tarifa por esos tokens. Solo cuenta en éxito. ---
+    if s.success && s.output_tokens > 0 && s.cost_per_mtok < s.primary_cost_per_mtok {
+        metrics.tokens_saved_total = metrics.tokens_saved_total.saturating_add(s.output_tokens);
+        let delta = (s.primary_cost_per_mtok - s.cost_per_mtok).max(0.0);
+        metrics.cost_saved_usd += (s.output_tokens as f64) * delta / 1_000_000.0;
+    }
+
+    // --- Daily counter (free-tier gauge), reset on UTC date change ---
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-    let du = metrics.daily.entry(provider_id.to_string()).or_default();
+    let du = metrics.daily.entry(s.provider_id.to_string()).or_default();
     if du.date != today {
         du.date = today;
         du.count = 0;
     }
     du.count = du.count.saturating_add(1);
+
     write_json(&metrics_path()?, &metrics)
 }
 
@@ -1660,6 +1779,10 @@ pub struct ProviderUsageRow {
     /// Count of total route attempts hitting this provider (sum of
     /// success + failure since the metrics file was last reset).
     pub call_count: u64,
+    /// Successful calls (outcome.is_ok()). Para el success-rate del rediseno.
+    pub success_count: u64,
+    /// Output tokens acumulados servidos por este proveedor.
+    pub total_tokens: u64,
     /// Running latency average in ms (KIRKARDO 19 — proper p50/p95
     /// histogram would be more honest, deferred to v2.9.x).
     pub latency_ms_avg: u64,
@@ -1764,6 +1887,8 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
             key_present,
             key_masked,
             call_count: cm.count,
+            success_count: cm.success_count,
+            total_tokens: cm.tokens,
             latency_ms_avg: cm.latency_p95_ms,
             primary_for_zones,
             fallback_for_zones,

@@ -315,6 +315,10 @@ export type ProviderUsageRow = {
   key_present: boolean;
   key_masked: string | null;
   call_count: number;
+  /** Successful calls — para el success-rate del rediseno. */
+  success_count: number;
+  /** Output tokens acumulados servidos por este proveedor. */
+  total_tokens: number;
   latency_ms_avg: number;
   primary_for_zones: string[];
   fallback_for_zones: string[];
