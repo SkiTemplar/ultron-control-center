@@ -45,6 +45,10 @@ fn sessions_tags_lock() -> &'static Mutex<()> {
     SESSIONS_TAGS_WRITE_LOCK.get_or_init(|| Mutex::new(()))
 }
 
+/// Upper bound on a session_id. UUIDs are 36 chars; anything beyond this is a
+/// malformed/hostile frontend input and is rejected before it can fill disk.
+const MAX_SESSION_ID_LEN: usize = 256;
+
 // ---------------------------------------------------------------------------
 // Domain types
 // ---------------------------------------------------------------------------
@@ -121,6 +125,15 @@ fn upsert_tag(entry: TagEntry) -> Result<(), String> {
 /// to a temp file then `rename` over the target so a crash mid-write never
 /// leaves a truncated store (atomic-replace, same as kanban/kg/decisions).
 fn upsert_tag_at(path: &Path, entry: TagEntry) -> Result<(), String> {
+    // Reject pathological session_id (unvalidated frontend input) before any
+    // lock or disk work — guards against a disk-fill DoS via a giant id.
+    if entry.session_id.len() > MAX_SESSION_ID_LEN {
+        return Err(format!(
+            "session_id too long: {} > {}",
+            entry.session_id.len(),
+            MAX_SESSION_ID_LEN
+        ));
+    }
     let _guard = sessions_tags_lock()
         .lock()
         .map_err(|e| format!("sessions-tags lock poisoned: {}", e))?;
@@ -132,6 +145,9 @@ fn upsert_tag_at(path: &Path, entry: TagEntry) -> Result<(), String> {
 
     // Serialise to a temp sibling, then atomically rename over the target.
     // File is small (one entry per session) so a full rewrite is fine.
+    // SAFETY: tmp lives next to the target (same dir => same volume), so the
+    // rename below is an atomic replace on Windows (MoveFileEx). Moving tmp to
+    // another volume would degrade to copy+delete = non-atomic.
     let tmp = path.with_extension("jsonl.tmp");
     {
         let file = fs::File::create(&tmp)
