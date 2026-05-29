@@ -26,9 +26,8 @@
         { "path": "$HOME/.claude/**" },
         { "path": "$APPDATA/**" },
         { "path": "$LOCALAPPDATA/**" },
-        { "path": "C:\\Users\\**" },
-        { "path": "D:\\**" },
-        { "path": "E:\\**" }
+        { "path": "D:\\Ultron\\**" },
+        { "path": "D:\\BACKUP\\**" }
       ]
     },
     "opener:allow-open-url",
@@ -45,9 +44,8 @@
         { "path": "$HOME/.claude/**" },
         { "path": "$APPDATA/**" },
         { "path": "$LOCALAPPDATA/**" },
-        { "path": "C:\\Users\\**" },
-        { "path": "D:\\**" },
-        { "path": "E:\\**" }
+        { "path": "D:\\Ultron\\**" },
+        { "path": "D:\\BACKUP\\**" }
       ]
     },
     "notification:default",
