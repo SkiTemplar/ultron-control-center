@@ -21,8 +21,28 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Process-wide write lock
+// ---------------------------------------------------------------------------
+//
+// `update_button_prompt_inner` does a read_stored → mutate → write_stored.
+// Without a lock, two concurrent callers (e.g. rapid Settings saves) both read
+// the same baseline and the second writer clobbers the first writer's change —
+// overrides vanish silently. The lock is held across the entire read-modify-
+// write so the operation is atomic from the caller's point of view.
+// `list_button_prompts_inner` also acquires the lock for its best-effort
+// materialisation write so the initial file creation cannot race.
+// Pure reads (`build_catalog`, `get_button_prompt_inner`) are excluded.
+// Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`.
+static BUTTON_PROMPTS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn button_prompts_lock() -> &'static Mutex<()> {
+    BUTTON_PROMPTS_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ButtonPrompt {
@@ -425,14 +445,27 @@ pub fn build_catalog() -> ButtonPromptsCatalog {
 /// time the user opens the Settings tab we materialise an empty `overrides`
 /// object so they can see the file path in the JSON editor if they ever need
 /// to share it.
+///
+/// The lock is acquired only for the best-effort initialisation write so
+/// concurrent calls cannot both observe `!p.exists()` and race to create the
+/// file. The subsequent `build_catalog()` call is a pure read and needs no lock.
 pub fn list_button_prompts_inner() -> Result<ButtonPromptsCatalog, String> {
     let stored = read_stored();
     let path = catalog_path();
     if let Some(p) = &path {
         if !p.exists() {
-            // Best-effort materialisation. We swallow the error so a missing
-            // HOME or read-only filesystem never blocks the UI.
-            let _ = write_stored(&stored);
+            // Best-effort materialisation under the write lock so two concurrent
+            // callers (e.g. rapid Settings opens) cannot both race through
+            // `!p.exists()` and write the file simultaneously. We swallow
+            // errors so a missing HOME or read-only filesystem never blocks the UI.
+            let _guard = button_prompts_lock()
+                .lock()
+                .map_err(|e| format!("button-prompts lock poisoned: {}", e))?;
+            // Re-check inside the lock: another thread may have created it
+            // between the outer check and acquiring the lock.
+            if !p.exists() {
+                let _ = write_stored(&stored);
+            }
         }
     }
     Ok(build_catalog())
@@ -440,6 +473,11 @@ pub fn list_button_prompts_inner() -> Result<ButtonPromptsCatalog, String> {
 
 /// Persist (or unset) an override for a single button. Empty/whitespace-only
 /// prompts are treated as "reset to default".
+///
+/// The `BUTTON_PROMPTS_WRITE_LOCK` is held across the entire read_stored →
+/// mutate → write_stored so concurrent callers cannot interleave and lose each
+/// other's changes. The final `build_catalog()` is a pure read after the write
+/// has landed on disk, so it is intentionally outside the critical section.
 pub fn update_button_prompt_inner(
     key: String,
     prompt: String,
@@ -449,14 +487,22 @@ pub fn update_button_prompt_inner(
         .iter()
         .find(|b| b.key == key)
         .ok_or_else(|| format!("unknown button key: {}", key))?;
-    let mut stored = read_stored();
-    let trimmed = prompt.trim();
-    if trimmed.is_empty() || trimmed == default_entry.default_prompt.trim() {
-        stored.overrides.remove(&key);
-    } else {
-        stored.overrides.insert(key.clone(), prompt.clone());
-    }
-    write_stored(&stored)?;
+
+    {
+        let _guard = button_prompts_lock()
+            .lock()
+            .map_err(|e| format!("button-prompts lock poisoned: {}", e))?;
+
+        let mut stored = read_stored();
+        let trimmed = prompt.trim();
+        if trimmed.is_empty() || trimmed == default_entry.default_prompt.trim() {
+            stored.overrides.remove(&key);
+        } else {
+            stored.overrides.insert(key.clone(), prompt.clone());
+        }
+        write_stored(&stored)?;
+    } // _guard dropped here — lock released before the pure catalog read
+
     let catalog = build_catalog();
     catalog
         .buttons

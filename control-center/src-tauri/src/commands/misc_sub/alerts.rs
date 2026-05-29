@@ -96,6 +96,11 @@ pub async fn record_ui_alert(
         "message": msg,
     });
     let line = entry.to_string() + "\n";
+    // Serialise this append under the same lock as delete_alerts_by_fingerprints'
+    // read->filter->tmp+rename, so a concurrent delete can't drop this entry.
+    let _guard = crate::alerts_admin::alerts_lock()
+        .lock()
+        .map_err(|e| format!("alerts write lock poisoned: {}", e))?;
     use std::io::Write;
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);

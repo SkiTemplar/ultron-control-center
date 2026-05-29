@@ -10,8 +10,27 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Process-wide write lock
+// ---------------------------------------------------------------------------
+//
+// Every mutator does a load-all → modify → atomic_write cycle. Without a
+// lock, two concurrent Tauri commands (e.g. `create_project` racing with
+// `update_project`) both read the same baseline and the second writer
+// clobbers the first writer's change — silent data loss. The lock is held
+// across the whole read-modify-write so the operation is atomic from the
+// caller's point of view. Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`
+// and `kg::kg_write_lock`. Pure reads (`list_projects_inner`, `load_items_for`)
+// are excluded intentionally.
+static PROJECTS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn projects_lock() -> &'static Mutex<()> {
+    PROJECTS_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 /// One thing to launch as part of a project. `kind` discriminates the
 /// payload:
@@ -545,6 +564,10 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
         return Err("name produced empty id after slugify".to_string());
     }
 
+    let _guard = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
+
     let registry = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/cockpit/projects.json");
@@ -706,6 +729,9 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
     if p.id.trim().is_empty() {
         return Err("id is empty".to_string());
     }
+    let _guard = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
     let registry = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/cockpit/projects.json");
@@ -903,6 +929,9 @@ pub fn set_default_provider_inner(
         return Err("project_id is empty".to_string());
     }
     let normalised = normalise_provider(Some(provider.as_str()));
+    let _guard = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
     let (registry, mut root) = load_registry_mut()?;
     {
         let entry = find_entry_mut(&mut root, &project_id)?;
@@ -950,6 +979,9 @@ pub fn delete_project_inner(id: String) -> Result<DeleteProjectResult, String> {
     if id.trim().is_empty() {
         return Err("id is empty".to_string());
     }
+    let _guard = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
     let registry = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/cockpit/projects.json");
@@ -1249,6 +1281,9 @@ pub fn add_launcher_item_inner(p: AddLauncherItemPayload) -> Result<UpdateProjec
         return Err("project_id is empty".to_string());
     }
     validate_launcher_item(&p.item)?;
+    let _guard = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
     let (registry, mut root) = load_registry_mut()?;
     {
         let entry = find_entry_mut(&mut root, &p.project_id)?;
@@ -1330,6 +1365,9 @@ pub fn remove_launcher_item_inner(
     if project_id.trim().is_empty() {
         return Err("project_id is empty".to_string());
     }
+    let _guard = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
     let (registry, mut root) = load_registry_mut()?;
     {
         let entry = find_entry_mut(&mut root, &project_id)?;
@@ -1358,6 +1396,9 @@ pub fn reorder_launcher_items_inner(
     if project_id.trim().is_empty() {
         return Err("project_id is empty".to_string());
     }
+    let _guard = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
     let (registry, mut root) = load_registry_mut()?;
     {
         let entry = find_entry_mut(&mut root, &project_id)?;

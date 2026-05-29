@@ -6,8 +6,26 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Process-wide write lock
+// ---------------------------------------------------------------------------
+//
+// Every mutating path performs a read-modify-write on PLANS.json. Without a
+// lock two concurrent callers (e.g. `add_plan` + `patch_plan_status` fired in
+// the same event loop tick) both read the same baseline and the second writer
+// silently clobbers the first writer's mutation. The lock serialises every
+// RMW so the operation is atomic from the caller's point of view.
+// Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK` and
+// `kg::kg_write_lock`. Pure reads (`list_plans_inner`) are excluded.
+static PLANS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn plans_lock() -> &'static Mutex<()> {
+    PLANS_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Debug, Deserialize)]
 struct PlanRoot {
@@ -213,6 +231,9 @@ pub fn patch_plan_status_inner(id: String, new_status: String) -> Result<bool, S
     if !allowed.contains(&new_status.as_str()) {
         return Err(format!("invalid status '{}'", new_status));
     }
+    let _guard = plans_lock()
+        .lock()
+        .map_err(|e| format!("plans lock poisoned: {}", e))?;
     let path = plans_path().ok_or_else(|| "no HOME".to_string())?;
     let raw = fs::read_to_string(&path).map_err(|e| format!("read: {}", e))?;
     let mut root: serde_json::Value =
@@ -334,6 +355,9 @@ pub fn add_plan_inner(p: CreatePlanPayload) -> Result<PlanMutateResult, String> 
     if title.is_empty() {
         return Err("title is empty".into());
     }
+    let _guard = plans_lock()
+        .lock()
+        .map_err(|e| format!("plans lock poisoned: {}", e))?;
     let (path, mut root) = read_plans_root()?;
     let items = root
         .get_mut("items")
@@ -374,6 +398,9 @@ pub fn update_plan_inner(p: UpdatePlanPayload) -> Result<PlanMutateResult, Strin
     if p.id.trim().is_empty() {
         return Err("id is empty".into());
     }
+    let _guard = plans_lock()
+        .lock()
+        .map_err(|e| format!("plans lock poisoned: {}", e))?;
     let (path, mut root) = read_plans_root()?;
     let items = root
         .get_mut("items")
@@ -420,6 +447,9 @@ pub fn delete_plan_inner(id: String) -> Result<PlanMutateResult, String> {
     if id.trim().is_empty() {
         return Err("id is empty".into());
     }
+    let _guard = plans_lock()
+        .lock()
+        .map_err(|e| format!("plans lock poisoned: {}", e))?;
     let (path, mut root) = read_plans_root()?;
     let items = root
         .get_mut("items")
@@ -440,6 +470,9 @@ pub fn delete_plan_inner(id: String) -> Result<PlanMutateResult, String> {
 /// Returns the count moved. We never delete history — the user explicitly
 /// asked for Resolved not to grow unbounded but also not to be discarded.
 pub fn clean_resolved_plans_inner() -> Result<u64, String> {
+    let _guard = plans_lock()
+        .lock()
+        .map_err(|e| format!("plans lock poisoned: {}", e))?;
     let (path, mut root) = read_plans_root()?;
     let items = root
         .get_mut("items")
@@ -502,6 +535,9 @@ pub fn auto_archive_resolved(days: u32) -> Result<usize, String> {
         .saturating_sub((days as u64) * 86_400);
     let cutoff_iso = format_unix_iso(cutoff_secs);
 
+    let _guard = plans_lock()
+        .lock()
+        .map_err(|e| format!("plans lock poisoned: {}", e))?;
     let (path, mut root) = read_plans_root()?;
     let items = root
         .get_mut("items")

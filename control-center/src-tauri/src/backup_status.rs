@@ -13,10 +13,29 @@
 //   4. %USERPROFILE%\BACKUP (default for fresh installs)
 
 use std::fs;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
+
+// ---------------------------------------------------------------------------
+// Process-wide write lock for backup-config.json
+// ---------------------------------------------------------------------------
+//
+// `set_backup_sources_inner` and `set_backup_schedule_inner` both do a
+// read-modify-write of the same file (backup-config.json). Without a lock,
+// two concurrent callers (e.g. the UI saving sources while another request
+// saves the schedule) can interleave, causing one writer to clobber the
+// other's changes silently. The lock is held across the full read → mutate →
+// atomic-write cycle. Same pattern as `sessions_tags::SESSIONS_TAGS_WRITE_LOCK`
+// / `kg::kg_write_lock` / `workdays::workday_lock`. Pure reads are excluded.
+static BACKUP_CONFIG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn backup_config_lock() -> &'static Mutex<()> {
+    BACKUP_CONFIG_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 #[derive(Debug, Serialize, Clone)]
 pub struct BackupEntry {
@@ -357,6 +376,14 @@ pub fn set_backup_sources_inner(
             fs::create_dir_all(parent).map_err(|e| format!("mkdir cockpit: {}", e))?;
         }
     }
+
+    // Acquire the write lock before the read-modify-write so a concurrent
+    // `set_backup_schedule_inner` call cannot clobber the schedule field (or
+    // vice versa) by reading stale data and re-serialising over our changes.
+    let _guard = backup_config_lock()
+        .lock()
+        .map_err(|e| format!("backup-config lock poisoned: {}", e))?;
+
     // v2.5.2 (backups-redesign): preserve any existing `schedule` field
     // when rewriting the config. Without this, saving the sources list
     // would silently drop the weekly schedule the user already set.
@@ -373,7 +400,25 @@ pub fn set_backup_sources_inner(
         };
         let json = serde_json::to_string_pretty(&payload_out)
             .map_err(|e| format!("serialize config: {}", e))?;
-        fs::write(&cfg, json).map_err(|e| format!("write config: {}", e))?;
+        // Atomic write: serialise to a sibling tmp file then rename over the
+        // target. A crash between write and rename leaves the original intact.
+        // The tmp lives in the same directory as the target (same volume) so
+        // the rename is a single-syscall atomic replace (POSIX) / MoveFileEx
+        // (Windows) — never a cross-device copy+delete.
+        let tmp = cfg.with_extension("json.tmp");
+        {
+            let file = fs::File::create(&tmp)
+                .map_err(|e| format!("create backup-config tmp: {}", e))?;
+            let mut writer = BufWriter::new(file);
+            writer
+                .write_all(json.as_bytes())
+                .map_err(|e| format!("write backup-config tmp: {}", e))?;
+            writer
+                .flush()
+                .map_err(|e| format!("flush backup-config tmp: {}", e))?;
+        }
+        fs::rename(&tmp, &cfg)
+            .map_err(|e| format!("rename backup-config.json: {}", e))?;
         // Mirror into the env var so any in-process script reads it without
         // re-reading the JSON.
         if cleaned.is_empty() {
@@ -547,6 +592,14 @@ pub fn set_backup_schedule_inner(
             fs::create_dir_all(parent).map_err(|e| format!("mkdir cockpit: {}", e))?;
         }
     }
+
+    // Acquire the write lock before the read-modify-write so a concurrent
+    // `set_backup_sources_inner` call cannot clobber the sources list (or
+    // vice versa) by reading stale data and re-serialising over our changes.
+    let _guard = backup_config_lock()
+        .lock()
+        .map_err(|e| format!("backup-config lock poisoned: {}", e))?;
+
     let mut cfg = read_full_config().unwrap_or_default();
     cfg.schedule = Some(BackupScheduleConfig {
         day: day.clone(),
@@ -554,7 +607,24 @@ pub fn set_backup_schedule_inner(
     });
     let json = serde_json::to_string_pretty(&cfg)
         .map_err(|e| format!("serialize config: {}", e))?;
-    fs::write(&cfg_path, json).map_err(|e| format!("write config: {}", e))?;
+    // Atomic write: serialise to a sibling tmp file then rename over the
+    // target. Same pattern as `set_backup_sources_inner` and the rest of the
+    // codebase (kanban, kg, sessions-tags). Guarantees the on-disk file is
+    // never in a partial state if the process is killed mid-write.
+    let tmp = cfg_path.with_extension("json.tmp");
+    {
+        let file = fs::File::create(&tmp)
+            .map_err(|e| format!("create backup-config tmp: {}", e))?;
+        let mut writer = BufWriter::new(file);
+        writer
+            .write_all(json.as_bytes())
+            .map_err(|e| format!("write backup-config tmp: {}", e))?;
+        writer
+            .flush()
+            .map_err(|e| format!("flush backup-config tmp: {}", e))?;
+    }
+    fs::rename(&tmp, &cfg_path)
+        .map_err(|e| format!("rename backup-config.json: {}", e))?;
 
     // Register the Windows scheduled task. On Linux/macOS we just store the
     // preference — the weekly-backup script doesn't ship a Unix entry point

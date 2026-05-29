@@ -30,8 +30,53 @@
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use serde::Deserialize;
+
+// ---------------------------------------------------------------------------
+// Process-wide write lock
+// ---------------------------------------------------------------------------
+//
+// `delete_alerts_by_fingerprints` performs a read→filter→tmp+rename sequence.
+// `record_ui_alert` (commands/misc_sub/alerts.rs) performs an append.
+// Without coordination, two concurrent callers on the same process can
+// interleave those operations and produce a corrupt or lost-write outcome.
+//
+// The lock is intentionally process-wide and in-process only; cross-process
+// safety is out of scope (no file-lock protocol is implemented here).
+//
+// Pure read commands (`read_alerts`) are deliberately excluded — they never
+// write and do not need to serialise against each other.
+//
+// Callers outside this module (e.g. `commands::misc_sub::alerts::record_ui_alert`)
+// acquire the guard via `alerts_admin::alerts_lock()`. The guard must be held
+// across the entire write operation and dropped only after the operation
+// completes — do not hold it across unrelated blocking work.
+//
+// Poison policy: a panicking writer poisons the mutex; subsequent callers
+// get a descriptive `String` error rather than a silent hang or a panic.
+static ALERTS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+/// Returns a reference to the process-wide alerts write lock.
+///
+/// Exposed as `pub(crate)` so that `commands::misc_sub::alerts::record_ui_alert`
+/// can acquire the same lock before appending to `alerts.jsonl`, ensuring that
+/// the read→filter→rename performed by `delete_alerts_by_fingerprints` and the
+/// append performed by `record_ui_alert` are mutually exclusive within this
+/// process.
+///
+/// # Example (caller pattern)
+/// ```ignore
+/// let _guard = alerts_admin::alerts_lock()
+///     .lock()
+///     .map_err(|e| format!("alerts lock poisoned: {}", e))?;
+/// // ... perform write to alerts.jsonl ...
+/// // _guard drops here, releasing the lock.
+/// ```
+pub(crate) fn alerts_lock() -> &'static Mutex<()> {
+    ALERTS_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -143,6 +188,16 @@ impl AlertShape {
 ///
 /// Atomic: writes to `<path>.tmp` and renames into place.
 pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize, String> {
+    // Acquire the process-wide write lock before touching the file.
+    // The guard is held across the entire read→filter→tmp+rename sequence so
+    // that concurrent calls (e.g. a `record_ui_alert` append racing against
+    // this rewrite) cannot interleave and corrupt alerts.jsonl.
+    // The `_guard` binding keeps the MutexGuard alive until the function
+    // returns; it is intentionally unused beyond that.
+    let _guard = alerts_lock()
+        .lock()
+        .map_err(|e| format!("alerts write lock poisoned: {}", e))?;
+
     let path = alerts_path()?;
     if !path.exists() {
         return Ok(0);
