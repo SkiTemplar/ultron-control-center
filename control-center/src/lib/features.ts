@@ -24,6 +24,9 @@ export type Features = {
   notifications: boolean;
   usage: boolean;
   sessions: boolean;
+  // Opt-in flags (no son items de sidebar). Llegan del backend via read_features.
+  // card-ux-projects-dashboard-minimalista: dashboard de proyecto tipo IDE (v2).
+  projects_dashboard_v2?: boolean;
 };
 
 /** All toggles enabled — the safe default for a fresh install. */

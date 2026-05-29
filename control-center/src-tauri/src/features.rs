@@ -51,6 +51,10 @@ pub struct Features {
     // sale con codigo > 0. Default on.
     #[serde(default = "default_true")]
     pub errors_immediate_notify: bool,
+    // card-ux-projects-dashboard-minimalista: nuevo dashboard de proyecto tipo IDE
+    // (paneles) detras de flag. Default OFF (opt-in) hasta validacion visual.
+    #[serde(default = "default_false")]
+    pub projects_dashboard_v2: bool,
 }
 
 fn default_true() -> bool {
@@ -76,6 +80,7 @@ impl Default for Features {
             sessions: true,
             claude_safe_mode: false,
             errors_immediate_notify: true,
+            projects_dashboard_v2: false,
         }
     }
 }

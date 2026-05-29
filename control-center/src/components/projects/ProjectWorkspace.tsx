@@ -30,6 +30,8 @@ import ProjectNotes from "./ProjectNotes";
 import ProjectTimeline from "./ProjectTimeline";
 import ProjectJarvisLauncher, { type JarvisIntent } from "./ProjectJarvisLauncher";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
+import { useFeatures } from "../../lib/features";
+import ProjectDashboard from "./ProjectDashboard";
 import { type BatchToast } from "./BatchDropdown";
 
 type Props = {
@@ -152,6 +154,7 @@ const HEADER_BTN_STYLE: React.CSSProperties = {
 
 export default function ProjectWorkspace({ projectId }: Props) {
   const { consumeInitialSubTab, subTabs, setProjectSubTab } = useProjectsTabs();
+  const { features } = useFeatures();
 
   // Sub-tab lives in context so it survives navigating away from the Projects
   // main tab. Deep-link hints (from home-grid shortcuts) override on mount.
@@ -260,6 +263,55 @@ export default function ProjectWorkspace({ projectId }: Props) {
       setError(String(e));
     }
   };
+
+  // ── Projects dashboard v2 (flag-gated, card-ux-projects-dashboard-minimalista)
+  // When the flag is on and project meta has loaded, render the new IDE-panel
+  // dashboard with a minimal header — bypassing the legacy sub-tab workspace
+  // below. OFF by default; the legacy path stays fully intact until validated.
+  if (features.projects_dashboard_v2 && meta) {
+    const v2BtnStyle = {
+      background: "transparent",
+      color: "var(--color-text-secondary)",
+      border: "1px solid rgba(255,255,255,0.12)",
+    } as const;
+    return (
+      <div className="flex h-full flex-col">
+        <div
+          className="flex items-center justify-between border-b px-4 py-2"
+          style={{ background: "#000000", borderColor: "rgba(255,255,255,0.08)" }}
+        >
+          <div className="min-w-0 flex-1 pr-4">
+            <h2
+              className="truncate text-[13px] font-semibold leading-tight tracking-tight"
+              style={{ color: "var(--color-text)" }}
+            >
+              {meta.name}
+            </h2>
+            <p
+              className="mt-0.5 truncate font-mono text-[10px] leading-none"
+              style={{ color: "rgba(255,255,255,0.30)" }}
+            >
+              {meta.path}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <button type="button" onClick={openInIde} className="rounded px-2 py-1 text-[11px]" style={v2BtnStyle}>
+              Open IDE
+            </button>
+            <button type="button" onClick={openFolder} className="rounded px-2 py-1 text-[11px]" style={v2BtnStyle}>
+              Open folder
+            </button>
+            <button type="button" onClick={detachToWindow} className="rounded px-2 py-1 text-[11px]" style={v2BtnStyle}>
+              Detach
+            </button>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1">
+          <ProjectDashboard projectId={projectId} projectPath={meta.path} projectName={meta.name} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col">
