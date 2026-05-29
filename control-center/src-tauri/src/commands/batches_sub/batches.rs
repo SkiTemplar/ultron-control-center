@@ -34,3 +34,12 @@ pub async fn cleanup_old_batches(
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// Delete ALL batch scripts (user-initiated "Clear all", with confirmation in
+/// the UI). card-bug-runbatch-clear.
+#[tauri::command]
+pub async fn clear_all_batches() -> Result<BatchCleanupReport, String> {
+    tauri::async_runtime::spawn_blocking(batches::clear_all_batches_inner)
+        .await
+        .map_err(|e| e.to_string())?
+}

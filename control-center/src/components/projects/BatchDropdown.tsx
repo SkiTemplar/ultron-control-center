@@ -305,6 +305,48 @@ export default function BatchDropdown({
                 type="button"
                 onClick={async (e) => {
                   e.stopPropagation();
+                  if (
+                    !window.confirm(
+                      "¿Eliminar TODOS los batches? Esta acción no se puede deshacer.",
+                    )
+                  )
+                    return;
+                  try {
+                    const r = await invoke<{ deleted: string[]; kept: number }>(
+                      "clear_all_batches",
+                    );
+                    onResult?.({
+                      kind: "ok",
+                      title: `${r.deleted.length} batches eliminados`,
+                      body:
+                        r.deleted.length === 0
+                          ? `No había batches que borrar. Kept ${r.kept}.`
+                          : `Eliminados todos los batches (${r.deleted.length}). Kept ${r.kept} no-batch.`,
+                    });
+                    void refresh();
+                  } catch (err) {
+                    onResult?.({
+                      kind: "err",
+                      title: "Clear all failed",
+                      body: err instanceof Error ? err.message : String(err),
+                    });
+                  }
+                }}
+                disabled={loading}
+                className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                style={{
+                  background: "transparent",
+                  color: "var(--color-danger)",
+                  border: "1px solid var(--color-border)",
+                }}
+                title="Eliminar TODOS los batches (con confirmación)"
+              >
+                Clear all
+              </button>
+              <button
+                type="button"
+                onClick={async (e) => {
+                  e.stopPropagation();
                   try {
                     const r = await invoke<{ deleted: string[]; kept: number }>(
                       "cleanup_old_batches",

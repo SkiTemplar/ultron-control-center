@@ -289,6 +289,7 @@ pub fn run() {
             commands::batches::execute_batch,
             commands::batches::delete_batch_single,
             commands::batches::cleanup_old_batches,
+            commands::batches::clear_all_batches,
             // -- project detach / reattach (ventanas independientes) --
             commands::detach::detach_project_window,
             commands::detach::reattach_project_window,

@@ -154,6 +154,42 @@ pub fn delete_batch_single_inner(name: String) -> Result<(), String> {
     std::fs::remove_file(&cand).map_err(|e| format!("delete '{name}': {e}"))
 }
 
+/// Delete ALL batch scripts (allowed extensions) regardless of age — backs the
+/// "Clear all" button (card-bug-runbatch-clear). Non-batch files are left
+/// untouched and counted in `kept`. Separate path from
+/// `cleanup_old_batches_inner`, whose `older_than_days = 0` deliberately
+/// deletes NOTHING (the `cutoff_secs > 0` guard), so "clear all" cannot be
+/// expressed by reusing it.
+pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
+    let dir = batches_dir()?;
+    if !dir.exists() {
+        return Ok(BatchCleanupReport { deleted: Vec::new(), kept: 0 });
+    }
+    let mut deleted: Vec<String> = Vec::new();
+    let mut kept: usize = 0;
+    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        if !is_allowed_ext(&path) {
+            kept += 1;
+            continue;
+        }
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        if std::fs::remove_file(&path).is_ok() {
+            deleted.push(name);
+        } else {
+            kept += 1;
+        }
+    }
+    Ok(BatchCleanupReport { deleted, kept })
+}
+
 /// Delete batch scripts older than `older_than_days` (mtime). Returns the
 /// list of file names removed plus how many remain. Lets the user keep the
 /// batches folder from growing without bound (USER: "Run Batch con
