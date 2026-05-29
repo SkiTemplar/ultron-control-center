@@ -1,0 +1,30 @@
+{
+  "result": [
+    {
+      "id": "sess-2026-05-20-auth",
+      "score": 0.91,
+      "payload": {
+        "project": "ultron",
+        "text": "Refactor del modulo de autenticacion OAuth con flujo PKCE para el cliente desktop",
+        "date": "2026-05-20"
+      }
+    },
+    {
+      "id": "sess-2026-05-18-kanban",
+      "score": 0.83,
+      "payload": {
+        "project": "ultron",
+        "text": "Parser de kanban.json y migracion de schema_version",
+        "date": "2026-05-18"
+      }
+    },
+    {
+      "id": 42,
+      "score": 0.77,
+      "payload": {
+        "project": "bank",
+        "text": "Widget de finanzas read-only registrado como dashboard slot"
+      }
+    }
+  ]
+}

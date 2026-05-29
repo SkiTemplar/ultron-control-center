@@ -736,10 +736,8 @@ mod tests {
     // KIRKARDO 16 — fixture-based integration tests
 
     fn fixture(name: &str) -> String {
-        let base = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        let path = base.join("src/tests/fixtures/recall").join(name);
-        std::fs::read_to_string(&path)
-            .unwrap_or_else(|e| panic!("fixture {name}: {e}"))
+        // Delegates to the shared helper (card-test-fixtures-rust-infra).
+        crate::test_support::load_fixture("recall", name)
     }
 
     #[test]

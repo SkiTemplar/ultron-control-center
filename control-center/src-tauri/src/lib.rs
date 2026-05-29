@@ -60,6 +60,8 @@ mod rules;
 mod diagnostics_native;
 mod sessions;
 mod sessions_tags;
+#[cfg(test)]
+mod test_support;
 mod work_sessions;
 pub mod qdrant;
 mod settings;

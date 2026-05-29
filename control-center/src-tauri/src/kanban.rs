@@ -328,6 +328,26 @@ pub fn card_by_id<'a>(board: &'a KanbanBoard, card_id: &str) -> Option<&'a Card>
 mod tests {
     use super::*;
 
+    // card-test-fixtures-rust-infra: the fixture must deserialise into the real
+    // KanbanBoard type, so it stays honest if the schema changes.
+    #[test]
+    fn fixture_kanban_test_deserialises_into_board() {
+        let raw = crate::test_support::load_fixture("kanban", "kanban-test.json");
+        let board: KanbanBoard =
+            serde_json::from_str(&raw).expect("kanban-test.json must parse into KanbanBoard");
+        assert_eq!(board.columns.len(), 2, "fixture has 2 columns");
+        assert_eq!(board.cards.len(), 5, "fixture has 5 cards");
+        assert_eq!(
+            board.cards.iter().filter(|c| c.column_id == "col-done").count(),
+            2,
+            "2 cards in the Done column"
+        );
+        assert!(
+            board.cards.iter().any(|c| c.tags.contains(&"rust".to_string())),
+            "card-2 carries tags"
+        );
+    }
+
     #[test]
     fn kanban_lock_same_static() {
         let a = kanban_lock() as *const Mutex<()>;

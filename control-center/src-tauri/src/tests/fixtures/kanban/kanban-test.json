@@ -1,0 +1,52 @@
+{
+  "project_id": "test-project",
+  "columns": [
+    { "id": "col-backlog", "name": "Backlog", "order": 0 },
+    { "id": "col-done", "name": "Done", "order": 1 }
+  ],
+  "cards": [
+    {
+      "id": "card-1",
+      "column_id": "col-backlog",
+      "title": "Primera card minima",
+      "created_at": "epoch:1779900000",
+      "updated_at": "epoch:1779900000"
+    },
+    {
+      "id": "card-2",
+      "column_id": "col-backlog",
+      "title": "Segunda con tags y descripcion",
+      "description": "Card con campos opcionales poblados",
+      "tags": ["rust", "test", "fixture"],
+      "order": 1,
+      "created_at": "epoch:1779900001",
+      "updated_at": "epoch:1779900001"
+    },
+    {
+      "id": "card-3",
+      "column_id": "col-backlog",
+      "title": "Tercera con agent",
+      "agent": "rust-engineer",
+      "order": 2,
+      "created_at": "epoch:1779900002",
+      "updated_at": "epoch:1779900002"
+    },
+    {
+      "id": "card-4",
+      "column_id": "col-done",
+      "title": "Cuarta hecha",
+      "order": 0,
+      "created_at": "epoch:1779900003",
+      "updated_at": "epoch:1779900003"
+    },
+    {
+      "id": "card-5",
+      "column_id": "col-done",
+      "title": "Quinta hecha",
+      "order": 1,
+      "created_at": "epoch:1779900004",
+      "updated_at": "epoch:1779900004"
+    }
+  ],
+  "schema_version": 1
+}

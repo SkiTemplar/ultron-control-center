@@ -383,6 +383,33 @@ pub async fn qdrant_status() -> Result<String, String> {
 mod tests {
     use super::*;
 
+    // card-test-fixtures-rust-infra: keep the fixture honest against the private
+    // SearchResponse/RawHit shape that `search()` actually deserialises.
+    #[test]
+    fn fixture_search_response_parses_three_hits() {
+        #[derive(serde::Deserialize)]
+        struct SearchResponse {
+            result: Vec<RawHit>,
+        }
+        #[derive(serde::Deserialize)]
+        struct RawHit {
+            id: serde_json::Value,
+            score: f32,
+            #[serde(default)]
+            payload: HashMap<String, serde_json::Value>,
+        }
+        let raw = crate::test_support::load_fixture("qdrant", "search-response.json");
+        let parsed: SearchResponse =
+            serde_json::from_str(&raw).expect("search-response.json must parse");
+        assert_eq!(parsed.result.len(), 3);
+        assert!(parsed.result[0].score > 0.9);
+        assert!(
+            parsed.result[2].id.is_number(),
+            "3rd hit exercises the numeric-id arm of search()"
+        );
+        assert!(parsed.result.iter().all(|h| h.payload.contains_key("project")));
+    }
+
     #[test]
     fn embed_returns_384_dims() {
         let v = embed("hello world semantic recall").expect("embed should succeed");
