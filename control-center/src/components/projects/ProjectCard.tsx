@@ -74,7 +74,6 @@ export interface ProjectCardProps {
   onOpenTerminal: () => void;
   onEdit: () => void;
   onDelete: () => void;
-  onCreateProject: () => void;
 }
 
 export function ProjectCard({
@@ -87,7 +86,6 @@ export function ProjectCard({
   onOpenTerminal,
   onEdit,
   onDelete,
-  onCreateProject,
 }: ProjectCardProps) {
   const b = statusBadge(p.status);
   const provider: SessionProvider =
@@ -174,25 +172,8 @@ export function ProjectCard({
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1" onClick={stop}>
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onCreateProject(); }}
-            className="flex items-center justify-center rounded p-0.5 transition-colors"
-            style={{
-              background: "transparent",
-              color: "var(--color-accent)",
-              border: "1px solid var(--color-accent)",
-              width: 20,
-              height: 20,
-            }}
-            title="Create new project"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-          </button>
+          {/* El "+" de crear proyecto ya no vive en cada tarjeta: se crea desde
+              las session cards (esquina) o el CTA global del header. */}
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onEdit(); }}

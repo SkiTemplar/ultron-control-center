@@ -15,9 +15,8 @@
 // Iconos: Plus (New), Sliders (Custom), Share2 (Send Context), Tag (auto-tag),
 //         Search (buscador), RefreshCw, History, Plus (create project badge).
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type {
   ClaudeSession,
   SessionProvider,
@@ -32,8 +31,6 @@ import {
   Search,
   Share2,
   Sliders,
-  Tag,
-  Tags,
 } from "./projects/icons";
 
 // ---------------------------------------------------------------------------
@@ -67,21 +64,6 @@ function savePresets(p: Presets) {
     localStorage.setItem(PRESETS_KEY, JSON.stringify(p));
   } catch {}
 }
-
-// ---------------------------------------------------------------------------
-// Tag store — loaded from sessions-tags.jsonl on mount, updated in-memory
-// ---------------------------------------------------------------------------
-
-type TagEntry = {
-  session_id: string;
-  tags: string[];
-  generated_at: string;
-};
-
-type AutoTagRequest = {
-  session_id: string;
-  first_prompt: string | null;
-};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -363,81 +345,34 @@ function LauncherModal({
 }
 
 // ---------------------------------------------------------------------------
-// Tag chips — renders below workspace card title; click to filter
-// ---------------------------------------------------------------------------
-
-function TagChips({
-  tags,
-  activeTagFilter,
-  onTagClick,
-}: {
-  tags: string[];
-  activeTagFilter: string | null;
-  onTagClick: (tag: string) => void;
-}) {
-  if (tags.length === 0) return null;
-  return (
-    <div className="mt-2 flex flex-wrap gap-1">
-      {tags.map((tag) => {
-        const isActive = activeTagFilter === tag;
-        return (
-          <button
-            key={tag}
-            type="button"
-            onClick={() => onTagClick(tag)}
-            className="rounded px-1.5 py-0.5 text-[10px] transition-colors"
-            style={{
-              background: isActive
-                ? "var(--color-accent)"
-                : "var(--color-surface-3)",
-              color: isActive
-                ? "var(--color-accent-text)"
-                : "var(--color-text-tertiary)",
-              border: isActive
-                ? "1px solid var(--color-accent)"
-                : "1px solid var(--color-border)",
-            }}
-            title={`Filter by tag "${tag}"`}
-          >
-            {tag}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Workspace card — 3 fixed buttons + optional "Create project" moved to grid header
+// Workspace card — 3 fixed buttons + corner "Create project" (only when the
+// workspace isn't a registered project yet)
 // ---------------------------------------------------------------------------
 
 type WorkspaceCardProps = {
   ws: WorkspaceSummary;
   busy: boolean;
-  tags: string[];
-  activeTagFilter: string | null;
   onNew: (ws: WorkspaceSummary) => void;
   onCustom: (ws: WorkspaceSummary) => void;
   onSendContext: (ws: WorkspaceSummary) => void;
-  onTagClick: (tag: string) => void;
-  onAutoTag: (ws: WorkspaceSummary) => void;
-  taggingBusy: boolean;
+  onCreateProject: (ws: WorkspaceSummary) => void;
+  creatingProject: boolean;
 };
 
 function WorkspaceCard({
   ws,
   busy,
-  tags,
-  activeTagFilter,
   onNew,
   onCustom,
   onSendContext,
-  onTagClick,
-  onAutoTag,
-  taggingBusy,
+  onCreateProject,
+  creatingProject,
 }: WorkspaceCardProps) {
   const headline = ws.project_name ?? deriveWorkspaceName(ws.cwd);
   const canSendContext = !!ws.latest_session_id;
+  // Botón "+" de crear-proyecto en la esquina, SOLO cuando este workspace no
+  // corresponde aún a un proyecto registrado (ws.project_id vacío).
+  const canCreateProject = !ws.project_id;
 
   return (
     <div
@@ -475,7 +410,7 @@ function WorkspaceCard({
               />
               claude
             </span>
-            {ws.project_id && (
+            {ws.project_id ? (
               <span
                 className="rounded px-1.5 py-0.5 text-[9.5px] uppercase tracking-wide"
                 style={{
@@ -483,9 +418,27 @@ function WorkspaceCard({
                   color: "var(--color-text-tertiary)",
                   border: "1px solid var(--color-border)",
                 }}
+                title={ws.project_name ?? ws.project_id}
               >
-                registered
+                {ws.project_name ?? "project"}
               </span>
+            ) : (
+              // Esquina: crear proyecto desde esta sesión (solo si no existe ya).
+              <button
+                type="button"
+                onClick={() => onCreateProject(ws)}
+                disabled={creatingProject || !canCreateProject}
+                className="inline-flex h-6 w-6 items-center justify-center rounded transition-colors disabled:opacity-40"
+                style={{
+                  background: "var(--color-surface-3)",
+                  color: "var(--color-text-tertiary)",
+                  border: "1px solid var(--color-border-strong)",
+                }}
+                title="Crear un proyecto a partir de esta sesión"
+                aria-label="Crear proyecto desde esta sesión"
+              >
+                {creatingProject ? <Loader size={11} /> : <Plus size={12} />}
+              </button>
             )}
           </div>
         </div>
@@ -501,13 +454,6 @@ function WorkspaceCard({
         >
           {ws.cwd}
         </div>
-
-        {/* Tags chips */}
-        <TagChips
-          tags={tags}
-          activeTagFilter={activeTagFilter}
-          onTagClick={onTagClick}
-        />
 
         {/* Meta row */}
         <div
@@ -577,23 +523,6 @@ function WorkspaceCard({
           <Share2 size={11} />
           Send ctx
         </button>
-
-        {/* Auto-tag (per-card) */}
-        <button
-          type="button"
-          onClick={() => onAutoTag(ws)}
-          disabled={taggingBusy}
-          className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-40"
-          style={{
-            background: "var(--color-surface-3)",
-            color: "var(--color-text-tertiary)",
-            border: "1px solid var(--color-border-strong)",
-          }}
-          title="Auto-tag this workspace session"
-          aria-label="Auto-tag session"
-        >
-          {taggingBusy ? <Loader size={11} /> : <Tag size={11} />}
-        </button>
       </div>
     </div>
   );
@@ -616,17 +545,13 @@ export function Sessions() {
   const [showAllSessions, setShowAllSessions] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  // --- global search (workspaces + sessions + tags) ---
+  // --- global search (workspaces + sessions) ---
   const [search, setSearch] = useState("");
 
-  // --- tag filter (click on chip sets this) ---
-  const [tagFilter, setTagFilter] = useState<string | null>(null);
-
-  // --- tags store: session_id -> tags[] ---
-  const [tagsMap, setTagsMap] = useState<Map<string, string[]>>(new Map());
-  const [bulkTaggingBusy, setBulkTaggingBusy] = useState(false);
-  // Track which workspace is currently being single-tagged
-  const [taggingCwd, setTaggingCwd] = useState<string | null>(null);
+  // --- which workspace is currently being turned into a project ---
+  const [creatingProjectCwd, setCreatingProjectCwd] = useState<string | null>(
+    null,
+  );
 
   // --- modals ---
   const [busyCwd, setBusyCwd] = useState<string | null>(null);
@@ -669,126 +594,40 @@ export function Sessions() {
       .finally(() => setWorkspacesLoading(false));
   }
 
-  function reloadTags() {
-    invoke<TagEntry[]>("sessions_tags_load")
-      .then((entries) => {
-        const m = new Map<string, string[]>();
-        for (const e of entries) {
-          m.set(e.session_id, e.tags);
-        }
-        setTagsMap(m);
-      })
-      .catch(() => {
-        // Tags are optional — don't surface errors here
-      });
-  }
-
   useEffect(() => {
     reloadHistory();
     reloadWorkspaces();
-    reloadTags();
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Tag helpers
+  // Create a project directly from a workspace (corner "+" on each session
+  // card). No folder picker — el cwd del workspace ES la carpeta del proyecto.
   // ---------------------------------------------------------------------------
 
-  /**
-   * Returns all tags attached to sessions that live under a given workspace cwd.
-   * We match sessions by project_label (which is the cwd recovered from the JSONL).
-   */
-  const tagsForWorkspace = useCallback(
-    (ws: WorkspaceSummary): string[] => {
-      // Collect tags from all sessions whose project_label matches this cwd.
-      const norm = (s: string) => s.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
-      const cwdNorm = norm(ws.cwd);
-      const tagSet = new Set<string>();
-      for (const s of history) {
-        if (norm(s.project_label) === cwdNorm) {
-          const sessionTags = tagsMap.get(s.id) ?? [];
-          for (const t of sessionTags) tagSet.add(t);
-        }
-      }
-      // Also check by latest_session_id directly
-      if (ws.latest_session_id) {
-        const direct = tagsMap.get(ws.latest_session_id) ?? [];
-        for (const t of direct) tagSet.add(t);
-      }
-      return Array.from(tagSet);
-    },
-    [history, tagsMap],
-  );
-
-  // ---------------------------------------------------------------------------
-  // Auto-tag actions
-  // ---------------------------------------------------------------------------
-
-  async function autoTagWorkspace(ws: WorkspaceSummary) {
-    if (!ws.latest_session_id) return;
-    setTaggingCwd(ws.cwd);
+  async function createProjectFromWorkspace(ws: WorkspaceSummary) {
+    if (ws.project_id) return; // ya es un proyecto
+    setCreatingProjectCwd(ws.cwd);
+    setError(null);
     try {
-      // Find the preview (first prompt) from history
-      const session = history.find((s) => s.id === ws.latest_session_id);
-      const entry = await invoke<TagEntry>("sessions_auto_tag", {
-        sessionId: ws.latest_session_id,
-        firstPrompt: session?.preview ?? null,
+      const name = ws.project_name ?? deriveWorkspaceName(ws.cwd);
+      await invoke("create_project", {
+        name,
+        path: ws.cwd,
+        ide: null,
+        language: null,
+        tags: null,
+        defaultProvider: null,
+        defaultShell: null,
+        parentFolderOverride: null,
+        notes: null,
       });
-      setTagsMap((prev) => {
-        const next = new Map(prev);
-        next.set(entry.session_id, entry.tags);
-        return next;
-      });
-      if (entry.tags.length > 0) {
-        setToast(`Tagged: ${entry.tags.join(", ")}`);
-      } else {
-        setToast("No tags generated — configure a provider key in AI Router");
-      }
+      setToast(`Proyecto "${name}" creado`);
+      reloadWorkspaces();
     } catch (e) {
       setError(String(e));
     } finally {
-      setTaggingCwd(null);
+      setCreatingProjectCwd(null);
     }
-  }
-
-  async function bulkAutoTag() {
-    if (bulkTaggingBusy) return;
-    setBulkTaggingBusy(true);
-    try {
-      // Build requests from all sessions that have a preview
-      const requests: AutoTagRequest[] = history
-        .filter((s) => s.preview)
-        .map((s) => ({ session_id: s.id, first_prompt: s.preview ?? null }));
-
-      if (requests.length === 0) {
-        setToast("No sessions with content to tag");
-        return;
-      }
-
-      const entries = await invoke<TagEntry[]>("sessions_bulk_auto_tag", {
-        requests,
-      });
-      const m = new Map(tagsMap);
-      for (const e of entries) {
-        if (e.tags.length > 0) m.set(e.session_id, e.tags);
-      }
-      setTagsMap(m);
-      const tagged = entries.filter((e) => e.tags.length > 0).length;
-      setToast(`Auto-tagged ${tagged} of ${entries.length} sessions`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBulkTaggingBusy(false);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Tag chip click — set or clear tag filter
-  // ---------------------------------------------------------------------------
-
-  function handleTagClick(tag: string) {
-    setTagFilter((prev) => (prev === tag ? null : tag));
-    // Clear text search when filtering by tag to avoid confusion
-    setSearch("");
   }
 
   // ---------------------------------------------------------------------------
@@ -798,50 +637,35 @@ export function Sessions() {
   const normalisedSearch = search.trim().toLowerCase();
 
   /**
-   * A workspace passes the filter when:
-   *   - No text search AND no tag filter: always passes
-   *   - Text search: match workspace name, cwd, or project_id OR any session
-   *     preview/tags under it
-   *   - Tag filter: workspace has at least one session with that tag
+   * A workspace passes the filter when there's no search, or the text matches
+   * its name / cwd / project_id, or any session preview under it.
    */
   const filteredWorkspaces = useMemo(() => {
-    if (!normalisedSearch && !tagFilter) return workspaces;
+    if (!normalisedSearch) return workspaces;
 
     return workspaces.filter((ws) => {
-      // Tag filter check
-      if (tagFilter) {
-        const wsTags = tagsForWorkspace(ws);
-        if (!wsTags.includes(tagFilter)) return false;
-      }
+      const name = (
+        ws.project_name ?? deriveWorkspaceName(ws.cwd)
+      ).toLowerCase();
+      const cwdMatch = ws.cwd.toLowerCase().includes(normalisedSearch);
+      const nameMatch = name.includes(normalisedSearch);
+      const projMatch = (ws.project_id ?? "")
+        .toLowerCase()
+        .includes(normalisedSearch);
 
-      // Text search check
-      if (normalisedSearch) {
-        const name = (
-          ws.project_name ?? deriveWorkspaceName(ws.cwd)
-        ).toLowerCase();
-        const cwdMatch = ws.cwd.toLowerCase().includes(normalisedSearch);
-        const nameMatch = name.includes(normalisedSearch);
-        const projMatch = (ws.project_id ?? "")
-          .toLowerCase()
-          .includes(normalisedSearch);
+      // Also search in session previews under this workspace.
+      const norm = (s: string) =>
+        s.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
+      const cwdNorm = norm(ws.cwd);
+      const sessionMatch = history.some(
+        (s) =>
+          norm(s.project_label) === cwdNorm &&
+          (s.preview ?? "").toLowerCase().includes(normalisedSearch),
+      );
 
-        // Also search in session previews and tags for this workspace
-        const norm = (s: string) =>
-          s.replace(/[\\/]+$/, "").replace(/\\/g, "/").toLowerCase();
-        const cwdNorm = norm(ws.cwd);
-        const sessionMatch = history.some((s) => {
-          if (norm(s.project_label) !== cwdNorm) return false;
-          if ((s.preview ?? "").toLowerCase().includes(normalisedSearch)) return true;
-          const sTags = tagsMap.get(s.id) ?? [];
-          return sTags.some((t) => t.includes(normalisedSearch));
-        });
-
-        if (!cwdMatch && !nameMatch && !projMatch && !sessionMatch) return false;
-      }
-
-      return true;
+      return cwdMatch || nameMatch || projMatch || sessionMatch;
     });
-  }, [workspaces, normalisedSearch, tagFilter, tagsForWorkspace, history, tagsMap]);
+  }, [workspaces, normalisedSearch, history]);
 
   // Group logic (same as before)
   const GROUP_THRESHOLD = 5;
@@ -879,24 +703,14 @@ export function Sessions() {
 
   // All-sessions list filter
   const filteredHistory = useMemo(() => {
-    if (!normalisedSearch && !tagFilter) return history;
+    if (!normalisedSearch) return history;
     return history.filter((s) => {
-      if (tagFilter) {
-        const sTags = tagsMap.get(s.id) ?? [];
-        if (!sTags.includes(tagFilter)) return false;
-      }
-      if (normalisedSearch) {
-        const inLabel = s.project_label.toLowerCase().includes(normalisedSearch);
-        const inId = s.id.toLowerCase().includes(normalisedSearch);
-        const inPreview = (s.preview ?? "").toLowerCase().includes(normalisedSearch);
-        const inTags = (tagsMap.get(s.id) ?? []).some((t) =>
-          t.includes(normalisedSearch),
-        );
-        if (!inLabel && !inId && !inPreview && !inTags) return false;
-      }
-      return true;
+      const inLabel = s.project_label.toLowerCase().includes(normalisedSearch);
+      const inId = s.id.toLowerCase().includes(normalisedSearch);
+      const inPreview = (s.preview ?? "").toLowerCase().includes(normalisedSearch);
+      return inLabel || inId || inPreview;
     });
-  }, [history, normalisedSearch, tagFilter, tagsMap]);
+  }, [history, normalisedSearch]);
 
   // ---------------------------------------------------------------------------
   // Workspace actions
@@ -998,44 +812,6 @@ export function Sessions() {
   }
 
   // ---------------------------------------------------------------------------
-  // Create Project from picker (header button above grid)
-  // ---------------------------------------------------------------------------
-
-  async function createProjectFromPicker() {
-    let selected: string | string[] | null;
-    try {
-      selected = await openDialog({
-        directory: true,
-        multiple: false,
-        title: "Pick a folder to register as a project",
-      });
-    } catch (e) {
-      console.error("[Sessions] openDialog failed", e);
-      setError(`folder picker failed: ${e}`);
-      return;
-    }
-    try {
-      if (!selected || typeof selected !== "string") return;
-      const name = deriveWorkspaceName(selected);
-      await invoke("create_project", {
-        name,
-        path: selected,
-        ide: null,
-        language: null,
-        tags: null,
-        defaultProvider: null,
-        defaultShell: null,
-        parentFolderOverride: null,
-        notes: null,
-      });
-      setToast(`Project "${name}" created`);
-      reloadWorkspaces();
-    } catch (e) {
-      setError(String(e));
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
 
@@ -1068,10 +844,7 @@ export function Sessions() {
             <input
               type="text"
               value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                if (tagFilter) setTagFilter(null);
-              }}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search sessions by keyword..."
               className="rounded pl-8 pr-3 py-1.5 text-[12px]"
               style={{
@@ -1084,48 +857,12 @@ export function Sessions() {
             />
           </div>
 
-          {/* Tag filter badge when active */}
-          {tagFilter && (
-            <button
-              type="button"
-              onClick={() => setTagFilter(null)}
-              className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-[11.5px]"
-              style={{
-                background: "var(--color-accent)",
-                color: "var(--color-accent-text)",
-              }}
-              title="Clear tag filter"
-            >
-              <Tags size={11} />
-              {tagFilter}
-              <span className="ml-0.5 opacity-70">x</span>
-            </button>
-          )}
-
-          {/* Auto-tag all */}
-          <button
-            type="button"
-            onClick={() => void bulkAutoTag()}
-            disabled={bulkTaggingBusy || historyLoading}
-            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] transition-colors disabled:opacity-40"
-            style={{
-              background: "var(--color-surface-2)",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)",
-            }}
-            title="Auto-tag all sessions using AI Router (Groq/Gemini)"
-          >
-            {bulkTaggingBusy ? <Loader size={12} /> : <Tags size={12} />}
-            {bulkTaggingBusy ? "Tagging…" : "Auto-tag all"}
-          </button>
-
           {/* Refresh */}
           <button
             type="button"
             onClick={() => {
               reloadWorkspaces();
               reloadHistory();
-              reloadTags();
             }}
             className="inline-flex items-center gap-1 rounded px-2 py-1.5 text-[11.5px] transition-colors"
             style={{
@@ -1188,21 +925,8 @@ export function Sessions() {
                 : `${filteredWorkspaces.length} of ${workspaces.length}`}
             </span>
           </div>
-
-          {/* Create Project — moved here from per-card */}
-          <button
-            type="button"
-            onClick={() => void createProjectFromPicker()}
-            className="inline-flex items-center gap-1.5 rounded px-2.5 py-1.5 text-[11.5px] font-medium transition-colors"
-            style={{
-              background: "var(--color-accent)",
-              color: "var(--color-accent-text)",
-            }}
-            title="Register a folder on disk as a new project"
-          >
-            <Plus size={12} />
-            Create Project
-          </button>
+          {/* El botón de crear proyecto ya no vive aquí: cada session card sin
+              proyecto tiene su propio "+" en la esquina (onCreateProject). */}
         </div>
 
         {!workspacesLoading && workspaces.length === 0 && (
@@ -1230,9 +954,7 @@ export function Sessions() {
                 color: "var(--color-text-tertiary)",
               }}
             >
-              {tagFilter
-                ? `No workspace has sessions tagged "${tagFilter}".`
-                : `No workspace matches "${search}".`}
+              No workspace matches "{search}".
             </div>
           )}
 
@@ -1244,14 +966,11 @@ export function Sessions() {
                 key={ws.cwd}
                 ws={ws}
                 busy={busyCwd === ws.cwd}
-                tags={tagsForWorkspace(ws)}
-                activeTagFilter={tagFilter}
                 onNew={newInWorkspace}
                 onCustom={(w) => setModal({ mode: "custom", ws: w })}
                 onSendContext={(w) => setModal({ mode: "send-context", ws: w })}
-                onTagClick={handleTagClick}
-                onAutoTag={autoTagWorkspace}
-                taggingBusy={taggingCwd === ws.cwd}
+                onCreateProject={createProjectFromWorkspace}
+                creatingProject={creatingProjectCwd === ws.cwd}
               />
             ))}
           </div>
@@ -1307,16 +1026,13 @@ export function Sessions() {
                       key={ws.cwd}
                       ws={ws}
                       busy={busyCwd === ws.cwd}
-                      tags={tagsForWorkspace(ws)}
-                      activeTagFilter={tagFilter}
                       onNew={newInWorkspace}
                       onCustom={(w) => setModal({ mode: "custom", ws: w })}
                       onSendContext={(w) =>
                         setModal({ mode: "send-context", ws: w })
                       }
-                      onTagClick={handleTagClick}
-                      onAutoTag={autoTagWorkspace}
-                      taggingBusy={taggingCwd === ws.cwd}
+                      onCreateProject={createProjectFromWorkspace}
+                      creatingProject={creatingProjectCwd === ws.cwd}
                     />
                   ))}
                 </div>
@@ -1378,14 +1094,11 @@ export function Sessions() {
               >
                 {history.length === 0
                   ? "No sessions recorded yet."
-                  : tagFilter
-                    ? `No session tagged "${tagFilter}".`
-                    : `No session matches "${search}".`}
+                  : `No session matches "${search}".`}
               </div>
             )}
             <div className="space-y-1.5">
               {filteredHistory.map((s) => {
-                const sTags = tagsMap.get(s.id) ?? [];
                 return (
                   <div
                     key={`${s.project_slug}-${s.id}`}
@@ -1432,31 +1145,6 @@ export function Sessions() {
                         style={{ color: "var(--color-text-secondary)" }}
                       >
                         {s.preview}
-                      </div>
-                    )}
-                    {sTags.length > 0 && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {sTags.map((tag) => (
-                          <button
-                            key={tag}
-                            type="button"
-                            onClick={() => handleTagClick(tag)}
-                            className="rounded px-1.5 py-0.5 text-[10px]"
-                            style={{
-                              background:
-                                tagFilter === tag
-                                  ? "var(--color-accent)"
-                                  : "var(--color-surface-3)",
-                              color:
-                                tagFilter === tag
-                                  ? "var(--color-accent-text)"
-                                  : "var(--color-text-tertiary)",
-                              border: "1px solid var(--color-border)",
-                            }}
-                          >
-                            {tag}
-                          </button>
-                        ))}
                       </div>
                     )}
                   </div>

@@ -41,7 +41,6 @@ export type FolderTreeViewProps = {
   cardOpenTerminal: (p: ProjectInfo) => void;
   startEdit: (p: ProjectInfo) => void;
   setPendingDelete: (p: ProjectInfo) => void;
-  onCreateProject: () => void;
   selected: string | null;
   setSelected: (id: string) => void;
   opening: string | null;
@@ -67,5 +66,4 @@ export type BlocksProjectViewProps = {
   cardOpenTerminal: (p: ProjectInfo) => void;
   startEdit: (p: ProjectInfo) => void;
   setPendingDelete: (p: ProjectInfo) => void;
-  onCreateProject: () => void;
 };

@@ -19,7 +19,6 @@ export function BlocksProjectView({
   cardOpenTerminal,
   startEdit,
   setPendingDelete,
-  onCreateProject,
 }: BlocksProjectViewProps): ReactElement {
   const here = navigateTo(root, path);
   const isRoot = path.length === 0;
@@ -157,7 +156,6 @@ export function BlocksProjectView({
             onOpenTerminal={() => cardOpenTerminal(p)}
             onEdit={() => startEdit(p)}
             onDelete={() => setPendingDelete(p)}
-            onCreateProject={onCreateProject}
           />
         ))}
       </div>

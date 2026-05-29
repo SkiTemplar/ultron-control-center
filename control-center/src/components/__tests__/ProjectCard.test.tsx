@@ -38,7 +38,6 @@ function renderCard(overrides: Partial<ProjectInfo> = {}) {
       onOpenTerminal={noop}
       onEdit={noop}
       onDelete={noop}
-      onCreateProject={noop}
     />,
   );
 }
@@ -86,7 +85,6 @@ describe("ProjectCard", () => {
         onOpenTerminal={noop}
         onEdit={noop}
         onDelete={noop}
-        onCreateProject={noop}
       />,
     );
     fireEvent.click(container.firstChild as HTMLElement);
@@ -106,7 +104,6 @@ describe("ProjectCard", () => {
         onOpenTerminal={noop}
         onEdit={onEdit}
         onDelete={noop}
-        onCreateProject={noop}
       />,
     );
     fireEvent.click(screen.getByTitle("Edit project metadata"));
@@ -130,7 +127,6 @@ describe("ProjectCard", () => {
         onOpenTerminal={noop}
         onEdit={noop}
         onDelete={noop}
-        onCreateProject={noop}
       />,
     );
     // Both stats cells show "—" when stats is null
