@@ -524,8 +524,12 @@ export function WorkdayDayTimeline() {
     view ? Math.round(view.total_seconds / 3600 * 10) / 10 : 0;
 
   return (
+    // flex-1 + min-w-0: as the sole flex child of the Workdays row container,
+    // this must FILL the row and be allowed to shrink below its content width.
+    // Without min-w-0 the HourDetail panel's intrinsic width drove the whole
+    // tab to reflow on hour selection (card-ux-workdays-responsive).
     <div
-      className="flex h-full flex-col overflow-hidden"
+      className="flex h-full min-w-0 flex-1 flex-col overflow-hidden"
       style={{ background: "var(--color-bg)" }}
     >
       {/* ------------------------------------------------------------------ */}
@@ -612,7 +616,7 @@ export function WorkdayDayTimeline() {
       {/* Timeline + detail                                                   */}
       {/* ------------------------------------------------------------------ */}
       {view && (
-        <div className="flex flex-1 flex-col gap-4 overflow-auto px-5 py-4">
+        <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-auto px-5 py-4">
           {/* 24-column timeline */}
           <div
             className="flex items-end gap-0.5 overflow-x-auto rounded-lg p-2"
