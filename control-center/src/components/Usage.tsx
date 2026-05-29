@@ -1048,13 +1048,10 @@ function ProviderRow({ p }: { p: ProviderUsageRow }) {
             </span>
           )}
         </div>
-        {/* Right: call count + latency */}
+        {/* Right: calls + success + tokens + latency (stats reales) */}
         <div className="flex items-baseline gap-3 text-[11.5px] tabular-nums">
           <div className="text-right">
-            <div
-              className="text-[9px] uppercase"
-              style={{ color: "var(--color-text-faint)" }}
-            >
+            <div className="text-[9px] uppercase" style={{ color: "var(--color-text-faint)" }}>
               Calls
             </div>
             <div style={{ color: "var(--color-text-secondary)" }}>
@@ -1062,10 +1059,36 @@ function ProviderRow({ p }: { p: ProviderUsageRow }) {
             </div>
           </div>
           <div className="text-right">
+            <div className="text-[9px] uppercase" style={{ color: "var(--color-text-faint)" }}>
+              Success
+            </div>
             <div
-              className="text-[9px] uppercase"
-              style={{ color: "var(--color-text-faint)" }}
+              style={{
+                color:
+                  p.call_count === 0
+                    ? "var(--color-text-faint)"
+                    : p.success_count / p.call_count >= 0.95
+                      ? "var(--color-success)"
+                      : p.success_count / p.call_count >= 0.8
+                        ? "var(--color-warn)"
+                        : "var(--color-danger)",
+              }}
             >
+              {p.call_count > 0
+                ? `${Math.round((p.success_count / p.call_count) * 100)}%`
+                : "—"}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[9px] uppercase" style={{ color: "var(--color-text-faint)" }}>
+              Tokens
+            </div>
+            <div style={{ color: "var(--color-text-secondary)" }}>
+              {p.total_tokens > 0 ? formatNum(p.total_tokens) : "—"}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-[9px] uppercase" style={{ color: "var(--color-text-faint)" }}>
               Avg latency
             </div>
             <div style={{ color: "var(--color-text-secondary)" }}>
