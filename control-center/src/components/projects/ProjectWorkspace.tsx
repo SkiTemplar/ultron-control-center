@@ -306,8 +306,21 @@ export default function ProjectWorkspace({ projectId }: Props) {
             </button>
           </div>
         </div>
+        {error && (
+          <div
+            className="border-b px-4 py-1.5 text-[11px]"
+            style={{ color: "var(--color-danger, #ef4444)", borderColor: "var(--color-border)", background: "rgba(239,68,68,0.06)" }}
+          >
+            {error}
+          </div>
+        )}
         <div className="min-h-0 flex-1">
-          <ProjectDashboard projectId={projectId} projectPath={meta.path} projectName={meta.name} />
+          <ProjectDashboard
+            projectId={projectId}
+            projectPath={meta.path}
+            terminalCwd={meta.terminalCwd}
+            projectName={meta.name}
+          />
         </div>
       </div>
     );

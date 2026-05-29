@@ -22,7 +22,11 @@ import { DashboardPanel } from "./DashboardPanel";
 
 interface ProjectDashboardProps {
   projectId: string;
+  /** Project root path — for panels that show project files (agents/sessions/context). */
   projectPath: string;
+  /** cwd the terminal must spawn in — respects parent_folder_override (fb-016).
+   *  Distinct from projectPath; only the terminal uses it. */
+  terminalCwd: string;
   projectName: string;
   /** Contextual action for the terminal/sessions area (e.g. Run Batch). */
   sessionsActions?: ReactNode;
@@ -43,6 +47,7 @@ function loadCollapsed(projectId: string): Record<string, boolean> {
 export default function ProjectDashboard({
   projectId,
   projectPath,
+  terminalCwd,
   projectName,
   sessionsActions,
 }: ProjectDashboardProps) {
@@ -109,7 +114,7 @@ export default function ProjectDashboard({
         {panelProps(
           "terminal",
           "Terminal IA",
-          <ProjectTerminal projectId={projectId} projectPath={projectPath} />,
+          <ProjectTerminal projectId={projectId} projectPath={terminalCwd} />,
           { scrollBody: false },
         )}
         {panelProps("notes", "Notas", <ProjectNotes projectId={projectId} />)}

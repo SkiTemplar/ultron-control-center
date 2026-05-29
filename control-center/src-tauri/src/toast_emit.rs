@@ -156,6 +156,13 @@ fn append_alert_line(source: &str, severity: &str, message: &str) -> Result<(), 
         "message": message,
     });
     let line = entry.to_string() + "\n";
+    // Serialise under the SAME lock as alerts_admin's delete (read->filter->
+    // tmp+rename) and record_ui_alert's append, so a concurrent delete can't
+    // drop this append. This is the 3rd writer of alerts.jsonl; commit 4962730
+    // locked the other two. No caller holds alerts_lock here, so no deadlock.
+    let _guard = crate::alerts_admin::alerts_lock()
+        .lock()
+        .map_err(|e| format!("alerts write lock poisoned: {}", e))?;
     use std::io::Write;
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);

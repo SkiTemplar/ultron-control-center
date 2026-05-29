@@ -547,13 +547,15 @@ def build_synth_prompt(parsed: dict, candidates: list[dict],
         f"--- turn {i+1} ---\n{t[:1500]}"
         for i, t in enumerate(safe_assistant_texts[-4:])
     ) or "(none)"
+    # brain_index snippets/titles come from arbitrary vault notes that never
+    # passed the redactor, and this block is sent to Codex — redact them too.
     cand_block = "\n".join(
-        f"- [{c['id']}] {c['title']} ({c['path']})\n  > {c['snippet']}"
+        f"- [{c['id']}] {redact_secrets(c['title'])} ({c['path']})\n  > {redact_secrets(c['snippet'])}"
         for c in candidates
     ) or "(no candidates from brain_index)"
     if distilled_hits:
         cand_block += "\n\n## Distilled hits from prior sessions:\n" + "\n".join(
-            f"- [D/{d.get('ts','')}] {d['action']}: {d['target']}"
+            f"- [D/{d.get('ts','')}] {redact_secrets(d['action'])}: {redact_secrets(d['target'])}"
             f" [{d.get('domain','')}]"
             for d in distilled_hits
         )
