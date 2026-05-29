@@ -22,6 +22,7 @@ import type { AlertEntry, GlobalStatus } from "../types";
 import packageJson from "../../package.json";
 
 import { AlertsCard } from "./dashboard/AlertsCard";
+import { ResumeSessionCard } from "./dashboard/ResumeSessionCard";
 import { Mem0Card } from "./dashboard/Mem0Card";
 import { PluginStatusCard } from "./dashboard/PluginStatusCard";
 import { RecentProjectsCard } from "./dashboard/RecentProjectsCard";
@@ -85,6 +86,11 @@ export function Dashboard({
           {globalStatus}
         </span>
       </header>
+
+      {/* Row 0 — Resume last session (primary action; self-hides when none) */}
+      <div className="mb-4">
+        <ResumeSessionCard onOpenSessions={() => onNavigate?.("sessions")} />
+      </div>
 
       {/* Row 1 — Notifications banner (full width) */}
       <div className="mb-4">
