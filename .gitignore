@@ -239,3 +239,7 @@ skill-vault-archived-*/
 # v2.11.2: fastembed ONNX model cache (auto-downloaded, ~22MB)
 control-center/.fastembed_cache/
 .fastembed_cache/
+
+# Secrets — local env (nunca commitear). Anadido 2026-05-30.
+.env
+!.env.example
