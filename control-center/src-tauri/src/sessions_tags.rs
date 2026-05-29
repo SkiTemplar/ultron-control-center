@@ -21,11 +21,29 @@
 
 use std::fs;
 use std::io::{BufRead, BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 
 use crate::ultron_root;
+
+// ---------------------------------------------------------------------------
+// Process-wide write lock
+// ---------------------------------------------------------------------------
+//
+// `upsert_tag` does a load-all → filter → push → full-rewrite. Without a lock,
+// two concurrent callers (e.g. `sessions_bulk_auto_tag` looping while a
+// background auto-tag fires) both read the same baseline and the second writer
+// clobbers the first writer's addition — entries vanish silently. The lock is
+// held across the whole read-modify-write so it is atomic from the caller's
+// point of view. Same pattern as `kg::kg_write_lock` / `workdays::workday_lock`
+// / `decisions::decisions_lock`. Pure reads (`sessions_tags_load`) are excluded.
+static SESSIONS_TAGS_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn sessions_tags_lock() -> &'static Mutex<()> {
+    SESSIONS_TAGS_WRITE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 // ---------------------------------------------------------------------------
 // Domain types
@@ -60,11 +78,18 @@ fn tags_path() -> Result<PathBuf, String> {
 
 pub fn load_all_tags() -> Result<Vec<TagEntry>, String> {
     let path = tags_path()?;
+    load_tags_at(&path)
+}
+
+/// Read all entries from a specific JSONL path. Path-parameterised so the
+/// read-modify-write logic can be exercised against a temp file in tests
+/// without touching the real `~/.ultron/cockpit/sessions-tags.jsonl`.
+fn load_tags_at(path: &Path) -> Result<Vec<TagEntry>, String> {
     if !path.exists() {
         return Ok(Vec::new());
     }
     let file =
-        fs::File::open(&path).map_err(|e| format!("open sessions-tags.jsonl: {}", e))?;
+        fs::File::open(path).map_err(|e| format!("open sessions-tags.jsonl: {}", e))?;
     let reader = std::io::BufReader::new(file);
     let mut out = Vec::new();
     for line in reader.lines() {
@@ -87,23 +112,42 @@ pub fn load_all_tags() -> Result<Vec<TagEntry>, String> {
 /// appended at the end (JSONL append-only with in-memory upsert).
 fn upsert_tag(entry: TagEntry) -> Result<(), String> {
     let path = tags_path()?;
+    upsert_tag_at(&path, entry)
+}
+
+/// Lock-guarded read-modify-write against a specific path. The
+/// `SESSIONS_TAGS_WRITE_LOCK` is held across the whole load → filter → push →
+/// write so concurrent callers cannot interleave and lose entries. Writes go
+/// to a temp file then `rename` over the target so a crash mid-write never
+/// leaves a truncated store (atomic-replace, same as kanban/kg/decisions).
+fn upsert_tag_at(path: &Path, entry: TagEntry) -> Result<(), String> {
+    let _guard = sessions_tags_lock()
+        .lock()
+        .map_err(|e| format!("sessions-tags lock poisoned: {}", e))?;
+
     // Load existing, filter out old record for this session.
-    let mut existing = load_all_tags().unwrap_or_default();
+    let mut existing = load_tags_at(path).unwrap_or_default();
     existing.retain(|e| e.session_id != entry.session_id);
     existing.push(entry);
 
-    // Write the full updated set back (file is small — never more than a few
-    // thousand entries, one per session; full rewrite is safe and simple).
-    let file =
-        fs::File::create(&path).map_err(|e| format!("create sessions-tags.jsonl: {}", e))?;
-    let mut writer = BufWriter::new(file);
-    for e in &existing {
-        let line = serde_json::to_string(e)
-            .map_err(|e| format!("serialize tag entry: {}", e))?;
-        writeln!(writer, "{}", line)
-            .map_err(|e| format!("write sessions-tags.jsonl: {}", e))?;
+    // Serialise to a temp sibling, then atomically rename over the target.
+    // File is small (one entry per session) so a full rewrite is fine.
+    let tmp = path.with_extension("jsonl.tmp");
+    {
+        let file = fs::File::create(&tmp)
+            .map_err(|e| format!("create sessions-tags tmp: {}", e))?;
+        let mut writer = BufWriter::new(file);
+        for e in &existing {
+            let line = serde_json::to_string(e)
+                .map_err(|e| format!("serialize tag entry: {}", e))?;
+            writeln!(writer, "{}", line)
+                .map_err(|e| format!("write sessions-tags tmp: {}", e))?;
+        }
+        writer
+            .flush()
+            .map_err(|e| format!("flush sessions-tags tmp: {}", e))?;
     }
-    writer.flush().map_err(|e| format!("flush sessions-tags.jsonl: {}", e))?;
+    fs::rename(&tmp, path).map_err(|e| format!("rename sessions-tags.jsonl: {}", e))?;
     Ok(())
 }
 
@@ -338,5 +382,85 @@ mod tests {
         assert_eq!(&ts[4..5], "-");
         assert_eq!(&ts[7..8], "-");
         assert_eq!(&ts[10..11], "T");
+    }
+
+    // ---- write-lock / concurrency (card-data-sessions-tags-write-lock) -----
+
+    /// Unique temp path per test invocation so parallel `cargo test` runs do
+    /// not collide and the real cockpit store is never touched.
+    fn unique_temp_tags_path() -> PathBuf {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static SEQ: AtomicU64 = AtomicU64::new(0);
+        let n = SEQ.fetch_add(1, Ordering::SeqCst);
+        std::env::temp_dir().join(format!(
+            "ultron_sessions_tags_test_{}_{}.jsonl",
+            std::process::id(),
+            n
+        ))
+    }
+
+    #[test]
+    fn upsert_tag_at_roundtrips_and_upserts_same_session() {
+        let path = unique_temp_tags_path();
+        let _ = fs::remove_file(&path);
+
+        let mk = |id: &str, tag: &str| TagEntry {
+            session_id: id.to_string(),
+            tags: vec![tag.to_string()],
+            generated_at: "2026-05-29T00:00:00Z".to_string(),
+        };
+
+        upsert_tag_at(&path, mk("s1", "alpha")).unwrap();
+        upsert_tag_at(&path, mk("s2", "beta")).unwrap();
+        // Re-tag s1 — should replace, not duplicate.
+        upsert_tag_at(&path, mk("s1", "gamma")).unwrap();
+
+        let all = load_tags_at(&path).unwrap();
+        assert_eq!(all.len(), 2, "upsert must not duplicate the same session_id");
+        let s1 = all.iter().find(|e| e.session_id == "s1").unwrap();
+        assert_eq!(s1.tags, vec!["gamma"], "upsert must overwrite previous tags");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn upsert_tag_at_preserves_all_entries_under_contention() {
+        use std::sync::{Arc, Barrier};
+        use std::thread;
+
+        let path = unique_temp_tags_path();
+        let _ = fs::remove_file(&path);
+
+        // Many threads upserting distinct sessions at once. Without the write
+        // lock the read-all → rewrite races and entries are lost (len < N).
+        // With the lock every entry survives.
+        const N: usize = 24;
+        let barrier = Arc::new(Barrier::new(N));
+        let mut handles = Vec::with_capacity(N);
+        for i in 0..N {
+            let p = path.clone();
+            let b = Arc::clone(&barrier);
+            handles.push(thread::spawn(move || {
+                b.wait();
+                let entry = TagEntry {
+                    session_id: format!("session-{i}"),
+                    tags: vec![format!("tag-{i}")],
+                    generated_at: "2026-05-29T00:00:00Z".to_string(),
+                };
+                upsert_tag_at(&p, entry).unwrap();
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let all = load_tags_at(&path).unwrap();
+        assert_eq!(
+            all.len(),
+            N,
+            "lost entries to a write race — the lock is not protecting upsert"
+        );
+
+        let _ = fs::remove_file(&path);
     }
 }
