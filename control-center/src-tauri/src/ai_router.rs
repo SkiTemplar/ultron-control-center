@@ -142,6 +142,17 @@ pub struct ClassMetrics {
     pub latency_p95_ms: u64,
 }
 
+/// Per-provider request counter for the CURRENT day. Used to compute the
+/// "% del free tier" gauge. Resets automatically when `date` no longer
+/// matches today (UTC) — see `bump_metrics`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DailyUsage {
+    /// ISO date (YYYY-MM-DD, UTC) the counter belongs to.
+    pub date: String,
+    /// Requests routed to this provider today.
+    pub count: u64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouterMetrics {
     pub tokens_saved_total: u64,
@@ -149,6 +160,24 @@ pub struct RouterMetrics {
     pub by_class: HashMap<String, ClassMetrics>,
     /// Ratio of calls that fell back to a secondary provider (0.0..=1.0).
     pub fallback_rate: f64,
+    /// Per-provider request counts for the current day (free-tier gauge).
+    #[serde(default)]
+    pub daily: HashMap<String, DailyUsage>,
+}
+
+/// Approximate published free-tier DAILY request limit (RPD) per provider.
+/// Only providers with a real free API tier return Some; subscription CLIs,
+/// local models and paid-only providers return None (the UI then keeps the
+/// classic key/CLI badge instead of a free-tier gauge). Figures are rough
+/// published limits at build time and shown with an "approx" tooltip.
+fn free_tier_daily_limit(provider_id: &str) -> Option<u64> {
+    match provider_id {
+        // Google Gemini API free tier — Flash-class ~1500 req/day.
+        "gemini" => Some(1500),
+        // Groq free tier — conservative ~1000 req/day per model.
+        "groq" => Some(1000),
+        _ => None,
+    }
 }
 
 /// Result of `ai_router_test` — returned verbatim to the UI.
@@ -1428,6 +1457,15 @@ fn bump_metrics(provider_id: &str, outcome: &Result<String, String>, latency_ms:
     } else {
         metrics.fallback_rate = metrics.fallback_rate * 0.9;
     }
+    // Per-provider daily counter for the free-tier gauge. Resets when the
+    // stored date no longer matches today (UTC).
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let du = metrics.daily.entry(provider_id.to_string()).or_default();
+    if du.date != today {
+        du.date = today;
+        du.count = 0;
+    }
+    du.count = du.count.saturating_add(1);
     write_json(&metrics_path()?, &metrics)
 }
 
@@ -1629,6 +1667,14 @@ pub struct ProviderUsageRow {
     pub primary_for_zones: Vec<String>,
     /// Zones where this provider sits in a fallback slot.
     pub fallback_for_zones: Vec<String>,
+    /// Published free-tier daily request limit (RPD), if the provider has a
+    /// real free API tier. None for paid-only / CLI / local providers.
+    pub free_tier_limit: Option<u64>,
+    /// Requests routed to this provider TODAY (UTC). 0 if none yet today.
+    pub free_tier_used_today: u64,
+    /// Percentage of the daily free tier consumed today (0..=100+). None when
+    /// there is no known free-tier limit for this provider.
+    pub free_tier_pct: Option<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1698,6 +1744,19 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
         // see bump_metrics comments).
         let cm = metrics.by_class.get(&p.id).cloned().unwrap_or_default();
 
+        // Free-tier daily gauge: requests today vs published RPD limit.
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let used_today = metrics
+            .daily
+            .get(&p.id)
+            .filter(|d| d.date == today)
+            .map(|d| d.count)
+            .unwrap_or(0);
+        let free_tier_limit = free_tier_daily_limit(&p.id);
+        let free_tier_pct = free_tier_limit
+            .filter(|lim| *lim > 0)
+            .map(|lim| (used_today as f64 / lim as f64) * 100.0);
+
         rows.push(ProviderUsageRow {
             provider_id: p.id.clone(),
             provider_label: p.name.clone(),
@@ -1708,6 +1767,9 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
             latency_ms_avg: cm.latency_p95_ms,
             primary_for_zones,
             fallback_for_zones,
+            free_tier_limit,
+            free_tier_used_today: used_today,
+            free_tier_pct,
         });
     }
 

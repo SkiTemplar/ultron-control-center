@@ -963,6 +963,45 @@ function KeyBadge({
   );
 }
 
+// Free-tier gauge: % del gratuito consumido HOY. Sólo se muestra cuando el
+// proveedor tiene un free tier conocido (Gemini, Groq). El usuario pidió ver
+// "el % que llevo del gratuito" en vez de sólo el nombre de la key.
+function FreeTierBadge({ p }: { p: ProviderUsageRow }) {
+  if (p.free_tier_limit == null || p.free_tier_pct == null) return null;
+  const pct = Math.max(0, p.free_tier_pct);
+  const color =
+    pct >= 90
+      ? "var(--color-danger)"
+      : pct >= 70
+        ? "var(--color-warn)"
+        : "var(--color-success)";
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-[10px] font-medium leading-none"
+      style={{
+        background: "var(--color-surface-3)",
+        border: "1px solid var(--color-border)",
+        color: "var(--color-text-secondary)",
+      }}
+      title={`Free tier (hoy, UTC): ${p.free_tier_used_today} / ${p.free_tier_limit} req aprox. Límite publicado, puede variar.`}
+    >
+      <span
+        className="inline-block h-1.5 w-14 overflow-hidden rounded-full"
+        style={{ background: "var(--color-surface-1)" }}
+      >
+        <span
+          className="block h-full rounded-full"
+          style={{ width: `${Math.min(100, pct)}%`, background: color }}
+        />
+      </span>
+      <span className="tabular-nums" style={{ color }}>
+        {pct.toFixed(0)}%
+      </span>
+      <span style={{ color: "var(--color-text-faint)" }}>gratuito</span>
+    </span>
+  );
+}
+
 function ProviderRow({ p }: { p: ProviderUsageRow }) {
   return (
     <div
@@ -996,6 +1035,7 @@ function ProviderRow({ p }: { p: ProviderUsageRow }) {
                 : undefined
             }
           />
+          <FreeTierBadge p={p} />
           {p.key_env_var && (
             <span
               className="text-[9.5px]"

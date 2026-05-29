@@ -318,6 +318,12 @@ export type ProviderUsageRow = {
   latency_ms_avg: number;
   primary_for_zones: string[];
   fallback_for_zones: string[];
+  /** Published free-tier daily request limit (RPD). null = no free tier. */
+  free_tier_limit: number | null;
+  /** Requests routed to this provider today (UTC). */
+  free_tier_used_today: number;
+  /** % of the daily free tier consumed today. null when no known limit. */
+  free_tier_pct: number | null;
 };
 
 export type RouterUsageSummary = {
