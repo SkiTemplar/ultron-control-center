@@ -5,8 +5,8 @@
 // portable-pty spawn) and we don't want to stall the async runtime.
 
 use crate::pty::{
-    capture_output_inner, kill_inner, list_inner, replay_inner, resize_inner, spawn_inner,
-    write_inner, CaptureResult, PtySessionSummary,
+    capture_output_inner, kill_inner, list_inner, list_one_inner, replay_inner, resize_inner,
+    spawn_inner, write_inner, CaptureResult, PtySessionSummary,
 };
 use tauri::{AppHandle, Runtime};
 
@@ -45,6 +45,13 @@ pub async fn pty_kill(session_id: String) -> Result<(), String> {
 #[tauri::command]
 pub async fn pty_list(project_id: String) -> Result<Vec<PtySessionSummary>, String> {
     list_inner(project_id)
+}
+
+/// Summary of a single session by id (no project filter). Powers the embedded
+/// terminal's active-CLI badge. Returns None when the id is unknown.
+#[tauri::command]
+pub async fn pty_summary(session_id: String) -> Option<PtySessionSummary> {
+    list_one_inner(&session_id)
 }
 
 /// Return the buffered output captured by the reader thread (base64).

@@ -4,7 +4,7 @@
 // `pty:exit:<sessionId>` Tauri events, forwards keystrokes via `pty_write`,
 // and resizes on ResizeObserver.
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Terminal } from "xterm";
@@ -16,6 +16,17 @@ import type { PtyDataEvent, PtyExitEvent } from "../types";
 type Props = {
   sessionId: string;
   onExit?: (code: number) => void;
+};
+
+// Active-CLI badge styling by provider (card-vis-cli-model-indicator).
+// Colours per the card: Anthropic naranja, Google azul, OpenAI verde.
+const PROVIDER_BADGE: Record<
+  string,
+  { label: string; bg: string; color: string; border: string }
+> = {
+  claude: { label: "Claude Code", bg: "rgba(217,119,87,0.16)", color: "#e0996f", border: "rgba(217,119,87,0.4)" },
+  codex: { label: "Codex", bg: "rgba(34,197,94,0.14)", color: "#4ade80", border: "rgba(34,197,94,0.38)" },
+  gemini: { label: "Gemini", bg: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "rgba(59,130,246,0.38)" },
 };
 
 const BASE64 = {
@@ -41,6 +52,25 @@ const BASE64 = {
 export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
+  const [provider, setProvider] = useState<string | null>(null);
+
+  // Fetch the session's active CLI once so the badge can show which provider
+  // is running in this terminal (card-vis-cli-model-indicator). Best-effort:
+  // on any failure the badge simply doesn't render.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const s = await invoke<{ provider?: string } | null>("pty_summary", { sessionId });
+        if (!cancelled) setProvider(s?.provider ?? null);
+      } catch {
+        if (!cancelled) setProvider(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -263,12 +293,25 @@ export default function EmbeddedTerminal({ sessionId, onExit }: Props) {
     void invoke("pty_write", { sessionId, data: BASE64.encode(bytes) });
   };
 
+  const badge = provider ? PROVIDER_BADGE[provider] : undefined;
+
   return (
-    <div
-      ref={containerRef}
-      className="h-full w-full bg-[#0d0d11]"
-      style={{ minHeight: 200 }}
-      onPaste={handlePaste}
-    />
+    <div className="relative h-full w-full" style={{ minHeight: 200 }}>
+      {badge && (
+        <div
+          className="pointer-events-none absolute right-2 top-1 z-10 rounded px-1.5 py-0.5 text-[10px] font-medium"
+          style={{ background: badge.bg, color: badge.color, border: `1px solid ${badge.border}` }}
+          title={`CLI activo: ${badge.label}`}
+        >
+          {badge.label}
+        </div>
+      )}
+      <div
+        ref={containerRef}
+        className="h-full w-full bg-[#0d0d11]"
+        style={{ minHeight: 200 }}
+        onPaste={handlePaste}
+      />
+    </div>
   );
 }

@@ -674,6 +674,14 @@ pub fn list_inner(project_id: String) -> Result<Vec<PtySessionSummary>, String> 
     Ok(out)
 }
 
+/// Summary of a single session by id (no project filter). Used by the embedded
+/// terminal to show the active-CLI badge (card-vis-cli-model-indicator). Returns
+/// None when the id is unknown.
+pub fn list_one_inner(session_id: &str) -> Option<PtySessionSummary> {
+    let reg = registry().lock().ok()?;
+    reg.get(session_id).map(|s| s.summary())
+}
+
 pub fn kill_all_inner() {
     if let Ok(mut reg) = registry().lock() {
         for s in reg.values_mut() {
@@ -686,6 +694,12 @@ pub fn kill_all_inner() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // card-vis-cli-model-indicator
+    #[test]
+    fn list_one_inner_unknown_id_is_none() {
+        assert!(list_one_inner("does-not-exist-xyz").is_none());
+    }
 
     // card-vis-notif-session-error
     #[test]

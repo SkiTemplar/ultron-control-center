@@ -468,6 +468,7 @@ pub fn run() {
             commands::pty::pty_resize,
             commands::pty::pty_kill,
             commands::pty::pty_list,
+            commands::pty::pty_summary,
             commands::pty::pty_replay,
             commands::pty::pty_capture_output,
             // -- library (P5 — GitHub search + install + per-project pin) --
