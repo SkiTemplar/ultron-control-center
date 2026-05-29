@@ -39,6 +39,7 @@ mod inbox;
 mod installed_apps;
 mod instructions;
 mod kanban;
+mod migration;
 mod kg;
 mod library;
 mod logs;
@@ -470,6 +471,7 @@ pub fn run() {
             commands::pty::pty_kill,
             commands::pty::pty_list,
             commands::pty::pty_summary,
+            migration::migrate_dry_run,
             commands::pty::pty_replay,
             commands::pty::pty_capture_output,
             // -- library (P5 — GitHub search + install + per-project pin) --
@@ -568,6 +570,20 @@ pub fn run() {
             commands::workflows::workflow_load_user_defined,
         ])
         .setup(|app| {
+            // v2.13 -> v2.14 data migration (meta.json + features.json ensure).
+            // Best-effort: a failure must never block startup.
+            {
+                let report = crate::migration::run_migrations_inner(env!("CARGO_PKG_VERSION"));
+                if report.migrated {
+                    eprintln!(
+                        "[ultron] migration v{}->v{}: {}",
+                        report.from_version,
+                        report.to_version,
+                        report.actions.join(" | ")
+                    );
+                }
+            }
+
             // P4 migration: ensure every known project has a kanban.json.
             // Idempotent — no-op if files already exist.
             {

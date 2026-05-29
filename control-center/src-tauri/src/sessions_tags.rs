@@ -58,6 +58,13 @@ pub struct TagEntry {
     pub session_id: String,
     pub tags: Vec<String>,
     pub generated_at: String,
+    /// Project slug this session belongs to, derived from its cwd
+    /// (card-vis-auto-tag-cwd, sessions-tags schema v2). Optional +
+    /// skip-when-none so old entries (schema v1) read and re-serialise
+    /// unchanged — the backward-compatible half of the v2.14 schema change
+    /// declared in `migration.rs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// Minimal descriptor passed from the frontend when requesting auto-tagging
@@ -318,6 +325,7 @@ pub fn sessions_auto_tag(
         session_id: session_id.clone(),
         tags,
         generated_at: now_iso(),
+        project: None,
     };
     upsert_tag(entry.clone())?;
     Ok(entry)
@@ -337,6 +345,7 @@ pub fn sessions_bulk_auto_tag(requests: Vec<AutoTagRequest>) -> Result<Vec<TagEn
             session_id: req.session_id.clone(),
             tags,
             generated_at: now_iso(),
+            project: None,
         };
         // Best-effort upsert — if the file write fails we still return the entry
         // so the UI can show the tags in memory even if they weren't persisted.
@@ -424,6 +433,7 @@ mod tests {
             session_id: id.to_string(),
             tags: vec![tag.to_string()],
             generated_at: "2026-05-29T00:00:00Z".to_string(),
+            project: None,
         };
 
         upsert_tag_at(&path, mk("s1", "alpha")).unwrap();
@@ -435,6 +445,28 @@ mod tests {
         assert_eq!(all.len(), 2, "upsert must not duplicate the same session_id");
         let s1 = all.iter().find(|e| e.session_id == "s1").unwrap();
         assert_eq!(s1.tags, vec!["gamma"], "upsert must overwrite previous tags");
+
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn schema_v1_without_project_reads_none_and_v2_preserved() {
+        let path = unique_temp_tags_path();
+        let _ = fs::remove_file(&path);
+        let v1 = r#"{"session_id":"old","tags":["a"],"generated_at":"2026-01-01T00:00:00Z"}"#;
+        let v2 = r#"{"session_id":"new","tags":["b"],"generated_at":"2026-05-29T00:00:00Z","project":"ultron"}"#;
+        fs::write(&path, format!("{v1}\n{v2}\n")).unwrap();
+
+        let all = load_tags_at(&path).unwrap();
+        assert_eq!(all.len(), 2);
+        let old = all.iter().find(|e| e.session_id == "old").unwrap();
+        assert_eq!(old.project, None, "v1 entry (no project) -> None");
+        let new = all.iter().find(|e| e.session_id == "new").unwrap();
+        assert_eq!(new.project.as_deref(), Some("ultron"), "v2 project preserved");
+        // None must be skipped on re-serialise so a rollback to a v1 reader
+        // never trips over an unexpected null.
+        let s = serde_json::to_string(old).unwrap();
+        assert!(!s.contains("project"), "None project must skip serialisation");
 
         let _ = fs::remove_file(&path);
     }
@@ -462,6 +494,7 @@ mod tests {
                     session_id: format!("session-{i}"),
                     tags: vec![format!("tag-{i}")],
                     generated_at: "2026-05-29T00:00:00Z".to_string(),
+                    project: None,
                 };
                 upsert_tag_at(&p, entry).unwrap();
             }));
