@@ -75,3 +75,13 @@ pub async fn set_env_vars_keys(
         .await
         .map_err(|e| e.to_string())?
 }
+
+/// Devuelve el estado de las API keys conocidas (cuáles están configuradas y
+/// una vista enmascarada), para que Settings > API Keys muestre lo que el
+/// usuario ya tiene puesto sin volver a pedirlo ni exponer el valor.
+#[tauri::command]
+pub async fn get_env_keys_status() -> Result<Vec<env_keys::EnvKeyStatus>, String> {
+    tauri::async_runtime::spawn_blocking(env_keys::get_env_keys_status_inner)
+        .await
+        .map_err(|e| e.to_string())?
+}

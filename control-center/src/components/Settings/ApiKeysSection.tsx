@@ -9,7 +9,7 @@
 // SEGURIDAD: los valores se muestran enmascarados por defecto. Nunca se
 // loguean ni se serializan fuera del invoke hacia el backend.
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 // ------------------------------------------------------------------
@@ -32,6 +32,14 @@ type EnvKeysSaveResult = {
 type FieldState = {
   value: string;
   visible: boolean;
+};
+
+// Mirrors crate::env_keys::EnvKeyStatus.
+type EnvKeyStatus = {
+  env_var: string;
+  active: boolean;
+  configured: boolean;
+  masked: string | null;
 };
 
 // ------------------------------------------------------------------
@@ -136,6 +144,20 @@ export function ApiKeysSection() {
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<EnvKeysSaveResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [statuses, setStatuses] = useState<Record<string, EnvKeyStatus>>({});
+
+  const loadStatuses = useCallback(async () => {
+    try {
+      const rows = await invoke<EnvKeyStatus[]>("get_env_keys_status");
+      setStatuses(Object.fromEntries(rows.map((r) => [r.env_var, r])));
+    } catch {
+      // Best-effort: si falla, simplemente no mostramos los badges.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStatuses();
+  }, [loadStatuses]);
 
   const handleChange = useCallback((envVar: string, value: string) => {
     setFields((prev) => ({
@@ -178,6 +200,8 @@ export function ApiKeysSection() {
         keys: payload,
       });
       setResult(r);
+      // Refrescar el estado para que los badges reflejen lo recién guardado.
+      void loadStatuses();
       // Clear fields that were saved successfully so they don't linger.
       setFields((prev) => {
         const next = { ...prev };
@@ -227,13 +251,50 @@ export function ApiKeysSection() {
       <ul className="flex flex-col gap-3">
         {PROVIDER_KEYS.map((def) => {
           const state = fields[def.envVar];
+          const st = statuses[def.envVar];
           return (
             <li key={def.envVar}>
               <label
                 className="mb-1 flex items-center justify-between text-[12px] font-medium"
                 htmlFor={`apikey-${def.envVar}`}
               >
-                <span>{def.label}</span>
+                <span className="flex items-center gap-2">
+                  {def.label}
+                  {st?.configured ? (
+                    <span
+                      className="rounded px-1.5 py-px text-[10px] font-medium tabular-nums"
+                      style={{
+                        fontFamily: "var(--font-mono)",
+                        background: st.active
+                          ? "rgba(63, 185, 80, 0.10)"
+                          : "rgba(248, 140, 0, 0.10)",
+                        color: st.active
+                          ? "var(--color-success)"
+                          : "var(--color-warning, #f8a000)",
+                        border: `1px solid ${st.active ? "rgba(63,185,80,0.30)" : "rgba(248,140,0,0.30)"}`,
+                      }}
+                      title={
+                        st.active
+                          ? "Configurada y activa en esta sesión"
+                          : "Configurada — reinicia la app para activarla"
+                      }
+                    >
+                      {st.masked ?? "configurada"}
+                      {!st.active && " · reinicia"}
+                    </span>
+                  ) : (
+                    <span
+                      className="rounded px-1.5 py-px text-[10px]"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        color: "var(--color-text-tertiary)",
+                        border: "1px solid var(--color-border)",
+                      }}
+                    >
+                      sin configurar
+                    </span>
+                  )}
+                </span>
                 <a
                   href={def.docsUrl}
                   target="_blank"
@@ -258,7 +319,11 @@ export function ApiKeysSection() {
                     spellCheck={false}
                     value={state.value}
                     onChange={(e) => handleChange(def.envVar, e.target.value)}
-                    placeholder={def.placeholder}
+                    placeholder={
+                      st?.configured
+                        ? "ya configurada — escribe para reemplazar"
+                        : def.placeholder
+                    }
                     className="w-full rounded px-2.5 py-1.5 text-[12px] outline-none transition-colors"
                     style={{
                       background: "var(--color-surface-1)",

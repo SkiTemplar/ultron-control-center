@@ -105,12 +105,21 @@ export function BackupCard() {
   const okCount = report?.entries.filter((e) => e.status === "ok").length ?? 0;
 
   async function openRoot() {
-    if (report?.root) {
-      try {
-        await openPath(report.root);
-      } catch {
-        // ignore — best-effort
-      }
+    if (!report?.root) return;
+    // Si el espejo aún no existe (p.ej. la unidad no está montada o no se ha
+    // ejecutado el primer backup), abrir la carpeta fallaría en silencio.
+    // Avisamos en vez de no hacer nada.
+    if (report.root_exists === false) {
+      setError(
+        `La carpeta de backup no existe todavía: ${report.root}. Ejecuta "Force Backup" o verifica que la unidad está montada.`,
+      );
+      return;
+    }
+    try {
+      await openPath(report.root);
+    } catch (e) {
+      // Antes se tragaba el error y "no abría nada". Ahora lo mostramos.
+      setError(`No se pudo abrir la carpeta de backup: ${String(e)}`);
     }
   }
 

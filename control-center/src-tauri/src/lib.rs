@@ -408,6 +408,7 @@ pub fn run() {
             commands::settings::set_backup_schedule,
             // -- API keys (Windows setx, User scope) --
             commands::settings::set_env_vars_keys,
+            commands::settings::get_env_keys_status,
             // -- system / scheduled tasks --
             commands::system::list_scheduled_tasks,
             commands::system::run_scheduled_task,
