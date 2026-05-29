@@ -1,56 +1,22 @@
-// ULTRON Control Center — AI Router: Metrics Dashboard
+// ULTRON Control Center — AI Router: Metrics Dashboard (rediseño funcional 2026-05-30)
 //
-// Shows aggregate routing performance:
-//   - Total tokens saved and USD cost saved
-//   - Distribution by task class (trivial / light / medium / heavy)
-//   - Fallback rate (fraction of calls that hit a fallback)
-//   - p95 latency per task class
+// Stats REALES (antes salían a cero por un bug de diseño: la tabla agrupaba por
+// task-class pero el backend keyea por provider/modelo). Ahora:
+//   - Tarjetas: tokens saved, cost saved, total invocations, success rate.
+//   - Matriz POR MODELO (by_model): provider · model · calls · success% · tokens · latencia.
 //
-// Data source: ai_router_metrics() Tauri command.
-// Uses a static placeholder when the command is unavailable.
-//
-// DEFENSIVE NOTE (2026-05-27 fix):
-//   The backend stores metrics keyed by provider_id (e.g. "claude-haiku"),
-//   not by ProviderClass ("trivial"/"light"/"medium"/"heavy"). The by_class
-//   map may therefore not contain the four class keys the table expects.
-//   Every access to by_class[cls] is now guarded with ?? EMPTY_CLASS_METRICS
-//   to prevent "Cannot read property 'count' of undefined" crashes.
-//   Additionally, when the file exists but all counters are zero we show an
-//   empty-state message instead of a useless all-zero table.
+// Data source: ai_router_metrics() Tauri command (RouterMetrics con by_model).
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { ProviderClass, RouterMetrics as RouterMetricsType } from "./types";
-
-// ---------------------------------------------------------------------------
-// Placeholder data shown when the backend is not yet wired.
-// ---------------------------------------------------------------------------
-
-const EMPTY_CLASS_METRICS = { count: 0, tokens: 0, latency_p95_ms: 0 };
+import type { ModelMetrics, RouterMetrics as RouterMetricsType } from "./types";
 
 const PLACEHOLDER_METRICS: RouterMetricsType = {
   tokens_saved_total: 0,
-  cost_saved_usd: 0.0,
-  by_class: {
-    trivial: { count: 0, tokens: 0, latency_p95_ms: 0 },
-    light: { count: 0, tokens: 0, latency_p95_ms: 0 },
-    medium: { count: 0, tokens: 0, latency_p95_ms: 0 },
-    heavy: { count: 0, tokens: 0, latency_p95_ms: 0 },
-  },
+  cost_saved_usd: 0,
+  by_class: {},
   fallback_rate: 0,
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-const CLASS_ORDER: ProviderClass[] = ["trivial", "light", "medium", "heavy"];
-
-const CLASS_COLORS: Record<ProviderClass, string> = {
-  trivial: "var(--color-success)",
-  light: "var(--color-warn)",
-  medium: "#a875ff",
-  heavy: "var(--color-danger)",
+  by_model: {},
 };
 
 function formatNum(n: number): string {
@@ -65,8 +31,17 @@ function formatUsd(n: number): string {
   return `$${n.toFixed(4)}`;
 }
 
-// ---------------------------------------------------------------------------
-// Stat card
+/** Color del badge de success rate: verde >=95, ámbar 80-95, rojo <80. */
+function successColor(pct: number): string {
+  if (pct >= 95) return "var(--color-success)";
+  if (pct >= 80) return "var(--color-warn)";
+  return "var(--color-danger)";
+}
+
+function shortModel(m: string): string {
+  return m.replace(/^claude-/, "").replace(/-\d{8}$/, "");
+}
+
 // ---------------------------------------------------------------------------
 
 function StatCard({
@@ -83,10 +58,7 @@ function StatCard({
   return (
     <div
       className="flex flex-col gap-1 rounded-lg p-4"
-      style={{
-        background: "var(--color-surface-2)",
-        border: "1px solid var(--color-border)",
-      }}
+      style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
     >
       <span
         className="text-[11px] font-semibold uppercase tracking-wide"
@@ -94,17 +66,11 @@ function StatCard({
       >
         {label}
       </span>
-      <span
-        className="text-[22px] font-bold tabular-nums"
-        style={{ color: color ?? "var(--color-text)" }}
-      >
+      <span className="text-[22px] font-bold tabular-nums" style={{ color: color ?? "var(--color-text)" }}>
         {value}
       </span>
       {sub !== undefined && sub.length > 0 && (
-        <span
-          className="text-[11px]"
-          style={{ color: "var(--color-text-faint)" }}
-        >
+        <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
           {sub}
         </span>
       )}
@@ -112,40 +78,44 @@ function StatCard({
   );
 }
 
-// ---------------------------------------------------------------------------
-// Empty-state when no route() calls have been made yet.
-// ---------------------------------------------------------------------------
+function SuccessBadge({ pct, calls }: { pct: number; calls: number }) {
+  if (calls === 0) {
+    return (
+      <span className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+        —
+      </span>
+    );
+  }
+  const color = successColor(pct);
+  return (
+    <span
+      className="rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums"
+      style={{ background: `${color}22`, color, border: `1px solid ${color}44` }}
+    >
+      {pct.toFixed(0)}%
+    </span>
+  );
+}
 
 function MetricsEmptyState() {
   return (
     <div
       className="flex flex-col items-center justify-center gap-3 rounded-lg p-8"
-      style={{
-        background: "var(--color-surface-2)",
-        border: "1px solid var(--color-border)",
-        minHeight: 160,
-      }}
+      style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)", minHeight: 160 }}
     >
-      <span
-        className="text-[13px] font-medium"
-        style={{ color: "var(--color-text-secondary)" }}
-      >
-        No metrics yet
+      <span className="text-[13px] font-medium" style={{ color: "var(--color-text-secondary)" }}>
+        Aún sin métricas
       </span>
-      <span
-        className="text-center text-[12px] max-w-[340px]"
-        style={{ color: "var(--color-text-faint)" }}
-      >
-        Make a few AI Router calls to populate this dashboard. Use the
-        Zones tab to configure providers, then trigger a route via the
-        Test button or by running an agent workflow.
+      <span className="text-center text-[12px] max-w-[360px]" style={{ color: "var(--color-text-faint)" }}>
+        Haz alguna llamada por el AI Router para poblar el dashboard (botón Test en
+        Zones, o cualquier feature que use route(): auto-name de hooks, análisis de
+        catálogo, goals de workdays…). El tráfico principal de Claude Code NO pasa por
+        aquí.
       </span>
     </div>
   );
 }
 
-// ---------------------------------------------------------------------------
-// RouterMetrics
 // ---------------------------------------------------------------------------
 
 export function RouterMetrics() {
@@ -158,31 +128,18 @@ export function RouterMetrics() {
     setLoading(true);
     setBackendError(null);
     try {
-      const raw = (await invoke("ai_router_metrics")) as unknown;
-
-      // Defensive normalisation: the backend may return by_class keyed by
-      // provider_id instead of ProviderClass. We merge whatever arrives into
-      // our four expected class keys, defaulting missing ones to zero.
-      const result = raw as RouterMetricsType;
-      const normalised: RouterMetricsType = {
+      const result = (await invoke("ai_router_metrics")) as RouterMetricsType;
+      setMetrics({
         tokens_saved_total: result?.tokens_saved_total ?? 0,
         cost_saved_usd: result?.cost_saved_usd ?? 0,
         fallback_rate: result?.fallback_rate ?? 0,
-        by_class: {
-          trivial: result?.by_class?.["trivial"] ?? EMPTY_CLASS_METRICS,
-          light: result?.by_class?.["light"] ?? EMPTY_CLASS_METRICS,
-          medium: result?.by_class?.["medium"] ?? EMPTY_CLASS_METRICS,
-          heavy: result?.by_class?.["heavy"] ?? EMPTY_CLASS_METRICS,
-        },
-      };
-      setMetrics(normalised);
+        by_class: result?.by_class ?? {},
+        by_model: result?.by_model ?? {},
+      });
       setLastRefreshed(new Date());
     } catch (err) {
-      // Backend not yet wired — keep placeholder but surface the reason.
       setMetrics(PLACEHOLDER_METRICS);
-      setBackendError(
-        err instanceof Error ? err.message : String(err)
-      );
+      setBackendError(err instanceof Error ? err.message : String(err));
     } finally {
       setLoading(false);
     }
@@ -192,199 +149,107 @@ export function RouterMetrics() {
     void load();
   }, [load]);
 
-  // Guard every by_class access — never assume the key exists.
-  const getClass = (cls: ProviderClass) =>
-    metrics.by_class?.[cls] ?? EMPTY_CLASS_METRICS;
+  // Filas por modelo ordenadas por nº de llamadas desc.
+  const models = useMemo<ModelMetrics[]>(() => {
+    const rows = Object.values(metrics.by_model ?? {});
+    return rows.sort((a, b) => b.count - a.count);
+  }, [metrics.by_model]);
 
-  const totalCalls = CLASS_ORDER.reduce(
-    (sum, cls) => sum + (getClass(cls).count),
-    0,
-  );
+  const totalCalls = models.reduce((s, m) => s + m.count, 0);
+  const totalSuccess = models.reduce((s, m) => s + m.success_count, 0);
+  const totalTokens = models.reduce((s, m) => s + m.output_tokens, 0);
+  const successRate = totalCalls > 0 ? (totalSuccess / totalCalls) * 100 : 0;
 
-  const totalTokens = CLASS_ORDER.reduce(
-    (sum, cls) => sum + (getClass(cls).tokens),
-    0,
-  );
-
-  // Show an empty state when the file exists but nothing has been recorded
-  // yet. "No metrics" = all counters at zero and no backend error.
   const isEmpty =
-    !loading &&
-    backendError === null &&
-    totalCalls === 0 &&
-    metrics.tokens_saved_total === 0 &&
-    metrics.fallback_rate === 0;
+    !loading && backendError === null && totalCalls === 0 && metrics.tokens_saved_total === 0;
 
   return (
     <div className="p-6 space-y-6">
-      {/* ------------------------------------------------------------------ */}
-      {/* Backend-error banner (only when the command itself failed)          */}
-      {/* ------------------------------------------------------------------ */}
       {backendError !== null && (
         <div
           className="rounded p-3 text-[12px]"
-          style={{
-            background: "var(--color-danger-bg, #3a1a1a)",
-            color: "var(--color-danger)",
-            border: "1px solid var(--color-danger)",
-          }}
+          style={{ background: "rgba(248,81,73,0.08)", color: "var(--color-danger)", border: "1px solid rgba(248,81,73,0.3)" }}
         >
           <span className="font-semibold">Metrics command failed: </span>
           {backendError}
         </div>
       )}
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Top-line stats — shown even when empty so layout does not jump      */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Top-line stats (reales) */}
       <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
         <StatCard
-          label="Tokens saved"
+          label="Tokens ahorrados"
           value={formatNum(metrics.tokens_saved_total)}
-          sub="vs. always using heaviest model"
+          sub="servidos por fallback más barato"
           color="var(--color-success)"
         />
         <StatCard
-          label="Cost saved"
+          label="Coste ahorrado"
           value={formatUsd(metrics.cost_saved_usd)}
-          sub="estimated savings"
+          sub="vs. tarifa del primario"
           color="var(--color-success)"
         />
         <StatCard
-          label="Total invocations"
+          label="Invocaciones"
           value={formatNum(totalCalls)}
-          sub={`${formatNum(totalTokens)} tokens total`}
+          sub={`${formatNum(totalTokens)} tokens · fallback ${((metrics.fallback_rate ?? 0) * 100).toFixed(0)}%`}
         />
         <StatCard
-          label="Fallback rate"
-          value={`${((metrics.fallback_rate ?? 0) * 100).toFixed(1)}%`}
-          sub="calls that hit a fallback"
-          color={
-            (metrics.fallback_rate ?? 0) > 0.15
-              ? "var(--color-danger)"
-              : "var(--color-text)"
-          }
+          label="Success rate"
+          value={totalCalls > 0 ? `${successRate.toFixed(0)}%` : "—"}
+          sub={`${formatNum(totalSuccess)}/${formatNum(totalCalls)} OK`}
+          color={totalCalls > 0 ? successColor(successRate) : undefined}
         />
       </div>
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Class breakdown OR empty state                                      */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Matriz por modelo */}
       {isEmpty ? (
         <MetricsEmptyState />
       ) : (
         <div>
-          <h2
-            className="mb-3 text-[13px] font-semibold"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            Distribution by task class
+          <h2 className="mb-3 text-[13px] font-semibold" style={{ color: "var(--color-text-secondary)" }}>
+            Por modelo ({models.length})
           </h2>
           <div
             className="overflow-hidden rounded-lg"
-            style={{
-              border: "1px solid var(--color-border)",
-              background: "var(--color-surface-2)",
-            }}
+            style={{ border: "1px solid var(--color-border)", background: "var(--color-surface-2)" }}
           >
             <table className="w-full table-auto text-left">
               <thead>
-                <tr
-                  style={{
-                    borderBottom: "1px solid var(--color-border)",
-                    background: "var(--color-surface-1)",
-                  }}
-                >
-                  {["Class", "Invocations", "Tokens", "p95 Latency", "Share"].map(
-                    (h) => (
-                      <th
-                        key={h}
-                        className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide"
-                        style={{ color: "var(--color-text-tertiary)" }}
-                      >
-                        {h}
-                      </th>
-                    ),
-                  )}
+                <tr style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-1)" }}>
+                  {["Proveedor", "Modelo", "Llamadas", "Success", "Tokens", "Latencia"].map((h) => (
+                    <th
+                      key={h}
+                      className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {CLASS_ORDER.map((cls) => {
-                  const cm = getClass(cls);
-                  const share =
-                    totalCalls > 0 ? (cm.count / totalCalls) * 100 : 0;
-                  const color = CLASS_COLORS[cls];
-
+                {models.map((m) => {
+                  const pct = m.count > 0 ? (m.success_count / m.count) * 100 : 0;
                   return (
-                    <tr
-                      key={cls}
-                      style={{ borderBottom: "1px solid var(--color-border)" }}
-                    >
-                      {/* Class badge */}
+                    <tr key={`${m.provider_id}::${m.model}`} style={{ borderBottom: "1px solid var(--color-border)" }}>
+                      <td className="px-4 py-3 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
+                        {m.provider_id}
+                      </td>
+                      <td className="px-4 py-3 text-[12px] font-medium" style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}>
+                        {shortModel(m.model)}
+                      </td>
+                      <td className="px-4 py-3 text-[12px] tabular-nums" style={{ color: "var(--color-text)" }}>
+                        {formatNum(m.count)}
+                      </td>
                       <td className="px-4 py-3">
-                        <span
-                          className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
-                          style={{
-                            background: `${color}22`,
-                            color,
-                            border: `1px solid ${color}44`,
-                          }}
-                        >
-                          {cls}
-                        </span>
+                        <SuccessBadge pct={pct} calls={m.count} />
                       </td>
-
-                      {/* Count */}
-                      <td
-                        className="px-4 py-3 text-[12px] tabular-nums"
-                        style={{ color: "var(--color-text)" }}
-                      >
-                        {formatNum(cm.count)}
+                      <td className="px-4 py-3 text-[12px] tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
+                        {formatNum(m.output_tokens)}
                       </td>
-
-                      {/* Tokens */}
-                      <td
-                        className="px-4 py-3 text-[12px] tabular-nums"
-                        style={{ color: "var(--color-text-secondary)" }}
-                      >
-                        {formatNum(cm.tokens)}
-                      </td>
-
-                      {/* p95 latency */}
-                      <td
-                        className="px-4 py-3 text-[12px] tabular-nums"
-                        style={{ color: "var(--color-text-secondary)" }}
-                      >
-                        {cm.latency_p95_ms > 0
-                          ? `${cm.latency_p95_ms.toLocaleString()} ms`
-                          : "—"}
-                      </td>
-
-                      {/* Share bar */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <div
-                            className="h-1.5 rounded-full overflow-hidden"
-                            style={{
-                              width: 80,
-                              background: "var(--color-surface-1)",
-                            }}
-                          >
-                            <div
-                              className="h-full rounded-full transition-all"
-                              style={{
-                                width: `${Math.min(share, 100)}%`,
-                                background: color,
-                              }}
-                            />
-                          </div>
-                          <span
-                            className="text-[11px] tabular-nums"
-                            style={{ color: "var(--color-text-faint)" }}
-                          >
-                            {share.toFixed(1)}%
-                          </span>
-                        </div>
+                      <td className="px-4 py-3 text-[12px] tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
+                        {m.latency_ms_avg > 0 ? `${m.latency_ms_avg.toLocaleString()} ms` : "—"}
                       </td>
                     </tr>
                   );
@@ -395,32 +260,23 @@ export function RouterMetrics() {
         </div>
       )}
 
-      {/* ------------------------------------------------------------------ */}
-      {/* Footer                                                              */}
-      {/* ------------------------------------------------------------------ */}
+      {/* Footer */}
       <div className="flex items-center justify-between">
-        <p
-          className="text-[11px]"
-          style={{ color: "var(--color-text-faint)" }}
-        >
+        <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
           {loading
-            ? "Loading metrics..."
+            ? "Cargando métricas…"
             : lastRefreshed !== null
-              ? `Last refreshed ${lastRefreshed.toLocaleTimeString()}`
-              : "Metrics unavailable — backend command not yet wired."}
+              ? `Actualizado ${lastRefreshed.toLocaleTimeString()}`
+              : "Métricas no disponibles."}
         </p>
         <button
           type="button"
           onClick={() => void load()}
           disabled={loading}
           className="rounded px-3 py-1.5 text-[11px] transition-colors disabled:opacity-40"
-          style={{
-            background: "var(--color-surface-2)",
-            color: "var(--color-text-secondary)",
-            border: "1px solid var(--color-border)",
-          }}
+          style={{ background: "var(--color-surface-2)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border)" }}
         >
-          {loading ? "Refreshing..." : "Refresh"}
+          {loading ? "Refrescando…" : "Refresh"}
         </button>
       </div>
     </div>

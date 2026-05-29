@@ -154,14 +154,28 @@ export interface ClassMetrics {
   count: number;
   tokens: number;
   latency_p95_ms: number;
+  /** Successful calls (outcome.is_ok()). */
+  success_count?: number;
+}
+
+/** Per-model metrics — key del mapa = "provider_id::model". */
+export interface ModelMetrics {
+  provider_id: string;
+  model: string;
+  count: number;
+  success_count: number;
+  output_tokens: number;
+  latency_ms_avg: number;
 }
 
 export interface RouterMetrics {
   tokens_saved_total: number;
   cost_saved_usd: number;
-  by_class: Record<ProviderClass, ClassMetrics>;
+  by_class: Record<string, ClassMetrics>;
   /** Ratio of invocations that fell back to a secondary provider (0-1). */
   fallback_rate: number;
+  /** Métricas reales por modelo concreto (rediseño funcional 2026-05-30). */
+  by_model?: Record<string, ModelMetrics>;
 }
 
 // ---------------------------------------------------------------------------
