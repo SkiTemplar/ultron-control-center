@@ -47,6 +47,10 @@ pub struct Features {
     // Default false = bypass enabled. Opt-out when true.
     #[serde(default = "default_false")]
     pub claude_safe_mode: bool,
+    // card-vis-notif-session-error: notificar (OS + toast) cuando una sesion PTY
+    // sale con codigo > 0. Default on.
+    #[serde(default = "default_true")]
+    pub errors_immediate_notify: bool,
 }
 
 fn default_true() -> bool {
@@ -71,6 +75,7 @@ impl Default for Features {
             usage: true,
             sessions: true,
             claude_safe_mode: false,
+            errors_immediate_notify: true,
         }
     }
 }

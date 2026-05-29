@@ -518,9 +518,33 @@ pub fn spawn_inner<R: Runtime>(
             &format!("pty:exit:{id_for_reader}"),
             serde_json::json!({ "exit_code": exit_code }),
         );
+
+        // card-vis-notif-session-error: surface an immediate alert + toast when
+        // a session exits with an error code. Reuses the existing toast_emit
+        // pipeline (alerts.jsonl append + native toast on critical, rate-limited
+        // + user-toggleable). Gated by the errors_immediate_notify feature flag.
+        if should_notify_session_error(
+            exit_code,
+            crate::features::read_features_inner().errors_immediate_notify,
+        ) {
+            crate::toast_emit::record_alert_and_maybe_toast(
+                &app_for_reader,
+                &format!("session:{id_for_reader}"),
+                "critical",
+                &format!("La sesion termino con error (codigo {exit_code})"),
+            );
+        }
     });
 
     Ok(id)
+}
+
+/// Whether a PTY exit warrants an error notification. Only genuine non-zero
+/// process exits (`code > 0`) qualify — a manual kill or `wait()` failure maps
+/// to `-1` and must NOT nag the user — and only when the user toggle is on.
+/// card-vis-notif-session-error.
+fn should_notify_session_error(exit_code: i32, enabled: bool) -> bool {
+    enabled && exit_code > 0
 }
 
 pub fn write_inner(session_id: String, data_b64: String) -> Result<(), String> {
@@ -662,6 +686,16 @@ pub fn kill_all_inner() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // card-vis-notif-session-error
+    #[test]
+    fn notify_only_on_positive_exit_and_when_enabled() {
+        assert!(should_notify_session_error(1, true), "code 1 + enabled -> notify");
+        assert!(should_notify_session_error(2, true));
+        assert!(!should_notify_session_error(0, true), "clean exit -> no notify");
+        assert!(!should_notify_session_error(-1, true), "manual kill (-1) -> no notify");
+        assert!(!should_notify_session_error(1, false), "toggle off -> no notify");
+    }
 
     #[test]
     fn build_command_rejects_unknown_provider() {

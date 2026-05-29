@@ -192,8 +192,8 @@ fn sanitize(msg: &str) -> String {
 /// abajo a la izquierda mientras ULTRON está activo"). Honours the user
 /// toggle; failures are logged to stderr and swallowed. Severity drives
 /// the accent colour rendered in the popup card.
-pub fn try_emit_toast_with_severity(
-    app: &AppHandle,
+pub fn try_emit_toast_with_severity<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     source: &str,
     severity: &str,
     message: &str,
@@ -228,8 +228,8 @@ pub fn try_emit_toast_with_severity(
 ///
 /// `severity` is normalised: anything outside {info, warn, critical,
 /// blocking} becomes "warn".
-pub fn record_alert_and_maybe_toast(
-    app: &AppHandle,
+pub fn record_alert_and_maybe_toast<R: tauri::Runtime>(
+    app: &AppHandle<R>,
     source: &str,
     severity: &str,
     message: &str,
