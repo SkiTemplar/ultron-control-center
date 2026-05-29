@@ -44,6 +44,138 @@ if hasattr(sys.stdout, "reconfigure"):
 
 _WIN_HIDDEN = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
+# ── Secret redaction ──────────────────────────────────────────────────────────
+
+# Compiled once at module load. Order matters: PEM blocks first (multi-line).
+_SECRET_PATTERNS: list[re.Pattern[str]] = [
+    # PEM private key blocks (multi-line, must come before single-line patterns)
+    re.compile(
+        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----"
+        r"[\s\S]*?"
+        r"-----END (?:RSA |EC |DSA |OPENSSH |PGP |ENCRYPTED )?PRIVATE KEY-----",
+        re.MULTILINE,
+    ),
+    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),            # OpenAI / Anthropic / generic
+    re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}"),        # GitHub PAT / OAuth / server
+    re.compile(r"m0-[A-Za-z0-9_-]{20,}"),             # Mem0
+    re.compile(r"AKIA[0-9A-Z]{16}"),                  # AWS access key id
+    re.compile(r"AIza[0-9A-Za-z_-]{30,}"),            # Google API key
+    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),      # Slack
+    re.compile(r"(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}"),  # Stripe key
+    re.compile(r"whsec_[A-Za-z0-9]{16,}"),            # Stripe webhook secret
+    re.compile(r"SG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}"),   # SendGrid
+    re.compile(r"(?:SK|AC)[0-9a-fA-F]{32}"),          # Twilio
+    re.compile(r"dop_v1_[a-f0-9]{64}"),               # DigitalOcean
+    re.compile(                                        # JWT
+        r"eyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}"
+    ),
+    re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"),  # IBAN
+]
+
+# Credit-card digit run pattern (13-19 digits, optional spaces/hyphens as separators)
+_CARD_PATTERN: re.Pattern[str] = re.compile(r"\b(?:\d[ -]?){13,19}\b")
+
+
+def _luhn_valid(digits: str) -> bool:
+    """Return True if *digits* (digit-only string) passes the Luhn check."""
+    if not (13 <= len(digits) <= 19):
+        return False
+    total = 0
+    alternate = False
+    for ch in reversed(digits):
+        if not ch.isdigit():
+            return False
+        d = int(ch)
+        if alternate:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+        alternate = not alternate
+    return total % 10 == 0
+
+
+def _redact_card(match: re.Match[str]) -> str:
+    """Replace credit-card-like digit runs only when Luhn-valid."""
+    raw = match.group(0)
+    digits = raw.replace(" ", "").replace("-", "")
+    return "[REDACTED]" if _luhn_valid(digits) else raw
+
+
+def redact_secrets(text: str) -> str:
+    """Redact API keys, tokens, IBANs, and Luhn-valid card numbers from *text*.
+
+    Applies all patterns in ``_SECRET_PATTERNS`` first, then uses a Luhn check
+    to avoid false-positives on long numeric strings (timestamps, hashes, ids).
+
+    Args:
+        text: Raw string that may contain secrets.
+
+    Returns:
+        A copy of *text* with secrets replaced by ``[REDACTED]``.
+    """
+    result = str(text) if text is not None else ""
+    for pattern in _SECRET_PATTERNS:
+        result = pattern.sub("[REDACTED]", result)
+    result = _CARD_PATTERN.sub(_redact_card, result)
+    return result
+
+
+# ── Per-project opt-out ───────────────────────────────────────────────────────
+
+_OPT_OUT_PATH = Path.home() / ".ultron" / ".mem0-opt-out.json"
+_DEFAULT_OPT_OUT_PROJECTS: list[str] = ["bank", "finanzas", "finance"]
+# Match any path segment that looks financial as a default cwd regex too.
+_DEFAULT_OPT_OUT_CWD_PATTERNS: list[str] = [
+    r"[/\\](bank|finanzas|finance|tax|payroll|salary|nomina|hacienda)[/\\-]",
+]
+
+
+def _load_opt_out() -> dict[str, list[str]]:
+    """Load the opt-out config, merging defaults with user overrides.
+
+    Returns:
+        Dict with keys ``"projects"`` (lowercase list) and
+        ``"cwd_patterns"`` (regex string list).
+    """
+    projects: list[str] = _DEFAULT_OPT_OUT_PROJECTS[:]
+    cwd_patterns: list[str] = _DEFAULT_OPT_OUT_CWD_PATTERNS[:]
+    try:
+        raw = _OPT_OUT_PATH.read_text(encoding="utf-8")
+        cfg = json.loads(raw)
+        if isinstance(cfg.get("projects"), list):
+            projects += [str(p) for p in cfg["projects"]]
+        if isinstance(cfg.get("cwd_patterns"), list):
+            cwd_patterns += [str(p) for p in cfg["cwd_patterns"]]
+    except (OSError, json.JSONDecodeError):
+        pass  # No file or malformed — defaults still apply.
+    return {
+        "projects": [p.lower() for p in projects],
+        "cwd_patterns": cwd_patterns,
+    }
+
+
+def _is_opted_out(project: str, cwd: str, opt_out: dict[str, list[str]]) -> bool:
+    """Return True if this project/cwd should be excluded from Codex synthesis.
+
+    Args:
+        project: Basename of the working directory.
+        cwd: Full working directory path.
+        opt_out: Dict returned by ``_load_opt_out()``.
+
+    Returns:
+        ``True`` if the project is opted out, ``False`` otherwise.
+    """
+    if project.lower() in opt_out["projects"]:
+        return True
+    for pat in opt_out["cwd_patterns"]:
+        try:
+            if re.search(pat, cwd, re.IGNORECASE):
+                return True
+        except re.error:
+            pass  # Bad user regex — skip silently rather than crash.
+    return False
+
 # Ensure sibling modules (brain_config) are importable when run directly or from hooks
 _COCKPIT_DIR = str(Path(__file__).parent)
 if _COCKPIT_DIR not in sys.path:
@@ -400,12 +532,20 @@ Be ruthless about signal. Empty arrays beat fluff. Cite actual user phrasing whe
 def build_synth_prompt(parsed: dict, candidates: list[dict],
                         session_id: str,
                         distilled_hits: list[dict] | None = None) -> str:
+    # Redact secrets from user-originated content before it leaves the machine.
+    try:
+        safe_user_prompts = [redact_secrets(p) for p in parsed["user_prompts"]]
+        safe_assistant_texts = [redact_secrets(t) for t in parsed["assistant_texts"]]
+    except Exception:
+        safe_user_prompts = parsed["user_prompts"]
+        safe_assistant_texts = parsed["assistant_texts"]
+
     user_block = "\n".join(
-        f"- [{i+1}] {p[:800]}" for i, p in enumerate(parsed["user_prompts"][:6])
+        f"- [{i+1}] {p[:800]}" for i, p in enumerate(safe_user_prompts[:6])
     ) or "(none)"
     asst_block = "\n\n".join(
         f"--- turn {i+1} ---\n{t[:1500]}"
-        for i, t in enumerate(parsed["assistant_texts"][-4:])
+        for i, t in enumerate(safe_assistant_texts[-4:])
     ) or "(none)"
     cand_block = "\n".join(
         f"- [{c['id']}] {c['title']} ({c['path']})\n  > {c['snippet']}"
@@ -740,6 +880,21 @@ def cmd_run(args) -> int:
     if candidates and not args.dry_run:
         cited_n = cite_notes([c["id"] for c in candidates], session_id)
         print(f"[compactor] decay touched: {cited_n} notes cited")
+
+    # Per-project opt-out: financial or user-listed projects never go to Codex.
+    try:
+        cwd = str(Path.cwd())
+        project_name = Path(cwd).name
+        opt_out = _load_opt_out()
+        if _is_opted_out(project_name, cwd, opt_out):
+            print(
+                f"[compactor] skip: project '{project_name}' is opted out of Codex synthesis",
+                file=sys.stderr,
+            )
+            return 0
+    except Exception as exc:
+        print(f"[compactor] WARN: opt-out check failed ({exc}), proceeding anyway",
+              file=sys.stderr)
 
     prompt = build_synth_prompt(parsed, candidates, session_id, distilled_hits)
     if args.dry_run:
