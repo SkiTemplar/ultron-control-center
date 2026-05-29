@@ -66,6 +66,25 @@ __pycache__/
 *.pem
 *.key
 *.secret
+# .env family — fuga inminente del MEM0_API_KEY al activar Mem0 (security-auditor 2026-05-29 HIGH-1)
+.env
+.env.local
+*.env
+.envrc
+# settings.local.json puede llevar tokens de plugins; *.credentials por si acaso
+settings.local.json
+*.credentials
+# keystores / claves privadas con extension
+*.pfx
+*.p12
+*.jks
+*.keystore
+*.ppk
+# netrc defensivo (cae en /XF por tener punto). OJO: archivos de clave SSH/AWS
+# sin extension (id_rsa, AWS 'credentials') NO se pueden excluir con este parser
+# gitignore-style (los manda a /XD = directorios). Pendiente parser fix si se
+# anade .ssh/.aws a backup-config.json -> ver card-sec-backup-followup.
+.netrc
 
 # === Rust / Cargo ===
 target/
