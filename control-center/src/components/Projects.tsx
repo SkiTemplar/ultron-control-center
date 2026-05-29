@@ -218,13 +218,18 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
 
   async function cardOpenAi(p: ProjectInfo) {
     const provider: SessionProvider = (p.default_provider as SessionProvider | null | undefined) ?? "claude";
+    let sessionId: string | null = null;
     try {
-      await invoke("pty_spawn", { projectId: p.id, cardId: null, provider, agent: null, cwd: p.path ?? ".", prompt: null });
+      sessionId = (await invoke("pty_spawn", { projectId: p.id, cardId: null, provider, agent: null, cwd: p.path ?? ".", prompt: null })) as string;
     } catch (e) {
+      // Spawn failed — surface the error and do NOT open an empty workspace.
       setLastAction({ success: false, stdout: "", stderr: `spawn ${provider}: ${String(e)}`, exit_code: null });
+      return;
     }
     void refreshStats(projects);
-    openInWorkspace(p.id, p.name ?? p.id, "terminal");
+    if (sessionId) {
+      openInWorkspace(p.id, p.name ?? p.id, "terminal");
+    }
   }
 
   function cardOpenTerminal(p: ProjectInfo) {
