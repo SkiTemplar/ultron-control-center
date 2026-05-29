@@ -426,10 +426,13 @@ pub async fn github_search_trending(
         .collect::<Vec<_>>()
         .join(" ");
 
-    // Pushed in the last ~3 months. Computing the date dynamically would
-    // require chrono — for now we use a coarse static window that the UI
-    // can refresh by re-querying.
-    let pushed_window = "pushed:>2026-02-24";
+    // Pushed in the last ~90 days. Computed dynamically con chrono para que
+    // la ventana no se quede congelada (antes era una fecha hardcodeada que
+    // envejecía y degradaba los resultados de "trending").
+    let cutoff = (chrono::Utc::now() - chrono::Duration::days(90))
+        .format("%Y-%m-%d")
+        .to_string();
+    let pushed_window = format!("pushed:>{cutoff}");
 
     let q = format!("{topic_qualifiers} {pushed_window}");
     let lim = limit.unwrap_or(24).clamp(1, 50).to_string();
