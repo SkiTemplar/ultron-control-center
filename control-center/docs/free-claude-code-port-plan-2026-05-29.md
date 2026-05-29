@@ -97,5 +97,34 @@ Mini-proyecto multi-sesión (NO una tarea rápida):
 
 ## Decisión pendiente para USER
 
-¿Approach A (vendoring sidecar, recomendado)? ¿Qué providers incluir (groq+gemini+deepseek+
-cerebras+openrouter+ollama)? ¿El auto-switch al 98% lo quieres automático o manual con aviso?
+¿Approach A (vendoring sidecar, recomendado)? ¿El auto-switch al 98% automático (best-effort,
+depende de la detección heurística de quota) o manual con aviso?
+
+---
+
+## Resultado investigación APIs gratis no-locales (workflow 2026-05-30, 14 providers)
+
+Decisiones de USER aplicadas: switch SOLO al agotar Claude, yendo al modelo MÁS POTENTE;
+providers no-locales (sin Ollama/LMStudio/llamacpp).
+
+**Stack recomendado para el proxy (ordenado por la cadena de fallback "ir al más potente"):**
+1. **NVIDIA NIM** (build.nvidia.com) — PRIMARIO. Único free no-local con modelo frontier-scale
+   REALMENTE usable en loop agentic: DeepSeek V3.2/R1 671B, Nemotron-Super-120B, Kimi K2.5,
+   contexto 1M, **sin cap diario de requests** (40 RPM, ampliable a 200), OpenAI-compatible,
+   sin tarjeta. → el "más potente" que pediste.
+2. **OpenRouter** — SECUNDARIO. Una sola key agrega muchos modelos `:free` (DeepSeek V4 Flash,
+   Qwen3 Coder). 20 RPM; 1000 RPD si compras 10 USD una vez. Diversidad de modelos.
+3. **Groq** — RÁFAGA. gpt-oss-120b (coding) / kimi-k2 (agentic), latencia LPU altísima, pero
+   ~1000 RPD por modelo → se agota rápido en sesiones largas.
+4. **Google Gemini 2.5 Flash** — FALLBACK bajo volumen, SOLO tareas NO sensibles (su free tier
+   **entrena con tus datos** y Gemini 3.x Pro salió del free en abril 2026).
+
+**Descartados:** GitHub Models (cap 8K input/50 RPD pese a listar GPT-5/Claude4), SambaNova
+(~20 req/día), Cerebras (cap contexto 8K — inservible para agentes), Mistral (2 RPM), Fireworks
+/ Hyperbolic / Chutes (ya no tienen free real, solo promo one-shot). DeepSeek directo: sin saldo.
+
+**Veredicto:** vale la pena como **red de seguridad gratis cuando se agota Claude, NO como
+reemplazo**. Todos OpenAI-compatible → proxy LiteLLM/claude-code-router traduce Anthropic↔OpenAI
+sin tocar Claude Code (Z.ai es Anthropic-nativo pero solo en su tier de pago). Calidad agentic
+esperable: "buena, no frontier" — esperar fallos de formato JSON en tool-calling de cadenas
+largas (sobre todo NVIDIA y modelos open); validar el loop antes de confiar.
