@@ -2,7 +2,7 @@
 // H29 + H30 (2026-05-27): wipe + day view with hour-blocks added.
 use crate::workdays::{
     self, DrainReport, GoalStatus, PendingLink, Workday, WorkdayDayView, WorkdayMetrics,
-    WorkdayTemplate, WorkdayTodayView, WipeReport, WorkflowTemplate,
+    WorkdayTemplate, WorkdayTodayView, WipeReport,
 };
 
 #[tauri::command]
@@ -186,16 +186,7 @@ pub async fn workday_history(limit: Option<usize>) -> Result<Vec<Workday>, Strin
         .map_err(|e| e.to_string())?
 }
 
-// -- Workflow templates orchestrator surface (2026-05-26 redesign) -----------
-
-/// Return the seven hardcoded workflow templates the Workdays tab renders as
-/// clickable cards. See `workdays::list_workflow_templates_inner`.
-#[tauri::command]
-pub async fn workday_list_templates() -> Result<Vec<WorkflowTemplate>, String> {
-    tauri::async_runtime::spawn_blocking(workdays::list_workflow_templates_inner)
-        .await
-        .map_err(|e| e.to_string())?
-}
+// (workday_list_templates eliminado 2026-05-30 — templates retirados.)
 
 /// Return today's `in_progress` workday for the given project, or `None`.
 #[tauri::command]
@@ -209,19 +200,7 @@ pub async fn workday_active_today_for_project(
     .map_err(|e| e.to_string())?
 }
 
-/// Open today's workday for the given project using the supplied workflow
-/// template id. Idempotent on (project, day).
-#[tauri::command]
-pub async fn workday_start_with_template(
-    project_id: String,
-    template_id: String,
-) -> Result<Workday, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        workdays::start_with_template_inner(project_id, template_id)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
+// (workday_start_with_template eliminado 2026-05-30 — templates retirados.)
 
 // -- H29: wipe (2026-05-27) --------------------------------------------------
 

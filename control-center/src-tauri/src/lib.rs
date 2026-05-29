@@ -380,10 +380,7 @@ pub fn run() {
             commands::workdays::workday_record_kanban_event,
             commands::workdays::workday_today_timeline,
             commands::workdays::workday_history,
-            // 2026-05-26 -- workflow-template orchestrator surface
-            commands::workdays::workday_list_templates,
             commands::workdays::workday_active_today_for_project,
-            commands::workdays::workday_start_with_template,
             // H29 + H30 (2026-05-27)
             commands::workdays::workday_wipe_all,
             commands::workdays::workday_day_view,

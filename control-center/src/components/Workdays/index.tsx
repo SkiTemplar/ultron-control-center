@@ -3,8 +3,8 @@
 // Lanes:
 //   "day"       — timeline horizontal de 24h con hour-blocks por proyecto (H30)
 //   "today"     — workday activo + otros workdays del día (vista v2.8)
-//   "templates" — 7 workflow templates de orquestación
 //   "history"   — workdays pasados agrupados por fecha
+// (templates eliminado 2026-05-30 — USER: "templates no me sirve")
 //
 // Settings: botón "Reset workdays" con backup ZIP automático (H29).
 //
@@ -14,7 +14,6 @@ import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { WorkdaysList } from "./WorkdaysList";
 import { WorkdayDetail } from "./WorkdayDetail";
-import { WorkdayTemplates } from "./WorkdayTemplates";
 import { WorkdayDayTimeline } from "./WorkdayDayTimeline";
 import { WorkdayWipeButton } from "./WorkdayWipeButton";
 import type { Workday, WorkdayTodayView } from "./types";
@@ -28,7 +27,6 @@ export type {
   WorkdayStatus,
   WorkdayTemplate,
   WorkdayTodayView,
-  WorkflowTemplate,
   GoalSource,
   GoalStatus,
   DayPeriod,
@@ -37,7 +35,7 @@ export type {
   WorkdayDayView,
 } from "./types";
 
-type Lane = "day" | "today" | "templates" | "history";
+type Lane = "day" | "today" | "history";
 
 const REFRESH_MS = 5_000;
 
@@ -116,11 +114,6 @@ export function Workdays() {
               onClick={() => setLane("today")}
             />
             <LaneBtn
-              label="Templates"
-              active={lane === "templates"}
-              onClick={() => setLane("templates")}
-            />
-            <LaneBtn
               label="History"
               active={lane === "history"}
               onClick={() => {
@@ -147,15 +140,6 @@ export function Workdays() {
             error={todayError}
             selectedId={selectedId}
             onSelect={setSelectedId}
-          />
-        )}
-        {lane === "templates" && (
-          <WorkdayTemplates
-            onStarted={(wd) => {
-              setSelectedId(wd.id);
-              setLane("today");
-              void loadToday();
-            }}
           />
         )}
         {lane === "history" && (

@@ -101,16 +101,7 @@ export interface WorkdayTodayView {
   other_today: Workday[];
 }
 
-// Workflow templates -- 7 hardcoded orchestrator presets that drive the
-// automatic workday surface. Each template ships an agent sequence and a
-// prompt skeleton seeded into the workday's shared context.
-export interface WorkflowTemplate {
-  id: string;
-  name: string;
-  description: string;
-  agent_slugs: string[];
-  prompt_skeleton: string;
-}
+// (WorkflowTemplate eliminado 2026-05-30 — templates retirados de Workdays.)
 
 // ---------------------------------------------------------------------------
 // H29 — Wipe report
