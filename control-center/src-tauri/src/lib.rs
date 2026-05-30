@@ -506,6 +506,8 @@ pub fn run() {
             commands::decisions::decisions_drain_pending,
             commands::decisions::decisions_search,
             commands::decisions::kanban_decisions_search,
+            commands::decisions::decisions_reject_all_auto,
+            commands::decisions::decisions_purge_noise,
             // -- kanban (P4) --
             commands::kanban::kanban_load,
             commands::kanban::kanban_save,

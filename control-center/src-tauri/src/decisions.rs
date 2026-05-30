@@ -334,6 +334,96 @@ pub fn delete_inner(project_id: &str, id: &str) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Noise filter for auto-captured decisions
+// ---------------------------------------------------------------------------
+
+/// Minimum title length (inclusive) to be considered a real decision.
+const NOISE_MIN_TITLE_LEN: usize = 10;
+
+/// Substrings that identify git-state chatter — not decisions.
+const NOISE_GIT_PATTERNS: &[&str] = &[
+    "working tree",
+    "clean",
+    "uncommitted",
+    "nothing to commit",
+    "untracked files",
+    "branch is up to date",
+    "your branch",
+];
+
+/// Substrings that identify CI / test-pipeline output — not decisions.
+const NOISE_CI_PATTERNS: &[&str] = &[
+    "test passed",
+    "tests passed",
+    "version-drift",
+    "ci ",
+    "pipeline ",
+    "build succeeded",
+    "build failed",
+    "check passed",
+    "lint passed",
+    "cargo check",
+    "cargo test",
+];
+
+/// Substrings that identify model-announcement noise — not decisions.
+const NOISE_MODEL_PATTERNS: &[&str] = &[
+    "usando claude",
+    "using claude",
+    "claude opus",
+    "claude sonnet",
+    "claude haiku",
+    "opus ",
+    "sonnet ",
+    "haiku ",
+    "gpt-4",
+    "gemini",
+    "modelo ",
+    "model ",
+];
+
+/// Returns `true` when `title` (and optionally `body`) look like operational
+/// noise rather than an architectural decision worth preserving.
+///
+/// Rules applied in order:
+/// 1. Title shorter than `NOISE_MIN_TITLE_LEN` characters → noise.
+/// 2. Title or body contains a git-state pattern → noise.
+/// 3. Title or body contains a CI/pipeline pattern → noise.
+/// 4. Title or body contains a model-announcement pattern → noise.
+pub fn is_noise(title: &str, body: &str) -> bool {
+    let t = title.trim().to_lowercase();
+    let b = body.trim().to_lowercase();
+
+    // Rule 1 — too short to carry semantic content.
+    if t.len() < NOISE_MIN_TITLE_LEN {
+        return true;
+    }
+
+    // Rule 2 — git state chatter.
+    for pat in NOISE_GIT_PATTERNS {
+        if t.contains(pat) || b.contains(pat) {
+            return true;
+        }
+    }
+
+    // Rule 3 — CI / pipeline output.
+    for pat in NOISE_CI_PATTERNS {
+        if t.contains(pat) || b.contains(pat) {
+            return true;
+        }
+    }
+
+    // Rule 4 — model announcements.
+    for pat in NOISE_MODEL_PATTERNS {
+        if t.contains(pat) || b.contains(pat) {
+            return true;
+        }
+    }
+
+    false
+}
+
+// ---------------------------------------------------------------------------
 // Auto-capture: drain the Stop-hook pending file into proposed decisions
 // ---------------------------------------------------------------------------
 
@@ -359,6 +449,9 @@ fn normalize_title(s: &str) -> String {
 /// directory. `existing_titles` are the normalised titles already present in
 /// `decisions.jsonl`; new titles are also deduped against each other within the
 /// batch. A malformed or too-short line is skipped, never aborting the batch.
+///
+/// Lines that pass dedup but are identified as noise by [`is_noise`] are
+/// silently dropped here — they never reach `decisions.jsonl`.
 fn parse_pending_lines(
     text: &str,
     project_id: &str,
@@ -379,6 +472,14 @@ fn parse_pending_lines(
         if title.len() < 5 {
             continue;
         }
+
+        // --- Noise filter (applied before dedup to avoid polluting `seen`) ---
+        let rationale_str = p.rationale.as_deref().unwrap_or("");
+        if is_noise(title, rationale_str) {
+            eprintln!("[decisions] noise filter dropped: {title:?}");
+            continue;
+        }
+
         let norm = normalize_title(title);
         if seen.contains(&norm) {
             continue;
@@ -417,6 +518,63 @@ fn parse_pending_lines(
     }
 
     added
+}
+
+// ---------------------------------------------------------------------------
+// Bulk-reject all auto-captured pending decisions for a project
+// ---------------------------------------------------------------------------
+
+/// Mark every `Proposed` + `auto-captured` decision in `decisions.jsonl` as
+/// `Rejected` in a single atomic write.  Returns the count of records changed.
+///
+/// This is the fast "nuke the noise" escape hatch — the user can call this
+/// from the UI after a batch drain that imported garbage.  It does NOT touch
+/// decisions that were manually added or that are already in a terminal status
+/// (`Accepted`, `Superseded`, `Rejected`).
+pub fn reject_all_auto_inner(project_id: &str) -> Result<usize, String> {
+    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+    let mut records = read_all(project_id)?;
+
+    let mut count = 0usize;
+    for rec in &mut records {
+        if rec.status == DecisionStatus::Proposed
+            && rec.tags.iter().any(|t| t == "auto-captured")
+        {
+            rec.status = DecisionStatus::Rejected;
+            count += 1;
+        }
+    }
+
+    if count > 0 {
+        let path = decisions_path(project_id)?;
+        write_atomic(&path, &records)?;
+    }
+
+    Ok(count)
+}
+
+/// Remove all records from `decisions.jsonl` that would be flagged as noise
+/// by [`is_noise`], regardless of status.  Returns the count of purged records.
+///
+/// Use this to clean up entries that slipped through before the noise filter
+/// was in place (i.e. historical pollution already in the file).
+pub fn purge_noise_inner(project_id: &str) -> Result<usize, String> {
+    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+    let records = read_all(project_id)?;
+    let before = records.len();
+
+    let clean: Vec<DecisionRecord> = records
+        .into_iter()
+        .filter(|r| !is_noise(&r.decision, &r.rationale))
+        .collect();
+
+    let removed = before - clean.len();
+    if removed > 0 {
+        let path = decisions_path(project_id)?;
+        write_atomic(&path, &clean)?;
+    }
+
+    Ok(removed)
 }
 
 /// Drain the per-project pending decisions file into `decisions.jsonl`.
@@ -842,5 +1000,84 @@ mod tests {
         let a = decisions_lock() as *const Mutex<()>;
         let b = decisions_lock() as *const Mutex<()>;
         assert_eq!(a, b);
+    }
+
+    // -----------------------------------------------------------------------
+    // is_noise tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn noise_git_working_tree_clean() {
+        assert!(is_noise("Working tree is completely clean", ""));
+    }
+
+    #[test]
+    fn noise_ci_version_drift_test_passed() {
+        assert!(is_noise("CI version-drift test passed", ""));
+    }
+
+    #[test]
+    fn noise_model_announcement_opus() {
+        assert!(is_noise("Usando Claude Opus 4.8 para esta sesión", ""));
+    }
+
+    #[test]
+    fn noise_model_announcement_sonnet() {
+        assert!(is_noise("Usando Claude Sonnet en modo extendido", ""));
+    }
+
+    #[test]
+    fn noise_empty_title() {
+        assert!(is_noise("", ""));
+    }
+
+    #[test]
+    fn noise_title_too_short() {
+        // "abc" = 3 chars < NOISE_MIN_TITLE_LEN (10)
+        assert!(is_noise("abc", "some long body that would not help"));
+    }
+
+    #[test]
+    fn noise_real_decision_passes_through() {
+        assert!(!is_noise(
+            "Migrar a embeddings e5-small por soporte multilingüe",
+            "e5-small tiene soporte nativo de español y reduce latencia un 40%"
+        ));
+    }
+
+    #[test]
+    fn noise_adoptar_qdrant_passes_through() {
+        assert!(!is_noise(
+            "Adoptar Qdrant nativo en Windows sin Docker",
+            "Evita dependencia de Docker Desktop en entornos Windows corporativos."
+        ));
+    }
+
+    #[test]
+    fn noise_filter_applied_in_parse_pending() {
+        // Git-state noise → dropped.
+        let noise = r#"{"decision":"Working tree is completely clean","rationale":"git status output"}"#;
+        // Real decision → kept.
+        let real = r#"{"decision":"Migrar a embeddings e5-small por soporte multilingüe","rationale":"e5-small tiene soporte nativo de español"}"#;
+        let text = format!("{noise}\n{real}");
+        let out = parse_pending_lines(&text, "ultron", &no_existing());
+        assert_eq!(out.len(), 1);
+        assert_eq!(
+            out[0].decision,
+            "Migrar a embeddings e5-small por soporte multilingüe"
+        );
+    }
+
+    #[test]
+    fn noise_filter_drops_model_announcement_in_batch() {
+        let lines = [
+            r#"{"decision":"Usando Claude Opus 4.8","rationale":"modelo seleccionado"}"#,
+            r#"{"decision":"CI version-drift test passed","rationale":"pipeline output"}"#,
+            r#"{"decision":"Adoptar Rust para el backend de ULTRON","rationale":"memoria segura sin GC, zero-cost abstractions"}"#,
+        ]
+        .join("\n");
+        let out = parse_pending_lines(&lines, "p", &no_existing());
+        assert_eq!(out.len(), 1, "only the real decision should survive");
+        assert!(out[0].decision.to_lowercase().contains("rust"));
     }
 }

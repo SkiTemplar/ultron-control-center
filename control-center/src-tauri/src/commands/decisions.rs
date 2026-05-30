@@ -4,8 +4,9 @@
 // commands/kanban.rs and commands/kg.rs.
 
 use crate::decisions::{
-    add_inner, delete_inner, drain_pending_inner, list_inner, search_inner, update_inner,
-    DecisionPatch, DecisionPayload, DecisionRecord, DecisionSearchResult,
+    add_inner, delete_inner, drain_pending_inner, list_inner, purge_noise_inner,
+    reject_all_auto_inner, search_inner, update_inner, DecisionPatch, DecisionPayload,
+    DecisionRecord, DecisionSearchResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -81,6 +82,34 @@ pub async fn kanban_decisions_search(
     query: String,
 ) -> Result<Vec<DecisionSearchResult>, String> {
     tauri::async_runtime::spawn_blocking(move || search_inner(&query, None))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+// ---------------------------------------------------------------------------
+// Bulk cleanup commands
+// ---------------------------------------------------------------------------
+
+/// Mark every `Proposed` + `auto-captured` decision for the given project as
+/// `Rejected` in a single atomic write.  Returns the count of records changed.
+///
+/// Use this to quickly discard a batch drain that imported noise.  Manually
+/// added decisions and decisions already in a terminal status are unaffected.
+#[tauri::command]
+pub async fn decisions_reject_all_auto(project_id: String) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || reject_all_auto_inner(&project_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Remove all records from `decisions.jsonl` that the noise filter identifies
+/// as operational chatter (git state, CI output, model announcements).
+///
+/// Returns the count of purged records.  Use this once to clean up historical
+/// pollution in the file that was written before the noise filter existed.
+#[tauri::command]
+pub async fn decisions_purge_noise(project_id: String) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || purge_noise_inner(&project_id))
         .await
         .map_err(|e| e.to_string())?
 }
