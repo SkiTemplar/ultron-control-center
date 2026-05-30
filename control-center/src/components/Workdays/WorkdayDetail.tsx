@@ -253,6 +253,12 @@ export function WorkdayDetail({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Guard anti-loop para la auto-regeneracion del resumen IA: clave
+  // `${workdayId}::${generated_at}` del ultimo disparo. Como runCmd hace
+  // setWd(next) tras generar, el effect se re-evalua; el guard impide que
+  // vuelva a disparar para el mismo (workday, generated_at).
+  const autoSummaryFiredRef = useRef<string>("");
+
   // Retro form (solo al transicionar a completed)
   const [retroGood, setRetroGood] = useState("");
   const [retroBad, setRetroBad] = useState("");
@@ -288,6 +294,40 @@ export function WorkdayDetail({
       cancelled = true;
     };
   }, [workdayId, refreshKey]);
+
+  // ---------------------------------------------------------------------------
+  // Auto-regeneracion del resumen IA al cargar el workday activo (2026-05-30).
+  // Cierra el paso 5 del rework sin depender del scheduler (que no puede
+  // invocar el backend). El resumen solo se ve aqui, asi que generarlo al
+  // abrir el workday es lo mas fresco posible. Dispara SOLO si:
+  //   (a) workday in_progress y planned_date == hoy (fecha LOCAL, no UTC),
+  //   (b) ai_summary ausente o generated_at > 15 min,
+  //   (c) no se disparo ya para este (workdayId, generated_at) — ref guard,
+  //   (d) no hay otra operacion en curso (busy).
+  // ---------------------------------------------------------------------------
+  useEffect(() => {
+    if (!wd) return;
+
+    // Fecha LOCAL en formato YYYY-MM-DD (fr-CA siempre da ISO en zona local).
+    // No usar toISOString().slice(0,10): devuelve UTC y planned_date se genera
+    // con chrono::Local en el backend -> desajuste cerca de medianoche.
+    const todayStr = new Intl.DateTimeFormat("fr-CA").format(new Date());
+    if (wd.status !== "in_progress" || wd.planned_date !== todayStr) return;
+
+    const FIFTEEN_MIN_S = 15 * 60;
+    const nowEpoch = Math.floor(Date.now() / 1000);
+    if (wd.ai_summary?.generated_at) {
+      const m = wd.ai_summary.generated_at.match(/^epoch:(\d+)$/);
+      if (m && nowEpoch - Number(m[1]) < FIFTEEN_MIN_S) return; // resumen fresco
+    }
+
+    const guardKey = `${workdayId}::${wd.ai_summary?.generated_at ?? ""}`;
+    if (autoSummaryFiredRef.current === guardKey) return;
+    autoSummaryFiredRef.current = guardKey;
+
+    if (busy) return;
+    void runCmd("workday_ai_summary_generate", { workdayId });
+  }, [wd, workdayId, busy]);
 
   function toggleSection(id: SectionKey) {
     setOpenSections((prev) => {
