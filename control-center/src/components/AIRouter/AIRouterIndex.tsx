@@ -252,17 +252,19 @@ export function AIRouterIndex() {
 
   // Persiste el estado del toggle en proxy-state.json via comando Tauri.
   // El backend lo escribe atomicamente; los spawns lo leen en sessions.rs.
-  const persistProxyState = useCallback(async (enabled: boolean) => {
-    try {
-      // proxy_start / proxy_stop ya persisten el estado en el backend.
-      // Aqui solo necesitamos arrancar o parar el proceso.
-      if (enabled) {
-        await invoke<ProxyHealth>("proxy_start");
-      } else {
+  // IMPORTANTE: propaga el error si proxy_start falla (p.ej. binario ausente)
+  // para que el caller pueda decidir si actualizar el estado UI o no.
+  const persistProxyState = useCallback(async (enabled: boolean): Promise<void> => {
+    if (enabled) {
+      // Lanza si Rust devuelve Err — el caller debe capturar y NO setear enabled=true.
+      await invoke<ProxyHealth>("proxy_start");
+    } else {
+      try {
         await invoke<void>("proxy_stop");
+      } catch (e) {
+        console.error("[free-tier] proxy_stop error:", e);
+        // stop puede fallar si ya estaba detenido; no es critico.
       }
-    } catch (e) {
-      console.error("[free-tier] persist error:", e);
     }
   }, []);
 
@@ -276,9 +278,18 @@ export function AIRouterIndex() {
     }
   }, []);
 
-  // Carga inicial del estado persitido y health.
+  // Carga inicial: hidrata el toggle desde el estado persistido en el backend
+  // (rank1 fix) y refresca el health. Si proxy_state_enabled falla, deja false.
   useEffect(() => {
-    void refreshHealth();
+    (async () => {
+      try {
+        const enabled = await invoke<boolean>("proxy_state_enabled");
+        setFreeTierEnabled(enabled);
+      } catch {
+        // Backend no disponible o comando no implementado — deja false.
+      }
+      void refreshHealth();
+    })();
   }, [refreshHealth]);
 
   // Poll de health cuando el proxy esta activo.
@@ -313,22 +324,36 @@ export function AIRouterIndex() {
   // momento del mount.
   useEffect(() => {
     unlistenCriticalRef.current = listen("quota:critical", async () => {
+      // rank4 fix: solo activar el toggle si proxy_start tiene EXITO.
+      // Leemos el estado actual via getter funcional para evitar captura stale,
+      // pero la decision de setear true se toma fuera del setter (async seguro).
       setFreeTierEnabled((prev) => {
-        if (!prev) {
-          void persistProxyState(true).then(() => refreshHealth());
-          return true;
-        }
-        return prev;
+        if (prev) return prev; // ya activo, nada que hacer
+        // Lanzamos el start en background; el resultado determina si seteamos.
+        void (async () => {
+          try {
+            await persistProxyState(true);
+            setFreeTierEnabled(true);
+          } catch (e) {
+            // proxy_start fallo (binario ausente u otro error) —
+            // NO persistimos enabled=true, el routing sigue directo a Anthropic.
+            console.error("[free-tier] quota:critical auto-ON failed:", e);
+          } finally {
+            void refreshHealth();
+          }
+        })();
+        return prev; // no cambiar estado aqui; lo cambia el bloque async si tiene exito
       });
     });
 
     unlistenResetRef.current = listen("quota:reset", async () => {
-      setFreeTierEnabled((prev) => {
-        if (prev) {
-          void persistProxyState(false).then(() => refreshHealth());
-          return false;
-        }
-        return prev;
+      // quota:reset: apagamos el proxy. proxy_stop no es critico si falla
+      // (proceso ya muerto), asi que siempre ponemos enabled=false.
+      void persistProxyState(false).catch((e: unknown) => {
+        console.error("[free-tier] quota:reset proxy_stop error:", e);
+      }).finally(() => {
+        setFreeTierEnabled(false);
+        void refreshHealth();
       });
     });
 
@@ -345,9 +370,19 @@ export function AIRouterIndex() {
     const next = !freeTierEnabled;
     setProxyBusy(true);
     try {
-      setFreeTierEnabled(next);
+      // rank4 fix: al encender, SOLO persistir enabled=true si proxy_start
+      // tiene EXITO. Si falla (binario ausente), el estado queda en false
+      // y el routing continua directo a Anthropic sin romper sesiones.
       await persistProxyState(next);
+      // Solo llegamos aqui si persistProxyState no lanzó.
+      setFreeTierEnabled(next);
       await refreshHealth();
+    } catch (e: unknown) {
+      // proxy_start fallo — no cambiamos el estado UI.
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[free-tier] toggle failed:", msg);
+      // Refleja el estado real del proxy tras el fallo.
+      await refreshHealth().catch(() => undefined);
     } finally {
       setProxyBusy(false);
     }
