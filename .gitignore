@@ -243,3 +243,25 @@ control-center/.fastembed_cache/
 # Secrets — local env (nunca commitear). Anadido 2026-05-30.
 .env
 !.env.example
+
+# === 2026-05-30: runtime per-maquina + sidecar + telemetria personal ===
+# (auditoria de cierre de sesion. El repo se publica: "personal data must
+#  NEVER enter public history". .git ya pesa ~151M por el sidecar binario.)
+# Sidecar compilado regenerable via scripts/install-sidecars.ps1
+bin/ultron-embed.exe
+# Estado runtime trackeado por arrastre (des-trackeado con git rm --cached)
+cockpit/quota-state.json
+cockpit/plugin-update-cache.json
+cockpit/projects/*/terminal-layout.json
+cockpit/projects/*/work-sessions.jsonl
+cockpit/workdays/_pending-links.jsonl
+# Estado runtime nuevo, per-instalacion (lo reescribe la app en cada arranque)
+cockpit/meta.json
+cockpit/workdays/wd-*.json
+cockpit/_pending-*.json
+# Config local opcional de Mem0 (bank/finanzas ya opted-out en mem0-sync.js)
+.mem0-opt-out.json
+# Telemetria de maquina (hostname/CPU/disco) y backups zip.
+# Los .md de diagnostico de arquitectura SI se conservan (docs).
+cockpit/diagnostics/*.json
+cockpit/diagnostics/*.zip
