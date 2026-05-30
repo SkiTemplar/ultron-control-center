@@ -515,6 +515,10 @@ pub fn run() {
             commands::kanban::kanban_archive_done,
             commands::kanban::kanban_list_archives,
             commands::kanban::kanban_load_archive,
+            commands::kanban::kanban_add_column,
+            commands::kanban::kanban_delete_column,
+            commands::kanban::kanban_rename_column,
+            commands::kanban::kanban_reorder_columns,
             // -- tabs (P4) --
             commands::tabs::tabs_load,
             commands::tabs::tabs_save,

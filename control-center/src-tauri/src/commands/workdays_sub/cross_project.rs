@@ -223,6 +223,7 @@ mod tests {
                     id: id.to_string(),
                     name: name.to_string(),
                     order: 0,
+                    role: crate::kanban::ColumnRole::Other,
                 })
                 .collect(),
             cards: cards

@@ -1,6 +1,7 @@
 use crate::kanban::{
     self, append_run, card_by_id, column_by_name, create_card, delete_card, load, move_card,
-    save, update_card, Card, CardPartial, CardPatch, CardRun, KanbanBoard, RunStatus,
+    save, update_card, Card, CardPartial, CardPatch, CardRun, Column, ColumnRole, KanbanBoard,
+    RunStatus,
 };
 use crate::pty::spawn_inner;
 use tauri::{AppHandle, Runtime};
@@ -223,4 +224,61 @@ pub async fn kanban_load_archive(
     tauri::async_runtime::spawn_blocking(move || kanban::load_archive(&project_id, &archive_name))
         .await
         .map_err(|e| e.to_string())?
+}
+
+// ---------------------------------------------------------------------------
+// v2.14 — Column CRUD commands
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub async fn kanban_add_column(
+    project_id: String,
+    name: String,
+    role: ColumnRole,
+) -> Result<Column, String> {
+    tauri::async_runtime::spawn_blocking(move || kanban::add_column(&project_id, name, role))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn kanban_delete_column(
+    project_id: String,
+    column_id: String,
+    reassign_to_column_id: Option<String>,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        kanban::delete_column(
+            &project_id,
+            &column_id,
+            reassign_to_column_id.as_deref(),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn kanban_rename_column(
+    project_id: String,
+    column_id: String,
+    name: String,
+) -> Result<Column, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        kanban::rename_column(&project_id, &column_id, name)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn kanban_reorder_columns(
+    project_id: String,
+    ordered_ids: Vec<String>,
+) -> Result<KanbanBoard, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        kanban::reorder_columns(&project_id, &ordered_ids)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
