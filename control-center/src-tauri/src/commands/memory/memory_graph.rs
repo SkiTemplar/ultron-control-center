@@ -56,8 +56,8 @@ pub struct UnifiedSearchResults {
     pub rules: Vec<RuleHit>,
     pub mem0: Vec<Mem0Memory>,
     pub kg: Vec<KgEntity>,
-    /// Always empty until card-qdrant-wire is implemented.
-    pub qdrant: Vec<serde_json::Value>,
+    /// Semantic hits from Qdrant ultron_sessions collection.
+    pub qdrant: Vec<crate::qdrant::QdrantHit>,
 }
 
 // ---------------------------------------------------------------------------
@@ -191,13 +191,27 @@ pub async fn unified_search_inner(
 
     let kg_graph = search_nodes_inner(needle.clone()).unwrap_or_default();
 
+    // Qdrant semantic layer — uses real BGE vectors when the `qdrant` feature
+    // is active (default). Falls back to empty when Qdrant is not running.
+    let qdrant_results = if needle.is_empty() {
+        Vec::new()
+    } else {
+        let needle_q = needle.clone();
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::qdrant::search("ultron_sessions", &needle_q, 10)
+        })
+        .await
+        .unwrap_or_else(|_| Ok(Vec::new()))
+        .unwrap_or_default()
+    };
+
     Ok(UnifiedSearchResults {
         skills,
         agents,
         rules,
         mem0: mem0_results,
         kg: kg_graph.entities,
-        qdrant: Vec::new(), // TODO: wire in card-qdrant-wire
+        qdrant: qdrant_results,
     })
 }
 

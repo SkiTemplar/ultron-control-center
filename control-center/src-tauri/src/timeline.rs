@@ -241,13 +241,12 @@ fn list_claude_sessions(project_path: &str) -> Option<Vec<claude_sessions::Claud
     Some(out)
 }
 
-/// Mirrors `claude_sessions::project_slug_for` (private). Kept in sync with
-/// that helper — Claude Code slugifies project paths by replacing both
-/// directory separators with `-` and stripping leading separators.
+/// Delegate to `claude_sessions::project_slug_for` so the slug logic is
+/// defined in exactly one place. Previous local copy only replaced `\` and
+/// `/` but left `:` and `.` intact, producing `C:-Users-USER-.ultron`
+/// instead of the correct `C--Users-USER--ultron`.
 fn claude_sessions_project_slug(path: &str) -> String {
-    path.replace(['\\', '/'], "-")
-        .trim_matches('-')
-        .to_string()
+    claude_sessions::project_slug_for(path)
 }
 
 #[cfg(test)]
@@ -268,5 +267,17 @@ mod tests {
         // Allow it to be empty OR to surface a kanban that was auto-created
         // by the loader's default fallback; either way the call must not panic.
         let _ = v;
+    }
+
+    /// Verify that the slug helper matches Claude Code's own slugification rule.
+    /// Claude Code replaces every non-alphanumeric character with `-`, so
+    /// `C:\Users\X\.ultron` → `C--Users-X--ultron` (`:` → `-`, `\` → `-`,
+    /// `.` → `-`, consecutive non-alnum runs each get their own `-`).
+    #[test]
+    fn project_slug_matches_claude_folder_name() {
+        assert_eq!(
+            claude_sessions_project_slug("C:\\Users\\X\\.ultron"),
+            "C--Users-X--ultron"
+        );
     }
 }

@@ -507,6 +507,44 @@ fn seed_zones() -> Vec<Zone> {
             fallbacks: vec![],
             system_prompt: None,
         },
+        // Internal utility tasks (hook telemetry, workday summaries, etc.)
+        // mapped to the cheapest available cloud model with Groq as fallback.
+        Zone {
+            id: "utility".into(),
+            label: "Utility (internal automation tasks)".into(),
+            category: "system".into(),
+            task_class: ProviderClass::Trivial,
+            primary: ZoneAssignment {
+                provider_id: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
+                max_tokens: 512,
+            },
+            fallbacks: vec![ZoneAssignment {
+                provider_id: "claude-haiku".into(),
+                model: "claude-haiku-4-5-20251001".into(),
+                max_tokens: 512,
+            }],
+            system_prompt: None,
+        },
+        // Light/quick requests (plugins_info, single-turn completions, etc.)
+        // alias to a fast cheap model; Groq primary, Ollama fallback if local.
+        Zone {
+            id: "light".into(),
+            label: "Light (fast single-turn completions)".into(),
+            category: "chat".into(),
+            task_class: ProviderClass::Light,
+            primary: ZoneAssignment {
+                provider_id: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
+                max_tokens: 1024,
+            },
+            fallbacks: vec![ZoneAssignment {
+                provider_id: "ollama".into(),
+                model: "qwen2.5-coder:32b".into(),
+                max_tokens: 1024,
+            }],
+            system_prompt: None,
+        },
     ]
 }
 
@@ -841,23 +879,53 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
     };
     let latency_ms = started.elapsed().as_millis() as u64;
 
+    let providers_for_cost = load_providers().unwrap_or_default();
+    let cost_of_primary = providers_for_cost
+        .iter()
+        .find(|p| p.id == zone.primary.provider_id)
+        .map(|p| p.cost_per_mtok)
+        .unwrap_or(0.0);
+
     match outcome {
-        Ok(co) => TestResult {
-            ok: true,
-            provider_id: provider.id,
-            model: zone.primary.model.clone(),
-            latency_ms,
-            response_excerpt: truncate(&co.text, 280),
-            error: None,
-        },
-        Err(e) => TestResult {
-            ok: false,
-            provider_id: provider.id,
-            model: zone.primary.model.clone(),
-            latency_ms,
-            response_excerpt: String::new(),
-            error: Some(e),
-        },
+        Ok(co) => {
+            // Feed real metrics so the dashboard moves after every Test click.
+            let _ = bump_metrics(MetricSample {
+                provider_id: &provider.id,
+                model: &zone.primary.model,
+                success: true,
+                output_tokens: co.usage.output_tokens,
+                cost_per_mtok: cost_of_primary,
+                primary_cost_per_mtok: cost_of_primary,
+                latency_ms,
+            });
+            TestResult {
+                ok: true,
+                provider_id: provider.id,
+                model: zone.primary.model.clone(),
+                latency_ms,
+                response_excerpt: truncate(&co.text, 280),
+                error: None,
+            }
+        }
+        Err(e) => {
+            let _ = bump_metrics(MetricSample {
+                provider_id: &provider.id,
+                model: &zone.primary.model,
+                success: false,
+                output_tokens: 0,
+                cost_per_mtok: cost_of_primary,
+                primary_cost_per_mtok: cost_of_primary,
+                latency_ms,
+            });
+            TestResult {
+                ok: false,
+                provider_id: provider.id,
+                model: zone.primary.model.clone(),
+                latency_ms,
+                response_excerpt: String::new(),
+                error: Some(e),
+            }
+        }
     }
 }
 

@@ -58,11 +58,14 @@ tempfile = "3"
 mockall = "0.13"
 
 [features]
-default = []
+# Enable local Qdrant semantic recall by default so embed() uses real BGE
+# vectors instead of the zero-stub. fastembed downloads the ~22 MB ONNX
+# model on first use and caches it at ~/.cache/fastembed_cache/.
+# Disable for CI lean builds: cargo check --no-default-features
+default = ["qdrant"]
 hybrid_recall = []
 # Enable local Qdrant semantic recall. Pulls in fastembed (ONNX runtime +
-# BGE-small-EN-v1.5, ~22 MB download on first use). Off by default so CI
-# and normal builds stay lean. Enable with: cargo build --features qdrant
+# BGE-small-EN-v1.5, ~22 MB download on first use).
 qdrant = ["dep:fastembed"]
 
 [target."cfg(windows)".dependencies]

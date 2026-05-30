@@ -453,7 +453,7 @@ pub struct ClaudeSessionSummary {
     pub first_user_message: Option<String>,
 }
 
-fn project_slug_for(path: &str) -> String {
+pub(crate) fn project_slug_for(path: &str) -> String {
     // Claude Code mangles project paths into directory names by replacing
     // ANY non-alphanumeric character with `-`. This means `:`, `\`, `/`, and
     // `.` all become `-`, so consecutive non-alnum runs collapse to multiple

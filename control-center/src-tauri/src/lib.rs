@@ -431,6 +431,7 @@ pub fn run() {
             commands::diagnostics_native::diagnostic_history_read,
             commands::diagnostics_native::diagnostic_schedule_get,
             commands::diagnostics_native::diagnostic_schedule_set,
+            commands::diagnostics_native::diagnostics_run,
             // -- windows event log (system/diagnostics + dashboard crash card) --
             commands::event_log::event_log_recent,
             commands::event_log::open_event_viewer,
