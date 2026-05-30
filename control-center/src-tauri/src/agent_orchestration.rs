@@ -1293,6 +1293,7 @@ mod tests {
             linked_tasks: Vec::new(),
             context: WorkdayContext::default(),
             created_at: "epoch:0".to_string(),
+            ai_summary: None,
         }
     }
 

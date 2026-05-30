@@ -69,8 +69,10 @@ export default function DecisionsPanel({ projectId }: Props) {
       // before listing. Best-effort — a drain failure must not block the list.
       try {
         await invoke("decisions_drain_pending", { projectId });
-      } catch {
-        /* non-fatal */
+      } catch (e) {
+        // Non-fatal: the drain is best-effort and must not block the list,
+        // but swallowing it silently hides real backend failures. Warn only.
+        console.warn("decisions_drain_pending failed (non-fatal):", e);
       }
       const list = (await invoke("decisions_list", {
         projectId,

@@ -354,29 +354,19 @@ fn normalize_title(s: &str) -> String {
     s.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Drain the per-project pending decisions file into `decisions.jsonl`.
-///
-/// Each pending line becomes a `Proposed` decision tagged `auto-captured`,
-/// deduped against existing decisions AND within the batch (by normalised
-/// title). The pending file is removed once consumed. No KG/Mem0 sync fires —
-/// auto-captured decisions stay local until the user Accepts them. Best-effort:
-/// a malformed pending line is skipped, never aborting the whole drain.
-pub fn drain_pending_inner(project_id: &str) -> Result<Vec<DecisionRecord>, String> {
-    let ppath = pending_decisions_path(project_id)?;
-    if !ppath.exists() {
-        return Ok(Vec::new());
-    }
-
-    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
-
-    let text = fs::read_to_string(&ppath)
-        .map_err(|e| format!("read pending {}: {e}", ppath.display()))?;
-
-    let mut records = read_all(project_id)?;
-    let mut seen: std::collections::HashSet<String> =
-        records.iter().map(|r| normalize_title(&r.decision)).collect();
-
+/// Parse raw `decisions-pending.jsonl` lines into deduplicated `Proposed`
+/// decisions. PURE (no I/O) so it can be unit-tested without touching the home
+/// directory. `existing_titles` are the normalised titles already present in
+/// `decisions.jsonl`; new titles are also deduped against each other within the
+/// batch. A malformed or too-short line is skipped, never aborting the batch.
+fn parse_pending_lines(
+    text: &str,
+    project_id: &str,
+    existing_titles: &std::collections::HashSet<String>,
+) -> Vec<DecisionRecord> {
+    let mut seen = existing_titles.clone();
     let mut added: Vec<DecisionRecord> = Vec::new();
+
     for line in text.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
@@ -411,7 +401,7 @@ pub fn drain_pending_inner(project_id: &str) -> Result<Vec<DecisionRecord>, Stri
             ),
         };
 
-        let rec = DecisionRecord {
+        added.push(DecisionRecord {
             id: new_decision_id(),
             project_id: project_id.to_string(),
             decision: title.to_string(),
@@ -423,17 +413,60 @@ pub fn drain_pending_inner(project_id: &str) -> Result<Vec<DecisionRecord>, Stri
             context_urls: vec![],
             author: Some("auto".to_string()),
             tags,
-        };
-        records.push(rec.clone());
-        added.push(rec);
+        });
     }
 
+    added
+}
+
+/// Drain the per-project pending decisions file into `decisions.jsonl`.
+///
+/// Each pending line becomes a `Proposed` decision tagged `auto-captured`,
+/// deduped against existing decisions AND within the batch (by normalised
+/// title). No KG/Mem0 sync fires — auto-captured decisions stay local until the
+/// user Accepts them.
+///
+/// Concurrency: the pending file is `rename`d to a `.draining` sidecar BEFORE
+/// reading it. The in-process `decisions_lock` serialises drains within this
+/// process, but the producer is a separate Node Stop hook that `appendFileSync`s
+/// without a shared lock. The rename takes an atomic snapshot, so any line the
+/// hook appends between our read and delete lands in a fresh pending file
+/// instead of being silently dropped. A `.draining` left over from a crashed
+/// drain is recovered on the next call.
+pub fn drain_pending_inner(project_id: &str) -> Result<Vec<DecisionRecord>, String> {
+    let ppath = pending_decisions_path(project_id)?;
+    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+
+    let draining = ppath.with_extension("draining");
+    match fs::rename(&ppath, &draining) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // No pending file. Recover an orphaned `.draining` if one exists
+            // (a previous drain crashed between rename and remove); otherwise
+            // there is nothing to do.
+            if !draining.exists() {
+                return Ok(Vec::new());
+            }
+        }
+        Err(e) => return Err(format!("rename pending {}: {e}", ppath.display())),
+    }
+
+    let text = fs::read_to_string(&draining)
+        .map_err(|e| format!("read draining {}: {e}", draining.display()))?;
+
+    let mut records = read_all(project_id)?;
+    let existing: std::collections::HashSet<String> =
+        records.iter().map(|r| normalize_title(&r.decision)).collect();
+
+    let added = parse_pending_lines(&text, project_id, &existing);
+
     if !added.is_empty() {
+        records.extend(added.iter().cloned());
         let path = decisions_path(project_id)?;
         write_atomic(&path, &records)?;
     }
-    // Always consume the pending file, even when everything was a duplicate.
-    fs::remove_file(&ppath).ok();
+    // Consume the working snapshot, even when everything was a duplicate.
+    fs::remove_file(&draining).ok();
 
     Ok(added)
 }
@@ -609,7 +642,92 @@ fn fire_auto_sync(rec: &DecisionRecord) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
     use tempfile::TempDir;
+
+    fn no_existing() -> HashSet<String> {
+        HashSet::new()
+    }
+
+    #[test]
+    fn normalize_title_is_case_and_whitespace_insensitive() {
+        assert_eq!(
+            normalize_title("  Usar   Qdrant  NATIVO "),
+            normalize_title("usar qdrant nativo")
+        );
+    }
+
+    #[test]
+    fn parse_pending_valid_line_is_proposed_auto_captured() {
+        let line = r#"{"decision":"Migrar a Qdrant nativo","rationale":"Evita depender de Docker en Windows"}"#;
+        let out = parse_pending_lines(line, "ultron", &no_existing());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].status, DecisionStatus::Proposed);
+        assert_eq!(out[0].author.as_deref(), Some("auto"));
+        assert!(out[0].tags.iter().any(|t| t == "auto-captured"));
+        assert_eq!(out[0].rationale, "Evita depender de Docker en Windows");
+        assert_eq!(out[0].project_id, "ultron");
+    }
+
+    #[test]
+    fn parse_pending_skips_titles_shorter_than_5_chars() {
+        let out = parse_pending_lines(r#"{"decision":"abcd"}"#, "p", &no_existing());
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn parse_pending_skips_malformed_json_without_aborting_batch() {
+        let text = "not json at all\n{\"decision\":\"Decision valida que se conserva\"}\n{bad json";
+        let out = parse_pending_lines(text, "p", &no_existing());
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].decision, "Decision valida que se conserva");
+    }
+
+    #[test]
+    fn parse_pending_dedups_within_batch_by_normalized_title() {
+        let text = "{\"decision\":\"Usar NVIDIA NIM como proxy\"}\n{\"decision\":\"  usar   NVIDIA nim como PROXY \"}";
+        let out = parse_pending_lines(text, "p", &no_existing());
+        assert_eq!(out.len(), 1);
+    }
+
+    #[test]
+    fn parse_pending_dedups_against_existing_decisions() {
+        let mut existing = HashSet::new();
+        existing.insert(normalize_title("Adoptar ECC como sistema activo"));
+        let out =
+            parse_pending_lines(r#"{"decision":"adoptar ECC como sistema activo"}"#, "p", &existing);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn parse_pending_synthesizes_rationale_when_missing() {
+        let out = parse_pending_lines(
+            r#"{"decision":"Decision sin rationale propio","session_id":"abc123"}"#,
+            "p",
+            &no_existing(),
+        );
+        assert_eq!(out.len(), 1);
+        assert!(out[0].rationale.contains("Stop hook"));
+        assert!(out[0].rationale.contains("abc123"));
+    }
+
+    #[test]
+    fn parse_pending_synthesizes_rationale_when_too_short() {
+        // rationale present but under the 10-char floor -> synthesised instead.
+        let out = parse_pending_lines(
+            r#"{"decision":"Decision con rationale corto","rationale":"corto"}"#,
+            "p",
+            &no_existing(),
+        );
+        assert_eq!(out.len(), 1);
+        assert!(out[0].rationale.contains("Stop hook"));
+    }
+
+    #[test]
+    fn parse_pending_skips_blank_lines() {
+        let out = parse_pending_lines("\n\n   \n", "p", &no_existing());
+        assert!(out.is_empty());
+    }
 
     #[test]
     fn decision_id_is_unique() {
