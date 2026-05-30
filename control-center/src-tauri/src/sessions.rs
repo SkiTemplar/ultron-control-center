@@ -94,6 +94,12 @@ pub struct SpawnFlags {
     /// even if the default ever changes back.
     #[serde(default)]
     pub paste_only: bool,
+    /// Cuando true, la sesion se enruta por el proxy free-tier local en
+    /// lugar de usar la API de Anthropic directamente. El wrapper PS1
+    /// setea `ANTHROPIC_BASE_URL=http://127.0.0.1:8082` y el token dummy
+    /// `ANTHROPIC_AUTH_TOKEN=fcc-local` antes de invocar `claude`.
+    #[serde(default)]
+    pub free_tier: bool,
     /// Optional subagent slug (filename stem under `~/.claude/agents/`).
     /// When set, `spawn_session_inner` prepends a `[USE AGENT: <slug>]`
     /// directive to the prompt so the Claude session opens with the right
@@ -344,6 +350,8 @@ pub async fn spawn_session_inner(
         // — otherwise the spawn script overwrites the real prompt with the
         // short `seed` banner and the user pastes garbage into Gemini.
         "respectClipboard": flags.respect_clipboard,
+        // free_tier: cuando true el wrapper PS1 setea ANTHROPIC_BASE_URL al proxy local.
+        "freeTier": flags.free_tier,
     })
     .to_string();
     let payload = base64_encode(&payload_json);

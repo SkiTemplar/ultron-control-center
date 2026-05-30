@@ -79,6 +79,7 @@ mod update_checker;
 mod usage;
 mod workdays;
 mod decisions;
+mod proxy;
 mod workflow_loader;
 mod workflow_runs;
 
@@ -571,6 +572,10 @@ pub fn run() {
             quota_watchdog::quota_get_status,
             quota_watchdog::quota_force_reset,
             quota_watchdog::quota_simulate_critical,
+            // -- proxy free-tier lifecycle (NVIDIA NIM via claude-code-proxy) --
+            proxy::proxy_start,
+            proxy::proxy_stop,
+            proxy::proxy_health,
             // -- workflow YAML composability + SQLite run history (KIRKARDO 23 P2) --
             commands::workflows::workflow_record_run,
             commands::workflows::workflow_update_run,
@@ -667,6 +672,12 @@ pub fn run() {
             });
 
             Ok(())
+        })
+        .on_window_event(|_window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                // Matar el proxy al cerrar para no dejar :8082 huerfano.
+                let _ = proxy::proxy_stop_inner();
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

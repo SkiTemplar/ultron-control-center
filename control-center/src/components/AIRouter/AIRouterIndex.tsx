@@ -14,8 +14,9 @@
 // Falls back to DEFAULT_ZONES (from types.ts) when the command is
 // unavailable (backend not yet wired) so the UI is always usable.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import type { Provider, Zone } from "./types";
 import { DEFAULT_ZONES, PROVIDER_CATALOG } from "./types";
 import { ZoneEditor } from "./ZoneEditor";
@@ -181,8 +182,46 @@ function ZoneCard({
 // AIRouterIndex
 // ---------------------------------------------------------------------------
 
-// Local storage key for the dismissable explainer banner. Once a user hides
-// the help text, we don't bring it back — they know what zones are.
+// ---------------------------------------------------------------------------
+// Proxy free-tier types (mirror del enum Rust ProxyStatus)
+// ---------------------------------------------------------------------------
+
+type ProxyStatus = "running" | "starting" | "stopped" | "binary_missing" | "error";
+
+interface ProxyHealth {
+  status: ProxyStatus;
+  message: string | null;
+  searched_paths: string[];
+}
+
+// Ruta del archivo de estado del proxy (leida/escrita atomicamente por Rust).
+// El frontend solo lee este archivo a traves de comandos Tauri — no accede
+// directamente al FS.
+
+// ---------------------------------------------------------------------------
+// Free-tier panel helpers
+// ---------------------------------------------------------------------------
+
+const STATUS_DOT: Record<ProxyStatus, string> = {
+  running: "var(--color-success, #4ade80)",
+  starting: "var(--color-warn, #facc15)",
+  stopped: "var(--color-text-faint, #555)",
+  binary_missing: "var(--color-danger, #f87171)",
+  error: "var(--color-danger, #f87171)",
+};
+
+const STATUS_LABEL: Record<ProxyStatus, string> = {
+  running: "Activo",
+  starting: "Arrancando…",
+  stopped: "Detenido",
+  binary_missing: "Binario no encontrado",
+  error: "Error",
+};
+
+// ---------------------------------------------------------------------------
+// Local storage key for the dismissable explainer banner
+// ---------------------------------------------------------------------------
+
 const HELP_DISMISSED_KEY = "ultron.ai-router.help-dismissed";
 
 export function AIRouterIndex() {
@@ -194,14 +233,111 @@ export function AIRouterIndex() {
   // Runtime provider list from backend — used for display names in zone cards.
   const [providers, setProviders] = useState<Provider[]>(PROVIDER_CATALOG);
   const [helpDismissed, setHelpDismissed] = useState<boolean>(() => {
-    // Defensive read: localStorage can throw in privacy modes / Tauri webviews
-    // with storage disabled. We default to "show help" on any failure.
     try {
       return localStorage.getItem(HELP_DISMISSED_KEY) === "1";
     } catch {
       return false;
     }
   });
+
+  // --- Free-tier proxy state ---
+  const [freeTierEnabled, setFreeTierEnabled] = useState<boolean>(false);
+  const [proxyHealth, setProxyHealth] = useState<ProxyHealth>({
+    status: "stopped",
+    message: null,
+    searched_paths: [],
+  });
+  const [proxyBusy, setProxyBusy] = useState(false);
+  const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Persiste el estado del toggle en proxy-state.json via comando Tauri.
+  // El backend lo escribe atomicamente; los spawns lo leen en sessions.rs.
+  const persistProxyState = useCallback(async (enabled: boolean) => {
+    try {
+      // proxy_start / proxy_stop ya persisten el estado en el backend.
+      // Aqui solo necesitamos arrancar o parar el proceso.
+      if (enabled) {
+        await invoke<ProxyHealth>("proxy_start");
+      } else {
+        await invoke<void>("proxy_stop");
+      }
+    } catch (e) {
+      console.error("[free-tier] persist error:", e);
+    }
+  }, []);
+
+  // Refresca el health cada 5 s mientras el panel esta visible y el toggle activo.
+  const refreshHealth = useCallback(async () => {
+    try {
+      const h = await invoke<ProxyHealth>("proxy_health");
+      setProxyHealth(h);
+    } catch {
+      // Backend no disponible — no cambiamos el estado.
+    }
+  }, []);
+
+  // Carga inicial del estado persitido y health.
+  useEffect(() => {
+    void refreshHealth();
+  }, [refreshHealth]);
+
+  // Poll de health cuando el proxy esta activo.
+  useEffect(() => {
+    if (freeTierEnabled) {
+      healthPollRef.current = setInterval(() => void refreshHealth(), 5_000);
+    } else {
+      if (healthPollRef.current !== null) {
+        clearInterval(healthPollRef.current);
+        healthPollRef.current = null;
+      }
+    }
+    return () => {
+      if (healthPollRef.current !== null) {
+        clearInterval(healthPollRef.current);
+        healthPollRef.current = null;
+      }
+    };
+  }, [freeTierEnabled, refreshHealth]);
+
+  // Escucha el evento quota:critical del backend para activar el toggle automaticamente.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let unlistenReset: (() => void) | undefined;
+
+    void (async () => {
+      unlisten = await listen("quota:critical", async () => {
+        if (!freeTierEnabled) {
+          setFreeTierEnabled(true);
+          await persistProxyState(true);
+          await refreshHealth();
+        }
+      });
+      unlistenReset = await listen("quota:reset", async () => {
+        if (freeTierEnabled) {
+          setFreeTierEnabled(false);
+          await persistProxyState(false);
+          await refreshHealth();
+        }
+      });
+    })();
+
+    return () => {
+      unlisten?.();
+      unlistenReset?.();
+    };
+  }, [freeTierEnabled, persistProxyState, refreshHealth]);
+
+  const handleFreeTierToggle = useCallback(async () => {
+    const next = !freeTierEnabled;
+    setProxyBusy(true);
+    try {
+      setFreeTierEnabled(next);
+      await persistProxyState(next);
+      await refreshHealth();
+    } finally {
+      setProxyBusy(false);
+    }
+  }, [freeTierEnabled, persistProxyState, refreshHealth]);
 
   function dismissHelp() {
     setHelpDismissed(true);
@@ -313,6 +449,106 @@ export function AIRouterIndex() {
           </div>
         </div>
       )}
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Free-tier proxy toggle                                              */}
+      {/* ------------------------------------------------------------------ */}
+      <div
+        className="mb-5 rounded-lg border p-4"
+        style={{
+          background: freeTierEnabled
+            ? "color-mix(in srgb, var(--color-warn, #facc15) 8%, var(--color-surface-2))"
+            : "var(--color-surface-2)",
+          borderColor: freeTierEnabled
+            ? "var(--color-warn, #facc15)"
+            : "var(--color-border)",
+        }}
+      >
+        <div className="flex items-center justify-between gap-4">
+          {/* Left: info */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span
+                className="text-[13px] font-semibold"
+                style={{ color: "var(--color-text)" }}
+              >
+                Rutar sesiones por free-tier (NVIDIA NIM)
+              </span>
+              {/* Health dot */}
+              <span
+                style={{
+                  display: "inline-block",
+                  width: 8,
+                  height: 8,
+                  borderRadius: "50%",
+                  background: STATUS_DOT[proxyHealth.status],
+                  flexShrink: 0,
+                }}
+                title={STATUS_LABEL[proxyHealth.status]}
+              />
+              <span
+                className="text-[11px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                {STATUS_LABEL[proxyHealth.status]}
+              </span>
+            </div>
+            <p
+              className="text-[11.5px] leading-relaxed"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              Cuando esta activo, las sesiones nuevas usaran el proxy local
+              (puerto 8082) en lugar de la API de Anthropic. Modelos NVIDIA
+              NIM / OpenRouter como fallback.{" "}
+              <span style={{ color: "var(--color-warn, #facc15)", fontWeight: 600 }}>
+                Aviso: el free-tier puede degradar la calidad de respuesta.
+                Red de seguridad, no reemplazo permanente.
+              </span>
+            </p>
+            {proxyHealth.status === "binary_missing" && (
+              <p
+                className="mt-1.5 text-[11px]"
+                style={{ color: "var(--color-danger, #f87171)" }}
+              >
+                Binario no encontrado. Ver{" "}
+                <code className="font-mono">~/.ultron/proxy/HOWTO.md</code>{" "}
+                para instrucciones de instalacion. El toggle funcionara como
+                &ldquo;light mode&rdquo; (setea ANTHROPIC_BASE_URL) si corres
+                el proxy manualmente.
+              </p>
+            )}
+            {proxyHealth.message && proxyHealth.status !== "binary_missing" && (
+              <p
+                className="mt-1 text-[10.5px] font-mono truncate"
+                style={{ color: "var(--color-text-faint)" }}
+                title={proxyHealth.message}
+              >
+                {proxyHealth.message}
+              </p>
+            )}
+          </div>
+
+          {/* Right: toggle button */}
+          <button
+            type="button"
+            onClick={() => void handleFreeTierToggle()}
+            disabled={proxyBusy}
+            className="shrink-0 rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors"
+            style={{
+              background: freeTierEnabled
+                ? "var(--color-warn, #facc15)"
+                : "var(--color-surface-3)",
+              color: freeTierEnabled ? "#1a1a00" : "var(--color-text-secondary)",
+              border: "1px solid var(--color-border)",
+              opacity: proxyBusy ? 0.6 : 1,
+              cursor: proxyBusy ? "not-allowed" : "pointer",
+              minWidth: 80,
+            }}
+          >
+            {proxyBusy ? "…" : freeTierEnabled ? "ON" : "OFF"}
+          </button>
+        </div>
+      </div>
 
       {/* ------------------------------------------------------------------ */}
       {/* Toolbar                                                             */}

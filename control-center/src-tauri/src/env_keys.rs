@@ -28,6 +28,9 @@ const ALLOWED_KEYS: &[&str] = &[
     "DEEPSEEK_API_KEY",
     "MISTRAL_API_KEY",
     "COHERE_API_KEY",
+    // Providers para el proxy free-tier (NVIDIA NIM + OpenRouter).
+    "NVIDIA_NIM_API_KEY",
+    "OPENROUTER_API_KEY",
 ];
 
 /// Estado de una API key de proveedor: si está configurada (registro User
