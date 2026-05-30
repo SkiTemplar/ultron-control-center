@@ -73,15 +73,20 @@ type InvokeResult = {
   sent: boolean;
 };
 
-// Skill suggestion types — mirror project_propose_skill_roster response
+// Skill suggestion types — MUST stay in sync with SkillRosterEntry / SkillRosterProposal
+// defined in src-tauri/src/project_agents.rs. If those structs change, update here too.
+// Backend fields confirmed: name: String, reason: String, tags: Vec<String>
 type SkillSuggestion = {
   name: string;
   reason: string;
   tags: string[];
 };
 
+// Mirrors SkillRosterProposal from src-tauri/src/project_agents.rs:
+//   pub struct SkillRosterProposal { recommended: Vec<SkillRosterEntry>, detected_stack: Vec<String> }
 type SkillRosterProposal = {
-  suggestions: SkillSuggestion[];
+  recommended: SkillSuggestion[];
+  detected_stack: string[];
 };
 
 // ---------------------------------------------------------------------------
@@ -1070,17 +1075,32 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
             {/* Sugerencias */}
             {!skillsBusy && skillsProposal && (
               <>
-                {skillsProposal.suggestions.length === 0 ? (
+                {skillsProposal.detected_stack.length > 0 && (
+                  <div className="flex flex-wrap gap-1 pb-1">
+                    <span className="text-[10px] text-[var(--color-text-tertiary)] self-center">
+                      Stack detectado:
+                    </span>
+                    {skillsProposal.detected_stack.map((token) => (
+                      <span
+                        key={token}
+                        className="inline-flex items-center rounded bg-[var(--color-surface-3)] px-1.5 py-0.5 text-[9.5px] text-[var(--color-text-secondary)]"
+                      >
+                        {token}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {skillsProposal.recommended.length === 0 ? (
                   <div className="rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-center text-[var(--color-text-muted)]">
                     No se detectaron skills relevantes para este proyecto.
                   </div>
                 ) : (
                   <div className="max-h-[50vh] overflow-y-auto rounded border border-[var(--color-border)] bg-[var(--color-surface-1)] p-2">
                     <p className="mb-1.5 text-[10.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
-                      Sugeridas ({skillsProposal.suggestions.length})
+                      Sugeridas ({skillsProposal.recommended.length})
                     </p>
                     <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-                      {skillsProposal.suggestions.map((s) => (
+                      {skillsProposal.recommended.map((s) => (
                         <div
                           key={s.name}
                           className="flex items-start gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2"
