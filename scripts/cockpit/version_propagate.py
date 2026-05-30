@@ -3,12 +3,18 @@
 # by hooks, control-center, or any user-facing command. See docs/MAINTAINERS.md.
 """Version drift guard for ULTRON.
 
-The SSOT version lives in ``pyproject.toml`` (``[project].version``). Six other
-files repeat that version because their respective tooling (Tauri, Cargo, npm,
-PowerShell installers, Bash installer) cannot read pyproject.toml at runtime.
-Drift has reopened repeatedly across releases (PLANS item ``ci-version-drift-
-guard``); this script is the deterministic check that fails the build on the
-first mismatch instead of letting a half-bumped tag ship to users.
+The SSOT version lives in ``pyproject.toml`` (``[project].version``). The
+installer scripts (PowerShell + Bash) repeat that version because they cannot
+read pyproject.toml at runtime. Drift has reopened repeatedly across releases
+(PLANS item ``ci-version-drift-guard``); this script is the deterministic check
+that fails the build on the first mismatch instead of letting a half-bumped tag
+ship to users.
+
+NOTE (2026-05-30): the Control Center (Tauri app) was deliberately re-versioned
+to its OWN line (2.x) and is NO LONGER tied to the monorepo SSOT — pyproject's
+15.x belongs to the archived Python ULTRON. So the three CC manifests
+(package.json / Cargo.toml / tauri.conf.json) are checked only for INTERNAL
+consistency with each other via ``CC_TARGETS``, not against the SSOT.
 
 Usage::
 
@@ -35,18 +41,24 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 # Each pattern captures exactly the version literal so we can compare without
 # pulling in toml/yaml libraries.
 TARGETS: list[tuple[str, str, bool]] = [
-    ("control-center/package.json",
-     r'"version"\s*:\s*"(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"', False),
-    ("control-center/src-tauri/Cargo.toml",
-     r'^version\s*=\s*"(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"', False),
-    ("control-center/src-tauri/tauri.conf.json",
-     r'"version"\s*:\s*"(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"', False),
     ("install.ps1",
      r'\$Script:VersionFallback\s*=\s*"v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"', True),
     ("scripts/cockpit/install-wizard.ps1",
      r'\[string\]\$Version\s*=\s*"v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"', True),
     ("install.sh",
      r'readonly\s+ULTRON_VERSION="v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"', True),
+]
+
+# Control Center has its OWN version line (2.x) since the 2026-05 re-versioning;
+# it is decoupled from the monorepo SSOT (see module docstring). These three
+# manifests must stay consistent WITH EACH OTHER, but not with pyproject.
+CC_TARGETS: list[tuple[str, str]] = [
+    ("control-center/package.json",
+     r'"version"\s*:\s*"(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"'),
+    ("control-center/src-tauri/Cargo.toml",
+     r'^version\s*=\s*"(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"'),
+    ("control-center/src-tauri/tauri.conf.json",
+     r'"version"\s*:\s*"(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)"'),
 ]
 
 SSOT_FILE = "pyproject.toml"
@@ -81,7 +93,8 @@ MD_PIN_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r'(?:Current|Stable actual)[^v]{0,30}\*\*\[v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)\]'),  # release-notes header
     # v15.5.17+SYSTEM-MAP.md plain-prose pins.
     re.compile(r'SSOT version:\s*v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)'),                    # SSOT prose
-    re.compile(r'Control Center \(v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)\):'),                # CC header in SYSTEM-MAP
+    # NOTE: "Control Center (vX.Y.Z):" pin removed 2026-05-30 — CC now has its
+    # own 2.x version line decoupled from the monorepo SSOT (see CC_TARGETS).
     re.compile(r'2026-05-\d{2}\s*\(v(?P<ver>[0-9]+\.[0-9]+\.[0-9]+)'),                  # "Última actualización: 2026-05-18 (v15.5.X..."
 ]
 
@@ -100,6 +113,20 @@ def collect() -> list[tuple[str, str | None]]:
     """Read every target and return ``(file, version_or_None)`` tuples."""
     out: list[tuple[str, str | None]] = []
     for rel, pattern, _vprefix in TARGETS:
+        path = ROOT / rel
+        if not path.exists():
+            out.append((rel, None))
+            continue
+        text = path.read_text(encoding="utf-8")
+        match = re.search(pattern, text, re.MULTILINE)
+        out.append((rel, match.group("ver") if match else None))
+    return out
+
+
+def collect_cc() -> list[tuple[str, str | None]]:
+    """Read the Control Center manifests (own 2.x line, decoupled from SSOT)."""
+    out: list[tuple[str, str | None]] = []
+    for rel, pattern in CC_TARGETS:
         path = ROOT / rel
         if not path.exists():
             out.append((rel, None))
@@ -176,9 +203,26 @@ def check() -> int:
         print(f"\n{len(drift)} version drift(s):")
         for line in drift:
             print(f"  - {line}")
-    if drift or missing or md_drift:
+
+    # Control Center: own 2.x line — the three manifests must agree with EACH
+    # OTHER, but are decoupled from the monorepo SSOT (see CC_TARGETS).
+    cc_rows = collect_cc()
+    cc_versions = {ver for _, ver in cc_rows if ver is not None}
+    cc_missing = [rel for rel, ver in cc_rows if ver is None]
+    cc_inconsistent = len(cc_versions) > 1
+    cc_ver = next(iter(cc_versions)) if len(cc_versions) == 1 else "?"
+    print(f"\nControl Center (own line, not SSOT-bound): {cc_ver}")
+    for rel, ver in cc_rows:
+        marker = "MISS" if ver is None else ("OK" if not cc_inconsistent else "DRIFT")
+        print(f"  [{marker}] {rel}: {ver}")
+    if cc_inconsistent:
+        print(f"\nControl Center manifests disagree: {sorted(cc_versions)}")
+    if cc_missing:
+        print(f"\nControl Center manifest(s) missing or unparsable: {cc_missing}")
+
+    if drift or missing or md_drift or cc_inconsistent or cc_missing:
         return 1
-    print("\nOK — all version files and markdown bodies match SSOT.")
+    print("\nOK — monorepo files match SSOT; Control Center manifests are consistent.")
     return 0
 
 
