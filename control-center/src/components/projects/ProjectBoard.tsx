@@ -7,11 +7,11 @@
 // Visual pass (first redesign): tighter cards, better hover, column accent,
 // friendlier empty state. DnD wiring untouched.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Bot, Plus } from "./icons";
 import { useDraggableCard, useDroppableColumn } from "../../hooks/useKanbanDnd";
-import type { Card, KanbanBoard, KanbanArchive, KanbanArchiveSummary } from "../../types";
+import type { Card, Column, ColumnRole, KanbanBoard, KanbanArchive, KanbanArchiveSummary } from "../../types";
 import CardEditorModal from "./CardEditorModal";
 
 type Props = { projectId: string; onOpenTerminal?: () => void };
@@ -129,23 +129,94 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
     [load, projectId],
   );
 
-  // v2.6 (card-v26-fb-030): rename a column. Mutates the board immutably
-  // and persists via kanban_save (which already accepts the whole board).
+  // v2.14 — rename a column via kanban_rename_column.
   const renameColumn = useCallback(
     async (columnId: string, newName: string) => {
       if (!board) return;
       const trimmed = newName.trim();
       if (!trimmed) return;
       const snapshot = board;
-      const next: KanbanBoard = {
+      setBoard({
         ...board,
         columns: board.columns.map((c) =>
           c.id === columnId ? { ...c, name: trimmed } : c,
         ),
-      };
-      setBoard(next);
+      });
       try {
-        await invoke("kanban_save", { projectId, board: next });
+        await invoke("kanban_rename_column", { projectId, columnId, name: trimmed });
+        await load();
+      } catch (e) {
+        setError(String(e));
+        setBoard(snapshot);
+      }
+    },
+    [board, projectId, load],
+  );
+
+  // v2.14 — add a new column via kanban_add_column.
+  const addColumn = useCallback(
+    async (name: string, role: ColumnRole) => {
+      const trimmed = name.trim();
+      if (!trimmed) return;
+      try {
+        await invoke("kanban_add_column", { projectId, name: trimmed, role });
+        await load();
+      } catch (e) {
+        setError(String(e));
+      }
+    },
+    [projectId, load],
+  );
+
+  // v2.14 — delete a column. If the column has cards and reassignToColumnId is
+  // not provided, the backend returns Err — the caller must ask the user where
+  // to move cards and retry.
+  const deleteColumnById = useCallback(
+    async (columnId: string, reassignToColumnId?: string) => {
+      try {
+        await invoke("kanban_delete_column", {
+          projectId,
+          columnId,
+          reassignToColumnId: reassignToColumnId ?? null,
+        });
+        await load();
+      } catch (e) {
+        // Re-throw so the column component can decide whether to ask for reassign.
+        throw e;
+      }
+    },
+    [projectId, load],
+  );
+
+  // v2.14 — reorder columns via kanban_reorder_columns.
+  const reorderColumn = useCallback(
+    async (columnId: string, direction: "left" | "right") => {
+      if (!board) return;
+      const sorted = [...board.columns].sort((a, b) => a.order - b.order);
+      const idx = sorted.findIndex((c) => c.id === columnId);
+      if (idx === -1) return;
+      const swapIdx = direction === "left" ? idx - 1 : idx + 1;
+      if (swapIdx < 0 || swapIdx >= sorted.length) return;
+      const orderedIds = sorted.map((c) => c.id);
+      orderedIds[idx] = sorted[swapIdx].id;
+      orderedIds[swapIdx] = sorted[idx].id;
+      const snapshot = board;
+      // Optimistic update.
+      const nextCols = sorted.map((c, i) => ({ ...c, order: i }));
+      // Swap order values in optimistic state.
+      const tmp = nextCols[idx].order;
+      nextCols[idx] = { ...nextCols[idx], order: nextCols[swapIdx].order };
+      nextCols[swapIdx] = { ...nextCols[swapIdx], order: tmp };
+      setBoard({ ...board, columns: orderedIds.map((id, i) => {
+        const col = board.columns.find((c) => c.id === id)!;
+        return { ...col, order: i };
+      })});
+      try {
+        const next = (await invoke("kanban_reorder_columns", {
+          projectId,
+          orderedIds,
+        })) as KanbanBoard;
+        setBoard(next);
       } catch (e) {
         setError(String(e));
         setBoard(snapshot);
@@ -153,6 +224,27 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
     },
     [board, projectId],
   );
+
+  // v2.14 — "+ Columna" form state in the toolbar.
+  const [addColOpen, setAddColOpen] = useState(false);
+  const [addColName, setAddColName] = useState("");
+  const [addColRole, setAddColRole] = useState<ColumnRole>("other");
+  const [addColBusy, setAddColBusy] = useState(false);
+  const addColInputRef = useRef<HTMLInputElement>(null);
+
+  const submitAddColumn = useCallback(async () => {
+    const trimmed = addColName.trim();
+    if (!trimmed || addColBusy) return;
+    setAddColBusy(true);
+    try {
+      await addColumn(trimmed, addColRole);
+      setAddColOpen(false);
+      setAddColName("");
+      setAddColRole("other");
+    } finally {
+      setAddColBusy(false);
+    }
+  }, [addColName, addColRole, addColBusy, addColumn]);
 
   // v2.6.2 — archive Done state. The toolbar "Archive Done" button opens a
   // small prompt for a group name; once confirmed the backend writes the
@@ -436,9 +528,113 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
           >
             {showArchived ? "Hide Archived" : "Show Archived"}
           </button>
-          <span className="ml-auto text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
-            {board.cards.filter(cardMatches).length} / {board.cards.length} cards
-          </span>
+          {/* v2.14 — "+ Columna" button + inline popover form. */}
+          <div className="relative ml-auto flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setAddColOpen((v) => !v);
+                if (!addColOpen) {
+                  setTimeout(() => addColInputRef.current?.focus(), 30);
+                }
+              }}
+              className="flex items-center gap-1 rounded px-2 py-0.5 text-[11.5px] font-medium transition-colors"
+              style={{
+                background: addColOpen ? "var(--color-accent)" : "var(--color-surface-3)",
+                color: addColOpen ? "var(--color-accent-text)" : "var(--color-text-secondary)",
+                border: `1px solid ${addColOpen ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+              }}
+              title="Agregar columna al board"
+            >
+              <Plus size={11} />
+              Columna
+            </button>
+            {addColOpen && (
+              <div
+                className="absolute right-0 top-8 z-30 w-64 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-1)] p-3 shadow-lg"
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") {
+                    setAddColOpen(false);
+                    setAddColName("");
+                    setAddColRole("other");
+                  }
+                }}
+              >
+                <div className="mb-2 text-[10.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
+                  Nueva columna
+                </div>
+                <input
+                  ref={addColInputRef}
+                  type="text"
+                  value={addColName}
+                  onChange={(e) => setAddColName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void submitAddColumn();
+                  }}
+                  placeholder="Nombre de la columna"
+                  className="mb-2 w-full rounded px-2 py-1 text-[12px] outline-none"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border-strong)",
+                    color: "var(--color-text)",
+                  }}
+                />
+                <label className="mb-1 block text-[10px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                  Rol
+                </label>
+                <select
+                  value={addColRole}
+                  onChange={(e) => setAddColRole(e.target.value as ColumnRole)}
+                  className="mb-3 w-full rounded px-2 py-1 text-[12px] outline-none"
+                  style={{
+                    background: "var(--color-surface-2)",
+                    border: "1px solid var(--color-border-strong)",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  <option value="todo">Todo (backlog / pendiente)</option>
+                  <option value="doing">Doing (en progreso)</option>
+                  <option value="blocked">Blocked (bloqueado)</option>
+                  <option value="done">Done (completado)</option>
+                  <option value="other">Otro</option>
+                </select>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={addColBusy}
+                    onClick={() => {
+                      setAddColOpen(false);
+                      setAddColName("");
+                      setAddColRole("other");
+                    }}
+                    className="rounded px-2.5 py-1 text-[11.5px]"
+                    style={{
+                      background: "transparent",
+                      color: "var(--color-text-tertiary)",
+                      border: "1px solid var(--color-border-strong)",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={addColBusy || !addColName.trim()}
+                    onClick={() => void submitAddColumn()}
+                    className="rounded px-2.5 py-1 text-[11.5px] font-medium disabled:opacity-40"
+                    style={{
+                      background: "var(--color-accent)",
+                      color: "var(--color-accent-text)",
+                    }}
+                  >
+                    {addColBusy ? "Creando…" : "Crear"}
+                  </button>
+                </div>
+              </div>
+            )}
+            <span className="text-[11.5px]" style={{ color: "var(--color-text-faint)" }}>
+              {board.cards.filter(cardMatches).length} / {board.cards.length} cards
+            </span>
+          </div>
         </div>
         {/* v2.6.2 — when "Show Archived" is on, render the Library-style box
             grid instead of the live columns. Click a box to inspect its
@@ -583,6 +779,7 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
                   columnId={col.id}
                   name={col.name}
                   cards={colCards}
+                  allColumns={visibleCols}
                   onDropCard={(cardId, beforeCardId) => {
                     const inCol = board.cards
                       .filter((c) => c.column_id === col.id)
@@ -610,6 +807,11 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
                     ).then(() => onOpenTerminal?.())
                   }
                   onRename={(newName) => void renameColumn(col.id, newName)}
+                  onDelete={(reassignId) => deleteColumnById(col.id, reassignId)}
+                  onMoveLeft={() => void reorderColumn(col.id, "left")}
+                  onMoveRight={() => void reorderColumn(col.id, "right")}
+                  isFirst={visibleCols[0].id === col.id}
+                  isLast={visibleCols[visibleCols.length - 1].id === col.id}
                 />
               );
             });
@@ -805,13 +1007,18 @@ type ColumnProps = {
   columnId: string;
   name: string;
   cards: Card[];
+  allColumns: Column[];
   onDropCard: (cardId: string, beforeCardId: string | null) => void;
   onAddCard: () => void;
   onEditCard: (card: Card) => void;
   onDeleteCard: (cardId: string) => void;
   onDispatchPrompt: (prompt: string) => void;
-  // v2.6 (card-v26-fb-030): rename column via double-click on header name.
   onRename: (newName: string) => void;
+  onDelete: (reassignToColumnId?: string) => Promise<void>;
+  onMoveLeft: () => void;
+  onMoveRight: () => void;
+  isFirst: boolean;
+  isLast: boolean;
 };
 
 // v2.6.2 — Backlog column with a vertical split: "Backlog" sub-section on top,
@@ -1194,44 +1401,98 @@ function columnAccent(name: string): string {
   return "var(--color-accent)";
 }
 
+// DeleteConfirm — three-state inline confirm flow for column deletion.
+//   idle      → shows "Borrar" button
+//   confirm   → shows "Confirmar borrado" / Cancelar (for empty columns)
+//   reassign  → shows a select of other columns to move cards to
+type DeleteState =
+  | { phase: "idle" }
+  | { phase: "confirm" }
+  | { phase: "reassign"; targetId: string }
+  | { phase: "busy" };
+
 function BoardColumn({
   columnId,
   name,
   cards,
+  allColumns,
   onDropCard,
   onAddCard,
   onEditCard,
   onDeleteCard,
   onDispatchPrompt,
   onRename,
+  onDelete,
+  onMoveLeft,
+  onMoveRight,
+  isFirst,
+  isLast,
 }: ColumnProps) {
   const { columnDropProps, cardDropProps, hover } = useDroppableColumn(
     columnId,
     ({ payload, beforeCardId }) => onDropCard(payload.card_id, beforeCardId),
   );
   const accent = columnAccent(name);
-  const [menuOpen, setMenuOpen] = useState(false);
+
+  // AI dispatch menu
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const presets = useMemo(() => presetsForColumn(name), [name]);
-  // v2.6 (card-v26-fb-030): inline rename on double-click of the column name.
+
+  // Column action menu (three-dot)
+  const [colMenuOpen, setColMenuOpen] = useState(false);
+
+  // Inline rename
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(name);
   useEffect(() => {
     if (!editingName) setDraftName(name);
   }, [name, editingName]);
 
+  // Delete flow state machine
+  const [deleteState, setDeleteState] = useState<DeleteState>({ phase: "idle" });
+  const otherColumns = allColumns.filter((c) => c.id !== columnId);
+
+  const handleDeleteClick = () => {
+    if (cards.length === 0) {
+      setDeleteState({ phase: "confirm" });
+    } else {
+      setDeleteState({
+        phase: "reassign",
+        targetId: otherColumns[0]?.id ?? "",
+      });
+    }
+  };
+
+  const handleDeleteConfirm = async () => {
+    setDeleteState({ phase: "busy" });
+    try {
+      if (cards.length === 0) {
+        await onDelete(undefined);
+      } else if (deleteState.phase === "reassign") {
+        await onDelete(deleteState.targetId);
+      }
+    } catch (e) {
+      // Backend error after optimistic start (shouldn't happen here but guard)
+      setDeleteState({ phase: "idle" });
+    }
+  };
+
+  const isDeleteActive =
+    deleteState.phase !== "idle" && deleteState.phase !== "busy";
+
   return (
     <div
       {...columnDropProps}
       className={[
-        // v2.x: min-w-[280px] + flex-1 so columns absorb the right-side
-        // dead space the user complained about, while still horizontal-
-        // scrolling on narrow viewports.
         "flex h-full min-w-[280px] flex-1 shrink-0 flex-col rounded-md border bg-[var(--color-surface-1)] transition-colors",
         hover
           ? "border-[var(--color-accent)] bg-[var(--color-surface-2)]"
-          : "border-[var(--color-border)]",
+          : isDeleteActive
+            ? "border-[var(--color-error)]"
+            : "border-[var(--color-border)]",
       ].join(" ")}
     >
+      {/* Column header */}
       <div className="relative flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2 text-xs">
         <span className="flex items-center gap-1.5 font-semibold uppercase tracking-wide">
           <span
@@ -1270,7 +1531,7 @@ function BoardColumn({
           ) : (
             <span
               onDoubleClick={() => setEditingName(true)}
-              title="Double-click to rename"
+              title="Doble clic para renombrar"
               className="cursor-text"
             >
               {name}
@@ -1281,30 +1542,43 @@ function BoardColumn({
           </span>
         </span>
         <div className="flex items-center gap-0.5">
+          {/* AI dispatch button */}
           <button
-            onClick={() => setMenuOpen((v) => !v)}
+            onClick={() => { setAiMenuOpen((v) => !v); setColMenuOpen(false); }}
             className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-accent)]"
-            aria-label="Dispatch AI on this column"
-            title="Dispatch AI session with this column's context"
+            aria-label="Despachar IA en esta columna"
+            title="Despachar sesión IA con el contexto de esta columna"
           >
             <Bot size={12} />
+          </button>
+          {/* Column actions menu (three-dot) */}
+          <button
+            onClick={() => { setColMenuOpen((v) => !v); setAiMenuOpen(false); setDeleteState({ phase: "idle" }); }}
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-accent)]"
+            aria-label="Acciones de columna"
+            title="Acciones de columna"
+          >
+            {/* Three-dot icon rendered as text — no new icon import needed */}
+            <span className="select-none text-[13px] leading-none tracking-tight">···</span>
           </button>
           {isBacklogColumn(name) && (
             <button
               onClick={onAddCard}
               className="flex items-center gap-1 rounded px-2 py-1 text-[11.5px] font-medium text-[var(--color-text-muted)] hover:bg-[var(--color-accent)]/10 hover:text-[var(--color-accent)]"
-              aria-label="Add card"
-              title="Add card"
+              aria-label="Agregar card"
+              title="Agregar card"
             >
               <Plus size={12} />
               Add
             </button>
           )}
         </div>
-        {menuOpen && (
+
+        {/* AI dispatch popover */}
+        {aiMenuOpen && (
           <div
             className="absolute right-1 top-9 z-20 w-60 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] shadow-lg"
-            onMouseLeave={() => setMenuOpen(false)}
+            onMouseLeave={() => setAiMenuOpen(false)}
           >
             <div className="border-b border-[var(--color-border)] px-3 py-1.5 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
               Dispatch for {name}
@@ -1314,7 +1588,7 @@ function BoardColumn({
                 key={p.label}
                 type="button"
                 onClick={() => {
-                  setMenuOpen(false);
+                  setAiMenuOpen(false);
                   onDispatchPrompt(p.prompt);
                 }}
                 className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-accent)]"
@@ -1325,7 +1599,157 @@ function BoardColumn({
             ))}
           </div>
         )}
+
+        {/* Column actions popover */}
+        {colMenuOpen && (
+          <div
+            className="absolute right-1 top-9 z-20 w-52 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] shadow-lg"
+            onMouseLeave={() => {
+              if (deleteState.phase === "idle") setColMenuOpen(false);
+            }}
+          >
+            <div className="border-b border-[var(--color-border)] px-3 py-1.5 text-[11px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
+              {name}
+            </div>
+
+            {/* Renombrar */}
+            <button
+              type="button"
+              onClick={() => {
+                setColMenuOpen(false);
+                setEditingName(true);
+              }}
+              className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)]"
+            >
+              Renombrar
+            </button>
+
+            {/* Mover izquierda / derecha */}
+            <button
+              type="button"
+              disabled={isFirst}
+              onClick={() => { setColMenuOpen(false); onMoveLeft(); }}
+              className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] disabled:opacity-35"
+            >
+              Mover a la izquierda
+            </button>
+            <button
+              type="button"
+              disabled={isLast}
+              onClick={() => { setColMenuOpen(false); onMoveRight(); }}
+              className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] disabled:opacity-35"
+            >
+              Mover a la derecha
+            </button>
+
+            <div className="my-1 border-t border-[var(--color-border)]" />
+
+            {/* Borrar — inline confirm / reassign */}
+            {deleteState.phase === "idle" && (
+              <button
+                type="button"
+                onClick={handleDeleteClick}
+                className="block w-full px-3 py-1.5 text-left text-[12px] text-[var(--color-error)] hover:bg-[var(--color-surface-3)]"
+              >
+                Borrar columna
+              </button>
+            )}
+
+            {deleteState.phase === "confirm" && (
+              <div className="px-3 py-2">
+                <p className="mb-2 text-[11px] text-[var(--color-text-secondary)]">
+                  La columna esta vacia. Confirmar borrado?
+                </p>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteState({ phase: "idle" })}
+                    className="flex-1 rounded px-2 py-1 text-[11px]"
+                    style={{
+                      background: "transparent",
+                      color: "var(--color-text-tertiary)",
+                      border: "1px solid var(--color-border-strong)",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleDeleteConfirm()}
+                    className="flex-1 rounded px-2 py-1 text-[11px] font-medium"
+                    style={{
+                      background: "var(--color-error)",
+                      color: "#fff",
+                    }}
+                  >
+                    Borrar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {deleteState.phase === "reassign" && (
+              <div className="px-3 py-2">
+                <p className="mb-1.5 text-[11px] text-[var(--color-text-secondary)]">
+                  {cards.length} card{cards.length === 1 ? "" : "s"} se moveran a:
+                </p>
+                <select
+                  value={deleteState.targetId}
+                  onChange={(e) =>
+                    setDeleteState({ phase: "reassign", targetId: e.target.value })
+                  }
+                  className="mb-2 w-full rounded px-2 py-1 text-[11.5px] outline-none"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    border: "1px solid var(--color-border-strong)",
+                    color: "var(--color-text)",
+                  }}
+                >
+                  {otherColumns.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteState({ phase: "idle" })}
+                    className="flex-1 rounded px-2 py-1 text-[11px]"
+                    style={{
+                      background: "transparent",
+                      color: "var(--color-text-tertiary)",
+                      border: "1px solid var(--color-border-strong)",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!deleteState.targetId}
+                    onClick={() => void handleDeleteConfirm()}
+                    className="flex-1 rounded px-2 py-1 text-[11px] font-medium disabled:opacity-40"
+                    style={{
+                      background: "var(--color-error)",
+                      color: "#fff",
+                    }}
+                  >
+                    Borrar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {deleteState.phase === "busy" && (
+              <div className="px-3 py-2 text-[11px] text-[var(--color-text-muted)]">
+                Borrando…
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Cards list */}
       <div className="flex-1 space-y-1.5 overflow-y-auto p-2">
         {cards.length === 0 && (
           <button

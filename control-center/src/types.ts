@@ -814,10 +814,13 @@ export type Card = {
   runs: CardRun[];
 };
 
+export type ColumnRole = "todo" | "doing" | "blocked" | "done" | "other";
+
 export type Column = {
   id: string;
   name: string;
   order: number;
+  role: ColumnRole;
 };
 
 export type KanbanBoard = {
