@@ -13,12 +13,12 @@ import {
   BookOpen,
   Clock,
   ExternalLink,
-  FolderOpen,
   Kanban,
   Terminal as TerminalIcon,
   Notebook,
   History,
   Sparkles,
+  Scale,
 } from "./icons";
 import type { ProjectSubTab } from "../../types";
 import ProjectBoard from "./ProjectBoard";
@@ -28,11 +28,14 @@ import ProjectContext from "./ProjectContext";
 import ProjectSessions from "./ProjectSessions";
 import ProjectNotes from "./ProjectNotes";
 import ProjectTimeline from "./ProjectTimeline";
+import DecisionsPanel from "./DecisionsPanel";
 import ProjectJarvisLauncher, { type JarvisIntent } from "./ProjectJarvisLauncher";
 import { useProjectsTabs } from "../../state/ProjectsTabsContext";
 import { useFeatures } from "../../lib/features";
 import ProjectDashboard from "./ProjectDashboard";
 import { type BatchToast } from "./BatchDropdown";
+import { ProjectQuickActions } from "./ProjectQuickActions";
+import type { ProjectInfo } from "../../types";
 
 type Props = {
   projectId: string;
@@ -139,6 +142,7 @@ const TABS: { id: ProjectSubTab; label: string; Icon: ComponentType<{ size?: num
   // feed of kanban moves + sessions + backups).
   { id: "notes", label: "Notes", Icon: BookOpen },
   { id: "timeline", label: "Timeline", Icon: Clock },
+  { id: "decisions", label: "Decisiones", Icon: Scale },
 ];
 
 // Shared visual style for every header action button.
@@ -168,6 +172,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
   }, []);
 
   const [meta, setMeta] = useState<ProjectMeta | null>(null);
+  const [projectInfo, setProjectInfo] = useState<ProjectInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [batchToast, setBatchToast] = useState<BatchToast | null>(null);
   const [tabCounts, setTabCounts] = useState<TabCounts>({ agents: null, sessions: null });
@@ -199,6 +204,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
               path: found.path,
               terminalCwd,
             });
+            setProjectInfo(found as unknown as ProjectInfo);
             metaPathRef.current = found.path;
           } else {
             setError(`project ${projectId} not found`);
@@ -356,35 +362,19 @@ export default function ProjectWorkspace({ projectId }: Props) {
           )}
         </div>
 
-        {/* Action buttons — all share HEADER_BTN + onMouseEnter/Leave for hover.
-            Recall + Run Batch removed from header (duplicated with Terminal toolbar
-            where the actual spawn lives). To be fully removed in Projects redesign C10. */}
-        <div className="flex shrink-0 items-center gap-1.5">
-          {/* IDE */}
-          <HeaderBtn
-            onClick={openInIde}
-            disabled={!meta}
-            title="Open project in IDE"
-          >
-            <ExternalLink size={12} />
-            IDE
-          </HeaderBtn>
-
-          {/* Folder */}
-          <HeaderBtn
-            onClick={openFolder}
-            disabled={!meta}
-            title="Reveal project folder in Explorer"
-          >
-            <FolderOpen size={12} />
-            Folder
-          </HeaderBtn>
-
-          {/* Detach */}
+        {/* Quick actions — fuente única ProjectQuickActions + Detach */}
+        <div className="flex shrink-0 flex-wrap items-center gap-1.5">
+          {projectInfo && (
+            <ProjectQuickActions
+              project={projectInfo}
+              density="compact"
+              onOpenTerminal={() => setSubTab("terminal")}
+            />
+          )}
           <HeaderBtn
             onClick={detachToWindow}
             disabled={!meta}
-            title="Open this project in a standalone window (multi-monitor)"
+            title="Abrir este proyecto en ventana independiente (multi-monitor)"
           >
             <ExternalLink size={12} />
             Detach
@@ -541,6 +531,11 @@ export default function ProjectWorkspace({ projectId }: Props) {
         {subTab === "notes" && <ProjectNotes projectId={projectId} />}
         {subTab === "timeline" && (
           <ProjectTimeline projectId={projectId} projectPath={meta?.path} />
+        )}
+        {subTab === "decisions" && (
+          <div className="h-full overflow-y-auto">
+            <DecisionsPanel projectId={projectId} />
+          </div>
         )}
       </div>
 

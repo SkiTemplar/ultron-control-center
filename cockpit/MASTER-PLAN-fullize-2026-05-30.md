@@ -31,11 +31,11 @@ AI Router 3 · Memoria 4 · Orquestación 4 · UX/Shell 5 · Projects/Kanban 6 �
 - [~] **F-BUGS**: Force Backup respeta `r.success` ✓; botón IDE `{path,preferredIde}` ✓; appendFixHistory = n/a (símbolo no existe ya); spawn_inner inyecta prompt del card → DIFERIDO a Ola 3.
 
 ### Ola 2 — Cockpit + Kanban (valor visible)
-- [ ] **C-CLAMP**: Matar el clamp — root Dashboard opt-out del max-width global (styles.css:152/168/190); grid bento `auto-fit minmax(320px,1fr)`; fuera minHeight:180 (Card.tsx); selector `aside.w-56`→`w-64`. ErrorBoundary por-tab.
-- [ ] **C-QA**: `ProjectQuickActions` único (Folder/IDE/Terminal/Provider/items/launch_all/exes + IA suggest_refactor/generate_readme) montado en card/row/workspace header/dashboard.
-- [ ] **C-HERO**: ActiveProjectCard hero + montar RecentSessionsCard (resume 1-click, hoy muerta) + mini intents Jarvis (recall/fix/free) cableados de verdad (hoy sessionStorage que nadie lee).
-- [ ] **C-DEC**: Sacar DecisionsPanel del Board (ProjectBoard.tsx:332) → sub-tab Decisions. Board 100% columnas.
-- [ ] **C-KAN**: Kanban `role` canónico (todo/doing/blocked/done) + CRUD columnas + auto-dispatch opt-in. Migración idempotente.
+- [x] **C-CLAMP**: clamp muerto (Dashboard `dashboard-shell` full-width; bento `auto-fit minmax(320px,1fr)`; Card sin minHeight; sidebar `w-64`) + ErrorBoundary por-tab (TabErrorBoundary).
+- [~] **C-QA**: `ProjectQuickActions` creado + montado en ProjectCard + ProjectWorkspace header. PENDIENTE montar en ProjectRow (refactor Projects.tsx ~3600 líneas) → Ola 3.
+- [x] **C-HERO**: ActiveProjectCard hero + RecentSessionsCard montada + intents Recall/Fix/Free lanzando vía spawn_session directo (sin sessionStorage muerto).
+- [x] **C-DEC**: DecisionsPanel fuera del Board → sub-tab "Decisiones". Board 100% columnas.
+- [~] **C-KAN**: backend `role` canónico + migración idempotente + CRUD columnas + 16 tests ✓. PENDIENTE UI de CRUD columnas → Ola 3.
 
 ### Ola 3 — Cimientos avanzados + proxy + detector + hardening
 - [ ] **A-PROXY**: Vendorizar sidecar proxy (Go nielspeter) — proxy.rs lifecycle start/stop/health; `-FreeTier` en spawn-claude-session.ps1 (ANTHROPIC_BASE_URL=127.0.0.1:8082); toggle en Usage; auto-ON 98% vía quota_watchdog. Validar tool_use con NIM.

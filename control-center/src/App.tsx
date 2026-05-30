@@ -27,6 +27,7 @@ import { Onboarding } from "./components/Onboarding";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { UpdateBanner } from "./components/UpdateBanner";
 import { computeGlobalStatus } from "./lib/status";
+import { TabErrorBoundary } from "./components/TabErrorBoundary";
 import { setupTrayEventListeners } from "./lib/tauri-events";
 import type { AlertEntry, ChangelogEntry } from "./types";
 
@@ -498,44 +499,64 @@ function AppInner() {
       />
       <main className="flex-1 overflow-auto">
         <UpdateBanner />
-        {tab === "dashboard" && (
-          <Dashboard
-            alerts={alerts}
-            globalStatus={globalStatus}
-            onNavigate={setTab}
-          />
-        )}
-        {tab === "notifications" && (
-          <Notifications alerts={alerts} onDeleted={refreshAll} />
-        )}
-        {tab === "changelog" && <Changelog entries={changelog} />}
-        {tab === "mcps" && <MCPs />}
-        {(tab === "library" ||
-          tab === "skills" ||
-          tab === "agents" ||
-          tab === "rules") && (
-          // The 4 ids land on the same Library shell — the deep-link tab
-          // name doubles as the initial sub-tab so "Go to Agents" from the
-          // palette still opens Agents directly. `key` forces a remount
-          // when the deep-link changes so the new initial prop is honoured.
-          <Library
-            key={tab}
-            initial={tab === "library" ? undefined : (tab as LibrarySubTab)}
-          />
-        )}
-        {tab === "memory" && <Memory />}
-        {tab === "notes" && <Notes />}
-        {tab === "sessions" && <Sessions />}
-        {tab === "usage" && <Usage />}
-        {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}
-        {tab === "projects" && <ProjectsPane />}
-        {tab === "system" && <System />}
-        {tab === "workdays" && <Workdays />}
-        {tab === "plans" && <Plans />}
-        {/* v2.1: "gaming" and "personal" tabs removed — they were leftovers
-            from the old ULTRON persona stack (Tio Gilito profile + game
-            killer). The Tab union no longer includes them. "hooks" is also
-            gone as a top-level tab; it lives inside System as a sub-tab. */}
+        <TabErrorBoundary tab="dashboard">
+          {tab === "dashboard" && (
+            <Dashboard
+              alerts={alerts}
+              globalStatus={globalStatus}
+              onNavigate={setTab}
+            />
+          )}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="notifications">
+          {tab === "notifications" && (
+            <Notifications alerts={alerts} onDeleted={refreshAll} />
+          )}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="changelog">
+          {tab === "changelog" && <Changelog entries={changelog} />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="mcps">
+          {tab === "mcps" && <MCPs />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="library">
+          {(tab === "library" ||
+            tab === "skills" ||
+            tab === "agents" ||
+            tab === "rules") && (
+            <Library
+              key={tab}
+              initial={tab === "library" ? undefined : (tab as LibrarySubTab)}
+            />
+          )}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="memory">
+          {tab === "memory" && <Memory />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="notes">
+          {tab === "notes" && <Notes />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="sessions">
+          {tab === "sessions" && <Sessions />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="usage">
+          {tab === "usage" && <Usage />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="settings">
+          {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="projects">
+          {tab === "projects" && <ProjectsPane />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="system">
+          {tab === "system" && <System />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="workdays">
+          {tab === "workdays" && <Workdays />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="plans">
+          {tab === "plans" && <Plans />}
+        </TabErrorBoundary>
       </main>
 
       <CommandPalette

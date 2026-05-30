@@ -1,64 +1,10 @@
 // ProjectCard — home-grid card for a single project.
 // Extracted from Projects.tsx (3594 L) as part of the P1 split refactor.
 
-import type { ReactElement } from "react";
 import type { ProjectInfo, SessionProvider } from "../../types";
 import type { CardStats } from "./types";
 import { statusBadge, providerBadge } from "./utils";
-import {
-  CardIconFolder,
-  CardIconIde,
-  CardIconSpark,
-  CardIconTerminal,
-} from "./LauncherIcons";
-
-// ---------------------------------------------------------------------------
-// Internal ActionButton
-// ---------------------------------------------------------------------------
-
-function ActionButton({
-  onClick,
-  title,
-  label,
-  Icon,
-  accent,
-  disabled,
-}: {
-  onClick: () => void;
-  title: string;
-  label: string;
-  Icon: () => ReactElement;
-  accent?: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (!disabled) onClick();
-      }}
-      title={title}
-      className="group/btn flex h-9 flex-1 items-center justify-center gap-1.5 rounded text-[11.5px] font-medium transition-colors disabled:opacity-40"
-      style={{
-        background: "var(--color-surface-1)",
-        color: accent ?? "var(--color-text)",
-        border: "1px solid var(--color-border-strong)",
-      }}
-      onMouseEnter={(e) => {
-        if (disabled) return;
-        e.currentTarget.style.background = "var(--color-surface-3)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.background = "var(--color-surface-1)";
-      }}
-    >
-      <Icon />
-      <span className="hidden md:inline">{label}</span>
-    </button>
-  );
-}
+import { ProjectQuickActions } from "./ProjectQuickActions";
 
 // ---------------------------------------------------------------------------
 // ProjectCard
@@ -80,9 +26,9 @@ export function ProjectCard({
   p,
   stats,
   onOpenWorkspace,
-  onOpenFolder,
-  onOpenIde,
-  onOpenAi,
+  onOpenFolder: _onOpenFolder,
+  onOpenIde: _onOpenIde,
+  onOpenAi: _onOpenAi,
   onOpenTerminal,
   onEdit,
   onDelete,
@@ -203,34 +149,12 @@ export function ProjectCard({
         </div>
       </div>
 
-      {/* Action buttons */}
-      <div className="mt-auto flex items-center gap-1.5">
-        <ActionButton
-          onClick={onOpenFolder}
-          disabled={!p.path}
-          title={p.path ? `Open ${p.path} in Explorer` : "No path configured"}
-          label="Folder"
-          Icon={CardIconFolder}
-        />
-        <ActionButton
-          onClick={onOpenIde}
-          disabled={!p.path}
-          title={p.path ? `Open in ${p.ide ?? "preferred IDE"}` : "No path configured"}
-          label="IDE"
-          Icon={CardIconIde}
-        />
-        <ActionButton
-          onClick={onOpenAi}
-          title={`Spawn ${badge.label} session in CC terminal`}
-          label={badge.label}
-          accent={badge.tint}
-          Icon={CardIconSpark}
-        />
-        <ActionButton
-          onClick={onOpenTerminal}
-          title="Open project workspace on the Terminal tab"
-          label="Terminal"
-          Icon={CardIconTerminal}
+      {/* Acciones rápidas — fuente única ProjectQuickActions */}
+      <div className="mt-auto" onClick={(e) => e.stopPropagation()}>
+        <ProjectQuickActions
+          project={p}
+          density="compact"
+          onOpenTerminal={onOpenTerminal}
         />
       </div>
 

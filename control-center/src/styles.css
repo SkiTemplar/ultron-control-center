@@ -145,9 +145,33 @@ main.flex-1 > div.px-8.py-6 > header,
   row-gap: 0.5rem;
 }
 
+/* ---------------------------------------------------------------------------
+ * Dashboard cockpit — full-width sin max-width clamp.
+ * .dashboard-shell ocupa todo el ancho disponible (sin margin auto ni
+ * max-width). Las demás pestañas (Notifications, Settings, Usage, etc.)
+ * siguen centradas con el selector `main.flex-1 > div.px-10.py-8` de abajo.
+ * --------------------------------------------------------------------------*/
+.dashboard-shell {
+  padding: 2rem 2.5rem;
+  overflow-x: auto;
+  min-width: 0;
+}
+
+/* En el bento grid, algunas cards pueden pedir 2 columnas cuando hay espacio */
+@media (min-width: 1024px) {
+  .dashboard-span-2 {
+    grid-column: span 2;
+  }
+}
+
 @media (min-width: 1280px) {
+  /* Sidebar: el Sidebar real usa w-64 (256px) así que matcheamos w-64 */
+  aside.w-64 {
+    width: 16rem; /* 256px — sin cambio, match w-64 de Tailwind */
+  }
+  /* Backward-compat: los media queries antiguos usaban aside.w-56 */
   aside.w-56 {
-    width: 16rem; /* 256px */
+    width: 16rem;
   }
   main.flex-1 > div.px-10.py-8,
   main.flex-1 > div.px-8.py-6,
@@ -162,6 +186,7 @@ main.flex-1 > div.px-8.py-6 > header,
   html, body, #root {
     font-size: 15px;
   }
+  aside.w-64,
   aside.w-56 {
     width: 18rem; /* 288px */
   }
@@ -184,6 +209,7 @@ main.flex-1 > div.px-8.py-6 > header,
     font-size: 17px;
     line-height: 1.6;
   }
+  aside.w-64,
   aside.w-56 {
     width: 22.5rem; /* 360px */
   }
@@ -193,6 +219,7 @@ main.flex-1 > div.px-8.py-6 > header,
     max-width: 2000px;
   }
   /* Slightly relax the Sidebar nav row for breathing room on 4K. */
+  aside.w-64 nav button,
   aside.w-56 nav button {
     padding-top: 0.4rem;
     padding-bottom: 0.4rem;

@@ -52,7 +52,8 @@ export function Card({
   const padX = isLarge ? "px-5" : "px-4";
   const padTop = isLarge ? "pt-4" : "pt-3";
   const padBottom = isLarge ? "pb-4" : "pb-3";
-  const minHeight = isLarge ? 180 : 120;
+  // minHeight eliminado para que las cards crezcan por contenido en el bento grid
+  const minHeight = isLarge ? undefined : 120;
   const titleClass = isLarge
     ? "text-[14.5px] font-semibold leading-tight"
     : "text-[11.5px] font-medium uppercase tracking-[0.08em]";
@@ -67,7 +68,7 @@ export function Card({
         background: "var(--color-surface-2)",
         border: "1px solid var(--color-border)",
         borderLeft: `3px solid ${ACCENT_COLOR[accent]}`,
-        minHeight,
+        ...(minHeight !== undefined ? { minHeight } : {}),
       }}
     >
       <div className={`flex items-start justify-between ${padX} ${padTop}`}>

@@ -1,22 +1,12 @@
 // Control Center 2.7 Dashboard.
 //
-// FULL REDESIGN (2026-05-24). USER's brief: the previous dashboard had
-// the right cards, but everything felt tiny relative to the screen. This
-// rewrite keeps the same set of cards (alerts, Mem0, pending, recent
-// sessions, recent projects, crash events, backup) but makes them visibly
-// larger, with a 13-14px content baseline, sentence-case section-style
-// titles, and a layout that actually fills the workspace.
-//
-// Layout outline:
-//   Row 1 (banner): Notifications — full width, status snapshot.
-//   Row 2 (status trio): Mem0 · Pending · Backup (3 columns, all "lg" size).
-//   Row 3 (pair): Workdays week chart · Recent projects (2 columns).
-//   Row 4 (footer card): Crash events — read-only, no event-viewer button.
-//
-// Cards that were dropped:
-//   - PcDiagnosticCard (file deleted — was unused after CrashEvents took over)
-//   - FixCommonIssues (those quick actions now live in the System tab)
-//   - PluginStatusCard (moved into the status trio so dashboard stays focused)
+// COCKPIT REDESIGN (2026-05-30).
+// Layout: full-width sin max-width clamp. Bento grid fluido con auto-fit.
+//   Row hero : ActiveProjectCard (col-span ancho) + RecentSessionsCard
+//   Row 0    : ResumeSessionCard (self-hides when none)
+//   Row 1    : AlertsCard (full width)
+//   Bento    : grid auto-fit minmax(320px,1fr) — Mem0 · Pending · Backup
+//              WorkdaysWeekCard · RecentProjectsCard · CrashEvents(span-2) · PluginStatus
 
 import type { AlertEntry, GlobalStatus } from "../types";
 import packageJson from "../../package.json";
@@ -30,6 +20,8 @@ import { WorkdaysWeekCard } from "./dashboard/WorkdaysWeekCard";
 import { PendingKanbanCard } from "./dashboard/PendingKanbanCard";
 import { BackupCard } from "./dashboard/BackupCard";
 import { CrashEventsCard } from "./dashboard/CrashEventsCard";
+import { ActiveProjectCard } from "./dashboard/ActiveProjectCard";
+import { RecentSessionsCard } from "./dashboard/RecentSessionsCard";
 
 const APP_VERSION: string = (packageJson as { version?: string }).version ?? "";
 
@@ -64,10 +56,10 @@ export function Dashboard({
   onNavigate,
 }: DashboardProps) {
   return (
-    <div className="px-10 py-8">
-      <header className="mb-6 flex items-baseline justify-between">
+    <div className="dashboard-shell">
+      <header className="mb-6 flex flex-wrap items-baseline gap-3 justify-between">
         <div>
-          <h1 className="text-[22px] font-semibold leading-tight">Dashboard</h1>
+          <h1 className="text-[22px] font-semibold leading-tight">Cockpit</h1>
           <p
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
@@ -81,13 +73,19 @@ export function Dashboard({
             background: "var(--color-surface-3)",
             color: "var(--color-text-tertiary)",
           }}
-          title="Aggregated global status"
+          title="Estado global agregado"
         >
           {globalStatus}
         </span>
       </header>
 
-      {/* Row 0 — Resume last session (primary action; self-hides when none) */}
+      {/* Hero row: proyecto activo + sesiones recientes */}
+      <div className="mb-4 grid gap-4" style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)" }}>
+        <ActiveProjectCard onOpenProjects={() => onNavigate?.("projects")} />
+        <RecentSessionsCard onOpenSessions={() => onNavigate?.("sessions")} />
+      </div>
+
+      {/* Row 0 — Resume last session (self-hides when none) */}
       <div className="mb-4">
         <ResumeSessionCard onOpenSessions={() => onNavigate?.("sessions")} />
       </div>
@@ -100,22 +98,18 @@ export function Dashboard({
         />
       </div>
 
-      {/* Row 2 — Status trio: Mem0 · Pending · Backup */}
-      <div className="mb-4 grid gap-4 lg:grid-cols-3">
+      {/* Bento grid fluido */}
+      <div
+        className="grid gap-4"
+        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}
+      >
         <Mem0Card onOpenMemory={() => onNavigate?.("memory")} />
         <PendingKanbanCard onOpenProjects={() => onNavigate?.("projects")} />
         <BackupCard />
-      </div>
-
-      {/* Row 3 — Workdays week · Recent projects */}
-      <div className="mb-4 grid gap-4 lg:grid-cols-2">
         <WorkdaysWeekCard />
         <RecentProjectsCard onOpenProjects={() => onNavigate?.("projects")} />
-      </div>
-
-      {/* Row 4 — Crash events (full width, read-only) + plugin status */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <div className="lg:col-span-2">
+        {/* CrashEvents ocupa 2 columnas cuando hay espacio */}
+        <div className="dashboard-span-2">
           <CrashEventsCard />
         </div>
         <PluginStatusCard />

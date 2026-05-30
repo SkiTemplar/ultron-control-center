@@ -862,7 +862,8 @@ export type ProjectSubTab =
   | "context"
   | "sessions"
   | "notes"
-  | "timeline";
+  | "timeline"
+  | "decisions";
 
 // ---------------------------------------------------------------------------
 // Project Timeline (per-project derived event feed)
