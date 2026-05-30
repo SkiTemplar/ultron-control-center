@@ -3,10 +3,11 @@
 // Table of all known providers showing:
 //   - Name and id
 //   - Online / Offline health status (via ai_router_health Tauri command)
-//   - API key state: configured / missing / placeholder
-//   - Cost per million output tokens
+//   - API key state: configured / missing / placeholder (real, from backend)
+//   - Cost per million output tokens (real, from backend)
 //   - Supported task classes
 //
+// Provider list is hydrated from `ai_router_list_providers` on mount.
 // Health checks run once on mount, then every 30 s.
 // Individual re-check buttons allow manual refresh per provider.
 
@@ -195,16 +196,44 @@ function ProviderRow({
 // ---------------------------------------------------------------------------
 
 export function ProviderCatalog() {
+  // Provider list hydrated from the backend. Falls back to the static catalog
+  // if `ai_router_list_providers` is unavailable (backend not yet compiled).
+  const [providers, setProviders] = useState<Provider[]>(PROVIDER_CATALOG);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   // Map from provider id to online status. null = pending check.
-  const [health, setHealth] = useState<Record<string, boolean | null>>(
-    () =>
-      Object.fromEntries(PROVIDER_CATALOG.map((p) => [p.id, null])) as Record<
-        string,
-        boolean | null
-      >,
-  );
+  const [health, setHealth] = useState<Record<string, boolean | null>>({});
   const [checking, setChecking] = useState<Set<string>>(new Set());
-  const [providers] = useState<Provider[]>(PROVIDER_CATALOG);
+
+  // Load real provider list from backend on mount.
+  useEffect(() => {
+    (async () => {
+      try {
+        const backendProviders = (await invoke(
+          "ai_router_list_providers",
+        )) as Provider[];
+        if (backendProviders.length > 0) {
+          setProviders(backendProviders);
+          // Reset health map to null (pending) for the real provider set.
+          setHealth(
+            Object.fromEntries(
+              backendProviders.map((p) => [p.id, null]),
+            ) as Record<string, boolean | null>,
+          );
+        }
+      } catch (err) {
+        // Backend unavailable — static catalog stays; surface a soft notice.
+        setLoadError(
+          err instanceof Error ? err.message : String(err),
+        );
+        setHealth(
+          Object.fromEntries(
+            PROVIDER_CATALOG.map((p) => [p.id, null]),
+          ) as Record<string, boolean | null>,
+        );
+      }
+    })();
+  }, []);
 
   const checkProvider = useCallback(async (id: string) => {
     setChecking((prev) => new Set([...prev, id]));
@@ -225,8 +254,9 @@ export function ProviderCatalog() {
     }
   }, []);
 
-  // Initial check on mount.
+  // Initial health check once providers are loaded.
   useEffect(() => {
+    if (providers.length === 0) return;
     void Promise.all(providers.map((p) => checkProvider(p.id)));
   }, [providers, checkProvider]);
 
@@ -246,6 +276,23 @@ export function ProviderCatalog() {
 
   return (
     <div className="p-6">
+      {/* Backend load error — soft warning, static fallback is still shown */}
+      {loadError !== null && (
+        <div
+          className="mb-4 rounded p-3 text-[12px]"
+          style={{
+            background: "rgba(210,153,34,0.08)",
+            color: "var(--color-warn)",
+            border: "1px solid rgba(210,153,34,0.30)",
+          }}
+        >
+          <span className="font-semibold">
+            ai_router_list_providers no disponible — mostrando catalogo estatico:{" "}
+          </span>
+          {loadError}
+        </div>
+      )}
+
       {/* Toolbar */}
       <div className="mb-4 flex items-center gap-3">
         <div>
@@ -326,8 +373,9 @@ export function ProviderCatalog() {
         style={{ color: "var(--color-text-faint)" }}
       >
         Health checks call ai_router_health() — a lightweight ping to each
-        provider. API key state is read from the settings file. Cost figures
-        are estimates based on published pricing at time of build.
+        provider. API key state and cost figures come from the backend
+        (ai_router_list_providers) and reflect the real configuration in
+        ~/.ultron/cockpit/ai-router/providers.json.
       </p>
     </div>
   );

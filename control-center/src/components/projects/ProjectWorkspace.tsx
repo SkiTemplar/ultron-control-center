@@ -236,7 +236,7 @@ export default function ProjectWorkspace({ projectId }: Props) {
   const openInIde = async () => {
     if (!meta) return;
     try {
-      await invoke("open_project_in_ide", { id: meta.id });
+      await invoke("open_project_in_ide", { path: meta.path, preferredIde: null });
     } catch (e) {
       setError(String(e));
     }

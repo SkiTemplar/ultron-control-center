@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Zone } from "./types";
+import type { Provider, Zone } from "./types";
 import { DEFAULT_ZONES, PROVIDER_CATALOG } from "./types";
 import { ZoneEditor } from "./ZoneEditor";
 
@@ -35,8 +35,8 @@ function classLabel(c: string): string {
   return c.charAt(0).toUpperCase() + c.slice(1);
 }
 
-function providerName(id: string): string {
-  return PROVIDER_CATALOG.find((p) => p.id === id)?.name ?? id;
+function providerName(id: string, providers: Provider[]): string {
+  return providers.find((p) => p.id === id)?.name ?? id;
 }
 
 function modelShort(model: string): string {
@@ -53,12 +53,14 @@ function modelShort(model: string): string {
 function ZoneCard({
   zone,
   onEdit,
+  providers,
 }: {
   zone: Zone;
   onEdit: (z: Zone) => void;
+  providers: Provider[];
 }) {
   const classColor = CLASS_COLORS[zone.task_class] ?? "var(--color-text-secondary)";
-  const primaryLabel = `${providerName(zone.primary.provider_id)} · ${modelShort(zone.primary.model) || "default"}`;
+  const primaryLabel = `${providerName(zone.primary.provider_id, providers)} · ${modelShort(zone.primary.model) || "default"}`;
 
   return (
     <div
@@ -142,7 +144,7 @@ function ZoneCard({
                 border: "1px solid var(--color-border)",
               }}
             >
-              {i + 1}. {providerName(fb.provider_id)} · {modelShort(fb.model) || "default"}
+              {i + 1}. {providerName(fb.provider_id, providers)} · {modelShort(fb.model) || "default"}
             </span>
           ))}
         </div>
@@ -189,6 +191,8 @@ export function AIRouterIndex() {
   const [error, setError] = useState<string | null>(null);
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [editZone, setEditZone] = useState<Zone | null>(null);
+  // Runtime provider list from backend — used for display names in zone cards.
+  const [providers, setProviders] = useState<Provider[]>(PROVIDER_CATALOG);
   const [helpDismissed, setHelpDismissed] = useState<boolean>(() => {
     // Defensive read: localStorage can throw in privacy modes / Tauri webviews
     // with storage disabled. We default to "show help" on any failure.
@@ -220,6 +224,18 @@ export function AIRouterIndex() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Load real provider list for display names in zone cards.
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = (await invoke("ai_router_list_providers")) as Provider[];
+        if (list.length > 0) setProviders(list);
+      } catch {
+        // Backend unavailable — static catalog stays as fallback.
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -363,7 +379,7 @@ export function AIRouterIndex() {
       {/* ------------------------------------------------------------------ */}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((zone) => (
-          <ZoneCard key={zone.id} zone={zone} onEdit={setEditZone} />
+          <ZoneCard key={zone.id} zone={zone} onEdit={setEditZone} providers={providers} />
         ))}
       </div>
 

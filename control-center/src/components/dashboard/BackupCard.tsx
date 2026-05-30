@@ -8,6 +8,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import { Card, SmallButton, relativeTime } from "./Card";
 
+interface MaintenanceResult {
+  kind: string;
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  exit_code: number | null;
+  elapsed_ms: number;
+}
+
 // Mirrors crate::backup_status::{BackupStatusReport, BackupEntry}.
 interface BackupEntry {
   name: string;
@@ -80,10 +89,15 @@ export function BackupCard() {
     setRunning(true);
     setRunMsg(null);
     try {
-      const msg = await invoke<string>("run_backup_now");
-      setRunMsg(typeof msg === "string" && msg ? msg : "Backup started.");
-      window.setTimeout(() => setRunMsg(null), 4000);
-      await loadStatus();
+      const result = await invoke<MaintenanceResult>("run_backup_now");
+      if (result.success) {
+        setRunMsg("Backup finalizado correctamente.");
+        window.setTimeout(() => setRunMsg(null), 4000);
+        await loadStatus();
+      } else {
+        const detail = result.stderr.trim() || result.stdout.trim() || "sin detalle";
+        setError(`Backup falló (código ${result.exit_code ?? "?"}) — ${detail}`);
+      }
     } catch (e) {
       setError(`Backup failed: ${String(e)}`);
     } finally {

@@ -1,11 +1,14 @@
 // ULTRON Control Center — AI Router: Zone Editor Modal
 //
 // Full-screen modal overlay for editing a single Zone's:
-//   - Primary provider (dropdown from PROVIDER_CATALOG)
-//   - Model (dropdown filtered by selected provider)
+//   - Primary provider (dropdown hydrated from ai_router_list_providers)
+//   - Model (dropdown built from the provider's `models` field)
 //   - Max tokens (numeric input, 0 = provider default)
 //   - Fallback chain (ordered list with add/remove/reorder)
 //   - Test button: invokes ai_router_test() and shows latency + excerpt
+//
+// Provider/model data comes from the backend. Falls back to PROVIDER_CATALOG
+// (static) if the command is unavailable so the UI stays usable.
 //
 // On save: calls ai_router_update_zone() Tauri command.
 // Falls back to local state update when command is unavailable.
@@ -19,7 +22,7 @@ import type {
   Zone,
   ZoneAssignment,
 } from "./types";
-import { PROVIDER_CATALOG, PROVIDER_MODELS } from "./types";
+import { PROVIDER_CATALOG } from "./types";
 import { notify } from "../../lib/notify";
 
 // ---------------------------------------------------------------------------
@@ -33,19 +36,31 @@ const CLASS_COLORS: Record<string, string> = {
   heavy: "var(--color-danger)",
 };
 
-function getModels(providerId: string) {
-  return PROVIDER_MODELS[providerId] ?? [];
+/**
+ * Returns the model list for a given provider id, sourced from the runtime
+ * provider list (which comes from the backend). Falls back to an empty array
+ * when the provider is not found — the UI will show "no models listed".
+ */
+function getModelsFromProviders(
+  providerId: string,
+  providers: Provider[],
+): { id: string; label: string }[] {
+  const p = providers.find((pr) => pr.id === providerId);
+  if (!p) return [];
+  // The backend stores models as string[] in Provider.models. Derive display
+  // labels by stripping common prefixes so they fit the narrow dropdown.
+  return (p.models ?? []).map((m: string) => ({ id: m, label: m }));
 }
 
-function defaultModelFor(providerId: string): string {
-  return getModels(providerId)[0]?.id ?? "";
+function defaultModelFor(providerId: string, providers: Provider[]): string {
+  return getModelsFromProviders(providerId, providers)[0]?.id ?? "";
 }
 
 /** Empty assignment with sensible defaults for the given provider. */
-function emptyAssignment(providerId: string): ZoneAssignment {
+function emptyAssignment(providerId: string, providers: Provider[]): ZoneAssignment {
   return {
     provider_id: providerId,
-    model: defaultModelFor(providerId),
+    model: defaultModelFor(providerId, providers),
     max_tokens: 0,
   };
 }
@@ -68,12 +83,12 @@ function AssignmentRow({
   onRemove?: () => void;
   providers: Provider[];
 }) {
-  const models = getModels(assignment.provider_id);
+  const models = getModelsFromProviders(assignment.provider_id, providers);
 
   function handleProviderChange(newProviderId: string) {
     onChange({
       provider_id: newProviderId,
-      model: defaultModelFor(newProviderId),
+      model: defaultModelFor(newProviderId, providers),
       max_tokens: assignment.max_tokens,
     });
   }
@@ -237,6 +252,22 @@ export function ZoneEditor({ zone, onClose, onSaved }: ZoneEditorProps) {
   const [testing, setTesting] = useState(false);
   const [testPrompt, setTestPrompt] = useState("Respond with a single word: OK");
 
+  // Runtime provider list from backend. Falls back to PROVIDER_CATALOG on error.
+  const [runtimeProviders, setRuntimeProviders] = useState<Provider[]>(PROVIDER_CATALOG);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = (await invoke("ai_router_list_providers")) as Provider[];
+        if (list.length > 0) {
+          setRuntimeProviders(list);
+        }
+      } catch {
+        // Backend unavailable — static catalog already set as default.
+      }
+    })();
+  }, []);
+
   // Trap Escape key to close.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -266,12 +297,12 @@ export function ZoneEditor({ zone, onClose, onSaved }: ZoneEditorProps) {
   }, []);
 
   function addFallback() {
-    const firstProvider = PROVIDER_CATALOG[0];
+    const firstProvider = runtimeProviders[0];
     setDraft((prev) => ({
       ...prev,
       fallbacks: [
         ...prev.fallbacks,
-        emptyAssignment(firstProvider?.id ?? "anthropic"),
+        emptyAssignment(firstProvider?.id ?? "claude-haiku", runtimeProviders),
       ],
     }));
   }
@@ -424,7 +455,7 @@ export function ZoneEditor({ zone, onClose, onSaved }: ZoneEditorProps) {
             label="Primary provider"
             assignment={draft.primary}
             onChange={updatePrimary}
-            providers={PROVIDER_CATALOG}
+            providers={runtimeProviders}
           />
 
           {/* Fallback chain */}
@@ -506,7 +537,7 @@ export function ZoneEditor({ zone, onClose, onSaved }: ZoneEditorProps) {
                     assignment={fb}
                     onChange={(next) => updateFallback(i, next)}
                     onRemove={() => removeFallback(i)}
-                    providers={PROVIDER_CATALOG}
+                    providers={runtimeProviders}
                   />
                 </div>
               </div>

@@ -34,9 +34,20 @@ export interface Provider {
   api_key_status: "configured" | "missing" | "placeholder";
   /** Optional override for the health-check endpoint URL. */
   health_endpoint?: string;
+  /**
+   * Model identifiers available under this provider.
+   * Present when the record comes from the backend (ai_router_list_providers).
+   * Absent in the static fallback catalog.
+   */
+  models?: string[];
 }
 
-/** Static catalog of known providers. Merged with runtime health data. */
+/**
+ * Static fallback catalog. Used only when `ai_router_list_providers` is
+ * unavailable (backend not yet compiled or command missing). Live data
+ * comes from the backend — do NOT rely on these values for real api_key_status
+ * or cost figures.
+ */
 export const PROVIDER_CATALOG: Provider[] = [
   {
     id: "anthropic",
@@ -82,7 +93,12 @@ export const PROVIDER_CATALOG: Provider[] = [
   },
 ];
 
-/** Models available per provider. */
+/**
+ * @deprecated No longer used by the UI. ZoneEditor and AIRouterIndex now
+ * derive model lists from the `models` field of each Provider returned by
+ * `ai_router_list_providers`. Kept here only as a static fallback reference;
+ * do NOT import this in new code.
+ */
 export const PROVIDER_MODELS: Record<
   string,
   { id: string; label: string; task_class: ProviderClass }[]
