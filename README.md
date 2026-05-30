@@ -7,11 +7,11 @@
 
 <h1>ULTRON</h1>
 
-<p><b>Your local AI command center for Claude Code.</b></p>
+<p><b>Local AI cockpit for Claude Code. Single-user, open-source, zero SaaS.</b></p>
 
 <p>
-  Hierarchical memory · curated skills + agents · hardened hooks · a desktop Control Center that turns
-  multi-day work with Claude (and optionally Codex and Gemini) into something you can actually manage.
+  Hierarchical memory · curated skills + agents · hardened hooks · a Tauri desktop Control Center that turns
+  multi-day work with Claude Code into something you can actually manage and audit.
 </p>
 
 <p>
@@ -25,14 +25,15 @@
 </p>
 
 <p>
-  <b>Docs:</b>
+  <b>Quick links:</b>
   <a href="INSTALL.md">Install</a> ·
+  <a href="docs/ONBOARDING-fullize.md">Onboarding</a> ·
+  <a href="docs/ARCHITECTURE-overview.md">Architecture</a> ·
   <a href="docs/QUICKSTART.md">Quickstart</a> ·
   <a href="CHANGELOG.md">Changelog</a> ·
   <a href="CONTRIBUTING.md">Contributing</a> ·
   <a href="SECURITY.md">Security</a> ·
   <a href="AUTHORS.md">Authors</a> ·
-  <a href="NOTICE">Notice</a> ·
   <a href="LICENSE">License</a>
 </p>
 
@@ -77,13 +78,13 @@
 4. [Quick start](#quick-start)
 5. [Features](#features)
 6. [Architecture](#architecture)
-7. [Customize it](#customize-it)
+7. [Customize & Extend](#customize--extend)
 8. [Tech stack](#tech-stack)
-9. [Release notes](#release-notes)
+9. [Release notes & roadmap](#release-notes--roadmap)
 10. [Contributing](#contributing)
-11. [Origin and attribution](#origin-and-attribution)
+11. [About & Attribution](#about--attribution)
 12. [License](#license)
-13. [Credits](#credits)
+13. [Credits & Dependencies](#credits--dependencies)
 
 </details>
 
@@ -91,18 +92,20 @@
 
 ## What is ULTRON
 
-ULTRON is a **local command center** layered on top of the official [Claude Code](https://claude.com/claude-code) CLI. It lives entirely under your home folder (`~/.ultron/`), stores everything in plain text, and pairs the runtime with a Tauri Control Center so a multi-day project never feels like ten orphaned chat sessions stitched together.
+ULTRON is a **local cockpit** layered on top of the official [Claude Code](https://claude.com/claude-code) CLI. It lives entirely under your home folder (`~/.ultron/`), stores everything in plain text, and pairs the runtime with a Tauri 2 + React 19 Control Center so a multi-day project never feels like ten orphaned chat sessions stitched together.
+
+**Single-user tool.** ULTRON is USER SURNAME's personal AI development cockpit, open-sourced for others to fork and customize. Not a team platform, not a SaaS service — your local machine, your settings, your forks.
 
 > [!NOTE]
-> ULTRON does not replace Claude Code. It wraps it, gives it persistent memory, routes the right specialist skill for the prompt, and exposes the moving parts in a UI you can audit and edit.
+> ULTRON does not replace Claude Code. It wraps it, gives it persistent memory, routes the right specialist skill for the prompt, and exposes the moving parts in a UI you can audit, edit, and version-control.
 
 | Pillar | What you get |
 |---|---|
-| **Hierarchical memory** | Three local layers (L0 hot context → L1 keyword index → L2 vault) plus an optional L3 remote mirror, so Claude resumes on the same page after every reboot. |
-| **Skills** | 12 core skills installed by default — `ultron`, `senior-engineer`, `debugger`, `code-reviewer`, `refactoring-specialist`, `ui-designer`, `business-strategist`, `skill-creator`, `superpowers`, `webapp-testing`, `windows-admin`, `second-opinion`. Plus opt-in slots for your own. A dispatcher activates the right one by user intent. |
-| **Agents** | 19 autonomous subagents pre-installed (12 first-party ULTRON + 7 curated community), plus a 69-entry catalog you install on demand from the Agents tab. Same anti-prompt-injection scan as skills. |
-| **Hardened hooks** | Anti-prompt-injection, note auto-recall, session logging and vault sync — all auditable, all wired into `settings.json`. |
-| **Desktop Control Center** | Tauri 2 + React 19 with 18 wired sections (17 visible + Logs disabled) for memory, skills, agents, hooks, plans, sessions, costs and MCPs. |
+| **Hierarchical memory** | Three local layers (L0 hot context → L1 keyword index → L2 vault) plus optional L3 remote mirror, semantic recall via Qdrant embeddings, so Claude resumes on the same page after every reboot. |
+| **Skills + Agents** | 12 core skills + 88 agents (19 pre-installed, 69 on-demand). Intent-based dispatch, anti-prompt-injection scanning, semantic discovery. |
+| **Hardened hooks** | Anti-prompt-injection, note auto-recall, session logging, vault sync, decision capture — all auditable, all wired into `settings.json`. |
+| **Cockpit dashboard** | Tauri 2 + React 19 with 18 sections: Dashboard (quick-actions, active project, resume session), Kanban (per-project), Decisions (auto-captured, filtered noise), Memory (4-layer stack), Skills, Agents, Sessions, Projects, Plans, Stats, Settings and more. |
+| **AI Router + Free-tier proxy** | Provider catalog synchronization, cost tracking, optional free-tier proxy sidecar (NVIDIA NIM, OpenRouter). |
 
 **Philosophy.** Plain text files. Everything opt-in. Zero SaaS. Zero external telemetry. No cloud backend. Rip pieces out, fork them, edit the source — the system is designed to be taken apart.
 
@@ -213,15 +216,17 @@ preserved.
 
 | Area | Highlights |
 |---|---|
-| **Memory** | L0 → L2 local layers + optional L3 remote mirror (planned), SQLite FTS5 index, native Qdrant binary for semantic recall, decay system surfaces stale notes |
-| **Skills** | 12 core skills installed by default, intent-based dispatch, opt-in slots for your own, prompt-injection ruleset PI001-PI013 |
-| **Agents** | 19 pre-installed (12 first-party ULTRON + 7 stack-aligned community) + 69-entry catalog installable on demand = **88 total available**. Dedicated Agents tab with the same anti-prompt-injection scanner as Skills, AI Router agent slot, embeddings in Qdrant for semantic discovery. |
-| **Skill / Agent Vault** | Demote a skill or agent without deleting it: the **Vault** button moves the file to `~/.ultron/skill-vault/` or `~/.ultron/agent-vault/` so Claude stops auto-loading it. Restore from the sidebar Vault panel. Vaulted entries can still surface as suggestions via the auto-recall hook (`[VAULT·SKILL·82%] …`). |
-| **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `Stop` — all auditable |
-| **Control Center** | 18 wired sections (17 visible + Logs disabled): Dashboard, Usage, Notifications, Changelog, News, System, MCPs, Skills, Agents, Memory, Sessions, Projects, Gaming, Plans, Stats, Personal, Settings + Logs. The System tab nests sub-tabs: Overview, Schedules, Hooks. |
-| **Dual-mode** | Optional Codex CLI peer review + Gemini CLI long-context delegation, both subscription-only |
-| **Security** | Anti-prompt-injection scanner, quarantine folder, Tauri IPC allow-list, defense-in-depth deny list in `settings.json` |
-| **Privacy** | No telemetry, no external calls without user action, vault is yours |
+| **Memory (L0 → L3)** | Hot context (~400 tokens) → SQLite FTS5 index → markdown vault → optional remote mirror. Native Qdrant binary for semantic recall (BGE-384 embeddings). Decay system surfaces stale notes. |
+| **Dashboard cockpit** | Active project hero card, quick-actions (Terminal/IDE/Context/AI), resume session, recent projects, workdays metric, alerts. All in responsive bento grid. |
+| **Kanban (per-project)** | Draggable cards, canonical columns (backlog → todo → in_progress → review → done), reordering, archive. Backend-normalized schema with idempotent migrations. |
+| **Decisions panel** | Auto-capture architectural decisions from Stop hook, anti-noise filter (29+ tests), inline accept/reject UI, metadata (origin, date, agents). |
+| **Skills + Agents** | 12 core skills + 88 agents total (19 pre-installed, 69 catalog on-demand). Intent-based dispatcher. Anti-prompt-injection ruleset (PI001-PI013). Vault demote without deletion. Qdrant embeddings for semantic discovery. |
+| **Hooks** | `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PreCompact`, `PostCompact`, `Stop` — all auditable, wired in `settings.json`, can be disabled per-hook. |
+| **AI Router + free-tier proxy** | Live provider catalog sync (checks credentials), cost tracking, optional sidecar proxy Go binary for free-tier LLMs (NVIDIA NIM, OpenRouter). Toggle per-session via `-FreeTier` flag. |
+| **Control Center** | 18 wired sections: Dashboard, Projects, Kanban, Decisions, Memory, Skills, Agents, Sessions, Plans, Settings, Stats, News, MCPs, Personal, Gaming, System (with Overview/Schedules/Hooks sub-tabs), Notifications, Logs (disabled). All read/write to plain-text files. |
+| **Multi-LLM support** | Claude Code primary, optional Codex CLI (peer review), optional Gemini CLI (long context, image generation). |
+| **Security** | Anti-prompt-injection scanner, quarantine folder for flagged skills/agents, Tauri IPC allow-list, defense-in-depth deny rules in `settings.json`. |
+| **Privacy** | Zero telemetry, zero external calls without user action, vault is yours, no cloud backend. |
 
 <details>
 <summary><b>Core skills (12, installed by default)</b></summary>
@@ -263,42 +268,43 @@ On top of those, a native Qdrant binary (`~/.ultron/qdrant-native/qdrant.exe`) p
 
 ## Architecture
 
-ULTRON sits between **you** and **Claude Code**. The CLI does the talking; ULTRON does the bookkeeping. Five moving parts:
+ULTRON sits between **you** and **Claude Code**. The CLI does the talking; ULTRON does the bookkeeping and the visualization. Five moving parts:
 
-- **Hooks** — small Python and PowerShell scripts wired into `~/.claude/settings.json`. They fire on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`. This is where prompt-injection scanning, intent routing and memory updates happen.
-- **Cockpit** — the Python toolbox under `~/.ultron/scripts/cockpit/`. The hooks call into it for the actual work: indexing the vault, computing the context primer, routing prompts to skills, embedding into Qdrant.
-- **Memory** — the filing-cabinet stack from the previous section (L0 → L2 local, L3 optional). Cockpit reads and writes it; the Control Center visualizes it.
-- **Skills + Agents** — markdown files under `~/.claude/skills/` and `~/.claude/agents/` that Claude Code activates by intent or explicit invocation. ULTRON ships 12 core skills + 19 pre-installed agents (88 total available).
-- **Control Center** — the Tauri 2 + React 19 desktop app under `~/.ultron/control-center/`. It is the panel you actually look at; everything underneath is plain text you can grep.
+- **Hooks** — small Python and PowerShell scripts wired into `~/.claude/settings.json`. They fire on `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`. This is where prompt-injection scanning, intent routing, memory updates, and decision capture happen.
+- **Cockpit (Python tools)** — the Python toolbox under `~/.ultron/scripts/cockpit/`. Hooks call into it for: indexing the vault, computing context primers, routing prompts to skills, embedding into Qdrant, draining decisions, syncing remote mirrors.
+- **Memory stack (L0 → L3)** — the filing-cabinet from the previous section (hot context → keyword index → vault → optional remote). Cockpit reads and writes it; the Control Center visualizes it. All plain text, all git-able.
+- **Skills + Agents** — markdown files under `~/.claude/skills/` and `~/.claude/agents/`. Claude Code activates them by user intent (via intent dispatcher) or explicit invocation. 12 core skills + 88 agents total (19 pre-installed, 69 on-demand catalog).
+- **Control Center (Tauri 2 + React 19)** — the desktop app under `control-center/`. Tauri backend (Rust) orchestrates file I/O, subprocess management (proxy sidecar, Qdrant binary), and hook triggering. React frontend renders the 18-section dashboard. Everything underneath is plain text you can grep, diff, and version-control.
 
 ```mermaid
-flowchart LR
+flowchart TB
     User([User])
     CC[Claude Code CLI]
     Hooks{{Hooks<br/>settings.json}}
-    subgraph ULTRON
-        Memory[(Memory<br/>L0 · L1 · L2)]
-        Skills[Skills<br/>12 core]
-        Agents[Agents<br/>19 pre-installed]
-        Cockpit[Cockpit<br/>Python tools]
-        GUI[Control Center<br/>Tauri 2 + React 19]
+    subgraph ULTRON["ULTRON (local machine)"]
+        Memory[(Memory Stack<br/>L0 · L1 · L2)]
+        Skills["Skills<br/>(12 core)"]
+        Agents["Agents<br/>(88 total)"]
+        Cockpit["Cockpit<br/>(Python tools)"]
+        GUI["Control Center<br/>(Tauri 2 + React 19)"]
+        Qdrant["Qdrant native binary<br/>(semantic recall)"]
     end
-    Vault[(Vault L2<br/>markdown)]
-    FTS[(SQLite FTS5)]
-    Q[(Qdrant native)]
-    L3[(L3 remote<br/>optional)]
+    Vault["Vault L2<br/>(~/.ultron-vault/)"]
+    FTS["SQLite FTS5<br/>(keyword index)"]
+    L3["[optional] L3 remote<br/>(github.com/user/ultron-memory)"]
 
-    User --> CC
-    CC --> Hooks
-    Hooks --> Cockpit
-    Cockpit --> Memory
-    Memory --> Vault
-    Memory --> FTS
-    Memory --> Q
-    Memory -.optional.-> L3
-    Cockpit --> Skills
-    Cockpit --> Agents
-    GUI --> Cockpit
+    User -->|every session| CC
+    CC -->|SessionStart/Stop/PreToolUse| Hooks
+    Hooks -->|calls| Cockpit
+    Cockpit -->|reads/writes| Memory
+    Memory -->|indexes| Vault
+    Memory -->|indexes| FTS
+    Memory -->|embeds| Qdrant
+    Cockpit -->|dispatch| Skills
+    Cockpit -->|dispatch| Agents
+    GUI -->|invoke commands| Cockpit
+    GUI -->|visualizes| Memory
+    Memory -.->|optional push| L3
 ```
 
 <details>
@@ -315,21 +321,29 @@ flowchart LR
 
 ---
 
-## Customize it
+## Customize & Extend
 
-ULTRON is built to be taken apart and rewired. Everything lives in plain text under your home folder:
+ULTRON is built to be taken apart and rewired. Everything lives in plain text under your home folder. The `Control Center` is a UI on top of it, but you can edit everything directly:
 
-- **`~/.claude/CLAUDE.md`** — your global instructions for every Claude Code session. Edit directly or use the Control Center's `Personal` tab.
-- **`~/.claude/settings.json`** — hooks and permissions. The `Hooks` tab (inside System) is a typed editor over this file.
-- **`~/.claude/skills/<name>/SKILL.md`** — activate / deactivate / edit a skill. Delete a folder to uninstall it.
-- **`~/.claude/agents/<name>.md`** — same idea for autonomous subagents. The Agents tab shows install state, security findings and the catalog of community agents from `cockpit/agent-catalog.json`.
-- **`~/.ultron-vault/`** — your L2 vault. Plain markdown with wikilinks. Anything you write here gets indexed on the next `brain_index.py update` run.
-- **`~/.ultron/plans/PLANS.json`** — in-flight plans. The `Plans` tab is a frontend over this file.
-- **`~/.ultron/personal/profile.md`** — your personal profile (interests, context, preferences).
-- **The source itself.** ULTRON is MIT-licensed and open source: every Python hook, every Rust Tauri command, every React component is in this repo. Clone, branch, edit, send PRs — or fork it and run a private flavour. See [`CONTRIBUTING.md`](CONTRIBUTING.md).
+**Configuration files** (edit in Control Center UI or directly):
+- **`~/.claude/CLAUDE.md`** — global instructions for every Claude Code session. Edit in `Personal` tab or directly.
+- **`~/.claude/settings.json`** — hooks, providers, permissions. Edit in `System → Hooks` tab (typed editor) or directly.
+- **`~/.ultron/plans/PLANS.json`** — in-flight plans. Edit in `Plans` tab or directly.
+- **`~/.ultron/personal/profile.md`** — your personal profile (interests, context, preferences). Edit in `Personal` tab or directly.
+
+**Skills and Agents** (add your own):
+- **`~/.claude/skills/<name>/SKILL.md`** — activate/deactivate/edit a skill. Delete folder to uninstall. Add your own skills using the template.
+- **`~/.claude/agents/<name>.md`** — autonomous subagents. Install from `Agents tab → Discover online`, or add your own. Anti-prompt-injection scanning applies to all.
+
+**Memory and vault** (your knowledge base):
+- **`~/.ultron-vault/`** — L2 vault. Plain markdown with wikilinks. Index it via `brain_index.py update` (happens automatically on Stop hook).
+- **`~/.ultron-vault/remote`** — optional L3 remote mirror. Set up your own private `ultron-memory` repo for cross-machine sync (see `docs/memory-layers.md`).
+
+**Source code** (fork, modify, PR):
+- ULTRON is MIT-licensed and open source. Every Python hook, Rust Tauri command, and React component is in this repo. Clone, branch, edit, send PRs — or fork it and run a private flavour. See [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`docs/ARCHITECTURE-overview.md`](docs/ARCHITECTURE-overview.md).
 
 > [!TIP]
-> This is **your** system. Fork it. Modify it. Change the code. The philosophy is plain text plus Git, so everything is diff-able and reviewable.
+> This is **your** system. Fork it. Modify it. Customize the Control Center UI, add new sections, change the color scheme, add your own hooks. The philosophy is plain text plus Git, so everything is diff-able and reviewable. See the developer onboarding in [`docs/ONBOARDING-fullize.md`](docs/ONBOARDING-fullize.md) to get started coding.
 
 ---
 
@@ -347,27 +361,48 @@ ULTRON is built to be taken apart and rewired. Everything lives in plain text un
 
 ---
 
-## Release notes
+## Release notes & roadmap
 
-Current stable: **[v15.5.20](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.20)** — UX, hooks and leakage-gate polish.
+**Latest:**
+- **[v15.5.20](https://github.com/SkiTemplar/ultron/releases/tag/v15.5.20)** — UX, hooks, leakage-gate polish
+- **[v15.6-dev]** (fullize branch) — Dashboard cockpit, Kanban per-project, Decisions panel, Qdrant semantic recall, AI Router honesty, free-tier proxy sidecar, improved Memory UI
 
-Full notes: [`CHANGELOG.md`](CHANGELOG.md). Latest assets: [GitHub Releases](https://github.com/SkiTemplar/ultron/releases/latest).
+**Full changelog:** [`CHANGELOG.md`](CHANGELOG.md)
+**In-development features:** [`docs/CHANGELOG-fullize-2026-05-30.md`](docs/CHANGELOG-fullize-2026-05-30.md)
+**Latest releases:** [GitHub Releases](https://github.com/SkiTemplar/ultron/releases/latest)
 
 ---
 
 ## Contributing
 
-PRs welcome on architecture, packaging, cross-platform support and core skills. Personal-flavored content (the author's news feeds, expense categories, gaming libraries) is out of scope — fork those for yourself. Full guide in [`CONTRIBUTING.md`](CONTRIBUTING.md).
+ULTRON is USER SURNAME's personal cockpit, open-sourced for others to use and fork. 
 
-Report security issues privately per [`SECURITY.md`](SECURITY.md).
+**PRs welcome for:**
+- Architecture improvements, refactoring, code quality
+- Cross-platform support (Windows 11, Linux x86_64, macOS)
+- Core memory, skills, agents, hooks infrastructure
+- Control Center UI/UX, dashboard, documentation
+
+**Out of scope for main repo:**
+- Personal-flavored content (USER's news feeds, expense categories, gaming libraries, custom skills)
+- Single-user-specific workflows or integrations
+- Feature requests that assume a team context
+
+**Recommended approach:** Fork ULTRON, customize it for your use case, and maintain your fork. If you think your changes would benefit the broader community, open an issue first to discuss.
+
+Full contribution guide: [`CONTRIBUTING.md`](CONTRIBUTING.md). Report security issues privately: [`SECURITY.md`](SECURITY.md).
 
 ---
 
-## Origin and attribution
+## About & Attribution
 
-ULTRON was originally created by **[USER SURNAME](https://www.linkedin.com/in/USER-SURNAME-SURNAME2-671b02274/)** ([@SkiTemplar](https://github.com/SkiTemplar)) in 2026.
+**Created by:** [USER SURNAME](https://www.linkedin.com/in/USER-SURNAME-SURNAME2-671b02274/) ([@SkiTemplar](https://github.com/SkiTemplar)) in 2026.
 
-The project is open source under MIT (see [`LICENSE`](LICENSE)). Forks and modifications are welcome — contributors who substantially extend the work may add themselves to [`AUTHORS.md`](AUTHORS.md). Per MIT terms, any copy or derivative work must retain the original copyright notice naming USER SURNAME as the originator of ULTRON. The name "ULTRON" identifies the original project; derivative projects are encouraged to pick a distinct name unless they intend to upstream their changes. Full attribution policy in [`NOTICE`](NOTICE).
+**What ULTRON is:** USER's personal AI development cockpit, open-sourced for others to use, study, fork, and modify.
+
+**License:** MIT (see [`LICENSE`](LICENSE)). Forks and modifications are welcome. Per MIT terms, any copy or derivative work must retain the original copyright notice naming USER SURNAME as the originator. The name "ULTRON" identifies the original project; if you fork it, you're encouraged to pick a distinct name unless you intend to upstream changes.
+
+**Contributing:** If you extend ULTRON meaningfully and want credit, add yourself to [`AUTHORS.md`](AUTHORS.md). Full attribution policy in [`NOTICE`](NOTICE).
 
 ---
 
@@ -383,15 +418,22 @@ their subsidiaries. See [`NOTICE`](NOTICE) for the full disclaimer.
 
 ---
 
-## Credits
+## Credits & Dependencies
 
-ULTRON orchestrates three tools it does not own and could not exist without:
+**LLM runtimes ULTRON orchestrates:**
+- [**Claude Code**](https://claude.com/claude-code) — Anthropic. Primary runtime.
+- [**Codex CLI**](https://github.com/openai/codex) — OpenAI. Optional peer review.
+- [**Gemini CLI**](https://github.com/google-gemini/gemini-cli) — Google. Optional long-context and image generation.
 
-- [**Claude Code**](https://claude.com/claude-code) — Anthropic. The runtime ULTRON wraps.
-- [**Codex CLI**](https://github.com/openai/codex) — OpenAI. Optional peer review and rescue.
-- [**Gemini CLI**](https://github.com/google-gemini/gemini-cli) — Google. Optional long-context delegate and image generation.
+**Infrastructure & Libraries:**
+- [**Qdrant**](https://qdrant.tech) — Vector database for semantic recall (native platform binary, no daemon).
+- [**Tauri**](https://tauri.app) — Desktop app framework (Rust backend, web frontend).
+- [**uv**](https://github.com/astral-sh/uv) — Python package manager and runner.
+- [**SQLite**](https://www.sqlite.org/) — Local keyword index (FTS5 full-text search).
+- **React 19** — Frontend framework.
+- **Rust** — Backend command orchestration and subprocess management.
 
-The vector layer runs on [Qdrant](https://qdrant.tech). The desktop shell is [Tauri](https://tauri.app). The Python pipeline runs on [uv](https://github.com/astral-sh/uv). Thanks to all four projects.
+**Thank you** to all open-source projects that make ULTRON possible.
 
 <div align="center">
 
