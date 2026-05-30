@@ -1,10 +1,10 @@
 // ProjectRow — legacy dense list row for a single project (list-view mode).
 // Extracted from Projects.tsx (3594 L) as part of the P1 split refactor.
 
-import { invoke } from "@tauri-apps/api/core";
 import type { ProjectInfo, SessionProvider } from "../../types";
 import { statusBadge, isBuiltinItem, builtinTooltip, customItemName, providerToKind } from "./utils";
 import { BuiltinIcon } from "./LauncherIcons";
+import { ProjectQuickActions } from "./ProjectQuickActions";
 
 export interface ProjectRowProps {
   p: ProjectInfo;
@@ -106,6 +106,8 @@ export function ProjectRow({
             </span>
           )}
           <div className="proj-action-group flex flex-wrap items-center justify-end gap-1">
+            {/* Quick actions: Folder / IDE / AI / Terminal / Launch all */}
+            <ProjectQuickActions density="compact" project={p} />
             <button
               type="button"
               onClick={onEdit}
@@ -119,27 +121,6 @@ export function ProjectRow({
             >
               Edit
             </button>
-            {p.path && (
-              <button
-                type="button"
-                onClick={async () => {
-                  try {
-                    await invoke("open_project_in_ide", { path: p.path, preferredIde: p.ide ?? null });
-                  } catch (e) {
-                    console.error("open in IDE failed", e);
-                  }
-                }}
-                className="rounded px-2 py-1 text-[10.5px] transition-colors"
-                style={{
-                  background: "var(--color-surface-2)",
-                  color: "var(--color-text-secondary)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-                title={p.ide ? `Open ${p.path} in ${p.ide}` : `Open ${p.path} in your default IDE`}
-              >
-                IDE
-              </button>
-            )}
             <button
               type="button"
               onClick={onDelete}
