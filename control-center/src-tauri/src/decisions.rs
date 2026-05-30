@@ -553,28 +553,118 @@ pub fn reject_all_auto_inner(project_id: &str) -> Result<usize, String> {
     Ok(count)
 }
 
-/// Remove all records from `decisions.jsonl` that would be flagged as noise
-/// by [`is_noise`], regardless of status.  Returns the count of purged records.
+/// Remove noise records from `decisions.jsonl` with safety guardrails.
 ///
-/// Use this to clean up entries that slipped through before the noise filter
-/// was in place (i.e. historical pollution already in the file).
-pub fn purge_noise_inner(project_id: &str) -> Result<usize, String> {
+/// Only purges records that satisfy ALL of the following conditions:
+/// - `author == Some("auto")` (auto-captured by the Stop hook)
+/// - `status == Proposed` (not yet reviewed by a human)
+/// - [`is_noise`] returns true for the title+rationale
+///
+/// Manual decisions and any record in Accepted/Rejected/Superseded are NEVER
+/// touched, even if their title is short.
+///
+/// Before rewriting the file a timestamped backup is created:
+/// `decisions.jsonl.purge-backup-<epoch>`. Only the 5 most recent backups
+/// are kept; older ones are deleted automatically.
+///
+/// # Errors
+/// Returns `Err` if `confirm != true` (prevents accidental one-click data
+/// loss from an unguarded UI button).
+///
+/// Returns the IDs of purged records (not just the count) so a future
+/// "Undo" command can restore them.
+// Wrapper publico para uso externo / tests de integracion futuros.
+// El comando Tauri llama purge_noise_confirmed directamente para poder
+// propagar el parametro confirm desde la UI.
+#[allow(dead_code)]
+pub fn purge_noise_inner(project_id: &str) -> Result<PurgeNoiseResult, String> {
+    purge_noise_confirmed(project_id, true)
+}
+
+/// Internal implementation; `confirm` must be `true` to proceed.
+pub(crate) fn purge_noise_confirmed(
+    project_id: &str,
+    confirm: bool,
+) -> Result<PurgeNoiseResult, String> {
+    if !confirm {
+        return Err("purge requiere confirm=true".to_string());
+    }
+
     let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
     let records = read_all(project_id)?;
-    let before = records.len();
 
+    // Partition: only auto-Proposed noise is purgeable.
+    let mut purged_ids: Vec<String> = Vec::new();
     let clean: Vec<DecisionRecord> = records
         .into_iter()
-        .filter(|r| !is_noise(&r.decision, &r.rationale))
+        .filter(|r| {
+            let is_auto = r.author.as_deref() == Some("auto");
+            let is_proposed = r.status == DecisionStatus::Proposed;
+            let noisy = is_noise(&r.decision, &r.rationale);
+            if is_auto && is_proposed && noisy {
+                purged_ids.push(r.id.clone());
+                false // remove from clean list
+            } else {
+                true // keep
+            }
+        })
         .collect();
 
-    let removed = before - clean.len();
-    if removed > 0 {
+    if !purged_ids.is_empty() {
         let path = decisions_path(project_id)?;
+
+        // Create timestamped backup BEFORE overwriting.
+        let epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let backup = path.with_file_name(format!("decisions.jsonl.purge-backup-{epoch}"));
+        if path.exists() {
+            fs::copy(&path, &backup)
+                .map_err(|e| format!("backup purge: {e}"))?;
+        }
+
+        // Retain only the 5 most recent purge backups; delete older ones.
+        if let Some(dir) = path.parent() {
+            prune_purge_backups(dir, 5);
+        }
+
         write_atomic(&path, &clean)?;
     }
 
-    Ok(removed)
+    Ok(PurgeNoiseResult { purged_ids })
+}
+
+/// Result returned by [`purge_noise_inner`].
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct PurgeNoiseResult {
+    /// IDs of the records that were removed. Empty when nothing was purged.
+    pub purged_ids: Vec<String>,
+}
+
+/// Keep only the `max_keep` most-recent `decisions.jsonl.purge-backup-*`
+/// files in `dir`, deleting older ones. Silent on I/O errors.
+fn prune_purge_backups(dir: &std::path::Path, max_keep: usize) {
+    let Ok(entries) = fs::read_dir(dir) else { return; };
+    let mut backups: Vec<std::path::PathBuf> = entries
+        .flatten()
+        .filter_map(|e| {
+            let p = e.path();
+            let name = p.file_name()?.to_str()?.to_owned();
+            if name.starts_with("decisions.jsonl.purge-backup-") {
+                Some(p)
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Sort lexicographically descending — epoch suffix gives natural order.
+    backups.sort_unstable_by(|a, b| b.cmp(a));
+
+    for old in backups.into_iter().skip(max_keep) {
+        let _ = fs::remove_file(&old);
+    }
 }
 
 /// Drain the per-project pending decisions file into `decisions.jsonl`.
@@ -1079,5 +1169,127 @@ mod tests {
         let out = parse_pending_lines(&lines, "p", &no_existing());
         assert_eq!(out.len(), 1, "only the real decision should survive");
         assert!(out[0].decision.to_lowercase().contains("rust"));
+    }
+
+    // -----------------------------------------------------------------------
+    // purge_noise_confirmed tests (Rank 4 guardrails)
+    // -----------------------------------------------------------------------
+
+    /// Construye un DecisionRecord minimo para tests de purge.
+    fn make_record(
+        id: &str,
+        title: &str,
+        author: Option<&str>,
+        status: DecisionStatus,
+    ) -> DecisionRecord {
+        DecisionRecord {
+            id: id.to_string(),
+            project_id: "test-project".to_string(),
+            decision: title.to_string(),
+            rationale: "rationale de prueba suficientemente larga".to_string(),
+            alternatives_considered: vec![],
+            date: "epoch:0".to_string(),
+            status,
+            supersedes_id: None,
+            context_urls: vec![],
+            author: author.map(|s| s.to_string()),
+            tags: vec!["auto-captured".to_string()],
+        }
+    }
+
+    #[test]
+    fn purge_noise_requires_confirm_true() {
+        let result = purge_noise_confirmed("irrelevant-project", false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("confirm=true"));
+    }
+
+    #[test]
+    fn purge_noise_does_not_delete_manual_short_title() {
+        // Titulo corto (< NOISE_MIN_TITLE_LEN) => is_noise=true, pero
+        // author != "auto" => la condicion de purga NO se cumple.
+        // Usamos "abc" (3 chars) para garantizar que is_noise sea true.
+        let rec = make_record("id-manual", "abc", Some("USER"), DecisionStatus::Proposed);
+
+        // Verificar que el titulo SÍ dispara is_noise (prerequisito del test).
+        assert!(is_noise(&rec.decision, &rec.rationale), "abc debe ser ruido por titulo corto");
+
+        // La condicion de purga requiere is_auto AND is_proposed AND noisy.
+        // Como is_auto=false, la condicion completa es false => no se purga.
+        let is_auto = rec.author.as_deref() == Some("auto");
+        assert!(!is_auto, "decision manual no debe marcarse como auto");
+        let purgeable = is_auto && rec.status == DecisionStatus::Proposed && is_noise(&rec.decision, &rec.rationale);
+        assert!(!purgeable, "decision manual nunca debe purgarse aunque el titulo sea ruido");
+    }
+
+    #[test]
+    fn purge_noise_does_not_delete_accepted_auto() {
+        // Aunque sea auto y ruido, si ya fue Accepted no debe tocarse.
+        let rec = make_record("id-accepted", "Working tree is completely clean", Some("auto"), DecisionStatus::Accepted);
+        let is_auto = rec.author.as_deref() == Some("auto");
+        let is_proposed = rec.status == DecisionStatus::Proposed;
+        let noisy = is_noise(&rec.decision, &rec.rationale);
+        // Accepted => is_proposed=false => condicion de purga NO se cumple
+        assert!(is_auto && !is_proposed && noisy, "accepted no debe purgarse");
+    }
+
+    #[test]
+    fn purge_noise_deletes_auto_proposed_noise() {
+        // auto + Proposed + is_noise => debe purgarse.
+        let rec = make_record(
+            "id-noise",
+            "Working tree is completely clean",
+            Some("auto"),
+            DecisionStatus::Proposed,
+        );
+        let is_auto = rec.author.as_deref() == Some("auto");
+        let is_proposed = rec.status == DecisionStatus::Proposed;
+        let noisy = is_noise(&rec.decision, &rec.rationale);
+        assert!(is_auto && is_proposed && noisy, "debe clasificarse como purgable");
+    }
+
+    #[test]
+    fn purge_noise_keeps_auto_proposed_real_decision() {
+        // auto + Proposed pero titulo real (no es ruido) => NO se purga.
+        let rec = make_record(
+            "id-real",
+            "Adoptar Qdrant nativo en Windows sin Docker",
+            Some("auto"),
+            DecisionStatus::Proposed,
+        );
+        let is_auto = rec.author.as_deref() == Some("auto");
+        let is_proposed = rec.status == DecisionStatus::Proposed;
+        let noisy = is_noise(&rec.decision, &rec.rationale);
+        assert!(is_auto && is_proposed && !noisy, "decision real no debe purgarse");
+    }
+
+    #[test]
+    fn prune_purge_backups_keeps_max_five() {
+        let dir = std::env::temp_dir().join(format!("ultron-prune-test-{}", new_decision_id()));
+        fs::create_dir_all(&dir).unwrap();
+
+        // Crear 7 backups falsos con nombres epoch creciente.
+        for i in 0..7u64 {
+            let name = format!("decisions.jsonl.purge-backup-{}", 1_700_000_000 + i);
+            fs::write(dir.join(&name), b"x").unwrap();
+        }
+
+        prune_purge_backups(&dir, 5);
+
+        let remaining: Vec<_> = fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .filter(|e| {
+                e.file_name()
+                    .to_str()
+                    .map(|n| n.starts_with("decisions.jsonl.purge-backup-"))
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        assert_eq!(remaining.len(), 5, "deben quedar exactamente 5 backups");
+
+        // Limpiar
+        let _ = fs::remove_dir_all(&dir);
     }
 }

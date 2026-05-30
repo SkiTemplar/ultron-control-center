@@ -4,9 +4,9 @@
 // commands/kanban.rs and commands/kg.rs.
 
 use crate::decisions::{
-    add_inner, delete_inner, drain_pending_inner, list_inner, purge_noise_inner,
+    add_inner, delete_inner, drain_pending_inner, list_inner, purge_noise_confirmed,
     reject_all_auto_inner, search_inner, update_inner, DecisionPatch, DecisionPayload,
-    DecisionRecord, DecisionSearchResult,
+    DecisionRecord, DecisionSearchResult, PurgeNoiseResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -102,14 +102,24 @@ pub async fn decisions_reject_all_auto(project_id: String) -> Result<usize, Stri
         .map_err(|e| e.to_string())?
 }
 
-/// Remove all records from `decisions.jsonl` that the noise filter identifies
-/// as operational chatter (git state, CI output, model announcements).
+/// Remove auto-Proposed noise records from `decisions.jsonl`.
 ///
-/// Returns the count of purged records.  Use this once to clean up historical
-/// pollution in the file that was written before the noise filter existed.
+/// Only purges records with `author == "auto"` AND `status == Proposed` that
+/// the noise filter identifies as operational chatter. Manual decisions and
+/// records in any terminal status (Accepted/Rejected/Superseded) are NEVER
+/// touched.
+///
+/// A timestamped backup is created before any write. `confirm` must be `true`
+/// or the command returns an error — this prevents accidental one-click data
+/// loss from an unguarded UI button.
+///
+/// Returns the IDs of the purged records for a future "Undo" path.
 #[tauri::command]
-pub async fn decisions_purge_noise(project_id: String) -> Result<usize, String> {
-    tauri::async_runtime::spawn_blocking(move || purge_noise_inner(&project_id))
+pub async fn decisions_purge_noise(
+    project_id: String,
+    confirm: bool,
+) -> Result<PurgeNoiseResult, String> {
+    tauri::async_runtime::spawn_blocking(move || purge_noise_confirmed(&project_id, confirm))
         .await
         .map_err(|e| e.to_string())?
 }

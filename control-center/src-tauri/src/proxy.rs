@@ -165,6 +165,33 @@ pub fn proxy_start_inner() -> Result<ProxyHealth, String> {
         }
     }
 
+    // Detectar proxy huerfano de una sesion anterior: intentamos hacer bind
+    // al puerto. Si falla con AddrInUse y el slot esta vacio (no hay Child
+    // nuestro), significa que hay un proceso externo ocupando el puerto.
+    // Soltamos el listener inmediatamente si el bind funciona.
+    //
+    // TODO(windows-job-object): para garantia absoluta de limpieza en crash/kill,
+    // asignar el proceso hijo a un Windows Job Object con
+    // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE. Ver:
+    // https://learn.microsoft.com/en-us/windows/win32/procthread/job-objects
+    match std::net::TcpListener::bind(format!("127.0.0.1:{PROXY_PORT}")) {
+        Ok(_listener) => {
+            // Puerto libre — el bind funciona, soltamos el listener (drop
+            // implicito) y continuamos con el spawn normal.
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            // Puerto ocupado pero sin Child nuestro: proxy huerfano externo.
+            return Err(format!(
+                "puerto {PROXY_PORT} ya en uso (posible proxy huerfano de una sesion anterior); \
+                 cierralo manualmente antes de reiniciar"
+            ));
+        }
+        Err(_) => {
+            // Otro error de red (permisos, etc.) — lo ignoramos y dejamos que
+            // el spawn falle con su propio mensaje si hay problema real.
+        }
+    }
+
     let binary = match find_proxy_binary() {
         Some(p) => p,
         None => {

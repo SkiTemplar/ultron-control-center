@@ -678,11 +678,22 @@ pub fn run() {
         .on_window_event(|_window, event| {
             if let tauri::WindowEvent::Destroyed = event {
                 // Matar el proxy al cerrar para no dejar :8082 huerfano.
+                // Cubre el caso normal (cierre de ventana principal).
                 let _ = proxy::proxy_stop_inner();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error building tauri application")
+        .run(|_app, event| {
+            // RunEvent::Exit cubre los casos que WindowEvent::Destroyed no
+            // alcanza: Alt+F4 en ventana secundaria, kill desde el tray,
+            // panic en el hilo principal, exit() desde cualquier comando.
+            // Llamar proxy_stop_inner() es idempotente — si ya fue detenido
+            // por on_window_event no hace nada.
+            if let tauri::RunEvent::Exit = event {
+                let _ = proxy::proxy_stop_inner();
+            }
+        });
 }
 
 // ---------------------------------------------------------------------------

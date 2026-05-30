@@ -350,8 +350,11 @@ pub async fn spawn_session_inner(
         // — otherwise the spawn script overwrites the real prompt with the
         // short `seed` banner and the user pastes garbage into Gemini.
         "respectClipboard": flags.respect_clipboard,
-        // free_tier: cuando true el wrapper PS1 setea ANTHROPIC_BASE_URL al proxy local.
-        "freeTier": flags.free_tier,
+        // free_tier: activo cuando el caller lo pide explicitamente O cuando el
+        // proxy-state persistido esta habilitado (auto-ON al 98% de cuota).
+        // Esto cierra el hueco donde el auto-ON activaba el toggle en la UI pero
+        // los spawns sin free_tier=true seguian saliendo por Anthropic directo.
+        "freeTier": flags.free_tier || crate::proxy::read_proxy_state_enabled(),
     })
     .to_string();
     let payload = base64_encode(&payload_json);
