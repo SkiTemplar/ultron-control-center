@@ -20,6 +20,7 @@ export type Tab =
   | "usage"
   | "system"
   | "workdays"
+  | "inbox"
   | "settings";
 
 type Item = {
@@ -83,6 +84,10 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       // ~/.ultron/cockpit/notes/. Distinct from per-project notes (those
       // live inside Projects → workspace → Notes sub-tab).
       { id: "notes", label: "Notes", available: true },
+      // FIX (2026-05-30): Inbox triage — lista las capturas de Ctrl+Alt+I
+      // guardadas en ~/.ultron/cockpit/inbox.jsonl. Complementa el modal
+      // de captura rápida con una vista de revisión completa.
+      { id: "inbox", label: "Inbox", available: true },
     ],
   },
   {

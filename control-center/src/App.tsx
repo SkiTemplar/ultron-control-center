@@ -21,6 +21,7 @@ import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
 import { Workdays } from "./components/Workdays";
 import { Plans } from "./components/Plans";
+import { InboxTriage } from "./components/InboxTriage";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
@@ -556,6 +557,9 @@ function AppInner() {
         </TabErrorBoundary>
         <TabErrorBoundary tab="plans">
           {tab === "plans" && <Plans />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="inbox">
+          {tab === "inbox" && <InboxTriage />}
         </TabErrorBoundary>
       </main>
 
