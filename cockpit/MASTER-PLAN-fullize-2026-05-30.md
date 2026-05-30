@@ -41,8 +41,8 @@ AI Router 3 · Memoria 4 · Orquestación 4 · UX/Shell 5 · Projects/Kanban 6 �
 - [~] **A-PROXY**: proxy.rs lifecycle (start/stop/health + stop-on-exit) ✓ + env_keys NIM/OpenRouter ✓ + sessions free_tier ✓ + `-FreeTier` en spawn.ps1 ✓ + toggle en AIRouterIndex + auto-ON 98% ✓. PENDIENTE: binario Go (no instalado) → wiring listo + HOWTO en ~/.ultron/proxy/; validar tool_use con NIM.
 - [x] **A-ORCH**: botón "Asignar tarea" en Agents → delegate_task_launch + strip runs (list_delegations); vista InboxTriage (list_inbox) en Sidebar. PENDIENTE backend: delete/mark/convert inbox.
 - [~] **A-DET**: descripciones al proposer de agentes ✓ + project_propose_skill_roster (paridad skills) ✓ + 4 tests. PENDIENTE: matching por embeddings (TODO marcado) + UI de skill roster.
-- [ ] **A-DECQ**: Gate de calidad auto-captura decisiones (Stop hook importance>=0.7 + filtro anti-ruido git/CI/modelo). ⚠ hook en ~/.claude no versionado.
-- [ ] **A-DETACH**: Reparar Detach (/detached/project router + reattach listener).
+- [~] **A-DECQ**: filtro anti-ruido is_noise en decisions.rs (drain-side, antes de dedup) + decisions_reject_all_auto + decisions_purge_noise + 29 tests ✓. PENDIENTE: endurecer Stop hook (~/.claude, no versionado).
+- [x] **A-DETACH**: router /detached/project en main.tsx + DetachedProjectView + reattach via listen('project:window-closed'). tsc 0 err.
 - [~] **A-MEMUI**: MCP badge invalidar por antigüedad ✓ + Auth honesto (token no verificado, fuera verde engañoso) ✓. PENDIENTE: KG editor borrar/relacionar (falta backend) + mem0 user_id=global hidratado.
 
 ### Cierre
