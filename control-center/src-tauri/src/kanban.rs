@@ -280,7 +280,9 @@ pub fn load(project_id: &str) -> Result<KanbanBoard, String> {
     if infer_and_migrate_roles(&mut board) {
         // Best-effort save — a failure here must not prevent the caller from
         // receiving the (already-corrected) board.
-        let _ = save(&board);
+        if let Err(e) = save(&board) {
+            eprintln!("[kanban] migration save failed: {e}");
+        }
     }
     Ok(board)
 }

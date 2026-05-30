@@ -201,8 +201,14 @@ pub async fn unified_search_inner(
             crate::qdrant::search("ultron_sessions", &needle_q, 10)
         })
         .await
-        .unwrap_or_else(|_| Ok(Vec::new()))
-        .unwrap_or_default()
+        .unwrap_or_else(|join_err| {
+            eprintln!("[memory_graph] qdrant spawn_blocking panicked: {join_err}");
+            Ok(Vec::new())
+        })
+        .unwrap_or_else(|qdrant_err| {
+            eprintln!("[memory_graph] qdrant search error: {qdrant_err}");
+            Vec::new()
+        })
     };
 
     Ok(UnifiedSearchResults {

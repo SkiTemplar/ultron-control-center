@@ -16,10 +16,27 @@ use std::time::{Duration, Instant};
 const MEM0_BASE: &str = "https://api.mem0.ai/v1";
 const HTTP_TIMEOUT_SECS: u64 = 5;
 const MEM0_LOG_MAX_ENTRIES: usize = 200;
-/// Default user_id used when the caller passes no project_id.
-/// Must match the user_id written by the mem0-sync.js Stop hook
+/// Hardcoded fallback for `effective_user_id()` when neither
+/// `MEM0_USER_ID` env var nor a project_id is provided.  Must match the
+/// user_id written by the mem0-sync.js Stop hook
 /// (~/.claude/scripts/mem0-sync.js, field `arguments.user_id`).
 const MEM0_DEFAULT_USER_ID: &str = "USER";
+
+/// Returns the user_id to use as a global default, in priority order:
+///   1. `MEM0_USER_ID` environment variable (non-blank, non-placeholder)
+///   2. `"USER"` hardcoded fallback
+///
+/// This lets team members set `MEM0_USER_ID` in `~/.ultron/.env` so they
+/// don't accidentally write into USER's namespace.
+fn default_user_id() -> String {
+    if let Ok(val) = std::env::var("MEM0_USER_ID") {
+        let trimmed = val.trim().to_string();
+        if !trimmed.is_empty() && !trimmed.starts_with("REEMPLAZAR_CON_TU") {
+            return trimmed;
+        }
+    }
+    MEM0_DEFAULT_USER_ID.to_string()
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Mem0LogEntry {
@@ -425,7 +442,8 @@ pub async fn search_inner(
     // we fell through to user_id=None, which triggered HTTP 400 "Bad
     // Request" in the Memory tab. Default to a stable sentinel so
     // global search works.
-    let user_id_effective = project_id.as_deref().unwrap_or(MEM0_DEFAULT_USER_ID);
+    let default_uid = default_user_id();
+    let user_id_effective = project_id.as_deref().unwrap_or(&default_uid);
     let body = Mem0SearchRequest {
         query: &query,
         user_id: Some(user_id_effective),
@@ -556,8 +574,9 @@ pub async fn add_inner(
     let started = Instant::now();
     // v2.6 bug fix: empty project_id sent `user_id: ""` which Mem0 rejected
     // as HTTP 400. Fall back to MEM0_DEFAULT_USER_ID — same convention as search_inner/list_all_inner.
+    let default_uid = default_user_id();
     let user_id_effective = if project_id.trim().is_empty() {
-        MEM0_DEFAULT_USER_ID
+        default_uid.as_str()
     } else {
         project_id.trim()
     };
@@ -792,11 +811,12 @@ pub async fn list_all_inner(
     };
     let client = http_client()?;
     let started = Instant::now();
+    let default_uid = default_user_id();
     let user_id_effective = project_id
         .as_deref()
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
-        .unwrap_or(MEM0_DEFAULT_USER_ID);
+        .unwrap_or(default_uid.as_str());
     let limit_effective = limit.unwrap_or(100);
     let limit_str = limit_effective.to_string();
     let resp = match client

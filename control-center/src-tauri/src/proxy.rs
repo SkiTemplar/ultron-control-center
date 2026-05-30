@@ -284,6 +284,8 @@ pub fn proxy_health_inner() -> ProxyHealth {
                 Ok(None) => {} // Sigue corriendo; continuamos al HTTP check.
                 Ok(Some(exit)) => {
                     *slot = None;
+                    // Persist disabled so sessions.rs stops routing to a dead proxy.
+                    let _ = persist_proxy_state(false);
                     return ProxyHealth {
                         status: ProxyStatus::Stopped,
                         message: Some(format!("proceso termino con codigo: {:?}", exit.code())),
@@ -399,6 +401,16 @@ pub fn proxy_stop() -> Result<(), String> {
 #[tauri::command]
 pub fn proxy_health() -> ProxyHealth {
     proxy_health_inner()
+}
+
+/// Devuelve el valor del toggle persistido en `proxy-state.json`.
+/// El frontend lo invoca al montar el toggle para hidratarlo sin necesidad
+/// de llamar a `proxy_health` (que hace un health-check HTTP).
+///
+/// Firma: `proxy_state_enabled() -> bool`
+#[tauri::command]
+pub fn proxy_state_enabled() -> bool {
+    read_proxy_state_enabled()
 }
 
 // ---------------------------------------------------------------------------

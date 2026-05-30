@@ -578,6 +578,7 @@ pub fn run() {
             proxy::proxy_start,
             proxy::proxy_stop,
             proxy::proxy_health,
+            proxy::proxy_state_enabled,
             // -- workflow YAML composability + SQLite run history (KIRKARDO 23 P2) --
             commands::workflows::workflow_record_run,
             commands::workflows::workflow_update_run,
