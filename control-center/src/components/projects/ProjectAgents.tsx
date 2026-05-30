@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Bot, Check, Circle, Plus, X } from "./icons";
+import { Bot, Check, Circle, Plus, Sparkles, Tag, X } from "./icons";
 import type { KanbanBoard } from "../../types";
 import { categorize } from "../../lib/skill-categories";
 
@@ -71,6 +71,17 @@ type AgentRosterFile = {
 type InvokeResult = {
   pty_id: string;
   sent: boolean;
+};
+
+// Skill suggestion types — mirror project_propose_skill_roster response
+type SkillSuggestion = {
+  name: string;
+  reason: string;
+  tags: string[];
+};
+
+type SkillRosterProposal = {
+  suggestions: SkillSuggestion[];
 };
 
 // ---------------------------------------------------------------------------
@@ -159,6 +170,12 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
   const [proposeError, setProposeError] = useState<string | null>(null);
   const [proposeSelected, setProposeSelected] = useState<Set<string>>(new Set());
 
+  // AI propose skills modal
+  const [skillsOpen, setSkillsOpen] = useState(false);
+  const [skillsProposal, setSkillsProposal] = useState<SkillRosterProposal | null>(null);
+  const [skillsBusy, setSkillsBusy] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
+
   // Abort controller for in-flight invoke requests
   const invokeAbort = useRef<AbortController | null>(null);
 
@@ -201,11 +218,12 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
       if (e.key !== "Escape") return;
       if (pickerOpen) setPickerOpen(false);
       if (proposeOpen) setProposeOpen(false);
+      if (skillsOpen) setSkillsOpen(false);
       if (invokeTaskFor) setInvokeTaskFor(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [pickerOpen, proposeOpen, invokeTaskFor]);
+  }, [pickerOpen, proposeOpen, skillsOpen, invokeTaskFor]);
 
   // ---------------------------------------------------------------------------
   // Persist pinned (for picker and kanban default-agent)
@@ -373,6 +391,27 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
   }, [proposal, proposeSelected, roster, pinned, roles, persistRoster, persistPinned]);
 
   // ---------------------------------------------------------------------------
+  // AI propose skills
+  // ---------------------------------------------------------------------------
+
+  const openSkillsPropose = useCallback(async () => {
+    setSkillsBusy(true);
+    setSkillsError(null);
+    setSkillsProposal(null);
+    setSkillsOpen(true);
+    try {
+      const result = (await invoke("project_propose_skill_roster", {
+        projectPath,
+      })) as SkillRosterProposal;
+      setSkillsProposal(result);
+    } catch (e) {
+      setSkillsError(String(e));
+    } finally {
+      setSkillsBusy(false);
+    }
+  }, [projectPath]);
+
+  // ---------------------------------------------------------------------------
   // Picker helpers
   // ---------------------------------------------------------------------------
 
@@ -475,6 +514,18 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
           title="El AI Router analiza el stack del proyecto y sugiere los agentes óptimos."
         >
           {proposeBusy ? "Analizando…" : "Propose roster (AI)"}
+        </button>
+
+        {/* Proponer skills (AI) */}
+        <button
+          type="button"
+          onClick={() => void openSkillsPropose()}
+          disabled={skillsBusy}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-3)] disabled:opacity-40"
+          title="El AI Router analiza el proyecto y sugiere qué skills activar."
+        >
+          <Sparkles size={11} />
+          {skillsBusy ? "Analizando…" : "Proponer skills (AI)"}
         </button>
 
         <button
@@ -954,6 +1005,129 @@ export default function ProjectAgents({ projectId, projectPath }: Props) {
                   Aplicar roster
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Propose skills modal ── */}
+      {skillsOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Proponer skills para el proyecto"
+          onClick={() => setSkillsOpen(false)}
+        >
+          <div
+            className="flex w-full max-w-2xl flex-col gap-3 rounded-lg border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] p-4 text-xs shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Sparkles size={14} />
+                <h2 className="text-sm font-semibold">Skills sugeridas (AI)</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSkillsOpen(false)}
+                aria-label="Cerrar"
+                className="rounded p-1 text-[var(--color-text-tertiary)] hover:bg-[var(--color-surface-3)]"
+              >
+                <X size={12} />
+              </button>
+            </div>
+
+            {/* Aviso de persistencia */}
+            <p className="rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface-1)] px-3 py-2 text-[var(--color-text-muted)]">
+              Estas sugerencias son de solo lectura por ahora. La asociación
+              persistente de skills al proyecto llegará en una versión próxima.
+            </p>
+
+            {/* Loading skeleton */}
+            {skillsBusy && (
+              <div className="flex flex-col gap-1.5 py-4">
+                {[1, 2, 3].map((i) => (
+                  <div
+                    key={i}
+                    className="h-14 animate-pulse rounded bg-[var(--color-surface-3)]"
+                  />
+                ))}
+                <p className="mt-1 text-center text-[10.5px] text-[var(--color-text-muted)]">
+                  El AI Router analiza el proyecto…
+                </p>
+              </div>
+            )}
+
+            {/* Error */}
+            {skillsError && (
+              <div className="rounded border border-[var(--color-error)] bg-[var(--color-surface-1)] p-2 text-[var(--color-error)]">
+                {skillsError}
+              </div>
+            )}
+
+            {/* Sugerencias */}
+            {!skillsBusy && skillsProposal && (
+              <>
+                {skillsProposal.suggestions.length === 0 ? (
+                  <div className="rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface-1)] p-3 text-center text-[var(--color-text-muted)]">
+                    No se detectaron skills relevantes para este proyecto.
+                  </div>
+                ) : (
+                  <div className="max-h-[50vh] overflow-y-auto rounded border border-[var(--color-border)] bg-[var(--color-surface-1)] p-2">
+                    <p className="mb-1.5 text-[10.5px] uppercase tracking-wide text-[var(--color-text-tertiary)]">
+                      Sugeridas ({skillsProposal.suggestions.length})
+                    </p>
+                    <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                      {skillsProposal.suggestions.map((s) => (
+                        <div
+                          key={s.name}
+                          className="flex items-start gap-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2"
+                        >
+                          <span
+                            aria-hidden
+                            className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[var(--color-surface-3)] text-[var(--color-text-muted)]"
+                          >
+                            <Sparkles size={13} />
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-semibold text-[var(--color-text)]">
+                              {s.name}
+                            </div>
+                            <p className="mt-0.5 line-clamp-2 text-[10.5px] text-[var(--color-text-muted)]">
+                              {s.reason}
+                            </p>
+                            {s.tags.length > 0 && (
+                              <div className="mt-1 flex flex-wrap gap-1">
+                                {s.tags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="inline-flex items-center gap-0.5 rounded bg-[var(--color-surface-3)] px-1.5 py-0.5 text-[9.5px] text-[var(--color-text-secondary)]"
+                                  >
+                                    <Tag size={9} />
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="flex items-center justify-end pt-1">
+              <button
+                type="button"
+                onClick={() => setSkillsOpen(false)}
+                className="rounded-md border border-[var(--color-border)] px-3 py-1 hover:bg-[var(--color-surface-3)]"
+              >
+                Cerrar
+              </button>
             </div>
           </div>
         </div>

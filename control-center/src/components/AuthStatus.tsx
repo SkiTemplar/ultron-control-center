@@ -22,18 +22,20 @@ const META: Record<
 > = {
   claude: {
     label: "Claude",
+    // Nota: el color aquí es el color de la etiqueta del proveedor,
+    // no el del badge de estado. El badge de estado se calcula por separado.
     color: "var(--color-success)",
-    loginHint: "Start a `claude` session and type `/login`.",
+    loginHint: "Inicia una sesión `claude` y escribe `/login`.",
   },
   codex: {
     label: "Codex",
     color: "#a875ff",
-    loginHint: "Run `codex login` in a terminal.",
+    loginHint: "Ejecuta `codex login` en una terminal.",
   },
   gemini: {
     label: "Gemini",
     color: "var(--color-warn)",
-    loginHint: "Run `gemini auth login` in a terminal.",
+    loginHint: "Ejecuta `gemini auth login` en una terminal.",
   },
 };
 
@@ -90,8 +92,8 @@ export function AuthStatus() {
         className="text-[11.5px] leading-relaxed"
         style={{ color: "var(--color-text-tertiary)" }}
       >
-        Status of the three CLI peers. Tokens are never read or transmitted —
-        we only look at credential file presence + age.
+        Estado de los tres CLIs. Solo se verifica presencia y antigüedad del fichero
+        de credenciales — los tokens nunca se leen ni se validan contra la API.
       </p>
 
       {error && (
@@ -115,16 +117,31 @@ export function AuthStatus() {
             loginHint: "",
           };
           const stale = e.age_days != null && e.age_days > 60;
+
+          // HONESTIDAD: el backend solo verifica que el fichero de credenciales
+          // existe y lee su mtime. NO valida el token contra la API. Un token
+          // caducado o revocado con el fichero en disco se reporta como
+          // logged_in=true. Por eso:
+          //   - logged_in=false → rojo (fichero ausente, definitivamente no logueado)
+          //   - logged_in=true, stale → ámbar (credenciales antiguas, mayor riesgo)
+          //   - logged_in=true, reciente → ámbar tenue (fichero presente, token sin verificar)
+          // Nunca usamos verde rotundo porque no tenemos validación real del token.
           const dot = !e.logged_in
             ? "var(--color-danger)"
-            : stale
-              ? "var(--color-warn)"
-              : "var(--color-success)";
+            : "var(--color-warn)";
+
+          // Tooltip que aclara la limitación al hacer hover sobre el dot.
+          const dotTooltip = e.logged_in
+            ? stale
+              ? `Fichero de credenciales presente pero con ${e.age_days} días de antigüedad. Validez del token no verificada.`
+              : `Fichero de credenciales presente (${formatRelativeIso(e.last_modified)}). Validez del token no verificada.`
+            : "Fichero de credenciales no encontrado.";
+
           const stateLabel = !e.logged_in
-            ? "not logged in"
+            ? "sin credenciales"
             : stale
-              ? `stale · ${e.age_days}d`
-              : `OK · ${formatRelativeIso(e.last_modified)}`;
+              ? `credenciales antiguas · ${e.age_days}d`
+              : `credenciales presentes · ${formatRelativeIso(e.last_modified)}`;
           return (
             <div
               key={e.provider}
@@ -136,8 +153,9 @@ export function AuthStatus() {
             >
               <div className="flex items-baseline gap-2">
                 <span
-                  className="inline-block h-1.5 w-1.5 rounded-full"
+                  className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ background: dot }}
+                  title={dotTooltip}
                 />
                 <span
                   className="text-[12.5px] font-medium"
@@ -148,10 +166,19 @@ export function AuthStatus() {
                 <span
                   className="ml-auto text-[10.5px]"
                   style={{ color: "var(--color-text-tertiary)" }}
+                  title={dotTooltip}
                 >
                   {stateLabel}
                 </span>
               </div>
+              {e.logged_in && (
+                <p
+                  className="mt-1 text-[10.5px] leading-relaxed"
+                  style={{ color: "var(--color-text-faint)" }}
+                >
+                  Fichero de credenciales presente; validez del token no verificada.
+                </p>
+              )}
               <div
                 className="mt-1 truncate text-[10.5px]"
                 style={{ fontFamily: "var(--font-mono)", color: "var(--color-text-faint)" }}

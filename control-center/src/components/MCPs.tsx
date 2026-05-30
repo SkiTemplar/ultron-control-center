@@ -18,6 +18,34 @@ import { useRoutingTitle } from "../lib/button-prompts";
 const HIDE_KEY = "ultron.cc.hidden_mcps.v1";
 const NAME_RE = /^[a-z0-9][a-z0-9_-]{1,60}$/;
 
+// Tiempo máximo desde last_checked antes de considerar el estado como "stale"
+// y sustituir el badge coloreado por un indicador neutro.
+// El cache en disco (~/.ultron/.tmp/mcp-health.json) puede tener días de
+// antigüedad: mostrar ese estado como "connected" sería falso.
+const STALE_THRESHOLD_MS = 6 * 60 * 60 * 1000; // 6 horas
+
+/** Devuelve la antigüedad en ms de un timestamp ISO. null si no parseable. */
+function ageMs(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return null;
+  return Date.now() - d.getTime();
+}
+
+/** True si el timestamp supera STALE_THRESHOLD_MS o no existe. */
+function isStaleTimestamp(iso: string | null | undefined): boolean {
+  const age = ageMs(iso);
+  return age === null || age > STALE_THRESHOLD_MS;
+}
+
+/** Formatea ms en "Xh Ym" (o "Xd" para más de 24h). */
+function formatAge(ms: number): string {
+  if (ms < 60_000) return "hace un momento";
+  if (ms < 3_600_000) return `hace ${Math.floor(ms / 60_000)}m`;
+  if (ms < 86_400_000) return `hace ${Math.floor(ms / 3_600_000)}h`;
+  return `hace ${Math.floor(ms / 86_400_000)}d`;
+}
+
 function loadHidden(): Set<string> {
   try {
     const raw = localStorage.getItem(HIDE_KEY);
@@ -32,7 +60,11 @@ function saveHidden(s: Set<string>) {
   } catch {}
 }
 
-function statusColor(s: McpStatus, expectedOffline: boolean): string {
+function statusColor(s: McpStatus, expectedOffline: boolean, stale: boolean): string {
+  // Si el cache está desactualizado, usamos un color neutro independientemente
+  // del estado almacenado — presentar "ok" con verde basado en datos de hace
+  // días sería engañoso.
+  if (stale) return "var(--color-text-faint)";
   if (s === "ok") return "var(--color-success)";
   if (s === "degraded" || s === "missing") {
     return expectedOffline ? "var(--color-text-tertiary)" : "var(--color-warn)";
@@ -77,7 +109,8 @@ function originBadgeColor(kind: McpOriginKind): { bg: string; fg: string } {
 // here can go away.
 type McpInfoExt = McpInfo & { origin?: string; plugin?: string | null };
 
-function statusLabel(s: McpStatus, expectedOffline: boolean): string {
+function statusLabel(s: McpStatus, expectedOffline: boolean, stale: boolean): string {
+  if (stale) return "desconocido";
   if (s === "ok") return "connected";
   if (s === "degraded") return expectedOffline ? "offline" : "degraded";
   if (s === "missing") return "missing";
@@ -457,8 +490,19 @@ function Card({
   onAction: (a: Action) => void;
   onToggleEnabled: () => void;
 }) {
-  const color = statusColor(mcp.status, mcp.expected_offline);
-  const label = statusLabel(mcp.status, mcp.expected_offline);
+  // Determinar si el estado en cache es demasiado antiguo para mostrarlo
+  // como estado verificado. Si last_checked supera STALE_THRESHOLD_MS (o no
+  // existe), el badge se muestra en neutro con tooltip explicativo.
+  const stale = isStaleTimestamp(mcp.last_checked);
+  const staleAge = mcp.last_checked ? ageMs(mcp.last_checked) : null;
+  const staleTooltip = stale
+    ? staleAge !== null
+      ? `Estado sin verificar (cache de ${formatAge(staleAge)}). Ejecuta "Run health check" para actualizar.`
+      : `Estado sin verificar (sin timestamp de verificación). Ejecuta "Run health check" para actualizar.`
+    : undefined;
+
+  const color = statusColor(mcp.status, mcp.expected_offline, stale);
+  const label = statusLabel(mcp.status, mcp.expected_offline, stale);
   const origin = parseOrigin(mcp.origin);
   const originColors = originBadgeColor(origin.kind);
   // Plugin / project-scope MCPs are read-only from the Control Center —
@@ -481,11 +525,13 @@ function Card({
             <span
               className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
               style={{ background: color }}
+              title={staleTooltip}
             />
             <h3 className="text-[16px] font-semibold leading-tight">{mcp.name}</h3>
             <span
               className="text-[11px] uppercase tracking-[0.06em]"
               style={{ color }}
+              title={staleTooltip}
             >
               {label}
             </span>

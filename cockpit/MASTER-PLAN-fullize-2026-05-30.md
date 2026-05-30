@@ -38,12 +38,12 @@ AI Router 3 · Memoria 4 · Orquestación 4 · UX/Shell 5 · Projects/Kanban 6 �
 - [~] **C-KAN**: backend `role` canónico + migración idempotente + CRUD columnas + 16 tests ✓. PENDIENTE UI de CRUD columnas → Ola 3.
 
 ### Ola 3 — Cimientos avanzados + proxy + detector + hardening
-- [ ] **A-PROXY**: Vendorizar sidecar proxy (Go nielspeter) — proxy.rs lifecycle start/stop/health; `-FreeTier` en spawn-claude-session.ps1 (ANTHROPIC_BASE_URL=127.0.0.1:8082); toggle en Usage; auto-ON 98% vía quota_watchdog. Validar tool_use con NIM.
+- [~] **A-PROXY**: proxy.rs lifecycle (start/stop/health + stop-on-exit) ✓ + env_keys NIM/OpenRouter ✓ + sessions free_tier ✓ + `-FreeTier` en spawn.ps1 ✓ + toggle en AIRouterIndex + auto-ON 98% ✓. PENDIENTE: binario Go (no instalado) → wiring listo + HOWTO en ~/.ultron/proxy/; validar tool_use con NIM.
 - [x] **A-ORCH**: botón "Asignar tarea" en Agents → delegate_task_launch + strip runs (list_delegations); vista InboxTriage (list_inbox) en Sidebar. PENDIENTE backend: delete/mark/convert inbox.
 - [~] **A-DET**: descripciones al proposer de agentes ✓ + project_propose_skill_roster (paridad skills) ✓ + 4 tests. PENDIENTE: matching por embeddings (TODO marcado) + UI de skill roster.
 - [ ] **A-DECQ**: Gate de calidad auto-captura decisiones (Stop hook importance>=0.7 + filtro anti-ruido git/CI/modelo). ⚠ hook en ~/.claude no versionado.
 - [ ] **A-DETACH**: Reparar Detach (/detached/project router + reattach listener).
-- [ ] **A-MEMUI**: KG editor borrar/relacionar; mem0 user_id=global hidratado; MCP badge invalidar por antigüedad.
+- [~] **A-MEMUI**: MCP badge invalidar por antigüedad ✓ + Auth honesto (token no verificado, fuera verde engañoso) ✓. PENDIENTE: KG editor borrar/relacionar (falta backend) + mem0 user_id=global hidratado.
 
 ### Cierre
 - [ ] Auditoría independiente (council: architect + security + qa + code-review) sobre el diff.
