@@ -242,6 +242,8 @@ pub fn run() {
             commands::agents::project_roster_save,
             commands::agents::project_roster_load,
             commands::agents::project_invoke_agent_from_session,
+            // -- per-project skill roster (detector parity, 2026-05-30) --
+            commands::agents::project_propose_skill_roster,
             // -- rules --
             commands::rules::rules_list,
             commands::rules::rules_read,

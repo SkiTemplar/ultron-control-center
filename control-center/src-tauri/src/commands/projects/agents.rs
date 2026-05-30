@@ -204,6 +204,26 @@ pub async fn project_roster_load(
     .map_err(|e| e.to_string())?
 }
 
+/// Ask the AI Router to propose relevant skills for the project.
+///
+/// Reads manifest files to detect the stack, loads active skills from the
+/// registry (name + description), and calls `ai_router::route("utility", ...)`
+/// with a catalogue prompt.  Returns a `SkillRosterProposal` with `recommended`
+/// entries; the frontend shows a confirmation modal before activating anything.
+///
+/// Falls back to deterministic keyword matching when the AI Router is
+/// unavailable.
+#[tauri::command]
+pub async fn project_propose_skill_roster(
+    project_path: String,
+) -> Result<project_agents::SkillRosterProposal, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project_agents::propose_skill_roster_inner(&project_path)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Write a sub-agent delegation line into the most-recent running PTY for
 /// `project_id`.  Returns `InvokeResult { pty_id, sent }`.
 ///
