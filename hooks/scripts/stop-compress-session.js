@@ -1,0 +1,641 @@
+#!/usr/bin/env node
+/**
+ * Stop hook — compress current session into structured facts and upsert to
+ * Qdrant `ultron_sessions` collection.
+ *
+ * KIRKARDO 14 — Paso 2: stop hook compresor.
+ *
+ * Flow:
+ *   1. Read the transcript JSONL path from stdin payload (field: transcript_path).
+ *   2. Parse last N turns (MAX_TURNS = 60) from the JSONL.
+ *   3. Invoke Haiku 4.5 via Anthropic API to extract 3-5 structured facts.
+ *      Falls back to rule-based extraction when ANTHROPIC_API_KEY is absent.
+ *   4. Upsert each fact as a separate Qdrant point to `ultron_sessions`.
+ *      Metadata: { project, date, sha_head, session_id, kind, importance }.
+ *   5. Exits 0 always — hook failures must never interrupt user workflow.
+ *
+ * Qdrant REST API is called directly (no SDK) on port 6333 (or QDRANT_URL).
+ * Embedding is delegated to the Tauri backend via `recall_semantic` — but
+ * since the backend may not be running at Stop time we call a tiny local
+ * embedding shim instead (TF.js / onnxruntime-node with BGE-small if
+ * available, else a zero-vector stub that still stores the text payload
+ * so keyword search remains useful).
+ *
+ * Configuration via env vars:
+ *   ANTHROPIC_API_KEY   — required for AI extraction; falls back to heuristic
+ *   QDRANT_URL          — default http://localhost:6333
+ *   STOP_COMPRESS_DISABLED=1  — opt-out
+ */
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const { execFileSync, spawnSync } = require('child_process');
+const https = require('https');
+const http = require('http');
+const crypto = require('crypto');
+
+// ---------------------------------------------------------------------------
+// Shared security helpers — loaded from mem0-sync.js with graceful fallback.
+// If require fails (path change, syntax error) we degrade to no-op stubs so
+// the hook never crashes the session.
+// ---------------------------------------------------------------------------
+
+let redactSecrets = (s) => String(s == null ? '' : s);
+let loadOptOut = () => ({ projects: [], cwd_patterns: [] });
+let isOptedOut = () => false;
+let detectProjectName = (cwd) => path.basename(cwd || process.cwd() || 'unknown');
+// FAIL-CLOSED: only true once the real security helpers loaded. When false we
+// must NOT send anything to the cloud LLM (would post unredacted text + skip
+// project opt-out). The local Qdrant write still happens (no egress).
+let securityHelpersLoaded = false;
+
+try {
+  const mem0 = require('./mem0-sync.js');
+  if (
+    typeof mem0.redactSecrets === 'function' &&
+    typeof mem0.isOptedOut === 'function' &&
+    typeof mem0.loadOptOut === 'function'
+  ) {
+    redactSecrets = mem0.redactSecrets;
+    loadOptOut = mem0.loadOptOut;
+    isOptedOut = mem0.isOptedOut;
+    if (typeof mem0.detectProjectName === 'function') detectProjectName = mem0.detectProjectName;
+    securityHelpersLoaded = true;
+  }
+} catch (_) {
+  // mem0-sync.js unavailable — security helpers stay as stubs and
+  // securityHelpersLoaded stays false (fail-closed: no cloud egress below).
+}
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+
+const HOME = os.homedir();
+const LOG_PATH = path.join(HOME, '.claude', 'logs', 'stop-compress-session.jsonl');
+const LOG_MAX_BYTES = 2 * 1024 * 1024;
+const MAX_TURNS = 60;
+const QDRANT_URL = (process.env.QDRANT_URL || 'http://localhost:6333').replace(/\/$/, '');
+const COLLECTION = 'ultron_sessions';
+const VECTOR_SIZE = 384;
+
+// ---------------------------------------------------------------------------
+// Logging
+// ---------------------------------------------------------------------------
+
+function rotateLogIfNeeded() {
+  try {
+    const st = fs.statSync(LOG_PATH);
+    if (st.size < LOG_MAX_BYTES) return;
+    const rotated = LOG_PATH + '.1';
+    try { fs.unlinkSync(rotated); } catch (_) {}
+    fs.renameSync(LOG_PATH, rotated);
+  } catch (_) {}
+}
+
+function safeLog(entry) {
+  try {
+    fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
+    rotateLogIfNeeded();
+    fs.appendFileSync(
+      LOG_PATH,
+      JSON.stringify({ ts: new Date().toISOString(), ...entry }) + '\n',
+      'utf8'
+    );
+  } catch (_) {}
+}
+
+// ---------------------------------------------------------------------------
+// Stdin
+// ---------------------------------------------------------------------------
+
+function readStdinSync() {
+  try { return fs.readFileSync(0, 'utf8'); } catch (_) { return ''; }
+}
+
+// ---------------------------------------------------------------------------
+// JSONL transcript parser
+// ---------------------------------------------------------------------------
+
+/**
+ * Extract the last MAX_TURNS messages from a JSONL transcript.
+ * Returns an array of { role, text } objects.
+ */
+function parseTurns(jsonlPath) {
+  let raw;
+  try { raw = fs.readFileSync(jsonlPath, 'utf8'); } catch (_) { return []; }
+
+  const lines = raw.split(/\r?\n/).filter(l => l.trim());
+  const tail = lines.slice(-MAX_TURNS);
+  const turns = [];
+
+  for (const line of tail) {
+    let obj;
+    try { obj = JSON.parse(line); } catch (_) { continue; }
+
+    const type = obj.type || '';
+    if (type !== 'user' && type !== 'assistant') continue;
+
+    // Extract first text block (mirrors recall.rs logic).
+    const msg = obj.message || obj;
+    const content = msg.content;
+    let text = '';
+    if (typeof content === 'string') {
+      text = content;
+    } else if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === 'text' && block.text) { text = block.text; break; }
+      }
+    }
+    if (text.trim()) turns.push({ role: type, text: text.trim().slice(0, 800) });
+  }
+  return turns;
+}
+
+// ---------------------------------------------------------------------------
+// Git head SHA (best-effort)
+// ---------------------------------------------------------------------------
+
+function gitHeadSha(cwd) {
+  try {
+    return execFileSync('git', ['-C', cwd, 'rev-parse', '--short', 'HEAD'], {
+      stdio: ['ignore', 'pipe', 'ignore'], timeout: 1500, encoding: 'utf8'
+    }).trim();
+  } catch (_) { return ''; }
+}
+
+// ---------------------------------------------------------------------------
+// HTTP helper (no external deps)
+// ---------------------------------------------------------------------------
+
+function httpRequest(urlStr, options, body) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlStr);
+    const lib = url.protocol === 'https:' ? https : http;
+    const req = lib.request({
+      hostname: url.hostname,
+      port: url.port || (url.protocol === 'https:' ? 443 : 80),
+      path: url.pathname + url.search,
+      method: options.method || 'GET',
+      headers: options.headers || {},
+    }, res => {
+      const chunks = [];
+      res.on('data', d => chunks.push(d));
+      res.on('end', () => resolve({
+        status: res.statusCode,
+        body: Buffer.concat(chunks).toString('utf8'),
+      }));
+    });
+    req.on('error', reject);
+    if (options.timeout) req.setTimeout(options.timeout, () => req.destroy(new Error('timeout')));
+    if (body) req.write(body);
+    req.end();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic Haiku extraction
+// ---------------------------------------------------------------------------
+
+const EXTRACTION_PROMPT = `You are a technical memory assistant. Given a conversation transcript, extract 3 to 5 key facts worth remembering for future sessions.
+
+Return ONLY valid JSON with this exact shape:
+{"facts":[{"text":"<concise fact>","kind":"decision|bug|feature|todo|file","importance":0.0-1.0}]}
+
+Rules:
+- "text": one sentence, max 120 chars, in the same language as the conversation
+- "kind": one of decision, bug, feature, todo, file
+- "importance": float 0-1 (1 = critical architectural decision, 0.1 = minor note)
+- For "decision" facts, set importance >= 0.7 — an architectural/design/tooling
+  choice ("we decided X over Y", "we'll use Z") is always worth remembering
+- Return between 3 and 5 facts
+- Focus on decisions made, bugs fixed, files created/changed, todos left
+
+Transcript (last turns):
+`;
+
+async function extractFactsWithAI(turns) {
+  // Redact secrets from every turn BEFORE sending to ANY provider.
+  // The transcript leaves the machine here — this is the critical boundary.
+  const transcript = turns
+    .map(t => `[${t.role}]: ${redactSecrets(t.text)}`)
+    .join('\n')
+    .slice(0, 6000);
+  const content = EXTRACTION_PROMPT + transcript;
+
+  // Proveedor preferente: Groq (free tier, OpenAI-compat) — la suscripcion
+  // Anthropic directa suele no tener saldo (400 credit balance too low). Si no
+  // hay GROQ_API_KEY, cae a Anthropic; si tampoco, devuelve null (heuristico).
+  // fix 2026-05-30: antes solo usaba Anthropic y fallaba por saldo.
+  const groqKey = process.env.GROQ_API_KEY;
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+  async function tryGroq() {
+    const body = JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      max_tokens: 512,
+      messages: [{ role: 'user', content }],
+    });
+    const res = await httpRequest('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      timeout: 20000,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
+    }, body);
+    if (res.status !== 200) {
+      safeLog({ level: 'warn', msg: 'groq_non200', status: res.status, body: res.body.slice(0, 200) });
+      return null;
+    }
+    return JSON.parse(res.body)?.choices?.[0]?.message?.content || '';
+  }
+
+  async function tryAnthropic() {
+    const body = JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{ role: 'user', content }],
+    });
+    const res = await httpRequest('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      timeout: 20000,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': anthropicKey,
+        'anthropic-version': '2023-06-01',
+      },
+    }, body);
+    if (res.status !== 200) {
+      safeLog({ level: 'warn', msg: 'anthropic_non200', status: res.status, body: res.body.slice(0, 200) });
+      return null;
+    }
+    return JSON.parse(res.body)?.content?.[0]?.text || '';
+  }
+
+  try {
+    let text = null;
+    if (groqKey) text = await tryGroq();
+    if (text == null && anthropicKey) text = await tryAnthropic();
+    if (text == null) return null;
+
+    // Extract JSON block — model may wrap it in markdown fences.
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+    const facts = JSON.parse(jsonMatch[0]);
+    if (!Array.isArray(facts.facts)) return null;
+    return facts.facts;
+  } catch (e) {
+    safeLog({ level: 'error', msg: 'ai_extract_failed', error: String(e && e.message) });
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Heuristic fact extraction (fallback when no API key)
+// ---------------------------------------------------------------------------
+
+function extractFactsHeuristic(turns) {
+  const facts = [];
+  const seen = new Set();
+
+  for (const turn of turns.slice(-20)) {
+    // Redact secrets before storing — these texts land in Qdrant payloads.
+    const safeText = redactSecrets(turn.text);
+    const lower = safeText.toLowerCase();
+    let kind = 'feature';
+    let importance = 0.4;
+
+    if (lower.includes('bug') || lower.includes('error') || lower.includes('fix')) {
+      kind = 'bug'; importance = 0.7;
+    } else if (lower.includes('todo') || lower.includes('pendiente') || lower.includes('falta')) {
+      kind = 'todo'; importance = 0.6;
+    } else if (lower.match(/decidimos|decision|vamos a|usaremos|implementamos/)) {
+      kind = 'decision'; importance = 0.8;
+    } else if (lower.match(/\.rs|\.ts|\.js|\.py|\.json|archivo|file|created|wrote/)) {
+      kind = 'file'; importance = 0.5;
+    }
+
+    const key = safeText.slice(0, 60).toLowerCase().replace(/\s+/g, ' ');
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    facts.push({
+      text: safeText.slice(0, 120),
+      kind,
+      importance,
+    });
+
+    if (facts.length >= 5) break;
+  }
+
+  // Ensure at least one fact exists.
+  if (facts.length === 0) {
+    facts.push({ text: 'Session completed (no extractable facts)', kind: 'feature', importance: 0.1 });
+  }
+
+  return facts;
+}
+
+// ---------------------------------------------------------------------------
+// Embedding — real BGE-small vector via ultron-embed.exe sidecar
+// ---------------------------------------------------------------------------
+// KIRKARDO R11.2 FIX-2: replace zero-vector stub by the ultron-embed sidecar
+// already in use by session-recall-inject.js. Without this the Qdrant points
+// store identical zero vectors and semantic recall is mathematical noise.
+
+const EMBED_BIN_CANDIDATES = [
+  process.env.ULTRON_EMBED_BIN,
+  path.join(HOME, '.ultron', 'bin', 'ultron-embed.exe'),
+  path.join(HOME, '.ultron', 'control-center', 'src-tauri', 'target', 'release', 'ultron-embed.exe'),
+  path.join(HOME, '.ultron', 'bin', 'ultron-embed'),
+].filter(Boolean);
+
+let cachedEmbedBin = undefined;
+function findEmbedBin() {
+  if (cachedEmbedBin !== undefined) return cachedEmbedBin;
+  for (const p of EMBED_BIN_CANDIDATES) {
+    try {
+      fs.accessSync(p, fs.constants.X_OK);
+      cachedEmbedBin = p;
+      return p;
+    } catch (_) {}
+  }
+  cachedEmbedBin = null;
+  return null;
+}
+
+/**
+ * Compute a 384-d BGE-small vector for `text` via the ultron-embed sidecar.
+ * Falls back to a zero vector if the sidecar is unavailable (so points still
+ * land in Qdrant for keyword recall, marked with a `stub:true` payload flag
+ * downstream so observers can distinguish real vs. fallback).
+ */
+function computeEmbedding(text) {
+  const bin = findEmbedBin();
+  if (!bin) {
+    return { vector: new Array(VECTOR_SIZE).fill(0.0), real: false };
+  }
+  try {
+    const result = spawnSync(bin, [], {
+      input: text,
+      encoding: 'utf8',
+      timeout: 8000,
+      maxBuffer: 1024 * 1024,
+    });
+    if (result.error || result.status !== 0) {
+      safeLog({
+        level: 'warn',
+        msg: 'embed_failed',
+        code: result.status,
+        err: result.error ? String(result.error) : null,
+      });
+      return { vector: new Array(VECTOR_SIZE).fill(0.0), real: false };
+    }
+    const parsed = JSON.parse((result.stdout || '').trim());
+    if (!Array.isArray(parsed) || parsed.length !== VECTOR_SIZE) {
+      return { vector: new Array(VECTOR_SIZE).fill(0.0), real: false };
+    }
+    return { vector: parsed, real: true };
+  } catch (e) {
+    safeLog({ level: 'warn', msg: 'embed_exception', error: String(e) });
+    return { vector: new Array(VECTOR_SIZE).fill(0.0), real: false };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Qdrant helpers
+// ---------------------------------------------------------------------------
+
+async function qdrantEnsureCollection() {
+  // Check existence.
+  try {
+    const r = await httpRequest(`${QDRANT_URL}/collections/${COLLECTION}`, { method: 'GET', timeout: 4000 }, null);
+    if (r.status === 200) return true;
+  } catch (_) { return false; }
+
+  // Create.
+  try {
+    const body = JSON.stringify({ vectors: { size: VECTOR_SIZE, distance: 'Cosine' } });
+    const r = await httpRequest(`${QDRANT_URL}/collections/${COLLECTION}`, {
+      method: 'PUT',
+      timeout: 5000,
+      headers: { 'Content-Type': 'application/json' },
+    }, body);
+    return r.status === 200 || r.status === 201;
+  } catch (_) { return false; }
+}
+
+async function qdrantUpsertPoints(points) {
+  const body = JSON.stringify({ points });
+  try {
+    const r = await httpRequest(`${QDRANT_URL}/collections/${COLLECTION}/points`, {
+      method: 'PUT',
+      timeout: 8000,
+      headers: { 'Content-Type': 'application/json' },
+    }, body);
+    return r.status === 200 || r.status === 201 || r.status === 206;
+  } catch (e) {
+    safeLog({ level: 'error', msg: 'qdrant_upsert_failed', error: String(e && e.message) });
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Project name heuristic
+// ---------------------------------------------------------------------------
+
+function projectName(cwd) {
+  return path.basename(cwd || process.cwd() || 'unknown');
+}
+
+// ---------------------------------------------------------------------------
+// Decision auto-capture (Control Center "Decisions" panel)
+// ---------------------------------------------------------------------------
+// Resolve the authoritative project_id used by the Control Center by matching
+// cwd against the registered project paths in cockpit/projects.json. Falls back
+// to the cwd basename with a leading dot stripped (".ultron" -> "ultron").
+
+function resolveProjectId(cwd) {
+  try {
+    const reg = JSON.parse(
+      fs.readFileSync(path.join(HOME, '.ultron', 'cockpit', 'projects.json'), 'utf8'),
+    );
+    const projects = (reg && reg.projects) || [];
+    const norm = (p) => path.resolve(p).toLowerCase().replace(/[\\/]+$/, '');
+    const target = norm(cwd || process.cwd());
+    let best = null;
+    for (const p of projects) {
+      if (!p || !p.path || !p.id) continue;
+      const pp = norm(p.path);
+      if (target === pp) return p.id;
+      if (target.startsWith(pp + '\\') || target.startsWith(pp + '/')) {
+        if (!best || pp.length > best.len) best = { id: p.id, len: pp.length };
+      }
+    }
+    if (best) return best.id;
+  } catch (_) {
+    // fall through to basename fallback
+  }
+  return path.basename(cwd || process.cwd() || 'unknown').replace(/^\./, '');
+}
+
+// Append decision-kind facts to the per-project pending file. The Control
+// Center drains this into proposed decisions (tag: auto-captured) on panel
+// load. Best-effort: never throws into the hot path.
+// Threshold to surface a decision-kind fact as a pending decision. Kept LOW
+// (0.5) on purpose: a fact the extractor already classified as kind="decision"
+// is worth a human glance, and the user filters it with Accept/Reject anyway.
+// A false negative loses the decision forever; a false positive is one click.
+// The Groq route systematically under-scores decisions (~0.3-0.5), so the old
+// 0.7 gate captured nothing — see version_propagate sibling audit 2026-05-30.
+const PENDING_DECISION_MIN_IMPORTANCE = 0.5;
+
+function appendPendingDecisions(projectId, facts, sessionId, date) {
+  try {
+    const decisionFacts = (facts || []).filter(
+      (f) =>
+        f &&
+        f.kind === 'decision' &&
+        (f.importance || 0) >= PENDING_DECISION_MIN_IMPORTANCE &&
+        f.text &&
+        f.text.trim().length >= 5,
+    );
+    if (decisionFacts.length === 0) return;
+    const dir = path.join(HOME, '.ultron', 'cockpit', 'projects', projectId);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, 'decisions-pending.jsonl');
+    const lines = decisionFacts.map((f) =>
+      JSON.stringify({
+        decision: f.text.slice(0, 120),
+        rationale: `Captado automáticamente del Stop hook (sesión ${sessionId}, ${date}). Revisar y aceptar o rechazar.`,
+        session_id: sessionId,
+        date,
+        tags: ['auto-captured'],
+        source: 'stop-compress-session',
+      }),
+    );
+    fs.appendFileSync(file, lines.join('\n') + '\n');
+    safeLog({ level: 'info', msg: 'pending_decisions_written', count: decisionFacts.length, projectId, sessionId });
+  } catch (e) {
+    safeLog({ level: 'warn', msg: 'pending_decisions_failed', error: String(e && e.message) });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+async function main() {
+  if (process.env.STOP_COMPRESS_DISABLED === '1' || process.env.CLAUDE_NO_HOOKS === '1') {
+    safeLog({ level: 'info', msg: 'opt_out_via_env' });
+    return;
+  }
+
+  const stdinRaw = readStdinSync();
+  let stdin = {};
+  try { stdin = stdinRaw ? JSON.parse(stdinRaw) : {}; } catch (_) {}
+
+  const transcriptPath = stdin.transcript_path || stdin.transcriptPath || '';
+  const sessionId = stdin.session_id || stdin.sessionId
+    || (transcriptPath ? path.basename(transcriptPath).replace(/\.jsonl$/i, '') : '')
+    || crypto.randomUUID();
+  const cwd = stdin.cwd || process.cwd();
+  const project = projectName(cwd);
+
+  // Per-project opt-out: financial projects and any project listed in
+  // ~/.ultron/.mem0-opt-out.json will not send data to external services.
+  // Checked early — opted-out sessions do zero network I/O.
+  if (isOptedOut(detectProjectName(cwd), cwd, loadOptOut())) {
+    safeLog({ level: 'info', msg: 'opted_out_by_project', project, sessionId });
+    return;
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  const sha = gitHeadSha(cwd);
+
+  safeLog({ level: 'info', msg: 'start', sessionId, project, transcriptPath: transcriptPath || '(none)' });
+
+  // Parse transcript.
+  const turns = transcriptPath ? parseTurns(transcriptPath) : [];
+  if (turns.length === 0) {
+    safeLog({ level: 'info', msg: 'no_turns_skip', sessionId });
+    return;
+  }
+
+  // Extract facts. FAIL-CLOSED: only call the cloud LLM (extractFactsWithAI ->
+  // POST to api.anthropic.com) when the redaction/opt-out helpers loaded.
+  // Otherwise stay fully local (heuristic -> Qdrant only, no egress).
+  let facts = securityHelpersLoaded ? await extractFactsWithAI(turns) : null;
+  const usedAI = facts !== null;
+  if (!facts) {
+    if (!securityHelpersLoaded) {
+      safeLog({ level: 'warn', msg: 'security_helpers_unavailable_local_only', sessionId });
+    }
+    facts = extractFactsHeuristic(turns);
+  }
+
+  safeLog({ level: 'info', msg: 'facts_extracted', count: facts.length, usedAI, sessionId });
+
+  // Auto-capture decisions for the Control Center "Decisions" panel. Runs
+  // before the Qdrant path so decisions are still captured if Qdrant is down.
+  appendPendingDecisions(resolveProjectId(cwd), facts, sessionId, date);
+
+  // Ensure Qdrant collection exists. If Qdrant is down, log and exit gracefully.
+  const collectionOk = await qdrantEnsureCollection();
+  if (!collectionOk) {
+    safeLog({
+      level: 'warn',
+      msg: 'qdrant_unavailable',
+      hint: `Start Qdrant: qdrant.exe  (see docs/qdrant-setup.md)`,
+      sessionId,
+    });
+    return;
+  }
+
+  // Build Qdrant points. Embeddings are computed via ultron-embed.exe; when
+  // the sidecar is missing we keep the zero-vector fallback but flag each
+  // point with `embed_stub:true` so downstream observers can distinguish
+  // real vectors from fallback noise.
+  let realEmbedCount = 0;
+  const points = facts.map((fact, idx) => {
+    const hash = crypto.createHash('sha256')
+      .update(`${sessionId}:${idx}`)
+      .digest('hex');
+    const id = parseInt(hash.slice(0, 15), 16);
+
+    const emb = computeEmbedding(fact.text);
+    if (emb.real) realEmbedCount += 1;
+
+    return {
+      id,
+      vector: emb.vector,
+      payload: {
+        text: fact.text,
+        kind: fact.kind || 'feature',
+        importance: typeof fact.importance === 'number' ? fact.importance : 0.5,
+        session_id: sessionId,
+        project,
+        date,
+        sha_head: sha,
+        used_ai: usedAI,
+        embed_stub: !emb.real,
+      },
+    };
+  });
+
+  const ok = await qdrantUpsertPoints(points);
+  safeLog({
+    level: ok ? 'info' : 'error',
+    msg: ok ? 'upserted' : 'upsert_failed',
+    count: points.length,
+    real_embeds: realEmbedCount,
+    sessionId,
+    project,
+  });
+}
+
+main().catch(err => {
+  safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+});
+
+process.exitCode = 0;
