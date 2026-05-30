@@ -254,9 +254,27 @@ fn u32_of(row: &std::collections::HashMap<String, wmi::Variant>, k: &str) -> u32
     }
 }
 
+/// Cloudflare DNS resolver — used for the network reachability check.
+/// Defined as a const so the parse cannot panic at runtime.
+const NETWORK_CHECK_HOST: &str = "1.1.1.1:443";
+
 pub fn check_network() -> NetworkStatus {
     use std::net::{SocketAddr, TcpStream};
-    let addr: SocketAddr = "1.1.1.1:443".parse().expect("valid addr");
+
+    let addr: SocketAddr = match NETWORK_CHECK_HOST.parse() {
+        Ok(a) => a,
+        Err(e) => {
+            // Should never happen with the compile-time literal above, but
+            // returning a diagnostic failure is safer than panicking.
+            eprintln!("[diagnostics] failed to parse network check addr: {e}");
+            return NetworkStatus {
+                reachable: false,
+                latency_ms: None,
+                severity: Severity::Error,
+            };
+        }
+    };
+
     let start = std::time::Instant::now();
     let res = TcpStream::connect_timeout(&addr, Duration::from_secs(2));
     match res {
