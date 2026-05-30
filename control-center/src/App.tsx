@@ -175,10 +175,13 @@ function AppInner() {
   // Reattach: cuando una ventana detached se cierra el backend emite
   // "project:window-closed" con { projectId, label }. Reabrimos el tab en la
   // ventana principal para que el usuario pueda retomar el trabajo aquí.
+  //
+  // audit verify-audit-2 rank2: sustituimos el patrón cancelled+unlisten por
+  // useRef<Promise> para cerrar la race condition donde el unmount ocurre tras
+  // resolver la promesa pero antes de que unlisten quede asignado.
+  const _unlistenWindowClosed = useRef<Promise<() => void> | null>(null);
   useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    void listen<{ projectId: string; label: string }>(
+    _unlistenWindowClosed.current = listen<{ projectId: string; label: string }>(
       "project:window-closed",
       (event) => {
         const { projectId } = event.payload ?? {};
@@ -190,13 +193,9 @@ function AppInner() {
         select(projectId);
         setTab("projects");
       },
-    ).then((fn) => {
-      if (cancelled) { fn(); return; }
-      unlisten = fn;
-    });
+    );
     return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
+      void _unlistenWindowClosed.current?.then((fn) => fn());
     };
   // open y select son callbacks estables (useCallback sin deps cambiantes).
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -206,14 +205,13 @@ function AppInner() {
   // Backend emits "project-hotkey-custom" with { slot, project_id, combo }.
   // Behaviour: open Control Center on the Projects tab, then invoke
   // open_project so the user lands on the configured project ready to go.
+  //
+  // audit verify-audit-2 rank2: mismo patrón useRef<Promise> que el listener
+  // de project:window-closed — elimina la race entre unmount y resolución de
+  // la promesa de registro.
+  const _unlistenHotkeyCustom = useRef<Promise<() => void> | null>(null);
   useEffect(() => {
-    // review audit v15.5.4: a cancelled flag closes the race between
-    // unmount and the listen() promise resolving. Without it, React
-    // StrictMode (or any quick remount) leaves a listener attached to
-    // the Tauri event bus forever.
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-    void listen<{ slot: number; project_id: string; combo: string }>(
+    _unlistenHotkeyCustom.current = listen<{ slot: number; project_id: string; combo: string }>(
       "project-hotkey-custom",
       async (event) => {
         const pid = event.payload?.project_id;
@@ -225,18 +223,9 @@ function AppInner() {
           console.error("[ultron] custom project hotkey open_project failed", err);
         }
       },
-    ).then((fn) => {
-      if (cancelled) {
-        // Listener registered after the component already unmounted —
-        // detach immediately so it doesn't outlive the host.
-        fn();
-        return;
-      }
-      unlisten = fn;
-    });
+    );
     return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
+      void _unlistenHotkeyCustom.current?.then((fn) => fn());
     };
   }, []);
 

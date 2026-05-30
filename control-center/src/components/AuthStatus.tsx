@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 export type AuthEntry = {
@@ -55,7 +55,9 @@ export function AuthStatus() {
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  async function load() {
+  // audit verify-audit-2 rank8: useCallback con deps [] para que el effect
+  // de abajo tenga referencia estable y el linter no pida suprimir la dep.
+  const load = useCallback(async () => {
     setRefreshing(true);
     try {
       const r = (await invoke("auth_status")) as AuthReport;
@@ -66,11 +68,11 @@ export function AuthStatus() {
     } finally {
       setRefreshing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    load();
-  }, []);
+    void load();
+  }, [load]);
 
   return (
     <div className="space-y-2">

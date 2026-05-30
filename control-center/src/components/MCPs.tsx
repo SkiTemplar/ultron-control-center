@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   McpInfo,
@@ -10,6 +10,7 @@ import type {
   SettingsSaveResult,
 } from "../types";
 import { useRoutingTitle } from "../lib/button-prompts";
+import { notifyError } from "../lib/notify";
 
 // ---------------------------------------------------------------------------
 // Status visuals
@@ -963,7 +964,10 @@ export function MCPs() {
 
   useEffect(() => saveHidden(hidden), [hidden]);
 
-  async function fetchList() {
+  // audit verify-audit-2 rank8: useCallback con deps [] para que el setInterval
+  // del effect de abajo capture siempre la misma referencia y no se recree en
+  // cada render. Las setters de useState son estables por garantía de React.
+  const fetchList = useCallback(async () => {
     try {
       const list = (await invoke("list_mcps")) as McpInfoExt[];
       setMcps(list);
@@ -989,7 +993,7 @@ export function MCPs() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   async function toggleEnabled(name: string) {
     if (toggleBusy.has(name)) return;
@@ -1014,7 +1018,9 @@ export function MCPs() {
     }
   }
 
-  async function runProbe() {
+  // audit verify-audit-2 rank8: useCallback con deps [] — referencia estable
+  // para el botón "Check now" sin recrear la función en cada render.
+  const runProbe = useCallback(async () => {
     setProbing(true);
     try {
       const list = (await invoke("run_mcp_health_check")) as McpInfoExt[];
@@ -1025,13 +1031,13 @@ export function MCPs() {
     } finally {
       setProbing(false);
     }
-  }
+  }, []);
 
   useEffect(() => {
-    fetchList();
-    const t = setInterval(fetchList, 30_000);
+    void fetchList();
+    const t = setInterval(() => void fetchList(), 30_000);
     return () => clearInterval(t);
-  }, []);
+  }, [fetchList]);
 
   function toggleHidden(name: string) {
     const next = new Set(hidden);
@@ -1272,7 +1278,7 @@ export function MCPs() {
                   flags: { dangerouslySkipPermissions: false },
                 });
               } catch (e) {
-                console.error("create mcp with AI failed", e);
+                notifyError(`create mcp with AI failed: ${String(e)}`, "mcps");
               }
             }}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"

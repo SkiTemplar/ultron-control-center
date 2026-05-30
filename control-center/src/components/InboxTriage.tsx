@@ -143,7 +143,7 @@ export function InboxTriage({ asModal = false, onClose }: InboxTriageProps) {
         }}
       >
         <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-          <span style={{ fontSize: 15, fontWeight: 600 }}>Bandeja de entrada</span>
+          <span style={{ fontSize: 15, fontWeight: 600 }}>Inbox (solo lectura)</span>
           {!loading && (
             <span style={{ fontSize: 11.5, color: "var(--color-text-tertiary)" }}>
               {entries.length} {entries.length === 1 ? "captura" : "capturas"} ·{" "}
@@ -198,8 +198,8 @@ export function InboxTriage({ asModal = false, onClose }: InboxTriageProps) {
           flexShrink: 0,
         }}
       >
-        Triage avanzado (marcar procesada, convertir a card, borrar) pendiente de backend.
-        Por ahora puedes copiar el texto al portapapeles para procesarlo manualmente.
+        Vista de solo lectura — acción disponible: copiar al portapapeles.
+        Marcar como procesada, convertir a card Kanban y borrar llegarán cuando exista backend para ello.
       </div>
 
       {/* Error */}
