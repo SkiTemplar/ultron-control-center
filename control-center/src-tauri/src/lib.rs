@@ -455,6 +455,7 @@ pub fn run() {
             commands::hooks::analyze_hook_name,
             commands::hooks::bulk_analyze_hook_names,
             commands::hooks::get_hook_names_cache,
+            commands::hooks::get_hook_descriptions,
             // -- plugin info (P7 + v2.2 multi-plugin) --
             commands::plugins_info::read_plugin_info,
             commands::plugins_info::list_all_plugins,
@@ -498,6 +499,7 @@ pub fn run() {
             commands::decisions::decisions_update,
             commands::decisions::decisions_list,
             commands::decisions::decisions_delete,
+            commands::decisions::decisions_drain_pending,
             commands::decisions::decisions_search,
             commands::decisions::kanban_decisions_search,
             // -- kanban (P4) --

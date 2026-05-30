@@ -4,8 +4,8 @@
 // commands/kanban.rs and commands/kg.rs.
 
 use crate::decisions::{
-    add_inner, delete_inner, list_inner, search_inner, update_inner, DecisionPatch,
-    DecisionPayload, DecisionRecord, DecisionSearchResult,
+    add_inner, delete_inner, drain_pending_inner, list_inner, search_inner, update_inner,
+    DecisionPatch, DecisionPayload, DecisionRecord, DecisionSearchResult,
 };
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,17 @@ pub async fn decisions_list(project_id: String) -> Result<Vec<DecisionRecord>, S
 #[tauri::command]
 pub async fn decisions_delete(project_id: String, id: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || delete_inner(&project_id, &id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Drain the Stop-hook pending file into proposed decisions (auto-capture).
+/// Returns the newly added records (empty when nothing was pending).
+#[tauri::command]
+pub async fn decisions_drain_pending(
+    project_id: String,
+) -> Result<Vec<DecisionRecord>, String> {
+    tauri::async_runtime::spawn_blocking(move || drain_pending_inner(&project_id))
         .await
         .map_err(|e| e.to_string())?
 }

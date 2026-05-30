@@ -34,7 +34,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::fs;
 use std::hash::{Hash, Hasher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -1563,4 +1563,234 @@ pub fn bulk_analyze_hook_names_inner() -> Result<Vec<HookNameResult>, String> {
 /// Read the current names cache for the frontend (no AI calls, no mutations).
 pub fn get_hook_names_cache_inner() -> serde_json::Map<String, serde_json::Value> {
     read_names_cache()
+}
+
+// ---------------------------------------------------------------------------
+// Hook descriptions — readable name + one-line summary per hook.
+//
+// USER's brief: the cards must show "el nombre de lo que hace cada una,
+// no el código raro". This analyses every hook WITHOUT any AI call:
+//   1. A curated catalog of the well-known ULTRON hooks (polished titles).
+//   2. Fallback: parse the referenced script's leading header comment
+//      (JSDoc `/** ... */`, `//` or `#` block) for a one-line summary, and
+//      humanise the filename for the title.
+//   3. Last resort: humanised basename only.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HookDescription {
+    pub id: String,
+    /// Short readable name shown as the card title (e.g. "Sincronizar sesión a Mem0").
+    pub title: String,
+    /// One-line description of what the hook does. May be empty.
+    pub summary: String,
+    /// "curated", "header", or "filename" — provenance, for debugging/UI hints.
+    pub source: String,
+}
+
+/// Curated (title, summary) for the known ULTRON hook scripts, keyed by the
+/// script's file name. Kept here (not AI) so the names are stable and precise.
+fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
+    let meta: &[(&str, &str, &str)] = &[
+        (
+            "stop-compress-session.js",
+            "Comprimir sesión a Qdrant",
+            "Al cerrar, resume la sesión en hechos estructurados y los guarda en la colección Qdrant ultron_sessions para recall semántico.",
+        ),
+        (
+            "mem0-sync.js",
+            "Sincronizar sesión a Mem0",
+            "Al cerrar, envía los últimos mensajes y archivos modificados a la memoria en la nube Mem0.",
+        ),
+        (
+            "kanban-update-reminder.js",
+            "Recordatorio de Kanban",
+            "Si detecta que se completó una tarea, recuerda actualizar el kanban del proyecto activo antes de cerrar.",
+        ),
+        (
+            "load-cross-project-memory.js",
+            "Cargar memoria cross-proyecto",
+            "Al iniciar, inyecta un índice de las memorias (MEMORY.md) de todos los proyectos recientes, no solo el actual.",
+        ),
+        (
+            "session-start-override.js",
+            "Resumen de sesión previa (fallback por proyecto)",
+            "Al iniciar, inyecta el resumen de la última sesión del mismo proyecto cuando el match por worktree del plugin falla.",
+        ),
+        (
+            "workday-session-linker.js",
+            "Vincular sesión a Workday",
+            "Al iniciar, enlaza la nueva sesión con la jornada (Workday) en curso del Control Center.",
+        ),
+        (
+            "session-recall-inject.js",
+            "Recall semántico (Qdrant)",
+            "Al iniciar, busca por similitud vectorial en Qdrant e inyecta el contexto más relevante de sesiones pasadas.",
+        ),
+        (
+            "routing-dispatcher.js",
+            "Router de skills y personas",
+            "En cada prompt, puntúa el texto contra personas y skills y sugiere la más adecuada (sin LLM).",
+        ),
+        (
+            "save-user-prompt.js",
+            "Auto-guardar prompts del usuario",
+            "En cada prompt, archiva el mensaje en un inbox markdown por día y marca el conocimiento crítico.",
+        ),
+        (
+            "quota-capture.js",
+            "Captura de cuota de Claude",
+            "Tras cada herramienta, detecta avisos de límite de la suscripción y los escribe en quota-state.json.",
+        ),
+    ];
+    meta.iter()
+        .find(|(name, _, _)| *name == basename)
+        .map(|(_, title, summary)| (*title, *summary))
+}
+
+/// Extract the first script-like path argument from a hook command, e.g.
+/// `node C:/Users/.../foo.js` → `C:/Users/.../foo.js`. Returns the raw token
+/// (with `~` expanded) when it ends in a known script extension.
+fn extract_script_path(command: &str) -> Option<PathBuf> {
+    const EXTS: [&str; 6] = [".js", ".cjs", ".mjs", ".ts", ".py", ".ps1"];
+    for raw in command.split_whitespace() {
+        // Strip surrounding quotes a user may have added.
+        let tok = raw.trim_matches(|c| c == '"' || c == '\'');
+        let lower = tok.to_ascii_lowercase();
+        if EXTS.iter().any(|e| lower.ends_with(e)) {
+            let expanded = if let Some(rest) = tok.strip_prefix("~/").or_else(|| tok.strip_prefix("~\\")) {
+                dirs::home_dir().map(|h| h.join(rest)).unwrap_or_else(|| PathBuf::from(tok))
+            } else {
+                PathBuf::from(tok)
+            };
+            return Some(expanded);
+        }
+    }
+    None
+}
+
+/// Read the leading header comment of a script and return its first meaningful
+/// sentence as a one-line summary. Handles `/** */`, `//` and `#` styles.
+fn parse_script_header(path: &Path) -> Option<String> {
+    let raw = fs::read_to_string(path).ok()?;
+    let mut summary_lines: Vec<String> = Vec::new();
+    for (idx, line) in raw.lines().enumerate() {
+        if idx > 40 {
+            break;
+        }
+        let t = line.trim();
+        if t.is_empty() {
+            if summary_lines.is_empty() {
+                continue;
+            } else {
+                break;
+            }
+        }
+        if t.starts_with("#!") {
+            continue; // shebang
+        }
+        // Strip comment markers.
+        let cleaned = t
+            .trim_start_matches("/**")
+            .trim_start_matches("/*")
+            .trim_start_matches("*/")
+            .trim_start_matches('*')
+            .trim_start_matches("//")
+            .trim_start_matches('#')
+            .trim();
+        // Stop once code starts (no comment marker and we already have text).
+        let is_comment = t.starts_with("/*")
+            || t.starts_with('*')
+            || t.starts_with("//")
+            || t.starts_with('#');
+        if !is_comment {
+            if summary_lines.is_empty() {
+                continue;
+            }
+            break;
+        }
+        if cleaned.is_empty() || cleaned == "'use strict';" {
+            continue;
+        }
+        summary_lines.push(cleaned.to_string());
+        // One or two lines is plenty for a card.
+        if summary_lines.len() >= 2 {
+            break;
+        }
+    }
+    if summary_lines.is_empty() {
+        return None;
+    }
+    let joined = summary_lines.join(" ");
+    // Keep it to the first sentence (split on ". ") and cap the length.
+    let first = joined.split(". ").next().unwrap_or(&joined).trim();
+    let mut s = first.trim_end_matches('.').to_string();
+    const MAX: usize = 160;
+    if s.chars().count() > MAX {
+        s = s.chars().take(MAX - 1).collect::<String>() + "…";
+    }
+    Some(s)
+}
+
+/// Turn `stop-compress-session.js` → `Stop compress session`.
+fn humanize_basename(basename: &str) -> String {
+    let stem = basename
+        .rsplit_once('.')
+        .map(|(s, _)| s)
+        .unwrap_or(basename);
+    let words: Vec<String> = stem
+        .split(|c| c == '-' || c == '_')
+        .filter(|w| !w.is_empty())
+        .map(|w| w.to_string())
+        .collect();
+    if words.is_empty() {
+        return basename.to_string();
+    }
+    let mut out = words.join(" ");
+    // Capitalise the first character.
+    if let Some(first) = out.get_mut(0..1) {
+        first.make_ascii_uppercase();
+    }
+    out
+}
+
+/// Compute readable descriptions for every hook (no AI, no mutations).
+pub fn get_hook_descriptions_inner() -> Vec<HookDescription> {
+    let Ok(root) = read_settings_value() else {
+        return Vec::new();
+    };
+    let mut out: Vec<HookDescription> = Vec::new();
+    for hook in flatten_hooks(&root) {
+        let script = extract_script_path(&hook.command);
+        let basename = script
+            .as_ref()
+            .and_then(|p| p.file_name())
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_default();
+
+        let (title, summary, source) = if let Some((t, s)) = curated_hook_meta(&basename) {
+            (t.to_string(), s.to_string(), "curated")
+        } else if let Some(s) = script.as_ref().and_then(|p| parse_script_header(p)) {
+            (humanize_basename(&basename), s, "header")
+        } else if !basename.is_empty() {
+            (humanize_basename(&basename), String::new(), "filename")
+        } else {
+            // Non-script command (inline shell): use the description field or
+            // a trimmed command preview.
+            let preview = hook.command.chars().take(80).collect::<String>();
+            (
+                hook.description.clone().unwrap_or_else(|| preview.clone()),
+                String::new(),
+                "command",
+            )
+        };
+
+        out.push(HookDescription {
+            id: hook.id,
+            title,
+            summary,
+            source: source.to_string(),
+        });
+    }
+    out
 }

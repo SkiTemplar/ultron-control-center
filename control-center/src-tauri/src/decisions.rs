@@ -137,6 +137,18 @@ pub fn decisions_path(project_id: &str) -> Result<PathBuf, String> {
         .join("decisions.jsonl"))
 }
 
+/// Pending file written by the Stop hook with auto-detected decisions awaiting
+/// review. Drained into `decisions.jsonl` by `drain_pending_inner`.
+pub fn pending_decisions_path(project_id: &str) -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or("no HOME dir")?;
+    Ok(home
+        .join(".ultron")
+        .join("cockpit")
+        .join("projects")
+        .join(project_id)
+        .join("decisions-pending.jsonl"))
+}
+
 // ---------------------------------------------------------------------------
 // ID + timestamp helpers
 // ---------------------------------------------------------------------------
@@ -319,6 +331,111 @@ pub fn delete_inner(project_id: &str, id: &str) -> Result<(), String> {
     }
     let path = decisions_path(project_id)?;
     write_atomic(&path, &records)
+}
+
+// ---------------------------------------------------------------------------
+// Auto-capture: drain the Stop-hook pending file into proposed decisions
+// ---------------------------------------------------------------------------
+
+/// One line of `decisions-pending.jsonl` as written by the Stop hook.
+#[derive(Debug, Deserialize)]
+struct PendingDecision {
+    decision: String,
+    #[serde(default)]
+    rationale: Option<String>,
+    #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+}
+
+/// Normalised title used for dedup (case + whitespace insensitive).
+fn normalize_title(s: &str) -> String {
+    s.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Drain the per-project pending decisions file into `decisions.jsonl`.
+///
+/// Each pending line becomes a `Proposed` decision tagged `auto-captured`,
+/// deduped against existing decisions AND within the batch (by normalised
+/// title). The pending file is removed once consumed. No KG/Mem0 sync fires —
+/// auto-captured decisions stay local until the user Accepts them. Best-effort:
+/// a malformed pending line is skipped, never aborting the whole drain.
+pub fn drain_pending_inner(project_id: &str) -> Result<Vec<DecisionRecord>, String> {
+    let ppath = pending_decisions_path(project_id)?;
+    if !ppath.exists() {
+        return Ok(Vec::new());
+    }
+
+    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+
+    let text = fs::read_to_string(&ppath)
+        .map_err(|e| format!("read pending {}: {e}", ppath.display()))?;
+
+    let mut records = read_all(project_id)?;
+    let mut seen: std::collections::HashSet<String> =
+        records.iter().map(|r| normalize_title(&r.decision)).collect();
+
+    let mut added: Vec<DecisionRecord> = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(p) = serde_json::from_str::<PendingDecision>(trimmed) else {
+            continue;
+        };
+        let title = p.decision.trim();
+        if title.len() < 5 {
+            continue;
+        }
+        let norm = normalize_title(title);
+        if seen.contains(&norm) {
+            continue;
+        }
+        seen.insert(norm);
+
+        let mut tags = p.tags;
+        if !tags.iter().any(|t| t == "auto-captured") {
+            tags.push("auto-captured".to_string());
+        }
+
+        let rationale = match p.rationale {
+            Some(r) if r.trim().len() >= 10 => r.trim().to_string(),
+            _ => format!(
+                "Captado automáticamente del Stop hook{}. Revisar y aceptar o rechazar.",
+                p.session_id
+                    .as_deref()
+                    .map(|s| format!(" (sesión {s})"))
+                    .unwrap_or_default()
+            ),
+        };
+
+        let rec = DecisionRecord {
+            id: new_decision_id(),
+            project_id: project_id.to_string(),
+            decision: title.to_string(),
+            rationale,
+            alternatives_considered: vec![],
+            date: now_iso(),
+            status: DecisionStatus::Proposed,
+            supersedes_id: None,
+            context_urls: vec![],
+            author: Some("auto".to_string()),
+            tags,
+        };
+        records.push(rec.clone());
+        added.push(rec);
+    }
+
+    if !added.is_empty() {
+        let path = decisions_path(project_id)?;
+        write_atomic(&path, &records)?;
+    }
+    // Always consume the pending file, even when everything was a duplicate.
+    fs::remove_file(&ppath).ok();
+
+    Ok(added)
 }
 
 // ---------------------------------------------------------------------------

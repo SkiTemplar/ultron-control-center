@@ -26,6 +26,13 @@ pub async fn get_hook_names_cache() -> serde_json::Value {
     serde_json::Value::Object(hooks_admin::get_hook_names_cache_inner())
 }
 
+/// Readable title + one-line summary for every hook, derived by analysing the
+/// referenced script (curated catalog + header-comment parsing). No AI calls.
+#[tauri::command]
+pub async fn get_hook_descriptions() -> Vec<hooks_admin::HookDescription> {
+    hooks_admin::get_hook_descriptions_inner()
+}
+
 #[tauri::command]
 pub async fn add_hook(
     event: String,

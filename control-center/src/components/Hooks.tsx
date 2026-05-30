@@ -24,6 +24,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { confirmDialog } from "../lib/dialog";
 import type { HookLastFired } from "../types";
 import { Plus, X } from "./library/icons";
+import { BlocksView, type BlocksItem } from "./library/BlocksView";
 
 // ---------------------------------------------------------------------------
 // Types (mirror src-tauri/src/hooks_admin.rs)
@@ -82,6 +83,14 @@ type HookNameResult = {
   name: string;
   strategy: string;
   cached: boolean;
+};
+
+/** Readable title + one-line summary per hook (from get_hook_descriptions). */
+type HookDescription = {
+  id: string;
+  title: string;
+  summary: string;
+  source: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -230,8 +239,6 @@ export function Hooks() {
   const [flash, setFlash] = useState<string | null>(null);
   const [filterText, setFilterText] = useState<string>("");
 
-  // Sidebar: which event category is expanded (null = all collapsed)
-  const [expandedEvent, setExpandedEvent] = useState<string | null>(null);
   // Selected hook id drives the detail pane
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -250,6 +257,9 @@ export function Hooks() {
   const [namesCache, setNamesCache] = useState<Record<string, { name: string; strategy: string }>>({});
   const [namingBusy, setNamingBusy] = useState(false);
   const [namingProgress, setNamingProgress] = useState<string | null>(null);
+
+  // Readable title + summary per hook (analysed from the script, no AI).
+  const [descriptions, setDescriptions] = useState<Record<string, HookDescription>>({});
 
   // -------------------------------------------------------------------------
   // Data loading
@@ -285,10 +295,22 @@ export function Hooks() {
     }
   }
 
+  async function fetchDescriptions() {
+    try {
+      const list = (await invoke("get_hook_descriptions")) as HookDescription[];
+      const map: Record<string, HookDescription> = {};
+      for (const d of list) map[d.id] = d;
+      setDescriptions(map);
+    } catch {
+      // Non-fatal — cards fall back to the raw id.
+    }
+  }
+
   useEffect(() => {
     fetchList();
     fetchFires();
     fetchNamesCache();
+    fetchDescriptions();
   }, [fetchList]);
 
   // Refresh per-hook last-fired whenever the list changes
@@ -409,11 +431,14 @@ export function Hooks() {
   const q = filterText.trim().toLowerCase();
 
   /** Resolve the best available human-readable label for a hook, in priority order:
-   *  1. description field from settings.json (always populated if present)
-   *  2. AI-assigned name from namesCache
-   *  3. undefined (caller renders raw id in monospace)
+   *  1. analysed title from get_hook_descriptions (readable name of what it does)
+   *  2. description field from settings.json (if the group declares one)
+   *  3. AI-assigned name from namesCache (kebab-case)
+   *  4. undefined (caller renders raw id in monospace)
    */
   function resolveDisplayName(h: HookRecord): string | undefined {
+    const title = descriptions[h.id]?.title;
+    if (title) return title;
     if (h.description) return h.description;
     return namesCache[h.id]?.name;
   }
@@ -423,35 +448,12 @@ export function Hooks() {
     return list.hooks.filter((h) => {
       if (!q) return true;
       const displayName = resolveDisplayName(h) ?? h.id;
-      const hay = `${displayName} ${h.id} ${h.matcher ?? ""} ${h.command} ${h.event}`.toLowerCase();
+      const summary = descriptions[h.id]?.summary ?? "";
+      const hay = `${displayName} ${summary} ${h.id} ${h.matcher ?? ""} ${h.command} ${h.event}`.toLowerCase();
       return hay.includes(q);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [list, q, namesCache]);
-
-  // Events that have at least one hook (considering current text filter)
-  const eventGroups = useMemo(() => {
-    const grouped = new Map<string, HookRecord[]>();
-    for (const h of filtered) {
-      const arr = grouped.get(h.event) ?? [];
-      arr.push(h);
-      grouped.set(h.event, arr);
-    }
-    // Preserve EVENT_OPTIONS order; append unknown events at end
-    const result: { event: string; hooks: HookRecord[] }[] = [];
-    for (const ev of EVENT_OPTIONS) {
-      const hooks = grouped.get(ev);
-      if (hooks && hooks.length > 0) {
-        result.push({ event: ev, hooks });
-      }
-    }
-    for (const [ev, hooks] of grouped.entries()) {
-      if (!EVENT_OPTIONS.includes(ev)) {
-        result.push({ event: ev, hooks });
-      }
-    }
-    return result;
-  }, [filtered]);
+  }, [list, q, namesCache, descriptions]);
 
   const selectedHook = useMemo(
     () => list?.hooks.find((h) => h.id === selectedId) ?? null,
@@ -463,65 +465,24 @@ export function Hooks() {
     return fires.fires.filter((f) => f.hook_id === selectedHook.id);
   }, [fires, selectedHook]);
 
-  // Default view = "All" (expandedEvent null). El filtro por evento se hace
-  // con las pills de categoria estilo Skills (ver renderEventPills), no con
-  // un sidebar.
-
   // -------------------------------------------------------------------------
-  // Category pills (estilo Skills) — fila horizontal de eventos, NO sidebar.
-  // "All" + una pill por evento con su color y count. Click filtra el grid.
+  // Blocks navigator (estilo Agents/Skills) — tarjetas de categoría (evento)
+  // que al hacer click revelan los hooks de ese evento. NO pills arriba.
   // -------------------------------------------------------------------------
 
-  const renderEventPills = () => (
-    <div className="flex flex-wrap items-center gap-1.5">
-      <span
-        className="text-[10.5px] uppercase tracking-wide"
-        style={{ color: "var(--color-text-tertiary)" }}
-      >
-        Evento
-      </span>
-      <button
-        type="button"
-        onClick={() => setExpandedEvent(null)}
-        className="rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
-        style={{
-          borderColor: expandedEvent === null ? "var(--color-text)" : "var(--color-border-strong)",
-          background: expandedEvent === null ? "var(--color-surface-4)" : "transparent",
-          color: expandedEvent === null ? "var(--color-text)" : "var(--color-text-secondary)",
-        }}
-      >
-        All
-        <span className="ml-1 tabular-nums opacity-70">{filtered.length}</span>
-      </button>
-      {eventGroups.map(({ event, hooks }) => {
-        const active = expandedEvent === event;
-        const colors = eventColors(event);
-        return (
-          <button
-            key={event}
-            type="button"
-            onClick={() => setExpandedEvent(active ? null : event)}
-            className="inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11.5px] transition-colors"
-            style={{
-              borderColor: active ? colors.chipFg : "var(--color-border-strong)",
-              background: active ? colors.chipBg : "transparent",
-              color: active ? colors.chipFg : "var(--color-text-secondary)",
-            }}
-          >
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ background: colors.chipFg }}
-            />
-            {event}
-            <span className="tabular-nums opacity-70">{hooks.length}</span>
-          </button>
-        );
-      })}
-    </div>
+  const blockItems: BlocksItem<HookRecord>[] = useMemo(
+    () =>
+      filtered.map((h) => ({
+        key: h.id,
+        topGroup: h.event,
+        subGroup: null,
+        data: h,
+      })),
+    [filtered],
   );
 
   // -------------------------------------------------------------------------
-  // Main card grid — renders hooks for the expanded event category
+  // Main card grid — renders the hook cards for a given list
   // -------------------------------------------------------------------------
 
   const renderCardGrid = (items: HookRecord[]) => (
@@ -532,13 +493,14 @@ export function Hooks() {
       {items.map((h) => {
         const isActive = selectedId === h.id;
         const colors = eventColors(h.event);
-        const displayName = namesCache[h.id]?.name;
+        const title = resolveDisplayName(h);
+        const summary = descriptions[h.id]?.summary;
         return (
           <button
             key={h.id}
             type="button"
             onClick={() => setSelectedId(isActive ? null : h.id)}
-            className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+            className="group flex h-[156px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
               background: isActive ? "var(--color-surface-3)" : "var(--color-surface-2)",
               border: `1px solid ${isActive ? colors.ribbonBorder : "var(--color-border)"}`,
@@ -576,25 +538,32 @@ export function Hooks() {
               </span>
             </div>
 
-            {/* Center: display name or raw id */}
-            {displayName ? (
-              <div
-                className="line-clamp-2 text-[16px] font-semibold leading-tight tracking-tight"
-                style={{ color: "var(--color-text)" }}
-              >
-                {displayName}
-              </div>
-            ) : (
-              <div
-                className="line-clamp-3 text-[13px] font-medium leading-tight"
-                style={{
-                  color: "var(--color-text-secondary)",
-                  fontFamily: "var(--font-mono)",
-                }}
-              >
-                {h.id}
-              </div>
-            )}
+            {/* Center: readable name + one-line summary (fallback: raw id) */}
+            <div className="flex min-h-0 flex-1 flex-col justify-center gap-1 py-1">
+              {title ? (
+                <div
+                  className="line-clamp-2 text-[15px] font-semibold leading-tight tracking-tight"
+                  style={{ color: "var(--color-text)" }}
+                >
+                  {title}
+                </div>
+              ) : (
+                <div
+                  className="line-clamp-2 text-[12.5px] font-medium leading-tight"
+                  style={{ color: "var(--color-text-secondary)", fontFamily: "var(--font-mono)" }}
+                >
+                  {h.id}
+                </div>
+              )}
+              {summary && (
+                <div
+                  className="line-clamp-2 text-[11px] leading-snug"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {summary}
+                </div>
+              )}
+            </div>
 
             {/* Bottom row: source, disabled badge, last fired */}
             <div
@@ -629,17 +598,6 @@ export function Hooks() {
       })}
     </div>
   );
-
-  // -------------------------------------------------------------------------
-  // Determine which hooks to show in the card area
-  // -------------------------------------------------------------------------
-
-  const cardsToShow: HookRecord[] = useMemo(() => {
-    if (expandedEvent) {
-      return filtered.filter((h) => h.event === expandedEvent);
-    }
-    return filtered;
-  }, [filtered, expandedEvent]);
 
   // -------------------------------------------------------------------------
   // Render
@@ -804,7 +762,7 @@ export function Hooks() {
         </div>
       )}
 
-      {/* Layout estilo Skills: search + pills de categoria + (grid | detail) */}
+      {/* Layout estilo Agents: search + navegador de bloques por evento (grid | detail) */}
       {!loading && list && list.hooks.length > 0 && (
         <div className="flex h-full flex-col gap-3 p-4">
           {/* Search */}
@@ -821,28 +779,33 @@ export function Hooks() {
             }}
           />
 
-          {/* Category pills */}
-          {renderEventPills()}
-
-          {/* Grid de cartillas | detail pane */}
+          {/* Navegador de bloques | detail pane */}
           <div className="flex flex-1 gap-3 overflow-hidden">
             <div
               className={selectedHook ? "min-w-0 flex-1 overflow-y-auto" : "flex-1 overflow-y-auto"}
               style={{ minWidth: 0 }}
             >
-              {cardsToShow.length === 0 ? (
-                <div
-                  className="px-2 py-4 text-xs"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  {expandedEvent
-                    ? `No hay hooks de ${expandedEvent} que coincidan con el filtro.`
-                    : q
-                      ? "Ningún hook coincide con la búsqueda."
-                      : "No hay hooks."}
-                </div>
+              {q ? (
+                // Con búsqueda activa mostramos un grid plano de coincidencias.
+                filtered.length === 0 ? (
+                  <div
+                    className="px-2 py-4 text-xs"
+                    style={{ color: "var(--color-text-tertiary)" }}
+                  >
+                    Ningún hook coincide con la búsqueda.
+                  </div>
+                ) : (
+                  renderCardGrid(filtered)
+                )
               ) : (
-                renderCardGrid(cardsToShow)
+                // Sin búsqueda: tarjetas de categoría (evento) → click revela los hooks.
+                <BlocksView<HookRecord>
+                  items={blockItems}
+                  noun="hook"
+                  emptyLabel="No hay hooks."
+                  topGroupAccent={(g) => eventColors(g).ribbon}
+                  renderLeaves={(leaves) => renderCardGrid(leaves.map((l) => l.data))}
+                />
               )}
             </div>
 

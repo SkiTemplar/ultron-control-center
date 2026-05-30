@@ -65,6 +65,13 @@ export default function DecisionsPanel({ projectId }: Props) {
     setLoading(true);
     setError(null);
     try {
+      // Auto-capture: drain the Stop-hook pending file into proposed decisions
+      // before listing. Best-effort — a drain failure must not block the list.
+      try {
+        await invoke("decisions_drain_pending", { projectId });
+      } catch {
+        /* non-fatal */
+      }
       const list = (await invoke("decisions_list", {
         projectId,
       })) as DecisionRecord[];
@@ -75,6 +82,25 @@ export default function DecisionsPanel({ projectId }: Props) {
       setLoading(false);
     }
   }, [projectId]);
+
+  // Accept / Reject a proposed decision. Accept → Accepted (fires KG/Mem0
+  // auto-sync in the backend); Reject → Rejected (kept for the audit trail).
+  const [statusBusy, setStatusBusy] = useState<string | null>(null);
+  async function setStatus(rec: DecisionRecord, status: DecisionStatus) {
+    setStatusBusy(rec.id);
+    try {
+      const updated = (await invoke("decisions_update", {
+        projectId,
+        id: rec.id,
+        patch: { status },
+      })) as DecisionRecord;
+      setRecords((prev) => prev.map((r) => (r.id === rec.id ? updated : r)));
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setStatusBusy(null);
+    }
+  }
 
   useEffect(() => {
     void load();
@@ -237,7 +263,15 @@ export default function DecisionsPanel({ projectId }: Props) {
                       <span className="text-[10px] text-neutral-500">
                         {epochToRelative(rec.date)}
                       </span>
-                      {rec.author && (
+                      {rec.tags.includes("auto-captured") && (
+                        <span
+                          className="inline-block rounded bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-300 border border-amber-700/40"
+                          title="Detectada automáticamente por el Stop hook — revisar"
+                        >
+                          auto
+                        </span>
+                      )}
+                      {rec.author && rec.author !== "auto" && (
                         <span className="text-[10px] text-neutral-600">
                           {rec.author}
                         </span>
@@ -323,7 +357,27 @@ export default function DecisionsPanel({ projectId }: Props) {
                     )}
 
                     {/* Actions */}
-                    <div className="flex justify-end gap-2 pt-1">
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      {rec.status === "proposed" && (
+                        <>
+                          <button
+                            onClick={() => setStatus(rec, "accepted")}
+                            disabled={statusBusy === rec.id}
+                            className="mr-auto rounded border border-emerald-700/50 px-2 py-0.5 text-[10px] text-emerald-300 hover:bg-emerald-900/30 disabled:opacity-50 transition-colors"
+                            title="Aceptar — sincroniza a Knowledge Graph y Mem0"
+                          >
+                            {statusBusy === rec.id ? "…" : "✓ Accept"}
+                          </button>
+                          <button
+                            onClick={() => setStatus(rec, "rejected")}
+                            disabled={statusBusy === rec.id}
+                            className="rounded border border-red-700/40 px-2 py-0.5 text-[10px] text-red-400 hover:bg-red-900/20 disabled:opacity-50 transition-colors"
+                            title="Rechazar (se conserva para el historial)"
+                          >
+                            ✕ Reject
+                          </button>
+                        </>
+                      )}
                       <button
                         onClick={() =>
                           setEditor({ mode: "edit", record: rec })
