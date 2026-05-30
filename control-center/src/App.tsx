@@ -45,7 +45,7 @@ function AppInner() {
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const { currentId, tabs, subTabs, select } = useProjectsTabs();
+  const { currentId, tabs, subTabs, select, open } = useProjectsTabs();
   const [lastProjectCtx, setLastProjectCtx] = useState<{
     id: string; title: string; subTab: string;
   } | null>(null);
@@ -170,6 +170,36 @@ function AppInner() {
     return () => {
       teardownPromise.then((teardown) => teardown());
     };
+  }, []);
+
+  // Reattach: cuando una ventana detached se cierra el backend emite
+  // "project:window-closed" con { projectId, label }. Reabrimos el tab en la
+  // ventana principal para que el usuario pueda retomar el trabajo aquí.
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+    void listen<{ projectId: string; label: string }>(
+      "project:window-closed",
+      (event) => {
+        const { projectId } = event.payload ?? {};
+        if (!projectId) return;
+        // open() es idempotente si el tab ya existe (no duplica).
+        // Necesitamos el título: intentamos encontrarlo en los tabs abiertos;
+        // si no existe usamos el id como fallback.
+        open({ id: projectId, title: projectId });
+        select(projectId);
+        setTab("projects");
+      },
+    ).then((fn) => {
+      if (cancelled) { fn(); return; }
+      unlisten = fn;
+    });
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  // open y select son callbacks estables (useCallback sin deps cambiantes).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Custom per-project hotkeys (defined in Settings → Project hotkeys).
