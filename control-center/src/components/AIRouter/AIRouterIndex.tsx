@@ -299,33 +299,47 @@ export function AIRouterIndex() {
     };
   }, [freeTierEnabled, refreshHealth]);
 
-  // Escucha el evento quota:critical del backend para activar el toggle automaticamente.
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    let unlistenReset: (() => void) | undefined;
+  // Refs que almacenan las funciones unlisten para evitar leaks entre renders.
+  // Se usan refs (no estado) para que el cleanup siempre tenga acceso a la
+  // promesa resuelta aunque el componente se desmonte antes de que el IIFE
+  // async termine.
+  const unlistenCriticalRef = useRef<Promise<() => void> | null>(null);
+  const unlistenResetRef = useRef<Promise<() => void> | null>(null);
 
-    void (async () => {
-      unlisten = await listen("quota:critical", async () => {
-        if (!freeTierEnabled) {
-          setFreeTierEnabled(true);
-          await persistProxyState(true);
-          await refreshHealth();
+  // Escucha el evento quota:critical del backend para activar el toggle automaticamente.
+  // El effect se monta una sola vez (deps vacías) para evitar re-suscripciones
+  // en cada cambio de freeTierEnabled. Los callbacks leen el estado actual via
+  // setFreeTierEnabled con la forma funcional, que no captura el valor al
+  // momento del mount.
+  useEffect(() => {
+    unlistenCriticalRef.current = listen("quota:critical", async () => {
+      setFreeTierEnabled((prev) => {
+        if (!prev) {
+          void persistProxyState(true).then(() => refreshHealth());
+          return true;
         }
+        return prev;
       });
-      unlistenReset = await listen("quota:reset", async () => {
-        if (freeTierEnabled) {
-          setFreeTierEnabled(false);
-          await persistProxyState(false);
-          await refreshHealth();
+    });
+
+    unlistenResetRef.current = listen("quota:reset", async () => {
+      setFreeTierEnabled((prev) => {
+        if (prev) {
+          void persistProxyState(false).then(() => refreshHealth());
+          return false;
         }
+        return prev;
       });
-    })();
+    });
 
     return () => {
-      unlisten?.();
-      unlistenReset?.();
+      void unlistenCriticalRef.current?.then((fn) => fn());
+      void unlistenResetRef.current?.then((fn) => fn());
+      unlistenCriticalRef.current = null;
+      unlistenResetRef.current = null;
     };
-  }, [freeTierEnabled, persistProxyState, refreshHealth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleFreeTierToggle = useCallback(async () => {
     const next = !freeTierEnabled;

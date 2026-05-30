@@ -81,6 +81,14 @@ fn read_user_scope_keys() -> HashMap<String, String> {
         let line = line.trim_start();
         for key in ALLOWED_KEYS {
             if let Some(rest) = line.strip_prefix(key) {
+                // Garantizar que el nombre de la variable coincide exactamente:
+                // el caracter siguiente debe ser whitespace, no una letra/guion
+                // adicional (p. ej. "GROQ_API_KEY_EVIL" no debe colar como
+                // "GROQ_API_KEY"). `reg query` siempre separa nombre y tipo
+                // con espacios, por lo que un rest valido empieza con un espacio.
+                if rest.starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_') {
+                    continue; // nombre mas largo — no es esta key
+                }
                 // rest empieza con whitespace + "REG_SZ" (o REG_EXPAND_SZ) + ws + valor
                 if let Some(idx) = rest.find("REG_") {
                     let after = &rest[idx..];
