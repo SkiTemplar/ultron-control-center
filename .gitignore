@@ -265,3 +265,7 @@ cockpit/_pending-*.json
 # Los .md de diagnostico de arquitectura SI se conservan (docs).
 cockpit/diagnostics/*.json
 cockpit/diagnostics/*.zip
+
+# Pending de decisions auto-capturadas (runtime, drenado por el backend) + sidecar de drain
+cockpit/projects/*/decisions-pending.jsonl
+cockpit/projects/*/decisions-pending.draining
