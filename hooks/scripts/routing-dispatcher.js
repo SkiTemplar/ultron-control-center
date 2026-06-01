@@ -309,6 +309,36 @@ const PLUGINS = [
   },
 ];
 
+/**
+ * Layer 3 — technical specialist AGENTS (fullize 2026-06-01).
+ * These map a clear technical domain to the SPECIALIST agent on disk
+ * (~/.claude/agents/) so ULTRON delegates to the right brain instead of a
+ * general-purpose agent. Domain tokens are `strong` so a precise tech match
+ * (e.g. "tokio async rust") outranks a generic persona context token.
+ */
+const AGENTS = [
+  { id: 'rust-engineer', triggers: ['rust-engineer'], strong: ['rust', 'cargo', 'tokio', 'borrow checker', 'lifetimes', 'async rust', 'rustc', 'tauri backend'], context: ['memory safety', 'systems programming', '.rs'] },
+  { id: 'typescript-pro', triggers: ['typescript-pro'], strong: ['typescript', 'tsconfig', 'type-level', 'discriminated union', 'generics avanzados'], context: ['node', '.ts', '.tsx', 'tipos'] },
+  { id: 'python-pro', triggers: ['python-pro'], strong: ['pydantic', 'asyncio', 'type hints', 'mypy'], context: ['python', 'pytest', 'uv'] },
+  { id: 'react-specialist', triggers: ['react-specialist'], strong: ['react 18', 'usememo', 'usecallback', 're-render', 'suspense', 'react server components'], context: ['react', 'componente', 'jsx'] },
+  { id: 'nextjs-developer', triggers: ['nextjs-developer'], strong: ['next.js', 'app router', 'server actions', 'rsc'], context: ['vercel', 'ssr', 'core web vitals'] },
+  { id: 'cpp-pro', triggers: ['cpp-pro'], strong: ['raii', 'move semantics', 'c++20', 'c++23', 'templates', 'cmake'], context: ['c++', 'cpp', '.cpp', '.hpp'] },
+  { id: 'golang-pro', triggers: ['golang-pro'], strong: ['goroutine', 'go channels', 'golang'], context: ['microservice', 'concurrency', '.go'] },
+  { id: 'security-auditor', triggers: ['security-auditor'], strong: ['owasp', 'auth bypass', 'sql injection', 'threat model', 'secrets leak', 'cve', 'xss', 'csrf'], context: ['security', 'auth', 'payments', 'user input', 'seguridad'] },
+  { id: 'debugger', triggers: ['debugger'], strong: ['stack trace', 'root cause', 'test failure', 'segfault', 'panic'], context: ['bug', 'error', 'no funciona', 'crash'] },
+  { id: 'performance-engineer', triggers: ['performance-engineer'], strong: ['bottleneck', 'profiling', 'n+1 query', 'memory leak', 'hot path'], context: ['performance', 'slow', 'optimizar', 'latency'] },
+  { id: 'postgres-pro', triggers: ['postgres-pro'], strong: ['postgresql', 'postgres', 'vacuum', 'wal', 'pgbouncer', 'pg_stat'], context: ['sql tuning', 'rdbms', 'replicacion'] },
+  { id: 'database-administrator', triggers: ['database-administrator'], strong: ['explain analyze', 'index optimization', 'query plan', 'high availability db'], context: ['database', 'schema', 'migration'] },
+  { id: 'cloud-architect', triggers: ['cloud-architect'], strong: ['multi-cloud', 'disaster recovery', 'cloud migration', 'well-architected'], context: ['aws', 'azure', 'gcp', 'infra'] },
+  { id: 'kubernetes-specialist', triggers: ['kubernetes-specialist'], strong: ['kubernetes', 'k8s', 'helm chart', 'k8s operator', 'kubectl'], context: ['cluster', 'pod', 'ingress'] },
+  { id: 'ai-engineer', triggers: ['ai-engineer'], strong: ['rag pipeline', 'vector db', 'fine-tuning', 'model serving', 'embeddings pipeline'], context: ['ai system', 'ml', 'inference'] },
+  { id: 'llm-architect', triggers: ['llm-architect'], strong: ['llm system', 'context window', 'agent architecture', 'inference serving', 'multi-model'], context: ['llm', 'rag', 'prompt'] },
+  { id: 'mcp-developer', triggers: ['mcp-developer'], strong: ['mcp server', 'model context protocol', 'mcp tool', 'mcp client'], context: ['mcp'] },
+  { id: 'refactoring-specialist', triggers: ['refactoring-specialist'], strong: ['extract method', 'behavior-preserving refactor', 'reduce complexity', 'code smell'], context: ['refactor', 'cleanup', 'deuda tecnica'] },
+  { id: 'architect-reviewer', triggers: ['architect-reviewer'], strong: ['architecture decision', 'module boundaries', 'solid violation', 'system design review'], context: ['arquitectura', 'design review'] },
+  { id: 'api-designer', triggers: ['api-designer'], strong: ['rest api design', 'openapi spec', 'graphql schema', 'api versioning'], context: ['endpoint', 'api'] },
+];
+
 function safeLog(entry) {
   try {
     fs.mkdirSync(path.dirname(LOG_PATH), { recursive: true });
@@ -393,7 +423,11 @@ function scoreEntry(promptNorm, entry) {
 
 function rankCandidates(prompt) {
   const promptNorm = normalize(prompt).slice(0, MAX_PROMPT_CHARS);
-  const all = [...PERSONAS.map((e) => ({ ...e, kind: 'persona' })), ...PLUGINS.map((e) => ({ ...e, kind: 'plugin' }))];
+  const all = [
+    ...PERSONAS.map((e) => ({ ...e, kind: 'persona' })),
+    ...PLUGINS.map((e) => ({ ...e, kind: 'plugin' })),
+    ...AGENTS.map((e) => ({ ...e, kind: 'agent' })),
+  ];
 
   const scored = all
     .map((entry) => {
@@ -416,6 +450,9 @@ function rankCandidates(prompt) {
 function formatCandidateLabel(c) {
   if (c.kind === 'persona') {
     return `persona:${c.persona || c.id}`;
+  }
+  if (c.kind === 'agent') {
+    return `agent:${c.id}`;
   }
   return `skill:${c.id}`;
 }
