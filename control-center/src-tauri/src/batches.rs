@@ -117,12 +117,49 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
         Command::new("cmd").args(["/C", &cand.to_string_lossy()]).output()
     };
 
-    let output = output.map_err(|e| format!("spawn: {e}"))?;
+    let path_str = cand.to_string_lossy().to_string();
+
+    // On spawn failure the command never even started — leave it in the queue
+    // (reason="failed") so it is never silently dropped, then surface the error.
+    let output = match output {
+        Ok(o) => o,
+        Err(e) => {
+            let msg = format!("spawn: {e}");
+            let _ = crate::batches_queue::record_inner(
+                &name,
+                &path_str,
+                crate::batches_queue::BatchQueueReason::Failed,
+                Some(msg.clone()),
+            );
+            return Err(msg);
+        }
+    };
+
+    let success = output.status.success();
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    // Non-zero exit → record (reason="failed") so the user sees it in the Cola
+    // and can requeue / fix. A successful run leaves the queue untouched.
+    if !success {
+        let last_error = if stderr.trim().is_empty() {
+            format!("exit {}", output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into()))
+        } else {
+            stderr.clone()
+        };
+        let _ = crate::batches_queue::record_inner(
+            &name,
+            &path_str,
+            crate::batches_queue::BatchQueueReason::Failed,
+            Some(last_error),
+        );
+    }
+
     Ok(BatchRunResult {
-        success: output.status.success(),
+        success,
         exit_code: output.status.code(),
-        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+        stdout,
+        stderr,
     })
 }
 

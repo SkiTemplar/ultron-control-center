@@ -763,6 +763,248 @@ function QuotaStatusCard() {
 }
 
 // ---------------------------------------------------------------------------
+// Proxy control (free-tier) — enable/disable + secondary-AI usage summary
+//
+// Mirror de `proxy::ProxySetResult` (Rust). proxy_set_enabled NUNCA falla por
+// ausencia del binario: devuelve mode="light" (proxy manual en :8082).
+// ---------------------------------------------------------------------------
+
+type ProxyMode = "managed" | "light" | "off";
+
+type ProxySetResult = {
+  enabled: boolean;
+  mode: ProxyMode;
+  binary_present: boolean;
+  port_8082_up: boolean;
+  base_url: string;
+  message: string | null;
+};
+
+// Proveedores "secundarios" = todo lo que no es Anthropic/Claude. Son los
+// modelos free-tier/fallback (Groq, Gemini, NVIDIA NIM, DeepSeek, OpenRouter…).
+function isSecondaryProvider(p: ProviderUsageRow): boolean {
+  const id = p.provider_id.toLowerCase();
+  const label = p.provider_label.toLowerCase();
+  return !id.includes("anthropic") && !label.includes("claude");
+}
+
+function ProxyControlCard({
+  providers,
+  loading,
+  onRefresh,
+}: {
+  providers: ProviderUsageRow[];
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  const [enabled, setEnabled] = useState<boolean>(false);
+  const [result, setResult] = useState<ProxySetResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Hidrata el toggle desde el estado persistido (proxy-state.json) al montar.
+  useEffect(() => {
+    (async () => {
+      try {
+        const on = await invoke<boolean>("proxy_state_enabled");
+        setEnabled(on);
+      } catch {
+        // Backend no disponible — deja false.
+      }
+    })();
+  }, []);
+
+  const toggle = useCallback(async () => {
+    const next = !enabled;
+    setBusy(true);
+    setErr(null);
+    try {
+      // proxy_set_enabled persiste la intencion y nunca falla por binario
+      // ausente: devuelve mode="light" (proxy manual en :8082) en ese caso.
+      const r = await invoke<ProxySetResult>("proxy_set_enabled", { enabled: next });
+      setResult(r);
+      setEnabled(r.enabled);
+    } catch (e) {
+      // Solo fallo REAL (FS/backend) llega aqui.
+      setErr(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }, [enabled]);
+
+  const secondary = providers.filter(isSecondaryProvider);
+  const totalCalls = secondary.reduce((acc, p) => acc + p.call_count, 0);
+  const totalTokens = secondary.reduce((acc, p) => acc + p.total_tokens, 0);
+
+  const modeLabel =
+    result?.mode === "managed"
+      ? "Gestionado (binario)"
+      : result?.mode === "light"
+        ? "Modo light (proxy manual :8082)"
+        : enabled
+          ? "Activo"
+          : "Desactivado";
+
+  return (
+    <div
+      className="mb-6 rounded p-4"
+      style={{
+        background: enabled
+          ? "color-mix(in srgb, var(--color-warn, #facc15) 7%, var(--color-surface-2))"
+          : "var(--color-surface-2)",
+        border: enabled
+          ? "1px solid var(--color-warn, #facc15)"
+          : "1px solid var(--color-border)",
+      }}
+    >
+      {/* Header: title + toggle */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div
+            className="text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Proxy free-tier (IAs secundarias)
+          </div>
+          <p className="mt-1 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
+            Enruta sesiones nuevas a los modelos secundarios (Groq / Gemini /
+            NVIDIA NIM / DeepSeek / OpenRouter) via{" "}
+            <span style={{ fontFamily: "var(--font-mono, monospace)" }}>:8082</span>.{" "}
+            <span style={{ color: "var(--color-text-tertiary)" }}>{modeLabel}</span>
+          </p>
+          {result?.message && (
+            <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
+              {result.message}
+            </p>
+          )}
+          {err && (
+            <p className="mt-1 text-[10.5px]" style={{ color: "var(--color-danger)" }}>
+              {err}
+            </p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={() => void toggle()}
+          disabled={busy}
+          className="shrink-0 rounded-full px-4 py-1.5 text-[12px] font-semibold transition-colors disabled:opacity-60"
+          style={{
+            background: enabled
+              ? "var(--color-warn, #facc15)"
+              : "var(--color-surface-3)",
+            color: enabled ? "#1a1a00" : "var(--color-text-secondary)",
+            border: "1px solid var(--color-border)",
+            minWidth: 80,
+            cursor: busy ? "not-allowed" : "pointer",
+          }}
+        >
+          {busy ? "…" : enabled ? "ON" : "OFF"}
+        </button>
+      </div>
+
+      {/* Secondary-AI usage summary */}
+      <div className="mt-3">
+        <div className="mb-1.5 flex items-baseline justify-between gap-2">
+          <h3
+            className="text-[10px] font-medium uppercase tracking-[0.06em]"
+            style={{ color: "var(--color-text-tertiary)" }}
+          >
+            Uso de IAs secundarias ({secondary.length})
+          </h3>
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={loading}
+            className="text-[10px] transition-colors disabled:opacity-50"
+            style={{ color: "var(--color-text-faint)" }}
+          >
+            {loading ? "…" : "Refrescar"}
+          </button>
+        </div>
+
+        {secondary.length === 0 ? (
+          <p className="text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+            Sin proveedores secundarios en el registro del AI Router.
+          </p>
+        ) : (
+          <>
+            <div className="space-y-1">
+              {secondary
+                .slice()
+                .sort((a, b) => b.call_count - a.call_count)
+                .map((p) => {
+                  const successPct =
+                    p.call_count > 0
+                      ? Math.round((p.success_count / p.call_count) * 100)
+                      : null;
+                  return (
+                    <div
+                      key={p.provider_id}
+                      className="flex items-center justify-between gap-3 rounded px-2.5 py-1.5"
+                      style={{
+                        background: "var(--color-surface-1)",
+                        border: "1px solid var(--color-border)",
+                      }}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{
+                            background: p.key_present
+                              ? "var(--color-success, #4ade80)"
+                              : "var(--color-text-faint, #555)",
+                          }}
+                          title={p.key_present ? "Key presente" : "Key ausente"}
+                        />
+                        <span
+                          className="truncate text-[11.5px] font-medium"
+                          style={{ color: "var(--color-text)" }}
+                        >
+                          {p.provider_label}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline gap-3 text-[10.5px] tabular-nums">
+                        <span style={{ color: "var(--color-text-tertiary)" }} title="Llamadas">
+                          {p.call_count.toLocaleString()} calls
+                        </span>
+                        <span style={{ color: "var(--color-text-tertiary)" }} title="Tokens servidos">
+                          {p.total_tokens > 0 ? formatNum(p.total_tokens) : "—"} tok
+                        </span>
+                        <span
+                          style={{
+                            color:
+                              successPct == null
+                                ? "var(--color-text-faint)"
+                                : successPct >= 95
+                                  ? "var(--color-success)"
+                                  : successPct >= 80
+                                    ? "var(--color-warn)"
+                                    : "var(--color-danger)",
+                          }}
+                          title="Tasa de exito"
+                        >
+                          {successPct == null ? "—" : `${successPct}%`}
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+            <div
+              className="mt-1.5 flex items-baseline justify-end gap-3 text-[10px] tabular-nums"
+              style={{ color: "var(--color-text-faint)" }}
+            >
+              <span>Total: {totalCalls.toLocaleString()} calls</span>
+              <span>{totalTokens > 0 ? `${formatNum(totalTokens)} tokens` : "0 tokens"}</span>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // AI Router — Fallback-rate gauge
 // ---------------------------------------------------------------------------
 
@@ -1237,6 +1479,15 @@ function RouterTab() {
 
   return (
     <div>
+      {/* ------------------------------------------------------------------ */}
+      {/* Proxy free-tier control + secondary-AI usage summary               */}
+      {/* ------------------------------------------------------------------ */}
+      <ProxyControlCard
+        providers={summary?.providers ?? []}
+        loading={loading}
+        onRefresh={() => void load()}
+      />
+
       {/* ------------------------------------------------------------------ */}
       {/* RouterMetrics — token savings + class distribution (moved from     */}
       {/* Settings > AI Router > Metrics tab)                                */}

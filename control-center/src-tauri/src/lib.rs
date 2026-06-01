@@ -66,6 +66,7 @@ mod work_sessions;
 pub mod qdrant;
 mod settings;
 mod batches;
+mod batches_queue;
 mod env_keys;
 mod skills;
 mod system;
@@ -210,6 +211,7 @@ pub fn run() {
             commands::skills::list_skills,
             commands::skills::list_skills_legacy,
             commands::skills::skill_toggle,
+            commands::skills::skills_bulk_toggle,
             commands::skills::read_skill_md,
             commands::skills::create_skill,
             commands::skills::update_skill_md,
@@ -222,6 +224,7 @@ pub fn run() {
             commands::agents::update_agent_md,
             commands::agents::delete_agent,
             commands::agents::agent_toggle,
+            commands::agents::agents_bulk_toggle,
             commands::agents::list_delegations,
             commands::agents::agents_pinned_load,
             commands::agents::agents_pinned_save,
@@ -269,6 +272,10 @@ pub fn run() {
             commands::batches::delete_batch_single,
             commands::batches::cleanup_old_batches,
             commands::batches::clear_all_batches,
+            commands::batches::batches_list_queue,
+            commands::batches::batches_requeue,
+            commands::batches::batches_dismiss_queue,
+            commands::batches::batches_enqueue_command,
             // -- project detach / reattach (ventanas independientes) --
             commands::detach::detach_project_window,
             commands::detach::reattach_project_window,
@@ -530,6 +537,7 @@ pub fn run() {
             proxy::proxy_stop,
             proxy::proxy_health,
             proxy::proxy_state_enabled,
+            proxy::proxy_set_enabled,
             // -- workflow YAML composability + SQLite run history (KIRKARDO 23 P2) --
             commands::workflows::workflow_record_run,
             commands::workflows::workflow_update_run,

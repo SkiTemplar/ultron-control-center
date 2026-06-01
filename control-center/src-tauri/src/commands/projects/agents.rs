@@ -56,6 +56,17 @@ pub async fn agent_toggle(
     agents::agent_toggle_inner(name, enabled)
 }
 
+/// Bulk enable/disable many global agents in one call. `disabled = true`
+/// disables each named agent; `false` re-enables. Loops the same per-item
+/// toggle the single `agent_toggle` command uses.
+#[tauri::command]
+pub async fn agents_bulk_toggle(
+    names: Vec<String>,
+    disabled: bool,
+) -> Result<agents::BulkToggleResult, String> {
+    agents::agents_bulk_toggle_inner(names, disabled)
+}
+
 #[tauri::command]
 pub async fn list_delegations(
     limit: Option<usize>,

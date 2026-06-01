@@ -194,6 +194,19 @@ interface ProxyHealth {
   searched_paths: string[];
 }
 
+// Mirror de `proxy::ProxySetResult` (Rust). proxy_set_enabled NUNCA falla por
+// ausencia del binario: devuelve mode="light" en vez de un Err bloqueante.
+type ProxyMode = "managed" | "light" | "off";
+
+interface ProxySetResult {
+  enabled: boolean;
+  mode: ProxyMode;
+  binary_present: boolean;
+  port_8082_up: boolean;
+  base_url: string;
+  message: string | null;
+}
+
 // Ruta del archivo de estado del proxy (leida/escrita atomicamente por Rust).
 // El frontend solo lee este archivo a traves de comandos Tauri — no accede
 // directamente al FS.
@@ -247,26 +260,28 @@ export function AIRouterIndex() {
     message: null,
     searched_paths: [],
   });
+  // Ultimo resultado de proxy_set_enabled — fuente de verdad del modo (managed
+  // vs light) cuando el binario no esta instalado. proxy_health solo refleja el
+  // proceso GESTIONADO; el modo light se sostiene en este resultado.
+  const [proxyResult, setProxyResult] = useState<ProxySetResult | null>(null);
   const [proxyBusy, setProxyBusy] = useState(false);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Persiste el estado del toggle en proxy-state.json via comando Tauri.
-  // El backend lo escribe atomicamente; los spawns lo leen en sessions.rs.
-  // IMPORTANTE: propaga el error si proxy_start falla (p.ej. binario ausente)
-  // para que el caller pueda decidir si actualizar el estado UI o no.
-  const persistProxyState = useCallback(async (enabled: boolean): Promise<void> => {
-    if (enabled) {
-      // Lanza si Rust devuelve Err — el caller debe capturar y NO setear enabled=true.
-      await invoke<ProxyHealth>("proxy_start");
-    } else {
-      try {
-        await invoke<void>("proxy_stop");
-      } catch (e) {
-        console.error("[free-tier] proxy_stop error:", e);
-        // stop puede fallar si ya estaba detenido; no es critico.
-      }
-    }
-  }, []);
+  // Activa/desactiva el ruteo free-tier via `proxy_set_enabled`, que PERSISTE
+  // la intencion en proxy-state.json y NUNCA falla por ausencia del binario:
+  // sin binario devuelve mode="light" (proxy manual en :8082) en vez de un Err.
+  // Los spawns leen el flag persistido en sessions.rs.
+  //
+  // Devuelve el ProxySetResult para que el caller pinte el modo. Solo lanza
+  // ante un fallo REAL (FS no escribible, backend caido), no por binario ausente.
+  const persistProxyState = useCallback(
+    async (enabled: boolean): Promise<ProxySetResult> => {
+      const result = await invoke<ProxySetResult>("proxy_set_enabled", { enabled });
+      setProxyResult(result);
+      return result;
+    },
+    [],
+  );
 
   // Refresca el health cada 5 s mientras el panel esta visible y el toggle activo.
   const refreshHealth = useCallback(async () => {
@@ -280,13 +295,30 @@ export function AIRouterIndex() {
 
   // Carga inicial: hidrata el toggle desde el estado persistido en el backend
   // (rank1 fix) y refresca el health. Si proxy_state_enabled falla, deja false.
+  // Cuando el toggle ya estaba ON, derivamos un ProxySetResult inicial sondeando
+  // el binario + puerto via proxy_set_enabled(true) (idempotente: re-persiste
+  // true y reporta el modo actual), para que la UI muestre managed vs light al
+  // montar sin esperar a que el usuario toque el toggle.
   useEffect(() => {
     (async () => {
+      let enabled = false;
       try {
-        const enabled = await invoke<boolean>("proxy_state_enabled");
+        enabled = await invoke<boolean>("proxy_state_enabled");
         setFreeTierEnabled(enabled);
       } catch {
         // Backend no disponible o comando no implementado — deja false.
+      }
+      if (enabled) {
+        try {
+          // Re-afirma la intencion y obtiene el modo real (managed/light) sin
+          // tratar binario ausente como error.
+          const result = await invoke<ProxySetResult>("proxy_set_enabled", {
+            enabled: true,
+          });
+          setProxyResult(result);
+        } catch {
+          // Si incluso esto falla (FS/back caido), no bloqueamos el toggle.
+        }
       }
       void refreshHealth();
     })();
@@ -324,33 +356,36 @@ export function AIRouterIndex() {
   // momento del mount.
   useEffect(() => {
     unlistenCriticalRef.current = listen("quota:critical", async () => {
-      // rank4 fix: solo activar el toggle si proxy_start tiene EXITO.
-      // Leemos el estado actual via getter funcional para evitar captura stale,
-      // pero la decision de setear true se toma fuera del setter (async seguro).
+      // Al llegar a cuota critica activamos el toggle. Con proxy_set_enabled el
+      // routing free-tier se aplica SIEMPRE que la intencion se persista, sea en
+      // modo managed (binario presente) o light (proxy manual en :8082) — ya no
+      // depende de que el binario exista. Leemos el estado via getter funcional
+      // para evitar captura stale; la decision se toma en el bloque async.
       setFreeTierEnabled((prev) => {
         if (prev) return prev; // ya activo, nada que hacer
-        // Lanzamos el start en background; el resultado determina si seteamos.
         void (async () => {
           try {
             await persistProxyState(true);
+            // proxy_set_enabled solo lanza ante fallo REAL (FS/back); el binario
+            // ausente devuelve light, no Err. Si llegamos aqui, la intencion
+            // quedo persistida → activamos el toggle.
             setFreeTierEnabled(true);
           } catch (e) {
-            // proxy_start fallo (binario ausente u otro error) —
-            // NO persistimos enabled=true, el routing sigue directo a Anthropic.
+            // Fallo real de persistencia — el routing sigue directo a Anthropic.
             console.error("[free-tier] quota:critical auto-ON failed:", e);
           } finally {
             void refreshHealth();
           }
         })();
-        return prev; // no cambiar estado aqui; lo cambia el bloque async si tiene exito
+        return prev; // lo cambia el bloque async si la persistencia tiene exito
       });
     });
 
     unlistenResetRef.current = listen("quota:reset", async () => {
-      // quota:reset: apagamos el proxy. proxy_stop no es critico si falla
-      // (proceso ya muerto), asi que siempre ponemos enabled=false.
+      // quota:reset: apagamos el proxy. proxy_set_enabled(false) hace stop
+      // best-effort + persiste enabled=false; siempre ponemos enabled=false.
       void persistProxyState(false).catch((e: unknown) => {
-        console.error("[free-tier] quota:reset proxy_stop error:", e);
+        console.error("[free-tier] quota:reset proxy_set_enabled(false) error:", e);
       }).finally(() => {
         setFreeTierEnabled(false);
         void refreshHealth();
@@ -370,18 +405,18 @@ export function AIRouterIndex() {
     const next = !freeTierEnabled;
     setProxyBusy(true);
     try {
-      // rank4 fix: al encender, SOLO persistir enabled=true si proxy_start
-      // tiene EXITO. Si falla (binario ausente), el estado queda en false
-      // y el routing continua directo a Anthropic sin romper sesiones.
+      // Al encender, proxy_set_enabled(true) persiste la intencion y devuelve el
+      // modo: "managed" si el binario existe y arranco, "light" si no (proxy
+      // manual en :8082). En AMBOS casos el routing free-tier queda activo, asi
+      // que el toggle pasa a ON. Solo NO cambiamos el estado ante un fallo REAL
+      // (FS no escribible / backend caido), que proxy_set_enabled propaga como Err.
       await persistProxyState(next);
-      // Solo llegamos aqui si persistProxyState no lanzó.
       setFreeTierEnabled(next);
       await refreshHealth();
     } catch (e: unknown) {
-      // proxy_start fallo — no cambiamos el estado UI.
+      // Fallo real de persistencia — no cambiamos el estado UI.
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[free-tier] toggle failed:", msg);
-      // Refleja el estado real del proxy tras el fallo.
       await refreshHealth().catch(() => undefined);
     } finally {
       setProxyBusy(false);
@@ -446,6 +481,34 @@ export function AIRouterIndex() {
     );
     setEditZone(null);
   }
+
+  // --- Derived proxy display state ---
+  // "Light mode" = el binario gestionado no existe (proxyResult.mode === "light"
+  // o proxy_health reporta binary_missing). En ese caso el toggle NO es un
+  // blocker: opera como proxy manual en :8082. Preferimos proxyResult (fuente de
+  // verdad tras un set) y caemos a proxyHealth en el arranque frio.
+  const isLightMode =
+    proxyResult?.mode === "light" ||
+    (proxyResult == null && proxyHealth.status === "binary_missing");
+  // ¿Hay algo escuchando en :8082? proxyResult lo sondea en cada set; health
+  // "running" tambien implica puerto arriba.
+  const port8082Up =
+    proxyResult?.port_8082_up === true || proxyHealth.status === "running";
+
+  // Etiqueta + color del indicador de estado. En modo light sustituimos el
+  // crudo "Binario no encontrado" por una etiqueta clara de modo light.
+  const statusLabel = isLightMode
+    ? freeTierEnabled
+      ? port8082Up
+        ? "Modo light · proxy en :8082"
+        : "Modo light · esperando :8082"
+      : "Modo light (proxy manual)"
+    : STATUS_LABEL[proxyHealth.status];
+  const statusDot = isLightMode
+    ? port8082Up
+      ? "var(--color-success, #4ade80)"
+      : "var(--color-warn, #facc15)"
+    : STATUS_DOT[proxyHealth.status];
 
   return (
     <div className="p-6">
@@ -530,16 +593,16 @@ export function AIRouterIndex() {
                   width: 8,
                   height: 8,
                   borderRadius: "50%",
-                  background: STATUS_DOT[proxyHealth.status],
+                  background: statusDot,
                   flexShrink: 0,
                 }}
-                title={STATUS_LABEL[proxyHealth.status]}
+                title={statusLabel}
               />
               <span
                 className="text-[11px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                {STATUS_LABEL[proxyHealth.status]}
+                {statusLabel}
               </span>
             </div>
             <p
@@ -554,19 +617,48 @@ export function AIRouterIndex() {
                 Red de seguridad, no reemplazo permanente.
               </span>
             </p>
-            {proxyHealth.status === "binary_missing" && (
-              <p
-                className="mt-1.5 text-[11px]"
-                style={{ color: "var(--color-danger, #f87171)" }}
+            {/* Modo light: el binario no esta instalado pero el toggle SIGUE
+                funcionando como "proxy manual en :8082". NO es un error
+                bloqueante — es un modo de operacion valido. */}
+            {isLightMode && (
+              <div
+                className="mt-1.5 rounded p-2 text-[11px] leading-relaxed"
+                style={{
+                  background: "var(--color-surface-3)",
+                  border: "1px solid var(--color-border)",
+                  color: "var(--color-text-secondary)",
+                }}
               >
-                Binario no encontrado. Ver{" "}
-                <code className="font-mono">~/.ultron/proxy/HOWTO.md</code>{" "}
-                para instrucciones de instalacion. El toggle funcionara como
-                &ldquo;light mode&rdquo; (setea ANTHROPIC_BASE_URL) si corres
-                el proxy manualmente.
-              </p>
+                <span style={{ fontWeight: 600, color: "var(--color-text)" }}>
+                  Modo light (proxy manual en :8082).
+                </span>{" "}
+                El binario gestionado no esta instalado, pero el ruteo free-tier
+                funciona igual: las sesiones nuevas apuntaran{" "}
+                <code className="font-mono">ANTHROPIC_BASE_URL</code> al proxy
+                local cuando corras uno manualmente. Guia:{" "}
+                <code className="font-mono">~/.ultron/proxy/HOWTO.md</code>.
+                <span
+                  className="mt-1 flex items-center gap-1.5"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  <span
+                    style={{
+                      display: "inline-block",
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      background: port8082Up
+                        ? "var(--color-success, #4ade80)"
+                        : "var(--color-text-faint, #555)",
+                    }}
+                  />
+                  {port8082Up
+                    ? "Proxy detectado escuchando en 127.0.0.1:8082."
+                    : "Sin proxy en 127.0.0.1:8082 todavia — arranca el tuyo."}
+                </span>
+              </div>
             )}
-            {proxyHealth.message && proxyHealth.status !== "binary_missing" && (
+            {proxyHealth.message && !isLightMode && (
               <p
                 className="mt-1 text-[10.5px] font-mono truncate"
                 style={{ color: "var(--color-text-faint)" }}

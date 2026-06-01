@@ -128,6 +128,34 @@ pub struct ProxyHealth {
     pub searched_paths: Vec<String>,
 }
 
+/// Resultado de `proxy_set_enabled`. Describe el modo en que el toggle quedo
+/// activo (o por que quedo inactivo) sin tratar la ausencia del binario como
+/// un error bloqueante.
+///
+/// Modos:
+///   - `"managed"`: el binario existe y el proxy fue arrancado/gestionado por
+///     el Control Center (proceso hijo propio).
+///   - `"light"`: el binario NO existe; el toggle queda en "modo light". El
+///     usuario corre el proxy manualmente en :8082 y nosotros solo registramos
+///     la intencion + sondeamos el puerto. Las sesiones ponen
+///     `ANTHROPIC_BASE_URL` al proxy local cuando `enabled` es true.
+///   - `"off"`: el toggle fue desactivado.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxySetResult {
+    /// Intencion persistida en proxy-state.json.
+    pub enabled: bool,
+    /// "managed" | "light" | "off".
+    pub mode: String,
+    /// Si el binario `ultron-proxy.exe` esta presente en disco.
+    pub binary_present: bool,
+    /// Si algo responde HTTP en 127.0.0.1:8082 (proxy manual o gestionado vivo).
+    pub port_8082_up: bool,
+    /// Base URL que las sesiones deben usar cuando enabled=true.
+    pub base_url: String,
+    /// Mensaje human-readable para la UI.
+    pub message: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // proxy_start
 // ---------------------------------------------------------------------------
@@ -341,6 +369,28 @@ pub fn proxy_health_inner() -> ProxyHealth {
     }
 }
 
+/// Sondea si algo escucha en `127.0.0.1:8082` con un GET corto (timeout 1s).
+///
+/// Devuelve `true` ante CUALQUIER respuesta HTTP (incluso 4xx/5xx): significa
+/// que hay un proceso escuchando el puerto, sea el proxy gestionado por
+/// nosotros o uno lanzado manualmente por el usuario (modo light).
+///
+/// No gasta tokens ni envia autenticacion. Usa `reqwest::blocking` con un
+/// cliente efimero; los fallos de red (connection refused / timeout) devuelven
+/// `false` sin propagar el error.
+fn probe_port_8082_up() -> bool {
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    // Cualquier respuesta (Ok) = el puerto esta escuchando. Un Err de red
+    // (refused/timeout) = nadie escuchando.
+    client.get(PROXY_BASE_URL).send().is_ok()
+}
+
 // ---------------------------------------------------------------------------
 // Persistencia del estado del toggle en proxy-state.json
 // ---------------------------------------------------------------------------
@@ -413,6 +463,113 @@ pub fn proxy_state_enabled() -> bool {
     read_proxy_state_enabled()
 }
 
+/// Activa o desactiva el ruteo por proxy free-tier, persistiendo la intencion
+/// en `proxy-state.json`. **Nunca falla por ausencia del binario.**
+///
+/// Comportamiento:
+///   - `enabled = false`: detiene el proxy gestionado si existe (best-effort),
+///     persiste `enabled=false` y devuelve `mode = "off"`.
+///   - `enabled = true` con binario presente: intenta arrancar el proxy
+///     gestionado (`proxy_start_inner`). Si arranca, `mode = "managed"`.
+///     Si el arranque fallara (p. ej. puerto ocupado por un proxy manual),
+///     no tratamos eso como error fatal: caemos a modo light.
+///   - `enabled = true` sin binario: **modo light**. Solo registramos la
+///     intencion y sondeamos `:8082`. Las sesiones leeran el flag persistido
+///     (`read_proxy_state_enabled`) y pondran `ANTHROPIC_BASE_URL` al proxy
+///     local. Devuelve `mode = "light"`, `binary_present = false` y
+///     `port_8082_up = <bool>` para que la UI muestre "Modo light (proxy
+///     manual en :8082)" en vez de "Binario no encontrado".
+///
+/// En todos los casos de `enabled = true` la intencion queda persistida, asi
+/// que el routing por free-tier se aplica aunque el binario no este instalado.
+#[tauri::command]
+pub fn proxy_set_enabled(enabled: bool) -> Result<ProxySetResult, String> {
+    let binary_present = find_proxy_binary().is_some();
+
+    if !enabled {
+        // Apagar: best-effort stop del proceso gestionado, luego persistir.
+        let _ = proxy_stop_inner();
+        persist_proxy_state(false)?;
+        return Ok(ProxySetResult {
+            enabled: false,
+            mode: "off".to_string(),
+            binary_present,
+            port_8082_up: probe_port_8082_up(),
+            base_url: PROXY_BASE_URL.to_string(),
+            message: Some("Proxy free-tier desactivado".to_string()),
+        });
+    }
+
+    // enabled = true. Persistimos la intencion ANTES de cualquier arranque para
+    // que las sesiones nuevas vean el flag aunque el spawn tarde o falle.
+    persist_proxy_state(true)?;
+
+    if binary_present {
+        // Intentamos el arranque gestionado. Un fallo (puerto ocupado por un
+        // proxy manual del usuario, etc.) NO se trata como error: caemos a
+        // light y dejamos que la UI sondee el puerto.
+        match proxy_start_inner() {
+            Ok(_) => {
+                return Ok(ProxySetResult {
+                    enabled: true,
+                    mode: "managed".to_string(),
+                    binary_present: true,
+                    port_8082_up: probe_port_8082_up(),
+                    base_url: PROXY_BASE_URL.to_string(),
+                    message: Some("Proxy gestionado iniciado".to_string()),
+                });
+            }
+            Err(start_err) => {
+                let up = probe_port_8082_up();
+                let message = if up {
+                    Some(format!(
+                        "Binario presente pero el arranque gestionado fallo ({start_err}); \
+                         hay un proxy escuchando en :8082, usando modo light"
+                    ))
+                } else {
+                    Some(format!(
+                        "Binario presente pero el arranque fallo ({start_err}); \
+                         arranca un proxy manual en :8082 (modo light)"
+                    ))
+                };
+                return Ok(ProxySetResult {
+                    enabled: true,
+                    mode: "light".to_string(),
+                    binary_present: true,
+                    port_8082_up: up,
+                    base_url: PROXY_BASE_URL.to_string(),
+                    message,
+                });
+            }
+        }
+    }
+
+    // Sin binario: modo light puro. Registramos la intencion (ya persistida) y
+    // sondeamos el puerto para informar al usuario.
+    let up = probe_port_8082_up();
+    let message = if up {
+        Some(
+            "Modo light: proxy manual detectado en :8082. Las sesiones nuevas \
+             usaran ANTHROPIC_BASE_URL hacia el proxy local."
+                .to_string(),
+        )
+    } else {
+        Some(
+            "Modo light activo: arranca tu proxy manual en :8082. Las sesiones \
+             nuevas apuntaran ANTHROPIC_BASE_URL al proxy local cuando responda."
+                .to_string(),
+        )
+    };
+    Ok(ProxySetResult {
+        enabled: true,
+        mode: "light".to_string(),
+        binary_present: false,
+        port_8082_up: up,
+        base_url: PROXY_BASE_URL.to_string(),
+        message,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -449,5 +606,33 @@ mod tests {
     fn proxy_stop_idempotent_when_not_running() {
         // No debe panicar si se llama sin proceso activo.
         assert!(proxy_stop_inner().is_ok());
+    }
+
+    #[test]
+    fn set_enabled_false_returns_off_mode() {
+        // Desactivar nunca debe fallar y devuelve mode="off".
+        let r = proxy_set_enabled(false).expect("set_enabled(false) no debe fallar");
+        assert_eq!(r.mode, "off");
+        assert!(!r.enabled);
+        assert_eq!(r.base_url, PROXY_BASE_URL);
+        // El flag persistido debe quedar en false.
+        assert!(!read_proxy_state_enabled());
+    }
+
+    #[test]
+    fn set_enabled_true_without_binary_is_light_not_error() {
+        // En CI no hay binario: enabled=true debe devolver Ok en modo light,
+        // NO un Err. Es el corazon del fix: el toggle no es un blocker.
+        // (Si el entorno SI tuviera el binario, mode seria "managed" — ambos
+        //  son validos; lo que NO debe ocurrir es un Err.)
+        let r = proxy_set_enabled(true).expect("set_enabled(true) nunca debe ser Err");
+        assert!(r.enabled);
+        assert!(matches!(r.mode.as_str(), "light" | "managed"));
+        assert_eq!(r.base_url, PROXY_BASE_URL);
+        // La intencion queda persistida pase lo que pase.
+        assert!(read_proxy_state_enabled());
+
+        // Limpieza: dejar el estado en false para no contaminar otros tests.
+        let _ = proxy_set_enabled(false);
     }
 }

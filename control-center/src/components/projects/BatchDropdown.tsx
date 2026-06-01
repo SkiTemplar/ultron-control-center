@@ -34,6 +34,30 @@ type BatchRunResult = {
   stderr: string;
 };
 
+type BatchQueueReason = "rejected" | "ai_cannot_execute" | "failed";
+
+type BatchQueueEntry = {
+  id: string;
+  name: string;
+  path: string;
+  reason: BatchQueueReason;
+  created_at: string;
+  last_error: string | null;
+  attempts: number;
+};
+
+const REASON_LABEL: Record<BatchQueueReason, string> = {
+  rejected: "rechazado",
+  ai_cannot_execute: "IA no pudo ejecutar",
+  failed: "falló",
+};
+
+const REASON_COLOR: Record<BatchQueueReason, string> = {
+  rejected: "var(--color-danger)",
+  ai_cannot_execute: "var(--color-warning, #d29922)",
+  failed: "var(--color-warning, #d29922)",
+};
+
 export type BatchToast = {
   kind: "ok" | "err";
   title: string;
@@ -85,7 +109,22 @@ export default function BatchDropdown({
   const [runningName, setRunningName] = useState<string | null>(null);
   /** Name of the batch currently pending delete confirmation (inline). */
   const [pendingDeleteName, setPendingDeleteName] = useState<string | null>(null);
+  /** Persistent queue of rejected / unrunnable / failed batches. */
+  const [queue, setQueue] = useState<BatchQueueEntry[] | null>(null);
+  /** Id of the queue entry whose action (requeue/dismiss) is in flight. */
+  const [queueBusyId, setQueueBusyId] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+
+  const refreshQueue = useCallback(async () => {
+    try {
+      const q = await invoke<BatchQueueEntry[]>("batches_list_queue");
+      setQueue(q);
+    } catch {
+      // Queue is best-effort UI sugar — a failure here must not break the
+      // main batches list. Leave whatever we had (or empty) and move on.
+      setQueue((prev) => prev ?? []);
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -99,12 +138,57 @@ export default function BatchDropdown({
     } finally {
       setLoading(false);
     }
-  }, []);
+    // Pull the queue alongside the file list so the badge stays in sync.
+    void refreshQueue();
+  }, [refreshQueue]);
 
   // Load on first open so we don't hit disk until the user actually wants it.
   useEffect(() => {
     if (open && batches === null) void refresh();
   }, [open, batches, refresh]);
+
+  const requeue = useCallback(
+    async (entry: BatchQueueEntry) => {
+      setQueueBusyId(entry.id);
+      try {
+        await invoke<BatchQueueEntry>("batches_requeue", { id: entry.id });
+        onResult?.({
+          kind: "ok",
+          title: `Reencolado: ${entry.name}`,
+          body: "Marcado como pendiente de reintento. Pulsa Run para ejecutarlo.",
+        });
+        void refreshQueue();
+      } catch (e: unknown) {
+        onResult?.({
+          kind: "err",
+          title: `Reencolar falló: ${entry.name}`,
+          body: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setQueueBusyId(null);
+      }
+    },
+    [onResult, refreshQueue],
+  );
+
+  const dismissQueue = useCallback(
+    async (entry: BatchQueueEntry) => {
+      setQueueBusyId(entry.id);
+      try {
+        await invoke<void>("batches_dismiss_queue", { id: entry.id });
+        void refreshQueue();
+      } catch (e: unknown) {
+        onResult?.({
+          kind: "err",
+          title: `Descartar falló: ${entry.name}`,
+          body: e instanceof Error ? e.message : String(e),
+        });
+      } finally {
+        setQueueBusyId(null);
+      }
+    },
+    [onResult, refreshQueue],
+  );
 
   // Close on click-outside / ESC.
   useEffect(() => {
@@ -155,6 +239,51 @@ export default function BatchDropdown({
     [onResult, refresh],
   );
 
+  // Run a queued entry, then dismiss it from the queue on success. This is the
+  // one-click escape hatch for a rejected/failed item — but it is ALWAYS a
+  // human click, never automatic, by design (see the "requiere tu click" label).
+  const runFromQueue = useCallback(
+    async (entry: BatchQueueEntry) => {
+      setRunningName(entry.name);
+      setQueueBusyId(entry.id);
+      try {
+        const r = await invoke<BatchRunResult>("execute_batch", {
+          name: entry.name,
+        });
+        const body =
+          clip(r.stdout) || clip(r.stderr) || `exit ${r.exit_code ?? "?"}`;
+        onResult?.({
+          kind: r.success ? "ok" : "err",
+          title: r.success
+            ? `Batch finished: ${entry.name}`
+            : `Batch failed: ${entry.name} (exit ${r.exit_code ?? "?"})`,
+          body,
+        });
+        // On success drop it from the queue; on failure execute_batch_inner has
+        // already re-recorded it (reason="failed") with the fresh error.
+        if (r.success) {
+          try {
+            await invoke<void>("batches_dismiss_queue", { id: entry.id });
+          } catch {
+            /* dismiss is best-effort; queue refresh below reconciles */
+          }
+        }
+        void refresh();
+      } catch (e: unknown) {
+        onResult?.({
+          kind: "err",
+          title: `Batch error: ${entry.name}`,
+          body: e instanceof Error ? e.message : String(e),
+        });
+        void refreshQueue();
+      } finally {
+        setRunningName(null);
+        setQueueBusyId(null);
+      }
+    },
+    [onResult, refresh, refreshQueue],
+  );
+
   const deleteSingle = useCallback(
     async (name: string) => {
       setPendingDeleteName(null);
@@ -178,6 +307,7 @@ export default function BatchDropdown({
   );
 
   const count = batches?.length ?? 0;
+  const queueCount = queue?.length ?? 0;
 
   // Trigger button styles: header mode matches the other workspace header
   // buttons (transparent bg, rgba border, 11px font); default mode keeps the
@@ -270,6 +400,19 @@ export default function BatchDropdown({
             title={`${count} batch script${count === 1 ? "" : "s"} available`}
           >
             {count}
+          </span>
+        )}
+        {queueCount > 0 && (
+          <span
+            className="rounded px-1 text-[10px] font-semibold tabular-nums"
+            style={{
+              background: "rgba(248, 81, 73, 0.14)",
+              color: "var(--color-danger)",
+              border: "1px solid rgba(248, 81, 73, 0.35)",
+            }}
+            title={`${queueCount} en cola (rechazados / fallidos) — requieren tu click`}
+          >
+            ⚠ {queueCount}
           </span>
         )}
         <span aria-hidden style={{ fontSize: 9, opacity: 0.7 }}>
@@ -399,6 +542,144 @@ export default function BatchDropdown({
               </button>
             </div>
           </div>
+
+          {/* Cola — rejected / unrunnable / failed batches that were never
+              silently dropped. A rejected command becoming runnable is a
+              security consideration: it is labelled "requiere tu click" and is
+              NEVER auto-executed. */}
+          {queue && queue.length > 0 && (
+            <div
+              className="m-1 rounded"
+              style={{
+                background: "rgba(248, 81, 73, 0.05)",
+                border: "1px solid rgba(248, 81, 73, 0.20)",
+              }}
+            >
+              <div
+                className="flex items-center justify-between px-2 py-1.5"
+                style={{ borderBottom: "1px solid rgba(248,81,73,0.15)" }}
+              >
+                <span
+                  className="text-[10px] font-semibold uppercase tracking-[0.06em]"
+                  style={{ color: "var(--color-danger)" }}
+                >
+                  ⚠ Cola ({queue.length})
+                </span>
+                <span
+                  className="text-[9.5px]"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  encolado — requiere tu click
+                </span>
+              </div>
+              <ul className="flex flex-col gap-0.5 p-1">
+                {queue.map((q) => {
+                  const busy = queueBusyId === q.id || runningName === q.name;
+                  return (
+                    <li
+                      key={q.id}
+                      className="rounded px-2 py-1.5"
+                      style={{ background: "var(--color-surface-2)" }}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="min-w-0 flex-1 truncate text-[11.5px] font-medium"
+                          style={{
+                            fontFamily: "var(--font-mono)",
+                            color: "var(--color-text)",
+                          }}
+                          title={q.path || q.name}
+                        >
+                          {q.name}
+                        </span>
+                        <span
+                          className="shrink-0 rounded px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wide"
+                          style={{
+                            background: "var(--color-surface-1)",
+                            color: REASON_COLOR[q.reason],
+                            border: `1px solid ${REASON_COLOR[q.reason]}`,
+                          }}
+                          title={`Motivo: ${REASON_LABEL[q.reason]}`}
+                        >
+                          {REASON_LABEL[q.reason]}
+                        </span>
+                        {q.attempts > 1 && (
+                          <span
+                            className="shrink-0 text-[9.5px] tabular-nums"
+                            style={{ color: "var(--color-text-tertiary)" }}
+                            title={`${q.attempts} intentos`}
+                          >
+                            ×{q.attempts}
+                          </span>
+                        )}
+                      </div>
+
+                      {q.last_error && (
+                        <div
+                          className="mt-1 max-h-[48px] overflow-y-auto rounded px-1.5 py-1 text-[10px] leading-snug"
+                          style={{
+                            background: "var(--color-surface-1)",
+                            color: "var(--color-text-secondary)",
+                            fontFamily: "var(--font-mono)",
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                          }}
+                          title={q.last_error}
+                        >
+                          {clip(q.last_error, 200)}
+                        </div>
+                      )}
+
+                      <div className="mt-1.5 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={busy || runningName !== null}
+                          onClick={() => void runFromQueue(q)}
+                          className="rounded px-2 py-0.5 text-[10.5px] font-medium transition-colors disabled:opacity-40"
+                          style={{
+                            background: "rgba(248,81,73,0.12)",
+                            color: "var(--color-danger)",
+                            border: "1px solid rgba(248,81,73,0.40)",
+                          }}
+                          title="Ejecutar ahora (requiere tu click — nunca se ejecuta solo)"
+                        >
+                          {busy ? "Running…" : "Run"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void requeue(q)}
+                          className="rounded px-2 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                          style={{
+                            background: "transparent",
+                            color: "var(--color-text-secondary)",
+                            border: "1px solid var(--color-border)",
+                          }}
+                          title="Reencolar (marcar pendiente de reintento, sin ejecutar)"
+                        >
+                          Requeue
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void dismissQueue(q)}
+                          className="rounded px-2 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                          style={{
+                            background: "transparent",
+                            color: "var(--color-text-tertiary)",
+                            border: "1px solid var(--color-border)",
+                          }}
+                          title="Descartar de la cola"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
 
           {/* Body */}
           <div className="max-h-[320px] overflow-y-auto py-1">

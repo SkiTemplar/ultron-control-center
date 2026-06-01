@@ -665,6 +665,66 @@ pub fn agent_toggle_inner(name: String, enabled: bool) -> Result<AgentEntry, Str
     }
 }
 
+/// Per-item outcome of a bulk toggle. `error` is `None` on success.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BulkToggleOutcome {
+    pub name: String,
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Aggregate result of `agents_bulk_toggle`.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct BulkToggleResult {
+    pub requested: usize,
+    pub succeeded: usize,
+    pub failed: usize,
+    pub outcomes: Vec<BulkToggleOutcome>,
+}
+
+/// Enable or disable many global agents in one call. `disabled = true` moves
+/// each `<name>.md` to `<name>.md.disabled`; `disabled = false` reverses it.
+///
+/// Loops the existing `agent_toggle_inner` so the on-disk convention stays
+/// identical to the single-item path. Failures are collected per-item rather
+/// than aborting the whole batch.
+pub fn agents_bulk_toggle_inner(
+    names: Vec<String>,
+    disabled: bool,
+) -> Result<BulkToggleResult, String> {
+    let enabled = !disabled;
+    let mut outcomes: Vec<BulkToggleOutcome> = Vec::with_capacity(names.len());
+    let mut succeeded = 0usize;
+    let mut failed = 0usize;
+    for name in &names {
+        match agent_toggle_inner(name.clone(), enabled) {
+            Ok(_) => {
+                succeeded += 1;
+                outcomes.push(BulkToggleOutcome {
+                    name: name.clone(),
+                    ok: true,
+                    error: None,
+                });
+            }
+            Err(e) => {
+                failed += 1;
+                outcomes.push(BulkToggleOutcome {
+                    name: name.clone(),
+                    ok: false,
+                    error: Some(e),
+                });
+            }
+        }
+    }
+    Ok(BulkToggleResult {
+        requested: names.len(),
+        succeeded,
+        failed,
+        outcomes,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -735,4 +795,28 @@ mod tests {
         assert!(validate_slug("a1").is_ok());
     }
 
+    #[test]
+    fn bulk_toggle_aggregates_per_item_outcomes() {
+        // Non-existent agent slugs → every item hits the error path. Asserts
+        // the aggregation shape without mutating the real agents dir.
+        let names = vec![
+            "zzz-bulk-test-nonexistent-a".to_string(),
+            "zzz-bulk-test-nonexistent-b".to_string(),
+        ];
+        let res = agents_bulk_toggle_inner(names.clone(), true).expect("bulk ok");
+        assert_eq!(res.requested, 2);
+        assert_eq!(res.outcomes.len(), 2);
+        assert_eq!(res.succeeded + res.failed, res.requested);
+        assert!(res.outcomes.iter().all(|o| !o.ok && o.error.is_some()));
+        assert_eq!(res.outcomes[0].name, names[0]);
+    }
+
+    #[test]
+    fn bulk_toggle_empty_is_noop() {
+        let res = agents_bulk_toggle_inner(vec![], false).expect("bulk ok");
+        assert_eq!(res.requested, 0);
+        assert_eq!(res.succeeded, 0);
+        assert_eq!(res.failed, 0);
+        assert!(res.outcomes.is_empty());
+    }
 }

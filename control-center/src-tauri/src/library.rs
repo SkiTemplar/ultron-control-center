@@ -712,6 +712,13 @@ fn read_capped(path: &Path, max_bytes: usize) -> Option<String> {
 }
 
 /// Collect relevant files from the cloned repo into a single context string.
+///
+/// Reads the usual top-level manifests/READMEs PLUS, for deep skill/agent
+/// repos, the nested `.claude/skills/<name>/SKILL.md` and `.claude/agents/*.md`
+/// (and a bare top-level `skills/`/`agents/` layout) so the AI analysis sees
+/// the actual skill/agent definitions instead of only the README. Without
+/// this, a repo whose payload lives entirely under `.claude/skills/*/SKILL.md`
+/// looked empty to the analyzer and got mis-classified.
 fn collect_repo_context(repo_dir: &Path) -> String {
     let candidates = [
         "README.md",
@@ -733,10 +740,123 @@ fn collect_repo_context(repo_dir: &Path) -> String {
             parts.push(format!("=== {} ===\n{}", name, content));
         }
     }
+
+    // Nested skill definitions: <root>/.claude/skills/<name>/SKILL.md and a
+    // bare <root>/skills/<name>/SKILL.md fallback. Cap the number of nested
+    // files surfaced so a mega-repo can't blow up the prompt.
+    for skills_root in [
+        repo_dir.join(".claude").join("skills"),
+        repo_dir.join("skills"),
+    ] {
+        collect_nested_skill_mds(&skills_root, &mut parts);
+    }
+
+    // Nested agent definitions: <root>/.claude/agents/*.md and <root>/agents/*.md.
+    for agents_root in [
+        repo_dir.join(".claude").join("agents"),
+        repo_dir.join("agents"),
+    ] {
+        collect_nested_agent_mds(&agents_root, &mut parts);
+    }
+
     if parts.is_empty() {
         "<no recognisable files found>".to_string()
     } else {
         parts.join("\n\n")
+    }
+}
+
+/// Max nested skill/agent files surfaced into the analysis prompt. Keeps a
+/// huge multi-skill repo from flooding the context window.
+const MAX_NESTED_FILES: usize = 12;
+
+/// Read each `<root>/<name>/SKILL.md`, appending up to `MAX_NESTED_FILES`
+/// entries to `parts`. No-op when `root` is not a directory.
+fn collect_nested_skill_mds(root: &Path, parts: &mut Vec<String>) {
+    if !root.is_dir() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if parts.len() >= MAX_NESTED_FILES {
+            break;
+        }
+        let dir = entry.path();
+        if !dir.is_dir() {
+            continue;
+        }
+        let skill_md = dir.join("SKILL.md");
+        if let Some(content) = read_capped(&skill_md, 4_000) {
+            let label = dir
+                .file_name()
+                .and_then(|s| s.to_str())
+                .unwrap_or("skill");
+            parts.push(format!("=== skills/{}/SKILL.md ===\n{}", label, content));
+        }
+    }
+}
+
+/// Read each `<root>/*.md` agent file, appending up to `MAX_NESTED_FILES`
+/// entries to `parts`. No-op when `root` is not a directory.
+fn collect_nested_agent_mds(root: &Path, parts: &mut Vec<String>) {
+    if !root.is_dir() {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(root) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if parts.len() >= MAX_NESTED_FILES {
+            break;
+        }
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        if p.extension().and_then(|e| e.to_str()) != Some("md") {
+            continue;
+        }
+        let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
+        if fname.eq_ignore_ascii_case("README.md") {
+            continue;
+        }
+        if let Some(content) = read_capped(&p, 4_000) {
+            parts.push(format!("=== agents/{} ===\n{}", fname, content));
+        }
+    }
+}
+
+/// Pick the strongest available zone for the install-compatibility analysis.
+///
+/// The original code always routed to `code-review`, which seeds to a Light
+/// (Haiku) zone — fine for quick lint passes, weak for reasoning about whether
+/// an arbitrary repo is safe to install. We prefer a `code-edit` zone when it
+/// exists (it seeds to a Medium codex/gpt-5 assignment), falling back to
+/// `code-review` and finally to the literal `"code-review"` id when zone
+/// listing fails entirely. Selection is by *configured* zones so a user who
+/// reconfigured their router still gets a valid id.
+fn pick_analysis_zone() -> String {
+    // Strongest first. `code-edit` is Medium-class in the seed; `code-review`
+    // is the safe Light-class default we keep as a fallback.
+    const PREFERRED: [&str; 2] = ["code-edit", "code-review"];
+    match crate::ai_router::ai_router_list_zones() {
+        Ok(zones) => {
+            for id in PREFERRED {
+                if zones.iter().any(|z| z.id == id) {
+                    return id.to_string();
+                }
+            }
+            // No preferred zone configured — fall back to the first zone in
+            // the `code` category if any, else the literal default.
+            zones
+                .iter()
+                .find(|z| z.category == "code")
+                .map(|z| z.id.clone())
+                .unwrap_or_else(|| "code-review".to_string())
+        }
+        Err(_) => "code-review".to_string(),
     }
 }
 
@@ -981,7 +1101,10 @@ pub async fn install_via_ai_inner(
     let prompt = build_analysis_prompt(&repo_context, &stack_context);
 
     // --- Step 5: call AI router ---
-    let ai_text = match crate::ai_router::route("code-review", &prompt) {
+    // Route to the strongest available analysis zone (code-edit > code-review)
+    // so the compatibility judgement uses a stronger model when one exists.
+    let analysis_zone = pick_analysis_zone();
+    let ai_text = match crate::ai_router::route(&analysis_zone, &prompt) {
         Ok(text) => text,
         Err(router_err) => {
             // Fallback: AI not available — return without a report so the
@@ -1110,5 +1233,56 @@ mod ai_install_tests {
         let p = expand_tilde("~/foo/bar");
         assert!(p.to_string_lossy().contains("foo"));
         assert!(!p.to_string_lossy().starts_with('~'));
+    }
+
+    #[test]
+    fn collect_repo_context_reads_nested_skill_and_agent_files() {
+        // Build a temp repo whose payload lives ONLY in nested
+        // .claude/skills/<name>/SKILL.md and .claude/agents/<name>.md — the
+        // exact deep layout the old top-level-only reader missed.
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        let skill_dir = root.join(".claude").join("skills").join("my-skill");
+        std::fs::create_dir_all(&skill_dir).expect("mkdir skill");
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: my-skill\ndescription: nested skill payload\n---\nBODY",
+        )
+        .expect("write skill md");
+
+        let agents_dir = root.join(".claude").join("agents");
+        std::fs::create_dir_all(&agents_dir).expect("mkdir agents");
+        std::fs::write(
+            agents_dir.join("my-agent.md"),
+            "---\nname: my-agent\ndescription: nested agent payload\n---\nROLE",
+        )
+        .expect("write agent md");
+        // README under agents must be skipped.
+        std::fs::write(agents_dir.join("README.md"), "ignore me").expect("write readme");
+
+        let ctx = collect_repo_context(root);
+        assert!(
+            ctx.contains("skills/my-skill/SKILL.md"),
+            "nested skill should be surfaced: {ctx}"
+        );
+        assert!(ctx.contains("nested skill payload"));
+        assert!(
+            ctx.contains("agents/my-agent.md"),
+            "nested agent should be surfaced: {ctx}"
+        );
+        assert!(ctx.contains("nested agent payload"));
+        assert!(
+            !ctx.contains("ignore me"),
+            "agents/README.md must be skipped"
+        );
+    }
+
+    #[test]
+    fn pick_analysis_zone_returns_nonempty() {
+        // Must always return a usable zone id (never empty) even if the
+        // router config is missing on the test box.
+        let zone = pick_analysis_zone();
+        assert!(!zone.is_empty());
     }
 }

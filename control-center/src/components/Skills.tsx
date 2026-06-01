@@ -12,7 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { SkillEntry, SkillOrigin } from "../types";
+import type { SkillEntry, SkillInfo, SkillOrigin } from "../types";
 import { CreateSkillModal } from "./library/CreateSkillModal";
 import { Plus, Sparkle } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
@@ -20,6 +20,12 @@ import { BlocksView, type BlocksItem } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
 import { categorize } from "../lib/skill-categories";
 import { LibraryDetailPane } from "./library/LibraryDetailPane";
+import { rankBySearch, type SearchableItem } from "../lib/ranked-search";
+
+// Registry-sourced metadata (priority / usage_count / tags) the origin-aware
+// SkillEntry shape does not carry. Keyed by skill name so the ranked search
+// can weight by these signals when they are available.
+type SkillMeta = { priority?: number; usageCount?: number; tags?: string[] };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -244,10 +250,42 @@ export function Skills() {
   // Whether any toggle has happened this session — controls the restart banner.
   const [hasToggled, setHasToggled] = useState(false);
 
+  // Registry metadata (priority / usage_count / tags) keyed by skill name,
+  // used to weight the ranked search. Best-effort: an empty map just means the
+  // search ranks on text relevance alone.
+  const [metaByName, setMetaByName] = useState<Record<string, SkillMeta>>({});
+
+  // Bulk multi-select mode: when on, cards show a checkbox and a bulk action
+  // bar lets the user enable/disable the whole selection at once.
+  const [selectMode, setSelectMode] = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+
   useEffect(() => {
     invoke<ProjectLite[]>("list_projects")
       .then((list) => setProjects(list.map((p) => ({ id: p.id, name: p.name }))))
       .catch(() => setProjects([]));
+  }, []);
+
+  // Pull registry metadata once. The legacy registry listing carries the
+  // priority / usage_count / tags fields the origin-aware list omits.
+  useEffect(() => {
+    invoke<SkillInfo[]>("list_skills_legacy")
+      .then((list) => {
+        const map: Record<string, SkillMeta> = {};
+        for (const s of list) {
+          // `priority` is serialised by the backend but absent from the TS
+          // SkillInfo type; read it defensively.
+          const priority = (s as unknown as { priority?: number }).priority;
+          map[s.name] = {
+            priority: typeof priority === "number" ? priority : undefined,
+            usageCount: s.usage_count,
+            tags: s.tags,
+          };
+        }
+        setMetaByName(map);
+      })
+      .catch(() => setMetaByName({}));
   }, []);
 
   const reload = async () => {
@@ -307,6 +345,50 @@ export function Skills() {
     }
   };
 
+  // -------------------------------------------------------------------------
+  // Bulk enable / disable
+  // -------------------------------------------------------------------------
+
+  // Toggle a card's checkbox membership in the bulk selection.
+  const toggleChecked = (name: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  // Apply a bulk enable/disable to every checked GLOBAL skill. Names are
+  // deduped (a skill could appear under multiple paths) before the single
+  // backend call so we never toggle the same slug twice.
+  const handleBulk = async (targetEnabled: boolean) => {
+    if (bulkBusy || checked.size === 0) return;
+    // Only global skills can be toggled; filter the selection to those.
+    const names = Array.from(
+      new Set(
+        skills
+          .filter((s) => s.origin === "global" && checked.has(s.name))
+          .map((s) => s.name),
+      ),
+    );
+    if (names.length === 0) {
+      showToast("Selection has no global skills to toggle.");
+      return;
+    }
+    setBulkBusy(true);
+    setHasToggled(true);
+    try {
+      await invoke("skills_bulk_toggle", { names, disabled: !targetEnabled });
+      setChecked(new Set());
+      await reload();
+    } catch (e) {
+      showToast(`Bulk toggle failed: ${e}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
   const buildOnSave = (s: SkillEntry): ((body: string) => Promise<void>) | undefined => {
     if (s.origin !== "global") return undefined;
     return async (body: string) => {
@@ -348,23 +430,37 @@ export function Skills() {
   }, [skills, scope, optimisticMap]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return skills.filter((s) => {
+    // 1. Hard filters (scope / category / enable tab) — these gate membership.
+    const base = skills.filter((s) => {
       if (scope !== "all" && s.origin !== scope) return false;
       if (category !== "all" && deriveCategory(s) !== category) return false;
-      // Enable-filter tab.
       const enabled = isEnabled(s);
       if (enableFilter === "active" && !enabled) return false;
       if (enableFilter === "disabled" && enabled) return false;
-      if (!q) return true;
-      return (
-        s.name.toLowerCase().includes(q) ||
-        s.description.toLowerCase().includes(q) ||
-        s.origin.toLowerCase().includes(q)
-      );
+      return true;
     });
+
+    // 2. Ranked search — fuzzy + synonyms + name/tags/desc + priority/usage.
+    const q = query.trim();
+    if (!q) return base;
+
+    // Decorate each entry with registry metadata so the ranker can weight it.
+    const decorated = base.map((s) => {
+      const meta = metaByName[s.name];
+      const item: SearchableItem & { __entry: SkillEntry } = {
+        name: s.name,
+        description: s.description,
+        origin: s.origin,
+        tags: meta?.tags,
+        priority: meta?.priority,
+        usageCount: meta?.usageCount,
+        __entry: s,
+      };
+      return item;
+    });
+    return rankBySearch(decorated, q).map((d) => d.__entry);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skills, scope, category, enableFilter, query, optimisticMap]);
+  }, [skills, scope, category, enableFilter, query, optimisticMap, metaByName]);
 
   // ---------------------------------------------------------------------------
   // Tree / Blocks adapters
@@ -424,16 +520,20 @@ export function Skills() {
         const isActive = selected?.path === s.path;
         const enabled = isEnabled(s);
         const busy = toggleBusy.has(s.path);
+        const isChecked = checked.has(s.name);
+        const selectable = selectMode && s.origin === "global";
 
         return (
           <button
             key={`${s.origin}-${s.path}`}
             type="button"
-            onClick={() => setSelected(s)}
-            className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+            onClick={() => (selectable ? toggleChecked(s.name) : setSelected(s))}
+            className="group relative flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
               background: isActive ? "var(--color-surface-3)" : "var(--color-surface-2)",
-              border: `1px solid ${isActive ? SKILL_ACCENT : "var(--color-border)"}`,
+              border: `1px solid ${
+                selectable && isChecked ? SKILL_ACCENT : isActive ? SKILL_ACCENT : "var(--color-border)"
+              }`,
               boxShadow: `inset 0 3px 0 ${SKILL_ACCENT}`,
               opacity: enabled ? 1 : 0.55,
             }}
@@ -443,12 +543,26 @@ export function Skills() {
               e.currentTarget.style.boxShadow = `inset 0 3px 0 ${SKILL_ACCENT}, 0 6px 18px rgba(0,0,0,0.28)`;
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = isActive ? SKILL_ACCENT : "var(--color-border)";
+              e.currentTarget.style.borderColor =
+                selectable && isChecked ? SKILL_ACCENT : isActive ? SKILL_ACCENT : "var(--color-border)";
               e.currentTarget.style.transform = "translateY(0)";
               e.currentTarget.style.boxShadow = `inset 0 3px 0 ${SKILL_ACCENT}`;
             }}
             title={s.description || s.name}
           >
+            {/* Bulk-select checkbox overlay (only in select mode, global skills) */}
+            {selectMode && (
+              <input
+                type="checkbox"
+                checked={isChecked}
+                disabled={s.origin !== "global"}
+                onChange={() => toggleChecked(s.name)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Select ${s.name}`}
+                className="absolute right-2 top-2 h-4 w-4"
+                style={{ accentColor: "#38bdf8", cursor: s.origin === "global" ? "pointer" : "not-allowed" }}
+              />
+            )}
             {/* Header row: label chip + toggle */}
             <div className="flex items-center justify-between gap-1.5">
               <div
@@ -535,6 +649,21 @@ export function Skills() {
             <Plus size={12} /> New skill
           </button>
           <button
+            onClick={() => {
+              setSelectMode((v) => !v);
+              setChecked(new Set());
+            }}
+            className="rounded-md border px-3 py-1 text-xs"
+            style={{
+              borderColor: selectMode ? SKILL_ACCENT : "var(--color-border-strong)",
+              background: selectMode ? SKILL_ACCENT_SOFT : "var(--color-surface-2)",
+              color: selectMode ? "#67e8f9" : "var(--color-text)",
+            }}
+            title="Toggle multi-select mode to bulk enable/disable global skills"
+          >
+            {selectMode ? "Done selecting" : "Select"}
+          </button>
+          <button
             onClick={reload}
             className="rounded-md border px-3 py-1 text-xs"
             style={{
@@ -550,6 +679,50 @@ export function Skills() {
 
       {/* Restart banner */}
       <RestartBanner visible={hasToggled} />
+
+      {/* Bulk action bar — visible in select mode */}
+      {selectMode && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-xs"
+          style={{
+            background: SKILL_ACCENT_SOFT,
+            border: `1px solid ${SKILL_ACCENT}`,
+            color: "var(--color-text)",
+          }}
+        >
+          <span style={{ color: "var(--color-text-secondary)" }}>
+            {checked.size} seleccionado{checked.size === 1 ? "" : "s"} (solo global)
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleBulk(true)}
+              disabled={bulkBusy || checked.size === 0}
+              className="rounded-md border px-3 py-1 font-medium disabled:opacity-40"
+              style={{
+                borderColor: "var(--color-success)",
+                background: "transparent",
+                color: "var(--color-success)",
+              }}
+            >
+              {bulkBusy ? "Aplicando…" : "Activar seleccionados"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleBulk(false)}
+              disabled={bulkBusy || checked.size === 0}
+              className="rounded-md border px-3 py-1 font-medium disabled:opacity-40"
+              style={{
+                borderColor: "var(--color-danger)",
+                background: "transparent",
+                color: "var(--color-danger)",
+              }}
+            >
+              {bulkBusy ? "Aplicando…" : "Desactivar seleccionados"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Enable-state tabs */}
       <EnableTabs
@@ -625,7 +798,7 @@ export function Skills() {
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search skills by name, description, or origin…"
+        placeholder="Search skills — fuzzy + synonyms, ranked by relevance…"
         className="w-full rounded-md px-3 py-2 text-sm outline-none"
         style={{
           border: "1px solid var(--color-border-strong)",

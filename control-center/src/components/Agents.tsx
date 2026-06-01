@@ -28,6 +28,7 @@ import { TreeView, type TreeOrigin } from "./library/TreeView";
 import { BlocksView, type BlocksItem } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
 import { LibraryDetailPane } from "./library/LibraryDetailPane";
+import { rankBySearch, type SearchableItem } from "../lib/ranked-search";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -397,6 +398,13 @@ export function Agents() {
   // Optimistic toggle — mirrors Skills.tsx per-row approach.
   const [toggleBusy, setToggleBusy] = useState<Set<string>>(new Set());
 
+  // Bulk multi-select mode — mirrors Skills.tsx.
+  const [selectMode, setSelectMode] = useState(false);
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  // Whether any toggle happened this session — controls the restart banner.
+  const [hasToggled, setHasToggled] = useState(false);
+
   // Recent delegations.
   const [delegations, setDelegations] = useState<DelegationLogEntry[]>([]);
   const [showAllRuns, setShowAllRuns] = useState(false);
@@ -489,18 +497,32 @@ export function Agents() {
   }, [agents, scope]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return agents.filter((a) => {
+    // 1. Hard filters (scope / category / enable tab).
+    const base = agents.filter((a) => {
       if (scope !== "all" && a.origin !== scope) return false;
       if (category !== "all" && deriveCategory(a) !== category) return false;
       if (enableFilter === "active" && !a.enabled) return false;
       if (enableFilter === "disabled" && a.enabled) return false;
-      if (!q) return true;
-      return (
-        a.name.toLowerCase().includes(q) ||
-        a.description.toLowerCase().includes(q)
-      );
+      return true;
     });
+
+    // 2. Ranked search — fuzzy + synonyms + name/description/origin weighting.
+    const q = query.trim();
+    if (!q) return base;
+
+    const decorated = base.map((a) => {
+      const item: SearchableItem & { __entry: AgentEntry } = {
+        name: a.name,
+        description: a.description,
+        origin: a.origin,
+        // The agent category derived from its on-disk path is a useful extra
+        // signal, surfaced through the `tags` field of the ranker.
+        tags: [deriveCategory(a)].filter((c) => c && c !== NO_CATEGORY),
+        __entry: a,
+      };
+      return item;
+    });
+    return rankBySearch(decorated, q).map((d) => d.__entry);
   }, [agents, scope, category, enableFilter, query]);
 
   // -------------------------------------------------------------------------
@@ -540,6 +562,46 @@ export function Agents() {
       await openPath(path);
     } catch (e) {
       setError(`open ${path}: ${e}`);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // Bulk enable / disable (mirrors Skills.tsx)
+  // -------------------------------------------------------------------------
+
+  const toggleChecked = (name: string) => {
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const handleBulk = async (targetEnabled: boolean) => {
+    if (bulkBusy || checked.size === 0) return;
+    const names = Array.from(
+      new Set(
+        agents
+          .filter((a) => a.origin === "global" && checked.has(a.name))
+          .map((a) => a.name),
+      ),
+    );
+    if (names.length === 0) {
+      setError("Selection has no global agents to toggle.");
+      return;
+    }
+    setBulkBusy(true);
+    setHasToggled(true);
+    setError(null);
+    try {
+      await invoke("agents_bulk_toggle", { names, disabled: !targetEnabled });
+      setChecked(new Set());
+      await reload();
+    } catch (e) {
+      setError(`Bulk toggle failed: ${e}`);
+    } finally {
+      setBulkBusy(false);
     }
   };
 
@@ -600,16 +662,20 @@ export function Agents() {
       {items.map((a) => {
         const isActive = selected?.path === a.path;
         const cat = deriveCategory(a);
+        const isChecked = checked.has(a.name);
+        const selectable = selectMode && a.origin === "global";
 
         return (
           <button
             key={`${a.origin}-${a.path}`}
             type="button"
-            onClick={() => setSelected(a)}
-            className="group flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+            onClick={() => (selectable ? toggleChecked(a.name) : setSelected(a))}
+            className="group relative flex h-[140px] flex-col justify-between rounded-xl p-4 text-left transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
             style={{
               background: isActive ? "var(--color-surface-3)" : "var(--color-surface-2)",
-              border: `1px solid ${isActive ? AGENT_ACCENT : "var(--color-border)"}`,
+              border: `1px solid ${
+                selectable && isChecked ? AGENT_ACCENT : isActive ? AGENT_ACCENT : "var(--color-border)"
+              }`,
               boxShadow: `inset 0 3px 0 ${AGENT_ACCENT}`,
               opacity: a.enabled ? 1 : 0.55,
             }}
@@ -619,12 +685,26 @@ export function Agents() {
               e.currentTarget.style.boxShadow = `inset 0 3px 0 ${AGENT_ACCENT}, 0 6px 18px rgba(0,0,0,0.28)`;
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = isActive ? AGENT_ACCENT : "var(--color-border)";
+              e.currentTarget.style.borderColor =
+                selectable && isChecked ? AGENT_ACCENT : isActive ? AGENT_ACCENT : "var(--color-border)";
               e.currentTarget.style.transform = "translateY(0)";
               e.currentTarget.style.boxShadow = `inset 0 3px 0 ${AGENT_ACCENT}`;
             }}
             title={a.description || a.name}
           >
+            {/* Bulk-select checkbox overlay (select mode, global agents) */}
+            {selectMode && (
+              <input
+                type="checkbox"
+                checked={isChecked}
+                disabled={a.origin !== "global"}
+                onChange={() => toggleChecked(a.name)}
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Select ${a.name}`}
+                className="absolute right-2 top-2 h-4 w-4"
+                style={{ accentColor: "#a78bfa", cursor: a.origin === "global" ? "pointer" : "not-allowed" }}
+              />
+            )}
             {/* Header row: label chip + origin badge */}
             <div className="flex items-center justify-between gap-1.5">
               <div
@@ -727,6 +807,21 @@ export function Agents() {
             <Plus size={12} /> New agent
           </button>
           <button
+            onClick={() => {
+              setSelectMode((v) => !v);
+              setChecked(new Set());
+            }}
+            className="rounded-md border px-3 py-1 text-xs"
+            style={{
+              borderColor: selectMode ? AGENT_ACCENT : "var(--color-border-strong)",
+              background: selectMode ? AGENT_ACCENT_SOFT : "var(--color-surface-2)",
+              color: selectMode ? "#c4b5fd" : "var(--color-text)",
+            }}
+            title="Toggle multi-select mode to bulk enable/disable global agents"
+          >
+            {selectMode ? "Done selecting" : "Select"}
+          </button>
+          <button
             onClick={reload}
             className="rounded-md border px-3 py-1 text-xs"
             style={{
@@ -739,6 +834,68 @@ export function Agents() {
           </button>
         </div>
       </header>
+
+      {/* Restart banner — appears after any toggle this session */}
+      {hasToggled && (
+        <div
+          className="flex items-center gap-2 rounded-md px-3 py-2 text-xs"
+          style={{
+            background: "rgba(234, 179, 8, 0.08)",
+            border: "1px solid rgba(234, 179, 8, 0.30)",
+            color: "var(--color-warn, #ca8a04)",
+          }}
+        >
+          <span
+            className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ background: "var(--color-warn, #ca8a04)" }}
+          />
+          Restart Claude Code to apply agent changes.
+        </div>
+      )}
+
+      {/* Bulk action bar — visible in select mode */}
+      {selectMode && (
+        <div
+          className="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-xs"
+          style={{
+            background: AGENT_ACCENT_SOFT,
+            border: `1px solid ${AGENT_ACCENT}`,
+            color: "var(--color-text)",
+          }}
+        >
+          <span style={{ color: "var(--color-text-secondary)" }}>
+            {checked.size} seleccionado{checked.size === 1 ? "" : "s"} (solo global)
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void handleBulk(true)}
+              disabled={bulkBusy || checked.size === 0}
+              className="rounded-md border px-3 py-1 font-medium disabled:opacity-40"
+              style={{
+                borderColor: "var(--color-success)",
+                background: "transparent",
+                color: "var(--color-success)",
+              }}
+            >
+              {bulkBusy ? "Aplicando…" : "Activar seleccionados"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleBulk(false)}
+              disabled={bulkBusy || checked.size === 0}
+              className="rounded-md border px-3 py-1 font-medium disabled:opacity-40"
+              style={{
+                borderColor: "var(--color-danger)",
+                background: "transparent",
+                color: "var(--color-danger)",
+              }}
+            >
+              {bulkBusy ? "Aplicando…" : "Desactivar seleccionados"}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Active / Disabled / All tabs — same pill style as Skills.tsx */}
       <div
@@ -851,7 +1008,7 @@ export function Agents() {
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder="Search agents by name or description…"
+        placeholder="Search agents — fuzzy + synonyms, ranked by relevance…"
         className="w-full rounded-md px-3 py-2 text-sm outline-none"
         style={{
           border: "1px solid var(--color-border-strong)",

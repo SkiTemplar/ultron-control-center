@@ -17,6 +17,18 @@ pub async fn skill_toggle(name: String, enabled: bool) -> Result<skills::SkillEn
     skills::skill_toggle_inner(name, enabled)
 }
 
+/// Bulk enable/disable many global skills in one call. `disabled = true`
+/// disables each named skill; `false` re-enables. Loops the same per-item
+/// toggle the single `skill_toggle` command uses, collecting per-item
+/// outcomes so the UI can surface partial failures.
+#[tauri::command]
+pub async fn skills_bulk_toggle(
+    names: Vec<String>,
+    disabled: bool,
+) -> Result<skills::BulkToggleResult, String> {
+    skills::skills_bulk_toggle_inner(names, disabled)
+}
+
 /// Legacy registry-driven listing (returns the rich `SkillInfo` shape
 /// with security verdict + usage_count). Kept for components that still
 /// surface those fields.
