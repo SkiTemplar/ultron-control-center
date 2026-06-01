@@ -17,7 +17,6 @@ export interface ProjectCardProps {
   onOpenFolder: () => void;
   onOpenIde: () => void;
   onOpenAi: () => void;
-  onOpenTerminal: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }
@@ -29,7 +28,6 @@ export function ProjectCard({
   onOpenFolder: _onOpenFolder,
   onOpenIde: _onOpenIde,
   onOpenAi: _onOpenAi,
-  onOpenTerminal,
   onEdit,
   onDelete,
 }: ProjectCardProps) {
@@ -151,11 +149,7 @@ export function ProjectCard({
 
       {/* Acciones rápidas — fuente única ProjectQuickActions */}
       <div className="mt-auto" onClick={(e) => e.stopPropagation()}>
-        <ProjectQuickActions
-          project={p}
-          density="compact"
-          onOpenTerminal={onOpenTerminal}
-        />
+        <ProjectQuickActions project={p} density="compact" />
       </div>
 
       {/* Status row */}

@@ -16,7 +16,6 @@ export function BlocksProjectView({
   cardOpenFolder,
   cardOpenIde,
   cardOpenAi,
-  cardOpenTerminal,
   startEdit,
   setPendingDelete,
 }: BlocksProjectViewProps): ReactElement {
@@ -153,7 +152,6 @@ export function BlocksProjectView({
             onOpenFolder={() => void cardOpenFolder(p)}
             onOpenIde={() => void cardOpenIde(p)}
             onOpenAi={() => void cardOpenAi(p)}
-            onOpenTerminal={() => cardOpenTerminal(p)}
             onEdit={() => startEdit(p)}
             onDelete={() => setPendingDelete(p)}
           />

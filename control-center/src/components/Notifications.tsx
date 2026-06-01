@@ -144,24 +144,7 @@ function dedupe(alerts: AlertEntry[]): Grouped[] {
 // Persistence
 // ---------------------------------------------------------------------------
 
-const MUTE_KEY = "ultron.cc.muted_sources.v1";
 const DISMISSED_KEY = "ultron.cc.dismissed_fingerprints.v1";
-const TOAST_KEY = "ultron.cc.toast_enabled.v1";
-
-function loadToastEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem(TOAST_KEY);
-    if (raw === null) return true;
-    return raw === "1";
-  } catch {
-    return true;
-  }
-}
-function saveToastEnabled(v: boolean) {
-  try {
-    localStorage.setItem(TOAST_KEY, v ? "1" : "0");
-  } catch {}
-}
 
 function loadDismissed(): Set<string> {
   try {
@@ -179,18 +162,6 @@ function saveDismissed(d: Set<string>) {
 }
 const SEV_KEY = "ultron.cc.sev_filters.v1";
 const DATE_KEY = "ultron.cc.date_filter.v1";
-
-function loadMutes(): Set<string> {
-  try {
-    const raw = localStorage.getItem(MUTE_KEY);
-    return raw ? new Set(JSON.parse(raw)) : new Set();
-  } catch {
-    return new Set();
-  }
-}
-function saveMutes(m: Set<string>) {
-  try { localStorage.setItem(MUTE_KEY, JSON.stringify(Array.from(m))); } catch {}
-}
 
 function loadSevFilters(): Set<SevKey> {
   try {
@@ -236,7 +207,8 @@ function buildFixAlertBlock(g: Grouped): string {
   ].join("\n");
 }
 
-type FixProvider = "claude" | "codex";
+// Only Claude is wired now — the redundant Codex Fix variants were removed.
+type FixProvider = "claude";
 
 // Bulk version of buildFixAlertBlock: consolidates every actionable group
 // (critical+warn) into a single mega-prompt. Pure function so it can be
@@ -338,10 +310,6 @@ function Row({ g }: { g: Grouped }) {
     "notif.fix_one",
     "Spawn an interactive Claude session with this error pre-loaded on the clipboard. Paste with Ctrl+V to start the fix.",
   );
-  const fixCodexTitle = useRoutingTitle(
-    "notif.fix_one",
-    "Spawn a Codex session with this error pre-loaded. Provider forced to Codex; model/agent borrowed from the zone below.",
-  );
   const [fixError, setFixError] = useState<string | null>(null);
   const [fixToast, setFixToast] = useState<string | null>(null);
 
@@ -374,8 +342,7 @@ function Row({ g }: { g: Grouped }) {
         // opens the terminal. The user pastes with Ctrl+V and hits Enter.
         flags: { dangerouslySkipPermissions: false, pasteOnly: true },
       });
-      const label = provider === "claude" ? "Claude" : "Codex";
-      setFixToast(`${label} session opened — paste prompt with Ctrl+V`);
+      setFixToast(`Claude session opened — paste prompt with Ctrl+V`);
       // Auto-clear the toast after a few seconds so the card returns to its
       // resting state. The error path intentionally does not auto-clear.
       window.setTimeout(() => setFixToast(null), 5000);
@@ -461,20 +428,6 @@ function Row({ g }: { g: Grouped }) {
             >
               {fixBusy === "claude" ? "Opening…" : "Fix with Claude"}
             </button>
-            <button
-              type="button"
-              onClick={() => openFixSession("codex")}
-              disabled={fixBusy !== null}
-              title={fixCodexTitle}
-              className="rounded px-2 py-0.5 text-[11.5px] transition-colors disabled:opacity-40"
-              style={{
-                background: "var(--color-surface-3)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border-strong)",
-              }}
-            >
-              {fixBusy === "codex" ? "Opening…" : "Fix with Codex"}
-            </button>
             {fixToast && (
               <span
                 className="text-[10.5px]"
@@ -552,10 +505,8 @@ function Pill({
 
 export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   const alerts: AlertEntry[] = alertsProp ?? [];
-  const [mutes, setMutes] = useState<Set<string>>(() => loadMutes());
   const [sevFilters, setSevFilters] = useState<Set<SevKey>>(() => loadSevFilters());
   const [dateFilter, setDateFilter] = useState<DateFilter>(() => loadDateFilter());
-  const [showMuteList, setShowMuteList] = useState(false);
   // Client-side "I've already seen this" set. Used as an immediate visual
   // mask while the disk delete is in flight (and as a soft hide for
   // alerts the backend couldn't physically remove — e.g. malformed lines
@@ -563,10 +514,6 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   // always `~/.ultron/alerts.jsonl`.
   const [dismissed, setDismissed] = useState<Set<string>>(() => loadDismissed());
   const [deleting, setDeleting] = useState(false);
-  // Windows toast toggle. localStorage is the canonical UI state; the
-  // backend mirror (~/.ultron/.tmp/toast-enabled.flag) is what the Rust
-  // emitter consults. We keep them in sync via `set_toast_enabled`.
-  const [toastEnabled, setToastEnabled] = useState<boolean>(() => loadToastEnabled());
   // Bulk "Fix all" state. Lifted to the parent because the buttons live
   // in the global toolbar, not inside a Row. Mirrors the per-card flow:
   // {busy:provider} during spawn, {toast} on success, {error} on failure.
@@ -577,38 +524,9 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
   // is forced by the button; the zone lends model/agent only.
   const bulkRouting = useRoutingTitle("notif.fix_all", "");
 
-  useEffect(() => saveMutes(mutes), [mutes]);
   useEffect(() => saveSevFilters(sevFilters), [sevFilters]);
   useEffect(() => saveDateFilter(dateFilter), [dateFilter]);
   useEffect(() => saveDismissed(dismissed), [dismissed]);
-  // On mount, reconcile localStorage with the backend flag — if the flag
-  // file was edited externally (or this is a first run on a new install),
-  // the backend value wins.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const remote = (await invoke("get_toast_enabled")) as boolean;
-        if (!cancelled && remote !== toastEnabled) {
-          setToastEnabled(remote);
-          saveToastEnabled(remote);
-        }
-      } catch {
-        /* backend cmd unavailable in legacy builds — keep localStorage */
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  // Persist + push to backend whenever the toggle changes.
-  useEffect(() => {
-    saveToastEnabled(toastEnabled);
-    invoke("set_toast_enabled", { enabled: toastEnabled }).catch(() => {
-      /* swallow — UI already updated, backend will catch up next save */
-    });
-  }, [toastEnabled]);
 
   // Stats per severity (after date filter, before dedupe — counts raw alerts).
   // A1 regression guard: skip null / non-object entries so getTs() never sees them.
@@ -635,12 +553,6 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
 
   const allGroups = useMemo(() => dedupe(dateFiltered), [dateFiltered]);
 
-  const sources = useMemo(() => {
-    const set = new Set<string>();
-    for (const g of allGroups) set.add(g.source);
-    return Array.from(set).sort();
-  }, [allGroups]);
-
   // Compute group fingerprint the same way dedupe does so dismissed-set
   // lookups line up.
   const groupKey = (g: { source: string; message: string }) =>
@@ -650,14 +562,13 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
     () =>
       allGroups
         .filter((g) => sevFilters.has(severityStyle(g.severity).key))
-        .filter((g) => !mutes.has(g.source))
         .filter((g) => !dismissed.has(groupKey(g)))
         .sort(
           (a, b) =>
             severityStyle(b.severity).weight - severityStyle(a.severity).weight ||
             b.count - a.count,
         ),
-    [allGroups, sevFilters, mutes, dismissed],
+    [allGroups, sevFilters, dismissed],
   );
 
   const visibleTotal = visibleGroups.reduce((acc, g) => acc + (g.count ?? 0), 0);
@@ -704,9 +615,8 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
         // starts answering.
         flags: { dangerouslySkipPermissions: false, pasteOnly: true },
       });
-      const label = provider === "claude" ? "Claude" : "Codex";
       setBulkFixToast(
-        `${label} session opened — paste prompt with Ctrl+V to fix ${actionableGroups.length} issue${actionableGroups.length === 1 ? "" : "s"}`,
+        `Claude session opened — paste prompt with Ctrl+V to fix ${actionableGroups.length} issue${actionableGroups.length === 1 ? "" : "s"}`,
       );
       window.setTimeout(() => setBulkFixToast(null), 6000);
     } catch (e) {
@@ -724,12 +634,6 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
       next.add(key);
     }
     setSevFilters(next);
-  }
-  function toggleMute(src: string) {
-    const next = new Set(mutes);
-    if (next.has(src)) next.delete(src);
-    else next.add(src);
-    setMutes(next);
   }
 
   const dateFilters: DateFilter[] = ["1h", "24h", "7d", "all"];
@@ -868,26 +772,13 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
               {deleting ? "Deleting…" : `Clear all (${visibleGroups.length})`}
             </button>
           )}
-          <label
-            className="flex cursor-pointer items-center gap-1.5 text-[11.5px] transition-colors"
-            style={{ color: "var(--color-text-tertiary)" }}
-            title="When on, critical/blocking alerts also fire a native Windows toast."
-          >
-            <input
-              type="checkbox"
-              checked={toastEnabled}
-              onChange={(e) => setToastEnabled(e.target.checked)}
-              className="h-3 w-3 cursor-pointer"
-            />
-            Show Windows toasts for critical alerts
-          </label>
 
-          {/* Bulk "Fix all" buttons. Visible only when there is at least
+          {/* Bulk "Fix all" button. Visible only when there is at least
               one actionable (critical/warn) group — otherwise we'd be
-              spawning a session with nothing to fix. The buttons are
+              spawning a session with nothing to fix. The button is
               deliberately larger than the surrounding pill controls
-              (px-3 py-1 vs px-2.5 py-1) because they trigger an
-              external process and we want them to feel weightier than
+              (px-3 py-1 vs px-2.5 py-1) because it triggers an
+              external process and we want it to feel weightier than
               the in-tab filters. */}
           {actionableGroups.length > 0 && (
             <>
@@ -911,31 +802,8 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
                   ? "Opening…"
                   : `Fix all with Claude (${actionableGroups.length})`}
               </button>
-              <button
-                type="button"
-                onClick={() => openBulkFixSession("codex")}
-                disabled={bulkFixBusy !== null}
-                title={`Same flow, Codex instead of Claude. Useful for a second opinion across all ${actionableGroups.length} notification${actionableGroups.length === 1 ? "" : "s"}.${bulkRouting ? ` · ${bulkRouting}` : ""}`}
-                className="rounded px-3 py-1 text-[11.5px] font-medium transition-colors disabled:opacity-40"
-                style={{
-                  background: "var(--color-surface-3)",
-                  color: "var(--color-text)",
-                  border: "1px solid var(--color-border-strong)",
-                }}
-              >
-                {bulkFixBusy === "codex" ? "Opening…" : `Fix all with Codex (${actionableGroups.length})`}
-              </button>
             </>
           )}
-
-          <button
-            type="button"
-            onClick={() => setShowMuteList(!showMuteList)}
-            className="text-[11.5px] transition-colors"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            {showMuteList ? "Hide mute list" : `Mute sources (${mutes.size})`}
-          </button>
         </div>
       </div>
 
@@ -952,45 +820,6 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
           {bulkFixError
             ? `Failed to open bulk session: ${bulkFixError.slice(0, 160)}`
             : bulkFixToast}
-        </div>
-      )}
-
-      {/* Mute list panel */}
-      {showMuteList && sources.length > 0 && (
-        <div
-          className="mb-6 rounded p-3"
-          style={{
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--color-border)",
-          }}
-        >
-          <div
-            className="mb-2 text-[10px] font-medium uppercase tracking-[0.06em]"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Mute by source
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {sources.map((src) => {
-              const muted = mutes.has(src);
-              return (
-                <button
-                  key={src}
-                  type="button"
-                  onClick={() => toggleMute(src)}
-                  className="rounded px-2 py-0.5 text-[11.5px] transition-colors"
-                  style={{
-                    background: muted ? "transparent" : "var(--color-surface-3)",
-                    color: muted ? "var(--color-text-faint)" : "var(--color-text-secondary)",
-                    border: `1px solid ${muted ? "var(--color-border)" : "var(--color-border-strong)"}`,
-                    textDecoration: muted ? "line-through" : "none",
-                  }}
-                >
-                  {src}
-                </button>
-              );
-            })}
-          </div>
         </div>
       )}
 

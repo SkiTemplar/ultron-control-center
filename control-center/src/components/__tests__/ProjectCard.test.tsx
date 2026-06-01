@@ -35,7 +35,6 @@ function renderCard(overrides: Partial<ProjectInfo> = {}) {
       onOpenFolder={noop}
       onOpenIde={noop}
       onOpenAi={noop}
-      onOpenTerminal={noop}
       onEdit={noop}
       onDelete={noop}
     />,
@@ -82,7 +81,6 @@ describe("ProjectCard", () => {
         onOpenFolder={noop}
         onOpenIde={noop}
         onOpenAi={noop}
-        onOpenTerminal={noop}
         onEdit={noop}
         onDelete={noop}
       />,
@@ -101,7 +99,6 @@ describe("ProjectCard", () => {
         onOpenFolder={noop}
         onOpenIde={noop}
         onOpenAi={noop}
-        onOpenTerminal={noop}
         onEdit={onEdit}
         onDelete={noop}
       />,
@@ -124,7 +121,6 @@ describe("ProjectCard", () => {
         onOpenFolder={noop}
         onOpenIde={noop}
         onOpenAi={noop}
-        onOpenTerminal={noop}
         onEdit={noop}
         onDelete={noop}
       />,

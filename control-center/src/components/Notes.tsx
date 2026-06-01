@@ -9,7 +9,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { confirmDialog } from "../lib/dialog";
 import { Markdown } from "../lib/markdown";
-import { notifyInfo, notifyError } from "../lib/notify";
+import {
+  addTodo,
+  clearDone,
+  loadTodos,
+  onTodosUpdated,
+  removeTodo,
+  toggleTodo,
+  type TodoItem,
+} from "../lib/todos";
 
 type NoteEntry = {
   slug: string;
@@ -17,12 +25,6 @@ type NoteEntry = {
   size_bytes: number;
   modified_iso: string | null;
   preview: string;
-};
-
-type ProjectInfo = {
-  id: string;
-  name: string | null;
-  path: string | null;
 };
 
 function slugify(input: string): string {
@@ -68,11 +70,10 @@ export function Notes() {
   const [creatingNew, setCreatingNew] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const newTitleRef = useRef<HTMLInputElement>(null);
-  // -- send to project (v2.6 fb-045) --
-  const [sendOpen, setSendOpen] = useState(false);
-  const [projects, setProjects] = useState<ProjectInfo[]>([]);
-  const [projectsLoading, setProjectsLoading] = useState(false);
-  const sendPopoverRef = useRef<HTMLDivElement>(null);
+  // -- To-Do panel (fullize 2026-06-01) — shared store with Dashboard TodoCard --
+  const [todos, setTodos] = useState<TodoItem[]>(() => loadTodos());
+  const [todoDraft, setTodoDraft] = useState("");
+  const todoInputRef = useRef<HTMLInputElement>(null);
   // -- delete confirm popover (v2.5.2 fb-notes-delete-popover) --
   // The old global confirmDialog appeared in the bottom-left, way far from
   // the Delete button (top-right). Use an inline contextual popover anchored
@@ -197,51 +198,17 @@ export function Notes() {
     }
   }
 
-  // Close the Send-to-Project popover when clicking outside it.
-  useEffect(() => {
-    if (!sendOpen) return;
-    function handleClickOutside(e: MouseEvent) {
-      if (
-        sendPopoverRef.current &&
-        !sendPopoverRef.current.contains(e.target as Node)
-      ) {
-        setSendOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [sendOpen]);
+  // Keep the To-Do panel in sync with the Dashboard's TodoCard (same store).
+  useEffect(() => onTodosUpdated(() => setTodos(loadTodos())), []);
 
-  async function openSendToProject() {
-    if (!selectedSlug) return;
-    setSendOpen(true);
-    if (projects.length > 0) return;
-    setProjectsLoading(true);
-    try {
-      const r = (await invoke("list_projects")) as ProjectInfo[];
-      setProjects(r);
-    } catch (e) {
-      notifyError(`Failed to load projects: ${e}`, "notes");
-    } finally {
-      setProjectsLoading(false);
-    }
+  function submitTodo() {
+    if (!todoDraft.trim()) return;
+    setTodos(addTodo(todoDraft));
+    setTodoDraft("");
+    todoInputRef.current?.focus();
   }
 
-  async function sendToProject(project: ProjectInfo) {
-    if (!selectedSlug) return;
-    setSendOpen(false);
-    try {
-      const finalSlug = (await invoke("notes_send_to_project", {
-        slug: selectedSlug,
-        projectId: project.id,
-      })) as string;
-      const projectLabel = project.name ?? project.id;
-      const renamed = finalSlug !== selectedSlug ? ` (as ${finalSlug})` : "";
-      notifyInfo(`Sent to project: ${projectLabel}${renamed}`, "notes");
-    } catch (e) {
-      notifyError(`Send to project failed: ${e}`, "notes");
-    }
-  }
+  const doneTodos = todos.filter((t) => t.done).length;
 
   // Close the delete-confirm popover when clicking outside it.
   useEffect(() => {
@@ -400,6 +367,112 @@ export function Notes() {
             </ul>
           )}
         </div>
+
+        {/* To-Do panel (fullize 2026-06-01). Shares lib/todos.ts with the
+            Dashboard's TodoCard — add here, see it there, and vice versa.
+            KISS: input + add, list with check/text/delete, "Limpiar hechas". */}
+        <section
+          className="flex max-h-[45%] shrink-0 flex-col border-t"
+          style={{ borderColor: "var(--color-border)" }}
+        >
+          <div
+            className="flex items-center justify-between gap-2 px-3 py-2"
+          >
+            <span className="text-[13px] font-semibold">To-Do</span>
+            {doneTodos > 0 && (
+              <button
+                type="button"
+                onClick={() => setTodos(clearDone())}
+                className="rounded px-1.5 py-0.5 text-[10.5px] hover:underline"
+                style={{ color: "var(--color-text-tertiary)" }}
+                title="Quitar las completadas"
+              >
+                Limpiar hechas
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-1 px-2 pb-2">
+            <input
+              ref={todoInputRef}
+              type="text"
+              value={todoDraft}
+              onChange={(e) => setTodoDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  submitTodo();
+                }
+              }}
+              placeholder="Nueva tarea…"
+              className="min-w-0 flex-1 rounded px-2 py-1 text-[12px] outline-none"
+              style={{
+                background: "var(--color-surface-2)",
+                border: "1px solid var(--color-border-strong)",
+                color: "var(--color-text)",
+              }}
+            />
+            <button
+              type="button"
+              onClick={submitTodo}
+              disabled={!todoDraft.trim()}
+              className="shrink-0 rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors disabled:opacity-40"
+              style={{
+                background: "var(--color-accent)",
+                color: "var(--color-accent-text)",
+              }}
+              title="Añadir tarea"
+            >
+              +
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
+            {todos.length === 0 ? (
+              <p
+                className="px-1 py-1 text-[11.5px]"
+                style={{ color: "var(--color-text-tertiary)" }}
+              >
+                Sin tareas. Añade una arriba.
+              </p>
+            ) : (
+              <ul className="space-y-0.5">
+                {todos.map((t) => (
+                  <li
+                    key={t.id}
+                    className="group flex items-center gap-2 rounded px-1 py-1 text-[12.5px]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={t.done}
+                      onChange={() => setTodos(toggleTodo(t.id))}
+                      className="h-3.5 w-3.5 shrink-0 cursor-pointer"
+                    />
+                    <span
+                      className="min-w-0 flex-1 truncate"
+                      title={t.text}
+                      style={{
+                        color: t.done
+                          ? "var(--color-text-faint)"
+                          : "var(--color-text)",
+                        textDecoration: t.done ? "line-through" : "none",
+                      }}
+                    >
+                      {t.text}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setTodos(removeTodo(t.id))}
+                      title="Borrar"
+                      className="shrink-0 px-1 text-[11px] opacity-0 transition-opacity group-hover:opacity-100"
+                      style={{ color: "var(--color-text-tertiary)" }}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </section>
       </aside>
 
       <main className="flex min-w-0 flex-1 flex-col">
@@ -490,70 +563,6 @@ export function Notes() {
                     </button>
                   </>
                 )}
-                <div className="relative" ref={sendPopoverRef}>
-                  <button
-                    type="button"
-                    onClick={() => void openSendToProject()}
-                    disabled={saving || !selectedSlug}
-                    className="rounded-md border px-2.5 py-1 text-[11.5px]"
-                    style={{
-                      background: "var(--color-surface-2)",
-                      borderColor: "var(--color-border-strong)",
-                      color: "var(--color-text)",
-                    }}
-                    title="Copy this note into a project's notebook"
-                  >
-                    Send to Project ▾
-                  </button>
-                  {sendOpen && (
-                    <div
-                      className="absolute right-0 z-20 mt-1 max-h-72 w-64 overflow-y-auto rounded-md border shadow-lg"
-                      style={{
-                        background: "var(--color-surface-2)",
-                        borderColor: "var(--color-border-strong)",
-                      }}
-                    >
-                      {projectsLoading ? (
-                        <p
-                          className="px-3 py-2 text-[11.5px]"
-                          style={{ color: "var(--color-text-tertiary)" }}
-                        >
-                          Loading projects…
-                        </p>
-                      ) : projects.length === 0 ? (
-                        <p
-                          className="px-3 py-2 text-[11.5px]"
-                          style={{ color: "var(--color-text-tertiary)" }}
-                        >
-                          No projects registered.
-                        </p>
-                      ) : (
-                        <ul className="py-1">
-                          {projects.map((p) => (
-                            <li key={p.id}>
-                              <button
-                                type="button"
-                                onClick={() => void sendToProject(p)}
-                                className="flex w-full flex-col items-start gap-0.5 px-3 py-1.5 text-left text-[12px] transition-colors hover:bg-[var(--color-surface-3)]"
-                                style={{ color: "var(--color-text)" }}
-                              >
-                                <span className="truncate font-medium">
-                                  {p.name ?? p.id}
-                                </span>
-                                <span
-                                  className="truncate text-[10.5px]"
-                                  style={{ color: "var(--color-text-tertiary)" }}
-                                >
-                                  {p.id}
-                                </span>
-                              </button>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  )}
-                </div>
                 <div className="relative" ref={deletePopoverRef}>
                   <button
                     type="button"

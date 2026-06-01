@@ -857,83 +857,9 @@ export type OpenTab = {
   order: number;
 };
 
-export type ProjectSubTab =
-  | "jarvis"
-  | "board"
-  | "terminal"
-  | "agents"
-  | "context"
-  | "sessions"
-  | "notes"
-  | "timeline"
-  | "decisions";
-
-// ---------------------------------------------------------------------------
-// Project Timeline (per-project derived event feed)
-// ---------------------------------------------------------------------------
-
-export type TimelineEventKind =
-  | "session"        // claude code session opened in the project dir
-  | "card_created"   // kanban card created
-  | "card_moved"     // kanban card moved between columns
-  | "card_run"       // kanban card spawned a PTY run
-  | "backup";        // last backup snapshot covering the project root
-
-export type TimelineEvent = {
-  kind: TimelineEventKind;
-  /** ISO-8601 or "epoch:<secs>" timestamp; sorted as a string desc. */
-  at: string;
-  /** Short label rendered in the event card title. */
-  title: string;
-  /** Optional secondary line (column transition, agent name, etc). */
-  detail: string | null;
-  /** Optional reference id for click-through (card_id, session_id, ...). */
-  ref_id: string | null;
-};
-
-// ---------------------------------------------------------------------------
-// Decision Registry (KIRKARDO 24)
-// ---------------------------------------------------------------------------
-
-export type DecisionStatus = "proposed" | "accepted" | "superseded" | "rejected";
-
-export type DecisionRecord = {
-  id: string;
-  project_id: string;
-  /** Short title — the "what was decided" */
-  decision: string;
-  /** The reasoning */
-  rationale: string;
-  alternatives_considered: string[];
-  /** "epoch:<secs>" */
-  date: string;
-  status: DecisionStatus;
-  supersedes_id: string | null;
-  context_urls: string[];
-  author: string | null;
-  tags: string[];
-};
-
-export type DecisionPayload = {
-  decision: string;
-  rationale: string;
-  alternatives_considered?: string[];
-  status?: DecisionStatus;
-  supersedes_id?: string | null;
-  context_urls?: string[];
-  author?: string | null;
-  tags?: string[];
-};
-
-export type DecisionPatch = Partial<DecisionPayload> & {
-  supersedes_id?: string | null;
-  author?: string | null;
-};
-
-export type DecisionSearchResult = {
-  record: DecisionRecord;
-  score: number;
-};
+// V1 redesign: the per-project workspace is a flat button row + Kanban board.
+// The sub-tab union collapsed to the single remaining view.
+export type ProjectSubTab = "board";
 
 // ---------------------------------------------------------------------------
 // Library (P5): agent/skill discovery + install + pinning.

@@ -1,22 +1,27 @@
-// ProjectQuickActions — acciones rápidas de proyecto reutilizables.
+// ProjectQuickActions — acciones rápidas de proyecto reutilizables (V1).
 //
-// Fuente única para Folder / IDE / AI (spawn) / Terminal / items[] / Launch all
-// + 2 acciones IA (suggest_refactor, generate_readme via button-prompts catalog).
+// Fuente única para Folder / IDE / AI (spawn_session external CLI) / Run Batch
+// + Launch all (cuando hay items lanzables).
 //
-// Se monta en: ProjectCard, ProjectRow header, ProjectWorkspace header,
-// y ActiveProjectCard (density="full").
+// V1 redesign: la vista por-proyecto se reduce a estos botones planos + el
+// Kanban board. Se eliminaron el botón Terminal (terminal embebido fuera) y los
+// botones de densidad full Refactor IA / README IA.
+//
+// El botón AI lanza una sesión EXTERNA del CLI vía `spawn_session` (wt.exe),
+// NO un terminal embebido (pty_spawn).
+//
+// Se monta en: ProjectCard, ProjectRow header, ProjectWorkspace header.
 
 import { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type { ProjectInfo, SessionProvider } from "../../types";
 import { providerBadge } from "./utils";
-import { getPrompt } from "../../lib/button-prompts";
+import BatchDropdown, { type BatchToast } from "./BatchDropdown";
 import {
   CardIconFolder,
   CardIconIde,
   CardIconSpark,
-  CardIconTerminal,
 } from "./LauncherIcons";
 
 export type QuickActionsDensity = "compact" | "full";
@@ -24,8 +29,9 @@ export type QuickActionsDensity = "compact" | "full";
 export interface ProjectQuickActionsProps {
   project: ProjectInfo;
   density?: QuickActionsDensity;
-  /** Llamado cuando se pide abrir el Terminal del workspace (sub-tab). */
-  onOpenTerminal?: () => void;
+  /** Optional callback fired with a batch result toast (success / failure).
+   *  When omitted, BatchDropdown swallows the result silently. */
+  onBatchResult?: (toast: BatchToast) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,7 +96,7 @@ function ActionBtn({
 export function ProjectQuickActions({
   project: p,
   density = "compact",
-  onOpenTerminal,
+  onBatchResult,
 }: ProjectQuickActionsProps) {
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -109,35 +115,13 @@ export function ProjectQuickActions({
     try { await invoke("open_project_in_ide", { path: p.path, preferredIde: p.ide ?? null }); } catch { /* silencioso */ }
   }
 
+  // AI button → external CLI session via spawn_session (wt.exe wrapper).
   async function handleAi() {
     if (busy) return;
     setBusy("ai");
     try {
-      await invoke("pty_spawn", {
-        projectId: p.id,
-        cardId: null,
-        provider,
-        agent: null,
-        cwd: p.path ?? ".",
-        prompt: null,
-      });
-    } catch { /* silencioso */ } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleTerminal() {
-    // Si existe callback para abrir el sub-tab del workspace, úsalo.
-    // Si no, spawneamos con provider "claude" sin prompt como fallback.
-    if (onOpenTerminal) {
-      onOpenTerminal();
-      return;
-    }
-    if (busy) return;
-    setBusy("terminal");
-    try {
       await invoke("spawn_session", {
-        provider: "claude",
+        provider,
         cwd: p.path ?? null,
         prompt: null,
         flags: { dangerouslySkipPermissions: false },
@@ -159,38 +143,6 @@ export function ProjectQuickActions({
     if (busy) return;
     setBusy(`item_${index}`);
     try { await invoke("launch_item", { projectId: p.id, index }); } catch { /* silencioso */ } finally {
-      setBusy(null);
-    }
-  }
-
-  async function handleAiPrompt(key: string) {
-    if (busy || !p.path) return;
-    setBusy(key);
-    try {
-      const prompt = await getPrompt(key, {
-        project_path: p.path,
-        project_name: p.name ?? p.id,
-      });
-      await invoke("spawn_session", {
-        provider: "claude",
-        cwd: p.path,
-        prompt,
-        flags: { dangerouslySkipPermissions: false },
-      });
-    } catch {
-      // Si la key no existe en el catalog, spawnea con prompt hardcoded mínimo
-      try {
-        const fallbackPrompt = key === "projects.suggest_refactor"
-          ? `Analiza el código en ${p.path ?? "."} y sugiere refactorizaciones prioritarias.`
-          : `Genera un README.md completo para el proyecto ${p.name ?? p.id} en ${p.path ?? "."}.`;
-        await invoke("spawn_session", {
-          provider: "claude",
-          cwd: p.path ?? null,
-          prompt: fallbackPrompt,
-          flags: { dangerouslySkipPermissions: false },
-        });
-      } catch { /* silencioso */ }
-    } finally {
       setBusy(null);
     }
   }
@@ -219,20 +171,15 @@ export function ProjectQuickActions({
       <ActionBtn
         onClick={handleAi}
         disabled={busy === "ai"}
-        title={`Iniciar sesión ${badge.label} en terminal CC`}
+        title={`Iniciar sesión ${badge.label} (CLI externa)`}
         label={busy === "ai" ? "…" : badge.label}
         accent={badge.tint}
         Icon={CardIconSpark}
         compact={compact}
       />
-      <ActionBtn
-        onClick={handleTerminal}
-        disabled={busy === "terminal"}
-        title="Abrir terminal del proyecto"
-        label={busy === "terminal" ? "…" : "Terminal"}
-        Icon={CardIconTerminal}
-        compact={compact}
-      />
+
+      {/* Run Batch — re-alojado aquí desde el terminal eliminado */}
+      <BatchDropdown headerStyle onResult={onBatchResult} />
 
       {/* Launch all — solo cuando hay items lanzables */}
       {launchableItems.length >= 1 && (
@@ -259,28 +206,6 @@ export function ProjectQuickActions({
           />
         );
       })}
-
-      {/* Acciones IA — solo en modo full */}
-      {!compact && p.path && (
-        <>
-          <ActionBtn
-            onClick={() => void handleAiPrompt("projects.suggest_refactor")}
-            disabled={busy === "projects.suggest_refactor"}
-            title="Solicitar sugerencias de refactor con Claude"
-            label={busy === "projects.suggest_refactor" ? "…" : "Refactor IA"}
-            accent="var(--color-warn)"
-            compact={false}
-          />
-          <ActionBtn
-            onClick={() => void handleAiPrompt("projects.generate_readme")}
-            disabled={busy === "projects.generate_readme"}
-            title="Generar README con Claude"
-            label={busy === "projects.generate_readme" ? "…" : "README IA"}
-            accent="var(--color-success)"
-            compact={false}
-          />
-        </>
-      )}
     </div>
   );
 }

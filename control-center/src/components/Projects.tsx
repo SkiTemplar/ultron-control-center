@@ -18,13 +18,11 @@ import type {
   ProjectExecutable,
   ProjectInfo,
   ProjectShell,
-  ProjectSubTab,
   SessionProvider,
   KanbanBoard,
   PtySessionSummary,
 } from "../types";
 import { useProjectsTabs } from "../state/ProjectsTabsContext";
-import { useFeatures, saveFeatures } from "../lib/features";
 import NewOpenGlProjectModal from "./projects/NewOpenGlProjectModal";
 import { ProjectCard } from "./projects/ProjectCard";
 import { ProjectRow } from "./projects/ProjectRow";
@@ -123,14 +121,9 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // Workspace navigation
   // ---------------------------------------------------------------------------
   const tabsCtx = useProjectsTabs();
-  const { features, refresh: refreshFeatures } = useFeatures();
-  async function toggleDashboardV2() {
-    await saveFeatures({ ...features, projects_dashboard_v2: !features.projects_dashboard_v2 });
-    refreshFeatures();
-  }
-  function openInWorkspace(id: string, name: string, subTab?: ProjectSubTab) {
-    if (onOpenProject && !subTab) { onOpenProject({ id, name }); return; }
-    tabsCtx.open({ id, title: name, initialSubTab: subTab });
+  function openInWorkspace(id: string, name: string) {
+    if (onOpenProject) { onOpenProject({ id, name }); return; }
+    tabsCtx.open({ id, title: name });
   }
 
   // ---------------------------------------------------------------------------
@@ -224,22 +217,18 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
 
   async function cardOpenAi(p: ProjectInfo) {
     const provider: SessionProvider = (p.default_provider as SessionProvider | null | undefined) ?? "claude";
-    let sessionId: string | null = null;
     try {
-      sessionId = (await invoke("pty_spawn", { projectId: p.id, cardId: null, provider, agent: null, cwd: p.path ?? ".", prompt: null })) as string;
+      // V1: launch an external CLI session (wt.exe wrapper). No embedded
+      // terminal, no workspace deep-link.
+      await invoke("spawn_session", {
+        provider,
+        cwd: p.path ?? null,
+        prompt: null,
+        flags: { dangerouslySkipPermissions: false },
+      });
     } catch (e) {
-      // Spawn failed — surface the error and do NOT open an empty workspace.
       setLastAction({ success: false, stdout: "", stderr: `spawn ${provider}: ${String(e)}`, exit_code: null });
-      return;
     }
-    void refreshStats(projects);
-    if (sessionId) {
-      openInWorkspace(p.id, p.name ?? p.id, "terminal");
-    }
-  }
-
-  function cardOpenTerminal(p: ProjectInfo) {
-    openInWorkspace(p.id, p.name ?? p.id, "terminal");
   }
 
   async function launchItem(projectId: string, index: number) {
@@ -467,7 +456,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // Shared props for tree/blocks views
   // ---------------------------------------------------------------------------
   const sharedCardProps = {
-    stats, openInWorkspace, cardOpenFolder, cardOpenIde, cardOpenAi, cardOpenTerminal,
+    stats, openInWorkspace, cardOpenFolder, cardOpenIde, cardOpenAi,
     startEdit, setPendingDelete,
   };
 
@@ -574,21 +563,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
         >
           + New project
         </button>
-        {/* Toggle del rediseño v2 (per-project IDE dashboard). OFF por defecto;
-            permite a USER encender/comparar la vista nueva sin tocar features.json
-            ni recompilar. Afecta a lo que ves al ABRIR un proyecto. */}
-        <button type="button" onClick={() => void toggleDashboardV2()}
-          className="rounded px-2.5 py-1.5 text-[11px] font-medium transition-colors"
-          style={{
-            background: features.projects_dashboard_v2 ? "var(--color-accent)" : "var(--color-surface-2)",
-            color: features.projects_dashboard_v2 ? "var(--color-accent-text)" : "var(--color-text-secondary)",
-            border: "1px solid var(--color-border-strong)",
-          }}
-          title="Vista de proyecto: dashboard IDE v2 (beta) vs sub-pestañas clásicas. Afecta al abrir un proyecto."
-          aria-pressed={!!features.projects_dashboard_v2}
-        >
-          Dashboard v2 {features.projects_dashboard_v2 ? "ON" : "OFF"}
-        </button>
       </div>
 
       {/* Hierarchy toggle */}
@@ -650,7 +624,6 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
                 onOpenFolder={() => void cardOpenFolder(p)}
                 onOpenIde={() => void cardOpenIde(p)}
                 onOpenAi={() => void cardOpenAi(p)}
-                onOpenTerminal={() => cardOpenTerminal(p)}
                 onEdit={() => startEdit(p)}
                 onDelete={() => setPendingDelete(p)}
               />

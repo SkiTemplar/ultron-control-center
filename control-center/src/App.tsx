@@ -9,7 +9,6 @@ import { Changelog } from "./components/Changelog";
 import { Notifications } from "./components/Notifications";
 import { MCPs } from "./components/MCPs";
 import { Library, type LibrarySubTab } from "./components/Library";
-import { Memory } from "./components/Memory";
 import { Notes } from "./components/Notes";
 import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
@@ -19,9 +18,7 @@ import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsConte
 import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
-import { Workdays } from "./components/Workdays";
 import { Plans } from "./components/Plans";
-import { InboxTriage } from "./components/InboxTriage";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
@@ -45,7 +42,7 @@ function AppInner() {
   const [alerts, setAlerts] = useState<AlertEntry[]>([]);
   const [changelog, setChangelog] = useState<ChangelogEntry[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const { currentId, tabs, subTabs, select, open } = useProjectsTabs();
+  const { currentId, tabs, select, open } = useProjectsTabs();
   const [lastProjectCtx, setLastProjectCtx] = useState<{
     id: string; title: string; subTab: string;
   } | null>(null);
@@ -55,15 +52,12 @@ function AppInner() {
     if (prevTabRef.current === "projects" && tab !== "projects" && currentId !== "home") {
       const found = tabs.find((t) => t.id === currentId);
       if (found) {
-        setLastProjectCtx({
-          id: currentId,
-          title: found.title,
-          subTab: subTabs[currentId] ?? "board",
-        });
+        // Board is the only project view now (fullize 2026-06-01).
+        setLastProjectCtx({ id: currentId, title: found.title, subTab: "board" });
       }
     }
     prevTabRef.current = tab;
-  }, [tab, currentId, tabs, subTabs]);
+  }, [tab, currentId, tabs]);
 
   function goBackToProject() {
     if (!lastProjectCtx) return;
@@ -303,7 +297,6 @@ function AppInner() {
         ["tab.sessions", "sessions"],
         ["tab.projects", "projects"],
         ["tab.plans", "plans"],
-        ["tab.memory", "memory"],
         ["tab.skills", "skills"],
         ["tab.settings", "settings"],
       ];
@@ -522,7 +515,6 @@ function AppInner() {
         <TabErrorBoundary tab="dashboard">
           {tab === "dashboard" && (
             <Dashboard
-              alerts={alerts}
               globalStatus={globalStatus}
               onNavigate={setTab}
             />
@@ -550,9 +542,6 @@ function AppInner() {
             />
           )}
         </TabErrorBoundary>
-        <TabErrorBoundary tab="memory">
-          {tab === "memory" && <Memory />}
-        </TabErrorBoundary>
         <TabErrorBoundary tab="notes">
           {tab === "notes" && <Notes />}
         </TabErrorBoundary>
@@ -571,14 +560,8 @@ function AppInner() {
         <TabErrorBoundary tab="system">
           {tab === "system" && <System />}
         </TabErrorBoundary>
-        <TabErrorBoundary tab="workdays">
-          {tab === "workdays" && <Workdays />}
-        </TabErrorBoundary>
         <TabErrorBoundary tab="plans">
           {tab === "plans" && <Plans />}
-        </TabErrorBoundary>
-        <TabErrorBoundary tab="inbox">
-          {tab === "inbox" && <InboxTriage />}
         </TabErrorBoundary>
       </main>
 

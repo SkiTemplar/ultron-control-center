@@ -30,7 +30,6 @@ export function FolderTreeView(props: FolderTreeViewProps): ReactElement {
             onOpenFolder={() => void props.cardOpenFolder(p)}
             onOpenIde={() => void props.cardOpenIde(p)}
             onOpenAi={() => void props.cardOpenAi(p)}
-            onOpenTerminal={() => props.cardOpenTerminal(p)}
             onEdit={() => props.startEdit(p)}
             onDelete={() => props.setPendingDelete(p)}
           />

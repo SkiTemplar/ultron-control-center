@@ -1,17 +1,13 @@
-// ProjectQuickActions — unit tests
+// ProjectQuickActions — unit tests (V1 redesign)
 //
 // Covers:
-//   (1) Renders base actions (Folder, IDE, AI provider, Terminal) in both densities.
-//   (2) In compact density the IA buttons (Refactor IA / README IA) are hidden;
-//       in full density they appear when `path` is set.
+//   (1) Renders V1 base actions (Folder, IDE, AI provider label, Run batch).
+//   (2) The removed actions (Terminal, Refactor IA, README IA) are gone in
+//       both densities.
 //   (3) Click IDE invokes `open_project_in_ide` with {path, preferredIde}.
-//   (4) Click Terminal (no onOpenTerminal) invokes `spawn_session` with correct cwd.
-//   (5) Click AI button invokes `pty_spawn` with the project's provider.
-//   (6) Click "Refactor IA" resolves the prompt via `list_button_prompts` catalog
-//       then invokes `spawn_session` with that prompt.
-//   (7) Click "README IA" does the same with the generate_readme key.
-//   (8) onOpenTerminal callback is used instead of invoke when provided.
-//   (9) Folder button is disabled and IDE button is disabled when path is null.
+//   (4) Click the AI button invokes `spawn_session` (external CLI) with the
+//       project's provider + cwd — NOT pty_spawn.
+//   (5) Folder + IDE buttons are disabled when path is null.
 
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -42,64 +38,17 @@ const BASE_PROJECT: ProjectInfo = {
   executables: [],
 };
 
-/** Minimal button-prompts catalog returned by `list_button_prompts`. */
-const MOCK_CATALOG = {
-  schema_version: 1,
-  buttons: [
-    {
-      key: "projects.suggest_refactor",
-      label: "Suggest refactor",
-      location: "project",
-      description: "Refactor suggestions",
-      prompt: "Refactoriza el código en {project_path} para el proyecto {project_name}.",
-      default_prompt: "Refactoriza el código en {project_path} para el proyecto {project_name}.",
-      overridden: false,
-      vars: ["project_path", "project_name"],
-    },
-    {
-      key: "projects.generate_readme",
-      label: "Generate README",
-      location: "project",
-      description: "README generation",
-      prompt: "Genera un README para {project_name} en {project_path}.",
-      default_prompt: "Genera un README para {project_name} en {project_path}.",
-      overridden: false,
-      vars: ["project_path", "project_name"],
-    },
-  ],
-};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function renderActions(
   overrides: Partial<ProjectInfo> = {},
   density: "compact" | "full" = "compact",
-  onOpenTerminal?: () => void,
 ) {
   return render(
     <ProjectQuickActions
       project={{ ...BASE_PROJECT, ...overrides }}
       density={density}
-      onOpenTerminal={onOpenTerminal}
     />,
   );
 }
-
-// ---------------------------------------------------------------------------
-// Mock button-prompts module to control getPrompt without cache leaks
-// ---------------------------------------------------------------------------
-
-vi.mock("../../../lib/button-prompts", async (importOriginal) => {
-  const original = await importOriginal<typeof import("../../../lib/button-prompts")>();
-  return {
-    ...original,
-    getPrompt: vi.fn(),
-  };
-});
-
-import { getPrompt } from "../../../lib/button-prompts";
 
 // ---------------------------------------------------------------------------
 // Setup
@@ -108,50 +57,31 @@ import { getPrompt } from "../../../lib/button-prompts";
 beforeEach(() => {
   vi.mocked(invoke).mockReset();
   vi.mocked(openPath).mockReset();
-
-  // Default: invoke resolves null for everything.
   vi.mocked(invoke).mockResolvedValue(null);
-
-  // Default: getPrompt renders the template from MOCK_CATALOG as the real impl would.
-  vi.mocked(getPrompt).mockImplementation((key, vars = {}) => {
-    const entry = MOCK_CATALOG.buttons.find((b) => b.key === key);
-    if (!entry) return Promise.reject(new Error(`unknown button prompt key: ${key}`));
-    let rendered = entry.prompt;
-    for (const [k, v] of Object.entries(vars)) {
-      rendered = rendered.split(`{${k}}`).join(v);
-    }
-    return Promise.resolve(rendered);
-  });
 });
 
 // ---------------------------------------------------------------------------
-// (1) Rendering — compact density
+// (1) Rendering — V1 base actions
 // ---------------------------------------------------------------------------
 
-describe("ProjectQuickActions — rendering", () => {
-  it("renders Folder, IDE, Terminal and provider label in compact mode", () => {
+describe("ProjectQuickActions — rendering (V1)", () => {
+  it("renders Folder, IDE, provider label and Run batch in compact mode", () => {
     renderActions();
     expect(screen.getByText("Folder")).toBeTruthy();
     expect(screen.getByText("IDE")).toBeTruthy();
-    expect(screen.getByText("Terminal")).toBeTruthy();
     // default_provider = "claude" → badge label "Claude"
     expect(screen.getByText("Claude")).toBeTruthy();
+    // BatchDropdown trigger
+    expect(screen.getByText("Run batch")).toBeTruthy();
   });
 
-  it("does NOT render Refactor IA / README IA in compact density", () => {
-    renderActions({}, "compact");
-    expect(screen.queryByText("Refactor IA")).toBeNull();
-    expect(screen.queryByText("README IA")).toBeNull();
+  it("does NOT render the removed Terminal button", () => {
+    renderActions();
+    expect(screen.queryByText("Terminal")).toBeNull();
   });
 
-  it("renders Refactor IA and README IA in full density when path is set", () => {
+  it("does NOT render Refactor IA / README IA in any density", () => {
     renderActions({}, "full");
-    expect(screen.getByText("Refactor IA")).toBeTruthy();
-    expect(screen.getByText("README IA")).toBeTruthy();
-  });
-
-  it("does NOT render Refactor IA / README IA in full density when path is null", () => {
-    renderActions({ path: null }, "full");
     expect(screen.queryByText("Refactor IA")).toBeNull();
     expect(screen.queryByText("README IA")).toBeNull();
   });
@@ -181,9 +111,7 @@ describe("ProjectQuickActions — rendering", () => {
   it("renders individual item buttons in full density", () => {
     renderActions(
       {
-        items: [
-          { kind: "exe", path: "C:\\tools\\app.exe", label: "MyApp" },
-        ],
+        items: [{ kind: "exe", path: "C:\\tools\\app.exe", label: "MyApp" }],
       },
       "full",
     );
@@ -192,7 +120,7 @@ describe("ProjectQuickActions — rendering", () => {
 });
 
 // ---------------------------------------------------------------------------
-// (2) Folder button is disabled when path is null
+// (2) Disabled states
 // ---------------------------------------------------------------------------
 
 describe("ProjectQuickActions — disabled states", () => {
@@ -207,7 +135,7 @@ describe("ProjectQuickActions — disabled states", () => {
 });
 
 // ---------------------------------------------------------------------------
-// (3) IDE button invokes open_project_in_ide with correct args
+// (3) IDE action
 // ---------------------------------------------------------------------------
 
 describe("ProjectQuickActions — IDE action", () => {
@@ -235,150 +163,38 @@ describe("ProjectQuickActions — IDE action", () => {
 });
 
 // ---------------------------------------------------------------------------
-// (4) Terminal button: spawn_session when no onOpenTerminal callback
+// (4) AI button → spawn_session (external CLI), NOT pty_spawn
 // ---------------------------------------------------------------------------
 
-describe("ProjectQuickActions — Terminal action", () => {
-  it("invokes spawn_session with correct cwd when no onOpenTerminal prop", async () => {
-    renderActions();
-    fireEvent.click(screen.getByText("Terminal"));
-    await waitFor(() => {
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("spawn_session", {
-        provider: "claude",
-        cwd: BASE_PROJECT.path,
-        prompt: null,
-        flags: { dangerouslySkipPermissions: false },
-      });
-    });
-  });
-
-  it("calls onOpenTerminal callback instead of invoke when prop is provided", async () => {
-    const cb = vi.fn();
-    renderActions({}, "compact", cb);
-    fireEvent.click(screen.getByText("Terminal"));
-    expect(cb).toHaveBeenCalledOnce();
-    // invoke must NOT have been called for spawn_session
-    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(
-      "spawn_session",
-      expect.anything(),
-    );
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (5) AI button invokes pty_spawn with the project's provider and cwd
-// ---------------------------------------------------------------------------
-
-describe("ProjectQuickActions — AI (pty_spawn) action", () => {
-  it("invokes pty_spawn with correct projectId, provider and cwd for claude", async () => {
+describe("ProjectQuickActions — AI (spawn_session) action", () => {
+  it("invokes spawn_session with the project provider + cwd for claude", async () => {
     renderActions({ default_provider: "claude" });
     fireEvent.click(screen.getByText("Claude"));
     await waitFor(() => {
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("pty_spawn", {
-        projectId: BASE_PROJECT.id,
-        cardId: null,
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("spawn_session", {
         provider: "claude",
-        agent: null,
         cwd: BASE_PROJECT.path,
         prompt: null,
+        flags: { dangerouslySkipPermissions: false },
       });
     });
+    // Must NOT use the embedded-terminal path.
+    expect(vi.mocked(invoke)).not.toHaveBeenCalledWith(
+      "pty_spawn",
+      expect.anything(),
+    );
   });
 
-  it("invokes pty_spawn with provider=codex when project uses codex", async () => {
+  it("invokes spawn_session with provider=codex when project uses codex", async () => {
     renderActions({ default_provider: "codex" });
     fireEvent.click(screen.getByText("Codex"));
     await waitFor(() => {
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("pty_spawn", {
-        projectId: BASE_PROJECT.id,
-        cardId: null,
+      expect(vi.mocked(invoke)).toHaveBeenCalledWith("spawn_session", {
         provider: "codex",
-        agent: null,
         cwd: BASE_PROJECT.path,
         prompt: null,
-      });
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (6) Refactor IA uses button_prompts catalog prompt
-// ---------------------------------------------------------------------------
-
-describe("ProjectQuickActions — Refactor IA action", () => {
-  it("resolves prompt from catalog then invokes spawn_session with rendered prompt", async () => {
-    renderActions({}, "full");
-    fireEvent.click(screen.getByText("Refactor IA"));
-
-    const expectedPrompt =
-      "Refactoriza el código en C:\\Users\\USER\\projects\\alpha para el proyecto Alpha.";
-
-    await waitFor(() => {
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("spawn_session", {
-        provider: "claude",
-        cwd: BASE_PROJECT.path,
-        prompt: expectedPrompt,
         flags: { dangerouslySkipPermissions: false },
       });
-    });
-  });
-
-  it("falls back to hardcoded refactor prompt when getPrompt rejects", async () => {
-    vi.mocked(getPrompt).mockRejectedValue(new Error("unknown button prompt key: projects.suggest_refactor"));
-
-    renderActions({}, "full");
-    fireEvent.click(screen.getByText("Refactor IA"));
-
-    await waitFor(() => {
-      const calls = vi.mocked(invoke).mock.calls;
-      const spawnCall = calls.find(
-        ([cmd, args]) =>
-          cmd === "spawn_session" &&
-          typeof (args as Record<string, unknown>).prompt === "string" &&
-          ((args as Record<string, unknown>).prompt as string).toLowerCase().includes("refactor"),
-      );
-      expect(spawnCall).toBeTruthy();
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// (7) README IA uses button_prompts catalog prompt
-// ---------------------------------------------------------------------------
-
-describe("ProjectQuickActions — README IA action", () => {
-  it("resolves prompt from catalog then invokes spawn_session with rendered prompt", async () => {
-    renderActions({}, "full");
-    fireEvent.click(screen.getByText("README IA"));
-
-    const expectedPrompt =
-      "Genera un README para Alpha en C:\\Users\\USER\\projects\\alpha.";
-
-    await waitFor(() => {
-      expect(vi.mocked(invoke)).toHaveBeenCalledWith("spawn_session", {
-        provider: "claude",
-        cwd: BASE_PROJECT.path,
-        prompt: expectedPrompt,
-        flags: { dangerouslySkipPermissions: false },
-      });
-    });
-  });
-
-  it("falls back to hardcoded README prompt when getPrompt rejects", async () => {
-    vi.mocked(getPrompt).mockRejectedValue(new Error("unknown button prompt key: projects.generate_readme"));
-
-    renderActions({}, "full");
-    fireEvent.click(screen.getByText("README IA"));
-
-    await waitFor(() => {
-      const calls = vi.mocked(invoke).mock.calls;
-      const spawnCall = calls.find(
-        ([cmd, args]) =>
-          cmd === "spawn_session" &&
-          typeof (args as Record<string, unknown>).prompt === "string" &&
-          ((args as Record<string, unknown>).prompt as string).toLowerCase().includes("readme"),
-      );
-      expect(spawnCall).toBeTruthy();
     });
   });
 });

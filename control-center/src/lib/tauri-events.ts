@@ -22,7 +22,6 @@ type TabKey =
   | "skills"
   | "projects"
   | "mcps"
-  | "memory"
   | "plans"
   | "settings"
   | "system";
@@ -31,12 +30,7 @@ type TabKey =
 type SessionProvider = "claude" | "codex" | "gemini";
 
 export interface TrayActionPayload {
-  action:
-    | "new_claude"
-    | "new_codex"
-    | "new_gemini"
-    | "open_plans"
-    | "open_memory";
+  action: "new_claude" | "new_codex" | "new_gemini" | "open_plans";
 }
 
 export interface TrayEventOptions {
@@ -90,9 +84,6 @@ export async function setupTrayEventListeners(
           break;
         case "open_plans":
           opts.setTab("plans");
-          break;
-        case "open_memory":
-          opts.setTab("memory");
           break;
         default:
           // Unknown action — log so future tray menu changes don't

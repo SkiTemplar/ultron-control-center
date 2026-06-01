@@ -14,7 +14,7 @@ import { useDraggableCard, useDroppableColumn } from "../../hooks/useKanbanDnd";
 import type { Card, Column, ColumnRole, KanbanBoard, KanbanArchive, KanbanArchiveSummary } from "../../types";
 import CardEditorModal from "./CardEditorModal";
 
-type Props = { projectId: string; onOpenTerminal?: () => void };
+type Props = { projectId: string };
 
 // v2.6.2 — column name matchers for the "Investigar fused into Backlog" feature.
 // USER's quote: "Investigar prefiero que este en la misma columna que backlog
@@ -46,7 +46,7 @@ function hasInvestigarTag(card: Card): boolean {
   return card.tags.some((t) => INVESTIGAR_TAGS.includes(t.toLowerCase() as typeof INVESTIGAR_TAGS[number]));
 }
 
-export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
+export default function ProjectBoard({ projectId }: Props) {
   const [board, setBoard] = useState<KanbanBoard | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<
@@ -418,7 +418,6 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
           <span className="text-[var(--color-text-faint)]">/</span>
           <span className="text-[var(--color-text-secondary)]">Board</span>
         </div>
-        {/* DecisionsPanel movido a sub-tab "decisions" en ProjectWorkspace. */}
         {/* v2.6: board toolbar — search + priority filter chips. Persists
             per-project so the user's view survives reloads. */}
         <div className="flex flex-wrap items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-0)] px-3 py-2 text-[11.5px]">
@@ -760,14 +759,6 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
                     }}
                     onEditCard={(card) => setEditing({ mode: "edit", card })}
                     onDeleteCard={(cardId) => void deleteCard(cardId)}
-                    onDispatchPrompt={(prompt) =>
-                      void dispatchOrchestratorPrompt(
-                        projectId,
-                        col.name,
-                        prompt,
-                        backlogCards.map((c) => c.title),
-                      ).then(() => onOpenTerminal?.())
-                    }
                     onRename={(newName) => void renameColumn(col.id, newName)}
                     backlogName={col.name}
                   />
@@ -796,16 +787,6 @@ export default function ProjectBoard({ projectId, onOpenTerminal }: Props) {
                   onAddCard={() => setEditing({ mode: "create", columnId: col.id })}
                   onEditCard={(card) => setEditing({ mode: "edit", card })}
                   onDeleteCard={(cardId) => void deleteCard(cardId)}
-                  onDispatchPrompt={(prompt) =>
-                    void dispatchOrchestratorPrompt(
-                      projectId,
-                      col.name,
-                      prompt,
-                      board.cards
-                        .filter((c) => c.column_id === col.id)
-                        .map((c) => c.title),
-                    ).then(() => onOpenTerminal?.())
-                  }
                   onRename={(newName) => void renameColumn(col.id, newName)}
                   onDelete={(reassignId) => deleteColumnById(col.id, reassignId)}
                   onMoveLeft={() => void reorderColumn(col.id, "left")}
@@ -1012,7 +993,6 @@ type ColumnProps = {
   onAddCard: () => void;
   onEditCard: (card: Card) => void;
   onDeleteCard: (cardId: string) => void;
-  onDispatchPrompt: (prompt: string) => void;
   onRename: (newName: string) => void;
   onDelete: (reassignToColumnId?: string) => Promise<void>;
   onMoveLeft: () => void;
@@ -1040,7 +1020,6 @@ type SplitBacklogProps = {
   onAddCard: (toInvestigar: boolean) => void;
   onEditCard: (card: Card) => void;
   onDeleteCard: (cardId: string) => void;
-  onDispatchPrompt: (prompt: string) => void;
   onRename: (newName: string) => void;
   backlogName: string;
 };
@@ -1055,7 +1034,6 @@ function SplitBacklogColumn({
   onAddCard,
   onEditCard,
   onDeleteCard,
-  onDispatchPrompt,
   onRename,
   backlogName,
 }: SplitBacklogProps) {
@@ -1072,8 +1050,6 @@ function SplitBacklogColumn({
       onDropCard(payload.card_id, beforeCardId, investigarColumnId, true),
   );
   const accent = columnAccent(backlogName);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const presets = useMemo(() => presetsForColumn(backlogName), [backlogName]);
   const [editingName, setEditingName] = useState(false);
   const [draftName, setDraftName] = useState(backlogName);
   useEffect(() => {
@@ -1141,40 +1117,6 @@ function SplitBacklogColumn({
             {totalCards}
           </span>
         </span>
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={() => setMenuOpen((v) => !v)}
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-accent)]"
-            aria-label="Dispatch AI on this column"
-            title="Dispatch AI session with this column's context"
-          >
-            <Bot size={12} />
-          </button>
-        </div>
-        {menuOpen && (
-          <div
-            className="absolute right-1 top-9 z-20 w-60 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] shadow-lg"
-            onMouseLeave={() => setMenuOpen(false)}
-          >
-            <div className="border-b border-[var(--color-border)] px-3 py-1.5 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
-              Dispatch for {backlogName}
-            </div>
-            {presets.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onDispatchPrompt(p.prompt);
-                }}
-                className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-accent)]"
-                title={p.prompt}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
       {/* Two sub-sections sharing the column body. Each scrolls independently
           via flex-1 + overflow-y-auto. */}
@@ -1287,108 +1229,6 @@ function SplitBacklogColumn({
   );
 }
 
-/** Per-column orchestrator presets — each entry maps a column name (matched
- *  case-insensitive substring) to a list of named prompts. The button on the
- *  column header opens a popover with these and dispatches the chosen prompt
- *  as a Claude PTY session preseeded with the column context. */
-type ColumnPreset = { label: string; prompt: string };
-
-function presetsForColumn(name: string): ColumnPreset[] {
-  const n = name.toLowerCase();
-  if (n.includes("backlog") || n.includes("todo") || n.includes("to do")) {
-    return [
-      {
-        label: "Brainstorm new cards",
-        prompt: `You are looking at the BACKLOG of this project. Propose 3-5 new tasks that would belong here, based on the project layout and the cards already present. Format each as a card title plus 1-line description.`,
-      },
-      {
-        label: "Prioritise backlog",
-        prompt: `Review the BACKLOG and rank the cards by priority (P0 critical, P1 high, P2 medium, P3 nice-to-have). Briefly justify each ranking.`,
-      },
-    ];
-  }
-  if (n.includes("open") || n.includes("ready")) {
-    return [
-      {
-        label: "Pick next",
-        prompt: `Look at the OPEN column. Pick the single highest-value card to start RIGHT NOW. State which one and why, then outline the first three concrete steps.`,
-      },
-    ];
-  }
-  if (n.includes("progress") || n.includes("doing")) {
-    return [
-      {
-        label: "Resume work",
-        prompt: `These cards are IN PROGRESS. Pick the one most likely to be unblocked quickly, summarise where it left off, and continue the implementation.`,
-      },
-      {
-        label: "Status check",
-        prompt: `For each IN PROGRESS card, summarise current status in one line and flag anything blocked.`,
-      },
-    ];
-  }
-  if (n.includes("review")) {
-    return [
-      {
-        label: "Review cards",
-        prompt: `Each of these cards is awaiting REVIEW. For each one, identify what needs to be verified, suggest a quick QA plan, and call out any obvious gaps.`,
-      },
-    ];
-  }
-  if (n.includes("done") || n.includes("complete")) {
-    return [
-      {
-        label: "Summarise wins",
-        prompt: `Write a one-line victory summary for each DONE card. Frame it as a changelog line.`,
-      },
-    ];
-  }
-  if (n.includes("block")) {
-    return [
-      {
-        label: "Diagnose blockers",
-        prompt: `These cards are BLOCKED. For each one, list the suspected blocker, who/what could unblock it, and a fallback path.`,
-      },
-    ];
-  }
-  return [
-    {
-      label: "Discuss this column",
-      prompt: `Discuss the cards currently in this column. What pattern do you see? What would you do next?`,
-    },
-  ];
-}
-
-/** Spawn a Claude PTY pre-seeded with the column context. We invoke
- *  `pty_spawn` directly so the session opens in the project's Terminal tab
- *  (the user can flip to it manually). Prompt is currently not auto-pasted —
- *  the wrapper script's clipboard route is the safer fallback — but the
- *  column name + card titles are baked into the prompt so context is clear. */
-async function dispatchOrchestratorPrompt(
-  projectId: string,
-  columnName: string,
-  prompt: string,
-  cardTitles: string[],
-): Promise<void> {
-  const titlesBlock =
-    cardTitles.length > 0
-      ? cardTitles.map((t) => `  - ${t}`).join("\n")
-      : "  (no cards in this column)";
-  const fullPrompt = `[Kanban orchestrator — column: ${columnName}]\n\nCards currently in "${columnName}":\n${titlesBlock}\n\nTask: ${prompt}\n`;
-  try {
-    await invoke("pty_spawn", {
-      projectId,
-      cardId: null,
-      provider: "claude",
-      agent: null,
-      cwd: ".",
-      prompt: fullPrompt,
-    });
-  } catch (e) {
-    console.error("dispatchOrchestratorPrompt failed", e);
-  }
-}
-
 /** Lookup an accent colour per well-known column name. Falls back to muted. */
 function columnAccent(name: string): string {
   const n = name.toLowerCase();
@@ -1420,7 +1260,6 @@ function BoardColumn({
   onAddCard,
   onEditCard,
   onDeleteCard,
-  onDispatchPrompt,
   onRename,
   onDelete,
   onMoveLeft,
@@ -1433,10 +1272,6 @@ function BoardColumn({
     ({ payload, beforeCardId }) => onDropCard(payload.card_id, beforeCardId),
   );
   const accent = columnAccent(name);
-
-  // AI dispatch menu
-  const [aiMenuOpen, setAiMenuOpen] = useState(false);
-  const presets = useMemo(() => presetsForColumn(name), [name]);
 
   // Column action menu (three-dot)
   const [colMenuOpen, setColMenuOpen] = useState(false);
@@ -1542,18 +1377,9 @@ function BoardColumn({
           </span>
         </span>
         <div className="flex items-center gap-0.5">
-          {/* AI dispatch button */}
-          <button
-            onClick={() => { setAiMenuOpen((v) => !v); setColMenuOpen(false); }}
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-accent)]"
-            aria-label="Despachar IA en esta columna"
-            title="Despachar sesión IA con el contexto de esta columna"
-          >
-            <Bot size={12} />
-          </button>
           {/* Column actions menu (three-dot) */}
           <button
-            onClick={() => { setColMenuOpen((v) => !v); setAiMenuOpen(false); setDeleteState({ phase: "idle" }); }}
+            onClick={() => { setColMenuOpen((v) => !v); setDeleteState({ phase: "idle" }); }}
             className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-accent)]"
             aria-label="Acciones de columna"
             title="Acciones de columna"
@@ -1573,32 +1399,6 @@ function BoardColumn({
             </button>
           )}
         </div>
-
-        {/* AI dispatch popover */}
-        {aiMenuOpen && (
-          <div
-            className="absolute right-1 top-9 z-20 w-60 rounded-md border border-[var(--color-border-strong)] bg-[var(--color-surface-2)] shadow-lg"
-            onMouseLeave={() => setAiMenuOpen(false)}
-          >
-            <div className="border-b border-[var(--color-border)] px-3 py-1.5 text-[11.5px] uppercase tracking-[0.06em] text-[var(--color-text-muted)]">
-              Dispatch for {name}
-            </div>
-            {presets.map((p) => (
-              <button
-                key={p.label}
-                type="button"
-                onClick={() => {
-                  setAiMenuOpen(false);
-                  onDispatchPrompt(p.prompt);
-                }}
-                className="block w-full px-3 py-1.5 text-left text-[12px] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-accent)]"
-                title={p.prompt}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-        )}
 
         {/* Column actions popover */}
         {colMenuOpen && (

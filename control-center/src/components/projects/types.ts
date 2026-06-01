@@ -1,7 +1,7 @@
 // Shared types for the Projects feature module.
 // Extracted from Projects.tsx (3594 L) as part of the P1 split refactor.
 
-import type { ProjectInfo, ProjectSubTab, SessionProvider } from "../../types";
+import type { ProjectInfo, SessionProvider } from "../../types";
 
 export type CardStats = {
   pending: number | null;
@@ -34,11 +34,10 @@ export type FolderTreeViewProps = {
   collapsed: Set<string>;
   onToggleFolder: (fullPath: string) => void;
   stats: Record<string, CardStats>;
-  openInWorkspace: (id: string, name: string, subTab?: ProjectSubTab) => void;
+  openInWorkspace: (id: string, name: string) => void;
   cardOpenFolder: (p: ProjectInfo) => void | Promise<void>;
   cardOpenIde: (p: ProjectInfo) => void | Promise<void>;
   cardOpenAi: (p: ProjectInfo) => void | Promise<void>;
-  cardOpenTerminal: (p: ProjectInfo) => void;
   startEdit: (p: ProjectInfo) => void;
   setPendingDelete: (p: ProjectInfo) => void;
   selected: string | null;
@@ -59,11 +58,10 @@ export type BlocksProjectViewProps = {
   path: string[];
   onPathChange: (next: string[]) => void;
   stats: Record<string, CardStats>;
-  openInWorkspace: (id: string, name: string, subTab?: ProjectSubTab) => void;
+  openInWorkspace: (id: string, name: string) => void;
   cardOpenFolder: (p: ProjectInfo) => void | Promise<void>;
   cardOpenIde: (p: ProjectInfo) => void | Promise<void>;
   cardOpenAi: (p: ProjectInfo) => void | Promise<void>;
-  cardOpenTerminal: (p: ProjectInfo) => void;
   startEdit: (p: ProjectInfo) => void;
   setPendingDelete: (p: ProjectInfo) => void;
 };

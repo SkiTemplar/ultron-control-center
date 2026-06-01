@@ -2,7 +2,6 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
 import { DetachedProjectView } from "./components/DetachedProjectView";
-import { InboxModal } from "./components/InboxModal";
 import "@fontsource-variable/inter";
 import "./styles.css";
 
@@ -26,12 +25,7 @@ function resolveRoot(): React.ReactNode {
     // id ausente o vacío — caer en la app principal para no dejar pantalla en blanco.
   }
 
-  return (
-    <>
-      <App />
-      <InboxModal />
-    </>
-  );
+  return <App />;
 }
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(

@@ -11,7 +11,6 @@ export type Tab =
   | "agents"
   | "rules"
   | "projects"
-  | "memory"
   | "notes"
   | "plans"
   | "changelog"
@@ -19,8 +18,6 @@ export type Tab =
   | "sessions"
   | "usage"
   | "system"
-  | "workdays"
-  | "inbox"
   | "settings";
 
 type Item = {
@@ -79,15 +76,10 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       // command palette and deep-links — App.tsx routes them all to
       // <Library initial="..." /> so deep-linking still feels native.
       { id: "library", label: "Library", available: true, featureKey: "skills" },
-      { id: "memory", label: "Memory", available: true, featureKey: "memory" },
       // v2.6 (card-v26-fb-005): cross-project markdown notes at
-      // ~/.ultron/cockpit/notes/. Distinct from per-project notes (those
-      // live inside Projects → workspace → Notes sub-tab).
+      // ~/.ultron/cockpit/notes/. Memory tab removed (fullize 2026-06-01) —
+      // the brain is backend-only now. Inbox removed entirely.
       { id: "notes", label: "Notes", available: true },
-      // FIX (2026-05-30): Inbox triage — lista las capturas de Ctrl+Alt+I
-      // guardadas en ~/.ultron/cockpit/inbox.jsonl. Complementa el modal
-      // de captura rápida con una vista de revisión completa.
-      { id: "inbox", label: "Inbox", available: true },
     ],
   },
   {
@@ -95,10 +87,8 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
-      { id: "workdays", label: "Workdays", available: true },
       // v2.5: Plans tab removed from sidebar (per user). Per-project kanban
-      // lives inside Projects -> Board. Cross-project plans accessible only
-      // via the command palette ("Go to Plans") if ever needed.
+      // lives inside Projects -> Board. Workdays removed (fullize 2026-06-01).
     ],
   },
   // v2.1: "Gaming" and "Personal" tabs deleted (old ULTRON persona stack).
@@ -132,7 +122,6 @@ const FEATURE_TAB_TO_KEY: Partial<Record<Tab, keyof Features>> = {
   skills: "skills",
   agents: "skills",
   rules: "skills",
-  memory: "memory",
   projects: "projects",
   plans: "plans",
   // hooks: gating moved inside System tab — no top-level redirect needed.

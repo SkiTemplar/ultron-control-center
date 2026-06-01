@@ -3,6 +3,10 @@
 // React Context that owns the list of open tabs (Projects home + N projects),
 // the current selection, and persistence to `~/.ultron/cockpit/open-tabs.json`
 // via the `tabs_load` / `tabs_save` Tauri commands.
+//
+// V1 redesign: per-project sub-tabs were removed (the workspace is now a flat
+// button row + Kanban board), so the sub-tab plumbing (subTabs /
+// setProjectSubTab / consumeInitialSubTab / initialSubTab) is gone.
 
 import {
   createContext,
@@ -15,29 +19,28 @@ import {
   type ReactNode,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { OpenTab, ProjectSubTab } from "../types";
+import type { OpenTab } from "../types";
 
 type TabsState = {
   tabs: OpenTab[];
   currentId: string;
-  /**
-   * Open a project tab. `initialSubTab` (optional) is a transient hint the
-   * `ProjectWorkspace` reads ONCE on mount and then clears, so that callers
-   * like the home-grid "Open terminal" button can deep-link straight into the
-   * Terminal sub-tab without polluting persisted `OpenTab` state (which lives
-   * in `types.ts` and is off-limits to this redesign pass).
-   */
-  open: (tab: { id: string; title: string; initialSubTab?: ProjectSubTab }) => void;
+  /** Open a project tab (idempotent) and select it. */
+  open: (tab: { id: string; title: string }) => void;
   close: (id: string) => void;
   select: (id: string) => void;
   reorder: (id: string, beforeId: string | null) => void;
   rename: (id: string, title: string) => void;
-  /** Read-and-clear the deep-link sub-tab hint for a project. */
-  consumeInitialSubTab: (id: string) => ProjectSubTab | null;
-  /** Per-project active sub-tab — survives navigating away from the Projects main tab. In memory only, not persisted to disk. */
-  subTabs: Record<string, ProjectSubTab>;
-  setProjectSubTab: (id: string, subTab: ProjectSubTab) => void;
+  /**
+   * V1 redesign compat shim: per-project sub-tabs were removed. Kept callers
+   * (App.tsx) still read `subTabs[id] ?? "board"`, so we expose an always-empty
+   * record — every lookup falls through to the `"board"` default. Remove this
+   * once App.tsx stops reading it.
+   */
+  subTabs: Record<string, "board">;
 };
+
+/** Frozen empty record so `subTabs[id]` is always `undefined` → `"board"`. */
+const EMPTY_SUBTABS: Record<string, "board"> = Object.freeze({});
 
 const Ctx = createContext<TabsState | null>(null);
 
@@ -51,12 +54,8 @@ const HOME_TAB: OpenTab = {
 export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<OpenTab[]>([HOME_TAB]);
   const [currentId, setCurrentId] = useState<string>("home");
-  const [subTabs, setSubTabs] = useState<Record<string, ProjectSubTab>>({});
   const persistTimer = useRef<number | null>(null);
   const hydrated = useRef(false);
-  // Transient deep-link hints. Keyed by project id, consumed-and-cleared on
-  // ProjectWorkspace mount. Never persisted.
-  const initialSubTabsRef = useRef<Map<string, ProjectSubTab>>(new Map());
 
   // Hydrate from disk on mount.
   useEffect(() => {
@@ -97,33 +96,16 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
   }, [tabs]);
 
   const open = useCallback(
-    ({
-      id,
-      title,
-      initialSubTab,
-    }: {
-      id: string;
-      title: string;
-      initialSubTab?: ProjectSubTab;
-    }) => {
+    ({ id, title }: { id: string; title: string }) => {
       setTabs((prev) => {
         if (prev.some((t) => t.id === id)) return prev;
         const order = prev.length;
         return [...prev, { id, kind: "project", title, order }];
       });
-      if (initialSubTab) {
-        initialSubTabsRef.current.set(id, initialSubTab);
-      }
       setCurrentId(id);
     },
     [],
   );
-
-  const consumeInitialSubTab = useCallback((id: string): ProjectSubTab | null => {
-    const v = initialSubTabsRef.current.get(id) ?? null;
-    if (v) initialSubTabsRef.current.delete(id);
-    return v;
-  }, []);
 
   const close = useCallback(
     (id: string) => {
@@ -167,10 +149,6 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, title } : t)));
   }, []);
 
-  const setProjectSubTab = useCallback((id: string, subTab: ProjectSubTab) => {
-    setSubTabs((prev) => (prev[id] === subTab ? prev : { ...prev, [id]: subTab }));
-  }, []);
-
   // Ctrl+Tab cycling.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -201,11 +179,9 @@ export function ProjectsTabsProvider({ children }: { children: ReactNode }) {
       select,
       reorder,
       rename,
-      consumeInitialSubTab,
-      subTabs,
-      setProjectSubTab,
+      subTabs: EMPTY_SUBTABS,
     }),
-    [tabs, currentId, open, close, select, reorder, rename, consumeInitialSubTab, subTabs, setProjectSubTab],
+    [tabs, currentId, open, close, select, reorder, rename],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

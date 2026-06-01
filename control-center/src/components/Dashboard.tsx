@@ -1,27 +1,24 @@
-// Control Center 2.7 Dashboard.
+// Control Center — Dashboard (fullize 2026-06-01: simplificado).
 //
-// COCKPIT REDESIGN (2026-05-30).
-// Layout: full-width sin max-width clamp. Bento grid fluido con auto-fit.
-//   Row hero : ActiveProjectCard (col-span ancho) + RecentSessionsCard
-//   Row 0    : ResumeSessionCard (self-hides when none)
-//   Row 1    : AlertsCard (full width)
-//   Bento    : grid auto-fit minmax(320px,1fr) — Mem0 · Pending · Backup
-//              WorkdaysWeekCard · RecentProjectsCard · CrashEvents(span-2) · PluginStatus
+// Layout: full-width, bento grid fluido auto-fit. Sin AlertsCard (duplicaba la
+// pestaña Notifications), sin WorkdaysWeekCard ni Mem0Card (Workdays fuera, la
+// memoria es backend-only). El To-Do simple se monta aquí en la Ola 5.
+//   Row hero : ActiveProjectCard + RecentSessionsCard
+//   Row 0    : ResumeSessionCard (self-hides when none) — "recuperar ayer"
+//   Bento    : Pending · Backup · RecentProjects · CrashEvents(span-2) · PluginStatus
 
-import type { AlertEntry, GlobalStatus } from "../types";
+import type { GlobalStatus } from "../types";
 import packageJson from "../../package.json";
 
-import { AlertsCard } from "./dashboard/AlertsCard";
 import { ResumeSessionCard } from "./dashboard/ResumeSessionCard";
-import { Mem0Card } from "./dashboard/Mem0Card";
 import { PluginStatusCard } from "./dashboard/PluginStatusCard";
 import { RecentProjectsCard } from "./dashboard/RecentProjectsCard";
-import { WorkdaysWeekCard } from "./dashboard/WorkdaysWeekCard";
 import { PendingKanbanCard } from "./dashboard/PendingKanbanCard";
 import { BackupCard } from "./dashboard/BackupCard";
 import { CrashEventsCard } from "./dashboard/CrashEventsCard";
 import { ActiveProjectCard } from "./dashboard/ActiveProjectCard";
 import { RecentSessionsCard } from "./dashboard/RecentSessionsCard";
+import { TodoCard } from "./dashboard/TodoCard";
 
 const APP_VERSION: string = (packageJson as { version?: string }).version ?? "";
 
@@ -35,7 +32,7 @@ type NavTarget =
   | "agents"
   | "rules"
   | "projects"
-  | "memory"
+  | "notes"
   | "plans"
   | "notifications"
   | "sessions"
@@ -44,17 +41,12 @@ type NavTarget =
   | "settings";
 
 interface DashboardProps {
-  alerts: AlertEntry[];
   globalStatus: GlobalStatus;
   /** Wired by App.tsx as `setTab`. */
   onNavigate?: (tab: NavTarget) => void;
 }
 
-export function Dashboard({
-  alerts,
-  globalStatus,
-  onNavigate,
-}: DashboardProps) {
+export function Dashboard({ globalStatus, onNavigate }: DashboardProps) {
   return (
     <div className="dashboard-shell">
       <header className="mb-6 flex flex-wrap items-baseline gap-3 justify-between">
@@ -90,23 +82,14 @@ export function Dashboard({
         <ResumeSessionCard onOpenSessions={() => onNavigate?.("sessions")} />
       </div>
 
-      {/* Row 1 — Notifications banner (full width) */}
-      <div className="mb-4">
-        <AlertsCard
-          alerts={alerts}
-          onOpenNotifications={() => onNavigate?.("notifications")}
-        />
-      </div>
-
       {/* Bento grid fluido */}
       <div
         className="grid gap-4"
         style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}
       >
-        <Mem0Card onOpenMemory={() => onNavigate?.("memory")} />
+        <TodoCard onOpenNotes={() => onNavigate?.("notes")} />
         <PendingKanbanCard onOpenProjects={() => onNavigate?.("projects")} />
         <BackupCard />
-        <WorkdaysWeekCard />
         <RecentProjectsCard onOpenProjects={() => onNavigate?.("projects")} />
         {/* CrashEvents ocupa 2 columnas cuando hay espacio */}
         <div className="dashboard-span-2">
