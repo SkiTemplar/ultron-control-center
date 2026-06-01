@@ -92,6 +92,7 @@ static EMBEDDING_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
 #[cfg(feature = "qdrant")]
 pub fn embed(text: &str) -> Result<Vec<f32>, String> {
     use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+    use std::sync::OnceLock;
 
     let model = EMBEDDING_MODEL.get_or_try_init(|| {
         TextEmbedding::try_new(
@@ -104,15 +105,36 @@ pub fn embed(text: &str) -> Result<Vec<f32>, String> {
         .embed(vec![text], None)
         .map_err(|e| format!("fastembed embed: {e}"))?;
 
-    results
+    let vec = results
         .pop()
-        .ok_or_else(|| "fastembed returned empty results".to_string())
+        .ok_or_else(|| "fastembed returned empty results".to_string())?;
+
+    // Safety net: real fastembed should never return all-zeros for non-empty text.
+    if vec.iter().all(|&x| x == 0.0) {
+        static ZERO_WARNED: OnceLock<()> = OnceLock::new();
+        ZERO_WARNED.get_or_init(|| {
+            eprintln!(
+                "[memory] EMBED STUB — embed() returned all-zeros despite qdrant feature being ON; \
+                 recall will be degraded. Check fastembed model cache at ~/.cache/fastembed_cache/."
+            );
+        });
+    }
+
+    Ok(vec)
 }
 
 /// Stub when the `qdrant` feature is not enabled: returns a zero vector of
 /// length 384 so callers compile and tests can run without the heavy dep.
 #[cfg(not(feature = "qdrant"))]
 pub fn embed(_text: &str) -> Result<Vec<f32>, String> {
+    use std::sync::OnceLock;
+    static WARNED: OnceLock<()> = OnceLock::new();
+    WARNED.get_or_init(|| {
+        eprintln!(
+            "[memory] EMBED STUB — embeddings disabled; recall degraded. \
+             Build with --features qdrant to enable real BGE-small-EN-v1.5 vectors."
+        );
+    });
     Ok(vec![0.0_f32; 384])
 }
 

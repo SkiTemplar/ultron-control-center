@@ -146,7 +146,12 @@ pub enum StoreKind {
     Ecc,
     Kg,
     Mock,
+    Sqlite,
+    Qdrant,
 }
+
+pub mod sqlite_store;
+pub mod qdrant_store;
 
 /// Health status returned by `MemoryStore::health`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -575,31 +580,19 @@ impl MemoryStore for KgStore {
 
 /// Fan-out recall across multiple `MemoryStore` implementations.
 ///
-/// Requires the `hybrid_recall` Cargo feature.
-///
-/// ```toml
-/// [features]
-/// hybrid_recall = []
-/// ```
-///
 /// # Examples
 ///
 /// ```rust,ignore
-/// # #[cfg(feature = "hybrid_recall")]
-/// # {
 /// use control_center_lib::memory::{HybridRecall, KgStore, Query};
 ///
 /// let recall = HybridRecall::new(vec![Box::new(KgStore::new())]);
 /// let hits = recall.search_all(Query::new("oauth refactor"));
 /// println!("found {} hits", hits.len());
-/// # }
 /// ```
-#[cfg(feature = "hybrid_recall")]
 pub struct HybridRecall {
     stores: Vec<Box<dyn MemoryStore>>,
 }
 
-#[cfg(feature = "hybrid_recall")]
 impl HybridRecall {
     /// Create a new `HybridRecall` with the given list of stores.
     ///
@@ -845,10 +838,9 @@ mod tests {
     }
 
     // ------------------------------------------------------------------
-    // HybridRecall tests (only compiled when feature is active)
+    // HybridRecall tests
     // ------------------------------------------------------------------
 
-    #[cfg(feature = "hybrid_recall")]
     mod hybrid {
         use super::*;
 

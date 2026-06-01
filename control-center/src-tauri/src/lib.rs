@@ -260,6 +260,9 @@ pub fn run() {
             qdrant::recall_semantic,
             qdrant::qdrant_status,
             qdrant::qdrant_embed_query,
+            // -- MEMORY CORE: hybrid recall + health (D5) --
+            commands::memory::recall_hybrid,
+            commands::memory::memory_health,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
@@ -602,6 +605,14 @@ pub fn run() {
             // frontend can update the Usage quota card and Sidebar dot.
             quota_watchdog::init(app.handle().clone());
 
+            // MEMORY CORE D2 — Qdrant auto-launch.
+            // Probes http://127.0.0.1:6333/healthz; if Qdrant is not running,
+            // spawns D:\Ultron\qdrant\qdrant.exe detached (CREATE_NO_WINDOW).
+            // Never panics — a missing exe is logged and boot continues.
+            std::thread::spawn(|| {
+                qdrant_auto_launch();
+            });
+
             // v15.4.2 — fire a startup update check. We spawn it on a
             // background thread + sleep 6s so the webview has time to
             // paint and the event listener is wired before we emit.
@@ -638,6 +649,89 @@ pub fn run() {
                 let _ = proxy::proxy_stop_inner();
             }
         });
+}
+
+// ---------------------------------------------------------------------------
+// Qdrant auto-launch (MEMORY CORE D2)
+// ---------------------------------------------------------------------------
+
+/// Probe Qdrant at `http://127.0.0.1:6333/healthz`.  Returns `true` when
+/// Qdrant responds with HTTP 2xx within the given timeout.
+fn qdrant_is_running() -> bool {
+    let Ok(client) = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+    else {
+        return false;
+    };
+    client
+        .get("http://127.0.0.1:6333/healthz")
+        .send()
+        .map(|r| r.status().is_success())
+        .unwrap_or(false)
+}
+
+/// Attempt to spawn `D:\Ultron\qdrant\qdrant.exe` detached with no console
+/// window.  Returns the child handle on success, or logs and returns `None`.
+#[cfg(target_os = "windows")]
+fn spawn_qdrant_exe() -> Option<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+
+    const QDRANT_EXE: &str = r"D:\Ultron\qdrant\qdrant.exe";
+    const QDRANT_DIR: &str = r"D:\Ultron\qdrant";
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+
+    if !std::path::Path::new(QDRANT_EXE).exists() {
+        eprintln!(
+            "[qdrant-autolaunch] exe not found at {QDRANT_EXE} — \
+             Qdrant must be started manually or installed at that path."
+        );
+        return None;
+    }
+
+    match std::process::Command::new(QDRANT_EXE)
+        .current_dir(QDRANT_DIR)
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+    {
+        Ok(child) => {
+            eprintln!("[qdrant-autolaunch] spawned pid={}", child.id());
+            Some(child)
+        }
+        Err(e) => {
+            eprintln!("[qdrant-autolaunch] spawn failed: {e}");
+            None
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn spawn_qdrant_exe() -> Option<std::process::Child> {
+    eprintln!("[qdrant-autolaunch] non-Windows platform — skipping auto-launch.");
+    None
+}
+
+/// Background task: probe Qdrant, launch if down, re-probe to confirm.
+fn qdrant_auto_launch() {
+    if qdrant_is_running() {
+        eprintln!("[qdrant-autolaunch] already running — no action needed.");
+        return;
+    }
+
+    eprintln!("[qdrant-autolaunch] not running — attempting auto-launch.");
+    let _child = spawn_qdrant_exe();
+
+    // Give Qdrant time to bind the port before re-probing.
+    std::thread::sleep(std::time::Duration::from_secs(4));
+
+    if qdrant_is_running() {
+        eprintln!("[qdrant-autolaunch] Qdrant is now reachable at :6333.");
+    } else {
+        eprintln!(
+            "[qdrant-autolaunch] Qdrant still not reachable after launch attempt. \
+             Semantic recall will be unavailable until Qdrant starts."
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
