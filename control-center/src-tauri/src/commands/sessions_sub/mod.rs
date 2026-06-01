@@ -10,11 +10,7 @@
 pub mod pty;
 pub mod sessions;
 pub mod tabs;
-pub mod terminal_layout;
-pub mod timeline;
 
 pub use pty::*;
 pub use sessions::*;
 pub use tabs::*;
-pub use terminal_layout::*;
-pub use timeline::*;

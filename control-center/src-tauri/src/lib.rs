@@ -35,7 +35,6 @@ mod features;
 mod hooks_admin;
 mod hotkeys;
 mod in_app_shortcuts;
-mod inbox;
 mod installed_apps;
 mod instructions;
 mod kanban;
@@ -71,8 +70,6 @@ mod env_keys;
 mod skills;
 mod system;
 mod tabs;
-mod terminal_layout;
-mod timeline;
 mod toast_emit;
 mod tray;
 mod update_checker;
@@ -173,12 +170,6 @@ pub fn run() {
             tauri_plugin_global_shortcut::Builder::new()
                 .with_handler(|app, shortcut, event| {
                     if event.state() == ShortcutState::Pressed {
-                        if hotkeys::is_inbox_shortcut(shortcut) {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.emit("open-inbox", ());
-                            }
-                            return;
-                        }
                         if project_hotkeys::handle_shortcut(app, shortcut, event.state()) {
                             return;
                         }
@@ -238,13 +229,6 @@ pub fn run() {
             commands::agents::delegate_task_launch,
             commands::agents::list_agent_workflows,
             commands::agents::list_active_hooks,
-            // -- per-project AI roster + session invocation (P0 2026-05-27) --
-            commands::agents::project_propose_agent_roster,
-            commands::agents::project_roster_save,
-            commands::agents::project_roster_load,
-            commands::agents::project_invoke_agent_from_session,
-            // -- per-project skill roster (detector parity, 2026-05-30) --
-            commands::agents::project_propose_skill_roster,
             // -- rules --
             commands::rules::rules_list,
             commands::rules::rules_read,
@@ -272,18 +256,6 @@ pub fn run() {
             commands::projects::reorder_launcher_items,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
-            commands::projects::launch_project_executable,
-            commands::projects::project_claude_md_load,
-            commands::projects::project_claude_md_save,
-            commands::projects::project_context_load,
-            commands::projects::project_create_claude_md,
-            // -- work-sessions (project-level work blocks linked to workdays, C12) --
-            work_sessions::project_work_session_start,
-            work_sessions::project_work_session_end,
-            work_sessions::project_work_sessions_list,
-            work_sessions::project_work_session_link_ai,
-            work_sessions::project_work_session_active,
-            work_sessions::project_work_session_auto_link,
             // -- Qdrant semantic recall (KIRKARDO 14 wire) --
             qdrant::recall_semantic,
             qdrant::qdrant_status,
@@ -300,19 +272,11 @@ pub fn run() {
             commands::detach::is_project_detached,
             // -- OpenGL/vcpkg project scaffolder (v2.5.2 — replaces crear_proyecto.bat) --
             commands::opengl_project::create_opengl_project,
-            // -- per-project notes (Notes sub-tab, v2.x) --
-            commands::notes::project_notes_load,
-            commands::notes::project_notes_save,
+            // -- global notes (memory context pipeline) --
             commands::notes::notes_list_global,
             commands::notes::notes_load_global,
             commands::notes::notes_save_global,
             commands::notes::notes_delete_global,
-            // -- per-project notebook (v2.6 fb-046) + send-to-project (fb-045) --
-            commands::notes::project_notes_list,
-            commands::notes::project_note_load,
-            commands::notes::project_note_save,
-            commands::notes::project_note_delete,
-            commands::notes::notes_send_to_project,
             // -- ECC local knowledge graph (read-only display) --
             commands::ecc_memory::ecc_memory_read,
             commands::ecc_memory::bootstrap_ecc_memory,
@@ -324,8 +288,6 @@ pub fn run() {
             commands::kg::kg_create_relations,
             commands::kg::kg_delete_relation,
             commands::kg::kg_search_nodes,
-            // -- per-project timeline aggregator (Timeline sub-tab, v2.x) --
-            commands::timeline::project_timeline_list,
             // -- mem0 --
             commands::mem0::mem0_status,
             commands::mem0::mem0_search,
@@ -349,7 +311,6 @@ pub fn run() {
             commands::sessions::run_inline,
             commands::sessions::list_claude_sessions,
             commands::sessions::list_workspaces,
-            claude_sessions::project_sessions_list,
             // -- session auto-tags (P1 2026-05-27) --
             sessions_tags::sessions_tags_load,
             sessions_tags::sessions_auto_tag,
@@ -470,14 +431,9 @@ pub fn run() {
             commands::plugins_info::plugin_changelog_summary,
             // -- pty (embedded terminal, P3) --
             commands::pty::pty_spawn,
-            commands::pty::pty_write,
-            commands::pty::pty_resize,
             commands::pty::pty_kill,
             commands::pty::pty_list,
-            commands::pty::pty_summary,
             migration::migrate_dry_run,
-            commands::pty::pty_replay,
-            commands::pty::pty_capture_output,
             // -- library (P5 — GitHub search + install + per-project pin) --
             // v2.1: curated catalog feed. v2.2: live preview refresh.
             commands::library::library_search_github,
@@ -527,12 +483,6 @@ pub fn run() {
             // -- tabs (P4) --
             commands::tabs::tabs_load,
             commands::tabs::tabs_save,
-            // -- terminal split-pane layout (per-project, Dorothy-style) --
-            commands::terminal_layout::project_terminal_layout_load,
-            commands::terminal_layout::project_terminal_layout_save,
-            // -- inbox quick-capture --
-            commands::inbox::append_inbox,
-            commands::inbox::list_inbox,
             // -- button prompts catalog --
             commands::button_prompts::list_button_prompts,
             commands::button_prompts::update_button_prompt,
@@ -544,8 +494,6 @@ pub fn run() {
             commands::hotkeys::pause_global_hotkeys,
             commands::hotkeys::resume_global_hotkeys,
             // -- commands defined directly in their domain modules --
-            toast_emit::get_toast_enabled,
-            toast_emit::set_toast_enabled,
             codex_fallback::build_fallback_context,
             codex_fallback::build_fallback_prompt,
             codex_fallback::launch_codex_fallback,
@@ -634,11 +582,6 @@ pub fn run() {
             });
             if let Err(e) = shortcut_handle.register(shortcut) {
                 eprintln!("[ultron] global shortcut register failed: {}", e);
-            }
-
-            // Inbox quick-capture hotkey (Ctrl+Alt+I).
-            if let Err(e) = hotkeys::register_inbox_shortcut(app.handle()) {
-                eprintln!("[ultron] inbox hotkey register failed: {}", e);
             }
 
             // Per-project hotkeys — user-defined in Settings → Project

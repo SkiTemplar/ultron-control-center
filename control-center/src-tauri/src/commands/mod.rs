@@ -69,7 +69,6 @@ pub use misc_sub::misc;
 pub use misc_sub::slash_commands as commands_registry;
 
 pub use notes_sub::button_prompts;
-pub use notes_sub::inbox;
 pub use notes_sub::notes;
 
 pub use projects::agents;
@@ -78,8 +77,6 @@ pub use projects::agents;
 pub use sessions_sub::pty;
 pub use sessions_sub::sessions;
 pub use sessions_sub::tabs;
-pub use sessions_sub::terminal_layout;
-pub use sessions_sub::timeline;
 
 pub use system_ops::apps;
 pub use system_ops::diagnostics_native;
