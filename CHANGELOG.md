@@ -1,5 +1,36 @@
 # Changelog
 
+<!-- fullize -->
+## fullize - 2026-06-01 — producto final, sin overengineering
+
+Recorte grande a lo esencial + endurecimiento del núcleo (memoria, orquestador,
+router, hooks).
+
+Anadido:
+- **Memoria #1:** SQLite "DB fuerte" (`brain.db`, FTS5 + migración kg.jsonl) +
+  Qdrant (D:) con **auto-launch desde el backend** (arregla el "cerebro muerto
+  tras reboot"). `recall_hybrid` (fan-out Qdrant/SQLite/Ecc/Kg/Mem0) + `memory_health`.
+- **Orquestador ULTRON MAX:** sabe Run Batch, llama IAs por API (`ai_router_route`/
+  proxy), gestiona el auto-routing, hace código/investiga/resuelve.
+- **Auto-router de agentes especialistas** (UserPromptSubmit): persona/skill/agent
+  best-of (rust-engineer, security-auditor…), nunca general-purpose.
+- **Cola de Run Batch:** comando rechazado o que la IA no puede ejecutar queda en
+  la cola (no se pierde) + hook `batch-capture.js`. UI "Cola" en BatchDropdown.
+- **To-Do** simple en Dashboard y Notes.
+- **Usage:** botón Proxy (on/off + uso de IAs secundarias).
+- **Library:** search ranked (fuzzy+sinónimos), bulk enable/disable, AI-install mejorado.
+
+Errores corregidos:
+- Proxy free-tier "Binario no encontrado" → modo light funcional sin binario.
+- Qdrant no auto-arrancaba (`ensure-qdrant.ps1` faltaba).
+
+Eliminado (UI a lo esencial):
+- Tabs Memory-visual (backend-only), Workdays, Inbox.
+- Projects → solo botones V1 (IDE/sesión IA/carpeta/Run Batch) + Kanban; fuera
+  terminales embebidas y sub-pestañas (Sessions/Context/Agents/Timeline/Decisions/Notes).
+- Settings/Notifications podados. Kanban reseteado (incl. archivados). ~51GB de
+  build/logs/archivados deprecados liberados.
+
 <!-- v2.13.0 -->
 ## v2.13.0 - 2026-05-27 (acumula v2.12.1)
 
