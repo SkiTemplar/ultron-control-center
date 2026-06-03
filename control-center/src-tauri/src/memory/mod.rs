@@ -154,6 +154,7 @@ pub mod model;
 pub mod sqlite_store;
 pub mod qdrant_store;
 pub mod qdrant_index;
+pub mod catalog;
 pub mod service;
 pub mod migrations;
 

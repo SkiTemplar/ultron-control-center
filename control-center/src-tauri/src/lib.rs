@@ -288,6 +288,9 @@ pub fn run() {
             commands::memory::memory_stats,
             // -- MEMORY KERNEL: Session Resume (minimal bounded context) --
             commands::memory::session_resume,
+            // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
+            commands::memory::catalog_reindex,
+            commands::memory::catalog_search,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,

@@ -8,6 +8,7 @@
 //   memory_status — Memory tab status cards + sync/index ops
 //   memory_graph  — Unified search + tree snapshot across all layers
 
+pub mod catalog;
 pub mod ecc_memory;
 pub mod inbox;
 pub mod kg;
@@ -20,6 +21,7 @@ pub mod recall_hybrid;
 pub mod recall_unified;
 pub mod session_resume;
 
+pub use catalog::*;
 pub use ecc_memory::*;
 pub use inbox::*;
 pub use kg::*;
