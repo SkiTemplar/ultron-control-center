@@ -150,8 +150,17 @@ pub enum StoreKind {
     Qdrant,
 }
 
+pub mod model;
 pub mod sqlite_store;
 pub mod qdrant_store;
+pub mod service;
+
+// Canonical memory kernel re-exports (Fase A).
+pub use model::{
+    Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, MemoryItem,
+    MemoryType, Scope, Sensitivity, Source, Stability, Status,
+};
+pub use service::{MemoryService, MemoryStats};
 
 /// Health status returned by `MemoryStore::health`.
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -45,6 +45,7 @@ chrono = { version = "0.4", features = ["serde"] }
 thiserror = "1"
 serde_yaml = "0.9"
 rusqlite = { version = "0.31", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
 zip = { version = "2", features = ["deflate"] }
 # Load .env files at startup so users can store provider API keys in
 # ~/.ultron/.env or ~/.ultron/control-center/.env without exporting to shell.

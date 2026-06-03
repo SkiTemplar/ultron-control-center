@@ -1,42 +1,41 @@
-// ULTRON Control Center — SQLite memory store (MEMORY CORE D3)
+// ULTRON Control Center — Canonical SQLite store (MEMORY KERNEL · Fase A)
 //
-// Persistent memory backend backed by a local SQLite database at
-// `<ultron_root>/brain.db`.  Uses FTS5 for ranked full-text search with a
-// graceful fallback to LIKE search when FTS5 is unavailable at runtime.
+// `~/.ultron/brain.db` is THE source of truth for governed memory. This module
+// owns the schema and all low-level persistence; `MemoryService` (service.rs)
+// layers the audit-event + candidate-lifecycle semantics on top.
 //
-// Schema (idempotent on every open):
-//   memories(id, text, namespace, source, tags, created_at)
-//   memories_fts  — FTS5 external-content table mirroring memories.text
-//   kg_entities(name, entity_type, observations)
-//   kg_relations(from_name, to_name, relation_type)
+// Schema (idempotent on open):
+//   memory_items      — governed memories (status/confidence/importance/scope/…)
+//   memory_items_fts  — FTS5 mirror of title+summary+content (sparse/keyword)
+//   memory_events     — append-only audit log of every mutation
+//   memory_candidates — proposals awaiting validation (the inbox)
+//   kg_entities / kg_relations — KG collapsed in from kg.jsonl
 //
-// Thread safety: each public method opens a fresh Connection.  SQLite in
-// WAL mode supports concurrent readers + one writer; a Mutex is not needed
-// when every call is an independent transaction.
+// Low-level fns take `&Connection` so they are unit-testable against a temp DB;
+// thin public wrappers open `brain.db` per call (WAL = concurrent readers).
 
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use rusqlite::{Connection, Result as SqlResult, params};
+use rusqlite::{Connection, Row, named_params, params};
 
+use super::model::{
+    Actor, CandidateAction, CandidateStatus, MemoryCandidate, MemoryEvent, MemoryItem, MemoryType,
+    Scope, Sensitivity, Source, Stability, Status, EventType, estimate_tokens, now_millis,
+};
 use super::{Capabilities, MemoryDoc, MemoryError, MemoryHit, MemoryStore, Query, StoreHealth, StoreKind};
 
 // ---------------------------------------------------------------------------
-// Path helper
+// Path + connection
 // ---------------------------------------------------------------------------
 
 fn brain_db_path() -> Result<PathBuf, MemoryError> {
     dirs::home_dir()
         .map(|h| h.join(".ultron").join("brain.db"))
-        .ok_or_else(|| MemoryError::IoError(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "no HOME dir",
-        )))
+        .ok_or_else(|| {
+            MemoryError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "no HOME dir"))
+        })
 }
-
-// ---------------------------------------------------------------------------
-// FTS5 availability probe — checked once per process
-// ---------------------------------------------------------------------------
 
 static FTS5_AVAILABLE: OnceLock<bool> = OnceLock::new();
 
@@ -44,126 +43,538 @@ fn fts5_available(conn: &Connection) -> bool {
     *FTS5_AVAILABLE.get_or_init(|| {
         conn.execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS _fts5_probe USING fts5(x);
-             DROP TABLE IF EXISTS _fts5_probe;"
-        ).is_ok()
+             DROP TABLE IF EXISTS _fts5_probe;",
+        )
+        .is_ok()
     })
 }
 
-// ---------------------------------------------------------------------------
-// Open + schema bootstrap
-// ---------------------------------------------------------------------------
-
-fn open_conn() -> Result<Connection, MemoryError> {
+/// Open `brain.db` (creating parent dirs) and ensure the schema exists.
+pub(crate) fn open_conn() -> Result<Connection, MemoryError> {
     let path = brain_db_path()?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(MemoryError::IoError)?;
     }
     let conn = Connection::open(&path)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("brain.db open: {e}")))?;
-
-    // WAL mode for concurrent read access.
     conn.execute_batch("PRAGMA journal_mode=WAL;")
         .map_err(|e| MemoryError::RemoteUnavailable(format!("WAL pragma: {e}")))?;
-
     apply_schema(&conn)?;
     Ok(conn)
 }
 
-fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
-    // Core memories table.
+/// Create all tables + FTS triggers. Idempotent (`IF NOT EXISTS`).
+pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS memories (
-            id         TEXT PRIMARY KEY,
-            text       TEXT NOT NULL,
-            namespace  TEXT,
-            source     TEXT,
-            tags       TEXT,
-            created_at INTEGER
-        );"
-    ).map_err(|e| MemoryError::RemoteUnavailable(format!("schema memories: {e}")))?;
+        "CREATE TABLE IF NOT EXISTS memory_items (
+            id              TEXT PRIMARY KEY,
+            type            TEXT NOT NULL,
+            scope           TEXT NOT NULL,
+            project_id      TEXT, repo_id TEXT, branch TEXT,
+            workflow_id     TEXT, agent_id TEXT, skill_id TEXT,
+            title           TEXT, summary TEXT, content TEXT, content_json TEXT,
+            tags            TEXT,
+            status          TEXT NOT NULL DEFAULT 'pending',
+            confidence      REAL NOT NULL DEFAULT 0.5,
+            importance      REAL NOT NULL DEFAULT 0.5,
+            stability       TEXT NOT NULL DEFAULT 'durable',
+            sensitivity     TEXT NOT NULL DEFAULT 'internal',
+            source          TEXT NOT NULL,
+            source_session_id TEXT,
+            created_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL,
+            expires_at      INTEGER,
+            supersedes      TEXT, superseded_by TEXT, contradicts TEXT, derived_from TEXT,
+            qdrant_point_id TEXT,
+            token_estimate  INTEGER NOT NULL DEFAULT 0,
+            access_count    INTEGER NOT NULL DEFAULT 0,
+            last_accessed_at INTEGER, last_injected_at INTEGER,
+            validated_by_user INTEGER NOT NULL DEFAULT 0,
+            validated_at    INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_items_status_scope
+            ON memory_items(status, scope, project_id);
+        CREATE INDEX IF NOT EXISTS idx_items_updated ON memory_items(updated_at);
 
-    // FTS5 external-content table + triggers — only when FTS5 is available.
-    if fts5_available(conn) {
-        conn.execute_batch(
-            "CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts
-                USING fts5(text, content='memories', content_rowid='rowid');
+        CREATE TABLE IF NOT EXISTS memory_events (
+            id              TEXT PRIMARY KEY,
+            event_type      TEXT NOT NULL,
+            memory_id       TEXT,
+            before_json     TEXT, after_json TEXT,
+            actor           TEXT NOT NULL,
+            source_session_id TEXT, source_turn_id TEXT,
+            reason          TEXT, confidence REAL,
+            created_at      INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_events_memory ON memory_events(memory_id, created_at);
 
-             -- keep FTS in sync with the base table
-             CREATE TRIGGER IF NOT EXISTS memories_ai
-                 AFTER INSERT ON memories BEGIN
-                     INSERT INTO memories_fts(rowid, text) VALUES (new.rowid, new.text);
-                 END;
+        CREATE TABLE IF NOT EXISTS memory_candidates (
+            id              TEXT PRIMARY KEY,
+            proposed_type   TEXT NOT NULL,
+            proposed_scope  TEXT NOT NULL,
+            proposed_title  TEXT, proposed_summary TEXT, proposed_content TEXT,
+            proposed_content_json TEXT, proposed_tags TEXT,
+            source_event_ids TEXT, source_session_id TEXT,
+            confidence      REAL NOT NULL DEFAULT 0.5,
+            importance      REAL NOT NULL DEFAULT 0.5,
+            risk_level      TEXT NOT NULL DEFAULT 'low',
+            duplicate_candidates TEXT, contradiction_candidates TEXT,
+            recommended_action TEXT NOT NULL DEFAULT 'approve',
+            status          TEXT NOT NULL DEFAULT 'pending',
+            created_at      INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_candidates_status ON memory_candidates(status, created_at);
 
-             CREATE TRIGGER IF NOT EXISTS memories_ad
-                 AFTER DELETE ON memories BEGIN
-                     INSERT INTO memories_fts(memories_fts, rowid, text)
-                         VALUES ('delete', old.rowid, old.text);
-                 END;
-
-             CREATE TRIGGER IF NOT EXISTS memories_au
-                 AFTER UPDATE ON memories BEGIN
-                     INSERT INTO memories_fts(memories_fts, rowid, text)
-                         VALUES ('delete', old.rowid, old.text);
-                     INSERT INTO memories_fts(rowid, text) VALUES (new.rowid, new.text);
-                 END;"
-        ).map_err(|e| MemoryError::RemoteUnavailable(format!("schema fts5: {e}")))?;
-    }
-
-    // KG tables — mirror of kg.jsonl for indexed lookup.
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS kg_entities (
+        CREATE TABLE IF NOT EXISTS kg_entities (
             name        TEXT PRIMARY KEY,
             entity_type TEXT,
             observations TEXT
         );
         CREATE TABLE IF NOT EXISTS kg_relations (
-            from_name     TEXT,
-            to_name       TEXT,
-            relation_type TEXT,
+            from_name     TEXT, to_name TEXT, relation_type TEXT,
             UNIQUE(from_name, to_name, relation_type)
-        );"
-    ).map_err(|e| MemoryError::RemoteUnavailable(format!("schema kg: {e}")))?;
+        );",
+    )
+    .map_err(|e| MemoryError::RemoteUnavailable(format!("schema core: {e}")))?;
 
+    if fts5_available(conn) {
+        conn.execute_batch(
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_items_fts
+                USING fts5(title, summary, content,
+                           content='memory_items', content_rowid='rowid');
+
+             CREATE TRIGGER IF NOT EXISTS memory_items_ai AFTER INSERT ON memory_items BEGIN
+                 INSERT INTO memory_items_fts(rowid, title, summary, content)
+                     VALUES (new.rowid, new.title, new.summary, new.content);
+             END;
+             CREATE TRIGGER IF NOT EXISTS memory_items_ad AFTER DELETE ON memory_items BEGIN
+                 INSERT INTO memory_items_fts(memory_items_fts, rowid, title, summary, content)
+                     VALUES ('delete', old.rowid, old.title, old.summary, old.content);
+             END;
+             CREATE TRIGGER IF NOT EXISTS memory_items_au AFTER UPDATE ON memory_items BEGIN
+                 INSERT INTO memory_items_fts(memory_items_fts, rowid, title, summary, content)
+                     VALUES ('delete', old.rowid, old.title, old.summary, old.content);
+                 INSERT INTO memory_items_fts(rowid, title, summary, content)
+                     VALUES (new.rowid, new.title, new.summary, new.content);
+             END;",
+        )
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("schema fts5: {e}")))?;
+    }
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// KG jsonl migration
+// Row mapping
 // ---------------------------------------------------------------------------
 
-/// Import entities and relations from `~/.ultron/cockpit/kg.jsonl` into the
-/// `kg_entities` / `kg_relations` SQLite tables.  Idempotent — uses
-/// `INSERT OR REPLACE` so re-running on startup is safe.
+fn json_to_vec(s: Option<String>) -> Vec<String> {
+    s.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
+        .unwrap_or_default()
+}
+
+fn vec_to_json(v: &[String]) -> String {
+    serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn item_from_row(row: &Row) -> rusqlite::Result<MemoryItem> {
+    let kind_s: String = row.get("type")?;
+    let scope_s: String = row.get("scope")?;
+    let status_s: String = row.get("status")?;
+    let stability_s: String = row.get("stability")?;
+    let sensitivity_s: String = row.get("sensitivity")?;
+    let source_s: String = row.get("source")?;
+    let validated: i64 = row.get("validated_by_user")?;
+    Ok(MemoryItem {
+        id: row.get("id")?,
+        kind: MemoryType::parse(&kind_s).unwrap_or(MemoryType::Fact),
+        scope: Scope::parse(&scope_s).unwrap_or(Scope::Global),
+        project_id: row.get("project_id")?,
+        repo_id: row.get("repo_id")?,
+        branch: row.get("branch")?,
+        workflow_id: row.get("workflow_id")?,
+        agent_id: row.get("agent_id")?,
+        skill_id: row.get("skill_id")?,
+        title: row.get("title")?,
+        summary: row.get("summary")?,
+        content: row.get("content")?,
+        content_json: row.get("content_json")?,
+        tags: json_to_vec(row.get("tags")?),
+        status: Status::parse(&status_s).unwrap_or(Status::Pending),
+        confidence: row.get::<_, f64>("confidence")? as f32,
+        importance: row.get::<_, f64>("importance")? as f32,
+        stability: Stability::parse(&stability_s).unwrap_or(Stability::Durable),
+        sensitivity: Sensitivity::parse(&sensitivity_s).unwrap_or(Sensitivity::Internal),
+        source: Source::parse(&source_s).unwrap_or(Source::AssistantInferred),
+        source_session_id: row.get("source_session_id")?,
+        created_at: row.get("created_at")?,
+        updated_at: row.get("updated_at")?,
+        expires_at: row.get("expires_at")?,
+        supersedes: row.get("supersedes")?,
+        superseded_by: row.get("superseded_by")?,
+        contradicts: json_to_vec(row.get("contradicts")?),
+        derived_from: row.get("derived_from")?,
+        qdrant_point_id: row.get("qdrant_point_id")?,
+        token_estimate: row.get("token_estimate")?,
+        access_count: row.get("access_count")?,
+        last_accessed_at: row.get("last_accessed_at")?,
+        last_injected_at: row.get("last_injected_at")?,
+        validated_by_user: validated != 0,
+        validated_at: row.get("validated_at")?,
+    })
+}
+
+const ITEM_COLS: &str = "id,type,scope,project_id,repo_id,branch,workflow_id,agent_id,skill_id,\
+title,summary,content,content_json,tags,status,confidence,importance,stability,sensitivity,\
+source,source_session_id,created_at,updated_at,expires_at,supersedes,superseded_by,contradicts,\
+derived_from,qdrant_point_id,token_estimate,access_count,last_accessed_at,last_injected_at,\
+validated_by_user,validated_at";
+
+// ---------------------------------------------------------------------------
+// memory_items CRUD (low-level, &Connection)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), MemoryError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO memory_items (
+            id,type,scope,project_id,repo_id,branch,workflow_id,agent_id,skill_id,
+            title,summary,content,content_json,tags,status,confidence,importance,stability,
+            sensitivity,source,source_session_id,created_at,updated_at,expires_at,supersedes,
+            superseded_by,contradicts,derived_from,qdrant_point_id,token_estimate,access_count,
+            last_accessed_at,last_injected_at,validated_by_user,validated_at
+        ) VALUES (
+            :id,:type,:scope,:project_id,:repo_id,:branch,:workflow_id,:agent_id,:skill_id,
+            :title,:summary,:content,:content_json,:tags,:status,:confidence,:importance,:stability,
+            :sensitivity,:source,:source_session_id,:created_at,:updated_at,:expires_at,:supersedes,
+            :superseded_by,:contradicts,:derived_from,:qdrant_point_id,:token_estimate,:access_count,
+            :last_accessed_at,:last_injected_at,:validated_by_user,:validated_at
+        )",
+        named_params! {
+            ":id": item.id, ":type": item.kind.as_str(), ":scope": item.scope.as_str(),
+            ":project_id": item.project_id, ":repo_id": item.repo_id, ":branch": item.branch,
+            ":workflow_id": item.workflow_id, ":agent_id": item.agent_id, ":skill_id": item.skill_id,
+            ":title": item.title, ":summary": item.summary, ":content": item.content,
+            ":content_json": item.content_json, ":tags": vec_to_json(&item.tags),
+            ":status": item.status.as_str(), ":confidence": item.confidence as f64,
+            ":importance": item.importance as f64, ":stability": item.stability.as_str(),
+            ":sensitivity": item.sensitivity.as_str(), ":source": item.source.as_str(),
+            ":source_session_id": item.source_session_id, ":created_at": item.created_at,
+            ":updated_at": item.updated_at, ":expires_at": item.expires_at,
+            ":supersedes": item.supersedes, ":superseded_by": item.superseded_by,
+            ":contradicts": vec_to_json(&item.contradicts), ":derived_from": item.derived_from,
+            ":qdrant_point_id": item.qdrant_point_id, ":token_estimate": item.token_estimate,
+            ":access_count": item.access_count, ":last_accessed_at": item.last_accessed_at,
+            ":last_injected_at": item.last_injected_at,
+            ":validated_by_user": i64::from(item.validated_by_user),
+            ":validated_at": item.validated_at,
+        },
+    )
+    .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_item: {e}")))?;
+    Ok(())
+}
+
+pub(crate) fn get_item(conn: &Connection, id: &str) -> Result<Option<MemoryItem>, MemoryError> {
+    let sql = format!("SELECT {ITEM_COLS} FROM memory_items WHERE id = ?1");
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("get_item prepare: {e}")))?;
+    let mut rows = stmt
+        .query(params![id])
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("get_item query: {e}")))?;
+    match rows.next().map_err(|e| MemoryError::ParseError(e.to_string()))? {
+        Some(row) => Ok(Some(item_from_row(row).map_err(|e| MemoryError::ParseError(e.to_string()))?)),
+        None => Ok(None),
+    }
+}
+
+pub(crate) fn delete_item(conn: &Connection, id: &str) -> Result<(), MemoryError> {
+    let n = conn
+        .execute("DELETE FROM memory_items WHERE id = ?1", params![id])
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("delete_item: {e}")))?;
+    if n == 0 {
+        return Err(MemoryError::NotFound(id.to_string()));
+    }
+    Ok(())
+}
+
+/// FTS5 (bm25) or LIKE fallback over memory_items, filtered to a single status.
+pub(crate) fn search_items(
+    conn: &Connection,
+    query: &str,
+    status: Status,
+    limit: usize,
+) -> Result<Vec<MemoryItem>, MemoryError> {
+    let mut out: Vec<MemoryItem> = Vec::new();
+
+    if fts5_available(conn) && !query.trim().is_empty() {
+        let sql = format!(
+            "SELECT {ITEM_COLS} FROM memory_items_fts f
+             JOIN memory_items m ON m.rowid = f.rowid
+             WHERE memory_items_fts MATCH ?1 AND m.status = ?2
+             ORDER BY bm25(memory_items_fts) ASC LIMIT ?3"
+        );
+        let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+        if let Ok(mut stmt) = conn.prepare(&sql) {
+            let rows = stmt.query_map(
+                params![fts_query, status.as_str(), limit as i64],
+                item_from_row,
+            );
+            if let Ok(mapped) = rows {
+                for item in mapped.flatten() {
+                    out.push(item);
+                }
+            }
+        }
+    }
+
+    if out.is_empty() {
+        let needle = format!("%{query}%");
+        let sql = format!(
+            "SELECT {ITEM_COLS} FROM memory_items
+             WHERE status = ?1 AND (title LIKE ?2 OR summary LIKE ?2 OR content LIKE ?2)
+             ORDER BY importance DESC, updated_at DESC LIMIT ?3"
+        );
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| MemoryError::RemoteUnavailable(format!("search LIKE prepare: {e}")))?;
+        let rows = stmt
+            .query_map(params![status.as_str(), needle, limit as i64], item_from_row)
+            .map_err(|e| MemoryError::RemoteUnavailable(format!("search LIKE query: {e}")))?;
+        for item in rows.flatten() {
+            out.push(item);
+        }
+    }
+    Ok(out)
+}
+
+/// Plain list by status (for the CLI / inbox), newest first.
+pub(crate) fn list_items(
+    conn: &Connection,
+    status: Status,
+    limit: usize,
+) -> Result<Vec<MemoryItem>, MemoryError> {
+    let sql = format!(
+        "SELECT {ITEM_COLS} FROM memory_items WHERE status = ?1
+         ORDER BY updated_at DESC LIMIT ?2"
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_items prepare: {e}")))?;
+    let rows = stmt
+        .query_map(params![status.as_str(), limit as i64], item_from_row)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_items query: {e}")))?;
+    Ok(rows.flatten().collect())
+}
+
+pub(crate) fn count_items_by_status(conn: &Connection, status: Status) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM memory_items WHERE status = ?1",
+        params![status.as_str()],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// memory_events (append-only)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn insert_event(conn: &Connection, ev: &MemoryEvent) -> Result<(), MemoryError> {
+    conn.execute(
+        "INSERT INTO memory_events
+            (id,event_type,memory_id,before_json,after_json,actor,source_session_id,
+             source_turn_id,reason,confidence,created_at)
+         VALUES (:id,:event_type,:memory_id,:before_json,:after_json,:actor,:source_session_id,
+             :source_turn_id,:reason,:confidence,:created_at)",
+        named_params! {
+            ":id": ev.id, ":event_type": ev.event_type.as_str(), ":memory_id": ev.memory_id,
+            ":before_json": ev.before_json, ":after_json": ev.after_json, ":actor": ev.actor.as_str(),
+            ":source_session_id": ev.source_session_id, ":source_turn_id": ev.source_turn_id,
+            ":reason": ev.reason, ":confidence": ev.confidence.map(f64::from),
+            ":created_at": ev.created_at,
+        },
+    )
+    .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_event: {e}")))?;
+    Ok(())
+}
+
+pub(crate) fn list_events_for(
+    conn: &Connection,
+    memory_id: &str,
+    limit: usize,
+) -> Result<Vec<MemoryEvent>, MemoryError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id,event_type,memory_id,before_json,after_json,actor,source_session_id,
+                    source_turn_id,reason,confidence,created_at
+             FROM memory_events WHERE memory_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+        )
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_events prepare: {e}")))?;
+    let rows = stmt
+        .query_map(params![memory_id, limit as i64], |row| {
+            let et: String = row.get("event_type")?;
+            let ac: String = row.get("actor")?;
+            Ok(MemoryEvent {
+                id: row.get("id")?,
+                event_type: EventType::parse(&et).unwrap_or(EventType::Updated),
+                memory_id: row.get("memory_id")?,
+                before_json: row.get("before_json")?,
+                after_json: row.get("after_json")?,
+                actor: Actor::parse(&ac).unwrap_or(Actor::System),
+                source_session_id: row.get("source_session_id")?,
+                source_turn_id: row.get("source_turn_id")?,
+                reason: row.get("reason")?,
+                confidence: row.get::<_, Option<f64>>("confidence")?.map(|c| c as f32),
+                created_at: row.get("created_at")?,
+            })
+        })
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_events query: {e}")))?;
+    Ok(rows.flatten().collect())
+}
+
+// ---------------------------------------------------------------------------
+// memory_candidates (inbox)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn insert_candidate(conn: &Connection, c: &MemoryCandidate) -> Result<(), MemoryError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO memory_candidates
+            (id,proposed_type,proposed_scope,proposed_title,proposed_summary,proposed_content,
+             proposed_content_json,proposed_tags,source_event_ids,source_session_id,confidence,
+             importance,risk_level,duplicate_candidates,contradiction_candidates,recommended_action,
+             status,created_at)
+         VALUES (:id,:pt,:ps,:ptitle,:psummary,:pcontent,:pcjson,:ptags,:seids,:ssid,:conf,:imp,
+             :risk,:dups,:contras,:rec,:status,:created)",
+        named_params! {
+            ":id": c.id, ":pt": c.proposed_type.as_str(), ":ps": c.proposed_scope.as_str(),
+            ":ptitle": c.proposed_title, ":psummary": c.proposed_summary, ":pcontent": c.proposed_content,
+            ":pcjson": c.proposed_content_json, ":ptags": vec_to_json(&c.proposed_tags),
+            ":seids": vec_to_json(&c.source_event_ids), ":ssid": c.source_session_id,
+            ":conf": c.confidence as f64, ":imp": c.importance as f64, ":risk": c.risk_level,
+            ":dups": vec_to_json(&c.duplicate_candidates),
+            ":contras": vec_to_json(&c.contradiction_candidates),
+            ":rec": c.recommended_action.as_str(), ":status": c.status.as_str(),
+            ":created": c.created_at,
+        },
+    )
+    .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_candidate: {e}")))?;
+    Ok(())
+}
+
+fn candidate_from_row(row: &Row) -> rusqlite::Result<MemoryCandidate> {
+    let pt: String = row.get("proposed_type")?;
+    let ps: String = row.get("proposed_scope")?;
+    let rec: String = row.get("recommended_action")?;
+    let st: String = row.get("status")?;
+    Ok(MemoryCandidate {
+        id: row.get("id")?,
+        proposed_type: MemoryType::parse(&pt).unwrap_or(MemoryType::Fact),
+        proposed_scope: Scope::parse(&ps).unwrap_or(Scope::Global),
+        proposed_title: row.get("proposed_title")?,
+        proposed_summary: row.get("proposed_summary")?,
+        proposed_content: row.get("proposed_content")?,
+        proposed_content_json: row.get("proposed_content_json")?,
+        proposed_tags: json_to_vec(row.get("proposed_tags")?),
+        source_event_ids: json_to_vec(row.get("source_event_ids")?),
+        source_session_id: row.get("source_session_id")?,
+        confidence: row.get::<_, f64>("confidence")? as f32,
+        importance: row.get::<_, f64>("importance")? as f32,
+        risk_level: row.get("risk_level")?,
+        duplicate_candidates: json_to_vec(row.get("duplicate_candidates")?),
+        contradiction_candidates: json_to_vec(row.get("contradiction_candidates")?),
+        recommended_action: CandidateAction::parse(&rec).unwrap_or(CandidateAction::Approve),
+        status: CandidateStatus::parse(&st).unwrap_or(CandidateStatus::Pending),
+        created_at: row.get("created_at")?,
+    })
+}
+
+pub(crate) fn get_candidate(conn: &Connection, id: &str) -> Result<Option<MemoryCandidate>, MemoryError> {
+    let mut stmt = conn
+        .prepare("SELECT * FROM memory_candidates WHERE id = ?1")
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("get_candidate prepare: {e}")))?;
+    let mut rows = stmt
+        .query(params![id])
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("get_candidate query: {e}")))?;
+    match rows.next().map_err(|e| MemoryError::ParseError(e.to_string()))? {
+        Some(row) => Ok(Some(
+            candidate_from_row(row).map_err(|e| MemoryError::ParseError(e.to_string()))?,
+        )),
+        None => Ok(None),
+    }
+}
+
+pub(crate) fn list_candidates(
+    conn: &Connection,
+    status: CandidateStatus,
+    limit: usize,
+) -> Result<Vec<MemoryCandidate>, MemoryError> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT * FROM memory_candidates WHERE status = ?1 ORDER BY created_at DESC LIMIT ?2",
+        )
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_candidates prepare: {e}")))?;
+    let rows = stmt
+        .query_map(params![status.as_str(), limit as i64], candidate_from_row)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_candidates query: {e}")))?;
+    Ok(rows.flatten().collect())
+}
+
+pub(crate) fn set_candidate_status(
+    conn: &Connection,
+    id: &str,
+    status: CandidateStatus,
+) -> Result<(), MemoryError> {
+    let n = conn
+        .execute(
+            "UPDATE memory_candidates SET status = ?1 WHERE id = ?2",
+            params![status.as_str(), id],
+        )
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("set_candidate_status: {e}")))?;
+    if n == 0 {
+        return Err(MemoryError::NotFound(id.to_string()));
+    }
+    Ok(())
+}
+
+pub(crate) fn count_candidates_pending(conn: &Connection) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM memory_candidates WHERE status = 'pending'",
+        [],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+// ---------------------------------------------------------------------------
+// KG jsonl import (collapsed into brain.db)
+// ---------------------------------------------------------------------------
+
+/// Import entities + relations from `~/.ultron/cockpit/kg.jsonl`. Idempotent.
 pub fn import_kg_jsonl(conn: &Connection) -> Result<(), MemoryError> {
     let graph = crate::kg::read_graph_inner()
         .map_err(|e| MemoryError::ParseError(format!("kg.jsonl read: {e}")))?;
-
     for ent in &graph.entities {
-        let obs_json = serde_json::to_string(&ent.observations)
-            .unwrap_or_else(|_| "[]".to_string());
+        let obs_json = serde_json::to_string(&ent.observations).unwrap_or_else(|_| "[]".to_string());
         conn.execute(
-            "INSERT OR REPLACE INTO kg_entities (name, entity_type, observations)
-             VALUES (?1, ?2, ?3)",
+            "INSERT OR REPLACE INTO kg_entities (name, entity_type, observations) VALUES (?1,?2,?3)",
             params![ent.name, ent.entity_type, obs_json],
-        ).map_err(|e| MemoryError::RemoteUnavailable(format!("kg import entity: {e}")))?;
+        )
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("kg import entity: {e}")))?;
     }
-
     for rel in &graph.relations {
         conn.execute(
-            "INSERT OR IGNORE INTO kg_relations (from_name, to_name, relation_type)
-             VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO kg_relations (from_name, to_name, relation_type) VALUES (?1,?2,?3)",
             params![rel.from, rel.to, rel.relation_type],
-        ).map_err(|e| MemoryError::RemoteUnavailable(format!("kg import relation: {e}")))?;
+        )
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("kg import relation: {e}")))?;
     }
-
     Ok(())
 }
 
 // ---------------------------------------------------------------------------
-// SqliteStore
+// SqliteStore — MemoryStore trait impl (back-compat for recall_hybrid/health)
 // ---------------------------------------------------------------------------
 
-/// `MemoryStore` implementation backed by `~/.ultron/brain.db`.
+/// `MemoryStore` adapter over the canonical `memory_items` table.
 pub struct SqliteStore;
 
 impl SqliteStore {
@@ -172,10 +583,14 @@ impl SqliteStore {
         Self
     }
 
-    /// Open a connection and ensure the schema is ready.  Returns an error if
-    /// the file cannot be created or the schema migration fails.
+    /// Open `brain.db`, apply the schema, and best-effort import kg.jsonl.
+    /// Wired into `lib.rs` setup so the canonical DB is live at startup.
     pub fn init() -> Result<(), MemoryError> {
-        open_conn().map(|_| ())
+        let conn = open_conn()?;
+        if let Err(e) = import_kg_jsonl(&conn) {
+            eprintln!("[sqlite_store] kg.jsonl import skipped: {e}");
+        }
+        Ok(())
     }
 }
 
@@ -188,17 +603,21 @@ impl Default for SqliteStore {
 impl MemoryStore for SqliteStore {
     fn add(&self, doc: MemoryDoc) -> Result<MemoryHit, MemoryError> {
         let conn = open_conn()?;
-        let id = uuid_v4();
-        let tags_json = serde_json::to_string(&doc.tags).unwrap_or_else(|_| "[]".to_string());
-        let now = unix_secs();
-        conn.execute(
-            "INSERT INTO memories (id, text, namespace, source, tags, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![id, doc.text, doc.namespace, "sqlite", tags_json, now],
-        ).map_err(|e| MemoryError::RemoteUnavailable(format!("INSERT: {e}")))?;
-
+        let mut item = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ManualUi,
+            Status::Active,
+        );
+        item.summary = Some(doc.text.clone());
+        item.content = Some(doc.text.clone());
+        item.project_id = doc.namespace.clone();
+        item.token_estimate = estimate_tokens(&doc.text);
+        insert_item(&conn, &item)?;
+        let ev = MemoryEvent::new(EventType::Created, Some(item.id.clone()), Actor::System);
+        let _ = insert_event(&conn, &ev);
         Ok(MemoryHit {
-            id,
+            id: item.id,
             text: doc.text,
             score: 1.0,
             source: StoreKind::Sqlite,
@@ -209,151 +628,41 @@ impl MemoryStore for SqliteStore {
     fn search(&self, query: Query) -> Result<Vec<MemoryHit>, MemoryError> {
         let conn = open_conn()?;
         let limit = query.limit.unwrap_or(20) as usize;
-        let mut hits: Vec<MemoryHit> = Vec::new();
-        let seen_start = hits.len();
-
-        // --- memories: FTS5 or LIKE fallback ---
-        if fts5_available(&conn) {
-            // bm25() returns negative values — negate for ascending score.
-            let mut stmt = conn.prepare(
-                "SELECT m.id, m.text, m.namespace, -bm25(memories_fts) as rank
-                 FROM memories_fts
-                 JOIN memories m ON m.rowid = memories_fts.rowid
-                 WHERE memories_fts MATCH ?1
-                 ORDER BY rank DESC
-                 LIMIT ?2"
-            ).map_err(|e| MemoryError::RemoteUnavailable(format!("FTS prepare: {e}")))?;
-
-            let fts_query = format!("\"{}\"", query.text.replace('"', "\"\""));
-            let rows = stmt.query_map(params![fts_query, limit as i64], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, f64>(3)?,
-                ))
-            });
-
-            match rows {
-                Ok(mapped) => {
-                    for row in mapped.flatten() {
-                        let (id, text, namespace, rank) = row;
-                        // Normalise rank to [0,1] with a soft cap.
-                        let score = (rank as f32 / 10.0).min(1.0).max(0.0);
-                        hits.push(MemoryHit {
-                            id,
-                            text,
-                            score,
-                            source: StoreKind::Sqlite,
-                            namespace,
-                        });
-                    }
-                }
-                Err(e) => {
-                    // FTS error (e.g. bad syntax) — fall through to LIKE below.
-                    eprintln!("[sqlite_store] FTS5 query error, falling back to LIKE: {e}");
-                }
-            }
-        }
-
-        // LIKE fallback when FTS5 is off or returned 0 results.
-        if hits.len() == seen_start {
-            let needle = format!("%{}%", query.text);
-            let mut stmt = conn.prepare(
-                "SELECT id, text, namespace FROM memories
-                 WHERE text LIKE ?1
-                 ORDER BY created_at DESC
-                 LIMIT ?2"
-            ).map_err(|e| MemoryError::RemoteUnavailable(format!("LIKE prepare: {e}")))?;
-
-            let rows = stmt.query_map(params![needle, limit as i64], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                ))
-            }).map_err(|e| MemoryError::RemoteUnavailable(format!("LIKE query: {e}")))?;
-
-            for row in rows.flatten() {
-                let (id, text, namespace) = row;
-                hits.push(MemoryHit {
-                    id,
-                    text,
-                    score: 0.5,
-                    source: StoreKind::Sqlite,
-                    namespace,
-                });
-            }
-        }
-
-        // --- kg_entities: LIKE over observations ---
-        {
-            let needle = format!("%{}%", query.text);
-            let mut stmt = conn.prepare(
-                "SELECT name, entity_type, observations FROM kg_entities
-                 WHERE name LIKE ?1 OR entity_type LIKE ?1 OR observations LIKE ?1
-                 LIMIT ?2"
-            ).map_err(|e| MemoryError::RemoteUnavailable(format!("kg prepare: {e}")))?;
-
-            let rows = stmt.query_map(params![needle, limit as i64], |row| {
-                Ok((
-                    row.get::<_, String>(0)?,
-                    row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
-                ))
-            }).map_err(|e| MemoryError::RemoteUnavailable(format!("kg query: {e}")))?;
-
-            for row in rows.flatten() {
-                let (name, entity_type, obs_json) = row;
-                let obs: Vec<String> = serde_json::from_str(&obs_json).unwrap_or_default();
-                let text = if obs.is_empty() {
-                    format!("[{entity_type}] {name}")
-                } else {
-                    format!("[{entity_type}] {name}: {}", obs.join("; "))
-                };
-                hits.push(MemoryHit {
-                    id: format!("kg::{name}"),
-                    text,
-                    score: 0.6,
-                    source: StoreKind::Sqlite,
-                    namespace: None,
-                });
-            }
-        }
-
-        // Sort descending by score then stable by id.
-        hits.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.id.cmp(&b.id))
-        });
-        hits.truncate(limit);
-        Ok(hits)
+        // Only ACTIVE items are recall-eligible (governance invariant).
+        let items = search_items(&conn, &query.text, Status::Active, limit)?;
+        Ok(items
+            .into_iter()
+            .map(|it| MemoryHit {
+                text: it.summary.clone().or(it.content.clone()).unwrap_or_default(),
+                id: it.id,
+                // Importance as a coarse score until Fase B real ranking lands.
+                score: it.importance.clamp(0.0, 1.0),
+                source: StoreKind::Sqlite,
+                namespace: it.project_id,
+            })
+            .collect())
     }
 
     fn delete(&self, id: &str) -> Result<(), MemoryError> {
         let conn = open_conn()?;
-        let rows = conn.execute("DELETE FROM memories WHERE id = ?1", params![id])
-            .map_err(|e| MemoryError::RemoteUnavailable(format!("DELETE: {e}")))?;
-        if rows == 0 {
-            return Err(MemoryError::NotFound(id.to_string()));
-        }
+        delete_item(&conn, id)?;
+        let ev = MemoryEvent::new(EventType::Deprecated, Some(id.to_string()), Actor::System)
+            .with_reason("hard delete via MemoryStore::delete");
+        let _ = insert_event(&conn, &ev);
         Ok(())
     }
 
     fn health(&self) -> Result<StoreHealth, MemoryError> {
         let conn = open_conn()?;
-        let mem_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM memories", [], |r| r.get(0))
-            .unwrap_or(0);
-        let kg_count: i64 = conn
+        let active = count_items_by_status(&conn, Status::Active);
+        let pending = count_candidates_pending(&conn);
+        let kg: i64 = conn
             .query_row("SELECT COUNT(*) FROM kg_entities", [], |r| r.get(0))
             .unwrap_or(0);
         Ok(StoreHealth {
             healthy: true,
             message: format!(
-                "brain.db OK — {mem_count} memories, {kg_count} kg_entities, fts5={}",
+                "brain.db OK — {active} active, {pending} pending candidates, {kg} kg_entities, fts5={}",
                 fts5_available(&conn)
             ),
             latency_ms: None,
@@ -371,90 +680,86 @@ impl MemoryStore for SqliteStore {
 }
 
 // ---------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------
-
-fn unix_secs() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0)
-}
-
-/// Minimal UUID-v4 without pulling in the `uuid` crate.
-fn uuid_v4() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-
-    let mut h = DefaultHasher::new();
-    std::time::SystemTime::now().hash(&mut h);
-    std::thread::current().id().hash(&mut h);
-    let a = h.finish();
-    h.write_u64(a);
-    let b = h.finish();
-
-    format!(
-        "{:08x}-{:04x}-4{:03x}-{:04x}-{:012x}",
-        (a >> 32) as u32,
-        (a >> 16) as u16,
-        (a & 0xfff) as u16,
-        (0x8000u64 | (b >> 48 & 0x3fff)) as u16,
-        b & 0x0000_ffff_ffff_ffff_u64
-    )
-}
-
-// ---------------------------------------------------------------------------
-// Tests
+// Tests — against an in-memory connection (no HOME dependency)
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
-    // Serialize tests to avoid concurrent brain.db writes in the temp env.
-    static DB_LOCK: Mutex<()> = Mutex::new(());
-
-    fn with_temp_db<F: FnOnce(&SqliteStore)>(f: F) {
-        let _g = DB_LOCK.lock().unwrap();
-        let dir = tempfile::tempdir().expect("tempdir");
-        let db_path = dir.path().join("brain.db");
-        // Point home to temp so brain_db_path resolves inside the temp dir.
-        // We open directly instead of relying on HOME.
-        let conn = Connection::open(&db_path).expect("open");
+    fn mem_conn() -> Connection {
+        let conn = Connection::open_in_memory().expect("open in-memory");
         apply_schema(&conn).expect("schema");
-        drop(conn);
-
-        // Patch via env — tests can't easily override HOME on Windows, so we
-        // test the schema path directly via a raw Connection.
-        let _ = dir; // keep alive
-        let store = SqliteStore::new();
-        f(&store);
+        conn
     }
 
     #[test]
-    fn uuid_v4_is_different_each_call() {
-        let a = uuid_v4();
-        let b = uuid_v4();
-        // Not guaranteed but extremely unlikely to collide.
-        assert_ne!(a, b);
+    fn insert_then_get_roundtrips_an_item() {
+        let conn = mem_conn();
+        let mut item = MemoryItem::new(MemoryType::Decision, Scope::Project, Source::UserExplicit, Status::Active);
+        item.summary = Some("usar bge-m3 para embeddings".into());
+        item.project_id = Some("ultron".into());
+        item.importance = 0.9;
+        insert_item(&conn, &item).unwrap();
+
+        let got = get_item(&conn, &item.id).unwrap().expect("item exists");
+        assert_eq!(got.id, item.id);
+        assert_eq!(got.kind, MemoryType::Decision);
+        assert_eq!(got.status, Status::Active);
+        assert_eq!(got.project_id.as_deref(), Some("ultron"));
+        assert!((got.importance - 0.9).abs() < 1e-6);
     }
 
     #[test]
-    fn uuid_v4_format_looks_right() {
-        let id = uuid_v4();
-        let parts: Vec<&str> = id.split('-').collect();
-        assert_eq!(parts.len(), 5, "UUID must have 5 dash-separated groups");
+    fn search_only_returns_active_items() {
+        let conn = mem_conn();
+        let mut active = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        active.summary = Some("oauth refactor decision".into());
+        insert_item(&conn, &active).unwrap();
+
+        let mut rejected = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Rejected);
+        rejected.summary = Some("oauth refactor decision".into());
+        insert_item(&conn, &rejected).unwrap();
+
+        let hits = search_items(&conn, "oauth", Status::Active, 10).unwrap();
+        assert_eq!(hits.len(), 1, "rejected items must not surface in active search");
+        assert_eq!(hits[0].id, active.id);
     }
 
     #[test]
-    fn import_kg_jsonl_does_not_panic_on_empty_graph() {
-        // kg.jsonl may not exist in CI — import_kg_jsonl must not panic.
-        let dir = tempfile::tempdir().expect("tempdir");
-        let db_path = dir.path().join("brain.db");
-        let conn = Connection::open(&db_path).expect("open");
-        apply_schema(&conn).expect("schema");
-        // Calling import is best-effort; we just verify it returns without panic.
-        let _ = import_kg_jsonl(&conn);
+    fn deleted_item_is_gone() {
+        let conn = mem_conn();
+        let item = MemoryItem::new(MemoryType::Task, Scope::Session, Source::AssistantInferred, Status::Active);
+        insert_item(&conn, &item).unwrap();
+        delete_item(&conn, &item.id).unwrap();
+        assert!(get_item(&conn, &item.id).unwrap().is_none());
+        assert!(matches!(delete_item(&conn, &item.id), Err(MemoryError::NotFound(_))));
+    }
+
+    #[test]
+    fn events_are_appended_and_listed() {
+        let conn = mem_conn();
+        let id = "mem-1".to_string();
+        for et in [EventType::Created, EventType::Edited, EventType::Approved] {
+            let ev = MemoryEvent::new(et, Some(id.clone()), Actor::User);
+            insert_event(&conn, &ev).unwrap();
+        }
+        let events = list_events_for(&conn, &id, 10).unwrap();
+        assert_eq!(events.len(), 3);
+    }
+
+    #[test]
+    fn candidate_lifecycle_persists() {
+        let conn = mem_conn();
+        let mut c = MemoryCandidate::new(MemoryType::Decision, Scope::Project);
+        c.proposed_summary = Some("rescatar vault histórico".into());
+        insert_candidate(&conn, &c).unwrap();
+
+        let pending = list_candidates(&conn, CandidateStatus::Pending, 10).unwrap();
+        assert_eq!(pending.len(), 1);
+
+        set_candidate_status(&conn, &c.id, CandidateStatus::Approved).unwrap();
+        assert_eq!(list_candidates(&conn, CandidateStatus::Pending, 10).unwrap().len(), 0);
+        assert_eq!(list_candidates(&conn, CandidateStatus::Approved, 10).unwrap().len(), 1);
     }
 }

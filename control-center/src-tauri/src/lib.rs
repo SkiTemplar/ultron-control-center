@@ -581,6 +581,15 @@ pub fn run() {
                 eprintln!("[ultron] workflow_runs init_db failed: {e}");
             }
 
+            // MEMORY KERNEL Fase A: initialise the canonical memory DB
+            // (~/.ultron/brain.db): memory_items + memory_events +
+            // memory_candidates + FTS5, and best-effort import of kg.jsonl.
+            // This wiring was MISSING before — brain.db was born empty and the
+            // "strong DB" stored nothing. Idempotent. Never panics.
+            if let Err(e) = crate::memory::sqlite_store::SqliteStore::init() {
+                eprintln!("[ultron] memory brain.db init failed: {e}");
+            }
+
             // KIRKARDO 23 P2: migrate legacy workflows-old.json → YAML if present.
             crate::workflow_loader::migrate_legacy_json_if_present();
 
