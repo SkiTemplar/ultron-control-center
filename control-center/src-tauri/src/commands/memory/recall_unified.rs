@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use crate::memory::qdrant_index;
 use crate::memory::sqlite_store as store;
-use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope, Sensitivity, Status};
+use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope, Sensitivity, Source, Status};
 
 const RRF_K: f32 = 60.0; // standard RRF damping constant
 const DEFAULT_LIMIT: usize = 8; // final entries returned
@@ -137,6 +137,14 @@ pub(crate) fn assemble_pack(
                 discarded.push(discard(&format!("project filter ({pid})")));
                 continue;
             }
+        }
+        // Ola 1b: vault = bulk imported historical knowledge (imported_vault,
+        // scope=global, ~92% of the corpus). Under a project filter it floods
+        // every query, so it is OFF by default here (still reachable via
+        // project-less recall). Cuts cross-project noise without a data migration.
+        if project_id.is_some() && item.source == Source::ImportedVault {
+            discarded.push(discard("vault off-by-default under project filter"));
+            continue;
         }
         // Sensitivity gate (Ola 0 / audit top-risk #2): NEVER inject Secret items.
         if item.sensitivity == Sensitivity::Secret {
@@ -398,8 +406,15 @@ mod tests {
         let secret = mk(Status::Active, Scope::Project, Sensitivity::Secret, Some("ultron"), "secret key");
         let cross = mk(Status::Active, Scope::Project, Sensitivity::Internal, Some("otro"), "cross proj");
         let global = mk(Status::Active, Scope::Global, Sensitivity::Internal, None, "global pref");
+        let vault = {
+            let mut it = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ImportedVault, Status::Active);
+            it.summary = Some("vault bulk note".into());
+            it.token_estimate = 20;
+            insert_item(&conn, &it).expect("insert");
+            it.id
+        };
 
-        let ids = [&ok, &rejected, &deprecated, &secret, &cross, &global];
+        let ids = [&ok, &rejected, &deprecated, &secret, &cross, &global, &vault];
         let fused: Vec<FusedHit> = ids
             .iter()
             .enumerate()
@@ -421,6 +436,7 @@ mod tests {
         assert!(!inj.contains(&&deprecated), "deprecated must NOT inject");
         assert!(!inj.contains(&&secret), "secret must NOT inject (audit top-risk #2)");
         assert!(!inj.contains(&&cross), "cross-project must NOT inject");
+        assert!(!inj.contains(&&vault), "vault must be off-by-default under project filter (Ola 1b)");
         assert!(
             discarded.iter().any(|d| d.canonical_id == secret && d.reason.contains("secret")),
             "secret exclusion must be traced in discarded"
