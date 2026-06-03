@@ -1,0 +1,312 @@
+// memory/evals.rs — recall quality harness / golden queries (MEMORY KERNEL)
+//
+// A reproducible, FAIL-SAFE way to measure recall@k against a fixed set of
+// "golden" queries with expected substrings. The harness drives the unified
+// hybrid recall pipeline (`recall_pack`) and reports, per query, whether ANY
+// recovered summary contains ANY of the expected substrings (case-insensitive).
+//
+// Design notes:
+//   - PURE arithmetic (`EvalReport::from_results`, `score_query`) is isolated
+//     from the I/O side (`run`) so the math stays UNIT-TESTABLE without Qdrant,
+//     E5, the network, or API keys.
+//   - Degradation is total: if `recall_pack` errors (Qdrant/E5 offline, brain.db
+//     locked, ...), that query simply scores `hits=0, matched=false`. No panic,
+//     no propagation — a degraded eval is better than a crashed one.
+//   - `default_goldens()` embeds realistic queries for THIS system (memory /
+//     qdrant / recall / decisions / embeddings / orchestrator / sparse) so the
+//     harness ships with a baseline even on a fresh checkout.
+
+use crate::commands::memory::recall_unified::recall_pack;
+
+/// A single golden query: a search string plus the substrings that SHOULD show
+/// up in at least one recovered summary. `expect_any_of` is OR-matched and
+/// case-insensitive, so generic, plausible terms are enough to be robust to
+/// summary wording drift.
+#[derive(Debug, Clone)]
+pub struct GoldenQuery {
+    /// The query string fed to recall.
+    pub query: String,
+    /// Substrings; a hit on ANY one (case-insensitive) marks the query matched.
+    pub expect_any_of: Vec<String>,
+    /// Coarse bucket: "single-term" | "multi-term" | "decision" | "cross-topic".
+    pub category: String,
+}
+
+impl GoldenQuery {
+    /// Convenience constructor that owns its strings.
+    fn new(query: &str, expect_any_of: &[&str], category: &str) -> Self {
+        Self {
+            query: query.to_string(),
+            expect_any_of: expect_any_of.iter().map(|s| s.to_string()).collect(),
+            category: category.to_string(),
+        }
+    }
+}
+
+/// The outcome of evaluating one golden query.
+#[derive(Debug, Clone)]
+pub struct EvalResult {
+    /// The query that was run.
+    pub query: String,
+    /// The category of the originating golden query.
+    pub category: String,
+    /// How many entries recall returned (0 on degradation/empty).
+    pub hits: usize,
+    /// Whether ANY recovered summary contained ANY expected substring.
+    pub matched: bool,
+}
+
+/// Aggregate report over a full golden-query run.
+#[derive(Debug, Clone)]
+pub struct EvalReport {
+    /// Number of golden queries evaluated.
+    pub total: usize,
+    /// Number of queries that matched at least one expected substring.
+    pub matched: usize,
+    /// `matched / total` in `[0.0, 1.0]`; `0.0` when `total == 0`.
+    pub recall_at_k: f32,
+    /// Per-query breakdown, preserving input order.
+    pub per_query: Vec<EvalResult>,
+}
+
+impl EvalReport {
+    /// Build the aggregate report from per-query results. PURE: no I/O, no
+    /// recall — this is the unit-testable arithmetic core. Division-by-zero is
+    /// guarded (empty input yields `recall_at_k = 0.0`).
+    #[must_use]
+    pub fn from_results(per_query: Vec<EvalResult>) -> Self {
+        let total = per_query.len();
+        let matched = per_query.iter().filter(|r| r.matched).count();
+        let recall_at_k = if total == 0 {
+            0.0
+        } else {
+            matched as f32 / total as f32
+        };
+        Self {
+            total,
+            matched,
+            recall_at_k,
+            per_query,
+        }
+    }
+}
+
+/// Case-insensitive OR-match: does ANY summary contain ANY expected substring?
+/// PURE helper, isolated from recall so the matching logic is unit-testable.
+#[must_use]
+fn summaries_match(summaries: &[String], expect_any_of: &[String]) -> bool {
+    if expect_any_of.is_empty() {
+        return false;
+    }
+    let needles: Vec<String> = expect_any_of.iter().map(|s| s.to_lowercase()).collect();
+    summaries.iter().any(|s| {
+        let hay = s.to_lowercase();
+        needles.iter().any(|n| hay.contains(n.as_str()))
+    })
+}
+
+/// The embedded baseline golden set: realistic queries for the ULTRON memory
+/// subsystem, categorized. `expect_any_of` uses generic, plausible substrings
+/// so the set is resilient to summary wording.
+#[must_use]
+pub fn default_goldens() -> Vec<GoldenQuery> {
+    vec![
+        GoldenQuery::new(
+            "qdrant",
+            &["qdrant", "vector", "embedding"],
+            "single-term",
+        ),
+        GoldenQuery::new(
+            "memoria",
+            &["memoria", "memory", "kernel"],
+            "single-term",
+        ),
+        GoldenQuery::new(
+            "embeddings E5 dense",
+            &["embedding", "e5", "dense", "vector"],
+            "multi-term",
+        ),
+        GoldenQuery::new(
+            "recall hibrido RRF",
+            &["recall", "rrf", "hybrid", "hibrido", "fusion"],
+            "multi-term",
+        ),
+        GoldenQuery::new(
+            "busqueda sparse FTS5",
+            &["sparse", "fts5", "bm25", "busqueda"],
+            "multi-term",
+        ),
+        GoldenQuery::new(
+            "decision sobre el modelo de embeddings",
+            &["decision", "bge-m3", "embedding", "modelo"],
+            "decision",
+        ),
+        GoldenQuery::new(
+            "decision arquitectura orquestador",
+            &["decision", "orquestador", "orchestrator", "arquitectura"],
+            "decision",
+        ),
+        GoldenQuery::new(
+            "orquestador Ultron auto-routing",
+            &["orquestador", "orchestrator", "ultron", "routing"],
+            "single-term",
+        ),
+        GoldenQuery::new(
+            "hooks de sesion SessionStart",
+            &["hook", "session", "sessionstart"],
+            "multi-term",
+        ),
+        GoldenQuery::new(
+            "candidato de memoria pendiente de validacion",
+            &["candidate", "candidato", "pending", "pendiente", "inbox"],
+            "multi-term",
+        ),
+        GoldenQuery::new(
+            "qdrant embeddings recall decision",
+            &["qdrant", "embedding", "recall", "decision"],
+            "cross-topic",
+        ),
+        GoldenQuery::new(
+            "memoria sparse orquestador",
+            &["memoria", "sparse", "orquestador", "memory"],
+            "cross-topic",
+        ),
+    ]
+}
+
+/// Evaluate ONE golden query against the live recall pipeline. FAIL-SAFE: a
+/// `recall_pack` error degrades to `hits=0, matched=false` (no panic). This is
+/// the I/O boundary; everything it consumes (`summaries_match`) is pure.
+fn score_query(golden: &GoldenQuery, project_id: Option<&str>, k: usize) -> EvalResult {
+    let (hits, matched) = match recall_pack(&golden.query, k, project_id) {
+        Ok(pack) => {
+            let summaries: Vec<String> = pack
+                .entries
+                .iter()
+                .filter_map(|e| e.summary.clone())
+                .collect();
+            let matched = summaries_match(&summaries, &golden.expect_any_of);
+            (pack.entries.len(), matched)
+        }
+        Err(e) => {
+            // Degrade quietly; a failing source must not abort the eval run.
+            eprintln!("[evals] recall_pack failed for '{}': {e}", golden.query);
+            (0, false)
+        }
+    };
+    EvalResult {
+        query: golden.query.clone(),
+        category: golden.category.clone(),
+        hits,
+        matched,
+    }
+}
+
+/// Run the full embedded golden set against the live recall pipeline and return
+/// the aggregate report. `project_id = None` runs unfiltered (global) recall;
+/// `k` is the recall depth per query. FAIL-SAFE end-to-end: individual query
+/// failures degrade to non-matches rather than aborting the run.
+#[must_use]
+pub fn run(project_id: Option<&str>, k: usize) -> EvalReport {
+    let goldens = default_goldens();
+    let per_query: Vec<EvalResult> = goldens
+        .iter()
+        .map(|g| score_query(g, project_id, k))
+        .collect();
+    EvalReport::from_results(per_query)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mk_result(matched: bool) -> EvalResult {
+        EvalResult {
+            query: "q".to_string(),
+            category: "single-term".to_string(),
+            hits: if matched { 1 } else { 0 },
+            matched,
+        }
+    }
+
+    #[test]
+    fn default_goldens_is_non_empty_and_well_formed() {
+        let goldens = default_goldens();
+        assert!(!goldens.is_empty(), "golden set must not be empty");
+        for g in &goldens {
+            assert!(!g.query.trim().is_empty(), "golden query must not be blank");
+            assert!(
+                !g.expect_any_of.is_empty(),
+                "golden '{}' must have at least one expected substring",
+                g.query
+            );
+            assert!(!g.category.trim().is_empty(), "golden must be categorized");
+        }
+    }
+
+    #[test]
+    fn from_results_computes_recall_at_k_arithmetic() {
+        // 4 results, 3 matched -> recall_at_k = 0.75.
+        let results = vec![
+            mk_result(true),
+            mk_result(true),
+            mk_result(false),
+            mk_result(true),
+        ];
+        let report = EvalReport::from_results(results);
+        assert_eq!(report.total, 4);
+        assert_eq!(report.matched, 3);
+        assert!(
+            (report.recall_at_k - 0.75).abs() < f32::EPSILON,
+            "expected 0.75, got {}",
+            report.recall_at_k
+        );
+        assert_eq!(report.per_query.len(), 4, "per_query must be preserved");
+    }
+
+    #[test]
+    fn from_results_empty_is_zero_not_nan() {
+        let report = EvalReport::from_results(vec![]);
+        assert_eq!(report.total, 0);
+        assert_eq!(report.matched, 0);
+        assert_eq!(report.recall_at_k, 0.0, "empty must be 0.0, never NaN");
+        assert!(!report.recall_at_k.is_nan());
+    }
+
+    #[test]
+    fn from_results_all_matched_is_one() {
+        let report = EvalReport::from_results(vec![mk_result(true), mk_result(true)]);
+        assert!((report.recall_at_k - 1.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn summaries_match_is_case_insensitive_or_match() {
+        let summaries = vec!["Recall hibrido con RRF".to_string()];
+        assert!(
+            summaries_match(&summaries, &["rrf".to_string()]),
+            "lowercase needle must match mixed-case summary"
+        );
+        assert!(
+            summaries_match(&summaries, &["NADA".to_string(), "RECALL".to_string()]),
+            "OR-match: second needle hits"
+        );
+    }
+
+    #[test]
+    fn summaries_match_no_overlap_is_false() {
+        let summaries = vec!["algo totalmente distinto".to_string()];
+        assert!(!summaries_match(&summaries, &["qdrant".to_string()]));
+    }
+
+    #[test]
+    fn summaries_match_empty_inputs_are_false() {
+        assert!(
+            !summaries_match(&[], &["qdrant".to_string()]),
+            "no summaries -> no match"
+        );
+        assert!(
+            !summaries_match(&["hola".to_string()], &[]),
+            "no expectations -> no match"
+        );
+    }
+}

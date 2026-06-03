@@ -157,6 +157,11 @@ pub mod qdrant_index;
 pub mod catalog;
 pub mod service;
 pub mod migrations;
+// Fase D/E (Olas 5/7): cheap-brain LLM tasks, contradiction, reflection, evals.
+pub mod ai_tasks;
+pub mod contradiction;
+pub mod reflection;
+pub mod evals;
 
 // Canonical memory kernel re-exports (Fase A).
 pub use model::{
