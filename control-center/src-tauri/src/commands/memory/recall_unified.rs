@@ -97,6 +97,93 @@ pub fn rrf_fuse(lists: &[Vec<String>], k: f32) -> Vec<(String, f32)> {
     fused
 }
 
+/// Assemble the compact context pack from fused candidates: load each item and
+/// apply the governance filters — result limit, status=active, project scope
+/// (global applies everywhere), sensitivity gate (no Secret), token budget. Pure
+/// over the given connection so the security invariants are UNIT-TESTABLE without
+/// Qdrant/E5. Returns (injected, discarded, total_tokens).
+pub(crate) fn assemble_pack(
+    conn: &rusqlite::Connection,
+    fused: &[FusedHit],
+    limit: usize,
+    project_id: Option<&str>,
+) -> (Vec<RecallEntry>, Vec<DiscardedHit>, i64) {
+    let mut injected: Vec<RecallEntry> = Vec::new();
+    let mut discarded: Vec<DiscardedHit> = Vec::new();
+    let mut total_tokens = 0i64;
+    for fh in fused {
+        let discard = |reason: &str| DiscardedHit {
+            canonical_id: fh.canonical_id.clone(),
+            reason: reason.to_string(),
+        };
+        if injected.len() >= limit {
+            discarded.push(discard("below result limit"));
+            continue;
+        }
+        let item = match store::get_item(conn, &fh.canonical_id) {
+            Ok(Some(it)) => it,
+            _ => {
+                discarded.push(discard("unresolvable (no item)"));
+                continue;
+            }
+        };
+        if item.status != Status::Active {
+            discarded.push(discard(&format!("status={}", item.status.as_str())));
+            continue;
+        }
+        if let Some(pid) = project_id {
+            // Global-scope memories apply everywhere; others must match the project.
+            if item.scope != Scope::Global && item.project_id.as_deref() != Some(pid) {
+                discarded.push(discard(&format!("project filter ({pid})")));
+                continue;
+            }
+        }
+        // Sensitivity gate (Ola 0 / audit top-risk #2): NEVER inject Secret items.
+        if item.sensitivity == Sensitivity::Secret {
+            discarded.push(discard("sensitivity=secret (excluded from context pack)"));
+            continue;
+        }
+        if total_tokens + item.token_estimate > TOKEN_BUDGET && !injected.is_empty() {
+            discarded.push(discard("token budget exceeded"));
+            continue;
+        }
+        // B4: the FIRST item is allowed even if oversized, but its summary is
+        // truncated to the budget so a single huge memory can't blow the pack.
+        let (summary, entry_tokens) = if injected.is_empty() && item.token_estimate > TOKEN_BUDGET {
+            let max_chars = (TOKEN_BUDGET * 4) as usize; // ~4 chars/token; chars() is UTF-8 safe
+            let truncated = item.summary.as_ref().map(|s| {
+                let mut t: String = s.chars().take(max_chars).collect();
+                t.push_str(" …[truncated to budget]");
+                t
+            });
+            (truncated, TOKEN_BUDGET)
+        } else {
+            (item.summary.clone(), item.token_estimate)
+        };
+        total_tokens += entry_tokens;
+        let reason = match (fh.dense_rank, fh.sparse_rank) {
+            (Some(d), Some(s)) => format!("dense#{} + sparse#{}", d + 1, s + 1),
+            (Some(d), None) => format!("dense#{}", d + 1),
+            (None, Some(s)) => format!("sparse#{}", s + 1),
+            (None, None) => "unranked".to_string(),
+        };
+        injected.push(RecallEntry {
+            canonical_id: item.id.clone(),
+            title: item.title.clone(),
+            summary, // compact; full content lazy via get_item
+            scope: item.scope.as_str().to_string(),
+            project_id: item.project_id.clone(),
+            score: fh.rrf_score,
+            dense_rank: fh.dense_rank,
+            sparse_rank: fh.sparse_rank,
+            dense_score: fh.dense_score,
+            reason,
+            token_estimate: entry_tokens,
+        });
+    }
+    (injected, discarded, total_tokens)
+}
+
 /// Core hybrid recall + full trace (Retrieval Inspector). Synchronous; both the
 /// compact `recall` and the verbose `recall_inspect` derive from this so there is
 /// ONE retrieval path. Global-scope items bypass the project filter (they apply
@@ -147,83 +234,10 @@ pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -
             .then_with(|| a.canonical_id.cmp(&b.canonical_id))
     });
 
-    // (4)+(5) load items + build the compact pack under budget; record discards.
+    // (4)+(5) load items + apply governance + budget via the pure assemble_pack
+    // (unit-tested without Qdrant — see tests::assemble_pack_enforces_governance_invariants).
     let conn = store::open_conn().map_err(|e| format!("open brain.db: {e}"))?;
-    let mut injected: Vec<RecallEntry> = Vec::new();
-    let mut discarded: Vec<DiscardedHit> = Vec::new();
-    let mut total_tokens = 0i64;
-    for fh in &fused {
-        let discard = |reason: &str| DiscardedHit {
-            canonical_id: fh.canonical_id.clone(),
-            reason: reason.to_string(),
-        };
-        if injected.len() >= limit {
-            discarded.push(discard("below result limit"));
-            continue;
-        }
-        let item = match store::get_item(&conn, &fh.canonical_id) {
-            Ok(Some(it)) => it,
-            _ => {
-                discarded.push(discard("unresolvable (no item)"));
-                continue;
-            }
-        };
-        if item.status != Status::Active {
-            discarded.push(discard(&format!("status={}", item.status.as_str())));
-            continue;
-        }
-        if let Some(pid) = project_id {
-            // Global-scope memories apply everywhere; others must match the project.
-            if item.scope != Scope::Global && item.project_id.as_deref() != Some(pid) {
-                discarded.push(discard(&format!("project filter ({pid})")));
-                continue;
-            }
-        }
-        // Sensitivity gate (Ola 0 / audit top-risk #2): NEVER inject Secret items
-        // into the context pack — they may carry credentials/PII. Excluded outright
-        // (no opt-in yet) and recorded in the trace as discarded.
-        if item.sensitivity == Sensitivity::Secret {
-            discarded.push(discard("sensitivity=secret (excluded from context pack)"));
-            continue;
-        }
-        if total_tokens + item.token_estimate > TOKEN_BUDGET && !injected.is_empty() {
-            discarded.push(discard("token budget exceeded"));
-            continue;
-        }
-        // B4: the FIRST item is allowed even if oversized, but its summary is
-        // truncated to the budget so a single huge memory can't blow the pack.
-        let (summary, entry_tokens) = if injected.is_empty() && item.token_estimate > TOKEN_BUDGET {
-            let max_chars = (TOKEN_BUDGET * 4) as usize; // ~4 chars/token; chars() is UTF-8 safe
-            let truncated = item.summary.as_ref().map(|s| {
-                let mut t: String = s.chars().take(max_chars).collect();
-                t.push_str(" …[truncated to budget]");
-                t
-            });
-            (truncated, TOKEN_BUDGET)
-        } else {
-            (item.summary.clone(), item.token_estimate)
-        };
-        total_tokens += entry_tokens;
-        let reason = match (fh.dense_rank, fh.sparse_rank) {
-            (Some(d), Some(s)) => format!("dense#{} + sparse#{}", d + 1, s + 1),
-            (Some(d), None) => format!("dense#{}", d + 1),
-            (None, Some(s)) => format!("sparse#{}", s + 1),
-            (None, None) => "unranked".to_string(),
-        };
-        injected.push(RecallEntry {
-            canonical_id: item.id.clone(),
-            title: item.title.clone(),
-            summary, // compact; full content lazy via get_item
-            scope: item.scope.as_str().to_string(),
-            project_id: item.project_id.clone(),
-            score: fh.rrf_score,
-            dense_rank: fh.dense_rank,
-            sparse_rank: fh.sparse_rank,
-            dense_score: fh.dense_score,
-            reason,
-            token_estimate: entry_tokens,
-        });
-    }
+    let (injected, discarded, total_tokens) = assemble_pack(&conn, &fused, limit, project_id);
 
     let mut warnings: Vec<String> = Vec::new();
     if dense_ids.is_empty() {
@@ -354,6 +368,63 @@ mod tests {
     fn rrf_empty_input_is_empty() {
         assert!(rrf_fuse(&[], RRF_K).is_empty());
         assert!(rrf_fuse(&[vec![]], RRF_K).is_empty());
+    }
+
+    // Governance invariants of the recall pipeline, unit-tested WITHOUT Qdrant/E5
+    // (Ola 3 D2): rejected/deprecated/secret/cross-project NEVER reach the pack;
+    // active in-project AND global-scope items DO. Protects Ola 0 + Ola 1a in CI.
+    #[test]
+    fn assemble_pack_enforces_governance_invariants() {
+        use crate::memory::model::MemoryItem;
+        use crate::memory::sqlite_store::{apply_schema, insert_item};
+        use crate::memory::{MemoryType, Sensitivity, Source};
+
+        let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+        apply_schema(&conn).expect("schema");
+
+        let mut mk = |status: Status, scope: Scope, sens: Sensitivity, project: Option<&str>, sm: &str| {
+            let mut it = MemoryItem::new(MemoryType::Fact, scope, Source::ToolObserved, status);
+            it.summary = Some(sm.to_string());
+            it.sensitivity = sens;
+            it.project_id = project.map(str::to_string);
+            it.token_estimate = 20;
+            insert_item(&conn, &it).expect("insert");
+            it.id
+        };
+
+        let ok = mk(Status::Active, Scope::Project, Sensitivity::Internal, Some("ultron"), "ok item");
+        let rejected = mk(Status::Rejected, Scope::Project, Sensitivity::Internal, Some("ultron"), "rejected");
+        let deprecated = mk(Status::Deprecated, Scope::Project, Sensitivity::Internal, Some("ultron"), "deprecated");
+        let secret = mk(Status::Active, Scope::Project, Sensitivity::Secret, Some("ultron"), "secret key");
+        let cross = mk(Status::Active, Scope::Project, Sensitivity::Internal, Some("otro"), "cross proj");
+        let global = mk(Status::Active, Scope::Global, Sensitivity::Internal, None, "global pref");
+
+        let ids = [&ok, &rejected, &deprecated, &secret, &cross, &global];
+        let fused: Vec<FusedHit> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| FusedHit {
+                canonical_id: (*id).clone(),
+                rrf_score: 1.0 - i as f32 * 0.01,
+                dense_rank: Some(i),
+                sparse_rank: None,
+                dense_score: Some(0.5),
+            })
+            .collect();
+
+        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"));
+        let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
+
+        assert!(inj.contains(&&ok), "active in-project item must inject");
+        assert!(inj.contains(&&global), "global-scope item must inject under project filter");
+        assert!(!inj.contains(&&rejected), "rejected must NOT inject");
+        assert!(!inj.contains(&&deprecated), "deprecated must NOT inject");
+        assert!(!inj.contains(&&secret), "secret must NOT inject (audit top-risk #2)");
+        assert!(!inj.contains(&&cross), "cross-project must NOT inject");
+        assert!(
+            discarded.iter().any(|d| d.canonical_id == secret && d.reason.contains("secret")),
+            "secret exclusion must be traced in discarded"
+        );
     }
 
     // ---------------------------------------------------------------------
