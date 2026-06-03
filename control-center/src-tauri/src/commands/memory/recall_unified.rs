@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use crate::memory::qdrant_index;
 use crate::memory::sqlite_store as store;
-use crate::memory::{MemoryService, Status};
+use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope, Status};
 
 const RRF_K: f32 = 60.0; // standard RRF damping constant
 const DEFAULT_LIMIT: usize = 8; // final entries returned
@@ -26,10 +26,13 @@ const TOKEN_BUDGET: i64 = 1500; // context-pack budget (summaries only)
 pub struct RecallEntry {
     pub canonical_id: String,
     pub title: Option<String>,
-    pub summary: Option<String>,
+    pub summary: Option<String>, // compact form injected; full content is lazy-loaded
     pub scope: String,
     pub project_id: Option<String>,
-    pub score: f32,
+    pub score: f32, // RRF fused score
+    pub dense_rank: Option<usize>,
+    pub sparse_rank: Option<usize>,
+    pub reason: String, // "why this memory" — e.g. "dense#2 + sparse#5"
     pub token_estimate: i64,
 }
 
@@ -39,6 +42,38 @@ pub struct RecallPack {
     pub total_tokens: i64,
     pub dense_hits: usize,
     pub sparse_hits: usize,
+}
+
+/// One fused candidate with its per-source ranks (Retrieval Inspector).
+#[derive(Debug, Clone, Serialize)]
+pub struct FusedHit {
+    pub canonical_id: String,
+    pub rrf_score: f32,
+    pub dense_rank: Option<usize>,
+    pub sparse_rank: Option<usize>,
+}
+
+/// A candidate that was retrieved but NOT injected, with the reason why.
+#[derive(Debug, Clone, Serialize)]
+pub struct DiscardedHit {
+    pub canonical_id: String,
+    pub reason: String,
+}
+
+/// Full per-turn retrieval trace — the Retrieval Inspector / "why this memory?".
+#[derive(Debug, Clone, Serialize)]
+pub struct RecallTrace {
+    pub query: String,
+    pub project_filter: Option<String>,
+    pub token_budget: i64,
+    pub dense_ids: Vec<String>,  // E5/Qdrant order
+    pub sparse_ids: Vec<String>, // FTS5 order
+    pub fused: Vec<FusedHit>,    // after RRF
+    pub injected: Vec<RecallEntry>,
+    pub discarded: Vec<DiscardedHit>,
+    pub total_tokens: i64,
+    pub lazy_load_ids: Vec<String>, // canonical_ids whose full content can be loaded on demand
+    pub warnings: Vec<String>,
 }
 
 /// Reciprocal Rank Fusion. Each list is canonical_ids ordered best-first.
@@ -60,7 +95,142 @@ pub fn rrf_fuse(lists: &[Vec<String>], k: f32) -> Vec<(String, f32)> {
     fused
 }
 
-/// Unified hybrid recall. `project_id = None` means no project filter.
+/// Core hybrid recall + full trace (Retrieval Inspector). Synchronous; both the
+/// compact `recall` and the verbose `recall_inspect` derive from this so there is
+/// ONE retrieval path. Global-scope items bypass the project filter (they apply
+/// everywhere). Emits a `Retrieved` audit event.
+fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -> Result<RecallTrace, String> {
+    use std::collections::HashMap;
+
+    // (1) DENSE — E5 query embedding + Qdrant filtered k-NN (empty if offline).
+    let dense_ids = qdrant_index::search_dense(query, FANOUT_K as u32, project_id);
+    // (2) SPARSE — FTS5/bm25 over ACTIVE items.
+    let sparse_items =
+        MemoryService::search_active(query, FANOUT_K).map_err(|e| format!("sparse search: {e}"))?;
+    let sparse_ids: Vec<String> = sparse_items.iter().map(|it| it.id.clone()).collect();
+
+    let dense_rank: HashMap<&str, usize> =
+        dense_ids.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
+    let sparse_rank: HashMap<&str, usize> =
+        sparse_ids.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
+
+    // (3) RRF fusion + dedup by canonical_id.
+    let fused: Vec<FusedHit> = rrf_fuse(&[dense_ids.clone(), sparse_ids.clone()], RRF_K)
+        .into_iter()
+        .map(|(id, score)| FusedHit {
+            dense_rank: dense_rank.get(id.as_str()).copied(),
+            sparse_rank: sparse_rank.get(id.as_str()).copied(),
+            canonical_id: id,
+            rrf_score: score,
+        })
+        .collect();
+
+    // (4)+(5) load items + build the compact pack under budget; record discards.
+    let conn = store::open_conn().map_err(|e| format!("open brain.db: {e}"))?;
+    let mut injected: Vec<RecallEntry> = Vec::new();
+    let mut discarded: Vec<DiscardedHit> = Vec::new();
+    let mut total_tokens = 0i64;
+    for fh in &fused {
+        let discard = |reason: &str| DiscardedHit {
+            canonical_id: fh.canonical_id.clone(),
+            reason: reason.to_string(),
+        };
+        if injected.len() >= limit {
+            discarded.push(discard("below result limit"));
+            continue;
+        }
+        let item = match store::get_item(&conn, &fh.canonical_id) {
+            Ok(Some(it)) => it,
+            _ => {
+                discarded.push(discard("unresolvable (no item)"));
+                continue;
+            }
+        };
+        if item.status != Status::Active {
+            discarded.push(discard(&format!("status={}", item.status.as_str())));
+            continue;
+        }
+        if let Some(pid) = project_id {
+            // Global-scope memories apply everywhere; others must match the project.
+            if item.scope != Scope::Global && item.project_id.as_deref() != Some(pid) {
+                discarded.push(discard(&format!("project filter ({pid})")));
+                continue;
+            }
+        }
+        if total_tokens + item.token_estimate > TOKEN_BUDGET && !injected.is_empty() {
+            discarded.push(discard("token budget exceeded"));
+            continue;
+        }
+        total_tokens += item.token_estimate;
+        let reason = match (fh.dense_rank, fh.sparse_rank) {
+            (Some(d), Some(s)) => format!("dense#{} + sparse#{}", d + 1, s + 1),
+            (Some(d), None) => format!("dense#{}", d + 1),
+            (None, Some(s)) => format!("sparse#{}", s + 1),
+            (None, None) => "unranked".to_string(),
+        };
+        injected.push(RecallEntry {
+            canonical_id: item.id.clone(),
+            title: item.title.clone(),
+            summary: item.summary.clone(), // compact; full content lazy via get_item
+            scope: item.scope.as_str().to_string(),
+            project_id: item.project_id.clone(),
+            score: fh.rrf_score,
+            dense_rank: fh.dense_rank,
+            sparse_rank: fh.sparse_rank,
+            reason,
+            token_estimate: item.token_estimate,
+        });
+    }
+
+    let mut warnings: Vec<String> = Vec::new();
+    if dense_ids.is_empty() {
+        warnings.push("dense recall empty — E5/Qdrant unavailable; sparse-only".to_string());
+    }
+    if let Ok(stats) = MemoryService::stats() {
+        if stats.candidates_pending > 0 {
+            warnings.push(format!(
+                "{} memory candidate(s) await validation in the inbox",
+                stats.candidates_pending
+            ));
+        }
+    }
+    let lazy_load_ids: Vec<String> = injected.iter().map(|e| e.canonical_id.clone()).collect();
+
+    // Audit: record a compact Retrieved event (best-effort).
+    let ev = MemoryEvent::new(EventType::Retrieved, None, Actor::System)
+        .with_reason(format!(
+            "recall '{query}' -> {} injected / {} fused",
+            injected.len(),
+            fused.len()
+        ))
+        .with_after(
+            serde_json::json!({
+                "query": query,
+                "injected_ids": lazy_load_ids,
+                "total_tokens": total_tokens,
+                "dense_hits": dense_ids.len(),
+                "sparse_hits": sparse_ids.len(),
+            })
+            .to_string(),
+        );
+    let _ = store::insert_event(&conn, &ev);
+
+    Ok(RecallTrace {
+        query: query.to_string(),
+        project_filter: project_id.map(str::to_string),
+        token_budget: TOKEN_BUDGET,
+        dense_ids,
+        sparse_ids,
+        fused,
+        injected,
+        discarded,
+        total_tokens,
+        lazy_load_ids,
+        warnings,
+    })
+}
+
+/// Unified hybrid recall — compact context pack. `project_id = None` = no filter.
 #[tauri::command]
 pub async fn recall(
     query: String,
@@ -69,60 +239,30 @@ pub async fn recall(
 ) -> Result<RecallPack, String> {
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
     tauri::async_runtime::spawn_blocking(move || {
-        // (1) DENSE — E5 query embedding + Qdrant filtered k-NN (empty if offline).
-        let dense_ids = qdrant_index::search_dense(&query, FANOUT_K as u32, project_id.as_deref());
-
-        // (2) SPARSE — FTS5/bm25 over ACTIVE items.
-        let sparse_items = MemoryService::search_active(&query, FANOUT_K)
-            .map_err(|e| format!("sparse search: {e}"))?;
-        let sparse_ids: Vec<String> = sparse_items.iter().map(|it| it.id.clone()).collect();
-
-        // (3) RRF fusion + dedup by canonical_id.
-        let fused = rrf_fuse(&[dense_ids.clone(), sparse_ids.clone()], RRF_K);
-
-        // (4)+(5) load items + build the compact context pack under budget.
-        let conn = store::open_conn().map_err(|e| format!("open brain.db: {e}"))?;
-        let mut entries: Vec<RecallEntry> = Vec::new();
-        let mut total_tokens = 0i64;
-        for (canonical_id, score) in fused {
-            if entries.len() >= final_limit {
-                break;
-            }
-            let item = match store::get_item(&conn, &canonical_id) {
-                Ok(Some(it)) => it,
-                _ => continue, // orphan dense id (no active item) -> skip
-            };
-            if item.status != Status::Active {
-                continue;
-            }
-            if let Some(pid) = &project_id {
-                if item.project_id.as_deref() != Some(pid.as_str()) {
-                    continue;
-                }
-            }
-            if total_tokens + item.token_estimate > TOKEN_BUDGET && !entries.is_empty() {
-                break;
-            }
-            total_tokens += item.token_estimate;
-            entries.push(RecallEntry {
-                canonical_id: item.id,
-                title: item.title,
-                summary: item.summary, // compact form, never full content
-                scope: item.scope.as_str().to_string(),
-                project_id: item.project_id,
-                score,
-                token_estimate: item.token_estimate,
-            });
-        }
+        let t = build_trace(&query, final_limit, project_id.as_deref())?;
         Ok(RecallPack {
-            entries,
-            total_tokens,
-            dense_hits: dense_ids.len(),
-            sparse_hits: sparse_ids.len(),
+            dense_hits: t.dense_ids.len(),
+            sparse_hits: t.sparse_ids.len(),
+            total_tokens: t.total_tokens,
+            entries: t.injected,
         })
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Retrieval Inspector: the full per-turn trace (query, filters, dense/sparse
+/// ranks, RRF scores, discarded+reason, injected+reason, lazy-load, warnings).
+#[tauri::command]
+pub async fn recall_inspect(
+    query: String,
+    limit: Option<u32>,
+    project_id: Option<String>,
+) -> Result<RecallTrace, String> {
+    let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
+    tauri::async_runtime::spawn_blocking(move || build_trace(&query, final_limit, project_id.as_deref()))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 /// Rebuild the dense index (`ultron_memory`) from all ACTIVE items.

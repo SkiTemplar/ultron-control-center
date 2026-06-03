@@ -782,4 +782,65 @@ mod tests {
         assert_eq!(list_candidates(&conn, CandidateStatus::Pending, 10).unwrap().len(), 0);
         assert_eq!(list_candidates(&conn, CandidateStatus::Approved, 10).unwrap().len(), 1);
     }
+
+    #[test]
+    fn rejected_and_quarantined_items_excluded_from_active_search() {
+        // "do not use again" (rejected) and quarantine must drop items from recall.
+        let conn = mem_conn();
+        for status in [Status::Rejected, Status::Quarantined, Status::Deprecated] {
+            let mut it = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, status);
+            it.summary = Some("oauth token refresh edge case".into());
+            insert_item(&conn, &it).unwrap();
+        }
+        let mut active = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        active.summary = Some("oauth token refresh edge case".into());
+        insert_item(&conn, &active).unwrap();
+
+        let hits = search_items(&conn, "oauth", Status::Active, 20).unwrap();
+        assert_eq!(hits.len(), 1, "only the ACTIVE item may surface in recall");
+        assert_eq!(hits[0].id, active.id);
+    }
+
+    #[test]
+    fn approving_a_candidate_makes_it_findable_as_active() {
+        // Mirrors MemoryService::approve_candidate at the store layer.
+        let conn = mem_conn();
+        let mut c = MemoryCandidate::new(MemoryType::Decision, Scope::Project);
+        c.proposed_summary = Some("usar MultilingualE5Large para recall".into());
+        insert_candidate(&conn, &c).unwrap();
+        assert!(search_items(&conn, "MultilingualE5Large", Status::Active, 10).unwrap().is_empty());
+
+        let item = c.to_item(Status::Active, Source::UserExplicit);
+        insert_item(&conn, &item).unwrap();
+        set_candidate_status(&conn, &c.id, CandidateStatus::Approved).unwrap();
+
+        let hits = search_items(&conn, "MultilingualE5Large", Status::Active, 10).unwrap();
+        assert_eq!(hits.len(), 1, "an approved candidate must appear in active recall");
+    }
+
+    #[test]
+    fn candidate_edit_via_replace_updates_fields() {
+        let conn = mem_conn();
+        let mut c = MemoryCandidate::new(MemoryType::Fact, Scope::Global);
+        c.proposed_summary = Some("original".into());
+        insert_candidate(&conn, &c).unwrap();
+        c.proposed_summary = Some("editado".into());
+        insert_candidate(&conn, &c).unwrap(); // INSERT OR REPLACE
+        let got = get_candidate(&conn, &c.id).unwrap().unwrap();
+        assert_eq!(got.proposed_summary.as_deref(), Some("editado"));
+        assert_eq!(list_candidates(&conn, CandidateStatus::Pending, 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn relabel_changes_scope_and_type_persist() {
+        let conn = mem_conn();
+        let mut it = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::AssistantInferred, Status::Active);
+        insert_item(&conn, &it).unwrap();
+        it.scope = Scope::Project;
+        it.kind = MemoryType::Architecture;
+        insert_item(&conn, &it).unwrap();
+        let got = get_item(&conn, &it.id).unwrap().unwrap();
+        assert_eq!(got.scope, Scope::Project);
+        assert_eq!(got.kind, MemoryType::Architecture);
+    }
 }

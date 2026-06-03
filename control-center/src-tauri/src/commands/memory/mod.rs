@@ -9,6 +9,7 @@
 //   memory_graph  — Unified search + tree snapshot across all layers
 
 pub mod ecc_memory;
+pub mod inbox;
 pub mod kg;
 pub mod mem0;
 pub mod memory_graph;
@@ -19,6 +20,7 @@ pub mod recall_hybrid;
 pub mod recall_unified;
 
 pub use ecc_memory::*;
+pub use inbox::*;
 pub use kg::*;
 pub use mem0::*;
 pub use memory_graph::*;

@@ -74,6 +74,12 @@ pub fn reindex_all() -> Result<(usize, usize), MemoryError> {
     Ok((ok, err))
 }
 
+/// Retire an item from the dense index (for rejected/deprecated/quarantined).
+/// Best-effort: a missing point/collection is not an error.
+pub fn remove_item(id: &str) -> Result<(), String> {
+    crate::qdrant::delete_point(COLLECTION, id)
+}
+
 /// Dense recall: embed the query (E5 `query:`), filter `status = active`
 /// (+ optional project), return canonical_ids best-first. Returns an empty vec
 /// when E5 is unavailable (zero vector) or Qdrant is offline, so the caller

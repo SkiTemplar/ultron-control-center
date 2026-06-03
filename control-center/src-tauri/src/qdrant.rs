@@ -357,6 +357,36 @@ pub fn upsert_e5(
     Ok(())
 }
 
+/// Delete a point by id from a collection (best-effort retire-from-index, used
+/// by "do not use again" / deprecate). A missing collection/point is not an error.
+pub fn delete_point(collection: &str, id: &str) -> Result<(), String> {
+    let base = qdrant_base_url();
+    let client = http_client()?;
+    let id_value: serde_json::Value = if let Ok(n) = id.parse::<u64>() {
+        serde_json::Value::Number(n.into())
+    } else {
+        serde_json::Value::String(id.to_string())
+    };
+    let url = format!("{base}/collections/{collection}/points/delete");
+    let body = serde_json::json!({ "points": [id_value] });
+    let resp = client.post(&url).json(&body).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant delete: {e}")
+        }
+    })?;
+    if resp.status().as_u16() == 404 {
+        return Ok(());
+    }
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let text = resp.text().unwrap_or_default();
+        return Err(format!("qdrant delete {status}: {text}"));
+    }
+    Ok(())
+}
+
 /// k-NN search with a PRECOMPUTED vector (from `embed_e5`) + optional payload
 /// filter. Returns up to `k` hits. Unlike `search`, this does not embed the
 /// query itself — so the E5 `query:` prefix is applied by the caller.

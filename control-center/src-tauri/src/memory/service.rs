@@ -11,8 +11,8 @@
 use serde::Serialize;
 
 use super::model::{
-    Actor, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, MemoryItem, Source, Status,
-    estimate_tokens, now_millis,
+    Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, MemoryItem,
+    MemoryType, Scope, Source, Status, estimate_tokens, now_millis,
 };
 use super::sqlite_store as store;
 use super::MemoryError;
@@ -38,12 +38,65 @@ impl MemoryService {
     /// This is the ONLY way non-service code introduces memory.
     pub fn create_candidate(candidate: &MemoryCandidate) -> Result<String, MemoryError> {
         let conn = store::open_conn()?;
-        store::insert_candidate(&conn, candidate)?;
+        let mut cand = candidate.clone();
+
+        // Basic FTS dedupe: flag near-identical ACTIVE items as duplicates so the
+        // inbox can merge instead of creating a redundant memory. (Semantic dedupe
+        // + contradiction detection via embeddings/AI routing is Fase D — TODO below.)
+        if let Some(summary) = cand.proposed_summary.clone() {
+            if !summary.trim().is_empty() {
+                if let Ok(similar) = store::search_items(&conn, &summary, Status::Active, 3) {
+                    let dups: Vec<String> = similar.into_iter().map(|i| i.id).collect();
+                    if !dups.is_empty() {
+                        cand.duplicate_candidates = dups;
+                        cand.recommended_action = CandidateAction::Merge;
+                    }
+                }
+            }
+        }
+        // TODO(Fase D — contradiction_detector): embed proposed_summary, compare
+        // against active items of the same scope/type via qdrant_index::search_dense;
+        // on semantic conflict set `contradiction_candidates` +
+        // recommended_action=Quarantine and NEVER auto-approve (route to inbox diff).
+
+        store::insert_candidate(&conn, &cand)?;
         let ev = MemoryEvent::new(EventType::Created, None, Actor::System)
-            .with_reason(format!("candidate {} proposed", candidate.id))
-            .with_after(serde_json::to_string(candidate).unwrap_or_default());
+            .with_reason(format!("candidate {} proposed", cand.id))
+            .with_after(serde_json::to_string(&cand).unwrap_or_default());
         let _ = store::insert_event(&conn, &ev);
-        Ok(candidate.id.clone())
+        Ok(cand.id.clone())
+    }
+
+    /// Edit a pending candidate's proposed fields before approval. `None` leaves
+    /// a field unchanged.
+    pub fn edit_candidate(
+        id: &str,
+        summary: Option<String>,
+        content: Option<String>,
+        importance: Option<f32>,
+        confidence: Option<f32>,
+    ) -> Result<MemoryCandidate, MemoryError> {
+        let conn = store::open_conn()?;
+        let mut c = store::get_candidate(&conn, id)?
+            .ok_or_else(|| MemoryError::NotFound(format!("candidate {id}")))?;
+        if summary.is_some() {
+            c.proposed_summary = summary;
+        }
+        if content.is_some() {
+            c.proposed_content = content;
+        }
+        if let Some(i) = importance {
+            c.importance = i.clamp(0.0, 1.0);
+        }
+        if let Some(cf) = confidence {
+            c.confidence = cf.clamp(0.0, 1.0);
+        }
+        store::insert_candidate(&conn, &c)?; // INSERT OR REPLACE
+        let ev = MemoryEvent::new(EventType::Edited, None, Actor::User)
+            .with_reason(format!("candidate {id} edited"))
+            .with_after(serde_json::to_string(&c).unwrap_or_default());
+        let _ = store::insert_event(&conn, &ev);
+        Ok(c)
     }
 
     /// List candidates awaiting a human (or policy) decision.
@@ -194,6 +247,32 @@ impl MemoryService {
     /// Convenience: deprecate an item (no longer recall-eligible).
     pub fn deprecate(id: &str, actor: Actor, reason: Option<String>) -> Result<MemoryItem, MemoryError> {
         Self::set_status(id, Status::Deprecated, actor, reason)
+    }
+
+    /// Change an item's scope and/or type (inbox "change scope / change type").
+    pub fn relabel(
+        id: &str,
+        scope: Option<Scope>,
+        kind: Option<MemoryType>,
+        actor: Actor,
+    ) -> Result<MemoryItem, MemoryError> {
+        let conn = store::open_conn()?;
+        let mut item = store::get_item(&conn, id)?
+            .ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
+        let before = serde_json::to_string(&item).unwrap_or_default();
+        if let Some(s) = scope {
+            item.scope = s;
+        }
+        if let Some(k) = kind {
+            item.kind = k;
+        }
+        item.updated_at = now_millis();
+        store::insert_item(&conn, &item)?;
+        let ev = MemoryEvent::new(EventType::Edited, Some(item.id.clone()), actor)
+            .with_before(before)
+            .with_after(serde_json::to_string(&item).unwrap_or_default());
+        let _ = store::insert_event(&conn, &ev);
+        Ok(item)
     }
 
     /// Replace `old_id` with a new active item, marking the old one deprecated

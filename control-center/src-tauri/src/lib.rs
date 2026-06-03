@@ -270,7 +270,20 @@ pub fn run() {
             commands::memory::memory_migrate,
             // -- MEMORY KERNEL Fase B: unified hybrid recall + dense reindex --
             commands::memory::recall,
+            commands::memory::recall_inspect,
             commands::memory::memory_reindex,
+            // -- MEMORY KERNEL: Memory Inbox + governance + Retrieval Inspector --
+            commands::memory::memory_inbox_list,
+            commands::memory::memory_candidate_approve,
+            commands::memory::memory_candidate_reject,
+            commands::memory::memory_candidate_edit,
+            commands::memory::memory_item_edit,
+            commands::memory::memory_item_relabel,
+            commands::memory::memory_item_deprecate,
+            commands::memory::memory_item_quarantine,
+            commands::memory::memory_do_not_use,
+            commands::memory::memory_item_history,
+            commands::memory::memory_stats,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
