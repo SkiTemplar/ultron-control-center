@@ -272,3 +272,26 @@ cockpit/projects/*/decisions-pending.draining
 # campana fullize: sidecar proxy vendor + backups kanban
 /proxy/
 .tmp/kanban-backup-*.json
+
+# === 2026-06-04: higiene fullize — runtime de memoria + colas + sidecars ===
+# (el repo se publica; nada de DBs/binarios runtime ni backups en el historial)
+# brain.db = DB canonica de memoria (runtime, per-maquina). NUNCA versionar.
+brain.db
+brain.db-journal
+brain.db-wal
+brain.db-shm
+brain.db.bak-*
+# Sidecar ultron-memory compilado (regenerable: cargo build / install-sidecars)
+bin/ultron-memory.exe
+bin/*.exe
+# Cola de Run Batch (runtime per-instalacion)
+batches/queue.jsonl
+batches/queue-pending.jsonl
+batches/queued-*.ps1
+# Estado runtime del proxy/router/tabs/workflows (lo reescribe la app)
+cockpit/proxy-state.json
+cockpit/open-tabs.json
+cockpit/workflow-runs.db
+cockpit/workflow-runs.db-journal
+cockpit/workflow-runs.db-wal
+cockpit/workflow-runs.db-shm
