@@ -374,6 +374,26 @@ pub(crate) fn count_items_by_status(conn: &Connection, status: Status) -> i64 {
     .unwrap_or(0)
 }
 
+/// Count items by provenance — used by the ETL for source-level idempotency.
+pub(crate) fn count_by_source(conn: &Connection, source: Source) -> i64 {
+    conn.query_row(
+        "SELECT COUNT(*) FROM memory_items WHERE source = ?1",
+        params![source.as_str()],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+/// True when an item already carries this `qdrant_point_id` (per-point ETL dedup).
+pub(crate) fn item_exists_by_qdrant_id(conn: &Connection, qid: &str) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM memory_items WHERE qdrant_point_id = ?1 LIMIT 1",
+        params![qid],
+        |_| Ok(()),
+    )
+    .is_ok()
+}
+
 // ---------------------------------------------------------------------------
 // memory_events (append-only)
 // ---------------------------------------------------------------------------

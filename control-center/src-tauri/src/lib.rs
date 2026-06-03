@@ -266,6 +266,8 @@ pub fn run() {
             // -- MEMORY CORE: hybrid recall + health (D5) --
             commands::memory::recall_hybrid,
             commands::memory::memory_health,
+            // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
+            commands::memory::memory_migrate,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,

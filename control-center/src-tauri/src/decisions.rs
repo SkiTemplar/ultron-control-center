@@ -175,7 +175,7 @@ fn new_decision_id() -> String {
 // Persistence: read / write all records for a project
 // ---------------------------------------------------------------------------
 
-fn read_all(project_id: &str) -> Result<Vec<DecisionRecord>, String> {
+pub(crate) fn read_all(project_id: &str) -> Result<Vec<DecisionRecord>, String> {
     let path = decisions_path(project_id)?;
     if !path.exists() {
         return Ok(Vec::new());

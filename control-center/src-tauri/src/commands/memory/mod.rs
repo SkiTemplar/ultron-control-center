@@ -13,6 +13,7 @@ pub mod kg;
 pub mod mem0;
 pub mod memory_graph;
 pub mod memory_status;
+pub mod migrate;
 pub mod recall;
 pub mod recall_hybrid;
 
@@ -21,5 +22,6 @@ pub use kg::*;
 pub use mem0::*;
 pub use memory_graph::*;
 pub use memory_status::*;
+pub use migrate::*;
 pub use recall::*;
 pub use recall_hybrid::*;

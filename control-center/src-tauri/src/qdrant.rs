@@ -250,6 +250,71 @@ pub fn upsert_point(
 /// up to `k` results ordered by descending score.
 ///
 /// Returns `Err` with a friendly message when Qdrant is unreachable.
+/// A raw point fetched from Qdrant (id + payload, no vector).
+#[derive(Debug, Clone)]
+pub struct QdrantPoint {
+    pub id: String,
+    pub payload: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Scroll up to `limit` points (payload only) from `collection`. Used by the
+/// memory ETL (Fase A3) to migrate `ultron_sessions` into the canonical store.
+/// Returns an empty vec when the collection does not exist.
+pub fn scroll(collection: &str, limit: u32) -> Result<Vec<QdrantPoint>, String> {
+    let base = qdrant_base_url();
+    let client = http_client()?;
+    let url = format!("{base}/collections/{collection}/points/scroll");
+    let body = serde_json::json!({
+        "limit": limit,
+        "with_payload": true,
+        "with_vector": false
+    });
+    let resp = client.post(&url).json(&body).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant scroll: {e}")
+        }
+    })?;
+    if resp.status().as_u16() == 404 {
+        return Ok(Vec::new());
+    }
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let text = resp.text().unwrap_or_default();
+        return Err(format!("qdrant scroll {status}: {text}"));
+    }
+    #[derive(Deserialize)]
+    struct ScrollResponse {
+        result: ScrollResult,
+    }
+    #[derive(Deserialize)]
+    struct ScrollResult {
+        points: Vec<RawPoint>,
+    }
+    #[derive(Deserialize)]
+    struct RawPoint {
+        id: serde_json::Value,
+        #[serde(default)]
+        payload: serde_json::Map<String, serde_json::Value>,
+    }
+    let parsed: ScrollResponse = resp
+        .json()
+        .map_err(|e| format!("qdrant scroll parse: {e}"))?;
+    Ok(parsed
+        .result
+        .points
+        .into_iter()
+        .map(|p| QdrantPoint {
+            id: match p.id {
+                serde_json::Value::String(s) => s,
+                other => other.to_string(),
+            },
+            payload: p.payload,
+        })
+        .collect())
+}
+
 pub fn search(collection: &str, query: &str, k: u32) -> Result<Vec<QdrantHit>, String> {
     let base = qdrant_base_url();
 

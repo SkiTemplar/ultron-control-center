@@ -154,6 +154,7 @@ pub mod model;
 pub mod sqlite_store;
 pub mod qdrant_store;
 pub mod service;
+pub mod migrations;
 
 // Canonical memory kernel re-exports (Fase A).
 pub use model::{
@@ -161,6 +162,7 @@ pub use model::{
     MemoryType, Scope, Sensitivity, Source, Stability, Status,
 };
 pub use service::{MemoryService, MemoryStats};
+pub use migrations::MigrationReport;
 
 /// Health status returned by `MemoryStore::health`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
