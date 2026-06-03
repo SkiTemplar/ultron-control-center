@@ -144,13 +144,30 @@ pub fn init_db() -> Result<(), String> {
             steps_completed INTEGER NOT NULL DEFAULT 0,
             steps_total     INTEGER NOT NULL DEFAULT 0,
             output_summary  TEXT    NOT NULL DEFAULT '',
-            error           TEXT
+            error           TEXT,
+            state_json      TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_workflow_id ON workflow_runs (workflow_id);
         CREATE INDEX IF NOT EXISTS idx_started_at  ON workflow_runs (started_at DESC);
         ",
     )
     .map_err(|e| format!("create workflow_runs table: {e}"))?;
+
+    // Idempotent migration: rich Workflow State (#6) as a side-channel column,
+    // so the core WorkflowRun struct + CRUD stay untouched.
+    let has_state = conn
+        .prepare("PRAGMA table_info(workflow_runs)")
+        .ok()
+        .map(|mut s| {
+            s.query_map([], |r| r.get::<_, String>(1))
+                .map(|it| it.flatten().any(|c| c == "state_json"))
+                .unwrap_or(true)
+        })
+        .unwrap_or(true);
+    if !has_state {
+        let _ = conn.execute_batch("ALTER TABLE workflow_runs ADD COLUMN state_json TEXT;");
+    }
+
     Ok(())
 }
 
@@ -354,6 +371,109 @@ fn row_to_run(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkflowRun> {
         output_summary: row.get(8)?,
         error: row.get(9)?,
     })
+}
+
+// ---------------------------------------------------------------------------
+// Workflow State (#6) — rich, persisted run state in the `state_json` column.
+// Additive side-channel: leaves the WorkflowRun struct + core CRUD untouched.
+// ---------------------------------------------------------------------------
+
+/// The rich, recoverable state of a workflow run: where it is, what's next, and
+/// what it has touched. Persisted as JSON in `workflow_runs.state_json` so a
+/// future orchestrator (and Session Resume) can recover/continue a workflow.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct WorkflowState {
+    pub current_step: Option<String>,
+    pub next_action: Option<String>,
+    #[serde(default)]
+    pub agents_used: Vec<String>,
+    #[serde(default)]
+    pub skills_used: Vec<String>,
+    #[serde(default)]
+    pub memory_ids: Vec<String>,
+    #[serde(default)]
+    pub files_touched: Vec<String>,
+    #[serde(default)]
+    pub blockers: Vec<String>,
+    #[serde(default)]
+    pub decisions: Vec<String>,
+    #[serde(default)]
+    pub errors: Vec<String>,
+}
+
+/// Persist the rich state of a run (writes only `state_json`).
+pub fn set_run_state(id: i64, state: &WorkflowState) -> Result<(), String> {
+    let conn = open_conn()?;
+    let json = serde_json::to_string(state).map_err(|e| format!("serialize state: {e}"))?;
+    let n = conn
+        .execute("UPDATE workflow_runs SET state_json = ?1 WHERE id = ?2", params![json, id])
+        .map_err(|e| format!("set run state {id}: {e}"))?;
+    if n == 0 {
+        return Err(format!("workflow run {id} not found"));
+    }
+    Ok(())
+}
+
+/// Read the rich state of a run (default when unset/absent).
+pub fn get_run_state(id: i64) -> Result<WorkflowState, String> {
+    let conn = open_conn()?;
+    let json: Option<String> = conn
+        .query_row("SELECT state_json FROM workflow_runs WHERE id = ?1", params![id], |r| r.get(0))
+        .map_err(|e| format!("get run state {id}: {e}"))?;
+    Ok(json.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default())
+}
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    #[test]
+    fn workflow_state_serde_roundtrips() {
+        let s = WorkflowState {
+            current_step: Some("reindex".into()),
+            next_action: Some("verify recall".into()),
+            agents_used: vec!["code-reviewer".into()],
+            memory_ids: vec!["mem-1".into(), "mem-2".into()],
+            blockers: vec!["qdrant down".into()],
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        let back: WorkflowState = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.current_step.as_deref(), Some("reindex"));
+        assert_eq!(back.agents_used, vec!["code-reviewer".to_string()]);
+        assert_eq!(back.memory_ids.len(), 2);
+        assert_eq!(back.blockers, vec!["qdrant down".to_string()]);
+    }
+
+    #[test]
+    #[ignore = "e2e: real ~/.ultron/cockpit/workflow-runs.db"]
+    fn e2e_run_state_persists() {
+        init_db().unwrap();
+        let id = record_run_inner("test-wf-state".into(), Some("ultron".into()), None, 3).unwrap();
+        let st = WorkflowState {
+            current_step: Some("step-1".into()),
+            next_action: Some("do step 2".into()),
+            memory_ids: vec!["mem-x".into()],
+            ..Default::default()
+        };
+        set_run_state(id, &st).unwrap();
+        let got = get_run_state(id).unwrap();
+        assert_eq!(got.current_step.as_deref(), Some("step-1"));
+        assert_eq!(got.memory_ids, vec!["mem-x".to_string()]);
+        eprintln!("=== workflow state persisted on run {id} ===");
+        // cleanup so the test run does not pollute "running".
+        let _ = update_run_inner(
+            id,
+            RunUpdate {
+                status: Some(RunStatus::Cancelled),
+                steps_completed: None,
+                steps_total: None,
+                output_summary: None,
+                error: None,
+                ended_at: Some(Utc::now()),
+            },
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

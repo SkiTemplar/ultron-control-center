@@ -564,6 +564,8 @@ pub fn run() {
             commands::workflows::workflow_record_run,
             commands::workflows::workflow_update_run,
             commands::workflows::workflow_get_runs,
+            commands::workflows::workflow_set_state,
+            commands::workflows::workflow_get_state,
             commands::workflows::workflow_load_user_defined,
         ])
         .setup(|app| {

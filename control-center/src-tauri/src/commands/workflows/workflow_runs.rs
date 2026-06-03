@@ -9,7 +9,7 @@
 
 use crate::agent_orchestration::{self, WorkflowDefinition};
 use crate::workflow_loader;
-use crate::workflow_runs::{self, RunStatus, RunUpdate, WorkflowRun};
+use crate::workflow_runs::{self, RunStatus, RunUpdate, WorkflowRun, WorkflowState};
 
 // ---------------------------------------------------------------------------
 // Record a new run
@@ -134,4 +134,25 @@ pub async fn workflow_load_user_defined() -> Result<Vec<WorkflowDefinition>, Str
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+// ---------------------------------------------------------------------------
+// Workflow State (#6) — persist/recover rich run state
+// ---------------------------------------------------------------------------
+
+/// Persist the rich state of a workflow run (current step, next action, agents/
+/// skills used, associated memories, files touched, blockers, decisions, errors).
+#[tauri::command]
+pub async fn workflow_set_state(run_id: i64, state: WorkflowState) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || workflow_runs::set_run_state(run_id, &state))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Read the rich state of a workflow run (for resume / continue).
+#[tauri::command]
+pub async fn workflow_get_state(run_id: i64) -> Result<WorkflowState, String> {
+    tauri::async_runtime::spawn_blocking(move || workflow_runs::get_run_state(run_id))
+        .await
+        .map_err(|e| e.to_string())?
 }
