@@ -49,6 +49,7 @@ fn run() -> Result<serde_json::Value, String> {
                 ul::memory::qdrant_index::reindex_all().map_err(|e| e.to_string())?;
             Ok(serde_json::json!({ "indexed": indexed, "errors": errors }))
         }
+        "eval" => to_json(ul::memory::evals::run(project.as_deref(), 8)),
         "candidate" => {
             let mut buf = String::new();
             std::io::stdin()
@@ -57,7 +58,7 @@ fn run() -> Result<serde_json::Value, String> {
             let id = emit_candidate(&buf)?;
             Ok(serde_json::json!({ "candidate_id": id }))
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|candidate> [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval|candidate> [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

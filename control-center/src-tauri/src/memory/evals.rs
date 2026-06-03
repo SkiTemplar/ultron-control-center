@@ -44,7 +44,7 @@ impl GoldenQuery {
 }
 
 /// The outcome of evaluating one golden query.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct EvalResult {
     /// The query that was run.
     pub query: String,
@@ -57,7 +57,7 @@ pub struct EvalResult {
 }
 
 /// Aggregate report over a full golden-query run.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct EvalReport {
     /// Number of golden queries evaluated.
     pub total: usize,
