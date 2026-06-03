@@ -18,6 +18,7 @@ pub mod migrate;
 pub mod recall;
 pub mod recall_hybrid;
 pub mod recall_unified;
+pub mod session_resume;
 
 pub use ecc_memory::*;
 pub use inbox::*;
@@ -29,3 +30,4 @@ pub use migrate::*;
 pub use recall::*;
 pub use recall_hybrid::*;
 pub use recall_unified::*;
+pub use session_resume::*;

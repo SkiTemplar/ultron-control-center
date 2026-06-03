@@ -249,6 +249,41 @@ impl MemoryService {
         Self::set_status(id, Status::Deprecated, actor, reason)
     }
 
+    /// Pin / unpin an item (req #17). Pinned items are always surfaced.
+    pub fn pin(id: &str, actor: Actor) -> Result<MemoryItem, MemoryError> {
+        Self::set_pinned(id, true, actor)
+    }
+    pub fn unpin(id: &str, actor: Actor) -> Result<MemoryItem, MemoryError> {
+        Self::set_pinned(id, false, actor)
+    }
+    fn set_pinned(id: &str, pinned: bool, actor: Actor) -> Result<MemoryItem, MemoryError> {
+        let conn = store::open_conn()?;
+        let mut item = store::get_item(&conn, id)?
+            .ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
+        let before = serde_json::to_string(&item).unwrap_or_default();
+        item.pinned = pinned;
+        item.updated_at = now_millis();
+        store::insert_item(&conn, &item)?;
+        let ev = MemoryEvent::new(EventType::Edited, Some(item.id.clone()), actor)
+            .with_before(before)
+            .with_reason(if pinned { "pinned" } else { "unpinned" })
+            .with_after(serde_json::to_string(&item).unwrap_or_default());
+        let _ = store::insert_event(&conn, &ev);
+        Ok(item)
+    }
+
+    /// Active items pinned by the user (Session Resume / always-include).
+    pub fn list_pinned(limit: usize) -> Result<Vec<MemoryItem>, MemoryError> {
+        let conn = store::open_conn()?;
+        store::list_pinned(&conn, limit)
+    }
+
+    /// Active items of a given type (e.g. decisions, open tasks).
+    pub fn list_active_of_type(kind: MemoryType, limit: usize) -> Result<Vec<MemoryItem>, MemoryError> {
+        let conn = store::open_conn()?;
+        store::list_by_type_status(&conn, kind, Status::Active, limit)
+    }
+
     /// Change an item's scope and/or type (inbox "change scope / change type").
     pub fn relabel(
         id: &str,

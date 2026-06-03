@@ -90,7 +90,8 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
             access_count    INTEGER NOT NULL DEFAULT 0,
             last_accessed_at INTEGER, last_injected_at INTEGER,
             validated_by_user INTEGER NOT NULL DEFAULT 0,
-            validated_at    INTEGER
+            validated_at    INTEGER,
+            pinned          INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_items_status_scope
             ON memory_items(status, scope, project_id);
@@ -136,6 +137,22 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
         );",
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("schema core: {e}")))?;
+
+    // Idempotent ADD COLUMN migration for brain.db created before `pinned`
+    // existed (Pinning, req #17). SQLite supports ALTER TABLE ADD COLUMN.
+    let has_pinned = conn
+        .prepare("PRAGMA table_info(memory_items)")
+        .ok()
+        .map(|mut s| {
+            s.query_map([], |r| r.get::<_, String>(1))
+                .map(|it| it.flatten().any(|c| c == "pinned"))
+                .unwrap_or(true)
+        })
+        .unwrap_or(true);
+    if !has_pinned {
+        let _ = conn
+            .execute_batch("ALTER TABLE memory_items ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
+    }
 
     if fts5_available(conn) {
         conn.execute_batch(
@@ -220,6 +237,7 @@ fn item_from_row(row: &Row) -> rusqlite::Result<MemoryItem> {
         last_injected_at: row.get("last_injected_at")?,
         validated_by_user: validated != 0,
         validated_at: row.get("validated_at")?,
+        pinned: row.get::<_, i64>("pinned")? != 0,
     })
 }
 
@@ -227,7 +245,7 @@ const ITEM_COLS: &str = "id,type,scope,project_id,repo_id,branch,workflow_id,age
 title,summary,content,content_json,tags,status,confidence,importance,stability,sensitivity,\
 source,source_session_id,created_at,updated_at,expires_at,supersedes,superseded_by,contradicts,\
 derived_from,qdrant_point_id,token_estimate,access_count,last_accessed_at,last_injected_at,\
-validated_by_user,validated_at";
+validated_by_user,validated_at,pinned";
 
 // ---------------------------------------------------------------------------
 // memory_items CRUD (low-level, &Connection)
@@ -240,13 +258,13 @@ pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), Me
             title,summary,content,content_json,tags,status,confidence,importance,stability,
             sensitivity,source,source_session_id,created_at,updated_at,expires_at,supersedes,
             superseded_by,contradicts,derived_from,qdrant_point_id,token_estimate,access_count,
-            last_accessed_at,last_injected_at,validated_by_user,validated_at
+            last_accessed_at,last_injected_at,validated_by_user,validated_at,pinned
         ) VALUES (
             :id,:type,:scope,:project_id,:repo_id,:branch,:workflow_id,:agent_id,:skill_id,
             :title,:summary,:content,:content_json,:tags,:status,:confidence,:importance,:stability,
             :sensitivity,:source,:source_session_id,:created_at,:updated_at,:expires_at,:supersedes,
             :superseded_by,:contradicts,:derived_from,:qdrant_point_id,:token_estimate,:access_count,
-            :last_accessed_at,:last_injected_at,:validated_by_user,:validated_at
+            :last_accessed_at,:last_injected_at,:validated_by_user,:validated_at,:pinned
         )",
         named_params! {
             ":id": item.id, ":type": item.kind.as_str(), ":scope": item.scope.as_str(),
@@ -266,6 +284,7 @@ pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), Me
             ":last_injected_at": item.last_injected_at,
             ":validated_by_user": i64::from(item.validated_by_user),
             ":validated_at": item.validated_at,
+            ":pinned": i64::from(item.pinned),
         },
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_item: {e}")))?;
@@ -392,6 +411,41 @@ pub(crate) fn item_exists_by_qdrant_id(conn: &Connection, qid: &str) -> bool {
         |_| Ok(()),
     )
     .is_ok()
+}
+
+/// Active items pinned by the user — always surfaced (Session Resume, recall).
+pub(crate) fn list_pinned(conn: &Connection, limit: usize) -> Result<Vec<MemoryItem>, MemoryError> {
+    let sql = format!(
+        "SELECT {ITEM_COLS} FROM memory_items WHERE pinned = 1 AND status = 'active'
+         ORDER BY importance DESC, updated_at DESC LIMIT ?1"
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_pinned prepare: {e}")))?;
+    let rows = stmt
+        .query_map(params![limit as i64], item_from_row)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_pinned query: {e}")))?;
+    Ok(rows.flatten().collect())
+}
+
+/// Active items of a given type (e.g. open tasks, decisions) — newest first.
+pub(crate) fn list_by_type_status(
+    conn: &Connection,
+    kind: MemoryType,
+    status: Status,
+    limit: usize,
+) -> Result<Vec<MemoryItem>, MemoryError> {
+    let sql = format!(
+        "SELECT {ITEM_COLS} FROM memory_items WHERE type = ?1 AND status = ?2
+         ORDER BY importance DESC, updated_at DESC LIMIT ?3"
+    );
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_by_type prepare: {e}")))?;
+    let rows = stmt
+        .query_map(params![kind.as_str(), status.as_str(), limit as i64], item_from_row)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("list_by_type query: {e}")))?;
+    Ok(rows.flatten().collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -842,5 +896,33 @@ mod tests {
         let got = get_item(&conn, &it.id).unwrap().unwrap();
         assert_eq!(got.scope, Scope::Project);
         assert_eq!(got.kind, MemoryType::Architecture);
+    }
+
+    #[test]
+    fn pinned_items_listed_unpinned_excluded() {
+        let conn = mem_conn();
+        let mut pinned = MemoryItem::new(MemoryType::Architecture, Scope::Project, Source::UserExplicit, Status::Active);
+        pinned.pinned = true;
+        pinned.summary = Some("decisión fundacional".into());
+        insert_item(&conn, &pinned).unwrap();
+        let unpinned = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        insert_item(&conn, &unpinned).unwrap();
+
+        let got = list_pinned(&conn, 10).unwrap();
+        assert_eq!(got.len(), 1, "only pinned active items are listed");
+        assert_eq!(got[0].id, pinned.id);
+        assert!(got[0].pinned, "pinned flag must roundtrip");
+    }
+
+    #[test]
+    fn list_by_type_status_filters_by_type() {
+        let conn = mem_conn();
+        insert_item(&conn, &MemoryItem::new(MemoryType::Decision, Scope::Project, Source::UserExplicit, Status::Active)).unwrap();
+        insert_item(&conn, &MemoryItem::new(MemoryType::Task, Scope::Project, Source::UserExplicit, Status::Active)).unwrap();
+
+        let decisions = list_by_type_status(&conn, MemoryType::Decision, Status::Active, 10).unwrap();
+        assert_eq!(decisions.len(), 1);
+        assert_eq!(decisions[0].kind, MemoryType::Decision);
+        assert_eq!(list_by_type_status(&conn, MemoryType::Task, Status::Active, 10).unwrap().len(), 1);
     }
 }

@@ -242,6 +242,9 @@ pub struct MemoryItem {
     pub last_injected_at: Option<i64>,
     pub validated_by_user: bool,
     pub validated_at: Option<i64>,
+    /// User-elevated: always considered for recall + Session Resume, regardless
+    /// of recency/score. Distinct from `stability` (expected lifetime).
+    pub pinned: bool,
 }
 
 impl MemoryItem {
@@ -287,6 +290,7 @@ impl MemoryItem {
             last_injected_at: None,
             validated_by_user: false,
             validated_at: None,
+            pinned: false,
         }
     }
 

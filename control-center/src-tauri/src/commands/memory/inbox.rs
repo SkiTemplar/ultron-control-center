@@ -126,6 +126,26 @@ pub async fn memory_do_not_use(id: String, reason: Option<String>) -> Result<Mem
     retire(id, Status::Rejected, reason.or_else(|| Some("user: do not use again".to_string()))).await
 }
 
+/// Pin an item — always surfaced in recall + Session Resume (req #17).
+#[tauri::command]
+pub async fn memory_item_pin(id: String) -> Result<MemoryItem, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        MemoryService::pin(&id, Actor::User).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Unpin an item.
+#[tauri::command]
+pub async fn memory_item_unpin(id: String) -> Result<MemoryItem, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        MemoryService::unpin(&id, Actor::User).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
 /// Full audit history (events) for one memory.
 #[tauri::command]
 pub async fn memory_item_history(id: String, limit: Option<u32>) -> Result<Vec<MemoryEvent>, String> {

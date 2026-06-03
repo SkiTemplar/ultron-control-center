@@ -283,7 +283,11 @@ pub fn run() {
             commands::memory::memory_item_quarantine,
             commands::memory::memory_do_not_use,
             commands::memory::memory_item_history,
+            commands::memory::memory_item_pin,
+            commands::memory::memory_item_unpin,
             commands::memory::memory_stats,
+            // -- MEMORY KERNEL: Session Resume (minimal bounded context) --
+            commands::memory::session_resume,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,
