@@ -331,7 +331,20 @@ pub(crate) fn search_items(
              WHERE memory_items_fts MATCH ?1 AND m.status = ?2
              ORDER BY bm25(memory_items_fts) ASC LIMIT ?3"
         );
-        let fts_query = format!("\"{}\"", query.replace('"', "\"\""));
+        // B3: term-OR query instead of whole-string PHRASE match. Quoting the
+        // entire query forced an exact-phrase match, so any multi-word query with
+        // stopwords returned 0 hits. Tokenise, quote+escape each term (>=2 chars
+        // to drop noise), and join with OR to restore sparse recall.
+        let terms: Vec<String> = query
+            .split_whitespace()
+            .filter(|t| t.chars().count() >= 2)
+            .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+            .collect();
+        let fts_query = if terms.is_empty() {
+            format!("\"{}\"", query.replace('"', "\"\""))
+        } else {
+            terms.join(" OR ")
+        };
         if let Ok(mut stmt) = conn.prepare(&sql) {
             let rows = stmt.query_map(
                 params![fts_query, status.as_str(), limit as i64],

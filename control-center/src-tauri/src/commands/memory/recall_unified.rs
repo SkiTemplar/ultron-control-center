@@ -32,6 +32,7 @@ pub struct RecallEntry {
     pub score: f32, // RRF fused score
     pub dense_rank: Option<usize>,
     pub sparse_rank: Option<usize>,
+    pub dense_score: Option<f32>, // raw E5 cosine similarity (B1: tie-break / quality signal)
     pub reason: String, // "why this memory" — e.g. "dense#2 + sparse#5"
     pub token_estimate: i64,
 }
@@ -51,6 +52,7 @@ pub struct FusedHit {
     pub rrf_score: f32,
     pub dense_rank: Option<usize>,
     pub sparse_rank: Option<usize>,
+    pub dense_score: Option<f32>, // raw E5 cosine similarity (B1)
 }
 
 /// A candidate that was retrieved but NOT injected, with the reason why.
@@ -103,7 +105,11 @@ pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -
     use std::collections::HashMap;
 
     // (1) DENSE — E5 query embedding + Qdrant filtered k-NN (empty if offline).
-    let dense_ids = qdrant_index::search_dense(query, FANOUT_K as u32, project_id);
+    //     Score-aware (B1): keep the cosine similarity to break RRF ties.
+    let dense_scored = qdrant_index::search_dense_scored(query, FANOUT_K as u32, project_id);
+    let dense_ids: Vec<String> = dense_scored.iter().map(|(id, _)| id.clone()).collect();
+    let dense_score_map: HashMap<&str, f32> =
+        dense_scored.iter().map(|(id, s)| (id.as_str(), *s)).collect();
     // (2) SPARSE — FTS5/bm25 over ACTIVE items.
     let sparse_items =
         MemoryService::search_active(query, FANOUT_K).map_err(|e| format!("sparse search: {e}"))?;
@@ -114,16 +120,32 @@ pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -
     let sparse_rank: HashMap<&str, usize> =
         sparse_ids.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
 
-    // (3) RRF fusion + dedup by canonical_id.
-    let fused: Vec<FusedHit> = rrf_fuse(&[dense_ids.clone(), sparse_ids.clone()], RRF_K)
+    // (3) RRF fusion + dedup by canonical_id; cosine similarity carried for tie-break.
+    let mut fused: Vec<FusedHit> = rrf_fuse(&[dense_ids.clone(), sparse_ids.clone()], RRF_K)
         .into_iter()
         .map(|(id, score)| FusedHit {
             dense_rank: dense_rank.get(id.as_str()).copied(),
             sparse_rank: sparse_rank.get(id.as_str()).copied(),
+            dense_score: dense_score_map.get(id.as_str()).copied(),
             canonical_id: id,
             rrf_score: score,
         })
         .collect();
+    // B1: tie-break equal RRF scores by REAL cosine similarity. Rank-pure RRF
+    // produces many ties; the dense cosine restores a continuous quality signal
+    // (the full reranker lands in Ola 4).
+    fused.sort_by(|a, b| {
+        b.rrf_score
+            .partial_cmp(&a.rrf_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                b.dense_score
+                    .unwrap_or(0.0)
+                    .partial_cmp(&a.dense_score.unwrap_or(0.0))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.canonical_id.cmp(&b.canonical_id))
+    });
 
     // (4)+(5) load items + build the compact pack under budget; record discards.
     let conn = store::open_conn().map_err(|e| format!("open brain.db: {e}"))?;
@@ -168,7 +190,20 @@ pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -
             discarded.push(discard("token budget exceeded"));
             continue;
         }
-        total_tokens += item.token_estimate;
+        // B4: the FIRST item is allowed even if oversized, but its summary is
+        // truncated to the budget so a single huge memory can't blow the pack.
+        let (summary, entry_tokens) = if injected.is_empty() && item.token_estimate > TOKEN_BUDGET {
+            let max_chars = (TOKEN_BUDGET * 4) as usize; // ~4 chars/token; chars() is UTF-8 safe
+            let truncated = item.summary.as_ref().map(|s| {
+                let mut t: String = s.chars().take(max_chars).collect();
+                t.push_str(" …[truncated to budget]");
+                t
+            });
+            (truncated, TOKEN_BUDGET)
+        } else {
+            (item.summary.clone(), item.token_estimate)
+        };
+        total_tokens += entry_tokens;
         let reason = match (fh.dense_rank, fh.sparse_rank) {
             (Some(d), Some(s)) => format!("dense#{} + sparse#{}", d + 1, s + 1),
             (Some(d), None) => format!("dense#{}", d + 1),
@@ -178,14 +213,15 @@ pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -
         injected.push(RecallEntry {
             canonical_id: item.id.clone(),
             title: item.title.clone(),
-            summary: item.summary.clone(), // compact; full content lazy via get_item
+            summary, // compact; full content lazy via get_item
             scope: item.scope.as_str().to_string(),
             project_id: item.project_id.clone(),
             score: fh.rrf_score,
             dense_rank: fh.dense_rank,
             sparse_rank: fh.sparse_rank,
+            dense_score: fh.dense_score,
             reason,
-            token_estimate: item.token_estimate,
+            token_estimate: entry_tokens,
         });
     }
 

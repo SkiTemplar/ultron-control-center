@@ -85,6 +85,16 @@ pub fn remove_item(id: &str) -> Result<(), String> {
 /// when E5 is unavailable (zero vector) or Qdrant is offline, so the caller
 /// degrades cleanly to sparse-only recall.
 pub fn search_dense(query: &str, k: u32, project_id: Option<&str>) -> Vec<String> {
+    search_dense_scored(query, k, project_id)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect()
+}
+
+/// Like `search_dense` but returns `(canonical_id, cosine_score)` best-first so
+/// the fusion can use the REAL similarity (not just rank order) — B1. Empty when
+/// E5/Qdrant is unavailable, so the caller degrades to sparse-only.
+pub fn search_dense_scored(query: &str, k: u32, project_id: Option<&str>) -> Vec<(String, f32)> {
     let vector = match crate::qdrant::embed_e5(query, true) {
         Ok(v) => v,
         Err(_) => return Vec::new(),
@@ -101,11 +111,13 @@ pub fn search_dense(query: &str, k: u32, project_id: Option<&str>) -> Vec<String
         Ok(hits) => hits
             .into_iter()
             .map(|h| {
-                h.payload
+                let id = h
+                    .payload
                     .get("canonical_id")
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
-                    .unwrap_or(h.id)
+                    .unwrap_or(h.id);
+                (id, h.score)
             })
             .collect(),
         Err(_) => Vec::new(),
