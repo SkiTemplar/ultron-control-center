@@ -49,7 +49,19 @@ pub fn index_item(item: &MemoryItem) -> Result<(), String> {
 }
 
 /// Rebuild the dense index from every ACTIVE item. Returns `(indexed, errors)`.
+///
+/// Warms up the E5 model FIRST so a missing/undownloaded model surfaces as one
+/// clear error instead of N silent per-item failures (the model is a ~1.3 GB
+/// lazy download; triggering it inside the loop was fragile).
 pub fn reindex_all() -> Result<(usize, usize), MemoryError> {
+    let probe = crate::qdrant::embed_e5("warmup", false)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("E5 model unavailable: {e}")))?;
+    if probe.iter().all(|&x| x == 0.0) {
+        return Err(MemoryError::RemoteUnavailable(
+            "E5 returned a zero vector — model unavailable or `qdrant` feature off".to_string(),
+        ));
+    }
+
     let items = MemoryService::list_by_status(Status::Active, 100_000)?;
     let mut ok = 0usize;
     let mut err = 0usize;
