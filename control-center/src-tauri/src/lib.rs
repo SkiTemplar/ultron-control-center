@@ -17,6 +17,7 @@
 // invokes are type-checked.
 
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
+mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
 mod activity_timeline;
 mod agent_orchestration;
 mod agents;
@@ -291,6 +292,8 @@ pub fn run() {
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
             commands::memory::catalog_reindex,
             commands::memory::catalog_search,
+            // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
+            orchestrator::orchestrate_prompt,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,

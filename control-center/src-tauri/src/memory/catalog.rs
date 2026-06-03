@@ -67,6 +67,26 @@ fn agents_dir() -> Option<PathBuf> {
     dirs::home_dir().map(|h| h.join(".claude").join("agents"))
 }
 
+/// The set of REAL agent names (filename stems) under `~/.claude/agents`. Used
+/// to sanitize "ghost agents" referenced by workflow templates (planner/architect/
+/// tdd-guide etc. don't exist on disk — KIRKARDO 11).
+pub fn known_agent_names() -> std::collections::HashSet<String> {
+    let mut set = std::collections::HashSet::new();
+    if let Some(dir) = agents_dir() {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.extension().and_then(|x| x.to_str()) == Some("md") {
+                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                        set.insert(stem.to_string());
+                    }
+                }
+            }
+        }
+    }
+    set
+}
+
 /// Index `~/.claude/agents/*.md` into `ultron_catalog`. Idempotent (id =
 /// hash(name)). Warms up E5 first so a missing model surfaces as one clear error.
 /// Returns `(indexed, errors)`.

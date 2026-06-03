@@ -99,7 +99,7 @@ pub fn rrf_fuse(lists: &[Vec<String>], k: f32) -> Vec<(String, f32)> {
 /// compact `recall` and the verbose `recall_inspect` derive from this so there is
 /// ONE retrieval path. Global-scope items bypass the project filter (they apply
 /// everywhere). Emits a `Retrieved` audit event.
-fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -> Result<RecallTrace, String> {
+pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -> Result<RecallTrace, String> {
     use std::collections::HashMap;
 
     // (1) DENSE — E5 query embedding + Qdrant filtered k-NN (empty if offline).
