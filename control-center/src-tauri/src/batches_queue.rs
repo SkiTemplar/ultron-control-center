@@ -354,8 +354,10 @@ fn safe_script_name(name: &str) -> String {
             }
         })
         .collect();
-    // Drop any leading dots (hidden-file / traversal) and collapse empties.
+    // Drop leading/trailing dots (hidden-file / traversal) and collapse any
+    // INTERNAL ".." sequence too (path-traversal hardening) before capping.
     let stem = stem.trim_matches('.').to_string();
+    let stem = stem.replace("..", "_");
     let stem = if stem.is_empty() {
         "queued-command".to_string()
     } else {
