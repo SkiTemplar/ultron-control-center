@@ -16,6 +16,7 @@ pub mod memory_status;
 pub mod migrate;
 pub mod recall;
 pub mod recall_hybrid;
+pub mod recall_unified;
 
 pub use ecc_memory::*;
 pub use kg::*;
@@ -25,3 +26,4 @@ pub use memory_status::*;
 pub use migrate::*;
 pub use recall::*;
 pub use recall_hybrid::*;
+pub use recall_unified::*;

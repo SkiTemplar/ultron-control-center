@@ -268,6 +268,9 @@ pub fn run() {
             commands::memory::memory_health,
             // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
             commands::memory::memory_migrate,
+            // -- MEMORY KERNEL Fase B: unified hybrid recall + dense reindex --
+            commands::memory::recall,
+            commands::memory::memory_reindex,
             // -- batches (.bat / .ps1 runner desde ~/.ultron/batches/) --
             commands::batches::list_batches,
             commands::batches::execute_batch,

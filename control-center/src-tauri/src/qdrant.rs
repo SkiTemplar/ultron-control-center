@@ -82,6 +82,10 @@ fn http_client() -> Result<reqwest::blocking::Client, String> {
 #[cfg(feature = "qdrant")]
 static EMBEDDING_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
 
+/// MultilingualE5Large (1024-d, multilingual) — the Fase B canonical embedder.
+#[cfg(feature = "qdrant")]
+static E5_MODEL: OnceCell<fastembed::TextEmbedding> = OnceCell::new();
+
 /// Produce a normalised 384-d embedding vector for `text`.
 ///
 /// On the first call the ONNX model (~22 MB) is downloaded/verified from the
@@ -136,6 +140,49 @@ pub fn embed(_text: &str) -> Result<Vec<f32>, String> {
         );
     });
     Ok(vec![0.0_f32; 384])
+}
+
+// ---------------------------------------------------------------------------
+// MultilingualE5Large — 1024-d, multilingual (MEMORY KERNEL Fase B)
+// ---------------------------------------------------------------------------
+
+/// Dense 1024-d embedding with `MultilingualE5Large` (intfloat/multilingual-e5-large).
+///
+/// E5 was trained with ASYMMETRIC instruction prefixes that fastembed does NOT
+/// add automatically: `is_query = true` prepends `"query: "`, `false` prepends
+/// `"passage: "`. Output is L2-normalised by fastembed (ideal for Cosine).
+#[cfg(feature = "qdrant")]
+pub fn embed_e5(text: &str, is_query: bool) -> Result<Vec<f32>, String> {
+    use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+
+    let model = E5_MODEL.get_or_try_init(|| {
+        TextEmbedding::try_new(
+            InitOptions::new(EmbeddingModel::MultilingualE5Large)
+                .with_show_download_progress(false),
+        )
+        .map_err(|e| format!("fastembed E5 init: {e}"))
+    })?;
+
+    let prefixed = if is_query {
+        format!("query: {text}")
+    } else {
+        format!("passage: {text}")
+    };
+
+    let mut results = model
+        .embed(vec![prefixed], None)
+        .map_err(|e| format!("fastembed E5 embed: {e}"))?;
+
+    results
+        .pop()
+        .ok_or_else(|| "fastembed E5 returned empty results".to_string())
+}
+
+/// Stub when the `qdrant` feature is off: 1024-d zero vector. Callers MUST treat
+/// an all-zero vector as "E5 unavailable" and degrade to sparse-only recall.
+#[cfg(not(feature = "qdrant"))]
+pub fn embed_e5(_text: &str, _is_query: bool) -> Result<Vec<f32>, String> {
+    Ok(vec![0.0_f32; 1024])
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +287,135 @@ pub fn upsert_point(
         return Err(format!("qdrant upsert {status}: {text}"));
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// E5 / 1024-d REST helpers (MEMORY KERNEL Fase B — additive, leaves the legacy
+// 384-d path above untouched; that path is retired in Fase F)
+// ---------------------------------------------------------------------------
+
+/// Like `ensure_collection` but with a caller-specified vector dimension.
+pub fn ensure_collection_dim(collection: &str, dim: usize) -> Result<(), String> {
+    let base = qdrant_base_url();
+    let client = http_client()?;
+    let url = format!("{base}/collections/{collection}");
+    let resp = client.get(&url).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant GET collection: {e}")
+        }
+    })?;
+    if resp.status().as_u16() == 200 {
+        return Ok(());
+    }
+    let body = serde_json::json!({ "vectors": { "size": dim, "distance": "Cosine" } });
+    let create = client
+        .put(&url)
+        .json(&body)
+        .send()
+        .map_err(|e| format!("qdrant PUT collection: {e}"))?;
+    if !create.status().is_success() {
+        let status = create.status().as_u16();
+        let text = create.text().unwrap_or_default();
+        return Err(format!("qdrant create collection {status}: {text}"));
+    }
+    Ok(())
+}
+
+/// Upsert a 1024-d E5 vector + payload, ensuring the collection exists at dim 1024.
+pub fn upsert_e5(
+    collection: &str,
+    id: &str,
+    vector: Vec<f32>,
+    payload: HashMap<String, serde_json::Value>,
+) -> Result<(), String> {
+    ensure_collection_dim(collection, 1024)?;
+    let base = qdrant_base_url();
+    let client = http_client()?;
+    let id_value: serde_json::Value = if let Ok(n) = id.parse::<u64>() {
+        serde_json::Value::Number(n.into())
+    } else {
+        serde_json::Value::String(id.to_string())
+    };
+    let body = serde_json::json!({
+        "points": [{ "id": id_value, "vector": vector, "payload": payload }]
+    });
+    let url = format!("{base}/collections/{collection}/points");
+    let resp = client.put(&url).json(&body).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant upsert: {e}")
+        }
+    })?;
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let text = resp.text().unwrap_or_default();
+        return Err(format!("qdrant upsert {status}: {text}"));
+    }
+    Ok(())
+}
+
+/// k-NN search with a PRECOMPUTED vector (from `embed_e5`) + optional payload
+/// filter. Returns up to `k` hits. Unlike `search`, this does not embed the
+/// query itself — so the E5 `query:` prefix is applied by the caller.
+pub fn search_with_vector(
+    collection: &str,
+    vector: Vec<f32>,
+    k: u32,
+    filter: Option<serde_json::Value>,
+) -> Result<Vec<QdrantHit>, String> {
+    let base = qdrant_base_url();
+    let client = http_client()?;
+    let url = format!("{base}/collections/{collection}/points/search");
+    let mut body = serde_json::json!({
+        "vector": vector, "limit": k, "with_payload": true, "with_vector": false
+    });
+    if let Some(f) = filter {
+        body["filter"] = f;
+    }
+    let resp = client.post(&url).json(&body).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant search: {e}")
+        }
+    })?;
+    if resp.status().as_u16() == 404 {
+        return Ok(Vec::new());
+    }
+    if !resp.status().is_success() {
+        let status = resp.status().as_u16();
+        let text = resp.text().unwrap_or_default();
+        return Err(format!("qdrant search {status}: {text}"));
+    }
+    #[derive(Deserialize)]
+    struct SearchResponse {
+        result: Vec<RawHit>,
+    }
+    #[derive(Deserialize)]
+    struct RawHit {
+        id: serde_json::Value,
+        score: f32,
+        #[serde(default)]
+        payload: HashMap<String, serde_json::Value>,
+    }
+    let parsed: SearchResponse = resp
+        .json()
+        .map_err(|e| format!("qdrant parse response: {e}"))?;
+    Ok(parsed
+        .result
+        .into_iter()
+        .map(|h| QdrantHit {
+            id: match h.id {
+                serde_json::Value::String(s) => s,
+                other => other.to_string(),
+            },
+            score: h.score,
+            payload: h.payload,
+        })
+        .collect())
 }
 
 // ---------------------------------------------------------------------------
