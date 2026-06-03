@@ -17,6 +17,14 @@ name = "ultron-embed"
 path = "src/bin/ultron_embed.rs"
 required-features = ["qdrant"]
 
+# Memory/orchestrator CLI sidecar invoked by the Claude Code hooks (Node) so the
+# hooks reuse the canonical Rust logic instead of duplicating it in JS.
+#   cargo build --release --bin ultron-memory --features qdrant
+[[bin]]
+name = "ultron-memory"
+path = "src/bin/ultron_memory.rs"
+required-features = ["qdrant"]
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

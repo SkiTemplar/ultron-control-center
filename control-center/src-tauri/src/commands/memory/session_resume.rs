@@ -45,51 +45,54 @@ fn to_resume(items: Vec<MemoryItem>) -> Vec<ResumeMemory> {
         .collect()
 }
 
+/// Sync core of session resume — reused by the CLI sidecar (`ultron-memory
+/// resume`) and the Tauri command. Loads only MINIMAL, bounded slices.
+pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume, String> {
+    // Active (running) workflows for the project — bounded list.
+    let active_workflows: Vec<WorkflowRun> = list_runs_inner(None, project_id.clone(), 50)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|r| r.status == RunStatus::Running)
+        .collect();
+
+    let decisions = to_resume(
+        MemoryService::list_active_of_type(MemoryType::Decision, 8).map_err(|e| e.to_string())?,
+    );
+    let open_tasks = to_resume(
+        MemoryService::list_active_of_type(MemoryType::Task, 12).map_err(|e| e.to_string())?,
+    );
+    let pinned = to_resume(MemoryService::list_pinned(12).map_err(|e| e.to_string())?);
+    let stats = MemoryService::stats().map_err(|e| e.to_string())?;
+
+    let next_action = open_tasks
+        .first()
+        .and_then(|t| t.summary.clone())
+        .or_else(|| active_workflows.first().map(|w| format!("continue workflow {}", w.workflow_id)));
+
+    let mut warnings = Vec::new();
+    if stats.candidates_pending > 0 {
+        warnings.push(format!(
+            "{} memory candidate(s) await validation in the inbox",
+            stats.candidates_pending
+        ));
+    }
+
+    Ok(SessionResume {
+        project_id,
+        active_workflows,
+        decisions,
+        open_tasks,
+        pinned,
+        pending_candidates: stats.candidates_pending,
+        next_action,
+        warnings,
+    })
+}
+
 /// Bounded session resume. `project_id = None` = cross-project.
 #[tauri::command]
 pub async fn session_resume(project_id: Option<String>) -> Result<SessionResume, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        // Active (running) workflows for the project — bounded list.
-        let active_workflows: Vec<WorkflowRun> = list_runs_inner(None, project_id.clone(), 50)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|r| r.status == RunStatus::Running)
-            .collect();
-
-        // Minimal, bounded slices — NOT the full history.
-        let decisions = to_resume(
-            MemoryService::list_active_of_type(MemoryType::Decision, 8).map_err(|e| e.to_string())?,
-        );
-        let open_tasks = to_resume(
-            MemoryService::list_active_of_type(MemoryType::Task, 12).map_err(|e| e.to_string())?,
-        );
-        let pinned = to_resume(MemoryService::list_pinned(12).map_err(|e| e.to_string())?);
-        let stats = MemoryService::stats().map_err(|e| e.to_string())?;
-
-        let next_action = open_tasks
-            .first()
-            .and_then(|t| t.summary.clone())
-            .or_else(|| active_workflows.first().map(|w| format!("continue workflow {}", w.workflow_id)));
-
-        let mut warnings = Vec::new();
-        if stats.candidates_pending > 0 {
-            warnings.push(format!(
-                "{} memory candidate(s) await validation in the inbox",
-                stats.candidates_pending
-            ));
-        }
-
-        Ok(SessionResume {
-            project_id,
-            active_workflows,
-            decisions,
-            open_tasks,
-            pinned,
-            pending_candidates: stats.candidates_pending,
-            next_action,
-            warnings,
-        })
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || session_resume_inner(project_id))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
 }

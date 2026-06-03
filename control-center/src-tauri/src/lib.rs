@@ -17,7 +17,7 @@
 // invokes are type-checked.
 
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
-mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
+pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
 mod activity_timeline;
 mod agent_orchestration;
 mod agents;
@@ -82,7 +82,7 @@ mod proxy;
 mod workflow_loader;
 mod workflow_runs;
 
-mod commands;
+pub mod commands;
 
 use std::path::PathBuf;
 

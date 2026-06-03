@@ -230,6 +230,17 @@ pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -
     })
 }
 
+/// Sync compact recall pack — reused by the CLI sidecar (`ultron-memory recall`).
+pub fn recall_pack(query: &str, limit: usize, project_id: Option<&str>) -> Result<RecallPack, String> {
+    let t = build_trace(query, limit, project_id)?;
+    Ok(RecallPack {
+        dense_hits: t.dense_ids.len(),
+        sparse_hits: t.sparse_ids.len(),
+        total_tokens: t.total_tokens,
+        entries: t.injected,
+    })
+}
+
 /// Unified hybrid recall — compact context pack. `project_id = None` = no filter.
 #[tauri::command]
 pub async fn recall(
@@ -238,17 +249,9 @@ pub async fn recall(
     project_id: Option<String>,
 ) -> Result<RecallPack, String> {
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
-    tauri::async_runtime::spawn_blocking(move || {
-        let t = build_trace(&query, final_limit, project_id.as_deref())?;
-        Ok(RecallPack {
-            dense_hits: t.dense_ids.len(),
-            sparse_hits: t.sparse_ids.len(),
-            total_tokens: t.total_tokens,
-            entries: t.injected,
-        })
-    })
-    .await
-    .map_err(|e| format!("spawn_blocking: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || recall_pack(&query, final_limit, project_id.as_deref()))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 /// Retrieval Inspector: the full per-turn trace (query, filters, dense/sparse
