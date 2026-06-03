@@ -15,7 +15,7 @@ use serde::Serialize;
 
 use crate::memory::qdrant_index;
 use crate::memory::sqlite_store as store;
-use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope, Status};
+use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope, Sensitivity, Status};
 
 const RRF_K: f32 = 60.0; // standard RRF damping constant
 const DEFAULT_LIMIT: usize = 8; // final entries returned
@@ -156,6 +156,13 @@ pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -
                 discarded.push(discard(&format!("project filter ({pid})")));
                 continue;
             }
+        }
+        // Sensitivity gate (Ola 0 / audit top-risk #2): NEVER inject Secret items
+        // into the context pack — they may carry credentials/PII. Excluded outright
+        // (no opt-in yet) and recorded in the trace as discarded.
+        if item.sensitivity == Sensitivity::Secret {
+            discarded.push(discard("sensitivity=secret (excluded from context pack)"));
+            continue;
         }
         if total_tokens + item.token_estimate > TOKEN_BUDGET && !injected.is_empty() {
             discarded.push(discard("token budget exceeded"));

@@ -260,12 +260,10 @@ pub fn run() {
             commands::projects::reorder_launcher_items,
             commands::projects::launch_item,
             commands::projects::launch_all_items,
-            // -- Qdrant semantic recall (KIRKARDO 14 wire) --
-            qdrant::recall_semantic,
+            // -- Qdrant status/embed (recall_semantic retired: legacy 384d path, Ola 0) --
             qdrant::qdrant_status,
             qdrant::qdrant_embed_query,
-            // -- MEMORY CORE: hybrid recall + health (D5) --
-            commands::memory::recall_hybrid,
+            // -- MEMORY CORE: health only (recall_hybrid retired Ola 0; memory_health still used by MemoryStatusCard) --
             commands::memory::memory_health,
             // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
             commands::memory::memory_migrate,

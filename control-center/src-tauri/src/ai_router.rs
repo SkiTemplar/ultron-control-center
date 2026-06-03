@@ -1420,21 +1420,16 @@ pub fn ai_router_test(zone_id: String, sample_prompt: String) -> Result<TestResu
 //   - Increments RouterMetrics on every attempt (success and failure).
 //   - Returns Err only when EVERY provider in the chain failed.
 //
-// SCOPE NOTE (KIRKARDO R11.4 FIX-11): this function is currently invoked
-// only by the `ai_router_route` Tauri command — i.e. the "Test" button in
-// Settings → AI Router and the Usage panel simulator. Claude Code itself
-// (the CLI hosting this app) does NOT route LLM calls through this code;
-// it talks to Anthropic directly. That means `metrics.json` reflects
-// Tauri-UI-triggered routes only, not real Claude Code traffic.
-//
-// To make the router observe production LLM calls, two options exist:
-//   (A) An external proxy in front of Claude Code's HTTP client that
-//       posts each request through `ai_router_route`. Heavy.
-//   (B) A Claude Code "model_route" plugin/hook that delegates the
-//       provider decision to this router. Lighter; not yet implemented.
-// Until (A) or (B) lands, treat this router as a Tauri-UI affordance for
-// experimenting with zones and fallback chains, NOT as a system-wide
-// routing layer.
+// CALLERS (verified 2026-06-03 audit wqpf1uiwm): route() DOES govern real
+// internal LLM tasks — NOT just the "Test" button (that older claim was a
+// stale comment that caused repeated re-audits). Live callers:
+//   cost_watchdog.rs:279, hooks_admin.rs:1490, workdays.rs:1595/1698,
+//   plugins_info.rs:1031, library.rs:1107, project_agents.rs:471/734,
+//   sessions_tags.rs:298.
+// Scope today: route() governs internal UTILITY tasks (summaries, naming,
+// intent); the Node proxy governs the Claude Code CLI host's own traffic.
+// The memory kernel (extraction/dedupe/contradiction) gets wired onto route()
+// in Ola 5 of cockpit/memory-rework/MASTER-PLAN-CONSOLIDADO-2026-06-03.md.
 // ---------------------------------------------------------------------------
 pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     let zones = load_zones()?;
