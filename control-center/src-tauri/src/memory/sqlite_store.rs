@@ -359,17 +359,40 @@ pub(crate) fn search_items(
     }
 
     if out.is_empty() {
-        let needle = format!("%{query}%");
+        // B3 fallback: when FTS5 is unavailable (the release + `qdrant` build can
+        // land here), do a TERM-OR LIKE instead of a whole-string substring —
+        // otherwise a multi-word query matches only the literal phrase and returns 0.
+        let terms: Vec<String> = query
+            .split_whitespace()
+            .filter(|t| t.chars().count() >= 2)
+            .map(|t| format!("%{t}%"))
+            .collect();
+        let terms = if terms.is_empty() {
+            vec![format!("%{}%", query.trim())]
+        } else {
+            terms
+        };
+        let clause = terms
+            .iter()
+            .map(|_| "(title LIKE ? OR summary LIKE ? OR content LIKE ?)")
+            .collect::<Vec<_>>()
+            .join(" OR ");
+        // status.as_str() and limit are fixed-shape, non-user values -> inlined
+        // safely; the user-derived needles are bound parameters (no injection).
         let sql = format!(
             "SELECT {ITEM_COLS} FROM memory_items
-             WHERE status = ?1 AND (title LIKE ?2 OR summary LIKE ?2 OR content LIKE ?2)
-             ORDER BY importance DESC, updated_at DESC LIMIT ?3"
+             WHERE status = '{}' AND ({clause})
+             ORDER BY importance DESC, updated_at DESC LIMIT {}",
+            status.as_str(),
+            limit as i64
         );
+        let binds: Vec<String> =
+            terms.iter().flat_map(|n| [n.clone(), n.clone(), n.clone()]).collect();
         let mut stmt = conn
             .prepare(&sql)
             .map_err(|e| MemoryError::RemoteUnavailable(format!("search LIKE prepare: {e}")))?;
         let rows = stmt
-            .query_map(params![status.as_str(), needle, limit as i64], item_from_row)
+            .query_map(rusqlite::params_from_iter(binds.iter()), item_from_row)
             .map_err(|e| MemoryError::RemoteUnavailable(format!("search LIKE query: {e}")))?;
         for item in rows.flatten() {
             out.push(item);
@@ -811,6 +834,23 @@ mod tests {
         let hits = search_items(&conn, "oauth", Status::Active, 10).unwrap();
         assert_eq!(hits.len(), 1, "rejected items must not surface in active search");
         assert_eq!(hits[0].id, active.id);
+    }
+
+    #[test]
+    fn search_matches_any_term_not_just_exact_phrase() {
+        // B3 regression: a multi-word query must match items containing ANY term
+        // (OR), not only the literal phrase (which returned 0 for every multi-word
+        // query). Covers both the FTS5 path and, structurally, the LIKE fallback.
+        let conn = mem_conn();
+        let mut a = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        a.summary = Some("memoria canonica en sqlite".into());
+        insert_item(&conn, &a).unwrap();
+        let mut b = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        b.summary = Some("indice qdrant vectorial".into());
+        insert_item(&conn, &b).unwrap();
+
+        let hits = search_items(&conn, "memoria qdrant", Status::Active, 10).unwrap();
+        assert_eq!(hits.len(), 2, "multi-term query must match either term (OR), not the exact phrase");
     }
 
     #[test]
