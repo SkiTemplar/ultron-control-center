@@ -107,7 +107,7 @@ export function ProjectRow({
           )}
           <div className="proj-action-group flex flex-wrap items-center justify-end gap-1">
             {/* Quick actions: Folder / IDE / AI / Terminal / Launch all */}
-            <ProjectQuickActions density="compact" project={p} />
+            <ProjectQuickActions density="compact" project={p} showBatch={false} />
             <button
               type="button"
               onClick={onEdit}

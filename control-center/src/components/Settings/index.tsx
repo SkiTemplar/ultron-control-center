@@ -5,8 +5,6 @@ import { AuthStatus } from "../AuthStatus";
 import { JsonEditor } from "./EditorSection";
 import { BackupsPanel } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
-import { AIRouter } from "../AIRouter";
-import { ApiKeysSection } from "./ApiKeysSection";
 
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
 // top-level tab now. P7 (2.0): "raw" (settings.json) is the default tab and
@@ -14,17 +12,15 @@ import { ApiKeysSection } from "./ApiKeysSection";
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
 // "lifecycle" relabeled to "General" — it now hosts autostart, rebuild,
 // close, and the single global hotkey. Plugins lives in the Library tab.
-// v2.7.2: "ai-router" sub-tab added — AI Router was demoted from a
-// top-level sidebar entry to a Settings sub-tab so the sidebar stays
-// focused on user-facing surfaces. The AIRouter component supports an
-// `embedded` flag that drops its full-page chrome when rendered here.
+// v2.8 (fullize 2026-06-01): "ai-router" and "api-keys" sub-tabs removed —
+// both moved to the dedicated top-level "AI Router" sidebar tab (which now
+// owns Dashboard / Modelos / Providers / Keys / Proxy). Settings keeps only
+// the host-config surfaces.
 type Section =
   | "raw"
   | "general"
   | "auth"
-  | "api-keys"
-  | "backups"
-  | "ai-router";
+  | "backups";
 
 type SettingsProps = {
   onNavigate?: (tab: string) => void;
@@ -158,8 +154,6 @@ export function Settings(_props: SettingsProps = {}) {
           { id: "raw" as Section, label: "settings.json" },
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
-          { id: "api-keys" as Section, label: "API Keys" },
-          { id: "ai-router" as Section, label: "AI Router" },
           { id: "backups" as Section, label: "Backups" },
         ].map((t) => (
           <button
@@ -212,8 +206,6 @@ export function Settings(_props: SettingsProps = {}) {
             GeneralSection placeholder is no longer imported. */}
         {section === "general" && <LifecyclePanel />}
         {section === "auth" && <AuthStatus />}
-        {section === "api-keys" && <ApiKeysSection />}
-        {section === "ai-router" && <AIRouter embedded />}
 
         {section === "raw" && draft && (
           <JsonEditor

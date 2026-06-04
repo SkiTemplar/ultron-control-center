@@ -498,9 +498,13 @@ export function Diagnostics() {
   // Fix history
   const [fixHistory, setFixHistory] = useState<FixHistoryEntry[]>(() => loadFixHistory());
 
-  // Toolbox panel
-  const [toolboxOpen, setToolboxOpen] = useState(false);
+  // Toolbox panel — "todos los comandos posibles". USER lo usa más que los
+  // errores comunes, así que arranca ABIERTO y se muestra arriba del todo.
+  const [toolboxOpen, setToolboxOpen] = useState(true);
   const [toolboxFilter, setToolboxFilter] = useState("");
+
+  // Common errors — sección colapsable, CERRADA por defecto (uso esporádico).
+  const [commonErrorsOpen, setCommonErrorsOpen] = useState(false);
 
   // Event log panel
   const [eventLogOpen, setEventLogOpen] = useState(false);
@@ -697,72 +701,100 @@ export function Diagnostics() {
       {report && <AppHealthCard report={report} />}
 
       {/* ------------------------------------------------------------------ */}
-      {/* Common Errors section                                               */}
+      {/* Toolbox Windows — "todos los comandos posibles" (prominente, arriba) */}
+      {/* ------------------------------------------------------------------ */}
+      <ToolboxPanel
+        open={toolboxOpen}
+        onToggle={() => setToolboxOpen((v) => !v)}
+        filter={toolboxFilter}
+        onFilterChange={setToolboxFilter}
+        runFix={(fix) => void runFix(fix, "toolbox")}
+        fixBusy={fixBusy}
+      />
+
+      {/* ------------------------------------------------------------------ */}
+      {/* Common Errors section (colapsable, cerrada por defecto)             */}
       {/* ------------------------------------------------------------------ */}
       <section
         className="rounded"
         style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
       >
-        <header
-          className="px-3 py-2.5"
-          style={{ background: "var(--color-surface-1)", borderBottom: "1px solid var(--color-border)" }}
+        <button
+          type="button"
+          onClick={() => setCommonErrorsOpen((v) => !v)}
+          className="flex w-full items-center justify-between px-3 py-2.5 text-left transition-colors"
+          style={{
+            background: "var(--color-surface-1)",
+            borderBottom: commonErrorsOpen ? "1px solid var(--color-border)" : "none",
+          }}
         >
-          <div className="mb-2 text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
+          <span className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
             Common errors
-          </div>
-          {/* Search + category filter */}
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search common errors..."
-              className="min-w-[200px] flex-1 rounded px-2.5 py-1 text-[12px]"
-              style={{
-                background: "var(--color-surface-2)",
-                color: "var(--color-text)",
-                border: "1px solid var(--color-border)",
-                outline: "none",
-              }}
-            />
-            <div className="flex flex-wrap items-center gap-1">
-              {(["All", ...COMMON_ERROR_CATEGORIES] as Array<"All" | CommonErrorCategory>).map((cat) => (
-                <button
-                  key={cat}
-                  type="button"
-                  onClick={() => setCategoryFilter(cat)}
-                  className="rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+          </span>
+          <span style={{ color: "var(--color-text-faint)" }}>{commonErrorsOpen ? "▲" : "▼"}</span>
+        </button>
+
+        {commonErrorsOpen && (
+          <>
+            <div
+              className="px-3 py-2.5"
+              style={{ borderBottom: "1px solid var(--color-border)" }}
+            >
+              {/* Search + category filter */}
+              <div className="flex flex-wrap items-center gap-2">
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search common errors..."
+                  className="min-w-[200px] flex-1 rounded px-2.5 py-1 text-[12px]"
                   style={{
-                    background: categoryFilter === cat ? "var(--color-accent)" : "var(--color-surface-3)",
-                    color: categoryFilter === cat ? "var(--color-accent-text)" : "var(--color-text-tertiary)",
-                    border: "1px solid var(--color-border-strong)",
+                    background: "var(--color-surface-2)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border)",
+                    outline: "none",
                   }}
-                >
-                  {cat}
-                </button>
-              ))}
+                />
+                <div className="flex flex-wrap items-center gap-1">
+                  {(["All", ...COMMON_ERROR_CATEGORIES] as Array<"All" | CommonErrorCategory>).map((cat) => (
+                    <button
+                      key={cat}
+                      type="button"
+                      onClick={() => setCategoryFilter(cat)}
+                      className="rounded px-2 py-0.5 text-[11px] font-medium transition-colors"
+                      style={{
+                        background: categoryFilter === cat ? "var(--color-accent)" : "var(--color-surface-3)",
+                        color: categoryFilter === cat ? "var(--color-accent-text)" : "var(--color-text-tertiary)",
+                        border: "1px solid var(--color-border-strong)",
+                      }}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
-          </div>
-        </header>
 
-        {filteredErrors.length === 0 && (
-          <div className="px-3 py-6 text-center text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
-            No errors match "{searchQuery}".
-          </div>
+            {filteredErrors.length === 0 && (
+              <div className="px-3 py-6 text-center text-[12px]" style={{ color: "var(--color-text-tertiary)" }}>
+                No errors match "{searchQuery}".
+              </div>
+            )}
+
+            <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
+              {filteredErrors.map((error) => (
+                <CommonErrorRow
+                  key={error.id}
+                  error={error}
+                  checkResult={checkState[error.id] ?? null}
+                  fixBusy={fixBusy}
+                  onDiagnose={() => void runCheck(error)}
+                  onFix={(fix, source, eid) => void runFix(fix, source, eid)}
+                />
+              ))}
+            </ul>
+          </>
         )}
-
-        <ul className="divide-y" style={{ borderColor: "var(--color-border)" }}>
-          {filteredErrors.map((error) => (
-            <CommonErrorRow
-              key={error.id}
-              error={error}
-              checkResult={checkState[error.id] ?? null}
-              fixBusy={fixBusy}
-              onDiagnose={() => void runCheck(error)}
-              onFix={(fix, source, eid) => void runFix(fix, source, eid)}
-            />
-          ))}
-        </ul>
       </section>
 
       {/* ------------------------------------------------------------------ */}
@@ -777,18 +809,6 @@ export function Diagnostics() {
           }}
         />
       )}
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Toolbox Windows (collapsible, al fondo)                            */}
-      {/* ------------------------------------------------------------------ */}
-      <ToolboxPanel
-        open={toolboxOpen}
-        onToggle={() => setToolboxOpen((v) => !v)}
-        filter={toolboxFilter}
-        onFilterChange={setToolboxFilter}
-        runFix={(fix) => void runFix(fix, "toolbox")}
-        fixBusy={fixBusy}
-      />
 
       {/* ------------------------------------------------------------------ */}
       {/* Event Log (collapsible)                                             */}

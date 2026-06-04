@@ -1,9 +1,10 @@
 // ULTRON Control Center — env_keys
 //
 // Persiste API keys de proveedores IA como variables de entorno de usuario
-// Windows via `setx KEY value`. El efecto es permanente para sesiones nuevas;
-// la sesión actual del proceso NO recibe el cambio (comportamiento estándar
-// de setx). El frontend muestra un toast indicando que hay que reiniciar.
+// Windows via `setx KEY value` (permanente para procesos nuevos) Y ADEMÁS las
+// refleja en el proceso actual con `std::env::set_var`, de modo que surten
+// efecto sin reiniciar: el badge pasa a "activa" y el proxy free-tier (hijo de
+// la app) hereda la key recién guardada.
 //
 // Seguridad:
 //   - Whitelist estricta de nombres de variable — ningún nombre arbitrario.
@@ -64,7 +65,11 @@ fn mask_secret(raw: &str) -> Option<String> {
 
 /// Lee el valor User-scope de cada key vía `reg query HKCU\Environment`.
 /// Bulk: una sola llamada. Devuelve mapa env_var -> valor (sin masking).
-fn read_user_scope_keys() -> HashMap<String, String> {
+///
+/// `pub(crate)` para que `proxy.rs` pueda inyectar estas keys al proxy
+/// free-tier directamente del registro, sin depender de que la app las haya
+/// heredado (setx no refresca el proceso padre / explorer.exe).
+pub(crate) fn read_user_scope_keys() -> HashMap<String, String> {
     let mut out: HashMap<String, String> = HashMap::new();
     let output = Command::new("reg")
         .args(["query", "HKCU\\Environment"])
@@ -169,6 +174,13 @@ pub fn set_env_vars_keys_inner(
 
         match result {
             Ok(output) if output.status.success() => {
+                // Reflejar el cambio en el PROCESO actual para que surta efecto
+                // SIN reiniciar la app: `get_env_keys_status` pasa a active=true
+                // y, sobre todo, el proxy free-tier (lanzado como hijo de la app
+                // vía `proxy_start_inner`, que lee `std::env::var`) hereda la key
+                // recien guardada. `setx` solo afecta a procesos nuevos; esto
+                // cubre el proceso vivo. Edition 2021 → `set_var` es seguro.
+                std::env::set_var(key, trimmed);
                 saved.push(key.clone());
             }
             Ok(output) => {

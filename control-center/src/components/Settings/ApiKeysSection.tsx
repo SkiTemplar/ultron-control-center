@@ -78,16 +78,16 @@ const PROVIDER_KEYS: ProviderKeyDef[] = [
     placeholder: "sk-…",
   },
   {
-    envVar: "MISTRAL_API_KEY",
-    label: "Mistral",
-    docsUrl: "https://console.mistral.ai/api-keys",
-    placeholder: "…",
+    envVar: "NVIDIA_NIM_API_KEY",
+    label: "NVIDIA NIM (free-tier proxy)",
+    docsUrl: "https://build.nvidia.com",
+    placeholder: "nvapi-…",
   },
   {
-    envVar: "COHERE_API_KEY",
-    label: "Cohere",
-    docsUrl: "https://dashboard.cohere.com/api-keys",
-    placeholder: "…",
+    envVar: "OPENROUTER_API_KEY",
+    label: "OpenRouter (free-tier proxy)",
+    docsUrl: "https://openrouter.ai/keys",
+    placeholder: "sk-or-…",
   },
 ];
 
@@ -242,8 +242,8 @@ export function ApiKeysSection() {
           >
             setx
           </code>
-          . Surten efecto en sesiones nuevas — reinicia la app para usarlas
-          inmediatamente. Los campos vacíos se omiten.
+          . Se activan al instante en esta sesión (y quedan guardadas para las
+          futuras). Los campos vacíos se omiten.
         </p>
       </div>
 
@@ -279,8 +279,7 @@ export function ApiKeysSection() {
                           : "Configurada — reinicia la app para activarla"
                       }
                     >
-                      {st.masked ?? "configurada"}
-                      {!st.active && " · reinicia"}
+                      {st.active ? "configurada" : "configurada · reinicia"}
                     </span>
                   ) : (
                     <span
@@ -447,8 +446,8 @@ export function ApiKeysSection() {
           )}
           {savedCount > 0 && errorCount === 0 && (
             <p className="mt-1 text-[11px] opacity-80">
-              Reinicia la app o abre un terminal nuevo para que las keys estén
-              disponibles.
+              Listo — activas al instante. El proxy free-tier las usará al
+              activarlo en AI Router → Proxy.
             </p>
           )}
         </div>

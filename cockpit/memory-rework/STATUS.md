@@ -49,9 +49,31 @@ history; `memory_do_not_use` #23; `memory_stats` #24-parcial) · **#4 Context Pa
 summaries, budget 1500, lazy-load) · **#5 Session Resume** (bounded) · **#6 Workflow State** ·
 **#8(parcial) dedupe FTS** en create_candidate · **#17 Pinning** · tests.
 
-MISSING/TODO (orden de prioridad del usuario):
-- **#7 Auto-routing WF/agente/skill** — mapear prompts vagos ("sigue con esto", "arregla el bug",
-  "lanza el orquestador"…) → workflow + agente + skills + memoria + modelo. Trigger "Ultron".
+**#7 Auto-routing — HECHO el core (commits 76a4d28 + 6f1cd24, verificado runtime):** catálogo de
+78 agentes reales en `ultron_catalog` (E5) + orquestador `orchestrate(prompt)` (intent reglas →
+workflow → delegate_agents semántico → memorias → context). Comando `orchestrate_prompt`.
+FALTA de #7: skills en el catálogo (multi-fuente plugin), rerank de agentes, workflows con
+trigger_patterns/allowed_agents propios (hoy usa los 7 builtin de agent_orchestration).
+
+**Fase C — sidecar CLI + hooks HECHO y TESTEADO (commits 3cb5d50 + 7187b10):**
+- Binario `ultron-memory` (subcomandos resume/orchestrate/recall/stats/reindex/candidate), instalado
+  en `~/.ultron/bin/ultron-memory.exe` (el helper JS lo busca: env ULTRON_MEMORY_BIN → ~/.ultron/bin
+  → target/release → target/debug). Producción: `cargo build --release --bin ultron-memory --features qdrant`.
+- Hooks `hooks/scripts/memory-session-resume.js` (SessionStart) + `memory-orchestrate.js`
+  (UserPromptSubmit) + `lib/ultron-memory-cli.js`. TESTEADOS con input mock + datos vivos
+  (SessionStart→`<ultron-memory-resume>` con open_tasks reales; UserPromptSubmit→`<orchestration-context>`).
+  FAIL-SAFE: nunca rompen la sesión (no-op si el binario falta).
+
+**🔑 FALTA ACTIVAR (último paso para que sea VIVO) — registrar en `~/.claude/settings.json`:**
+Añadir (ADITIVO, junto a los hooks SessionStart/UserPromptSubmit existentes) command hooks que
+ejecuten `node "%USERPROFILE%\.ultron\hooks\scripts\memory-session-resume.js"` (SessionStart) y
+`...\memory-orchestrate.js` (UserPromptSubmit). Es cambio en config VIVA con secretos → leer su
+estructura primero, añadir sin romper, confirmar. CAMBIO de comportamiento en cada sesión.
+
+MISSING/TODO restante:
+- **Fase C resto:** `Stop → emisor de candidates` (reorientar `stop-compress-session.js`: pipe del
+  fact JSON a `ultron-memory candidate` en vez de upsert directo a Qdrant); matar hooks legacy py/ps1;
+  invertir SoT `hooks/`; extender `install-sidecars.ps1` (build+install del binario + registro hooks).
 - **#8 AI Routing tareas baratas** — wire `ai_router.rs` a intent/extraction/dedupe/contradiction/
   summarization con TaskPolicy (temp 0, JSON schema). Hoy `ai_router` NO toca memoria.
 - **#10 Contradiction semántica** — TODO ya marcado en `service.rs::create_candidate` (embed

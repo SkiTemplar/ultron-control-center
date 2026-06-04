@@ -1,23 +1,25 @@
-// Control Center — Dashboard (fullize 2026-06-01: simplificado).
+// Control Center — Dashboard (fullize 2026-06-01: side-panel layout).
 //
-// Layout: full-width, bento grid fluido auto-fit. Sin AlertsCard (duplicaba la
-// pestaña Notifications), sin WorkdaysWeekCard ni Mem0Card (Workdays fuera, la
-// memoria es backend-only). El To-Do simple se monta aquí en la Ola 5.
-//   Row hero : ActiveProjectCard + RecentSessionsCard
-//   Row 0    : ResumeSessionCard (self-hides when none) — "recuperar ayer"
-//   Bento    : Pending · Backup · RecentProjects · CrashEvents(span-2) · PluginStatus
+// Layout: a main column + a right side panel for the To-Do (visual-only).
+//   Side panel : TodoCard (dark checkboxes, manage in Notes)
+//   Main column:
+//     Row hero : RecentSessionsCard
+//     Row 0    : ResumeSessionCard (self-hides when none) — "continuar donde lo dejaste"
+//     Bento    : Pending · Backup · RecentProjects · CrashEvents(span-2) · MemoryStatus
+//
+// Removed per user (2026-06-01): ActiveProjectCard (project cartilla) and the
+// ECC PluginStatusCard. Added: MemoryStatusCard (backend memory health).
 
 import type { GlobalStatus } from "../types";
 import packageJson from "../../package.json";
 
 import { ResumeSessionCard } from "./dashboard/ResumeSessionCard";
-import { PluginStatusCard } from "./dashboard/PluginStatusCard";
 import { RecentProjectsCard } from "./dashboard/RecentProjectsCard";
 import { PendingKanbanCard } from "./dashboard/PendingKanbanCard";
 import { BackupCard } from "./dashboard/BackupCard";
 import { CrashEventsCard } from "./dashboard/CrashEventsCard";
-import { ActiveProjectCard } from "./dashboard/ActiveProjectCard";
 import { RecentSessionsCard } from "./dashboard/RecentSessionsCard";
+import { MemoryStatusCard } from "./dashboard/MemoryStatusCard";
 import { TodoCard } from "./dashboard/TodoCard";
 
 const APP_VERSION: string = (packageJson as { version?: string }).version ?? "";
@@ -37,6 +39,7 @@ type NavTarget =
   | "notifications"
   | "sessions"
   | "usage"
+  | "ai-router"
   | "system"
   | "settings";
 
@@ -71,31 +74,37 @@ export function Dashboard({ globalStatus, onNavigate }: DashboardProps) {
         </span>
       </header>
 
-      {/* Hero row: proyecto activo + sesiones recientes */}
-      <div className="mb-4 grid gap-4" style={{ gridTemplateColumns: "minmax(0,2fr) minmax(0,1fr)" }}>
-        <ActiveProjectCard onOpenProjects={() => onNavigate?.("projects")} />
-        <RecentSessionsCard onOpenSessions={() => onNavigate?.("sessions")} />
-      </div>
-
-      {/* Row 0 — Resume last session (self-hides when none) */}
-      <div className="mb-4">
-        <ResumeSessionCard onOpenSessions={() => onNavigate?.("sessions")} />
-      </div>
-
-      {/* Bento grid fluido */}
+      {/* Two-column shell: main content + right To-Do side panel. */}
       <div
         className="grid gap-4"
-        style={{ gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))" }}
+        style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(300px, 340px)" }}
       >
-        <TodoCard onOpenNotes={() => onNavigate?.("notes")} />
-        <PendingKanbanCard onOpenProjects={() => onNavigate?.("projects")} />
-        <BackupCard />
-        <RecentProjectsCard onOpenProjects={() => onNavigate?.("projects")} />
-        {/* CrashEvents ocupa 2 columnas cuando hay espacio */}
-        <div className="dashboard-span-2">
-          <CrashEventsCard />
+        {/* Main column */}
+        <div className="flex flex-col gap-4">
+          <RecentSessionsCard onOpenSessions={() => onNavigate?.("sessions")} />
+
+          {/* Continuar donde lo dejaste (se oculta solo si no hay nada) */}
+          <ResumeSessionCard onOpenSessions={() => onNavigate?.("sessions")} />
+
+          {/* Bento grid fluido */}
+          <div
+            className="grid gap-4"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+          >
+            <PendingKanbanCard onOpenProjects={() => onNavigate?.("projects")} />
+            <BackupCard />
+            <RecentProjectsCard onOpenProjects={() => onNavigate?.("projects")} />
+            <div className="dashboard-span-2">
+              <CrashEventsCard />
+            </div>
+            <MemoryStatusCard onOpenSystem={() => onNavigate?.("system")} />
+          </div>
         </div>
-        <PluginStatusCard />
+
+        {/* Right side panel — To-Do (visual, manage in Notes). */}
+        <aside className="flex flex-col gap-4">
+          <TodoCard onOpenNotes={() => onNavigate?.("notes")} />
+        </aside>
       </div>
     </div>
   );

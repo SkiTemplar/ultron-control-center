@@ -73,6 +73,9 @@ type BatchDropdownProps = {
    *  transparent bg, rgba border, same size as the other header buttons.
    *  When false (default), uses the original toolbar style. */
   headerStyle?: boolean;
+  /** When true, renders the trigger as a dashboard action card (icon pill +
+   *  label + subtitle). Overrides headerStyle. Used in ProjectWorkspace V2. */
+  cardStyle?: boolean;
 };
 
 function formatBytes(n: number): string {
@@ -101,6 +104,7 @@ function clip(s: string, max = 320): string {
 export default function BatchDropdown({
   onResult,
   headerStyle = false,
+  cardStyle = false,
 }: BatchDropdownProps) {
   const [open, setOpen] = useState(false);
   const [batches, setBatches] = useState<BatchEntry[] | null>(null);
@@ -109,6 +113,8 @@ export default function BatchDropdown({
   const [runningName, setRunningName] = useState<string | null>(null);
   /** Name of the batch currently pending delete confirmation (inline). */
   const [pendingDeleteName, setPendingDeleteName] = useState<string | null>(null);
+  /** Two-phase confirmation for "Clear all" — avoids window.confirm (blocked by Tauri ACL). */
+  const [confirmingClearAll, setConfirmingClearAll] = useState(false);
   /** Persistent queue of rejected / unrunnable / failed batches. */
   const [queue, setQueue] = useState<BatchQueueEntry[] | null>(null);
   /** Id of the queue entry whose action (requeue/dismiss) is in flight. */
@@ -345,80 +351,92 @@ export default function BatchDropdown({
     : undefined;
 
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={triggerClassName}
-        style={triggerStyle}
-        onMouseEnter={handleTriggerEnter}
-        onMouseLeave={handleTriggerLeave}
-        title="Execute a pre-approved script from ~/.ultron/batches/ (handy when an AI session left a .bat for you to run)"
-        aria-expanded={open}
-        aria-haspopup="menu"
-      >
-        <span aria-hidden style={{ fontSize: 11, lineHeight: 1 }}>
-          {/* Terminal-ish glyph, inline so we don't pull lucide. */}
-          <svg
-            width="13"
-            height="13"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+    <div
+      ref={rootRef}
+      className={cardStyle ? "relative flex-1" : "relative"}
+      style={cardStyle ? { minWidth: 140 } : undefined}
+    >
+      {cardStyle ? (
+        /* Card-style trigger — same visual as PrimaryCard in ProjectWorkspace */
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full flex-col gap-3 rounded-lg p-4 text-left transition-colors"
+          style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)", minHeight: 88 }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "var(--color-surface-3)";
+            e.currentTarget.style.borderColor = "var(--color-border-strong)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "var(--color-surface-2)";
+            e.currentTarget.style.borderColor = "var(--color-border)";
+          }}
+          aria-expanded={open}
+          aria-haspopup="menu"
+          title="Ejecutar un script de ~/.ultron/batches/"
+        >
+          <div
+            className="flex h-8 w-8 items-center justify-center rounded-md"
+            style={{ background: "var(--color-surface-1)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
           >
-            <polyline points="4 17 10 11 4 5" />
-            <line x1="12" y1="19" x2="20" y2="19" />
-          </svg>
-        </span>
-        <span>{runningName ? `Running: ${runningName}` : "Run batch"}</span>
-        {runningName && (
-          <svg
-            width="11"
-            height="11"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeLinecap="round"
-            className="animate-spin"
-            aria-hidden
-          >
-            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-          </svg>
-        )}
-        {count > 0 && (
-          <span
-            className="rounded px-1 text-[10px] tabular-nums"
-            style={{
-              background: "var(--color-surface-1)",
-              color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border)",
-            }}
-            title={`${count} batch script${count === 1 ? "" : "s"} available`}
-          >
-            {count}
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
+          </div>
+          <div>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
+                {runningName ? `Ejecutando: ${runningName}` : "Run Batch"}
+              </span>
+              {queueCount > 0 && (
+                <span className="rounded px-1 text-[10px] font-semibold tabular-nums" style={{ background: "rgba(248,81,73,0.14)", color: "var(--color-danger)", border: "1px solid rgba(248,81,73,0.35)" }}>
+                  {queueCount}
+                </span>
+              )}
+            </div>
+            <div className="mt-0.5 text-[11px] leading-snug" style={{ color: "var(--color-text-tertiary)" }}>
+              {count > 0 ? `${count} script${count === 1 ? "" : "s"} disponible${count === 1 ? "" : "s"}` : "Sin scripts en cola"}
+            </div>
+          </div>
+        </button>
+      ) : (
+        /* Original toolbar-style trigger */
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className={triggerClassName}
+          style={triggerStyle}
+          onMouseEnter={handleTriggerEnter}
+          onMouseLeave={handleTriggerLeave}
+          title="Execute a pre-approved script from ~/.ultron/batches/ (handy when an AI session left a .bat for you to run)"
+          aria-expanded={open}
+          aria-haspopup="menu"
+        >
+          <span aria-hidden style={{ fontSize: 11, lineHeight: 1 }}>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
+            </svg>
           </span>
-        )}
-        {queueCount > 0 && (
-          <span
-            className="rounded px-1 text-[10px] font-semibold tabular-nums"
-            style={{
-              background: "rgba(248, 81, 73, 0.14)",
-              color: "var(--color-danger)",
-              border: "1px solid rgba(248, 81, 73, 0.35)",
-            }}
-            title={`${queueCount} en cola (rechazados / fallidos) — requieren tu click`}
-          >
-            ⚠ {queueCount}
-          </span>
-        )}
-        <span aria-hidden style={{ fontSize: 9, opacity: 0.7 }}>
-          ▾
-        </span>
-      </button>
+          <span>{runningName ? `Running: ${runningName}` : "Run batch"}</span>
+          {runningName && (
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="animate-spin" aria-hidden>
+              <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+            </svg>
+          )}
+          {count > 0 && (
+            <span className="rounded px-1 text-[10px] tabular-nums" style={{ background: "var(--color-surface-1)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border)" }} title={`${count} batch script${count === 1 ? "" : "s"} available`}>
+              {count}
+            </span>
+          )}
+          {queueCount > 0 && (
+            <span className="rounded px-1 text-[10px] font-semibold tabular-nums" style={{ background: "rgba(248, 81, 73, 0.14)", color: "var(--color-danger)", border: "1px solid rgba(248, 81, 73, 0.35)" }} title={`${queueCount} en cola (rechazados / fallidos) — requieren tu click`}>
+              ⚠ {queueCount}
+            </span>
+          )}
+          <span aria-hidden style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+        </button>
+      )}
 
       {open && (
         <div
@@ -444,48 +462,86 @@ export default function BatchDropdown({
               ~/.ultron/batches
             </div>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={async (e) => {
-                  e.stopPropagation();
-                  if (
-                    !window.confirm(
-                      "¿Eliminar TODOS los batches? Esta acción no se puede deshacer.",
-                    )
-                  )
-                    return;
-                  try {
-                    const r = await invoke<{ deleted: string[]; kept: number }>(
-                      "clear_all_batches",
-                    );
-                    onResult?.({
-                      kind: "ok",
-                      title: `${r.deleted.length} batches eliminados`,
-                      body:
-                        r.deleted.length === 0
-                          ? `No había batches que borrar. Kept ${r.kept}.`
-                          : `Eliminados todos los batches (${r.deleted.length}). Kept ${r.kept} no-batch.`,
-                    });
-                    void refresh();
-                  } catch (err) {
-                    onResult?.({
-                      kind: "err",
-                      title: "Clear all failed",
-                      body: err instanceof Error ? err.message : String(err),
-                    });
-                  }
-                }}
-                disabled={loading}
-                className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
-                style={{
-                  background: "transparent",
-                  color: "var(--color-danger)",
-                  border: "1px solid var(--color-border)",
-                }}
-                title="Eliminar TODOS los batches (con confirmación)"
-              >
-                Clear all
-              </button>
+              {confirmingClearAll ? (
+                <div className="flex items-center gap-1">
+                  <span
+                    className="text-[10.5px] font-medium"
+                    style={{ color: "var(--color-danger)" }}
+                  >
+                    ¿Seguro?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      setConfirmingClearAll(false);
+                      try {
+                        const r = await invoke<{ deleted: string[]; kept: number }>(
+                          "clear_all_batches",
+                        );
+                        onResult?.({
+                          kind: "ok",
+                          title: `${r.deleted.length} batches eliminados`,
+                          body:
+                            r.deleted.length === 0
+                              ? `No había batches que borrar. Kept ${r.kept}.`
+                              : `Eliminados todos los batches (${r.deleted.length}). Kept ${r.kept} no-batch.`,
+                        });
+                        void refresh();
+                      } catch (err) {
+                        onResult?.({
+                          kind: "err",
+                          title: "Clear all failed",
+                          body: err instanceof Error ? err.message : String(err),
+                        });
+                      }
+                    }}
+                    disabled={loading}
+                    className="rounded px-1.5 py-0.5 text-[10.5px] font-medium transition-colors disabled:opacity-40"
+                    style={{
+                      background: "rgba(248,81,73,0.15)",
+                      color: "var(--color-danger)",
+                      border: "1px solid rgba(248,81,73,0.40)",
+                    }}
+                  >
+                    Sí, borrar todo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setConfirmingClearAll(false);
+                    }}
+                    disabled={loading}
+                    className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                    style={{
+                      background: "transparent",
+                      color: "var(--color-text-secondary)",
+                      border: "1px solid var(--color-border)",
+                    }}
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setConfirmingClearAll(true);
+                  }}
+                  disabled={loading}
+                  className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-danger)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                  title="Eliminar TODOS los batches (con confirmación)"
+                >
+                  Clear all
+                </button>
+              )}
               <button
                 type="button"
                 onClick={async (e) => {

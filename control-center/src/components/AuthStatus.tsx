@@ -74,6 +74,21 @@ export function AuthStatus() {
     void load();
   }, [load]);
 
+  // Lanza la reautenticación abriendo el CLI del proveedor en una terminal.
+  //   claude → abre `claude` con `/login` en el portapapeles (pégalo y envía).
+  //   codex / gemini → abre el CLI, que dispara su propio flujo de login (OAuth)
+  //     cuando no hay credenciales válidas. El comando manual está en el hint.
+  const reauth = useCallback(async (provider: string) => {
+    try {
+      const prompt = provider === "claude" ? "/login" : null;
+      const flags = provider === "claude" ? { paste_only: true } : undefined;
+      await invoke("spawn_session", { provider, prompt, cwd: null, flags });
+      setError(null);
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
+
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
@@ -95,7 +110,10 @@ export function AuthStatus() {
         style={{ color: "var(--color-text-tertiary)" }}
       >
         Estado de los tres CLIs. Solo se verifica presencia y antigüedad del fichero
-        de credenciales — los tokens nunca se leen ni se validan contra la API.
+        de credenciales — los tokens nunca se leen ni se validan contra la API. Para
+        reautenticarte, pulsa <b>Reautenticar</b>: abre el CLI en una terminal (Claude
+        con <code style={{ fontFamily: "var(--font-mono)" }}>/login</code> listo para
+        pegar; Codex y Gemini lanzan su propio login).
       </p>
 
       {error && (
@@ -212,6 +230,21 @@ export function AuthStatus() {
                   → {m.loginHint}
                 </p>
               )}
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => void reauth(e.provider)}
+                  className="rounded px-2.5 py-1 text-[11px] font-medium transition-colors"
+                  style={{
+                    background: "var(--color-surface-3)",
+                    color: "var(--color-text)",
+                    border: "1px solid var(--color-border-strong)",
+                  }}
+                  title={`Abrir ${m.label} en una terminal para iniciar sesión`}
+                >
+                  Reautenticar
+                </button>
+              </div>
             </div>
           );
         })}

@@ -64,39 +64,83 @@ fn proxy_slot() -> &'static Mutex<Option<std::process::Child>> {
 // Busqueda del binario
 // ---------------------------------------------------------------------------
 
-/// Busca `ultron-proxy.exe` en (por orden de prioridad):
-///   1. Directorio del ejecutable actual.
-///   2. `<exe_dir>/../../target/release/` (dev build).
-///   3. `~/.ultron/proxy/ultron-proxy.exe`.
-///
-/// Devuelve la primera ruta que exista en disco.
-pub fn find_proxy_binary() -> Option<PathBuf> {
-    let candidates = proxy_binary_candidates();
-    candidates.into_iter().find(|p| p.exists())
+/// Forma de lanzar el proxy: binario nativo (`ultron-proxy.exe`) o script Node
+/// (`ultron-proxy.mjs`) ejecutado con `node`. El script Node es la
+/// implementacion por defecto que ULTRON ship-ea en `~/.ultron/proxy/`.
+pub enum ProxyBinary {
+    /// Binario nativo: se lanza directamente.
+    Exe(PathBuf),
+    /// Script Node: se lanza con `node <ruta>`.
+    NodeScript(PathBuf),
 }
 
-fn proxy_binary_candidates() -> Vec<PathBuf> {
-    let mut v: Vec<PathBuf> = Vec::new();
-
-    // 1. Junto al ejecutable actual.
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            v.push(dir.join("ultron-proxy.exe"));
+impl ProxyBinary {
+    /// Ruta del artefacto en disco (para diagnostico / display).
+    pub fn path(&self) -> &PathBuf {
+        match self {
+            ProxyBinary::Exe(p) | ProxyBinary::NodeScript(p) => p,
         }
     }
+}
 
-    // 2. target/release/ (util en dev con `cargo run`).
+/// Busca el proxy en las rutas candidatas (por orden de prioridad):
+///   1. Directorio del ejecutable actual.
+///   2. `<exe_dir>/../../target/release/` (dev build).
+///   3. `~/.ultron/proxy/`.
+///
+/// En cada directorio prefiere el binario nativo `ultron-proxy.exe`; si no
+/// existe, cae al script `ultron-proxy.mjs` (lanzado con node). Devuelve la
+/// primera coincidencia.
+pub fn find_proxy_binary() -> Option<ProxyBinary> {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            v.push(dir.join("..").join("..").join("target").join("release").join("ultron-proxy.exe"));
+            if let Some(found) = pick_in_dir(dir) {
+                return Some(found);
+            }
+            let target = dir.join("..").join("..").join("target").join("release");
+            if let Some(found) = pick_in_dir(&target) {
+                return Some(found);
+            }
         }
     }
-
-    // 3. ~/.ultron/proxy/
     if let Some(home) = dirs::home_dir() {
-        v.push(home.join(".ultron").join("proxy").join("ultron-proxy.exe"));
+        if let Some(found) = pick_in_dir(&home.join(".ultron").join("proxy")) {
+            return Some(found);
+        }
     }
+    None
+}
 
+/// En un directorio dado, prefiere `ultron-proxy.exe` y cae a `ultron-proxy.mjs`.
+fn pick_in_dir(dir: &std::path::Path) -> Option<ProxyBinary> {
+    let exe = dir.join("ultron-proxy.exe");
+    if exe.exists() {
+        return Some(ProxyBinary::Exe(exe));
+    }
+    let mjs = dir.join("ultron-proxy.mjs");
+    if mjs.exists() {
+        return Some(ProxyBinary::NodeScript(mjs));
+    }
+    None
+}
+
+/// Rutas candidatas (ambas extensiones) para diagnostico en la UI.
+fn proxy_binary_candidates() -> Vec<PathBuf> {
+    let mut search_dirs: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            search_dirs.push(dir.to_path_buf());
+            search_dirs.push(dir.join("..").join("..").join("target").join("release"));
+        }
+    }
+    if let Some(home) = dirs::home_dir() {
+        search_dirs.push(home.join(".ultron").join("proxy"));
+    }
+    let mut v: Vec<PathBuf> = Vec::new();
+    for d in &search_dirs {
+        v.push(d.join("ultron-proxy.exe"));
+        v.push(d.join("ultron-proxy.mjs"));
+    }
     v
 }
 
@@ -221,46 +265,77 @@ pub fn proxy_start_inner() -> Result<ProxyHealth, String> {
     }
 
     let binary = match find_proxy_binary() {
-        Some(p) => p,
+        Some(b) => b,
         None => {
             let paths: Vec<String> = proxy_binary_candidates()
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect();
             return Err(format!(
-                "binario del proxy no encontrado en: {}",
+                "proxy no encontrado en: {}",
                 paths.join(", ")
             ));
         }
     };
 
-    // Construir el Command con las env keys del proceso actual.
-    let mut cmd = std::process::Command::new(&binary);
-    cmd.arg(format!("--port={PROXY_PORT}"))
-        .arg("--bind=127.0.0.1")
+    // Construir el Command segun el tipo de artefacto. El binario nativo se
+    // lanza directo; el script Node con `node <ruta>`. En ambos casos el proxy
+    // lee el puerto de ULTRON_PROXY_PORT (default 8082).
+    let display = binary.path().display().to_string();
+    let mut cmd = match &binary {
+        ProxyBinary::Exe(path) => {
+            let mut c = std::process::Command::new(path);
+            c.arg(format!("--port={PROXY_PORT}")).arg("--bind=127.0.0.1");
+            c
+        }
+        ProxyBinary::NodeScript(path) => {
+            let mut c = std::process::Command::new("node");
+            c.arg(path);
+            c
+        }
+    };
+    cmd.env("ULTRON_PROXY_PORT", PROXY_PORT.to_string())
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
 
-    // Pasar keys de proveedor al proceso hijo.
+    // En Windows, lanzar `node` abre una consola negra. CREATE_NO_WINDOW la
+    // suprime para que el proxy corra invisible en segundo plano.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    // Pasar keys de proveedor al proceso hijo. Preferimos el env del proceso,
+    // pero caemos al registro User (HKCU\Environment) si la app no heredó la
+    // key todavía — `setx` no refresca el proceso padre / explorer.exe, así que
+    // sin esto una key recién guardada no llegaría al proxy sin reiniciar
+    // sesión de Windows.
+    let user_scope = crate::env_keys::read_user_scope_keys();
     for key in PROXY_ENV_KEYS {
-        if let Ok(val) = std::env::var(key) {
-            if !val.trim().is_empty() {
-                cmd.env(key, val);
+        let val = std::env::var(key)
+            .ok()
+            .filter(|v| !v.trim().is_empty())
+            .or_else(|| user_scope.get(*key).cloned());
+        if let Some(v) = val {
+            if !v.trim().is_empty() {
+                cmd.env(key, v);
             }
         }
     }
 
     let child = cmd
         .spawn()
-        .map_err(|e| format!("no se pudo arrancar el proxy ({}): {e}", binary.display()))?;
+        .map_err(|e| format!("no se pudo arrancar el proxy ({display}): {e}"))?;
 
     *slot = Some(child);
 
     Ok(ProxyHealth {
         status: ProxyStatus::Starting,
         message: None,
-        searched_paths: vec![binary.display().to_string()],
+        searched_paths: vec![display],
     })
 }
 

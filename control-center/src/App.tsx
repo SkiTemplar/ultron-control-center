@@ -12,6 +12,7 @@ import { Library, type LibrarySubTab } from "./components/Library";
 import { Notes } from "./components/Notes";
 import { Sessions } from "./components/Sessions";
 import { Usage } from "./components/Usage";
+import { AIRouterPage } from "./components/AIRouter";
 import { Settings } from "./components/Settings";
 import { Projects } from "./components/Projects";
 import { ProjectsTabsProvider, useProjectsTabs } from "./state/ProjectsTabsContext";
@@ -550,6 +551,9 @@ function AppInner() {
         </TabErrorBoundary>
         <TabErrorBoundary tab="usage">
           {tab === "usage" && <Usage />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="ai-router">
+          {tab === "ai-router" && <AIRouterPage />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="settings">
           {tab === "settings" && <Settings onNavigate={(t) => setTab(t as Tab)} />}

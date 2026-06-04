@@ -32,6 +32,9 @@ export interface ProjectQuickActionsProps {
   /** Optional callback fired with a batch result toast (success / failure).
    *  When omitted, BatchDropdown swallows the result silently. */
   onBatchResult?: (toast: BatchToast) => void;
+  /** Si es false, oculta el BatchDropdown. Default: true.
+   *  Útil en ProjectCard/ProjectRow donde el Batch ya no pertenece al home. */
+  showBatch?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -97,6 +100,7 @@ export function ProjectQuickActions({
   project: p,
   density = "compact",
   onBatchResult,
+  showBatch = true,
 }: ProjectQuickActionsProps) {
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -178,8 +182,22 @@ export function ProjectQuickActions({
         compact={compact}
       />
 
-      {/* Run Batch — re-alojado aquí desde el terminal eliminado */}
-      <BatchDropdown headerStyle onResult={onBatchResult} />
+      {/* Run Batch — se oculta en ProjectCard/ProjectRow (showBatch=false) */}
+      {showBatch && <BatchDropdown headerStyle onResult={onBatchResult} />}
+
+      {/* Exe launch — botones por cada ejecutable configurado en el proyecto */}
+      {p.executables && p.executables.length > 0 && p.executables.map((e, i) => (
+        <ActionBtn
+          key={`exe_${i}`}
+          onClick={async () => {
+            try { await openPath(e.path); } catch { /* silencioso */ }
+          }}
+          title={e.path}
+          label={e.name || "Launch .exe"}
+          accent="var(--color-success, #3fb950)"
+          compact={compact}
+        />
+      ))}
 
       {/* Launch all — solo cuando hay items lanzables */}
       {launchableItems.length >= 1 && (

@@ -149,7 +149,7 @@ export function ProjectCard({
 
       {/* Acciones rápidas — fuente única ProjectQuickActions */}
       <div className="mt-auto" onClick={(e) => e.stopPropagation()}>
-        <ProjectQuickActions project={p} density="compact" />
+        <ProjectQuickActions project={p} density="compact" showBatch={false} />
       </div>
 
       {/* Status row */}
