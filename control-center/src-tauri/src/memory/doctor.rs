@@ -234,7 +234,11 @@ fn check_evals() -> DoctorCheck {
         );
     }
     if r.recall_at_k < 0.85 {
-        DoctorCheck::error("evals", format!("recall@8={:.3} (<0.85)", r.recall_at_k), data)
+        DoctorCheck::error(
+            "evals",
+            format!("recall@8={:.3} (<0.85)", r.recall_at_k),
+            data,
+        )
     } else if r.recall_at_k < 0.90 {
         DoctorCheck::warn(
             "evals",
@@ -309,7 +313,11 @@ fn check_running_binary() -> DoctorCheck {
             "el binario desplegado es mas nuevo que el que corre (posible stale)",
             data,
         ),
-        _ => DoctorCheck::ok("versions", "binario en uso == desplegado (o no aplica)", data),
+        _ => DoctorCheck::ok(
+            "versions",
+            "binario en uso == desplegado (o no aplica)",
+            data,
+        ),
     }
 }
 
@@ -327,7 +335,11 @@ fn check_disk() -> DoctorCheck {
     let mut best: Option<(usize, u64)> = None;
     for d in disks.list() {
         let mp = d.mount_point().to_string_lossy().to_lowercase();
-        let score = if home_str.starts_with(&mp) { mp.len() } else { 0 };
+        let score = if home_str.starts_with(&mp) {
+            mp.len()
+        } else {
+            0
+        };
         let free = d.available_space();
         match best {
             Some((s, _)) if s >= score => {}
@@ -425,14 +437,11 @@ mod qdrant_probe {
                 .json::<Value>()
                 .ok()
                 .and_then(|v| {
-                    v.get("result")?
-                        .get("collections")?
-                        .as_array()
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|c| c.get("name")?.as_str().map(String::from))
-                                .collect()
-                        })
+                    v.get("result")?.get("collections")?.as_array().map(|arr| {
+                        arr.iter()
+                            .filter_map(|c| c.get("name")?.as_str().map(String::from))
+                            .collect()
+                    })
                 })
                 .unwrap_or_default(),
             Err(e) => {
@@ -504,11 +513,7 @@ mod qdrant_probe {
         let cname = format!("qdrant_{name}");
         if let Some(d) = dim {
             if d != want_dim {
-                return DoctorCheck::error(
-                    &cname,
-                    format!("dim {d} != {want_dim} esperado"),
-                    data,
-                );
+                return DoctorCheck::error(&cname, format!("dim {d} != {want_dim} esperado"), data);
             }
         }
         if status != "green" {

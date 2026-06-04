@@ -203,9 +203,11 @@ mod tests {
         .unwrap();
         apply_schema_v3(&conn).unwrap();
         let trace: Option<String> = conn
-            .query_row("SELECT trace_id FROM memory_events WHERE id='e1'", [], |r| {
-                r.get(0)
-            })
+            .query_row(
+                "SELECT trace_id FROM memory_events WHERE id='e1'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!(trace.is_none());
     }
