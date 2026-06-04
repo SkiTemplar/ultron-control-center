@@ -7,7 +7,10 @@
 //!
 //!   ultron-memory resume [--project X]          # SessionStart -> bounded resume
 //!   ultron-memory orchestrate <prompt> [--project X]  # UserPromptSubmit -> route
-//!   ultron-memory recall <query> [--project X]  # hybrid recall context pack
+//!   ultron-memory recall <query> [--project X] [--cross]  # hybrid recall pack
+//!                                               # --cross|--all-projects =
+//!                                               # whole-brain recall (any project;
+//!                                               # Secret still excluded)
 //!   ultron-memory stats                         # memory health counts
 //!   ultron-memory reindex                       # rebuild the dense index
 //!   ultron-memory catalog [--agents|--skills]   # (re)index agent/skill catalog
@@ -48,7 +51,16 @@ fn run() -> Result<serde_json::Value, String> {
         }
         "recall" => {
             let query = positional(&args)?;
-            to_json(ul::commands::memory::recall_unified::recall_pack(&query, 8, project.as_deref())?)
+            // CROSS-PROJECT: --cross / --all-projects relaxes the project filter so
+            // the recall searches the WHOLE brain (items from any project), not just
+            // the current one. Security is untouched: Secret items stay excluded.
+            let cross = has_flag(&args, "--cross") || has_flag(&args, "--all-projects");
+            to_json(ul::commands::memory::recall_unified::recall_pack(
+                &query,
+                8,
+                project.as_deref(),
+                cross,
+            )?)
         }
         "stats" => to_json(ul::memory::MemoryService::stats().map_err(|e| e.to_string())?),
         "reindex" => {
@@ -147,7 +159,7 @@ fn run() -> Result<serde_json::Value, String> {
             );
             std::process::exit(code);
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|doctor|candidate|capture> [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|doctor|candidate|capture> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
@@ -193,13 +205,19 @@ fn has_flag(args: &[String], flag: &str) -> bool {
     args.iter().any(|a| a == flag)
 }
 
-/// First positional arg(s) after the subcommand, excluding `--project <val>`.
+/// First positional arg(s) after the subcommand, excluding `--project <val>` and
+/// the recognised boolean flags (so e.g. `--cross` is not folded into the query).
 fn positional(args: &[String]) -> Result<String, String> {
+    const BOOL_FLAGS: &[&str] = &["--cross", "--all-projects", "--golden", "--agents", "--skills"];
     let mut out: Vec<String> = Vec::new();
     let mut i = 2;
     while i < args.len() {
         if args[i] == "--project" {
             i += 2;
+            continue;
+        }
+        if BOOL_FLAGS.contains(&args[i].as_str()) {
+            i += 1;
             continue;
         }
         out.push(args[i].clone());

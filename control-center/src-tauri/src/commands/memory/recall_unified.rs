@@ -105,11 +105,21 @@ pub fn rrf_fuse(lists: &[Vec<String>], k: f32) -> Vec<(String, f32)> {
 /// (global applies everywhere), sensitivity gate (no Secret), token budget. Pure
 /// over the given connection so the security invariants are UNIT-TESTABLE without
 /// Qdrant/E5. Returns (injected, discarded, total_tokens).
+///
+/// CROSS-PROJECT: when `cross_project` is true the PROJECT-equality gate is
+/// relaxed so scope=project items from ANY project are eligible (the user is
+/// explicitly asking about another project / the whole brain). ONLY the project
+/// filter is relaxed — every security/quality gate (status=active, temporal
+/// validity, sensitivity!=Secret, dedup, token budget) stays intact. The vault
+/// noise gate is keyed on `project_id.is_some()`, NOT on the project filter, so a
+/// cross-project recall launched from inside a project still keeps vault off by
+/// default (cross relaxes the project filter, not the noise control).
 pub(crate) fn assemble_pack(
     conn: &rusqlite::Connection,
     fused: &[FusedHit],
     limit: usize,
     project_id: Option<&str>,
+    cross_project: bool,
 ) -> (Vec<RecallEntry>, Vec<DiscardedHit>, i64) {
     let mut injected: Vec<RecallEntry> = Vec::new();
     let mut discarded: Vec<DiscardedHit> = Vec::new();
@@ -145,8 +155,12 @@ pub(crate) fn assemble_pack(
             }
         }
         if let Some(pid) = project_id {
-            // Global-scope memories apply everywhere; others must match the project.
-            if item.scope != Scope::Global && item.project_id.as_deref() != Some(pid) {
+            // Global-scope memories apply everywhere; others must match the
+            // project — UNLESS cross_project is set, which relaxes ONLY this
+            // project-equality gate (every security/quality gate below still
+            // applies, so items from other projects flow in but Secret never does).
+            if !cross_project && item.scope != Scope::Global && item.project_id.as_deref() != Some(pid)
+            {
                 discarded.push(discard(&format!("project filter ({pid})")));
                 continue;
             }
@@ -209,16 +223,26 @@ pub(crate) fn assemble_pack(
 /// compact `recall` and the verbose `recall_inspect` derive from this so there is
 /// ONE retrieval path. Global-scope items bypass the project filter (they apply
 /// everywhere). Emits a `Retrieved` audit event.
+///
+/// CROSS-PROJECT: when `cross_project` is true the dense (Qdrant) k-NN is run
+/// WITHOUT the `project_id` payload filter and the project-equality gate in
+/// `assemble_pack` is relaxed, so the recall searches the WHOLE brain across
+/// projects. Security is untouched: Secret items are still excluded downstream.
 pub(crate) fn build_trace(
     query: &str,
     limit: usize,
     project_id: Option<&str>,
+    cross_project: bool,
 ) -> Result<RecallTrace, String> {
     use std::collections::HashMap;
 
+    // Dense (Qdrant) project filter: drop it in cross-project mode so the k-NN
+    // is not pre-restricted to the current project at the index level.
+    let dense_project = if cross_project { None } else { project_id };
+
     // (1) DENSE — E5 query embedding + Qdrant filtered k-NN (empty if offline).
     //     Score-aware (B1): keep the cosine similarity to break RRF ties.
-    let dense_scored = qdrant_index::search_dense_scored(query, FANOUT_K as u32, project_id);
+    let dense_scored = qdrant_index::search_dense_scored(query, FANOUT_K as u32, dense_project);
     let dense_ids: Vec<String> = dense_scored.iter().map(|(id, _)| id.clone()).collect();
     let dense_score_map: HashMap<&str, f32> = dense_scored
         .iter()
@@ -270,9 +294,15 @@ pub(crate) fn build_trace(
     // (4)+(5) load items + apply governance + budget via the pure assemble_pack
     // (unit-tested without Qdrant — see tests::assemble_pack_enforces_governance_invariants).
     let conn = store::open_conn().map_err(|e| format!("open brain.db: {e}"))?;
-    let (injected, discarded, total_tokens) = assemble_pack(&conn, &fused, limit, project_id);
+    let (injected, discarded, total_tokens) =
+        assemble_pack(&conn, &fused, limit, project_id, cross_project);
 
     let mut warnings: Vec<String> = Vec::new();
+    if cross_project && project_id.is_some() {
+        warnings.push(
+            "cross-project recall — project filter relaxed (Secret still excluded)".to_string(),
+        );
+    }
     if dense_ids.is_empty() {
         warnings.push("dense recall empty — E5/Qdrant unavailable; sparse-only".to_string());
     }
@@ -321,12 +351,15 @@ pub(crate) fn build_trace(
 }
 
 /// Sync compact recall pack — reused by the CLI sidecar (`ultron-memory recall`).
+/// `cross_project` relaxes ONLY the project filter (whole-brain recall); Secret
+/// items are still excluded.
 pub fn recall_pack(
     query: &str,
     limit: usize,
     project_id: Option<&str>,
+    cross_project: bool,
 ) -> Result<RecallPack, String> {
-    let t = build_trace(query, limit, project_id)?;
+    let t = build_trace(query, limit, project_id, cross_project)?;
     Ok(RecallPack {
         dense_hits: t.dense_ids.len(),
         sparse_hits: t.sparse_ids.len(),
@@ -336,15 +369,19 @@ pub fn recall_pack(
 }
 
 /// Unified hybrid recall — compact context pack. `project_id = None` = no filter.
+/// `cross_project = Some(true)` relaxes the project filter (whole-brain recall);
+/// security gates (Secret excluded) are untouched.
 #[tauri::command]
 pub async fn recall(
     query: String,
     limit: Option<u32>,
     project_id: Option<String>,
+    cross_project: Option<bool>,
 ) -> Result<RecallPack, String> {
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
+    let cross = cross_project.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        recall_pack(&query, final_limit, project_id.as_deref())
+        recall_pack(&query, final_limit, project_id.as_deref(), cross)
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -357,10 +394,12 @@ pub async fn recall_inspect(
     query: String,
     limit: Option<u32>,
     project_id: Option<String>,
+    cross_project: Option<bool>,
 ) -> Result<RecallTrace, String> {
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
+    let cross = cross_project.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        build_trace(&query, final_limit, project_id.as_deref())
+        build_trace(&query, final_limit, project_id.as_deref(), cross)
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -510,7 +549,7 @@ mod tests {
             })
             .collect();
 
-        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"));
+        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false);
         let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
         assert!(inj.contains(&&ok), "active in-project item must inject");
@@ -534,6 +573,80 @@ mod tests {
                 .iter()
                 .any(|d| d.canonical_id == secret && d.reason.contains("secret")),
             "secret exclusion must be traced in discarded"
+        );
+    }
+
+    // CROSS-PROJECT gate (whole-brain recall): under a project filter (`ultron`),
+    //   - cross_project=false  -> a scope=project item from `otro` is EXCLUDED.
+    //   - cross_project=true   -> that same item is INCLUDED (project filter
+    //     relaxed) BUT a Secret item from `otro` is STILL excluded (security is
+    //     NOT relaxed). Unit-tested without Qdrant/E5 — guards the invariant that
+    //     cross-project relaxes ONLY the project filter.
+    #[test]
+    fn assemble_pack_cross_project_relaxes_only_project_filter() {
+        use crate::memory::model::MemoryItem;
+        use crate::memory::sqlite_store::{apply_schema, insert_item};
+        use crate::memory::{MemoryType, Sensitivity, Source};
+
+        let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+        apply_schema(&conn).expect("schema");
+
+        let mk = |scope: Scope, sens: Sensitivity, project: Option<&str>, sm: &str| {
+            let mut it = MemoryItem::new(MemoryType::Fact, scope, Source::ToolObserved, Status::Active);
+            it.summary = Some(sm.to_string());
+            it.sensitivity = sens;
+            it.project_id = project.map(str::to_string);
+            it.token_estimate = 20;
+            insert_item(&conn, &it).expect("insert");
+            it.id
+        };
+
+        let in_project = mk(Scope::Project, Sensitivity::Internal, Some("ultron"), "ultron item");
+        let other_project = mk(Scope::Project, Sensitivity::Internal, Some("otro"), "bank item");
+        let other_secret = mk(Scope::Project, Sensitivity::Secret, Some("otro"), "bank api key");
+        let global = mk(Scope::Global, Sensitivity::Internal, None, "global pref");
+
+        let ids = [&in_project, &other_project, &other_secret, &global];
+        let fused: Vec<FusedHit> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| FusedHit {
+                canonical_id: (*id).clone(),
+                rrf_score: 1.0 - i as f32 * 0.01,
+                dense_rank: Some(i),
+                sparse_rank: None,
+                dense_score: Some(0.5),
+            })
+            .collect();
+
+        // cross_project = FALSE: other-project item is filtered out.
+        let (inj_off, _d, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false);
+        let off: Vec<&String> = inj_off.iter().map(|e| &e.canonical_id).collect();
+        assert!(off.contains(&&in_project), "in-project item must inject (cross=off)");
+        assert!(off.contains(&&global), "global item must inject (cross=off)");
+        assert!(
+            !off.contains(&&other_project),
+            "other-project item must NOT inject when cross=off"
+        );
+
+        // cross_project = TRUE: other-project item is admitted; Secret stays out.
+        let (inj_on, disc_on, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), true);
+        let on: Vec<&String> = inj_on.iter().map(|e| &e.canonical_id).collect();
+        assert!(on.contains(&&in_project), "in-project item must still inject (cross=on)");
+        assert!(on.contains(&&global), "global item must still inject (cross=on)");
+        assert!(
+            on.contains(&&other_project),
+            "other-project item MUST inject when cross=on (project filter relaxed)"
+        );
+        assert!(
+            !on.contains(&&other_secret),
+            "Secret from another project must NEVER inject — cross relaxes project, not security"
+        );
+        assert!(
+            disc_on
+                .iter()
+                .any(|d| d.canonical_id == other_secret && d.reason.contains("secret")),
+            "cross-project Secret exclusion must be traced in discarded"
         );
     }
 
@@ -581,7 +694,7 @@ mod tests {
             })
             .collect();
 
-        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, None);
+        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, None, false);
         let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
         assert!(

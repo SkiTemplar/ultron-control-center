@@ -49,6 +49,10 @@ pub struct OrchestrationContext {
     pub constraints: Vec<String>,
     pub warnings: Vec<String>,
     pub token_budget: i64,
+    /// Whether recall ran in CROSS-PROJECT mode (whole-brain). True only when a
+    /// `project_id` is set AND the prompt explicitly asks about another project
+    /// (see `detect_cross_project`). Surfaced so the hook/UI can show it triggered.
+    pub cross_project: bool,
 }
 
 struct IntentRule {
@@ -305,6 +309,43 @@ pub fn classify_intent(prompt: &str) -> (&'static str, &'static str) {
     ("general", "quick")
 }
 
+/// Distinctive bilingual (es/en) phrases that imply the user is asking about a
+/// DIFFERENT project than the current one ("aquel proyecto", "otro proyecto",
+/// "the other project", "across all my projects"...). Substring-matched, same
+/// cheap heuristic as `classify_intent` — no NLU. Kept narrow on purpose: a false
+/// positive only WIDENS recall (still security-gated), but we avoid generic words
+/// like "proyecto" alone that would fire on in-project prompts.
+const CROSS_PROJECT_PHRASES: &[&str] = &[
+    "otro proyecto",
+    "otros proyectos",
+    "aquel proyecto",
+    "aquel otro proyecto",
+    "ese proyecto",
+    "en otro proyecto",
+    "todos mis proyectos",
+    "todos los proyectos",
+    "cualquier proyecto",
+    "entre proyectos",
+    "cross-project",
+    "cross project",
+    "other project",
+    "another project",
+    "the other project",
+    "all my projects",
+    "all projects",
+    "across projects",
+    "any project",
+];
+
+/// Heuristic intent detector for CROSS-PROJECT (whole-brain) recall. Returns true
+/// only when the prompt explicitly references a different / other / all projects.
+/// Deliberately conservative — see `CROSS_PROJECT_PHRASES`. The caller still gates
+/// this on having a current `project_id` (cross-project is a no-op without one).
+pub fn detect_cross_project(prompt: &str) -> bool {
+    let p = prompt.to_lowercase();
+    CROSS_PROJECT_PHRASES.iter().any(|pat| p.contains(pat))
+}
+
 /// ULTRON-internal META agents. They are housekeeping/self-improvement helpers
 /// (refresh docs, compose changelog, behaviour-preserving refactor, compress
 /// context, etc.), NOT task specialists. The semantic index over-weights them
@@ -436,8 +477,18 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
         warnings.push("agent catalog empty/unavailable — run `catalog_reindex`".to_string());
     }
 
+    // CROSS-PROJECT auto-detect: a no-op without a current project (cross-project
+    // is meaningless then). When the prompt asks about another / all projects we
+    // widen recall to the whole brain — security gates (Secret excluded) untouched.
+    let cross_project = project_id.is_some() && detect_cross_project(prompt);
+    if cross_project {
+        warnings.push(
+            "cross-project recall — searching the whole brain (other projects included)".to_string(),
+        );
+    }
+
     // Relevant memories via hybrid recall (already token-budgeted).
-    let memories = match build_trace(prompt, 6, project_id) {
+    let memories = match build_trace(prompt, 6, project_id, cross_project) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
             t.injected
@@ -464,6 +515,7 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
         constraints,
         warnings,
         token_budget: TOKEN_BUDGET,
+        cross_project,
     }
 }
 
@@ -504,6 +556,22 @@ mod tests {
         assert_eq!(classify_intent("sigue con esto").1, "quick");
         assert_eq!(classify_intent("lanza el orquestador").0, "continue");
         assert_eq!(classify_intent("algo totalmente ambiguo xyz").0, "general");
+    }
+
+    #[test]
+    fn detect_cross_project_fires_only_on_other_project_phrases() {
+        // Positive — bilingual phrases referencing another / all projects.
+        assert!(detect_cross_project("¿te acuerdas de aquel proyecto del banco?"));
+        assert!(detect_cross_project("busca en otro proyecto"));
+        assert!(detect_cross_project("mira en todos mis proyectos"));
+        assert!(detect_cross_project("what did we decide in the other project?"));
+        assert!(detect_cross_project("search across projects please"));
+        assert!(detect_cross_project("anything in any project about finanzas"));
+        // Negative — in-project work must NOT trigger whole-brain recall.
+        assert!(!detect_cross_project("arregla el bug de este proyecto"));
+        assert!(!detect_cross_project("sigue con la feature de export"));
+        assert!(!detect_cross_project("optimiza esta consulta"));
+        assert!(!detect_cross_project("proyecto")); // bare word does not fire
     }
 
     #[test]
