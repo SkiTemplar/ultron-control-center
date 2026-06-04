@@ -162,6 +162,9 @@ pub mod ai_tasks;
 pub mod contradiction;
 pub mod reflection;
 pub mod evals;
+// OLA A (2026-06-04): write-path secret/PII detector. Built + tested in isolation;
+// wiring into MemoryService::create_candidate is gated on confirmation.
+pub mod redaction;
 
 // Canonical memory kernel re-exports (Fase A).
 pub use model::{
