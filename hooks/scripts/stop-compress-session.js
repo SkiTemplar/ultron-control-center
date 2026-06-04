@@ -580,55 +580,19 @@ async function main() {
   // before the Qdrant path so decisions are still captured if Qdrant is down.
   appendPendingDecisions(resolveProjectId(cwd), facts, sessionId, date);
 
-  // Ensure Qdrant collection exists. If Qdrant is down, log and exit gracefully.
-  const collectionOk = await qdrantEnsureCollection();
-  if (!collectionOk) {
-    safeLog({
-      level: 'warn',
-      msg: 'qdrant_unavailable',
-      hint: `Start Qdrant: qdrant.exe  (see docs/qdrant-setup.md)`,
-      sessionId,
-    });
-    return;
-  }
-
-  // Build Qdrant points. Embeddings are computed via ultron-embed.exe; when
-  // the sidecar is missing we keep the zero-vector fallback but flag each
-  // point with `embed_stub:true` so downstream observers can distinguish
-  // real vectors from fallback noise.
-  let realEmbedCount = 0;
-  const points = facts.map((fact, idx) => {
-    const hash = crypto.createHash('sha256')
-      .update(`${sessionId}:${idx}`)
-      .digest('hex');
-    const id = parseInt(hash.slice(0, 15), 16);
-
-    const emb = computeEmbedding(fact.text);
-    if (emb.real) realEmbedCount += 1;
-
-    return {
-      id,
-      vector: emb.vector,
-      payload: {
-        text: fact.text,
-        kind: fact.kind || 'feature',
-        importance: typeof fact.importance === 'number' ? fact.importance : 0.5,
-        session_id: sessionId,
-        project,
-        date,
-        sha_head: sha,
-        used_ai: usedAI,
-        embed_stub: !emb.real,
-      },
-    };
-  });
-
-  const ok = await qdrantUpsertPoints(points);
+  // OLA A/B (2026-06-04): the legacy upsert to the RETIRED Qdrant `ultron_sessions`
+  // collection (384-d BGE) was REMOVED. It wrote memory OUTSIDE the canonical
+  // store (brain.db, governed by MemoryService) and used an embedding dimension
+  // incompatible with the canonical `ultron_memory` (E5 1024-d). Session capture
+  // now flows through `appendPendingDecisions` (above) and, going forward, the
+  // Stop -> `ultron-memory candidate` path (single-writer). The qdrant* and
+  // computeEmbedding helpers are intentionally left dead pending that rewrite.
+  // See cockpit/memory-rework/STATE-RECONCILIATION-2026-06-04.md (P0-1).
   safeLog({
-    level: ok ? 'info' : 'error',
-    msg: ok ? 'upserted' : 'upsert_failed',
-    count: points.length,
-    real_embeds: realEmbedCount,
+    level: 'info',
+    msg: 'session_compressed',
+    note: 'ultron_sessions upsert retired (SoT = brain.db); decisions captured',
+    count: facts.length,
     sessionId,
     project,
   });
