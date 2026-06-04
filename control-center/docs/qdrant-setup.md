@@ -34,13 +34,13 @@ Qdrant is NOT embedded inside the Tauri process. Reasons:
 3. Extract `qdrant.exe` to a stable location, e.g.:
 
    ```
-   C:\Users\USER\.ultron\bin\qdrant.exe
+   %USERPROFILE%\.ultron\bin\qdrant.exe
    ```
 
 4. Run it once manually to verify:
 
    ```powershell
-   & "C:\Users\USER\.ultron\bin\qdrant.exe"
+   & "$env:USERPROFILE\.ultron\bin\qdrant.exe"
    # Qdrant HTTP API listening on port 6333
    ```
 
@@ -57,7 +57,7 @@ docker run -d --name qdrant -p 6333:6333 -p 6334:6334 `
 ## Auto-start with Windows Task Scheduler
 
 ```powershell
-$action  = New-ScheduledTaskAction -Execute "C:\Users\USER\.ultron\bin\qdrant.exe"
+$action  = New-ScheduledTaskAction -Execute "$env:USERPROFILE\.ultron\bin\qdrant.exe"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
 $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit 0
 Register-ScheduledTask -TaskName "Qdrant-ULTRON" `
@@ -107,7 +107,7 @@ process, not a webview). The sidecar solves this:
 1. **Build** (once, after any Rust change to `qdrant.rs`):
 
    ```powershell
-   cd C:\Users\USER\.ultron\control-center\src-tauri
+   cd "$env:USERPROFILE\.ultron\control-center\src-tauri"
    cargo build --release --bin ultron-embed --features qdrant
    # Produces: target\release\ultron-embed.exe
    ```

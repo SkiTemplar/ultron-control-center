@@ -1,0 +1,44 @@
+# ULTRON — per-machine path reference (EXAMPLE)
+#
+# This file documents the absolute paths ULTRON uses on a given machine so they
+# do NOT have to be hardcoded in source or docs. Nothing reads this file at
+# runtime today — the backend resolves the user home with `dirs::home_dir()`
+# and reads overrides from environment variables (see `.env.example`). This is a
+# reference template so a fresh install can be reproduced without leaking the
+# original author's username into the repo.
+#
+# Copy to `config/paths.toml` (gitignored) and adjust for your machine if you
+# want a single place to keep them. Replace <USER> with your Windows username
+# (or use %USERPROFILE% / $env:USERPROFILE in shells).
+
+[home]
+# Root of the ULTRON install. Resolved at runtime via dirs::home_dir().join(".ultron").
+ultron_root  = "%USERPROFILE%\\.ultron"
+claude_root  = "%USERPROFILE%\\.claude"
+
+[memory]
+# Canonical SQLite source of truth (runtime, per-machine — never versioned).
+brain_db     = "%USERPROFILE%\\.ultron\\brain.db"
+# ONNX embedding cache. Override with env FASTEMBED_CACHE_PATH if you want it
+# outside the default ~/.cache location.
+fastembed_cache = "%USERPROFILE%\\.ultron\\.fastembed_cache"
+
+[qdrant]
+# Native Qdrant binary + storage. Override the HTTP endpoint with env QDRANT_URL.
+binary       = "%USERPROFILE%\\.ultron\\bin\\qdrant.exe"
+storage      = "%USERPROFILE%\\.ultron\\qdrant_storage"
+url          = "http://localhost:6333"
+
+[sidecars]
+# Compiled sidecars (regenerable via scripts/install-sidecars.ps1). Override the
+# embed sidecar location with env ULTRON_EMBED_BIN.
+ultron_embed  = "%USERPROFILE%\\.ultron\\bin\\ultron-embed.exe"
+ultron_memory = "%USERPROFILE%\\.ultron\\bin\\ultron-memory.exe"
+
+[hooks]
+# Source-of-truth dir for lifecycle hook scripts (see hooks/manifest.json).
+source_of_truth = "%USERPROFILE%\\.ultron\\hooks\\scripts"
+
+[backup]
+# Where the weekly mirror is written. Also settable via env ULTRON_BACKUP_ROOT.
+root = "D:\\BACKUP"

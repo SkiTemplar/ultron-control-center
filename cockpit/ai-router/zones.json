@@ -5,14 +5,14 @@
     "category": "chat",
     "task_class": "light",
     "primary": {
-      "provider_id": "claude-haiku",
-      "model": "claude-haiku-4-5-20251001",
+      "provider_id": "groq",
+      "model": "llama-3.3-70b-versatile",
       "max_tokens": 1024
     },
     "fallbacks": [
       {
-        "provider_id": "groq",
-        "model": "llama-3.3-70b-versatile",
+        "provider_id": "gemini",
+        "model": "gemini-2.5-flash",
         "max_tokens": 1024
       }
     ]
@@ -41,11 +41,17 @@
     "category": "code",
     "task_class": "light",
     "primary": {
-      "provider_id": "claude-haiku",
-      "model": "claude-haiku-4-5-20251001",
+      "provider_id": "groq",
+      "model": "llama-3.3-70b-versatile",
       "max_tokens": 2048
     },
-    "fallbacks": []
+    "fallbacks": [
+      {
+        "provider_id": "gemini",
+        "model": "gemini-2.5-flash",
+        "max_tokens": 2048
+      }
+    ]
   },
   {
     "id": "research-web",
@@ -59,8 +65,8 @@
     },
     "fallbacks": [
       {
-        "provider_id": "claude-haiku",
-        "model": "claude-haiku-4-5-20251001",
+        "provider_id": "groq",
+        "model": "llama-3.3-70b-versatile",
         "max_tokens": 4096
       }
     ]
@@ -89,14 +95,14 @@
     "category": "system",
     "task_class": "trivial",
     "primary": {
-      "provider_id": "claude-haiku",
-      "model": "claude-haiku-4-5-20251001",
+      "provider_id": "groq",
+      "model": "llama-3.3-70b-versatile",
       "max_tokens": 256
     },
     "fallbacks": [
       {
-        "provider_id": "groq",
-        "model": "llama-3.3-70b-versatile",
+        "provider_id": "gemini",
+        "model": "gemini-2.5-flash",
         "max_tokens": 256
       }
     ],

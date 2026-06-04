@@ -297,3 +297,67 @@ cockpit/workflow-runs.db
 cockpit/workflow-runs.db-journal
 cockpit/workflow-runs.db-wal
 cockpit/workflow-runs.db-shm
+
+# ============================================================================
+# === MERGE 2026-06-04 (desde .gitignore.proposed / CLEANUP-PLAN) — solo AÑADE
+# ============================================================================
+
+# --- HALLAZGO CRITICO: ficheros de validacion one-shot de IAs externas ---
+# (Codex/Gemini review dumps). Hoy UNTRACKED pero NO ignorados -> un `git add -A`
+# los subiria. Pueden contener fragmentos de codigo/secretos del paquete enviado.
+*-validation.txt
+.codex-validation.txt
+.gemini-validation.txt
+.validation-package.md
+cockpit/memory-rework/.validation-package.md
+
+# --- Dirs basura por ruta mal-expandida (script que no resolvio ~/.ultron) ---
+# Aparecen como carpetas literales "C:UsersRodrigo.ultron.tmpevals*" en la raiz.
+/C:Users*
+
+# --- Endurecimiento de claves/secretos (defensivo, repo se publica) ---
+*.key
+*.pem
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_ed25519
+secrets/
+**/secrets.*
+.credentials.json
+**/.credentials.json
+.mem0-opt-out.json
+
+# --- brain.db tambien fuera de la raiz por si se mueve el runtime ---
+**/brain.db
+**/brain.db-journal
+**/brain.db-wal
+**/brain.db-shm
+**/brain.db.bak-*
+
+# --- Caches uv (todas las variantes), fastembed y modelos descargables ---
+.uv-cache*
+.uv-cache-rescue/
+**/.fastembed_cache/
+*.onnx
+*.gguf
+*.safetensors
+
+# --- Reafirmar dist/ y target/ en cualquier nivel ---
+**/dist/
+**/target/
+
+# --- Backups y temporales (reafirmado, defensivo) ---
+*.bak
+*.bak.*
+*.bak-*
+*.tmp
+*~
+*.old
+*.orig
+
+# --- Config per-maquina opcional (template paths.example.toml SI se versiona) ---
+config/paths.toml
+config/constitution.json
+config/skill-trust.yaml
