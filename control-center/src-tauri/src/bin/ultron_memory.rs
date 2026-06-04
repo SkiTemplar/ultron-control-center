@@ -10,6 +10,8 @@
 //!   ultron-memory recall <query> [--project X]  # hybrid recall context pack
 //!   ultron-memory stats                         # memory health counts
 //!   ultron-memory reindex                       # rebuild the dense index
+//!   ultron-memory eval [--project X] [--golden] # recall@8 + (optional) golden metrics
+//!   ultron-memory eval-full [--project X]        # golden-set ranking metrics only
 //!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!
@@ -53,7 +55,26 @@ fn run() -> Result<serde_json::Value, String> {
                 ul::memory::qdrant_index::reindex_all().map_err(|e| e.to_string())?;
             Ok(serde_json::json!({ "indexed": indexed, "errors": errors }))
         }
-        "eval" => to_json(ul::memory::evals::run(project.as_deref(), 8)),
+        "eval" => {
+            // Default: the substring-based golden recall@8 report + security gate
+            // (unchanged). `--golden` ADDITIVELY merges the ranking-quality metrics
+            // (precision@k/recall@k/MRR/nDCG/context-waste) over the REAL golden set
+            // under a `golden_metrics` key, without altering the legacy fields.
+            let base = ul::memory::evals::run(project.as_deref(), 8);
+            let mut v = to_json(base)?;
+            if has_flag(&args, "--golden") {
+                let gm = ul::memory::evals::run_golden_metrics(project.as_deref(), 8);
+                if let serde_json::Value::Object(ref mut map) = v {
+                    map.insert("golden_metrics".to_string(), to_json(gm)?);
+                }
+            }
+            Ok(v)
+        }
+        // Dedicated subcommand: ONLY the ranking-quality metrics over the real
+        // golden set (precision@k/recall@k/MRR/nDCG/context-waste + security gate).
+        // FAIL-SAFE: degrades to an all-zero `degraded` report if the golden set
+        // is missing or Qdrant/E5 is offline.
+        "eval-full" => to_json(ul::memory::evals::run_golden_metrics(project.as_deref(), 8)),
         "reconcile" => {
             // Read-only SQLite<->Qdrant drift check (--check, the default mode).
             // --repair is intentionally not wired (it mutates the index; policy
@@ -68,7 +89,7 @@ fn run() -> Result<serde_json::Value, String> {
             let id = emit_candidate(&buf)?;
             Ok(serde_json::json!({ "candidate_id": id }))
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval|reconcile|candidate> [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval [--golden]|eval-full|reconcile|candidate> [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
@@ -107,6 +128,11 @@ fn flag_value(args: &[String], flag: &str) -> Option<String> {
         .position(|a| a == flag)
         .and_then(|i| args.get(i + 1))
         .cloned()
+}
+
+/// Whether a boolean flag (e.g. `--golden`) is present anywhere in `args`.
+fn has_flag(args: &[String], flag: &str) -> bool {
+    args.iter().any(|a| a == flag)
 }
 
 /// First positional arg(s) after the subcommand, excluding `--project <val>`.

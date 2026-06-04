@@ -16,7 +16,10 @@
 //     qdrant / recall / decisions / embeddings / orchestrator / sparse) so the
 //     harness ships with a baseline even on a fresh checkout.
 
+use std::collections::BTreeMap;
+
 use crate::commands::memory::recall_unified::recall_pack;
+use crate::memory::eval_metrics::{EvalMetrics, GoldenSet};
 
 /// A single golden query: a search string plus the substrings that SHOULD show
 /// up in at least one recovered summary. `expect_any_of` is OR-matched and
@@ -283,6 +286,225 @@ pub fn run(project_id: Option<&str>, k: usize) -> EvalReport {
     report
 }
 
+// ===========================================================================
+// Golden-set metrics path (precision@k / recall@k / MRR / nDCG / context-waste)
+//
+// This is the I/O boundary that drives the PURE `eval_metrics` module against
+// the REAL generated golden set (cockpit/memory-rework/evals/golden_set.json,
+// ~942 positives each carrying `expect_ids`). It is ADDITIVE and FAIL-SAFE:
+//   - it does NOT touch `run()` / `recall_at_k` / the security gate semantics
+//     of the default `eval` subcommand;
+//   - a missing golden_set.json, an unreadable file, or a dead Qdrant/E5
+//     degrades to a well-formed `degraded = true` report (never a panic).
+// ===========================================================================
+
+/// Resolve the canonical path to the generated golden set. The file lives at
+/// `~/.ultron/cockpit/memory-rework/evals/golden_set.json` (same `~/.ultron`
+/// root used by `brain.db`). Returns `None` only if the HOME dir is unknown —
+/// the caller treats that exactly like a missing file (degraded, no panic).
+fn golden_set_path() -> Option<std::path::PathBuf> {
+    dirs::home_dir().map(|h| {
+        h.join(".ultron")
+            .join("cockpit")
+            .join("memory-rework")
+            .join("evals")
+            .join("golden_set.json")
+    })
+}
+
+/// Per-category aggregate of the ranking-quality metrics (e.g. "decision",
+/// "factual", "file", "task"), so a regression can be localised to a bucket.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CategoryMetrics {
+    /// The golden-set category these metrics aggregate.
+    pub category: String,
+    /// Number of positives in this category that were scored.
+    pub queries: usize,
+    /// Mean ranking-quality metrics over this category's positives.
+    pub metrics: EvalMetrics,
+}
+
+/// The full golden-set metrics report: the aggregate `EvalMetrics` over every
+/// scored positive, a per-category breakdown, provenance, and the SAME security
+/// gate (secret/stale leak counts) applied over every id recall returned.
+///
+/// Serialized as the JSON payload of the `eval-full` subcommand (and merged
+/// additively into the default `eval` report when `--golden` is passed).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct GoldenMetricsReport {
+    /// Recall depth `k` the metrics were computed at (matches the eval cutoff).
+    pub k: usize,
+    /// Number of golden positives actually scored (0 when degraded).
+    pub scored: usize,
+    /// Number of positives skipped because they carried no `expect_ids`.
+    pub skipped_no_expectation: usize,
+    /// Aggregate (mean) ranking-quality metrics over all scored positives.
+    pub aggregate: EvalMetrics,
+    /// Per-category aggregates, ordered by category name (deterministic).
+    pub per_category: Vec<CategoryMetrics>,
+    /// SECURITY GATE: Secret items recall surfaced across the run (must be 0).
+    pub secret_leak_count: usize,
+    /// SECURITY GATE: non-Active items recall surfaced (must be 0).
+    pub stale_leak_count: usize,
+    /// Offending ids (secret or non-active). Empty on a clean run.
+    pub leaked_ids: Vec<String>,
+    /// `true` when the golden set could not be loaded / had no usable positives.
+    /// In that case `aggregate` is all-zero and `scored == 0` — never a panic.
+    pub degraded: bool,
+    /// Human-readable provenance / degradation reason (path, parse error, ...).
+    pub note: String,
+}
+
+impl GoldenMetricsReport {
+    /// A well-formed, all-zero report used on any degradation path. Keeps the
+    /// JSON shape stable for hook consumers even when the golden set is absent.
+    fn degraded(k: usize, note: impl Into<String>) -> Self {
+        Self {
+            k,
+            scored: 0,
+            skipped_no_expectation: 0,
+            aggregate: EvalMetrics::aggregate(&[]),
+            per_category: Vec::new(),
+            secret_leak_count: 0,
+            stale_leak_count: 0,
+            leaked_ids: Vec::new(),
+            degraded: true,
+            note: note.into(),
+        }
+    }
+}
+
+/// Run the REAL golden set through the live recall pipeline and report the
+/// pure ranking-quality metrics (precision@k / recall@k / MRR / nDCG@k /
+/// context-waste) aggregated overall and per category.
+///
+/// `project_override`:
+///   - `Some(p)` forces every query to recall within project `p`;
+///   - `None` honours each positive's own `project_id` from the golden set
+///     (the SoT scope), falling back to global recall when it has none.
+///
+/// I/O lives HERE (std::fs read of golden_set.json); parsing is delegated to the
+/// PURE `GoldenSet::from_json_str`, and every metric to the PURE `eval_metrics`
+/// functions via `EvalMetrics::for_query` / `aggregate`. The same SoT-backed
+/// security gate as `run()` is reapplied over every returned id.
+///
+/// FAIL-SAFE end-to-end: a missing/invalid file, or any per-query `recall_pack`
+/// failure, degrades (empty ranking / `degraded = true`) instead of panicking.
+#[must_use]
+pub fn run_golden_metrics(project_override: Option<&str>, k: usize) -> GoldenMetricsReport {
+    let Some(path) = golden_set_path() else {
+        return GoldenMetricsReport::degraded(k, "no HOME dir; cannot locate golden_set.json");
+    };
+    let text = match std::fs::read_to_string(&path) {
+        Ok(t) => t,
+        Err(e) => {
+            return GoldenMetricsReport::degraded(
+                k,
+                format!("golden_set.json unreadable at {}: {e}", path.display()),
+            );
+        }
+    };
+    let golden = match GoldenSet::from_json_str(&text) {
+        Ok(g) => g,
+        Err(e) => {
+            return GoldenMetricsReport::degraded(
+                k,
+                format!("golden_set.json parse error at {}: {e}", path.display()),
+            );
+        }
+    };
+    if golden.positives.is_empty() {
+        return GoldenMetricsReport::degraded(k, "golden_set.json has no positives");
+    }
+
+    let mut per_query: Vec<EvalMetrics> = Vec::with_capacity(golden.positives.len());
+    let mut by_category: BTreeMap<String, Vec<EvalMetrics>> = BTreeMap::new();
+    let mut returned_ids: Vec<String> = Vec::new();
+    let mut skipped = 0usize;
+
+    for pos in &golden.positives {
+        let relevant = pos.relevant();
+        // A positive with no expected ids cannot score recall meaningfully; skip
+        // it (and do NOT let it deflate the means) rather than scoring a vacuous 0.
+        if relevant.is_empty() {
+            skipped += 1;
+            continue;
+        }
+
+        // Scope: an explicit override wins; otherwise honour the golden's own
+        // project_id (the SoT scope used when the positive was generated).
+        let project = project_override.or(pos.project_id.as_deref());
+
+        // SAME recall path as the `eval`/`recall` subcommands. FAIL-SAFE: an error
+        // (Qdrant/E5 offline) degrades this query to an empty ranking — every
+        // metric then scores 0 for it, which is the correct "recovered nothing".
+        let retrieved: Vec<String> = match recall_pack(&pos.query, k, project) {
+            Ok(pack) => {
+                returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
+                pack.entries.into_iter().map(|e| e.canonical_id).collect()
+            }
+            Err(e) => {
+                eprintln!("[evals] golden recall failed for '{}': {e}", pos.query);
+                Vec::new()
+            }
+        };
+
+        let m = EvalMetrics::for_query(&retrieved, &relevant, k);
+        per_query.push(m);
+        by_category.entry(pos.category.clone()).or_default().push(m);
+    }
+
+    let aggregate = EvalMetrics::aggregate(&per_query);
+    let per_category: Vec<CategoryMetrics> = by_category
+        .into_iter()
+        .map(|(category, ms)| CategoryMetrics {
+            queries: ms.len(),
+            metrics: EvalMetrics::aggregate(&ms),
+            category,
+        })
+        .collect();
+
+    let mut report = GoldenMetricsReport {
+        k,
+        scored: per_query.len(),
+        skipped_no_expectation: skipped,
+        aggregate,
+        per_category,
+        secret_leak_count: 0,
+        stale_leak_count: 0,
+        leaked_ids: Vec::new(),
+        degraded: per_query.is_empty(),
+        note: format!(
+            "golden_set.json loaded from {} ({} positives, {} scored, {} skipped)",
+            path.display(),
+            golden.positives.len(),
+            per_query.len(),
+            skipped
+        ),
+    };
+
+    // SECURITY GATE (identical policy to `run()`): no Secret / non-Active item
+    // may have surfaced. Read-only; degrades to "no leaks measured" if brain.db
+    // is unavailable (recall would also have been empty in that case).
+    returned_ids.sort();
+    returned_ids.dedup();
+    if let Ok(conn) = super::sqlite_store::open_conn() {
+        let rows: Vec<(String, super::model::Sensitivity, super::model::Status)> = returned_ids
+            .iter()
+            .filter_map(|id| match super::sqlite_store::get_item(&conn, id) {
+                Ok(Some(item)) => Some((item.id, item.sensitivity, item.status)),
+                _ => None,
+            })
+            .collect();
+        let (secret, stale, leaked) = classify_leaks(&rows);
+        report.secret_leak_count = secret;
+        report.stale_leak_count = stale;
+        report.leaked_ids = leaked;
+    }
+
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -400,5 +622,46 @@ mod tests {
             !summaries_match(&["hola".to_string()], &[]),
             "no expectations -> no match"
         );
+    }
+
+    // ----- golden metrics report (degraded shape, no I/O) -------------------
+
+    #[test]
+    fn golden_metrics_degraded_is_well_formed_zero() {
+        // The degraded constructor must yield a stable, all-zero, non-NaN report
+        // so hook consumers never see a panic or a malformed payload.
+        let r = GoldenMetricsReport::degraded(8, "file missing");
+        assert!(r.degraded);
+        assert_eq!(r.k, 8);
+        assert_eq!(r.scored, 0);
+        assert_eq!(r.skipped_no_expectation, 0);
+        assert!(r.per_category.is_empty());
+        assert_eq!(r.secret_leak_count, 0);
+        assert_eq!(r.stale_leak_count, 0);
+        assert!(r.leaked_ids.is_empty());
+        // Aggregate is the empty aggregate (k = 0, every field 0.0, no NaN).
+        assert_eq!(r.aggregate.k, 0);
+        for v in [
+            r.aggregate.precision_at_k,
+            r.aggregate.recall_at_k,
+            r.aggregate.mrr,
+            r.aggregate.ndcg_at_k,
+            r.aggregate.context_waste,
+        ] {
+            assert_eq!(v, 0.0);
+            assert!(!v.is_nan());
+        }
+        assert_eq!(r.note, "file missing");
+    }
+
+    #[test]
+    fn golden_metrics_report_serializes_to_json() {
+        // Serializing must not fail and must surface the metric field names so
+        // the eval-full subcommand emits a machine-readable payload for hooks.
+        let r = GoldenMetricsReport::degraded(8, "degraded");
+        let json = serde_json::to_string(&r).expect("report must serialize");
+        assert!(json.contains("\"aggregate\""));
+        assert!(json.contains("\"precision_at_k\""));
+        assert!(json.contains("\"degraded\":true"));
     }
 }
