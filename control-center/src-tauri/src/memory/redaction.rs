@@ -315,6 +315,19 @@ pub fn contains_secret(text: &str) -> bool {
     !detect_secrets(text).is_empty()
 }
 
+/// Redact secrets in an optional text field in place (write-path helper).
+/// Returns `true` if any secret was found and redacted. A `None` or
+/// secret-free field is left untouched and returns `false`.
+pub fn redact_in_place(field: &mut Option<String>) -> bool {
+    if let Some(text) = field {
+        if contains_secret(text) {
+            *text = redact(text);
+            return true;
+        }
+    }
+    false
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,6 +430,22 @@ mod tests {
             classify_sensitivity("just a normal note"),
             Sensitivity::Internal
         );
+    }
+
+    #[test]
+    fn redact_in_place_redacts_and_reports() {
+        let mut f = Some("password=hunter2hunter2 here".to_string());
+        assert!(redact_in_place(&mut f));
+        assert!(f.unwrap().contains("[REDACTED:secret]"));
+    }
+
+    #[test]
+    fn redact_in_place_leaves_clean_and_none_untouched() {
+        let mut clean = Some("a normal memory note".to_string());
+        assert!(!redact_in_place(&mut clean));
+        assert_eq!(clean.as_deref(), Some("a normal memory note"));
+        let mut none: Option<String> = None;
+        assert!(!redact_in_place(&mut none));
     }
 
     #[test]

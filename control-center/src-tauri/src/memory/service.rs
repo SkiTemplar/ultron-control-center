@@ -11,9 +11,10 @@
 use serde::Serialize;
 
 use super::model::{
-    Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, MemoryItem,
-    MemoryType, Scope, Source, Status, estimate_tokens, now_millis,
+    estimate_tokens, now_millis, Actor, CandidateAction, CandidateStatus, EventType,
+    MemoryCandidate, MemoryEvent, MemoryItem, MemoryType, Scope, Source, Status,
 };
+use super::redaction;
 use super::sqlite_store as store;
 use super::MemoryError;
 
@@ -40,6 +41,16 @@ impl MemoryService {
         let conn = store::open_conn()?;
         let mut cand = candidate.clone();
 
+        // Write-path secret guard (OLA A): redact any credential material from the
+        // proposed text BEFORE it is persisted to brain.db or later embedded into
+        // Qdrant. Defensive — only detected secrets are redacted; normal text is
+        // left untouched. See memory/redaction.rs and CONTRACTS-2026-06-04.md.
+        let mut redacted = false;
+        redacted |= redaction::redact_in_place(&mut cand.proposed_title);
+        redacted |= redaction::redact_in_place(&mut cand.proposed_summary);
+        redacted |= redaction::redact_in_place(&mut cand.proposed_content);
+        redacted |= redaction::redact_in_place(&mut cand.proposed_content_json);
+
         // Basic FTS dedupe: flag near-identical ACTIVE items as duplicates so the
         // inbox can merge instead of creating a redundant memory. (Semantic dedupe
         // + contradiction detection via embeddings/AI routing is Fase D — TODO below.)
@@ -60,8 +71,13 @@ impl MemoryService {
         // recommended_action=Quarantine and NEVER auto-approve (route to inbox diff).
 
         store::insert_candidate(&conn, &cand)?;
+        let reason = if redacted {
+            format!("candidate {} proposed (secrets redacted)", cand.id)
+        } else {
+            format!("candidate {} proposed", cand.id)
+        };
         let ev = MemoryEvent::new(EventType::Created, None, Actor::System)
-            .with_reason(format!("candidate {} proposed", cand.id))
+            .with_reason(reason)
             .with_after(serde_json::to_string(&cand).unwrap_or_default());
         let _ = store::insert_event(&conn, &ev);
         Ok(cand.id.clone())
@@ -128,7 +144,11 @@ impl MemoryService {
     }
 
     /// Reject a candidate — it never becomes a memory.
-    pub fn reject_candidate(id: &str, actor: Actor, reason: Option<String>) -> Result<(), MemoryError> {
+    pub fn reject_candidate(
+        id: &str,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<(), MemoryError> {
         let conn = store::open_conn()?;
         store::set_candidate_status(&conn, id, CandidateStatus::Rejected)?;
         let mut ev = MemoryEvent::new(EventType::Rejected, None, actor)
@@ -145,9 +165,16 @@ impl MemoryService {
     /// doubtful). Emits an `imported` event.
     pub fn add_imported(item: &MemoryItem) -> Result<(), MemoryError> {
         let conn = store::open_conn()?;
-        store::insert_item(&conn, item)?;
+        // Write-path secret guard (OLA A): redact credentials from imported text
+        // (external/ETL sources are lower-trust) before persisting/indexing.
+        let mut item = item.clone();
+        redaction::redact_in_place(&mut item.title);
+        redaction::redact_in_place(&mut item.summary);
+        redaction::redact_in_place(&mut item.content);
+        redaction::redact_in_place(&mut item.content_json);
+        store::insert_item(&conn, &item)?;
         let ev = MemoryEvent::new(EventType::Imported, Some(item.id.clone()), Actor::Migration)
-            .with_after(serde_json::to_string(item).unwrap_or_default());
+            .with_after(serde_json::to_string(&item).unwrap_or_default());
         let _ = store::insert_event(&conn, &ev);
         Ok(())
     }
@@ -188,8 +215,8 @@ impl MemoryService {
         actor: Actor,
     ) -> Result<MemoryItem, MemoryError> {
         let conn = store::open_conn()?;
-        let mut item = store::get_item(&conn, id)?
-            .ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
+        let mut item =
+            store::get_item(&conn, id)?.ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
         let before = serde_json::to_string(&item).unwrap_or_default();
 
         if title.is_some() {
@@ -219,10 +246,15 @@ impl MemoryService {
     }
 
     /// Transition an item to a new lifecycle status (deprecate / archive / stale…).
-    pub fn set_status(id: &str, status: Status, actor: Actor, reason: Option<String>) -> Result<MemoryItem, MemoryError> {
+    pub fn set_status(
+        id: &str,
+        status: Status,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<MemoryItem, MemoryError> {
         let conn = store::open_conn()?;
-        let mut item = store::get_item(&conn, id)?
-            .ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
+        let mut item =
+            store::get_item(&conn, id)?.ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
         let before = serde_json::to_string(&item).unwrap_or_default();
         let event_type = match status {
             Status::Deprecated => EventType::Deprecated,
@@ -245,7 +277,11 @@ impl MemoryService {
     }
 
     /// Convenience: deprecate an item (no longer recall-eligible).
-    pub fn deprecate(id: &str, actor: Actor, reason: Option<String>) -> Result<MemoryItem, MemoryError> {
+    pub fn deprecate(
+        id: &str,
+        actor: Actor,
+        reason: Option<String>,
+    ) -> Result<MemoryItem, MemoryError> {
         Self::set_status(id, Status::Deprecated, actor, reason)
     }
 
@@ -258,8 +294,8 @@ impl MemoryService {
     }
     fn set_pinned(id: &str, pinned: bool, actor: Actor) -> Result<MemoryItem, MemoryError> {
         let conn = store::open_conn()?;
-        let mut item = store::get_item(&conn, id)?
-            .ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
+        let mut item =
+            store::get_item(&conn, id)?.ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
         let before = serde_json::to_string(&item).unwrap_or_default();
         item.pinned = pinned;
         item.updated_at = now_millis();
@@ -279,7 +315,10 @@ impl MemoryService {
     }
 
     /// Active items of a given type (e.g. decisions, open tasks).
-    pub fn list_active_of_type(kind: MemoryType, limit: usize) -> Result<Vec<MemoryItem>, MemoryError> {
+    pub fn list_active_of_type(
+        kind: MemoryType,
+        limit: usize,
+    ) -> Result<Vec<MemoryItem>, MemoryError> {
         let conn = store::open_conn()?;
         store::list_by_type_status(&conn, kind, Status::Active, limit)
     }
@@ -292,8 +331,8 @@ impl MemoryService {
         actor: Actor,
     ) -> Result<MemoryItem, MemoryError> {
         let conn = store::open_conn()?;
-        let mut item = store::get_item(&conn, id)?
-            .ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
+        let mut item =
+            store::get_item(&conn, id)?.ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
         let before = serde_json::to_string(&item).unwrap_or_default();
         if let Some(s) = scope {
             item.scope = s;
@@ -312,7 +351,11 @@ impl MemoryService {
 
     /// Replace `old_id` with a new active item, marking the old one deprecated
     /// and linking supersedes/superseded_by both ways.
-    pub fn supersede(old_id: &str, mut new_item: MemoryItem, actor: Actor) -> Result<MemoryItem, MemoryError> {
+    pub fn supersede(
+        old_id: &str,
+        mut new_item: MemoryItem,
+        actor: Actor,
+    ) -> Result<MemoryItem, MemoryError> {
         let conn = store::open_conn()?;
         let mut old = store::get_item(&conn, old_id)?
             .ok_or_else(|| MemoryError::NotFound(old_id.to_string()))?;
@@ -353,8 +396,8 @@ impl MemoryService {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::model::{MemoryType, Scope};
+    use super::*;
     use rusqlite::Connection;
 
     // These tests drive the low-level store directly through an in-memory conn
@@ -376,31 +419,54 @@ mod tests {
 
         // No active item should exist for a rejected candidate.
         let active = store::list_items(&conn, Status::Active, 100).unwrap();
-        assert!(active.is_empty(), "rejecting a candidate must not create memory");
+        assert!(
+            active.is_empty(),
+            "rejecting a candidate must not create memory"
+        );
     }
 
     #[test]
     fn pending_item_is_not_recall_eligible() {
         let conn = mem_conn();
-        let mut pending = MemoryItem::new(MemoryType::Fact, Scope::Project, Source::AssistantInferred, Status::Pending);
+        let mut pending = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Project,
+            Source::AssistantInferred,
+            Status::Pending,
+        );
         pending.summary = Some("tentative fact about routing".into());
         store::insert_item(&conn, &pending).unwrap();
 
         let hits = store::search_items(&conn, "routing", Status::Active, 10).unwrap();
-        assert!(hits.is_empty(), "pending memory must not be treated as truth");
+        assert!(
+            hits.is_empty(),
+            "pending memory must not be treated as truth"
+        );
     }
 
     #[test]
     fn deprecated_item_drops_out_of_active_recall() {
         let conn = mem_conn();
-        let mut item = MemoryItem::new(MemoryType::Decision, Scope::Project, Source::UserExplicit, Status::Active);
+        let mut item = MemoryItem::new(
+            MemoryType::Decision,
+            Scope::Project,
+            Source::UserExplicit,
+            Status::Active,
+        );
         item.summary = Some("use sqlite as canonical store".into());
         store::insert_item(&conn, &item).unwrap();
-        assert_eq!(store::search_items(&conn, "canonical", Status::Active, 10).unwrap().len(), 1);
+        assert_eq!(
+            store::search_items(&conn, "canonical", Status::Active, 10)
+                .unwrap()
+                .len(),
+            1
+        );
 
         // deprecate
         item.status = Status::Deprecated;
         store::insert_item(&conn, &item).unwrap();
-        assert!(store::search_items(&conn, "canonical", Status::Active, 10).unwrap().is_empty());
+        assert!(store::search_items(&conn, "canonical", Status::Active, 10)
+            .unwrap()
+            .is_empty());
     }
 }
