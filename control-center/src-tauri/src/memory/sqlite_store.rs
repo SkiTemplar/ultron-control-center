@@ -420,15 +420,23 @@ pub(crate) fn get_item(conn: &Connection, id: &str) -> Result<Option<MemoryItem>
 pub(crate) fn find_active_by_content_hash(
     conn: &Connection,
     hash: &str,
+    scope: Scope,
+    project_id: Option<&str>,
 ) -> Result<Option<MemoryItem>, MemoryError> {
     let sql = format!(
-        "SELECT {ITEM_COLS} FROM memory_items WHERE content_hash = ?1 AND status = ?2 LIMIT 1"
+        "SELECT {ITEM_COLS} FROM memory_items \
+         WHERE content_hash = ?1 AND status = ?2 AND scope = ?3 AND project_id IS ?4 LIMIT 1"
     );
     let mut stmt = conn.prepare(&sql).map_err(|e| {
         MemoryError::RemoteUnavailable(format!("find_by_content_hash prepare: {e}"))
     })?;
     let mut rows = stmt
-        .query(params![hash, Status::Active.as_str()])
+        .query(params![
+            hash,
+            Status::Active.as_str(),
+            scope.as_str(),
+            project_id
+        ])
         .map_err(|e| MemoryError::RemoteUnavailable(format!("find_by_content_hash query: {e}")))?;
     match rows
         .next()
@@ -1019,14 +1027,50 @@ mod tests {
             .expect("content_hash computed on insert");
 
         assert_eq!(
-            find_active_by_content_hash(&conn, &hash)
+            find_active_by_content_hash(&conn, &hash, Scope::Project, None)
                 .unwrap()
                 .map(|i| i.id),
             Some(item.id)
         );
-        assert!(find_active_by_content_hash(&conn, "0000000000000000")
+        assert!(
+            find_active_by_content_hash(&conn, "0000000000000000", Scope::Project, None)
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn find_active_by_content_hash_respects_project_boundary() {
+        let conn = mem_conn();
+        let mut item = MemoryItem::new(
+            MemoryType::Decision,
+            Scope::Project,
+            Source::UserExplicit,
+            Status::Active,
+        );
+        item.project_id = Some("bank".into());
+        item.summary = Some("texto compartido entre proyectos".into());
+        insert_item(&conn, &item).unwrap();
+        let hash = get_item(&conn, &item.id)
             .unwrap()
-            .is_none());
+            .unwrap()
+            .content_hash
+            .unwrap();
+
+        // same hash + scope, DIFFERENT project (None) -> NOT a dupe (no cross-project merge)
+        assert!(
+            find_active_by_content_hash(&conn, &hash, Scope::Project, None)
+                .unwrap()
+                .is_none(),
+            "identical text in another project must not be a duplicate (CONTRACTS §4)"
+        );
+        // same hash + scope + SAME project -> match
+        assert_eq!(
+            find_active_by_content_hash(&conn, &hash, Scope::Project, Some("bank"))
+                .unwrap()
+                .map(|i| i.id),
+            Some(item.id)
+        );
     }
 
     #[test]
@@ -1046,7 +1090,9 @@ mod tests {
             .content_hash
             .unwrap();
         assert!(
-            find_active_by_content_hash(&conn, &hash).unwrap().is_none(),
+            find_active_by_content_hash(&conn, &hash, Scope::Global, None)
+                .unwrap()
+                .is_none(),
             "non-active items must not be returned as active dupes"
         );
     }

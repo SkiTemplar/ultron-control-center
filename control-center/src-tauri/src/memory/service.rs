@@ -57,6 +57,25 @@ fn sync_index(item: &MemoryItem) {
     }
 }
 
+/// Candidate `risk_level` marker set when the write-path detected a credential;
+/// read on approve to raise the item to `Sensitivity::Secret` (H2). Single source
+/// of the literal so a typo can't silently disable the Secret-gate.
+const SECRET_RISK_MARKER: &str = "secret";
+
+/// Redact any credential material found in `tags` (write-path helper, review-fix).
+/// Returns `true` if anything was redacted. Tags are short labels but are still
+/// user/tool text and are part of `searchable_text()` (hence embedded).
+fn redact_tags(tags: &mut [String]) -> bool {
+    let mut hit = false;
+    for tag in tags.iter_mut() {
+        if redaction::contains_secret(tag) {
+            *tag = redaction::redact(tag);
+            hit = true;
+        }
+    }
+    hit
+}
+
 impl MemoryService {
     // -- candidate intake (what hooks/agents call) ---------------------------
 
@@ -75,6 +94,7 @@ impl MemoryService {
         redacted |= redaction::redact_in_place(&mut cand.proposed_summary);
         redacted |= redaction::redact_in_place(&mut cand.proposed_content);
         redacted |= redaction::redact_in_place(&mut cand.proposed_content_json);
+        redacted |= redact_tags(&mut cand.proposed_tags);
 
         // Basic FTS dedupe: flag near-identical ACTIVE items as duplicates so the
         // inbox can merge instead of creating a redundant memory. (Semantic dedupe
@@ -95,12 +115,24 @@ impl MemoryService {
         // content_hash this candidate would produce on approve, flag it as a Merge
         // candidate. Complements the FTS near-dupe above (exact > lexical-similar).
         let probe = cand.to_item(Status::Active, Source::AssistantInferred);
-        let probe_hash = super::texthash::content_hash(&probe.searchable_text());
-        if let Ok(Some(existing)) = store::find_active_by_content_hash(&conn, &probe_hash) {
-            if !cand.duplicate_candidates.contains(&existing.id) {
-                cand.duplicate_candidates.push(existing.id);
+        let probe_text = probe.searchable_text();
+        if !probe_text.trim().is_empty() {
+            let probe_hash = super::texthash::content_hash(&probe_text);
+            // Scope/project guard (CONTRACTS §4 + review P1): an exact text match in a
+            // DIFFERENT project/scope is a near-duplicate, NOT a duplicate — never merge
+            // across the project boundary. find_active_by_content_hash filters by
+            // (scope, project_id) so cross-project collisions can't trigger a Merge.
+            if let Ok(Some(existing)) = store::find_active_by_content_hash(
+                &conn,
+                &probe_hash,
+                probe.scope,
+                probe.project_id.as_deref(),
+            ) {
+                if !cand.duplicate_candidates.contains(&existing.id) {
+                    cand.duplicate_candidates.push(existing.id);
+                }
+                cand.recommended_action = CandidateAction::Merge;
             }
-            cand.recommended_action = CandidateAction::Merge;
         }
 
         // Write-path sensitivity (OLA A / H2): a candidate that carried a
@@ -109,7 +141,7 @@ impl MemoryService {
         // detector as redaction::classify_sensitivity; takes precedence over Merge.
         if redacted {
             cand.recommended_action = CandidateAction::Quarantine;
-            cand.risk_level = "secret".to_string();
+            cand.risk_level = SECRET_RISK_MARKER.to_string();
         }
         // TODO(Fase D — contradiction_detector): embed proposed_summary, compare
         // against active items of the same scope/type via qdrant_index::search_dense;
@@ -177,7 +209,8 @@ impl MemoryService {
         let mut item = cand.to_item(Status::Active, Source::AssistantInferred);
         // H2: carry the write-path secret marker to the item so the recall
         // Secret-gate (recall_unified) excludes it. Monotonic — never downgrades.
-        item.sensitivity = raised_sensitivity(item.sensitivity, cand.risk_level == "secret");
+        item.sensitivity =
+            raised_sensitivity(item.sensitivity, cand.risk_level == SECRET_RISK_MARKER);
         if matches!(actor, Actor::User) {
             item.validated_by_user = true;
             item.validated_at = Some(now_millis());
@@ -223,6 +256,7 @@ impl MemoryService {
         secret |= redaction::redact_in_place(&mut item.summary);
         secret |= redaction::redact_in_place(&mut item.content);
         secret |= redaction::redact_in_place(&mut item.content_json);
+        secret |= redact_tags(&mut item.tags);
         // H2: mark imported item Secret if any credential was detected (never downgrade).
         item.sensitivity = raised_sensitivity(item.sensitivity, secret);
         store::insert_item(&conn, &item)?;
@@ -288,6 +322,15 @@ impl MemoryService {
         if let Some(c) = confidence {
             item.confidence = c.clamp(0.0, 1.0);
         }
+        // Write-path secret guard (H2 / review P1): an edit can introduce a
+        // credential, and W4 now indexes edited items into Qdrant — redact +
+        // escalate sensitivity BEFORE persisting/indexing.
+        let mut secret = redaction::redact_in_place(&mut item.title);
+        secret |= redaction::redact_in_place(&mut item.summary);
+        secret |= redaction::redact_in_place(&mut item.content);
+        secret |= redaction::redact_in_place(&mut item.content_json);
+        secret |= redact_tags(&mut item.tags);
+        item.sensitivity = raised_sensitivity(item.sensitivity, secret);
         item.updated_at = now_millis();
         item.token_estimate = estimate_tokens(&item.searchable_text());
         store::insert_item(&conn, &item)?;
@@ -419,6 +462,14 @@ impl MemoryService {
 
         new_item.status = Status::Active;
         new_item.supersedes = Some(old_id.to_string());
+        // Write-path secret guard (H2 / review P1): supersede writes a NEW active
+        // item that W4 indexes — redact + escalate sensitivity before persisting.
+        let mut secret = redaction::redact_in_place(&mut new_item.title);
+        secret |= redaction::redact_in_place(&mut new_item.summary);
+        secret |= redaction::redact_in_place(&mut new_item.content);
+        secret |= redaction::redact_in_place(&mut new_item.content_json);
+        secret |= redact_tags(&mut new_item.tags);
+        new_item.sensitivity = raised_sensitivity(new_item.sensitivity, secret);
         new_item.updated_at = now_millis();
         store::insert_item(&conn, &new_item)?;
         sync_index(&new_item); // W4: index the new active item
