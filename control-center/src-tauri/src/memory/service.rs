@@ -143,14 +143,42 @@ impl MemoryService {
             cand.recommended_action = CandidateAction::Quarantine;
             cand.risk_level = SECRET_RISK_MARKER.to_string();
         }
-        // TODO(Fase D — contradiction_detector): embed proposed_summary, compare
-        // against active items of the same scope/type via qdrant_index::search_dense;
-        // on semantic conflict set `contradiction_candidates` +
-        // recommended_action=Quarantine and NEVER auto-approve (route to inbox diff).
+        // Fase D — contradiction detector (now wired). Compare the proposed
+        // summary against semantically-near ACTIVE items of the SAME project via
+        // memory/contradiction.rs (dense neighbours + a fail-safe LLM judge). On a
+        // confirmed conflict we ONLY MARK it: fill `contradiction_candidates` with
+        // the conflicting ids and route to Quarantine for human adjudication. We
+        // NEVER auto-resolve, deprecate, or discard — and the detector is
+        // CONSERVATIVE (judge returns false on any doubt), so this can't flood the
+        // inbox with false positives. Secret quarantine (above) takes precedence;
+        // we do not downgrade it. Probe `project_id` keeps cross-project memories
+        // (which legitimately differ) from being flagged as contradictions.
+        if !redacted {
+            if let Some(summary) = cand.proposed_summary.as_deref() {
+                let findings =
+                    super::contradiction::check(&conn, summary, probe.project_id.as_deref());
+                if !findings.is_empty() {
+                    for f in &findings {
+                        if !cand.contradiction_candidates.contains(&f.conflicting_id) {
+                            cand.contradiction_candidates.push(f.conflicting_id.clone());
+                        }
+                    }
+                    // Mark for human review; never auto-resolve. Quarantine keeps it
+                    // OUT of recall until adjudicated (takes precedence over Merge).
+                    cand.recommended_action = CandidateAction::Quarantine;
+                }
+            }
+        }
 
         store::insert_candidate(&conn, &cand)?;
         let reason = if redacted {
             format!("candidate {} proposed (secrets redacted)", cand.id)
+        } else if !cand.contradiction_candidates.is_empty() {
+            format!(
+                "candidate {} proposed (contradicts {} active item(s) — quarantined)",
+                cand.id,
+                cand.contradiction_candidates.len()
+            )
         } else {
             format!("candidate {} proposed", cand.id)
         };
@@ -462,6 +490,12 @@ impl MemoryService {
 
         new_item.status = Status::Active;
         new_item.supersedes = Some(old_id.to_string());
+        // Temporal resolver: the new assertion becomes vigente NOW. (valid_to
+        // stays None until it is itself superseded.)
+        let supersede_at = now_millis();
+        if new_item.valid_from.is_none() {
+            new_item.valid_from = Some(supersede_at);
+        }
         // Write-path secret guard (H2 / review P1): supersede writes a NEW active
         // item that W4 indexes — redact + escalate sensitivity before persisting.
         let mut secret = redaction::redact_in_place(&mut new_item.title);
@@ -476,7 +510,11 @@ impl MemoryService {
 
         old.status = Status::Deprecated;
         old.superseded_by = Some(new_item.id.clone());
-        old.updated_at = now_millis();
+        // Temporal resolver: the OLD assertion stopped being vigente at the moment
+        // it was superseded. Recall prefers items with valid_to NULL/future, so
+        // this keeps the historical row queryable but out of "current truth".
+        old.valid_to = Some(supersede_at);
+        old.updated_at = supersede_at;
         store::insert_item(&conn, &old)?;
         sync_index(&old); // W4: drop the superseded (now deprecated) item from the index
 

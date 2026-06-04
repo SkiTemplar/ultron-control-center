@@ -104,6 +104,28 @@ pub(crate) fn apply_schema_v3(conn: &Connection) -> Result<(), MemoryError> {
     let _ = conn
         .execute_batch("CREATE INDEX IF NOT EXISTS idx_memev_trace ON memory_events(trace_id);");
 
+    // (f) Temporal resolver (additive, reversible): bitemporal-lite validity on
+    // memory_items. `valid_from` = when the assertion began (defaults to
+    // created_at); `valid_to` = when it stopped being true (NULL = still vigente).
+    // Same guarded ADD COLUMN pattern: SQLite has no ADD COLUMN IF NOT EXISTS.
+    // Reverting = ignore both columns (recall falls back to "no end" semantics).
+    if !column_present(conn, "memory_items", "valid_from") {
+        let _ = conn.execute_batch("ALTER TABLE memory_items ADD COLUMN valid_from INTEGER;");
+    }
+    if !column_present(conn, "memory_items", "valid_to") {
+        let _ = conn.execute_batch("ALTER TABLE memory_items ADD COLUMN valid_to INTEGER;");
+    }
+    // One-shot, NULL-only backfill so historical rows get a sensible vigencia
+    // start (created_at) without touching their valid_to. Re-entrant-safe: the
+    // WHERE clause means a second run is a no-op once columns are populated.
+    let _ = conn.execute_batch(
+        "UPDATE memory_items SET valid_from = created_at \
+         WHERE valid_from IS NULL;",
+    );
+    // Index to keep the recall vigencia filter cheap (valid_to NULL or future).
+    let _ = conn
+        .execute_batch("CREATE INDEX IF NOT EXISTS idx_items_valid_to ON memory_items(valid_to);");
+
     // (e) Mark the structural migration as applied (monotonic). Does not run any
     // data backfill, so no row scan: pure PRAGMA bump when below v3.
     let uv: i64 = conn
@@ -191,6 +213,70 @@ mod tests {
                 .count()
         };
         assert_eq!(trace_cols, 1);
+    }
+
+    /// A connection with a minimal `memory_items` shape so the temporal
+    /// ADD COLUMN guards have a real target (the base_conn lacks the table, so
+    /// the probe returns `true` and the ALTER is skipped — correct, but we want
+    /// to exercise the success path too).
+    fn items_conn() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE memory_items (
+                id TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL
+            );
+            CREATE TABLE memory_events (
+                id TEXT PRIMARY KEY,
+                event_type TEXT NOT NULL,
+                memory_id TEXT,
+                created_at INTEGER NOT NULL
+            );",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn adds_valid_from_valid_to_and_backfills_valid_from() {
+        let conn = items_conn();
+        conn.execute(
+            "INSERT INTO memory_items (id, created_at) VALUES ('m1', 12345)",
+            [],
+        )
+        .unwrap();
+        apply_schema_v3(&conn).unwrap();
+
+        assert!(column_present(&conn, "memory_items", "valid_from"));
+        assert!(column_present(&conn, "memory_items", "valid_to"));
+
+        // valid_from backfilled to created_at; valid_to stays NULL (still vigente).
+        let (vf, vt): (Option<i64>, Option<i64>) = conn
+            .query_row(
+                "SELECT valid_from, valid_to FROM memory_items WHERE id='m1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(vf, Some(12345), "valid_from backfilled from created_at");
+        assert!(vt.is_none(), "valid_to NULL means still vigente");
+    }
+
+    #[test]
+    fn temporal_migration_is_idempotent() {
+        let conn = items_conn();
+        apply_schema_v3(&conn).unwrap();
+        apply_schema_v3(&conn).unwrap(); // second apply must not duplicate columns
+
+        let valid_to_cols: usize = {
+            let mut stmt = conn.prepare("PRAGMA table_info(memory_items)").unwrap();
+            stmt.query_map([], |r| r.get::<_, String>(1))
+                .unwrap()
+                .flatten()
+                .filter(|c| c == "valid_to")
+                .count()
+        };
+        assert_eq!(valid_to_cols, 1);
     }
 
     #[test]

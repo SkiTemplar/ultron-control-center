@@ -276,6 +276,7 @@ pub fn run() {
             // -- MEMORY KERNEL: Memory Inbox + governance + Retrieval Inspector --
             commands::memory::memory_inbox_list,
             commands::memory::memory_candidate_approve,
+            commands::memory::memory_inbox_approve_all,
             commands::memory::memory_candidate_reject,
             commands::memory::memory_candidate_edit,
             commands::memory::memory_item_edit,

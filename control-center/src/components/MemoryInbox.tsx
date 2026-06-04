@@ -49,6 +49,16 @@ interface MemoryStats {
   candidates_pending: number;
 }
 
+interface ApproveFailure {
+  id: string;
+  error: string;
+}
+
+interface ApproveAllResult {
+  approved: number;
+  failed: ApproveFailure[];
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -387,6 +397,8 @@ export function MemoryInbox() {
   const [listError, setListError] = useState<string | null>(null);
   // Per-row in-flight guard so the user can't double-fire an action.
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Bulk approve-all in-flight guard (blocks the whole inbox while running).
+  const [approvingAll, setApprovingAll] = useState(false);
 
   const loadStats = useCallback(async () => {
     try {
@@ -467,6 +479,34 @@ export function MemoryInbox() {
     [runAction],
   );
 
+  // Bulk approve every pending candidate. Confirm first (this is destructive in
+  // bulk), then promote all via the single backend command and refresh the SoT.
+  const onApproveAll = useCallback(async () => {
+    const n = candidates.length;
+    if (n === 0) return;
+    const ok = window.confirm(
+      `Aprobar los ${n} candidatos pendientes y promoverlos a memorias ACTIVAS? Esta accion es masiva.`,
+    );
+    if (!ok) return;
+    setApprovingAll(true);
+    setListError(null);
+    try {
+      const res = (await invoke("memory_inbox_approve_all")) as ApproveAllResult;
+      await refreshAll();
+      if (res.failed.length > 0) {
+        setListError(
+          `${res.approved} aprobados, ${res.failed.length} fallaron: ${res.failed
+            .map((f) => f.id)
+            .join(", ")}`,
+        );
+      }
+    } catch (e) {
+      setListError(errMsg(e));
+    } finally {
+      setApprovingAll(false);
+    }
+  }, [candidates.length, refreshAll]);
+
   const pendingCount = candidates.length;
   const flagged = useMemo(
     () =>
@@ -492,9 +532,21 @@ export function MemoryInbox() {
               : "Human-in-the-loop validation of the memory kernel"}
           </p>
         </div>
-        <SmallButton onClick={() => void refreshAll()} disabled={loading}>
-          {loading ? "Refreshing..." : "Refresh"}
-        </SmallButton>
+        <div className="flex shrink-0 items-center gap-1.5">
+          {pendingCount > 0 && (
+            <SmallButton
+              variant="accent"
+              onClick={() => void onApproveAll()}
+              disabled={loading || approvingAll || busyId !== null}
+              title="Aprobar todos los candidatos pendientes y promoverlos a memorias ACTIVAS"
+            >
+              {approvingAll ? "Aprobando..." : `Aceptar todos (${pendingCount})`}
+            </SmallButton>
+          )}
+          <SmallButton onClick={() => void refreshAll()} disabled={loading || approvingAll}>
+            {loading ? "Refreshing..." : "Refresh"}
+          </SmallButton>
+        </div>
       </div>
 
       {/* Memory Trace / health */}

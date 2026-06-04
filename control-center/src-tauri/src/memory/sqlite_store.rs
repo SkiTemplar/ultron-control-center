@@ -91,6 +91,8 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
             updated_at      INTEGER NOT NULL,
             expires_at      INTEGER,
             supersedes      TEXT, superseded_by TEXT, contradicts TEXT, derived_from TEXT,
+            valid_from      INTEGER,
+            valid_to        INTEGER,
             qdrant_point_id TEXT,
             content_hash    TEXT,
             normalized_text TEXT,
@@ -326,6 +328,8 @@ fn item_from_row(row: &Row) -> rusqlite::Result<MemoryItem> {
         superseded_by: row.get("superseded_by")?,
         contradicts: json_to_vec(row.get("contradicts")?),
         derived_from: row.get("derived_from")?,
+        valid_from: row.get("valid_from")?,
+        valid_to: row.get("valid_to")?,
         qdrant_point_id: row.get("qdrant_point_id")?,
         token_estimate: row.get("token_estimate")?,
         access_count: row.get("access_count")?,
@@ -343,8 +347,8 @@ fn item_from_row(row: &Row) -> rusqlite::Result<MemoryItem> {
 const ITEM_COLS: &str = "id,type,scope,project_id,repo_id,branch,workflow_id,agent_id,skill_id,\
 title,summary,content,content_json,tags,status,confidence,importance,stability,sensitivity,\
 source,source_session_id,created_at,updated_at,expires_at,supersedes,superseded_by,contradicts,\
-derived_from,qdrant_point_id,token_estimate,access_count,last_accessed_at,last_injected_at,\
-validated_by_user,validated_at,pinned,content_hash,normalized_text,schema_version";
+derived_from,valid_from,valid_to,qdrant_point_id,token_estimate,access_count,last_accessed_at,\
+last_injected_at,validated_by_user,validated_at,pinned,content_hash,normalized_text,schema_version";
 
 // ---------------------------------------------------------------------------
 // memory_items CRUD (low-level, &Connection)
@@ -361,14 +365,16 @@ pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), Me
             id,type,scope,project_id,repo_id,branch,workflow_id,agent_id,skill_id,
             title,summary,content,content_json,tags,status,confidence,importance,stability,
             sensitivity,source,source_session_id,created_at,updated_at,expires_at,supersedes,
-            superseded_by,contradicts,derived_from,qdrant_point_id,token_estimate,access_count,
+            superseded_by,contradicts,derived_from,valid_from,valid_to,qdrant_point_id,
+            token_estimate,access_count,
             last_accessed_at,last_injected_at,validated_by_user,validated_at,pinned,
             content_hash,normalized_text,schema_version
         ) VALUES (
             :id,:type,:scope,:project_id,:repo_id,:branch,:workflow_id,:agent_id,:skill_id,
             :title,:summary,:content,:content_json,:tags,:status,:confidence,:importance,:stability,
             :sensitivity,:source,:source_session_id,:created_at,:updated_at,:expires_at,:supersedes,
-            :superseded_by,:contradicts,:derived_from,:qdrant_point_id,:token_estimate,:access_count,
+            :superseded_by,:contradicts,:derived_from,:valid_from,:valid_to,:qdrant_point_id,
+            :token_estimate,:access_count,
             :last_accessed_at,:last_injected_at,:validated_by_user,:validated_at,:pinned,
             :content_hash,:normalized_text,:schema_version
         )",
@@ -385,6 +391,7 @@ pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), Me
             ":updated_at": item.updated_at, ":expires_at": item.expires_at,
             ":supersedes": item.supersedes, ":superseded_by": item.superseded_by,
             ":contradicts": vec_to_json(&item.contradicts), ":derived_from": item.derived_from,
+            ":valid_from": item.valid_from, ":valid_to": item.valid_to,
             ":qdrant_point_id": item.qdrant_point_id, ":token_estimate": item.token_estimate,
             ":access_count": item.access_count, ":last_accessed_at": item.last_accessed_at,
             ":last_injected_at": item.last_injected_at,
@@ -1025,6 +1032,29 @@ mod tests {
         assert_eq!(got.status, Status::Active);
         assert_eq!(got.project_id.as_deref(), Some("ultron"));
         assert!((got.importance - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn valid_from_valid_to_roundtrip_and_default() {
+        let conn = mem_conn();
+        // Fresh item: valid_from defaults to created-time, valid_to is None.
+        let mut item = MemoryItem::new(
+            MemoryType::Decision,
+            Scope::Project,
+            Source::UserExplicit,
+            Status::Active,
+        );
+        item.summary = Some("usar e5 1024d".into());
+        insert_item(&conn, &item).unwrap();
+        let got = get_item(&conn, &item.id).unwrap().unwrap();
+        assert!(got.valid_from.is_some(), "valid_from defaulted on new()");
+        assert!(got.valid_to.is_none(), "valid_to None means still vigente");
+
+        // Setting valid_to (as supersede does) must roundtrip.
+        item.valid_to = Some(99_999);
+        insert_item(&conn, &item).unwrap();
+        let got = get_item(&conn, &item.id).unwrap().unwrap();
+        assert_eq!(got.valid_to, Some(99_999), "valid_to persists");
     }
 
     #[test]

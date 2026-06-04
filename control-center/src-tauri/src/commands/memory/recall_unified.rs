@@ -13,6 +13,7 @@
 
 use serde::Serialize;
 
+use crate::memory::model::now_millis;
 use crate::memory::qdrant_index;
 use crate::memory::sqlite_store as store;
 use crate::memory::{
@@ -132,6 +133,16 @@ pub(crate) fn assemble_pack(
         if item.status != Status::Active {
             discarded.push(discard(&format!("status={}", item.status.as_str())));
             continue;
+        }
+        // Temporal resolver: prefer items still VIGENTE. `valid_to == None` means
+        // "no end" (the common case — every legacy row and every non-superseded
+        // item). Only a row whose validity END is in the PAST is filtered, so
+        // historical items with valid_to NULL are NEVER lost (additive + reversible).
+        if let Some(valid_to) = item.valid_to {
+            if valid_to <= now_millis() {
+                discarded.push(discard("superseded (valid_to in the past)"));
+                continue;
+            }
         }
         if let Some(pid) = project_id {
             // Global-scope memories apply everywhere; others must match the project.
@@ -523,6 +534,70 @@ mod tests {
                 .iter()
                 .any(|d| d.canonical_id == secret && d.reason.contains("secret")),
             "secret exclusion must be traced in discarded"
+        );
+    }
+
+    // Temporal resolver (point 3): an ACTIVE item whose validity ENDED in the
+    // past must be excluded from the pack, while an item with valid_to NULL (no
+    // end) OR a FUTURE valid_to is injected. Unit-tested without Qdrant/E5.
+    #[test]
+    fn assemble_pack_excludes_items_whose_validity_ended() {
+        use crate::memory::model::{now_millis, MemoryItem};
+        use crate::memory::sqlite_store::{apply_schema, insert_item};
+        use crate::memory::{MemoryType, Source};
+
+        let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+        apply_schema(&conn).expect("schema");
+
+        let mk = |summary: &str, valid_to: Option<i64>| {
+            let mut it = MemoryItem::new(
+                MemoryType::Fact,
+                Scope::Global,
+                Source::ToolObserved,
+                Status::Active,
+            );
+            it.summary = Some(summary.to_string());
+            it.token_estimate = 20;
+            it.valid_to = valid_to;
+            insert_item(&conn, &it).expect("insert");
+            it.id
+        };
+
+        let now = now_millis();
+        let vigente = mk("still true", None); // no end -> always vigente
+        let future = mk("true until later", Some(now + 1_000_000)); // ends in the future
+        let expired = mk("was true, superseded", Some(now - 1)); // ended in the past
+
+        let ids = [&vigente, &future, &expired];
+        let fused: Vec<FusedHit> = ids
+            .iter()
+            .enumerate()
+            .map(|(i, id)| FusedHit {
+                canonical_id: (*id).clone(),
+                rrf_score: 1.0 - i as f32 * 0.01,
+                dense_rank: Some(i),
+                sparse_rank: None,
+                dense_score: Some(0.5),
+            })
+            .collect();
+
+        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, None);
+        let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
+
+        assert!(
+            inj.contains(&&vigente),
+            "valid_to NULL must inject (vigente)"
+        );
+        assert!(inj.contains(&&future), "future valid_to must inject");
+        assert!(
+            !inj.contains(&&expired),
+            "past valid_to must be excluded (superseded)"
+        );
+        assert!(
+            discarded
+                .iter()
+                .any(|d| d.canonical_id == expired && d.reason.contains("valid_to")),
+            "expired exclusion must be traced in discarded"
         );
     }
 

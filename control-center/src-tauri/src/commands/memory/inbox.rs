@@ -12,6 +12,24 @@ use crate::memory::{
 };
 
 // ---------------------------------------------------------------------------
+// Bulk-approve result types
+// ---------------------------------------------------------------------------
+
+/// A single candidate that could not be approved during a bulk operation.
+#[derive(Debug, serde::Serialize)]
+pub struct ApproveFailure {
+    pub id: String,
+    pub error: String,
+}
+
+/// Outcome of `memory_inbox_approve_all`: count approved + per-id failures.
+#[derive(Debug, serde::Serialize)]
+pub struct ApproveAllResult {
+    pub approved: u32,
+    pub failed: Vec<ApproveFailure>,
+}
+
+// ---------------------------------------------------------------------------
 // Candidate inbox
 // ---------------------------------------------------------------------------
 
@@ -31,6 +49,36 @@ pub async fn memory_inbox_list(limit: Option<u32>) -> Result<Vec<MemoryCandidate
 pub async fn memory_candidate_approve(id: String) -> Result<MemoryItem, String> {
     tauri::async_runtime::spawn_blocking(move || {
         MemoryService::approve_candidate(&id, Actor::User).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Bulk-approve every pending candidate in the inbox.
+///
+/// Reuses the exact same path as `memory_candidate_approve`
+/// (`MemoryService::approve_candidate`, Actor::User) per candidate — no
+/// duplicated promotion logic. One candidate failing does not abort the batch;
+/// its id + error are collected into `failed`. Returns `{ approved, failed }`.
+#[tauri::command]
+pub async fn memory_inbox_approve_all() -> Result<ApproveAllResult, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        // High cap: drain the whole pending queue, not just the UI page.
+        let pending =
+            MemoryService::list_pending_candidates(usize::MAX).map_err(|e| e.to_string())?;
+
+        let mut approved = 0u32;
+        let mut failed: Vec<ApproveFailure> = Vec::new();
+        for cand in pending {
+            match MemoryService::approve_candidate(&cand.id, Actor::User) {
+                Ok(_) => approved += 1,
+                Err(e) => failed.push(ApproveFailure {
+                    id: cand.id,
+                    error: e.to_string(),
+                }),
+            }
+        }
+        Ok(ApproveAllResult { approved, failed })
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?

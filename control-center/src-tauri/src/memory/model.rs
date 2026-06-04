@@ -235,6 +235,17 @@ pub struct MemoryItem {
     pub contradicts: Vec<String>,
     pub derived_from: Option<String>,
 
+    /// Temporal validity (bitemporal-lite). `valid_from` is when this assertion
+    /// started being true (defaults to `created_at`); `valid_to` is when it
+    /// stopped (set by `supersede`). `valid_to == None` means STILL VIGENTE.
+    /// Recall prefers items whose `valid_to` is NULL or in the future. ADDITIVE —
+    /// legacy rows keep `valid_from = created_at` and `valid_to = NULL` so nothing
+    /// historical is filtered out by default.
+    #[serde(default)]
+    pub valid_from: Option<i64>,
+    #[serde(default)]
+    pub valid_to: Option<i64>,
+
     pub qdrant_point_id: Option<String>,
     pub token_estimate: i64,
     pub access_count: i64,
@@ -303,6 +314,10 @@ impl MemoryItem {
             superseded_by: None,
             contradicts: Vec::new(),
             derived_from: None,
+            // Default validity: vigente from creation, no end. supersede() sets
+            // valid_to on the superseded item.
+            valid_from: Some(now),
+            valid_to: None,
             qdrant_point_id: None,
             token_estimate: estimate_tokens(&content),
             access_count: 0,
