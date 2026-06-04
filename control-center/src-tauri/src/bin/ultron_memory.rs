@@ -89,6 +89,16 @@ fn run() -> Result<serde_json::Value, String> {
             let id = emit_candidate(&buf)?;
             Ok(serde_json::json!({ "candidate_id": id }))
         }
+        "capture" => {
+            // Stop hook -> auto-capture: extract durable facts (via AI Router,
+            // which also populates router telemetry) and propose them as inbox
+            // candidates. Transcript on stdin; never auto-promotes to active.
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map_err(|e| format!("read stdin: {e}"))?;
+            to_json(ul::memory::capture::capture_session(&buf, project.as_deref()))
+        }
         "doctor" => {
             // Read-only health report. Prints JSON to stdout and exits with a
             // code mirroring max_severity (0=ok, 1=warn, 2=error) for gates.
@@ -100,7 +110,7 @@ fn run() -> Result<serde_json::Value, String> {
             );
             std::process::exit(code);
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval [--golden]|eval-full|reconcile|doctor|candidate> [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval [--golden]|eval-full|reconcile|doctor|candidate|capture> [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

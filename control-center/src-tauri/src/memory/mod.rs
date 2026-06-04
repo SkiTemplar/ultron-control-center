@@ -150,6 +150,7 @@ pub enum StoreKind {
     Qdrant,
 }
 
+pub mod capture;
 pub mod catalog;
 pub mod doctor;
 pub mod migrations;

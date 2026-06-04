@@ -580,6 +580,43 @@ async function main() {
   // before the Qdrant path so decisions are still captured if Qdrant is down.
   appendPendingDecisions(resolveProjectId(cwd), facts, sessionId, date);
 
+  // OLA write-path (2026-06-04): propose GOVERNED memory candidates via the
+  // `ultron-memory capture` sidecar. The sidecar re-runs extraction through the
+  // AI Router (which populates router telemetry with the user's keys) and applies
+  // redaction inside create_candidate, landing candidates in the governed inbox
+  // for human approval (never auto-promoted). Aditive + fail-safe: a sidecar
+  // failure never breaks the Stop hook. NOTE: extraction currently runs twice
+  // (here via the router + extractFactsWithAI above) — unify in a follow-up.
+  try {
+    const memBin = path.join(os.homedir(), '.ultron', 'bin', 'ultron-memory.exe');
+    if (fs.existsSync(memBin)) {
+      const transcriptText = turns
+        .map((t) => (typeof t === 'string' ? t : `${t.role || ''}: ${t.text || t.content || ''}`))
+        .join('\n')
+        .slice(-8000);
+      const cap = spawnSync(memBin, ['capture', '--project', resolveProjectId(cwd)], {
+        input: transcriptText,
+        encoding: 'utf8',
+        timeout: 25000,
+        maxBuffer: 1024 * 1024,
+      });
+      safeLog({
+        level: 'info',
+        msg: 'memory_capture',
+        sessionId,
+        code: cap.status,
+        out: (cap.stdout || '').slice(0, 200),
+      });
+    }
+  } catch (e) {
+    safeLog({
+      level: 'warn',
+      msg: 'memory_capture_failed',
+      sessionId,
+      error: String(e && e.message),
+    });
+  }
+
   // OLA A/B (2026-06-04): the legacy upsert to the RETIRED Qdrant `ultron_sessions`
   // collection (384-d BGE) was REMOVED. It wrote memory OUTSIDE the canonical
   // store (brain.db, governed by MemoryService) and used an embedding dimension
