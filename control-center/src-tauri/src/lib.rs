@@ -294,6 +294,7 @@ pub fn run() {
             commands::memory::session_resume,
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
             commands::memory::catalog_reindex,
+            commands::memory::catalog_reindex_skills,
             commands::memory::catalog_search,
             // -- ORCHESTRATOR "Ultron": prompt -> intent -> workflow -> agent -> memory --
             orchestrator::orchestrate_prompt,

@@ -653,6 +653,41 @@ fn plugin_skills_dirs() -> Vec<PathBuf> {
     out
 }
 
+/// Resolve a YAML `description:` value, supporting both the inline form and
+/// block scalars. ULTRON personas (`alfred`, `terry-davis`, `tio-gilito`, …)
+/// and several long technical skills (`ui-ux-pro-max`, `senior-engineer`, …)
+/// declare their description as a folded (`>`) or literal (`|`) block scalar
+/// spanning many indented lines. Reading only the first line dropped 26 active
+/// skills from the catalog (empty description → `is_valid_skill = false`).
+///
+/// - Inline: `description: some text`  → returns `some text` (quote-trimmed).
+/// - Block (`>`, `|`, with optional `-`/`+` chomp): folds the following lines
+///   that are MORE indented than the `description:` key, joining them with a
+///   single space (folded semantics are good enough for embedding; we don't
+///   need to preserve hard line breaks for a one-line passage).
+fn parse_yaml_description(after_key: &str, following: &[&str]) -> String {
+    let head = after_key.trim();
+    let is_block = matches!(head, ">" | "|" | ">-" | "|-" | ">+" | "|+");
+    if !is_block {
+        return head.trim_matches(|c| c == '"' || c == '\'').to_string();
+    }
+    // Block scalar: collect subsequent lines that are indented (i.e. belong to
+    // the value), stopping at the first non-indented, non-empty line (the next
+    // top-level key such as `kind:` / `tier:`).
+    let mut parts: Vec<String> = Vec::new();
+    for raw in following {
+        if raw.trim().is_empty() {
+            continue; // blank line inside a block scalar → paragraph break
+        }
+        let indented = raw.starts_with(' ') || raw.starts_with('\t');
+        if !indented {
+            break; // back to column 0 → next YAML key, value is done
+        }
+        parts.push(raw.trim().to_string());
+    }
+    parts.join(" ")
+}
+
 /// Parse `(name, description, enabled, is_valid_skill)` from a skill dir.
 ///
 /// A real skill is a DIRECTORY containing `SKILL.md` whose YAML frontmatter
@@ -705,28 +740,24 @@ fn read_skill_meta(dir: &Path) -> (String, String, bool, bool) {
     // Require a YAML frontmatter with at least name + description.
     let trimmed = contents.trim_start();
     let mut has_name = false;
-    let mut has_description = false;
     let mut description = String::new();
     if trimmed.starts_with("---") {
         if let Some(end) = trimmed[3..].find("\n---") {
             let block = &trimmed[3..3 + end];
-            for raw in block.lines() {
+            let lines: Vec<&str> = block.lines().collect();
+            for (i, raw) in lines.iter().enumerate() {
                 let t = raw.trim();
                 if let Some(rest) = t.strip_prefix("name:") {
                     if !rest.trim().is_empty() {
                         has_name = true;
                     }
                 } else if let Some(rest) = t.strip_prefix("description:") {
-                    let v = rest.trim().trim_matches(|c| c == '"' || c == '\'');
-                    if !v.is_empty() {
-                        has_description = true;
-                        description = v.to_string();
-                    }
+                    description = parse_yaml_description(rest, &lines[i + 1..]);
                 }
             }
         }
     }
-    let is_valid_skill = has_name && has_description;
+    let is_valid_skill = has_name && !description.trim().is_empty();
     (name, description, enabled, is_valid_skill)
 }
 

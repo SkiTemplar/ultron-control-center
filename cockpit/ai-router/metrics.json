@@ -3,10 +3,10 @@
   "cost_saved_usd": 0.0003735600000000001,
   "by_class": {
     "groq": {
-      "count": 17,
-      "tokens": 1687,
-      "latency_p95_ms": 734,
-      "success_count": 17
+      "count": 25,
+      "tokens": 2414,
+      "latency_p95_ms": 350,
+      "success_count": 25
     },
     "claude-haiku": {
       "count": 8,
@@ -15,11 +15,11 @@
       "success_count": 0
     }
   },
-  "fallback_rate": 0.14950927431985972,
+  "fallback_rate": 0.06435884018559467,
   "daily": {
     "groq": {
       "date": "2026-06-04",
-      "count": 17
+      "count": 25
     },
     "claude-haiku": {
       "date": "2026-06-04",
@@ -38,10 +38,10 @@
     "groq::llama-3.3-70b-versatile": {
       "provider_id": "groq",
       "model": "llama-3.3-70b-versatile",
-      "count": 17,
-      "success_count": 17,
-      "output_tokens": 1687,
-      "latency_ms_avg": 734
+      "count": 25,
+      "success_count": 25,
+      "output_tokens": 2414,
+      "latency_ms_avg": 350
     }
   }
 }

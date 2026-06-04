@@ -107,6 +107,113 @@ const RULES: &[IntentRule] = &[
         ],
     },
     IntentRule {
+        // UI / design / frontend — route to the feature flow (design-first),
+        // but the delegate boost below targets UI/UX/frontend specialists.
+        intent: "ui_design",
+        workflow_id: "feature",
+        patterns: &[
+            "interfaz",
+            "interface",
+            "ui ",
+            " ui",
+            "ux",
+            "diseña",
+            "diseño de",
+            "frontend",
+            "componente",
+            "component",
+            "css",
+            "tailwind",
+            "responsive",
+            "landing",
+            "maqueta",
+            "wireframe",
+            "design system",
+            "estilo visual",
+        ],
+    },
+    IntentRule {
+        // Testing / QA / coverage — keep it light (quick flow); delegate boost
+        // targets test-automator / qa-expert.
+        intent: "testing",
+        workflow_id: "quick",
+        patterns: &[
+            "test",
+            "tests",
+            "prueba",
+            "pruebas",
+            "unit test",
+            "cobertura",
+            "coverage",
+            "e2e",
+            "mock",
+            "tdd",
+            "escribe pruebas",
+            "escribe tests",
+        ],
+    },
+    IntentRule {
+        // Performance / optimization — route through the debug flow (profile +
+        // verify); delegate boost targets performance-engineer.
+        intent: "performance",
+        workflow_id: "debug",
+        patterns: &[
+            "performance",
+            "rendimiento",
+            "optimiza",
+            "optimizar",
+            "optimize",
+            "lento",
+            "slow",
+            "latencia",
+            "latency",
+            "profil",
+            "cuello de botella",
+            "bottleneck",
+            "n+1",
+            "memory leak",
+            "fuga de memoria",
+        ],
+    },
+    IntentRule {
+        // Documentation — quick flow; delegate boost targets documentation
+        // specialists over the meta ultron-docs.
+        intent: "docs",
+        workflow_id: "quick",
+        patterns: &[
+            "documenta",
+            "documentar",
+            "documentation",
+            " docs",
+            "readme",
+            "changelog",
+            "guia",
+            "guía",
+            "tutorial de uso",
+            "escribe la doc",
+            "comenta el codigo",
+        ],
+    },
+    IntentRule {
+        // Refactor — behaviour-preserving cleanup; quick flow, delegate boost
+        // targets refactoring-specialist over the meta ultron-refactor.
+        intent: "refactor",
+        workflow_id: "quick",
+        patterns: &[
+            "refactor",
+            "refactoriza",
+            "refactorizar",
+            "limpia el codigo",
+            "limpia el código",
+            "reorganiza el codigo",
+            "deduplica",
+            "simplifica el codigo",
+            "code smell",
+            "deuda tecnica",
+            "deuda técnica",
+        ],
+    },
+    IntentRule {
         intent: "feature",
         workflow_id: "feature",
         patterns: &[
@@ -158,7 +265,8 @@ const RULES: &[IntentRule] = &[
             "architecture",
             "revisa el diseño",
             "design review",
-            "refactor",
+            "acoplamiento",
+            "solid",
         ],
     },
     IntentRule {
@@ -197,6 +305,98 @@ pub fn classify_intent(prompt: &str) -> (&'static str, &'static str) {
     ("general", "quick")
 }
 
+/// ULTRON-internal META agents. They are housekeeping/self-improvement helpers
+/// (refresh docs, compose changelog, behaviour-preserving refactor, compress
+/// context, etc.), NOT task specialists. The semantic index over-weights them
+/// because their descriptions are generic, so the delegate ranking used to put
+/// `ultron-docs`/`ultron-changelog`/`ultron-refactor` above real specialists
+/// like `debugger` or `code-reviewer`. We demote them unless the prompt is
+/// explicitly about that meta task (handled via the intent boost below).
+const META_AGENTS: &[&str] = &[
+    "ultron-changelog",
+    "ultron-context",
+    "ultron-docs",
+    "ultron-metadata",
+    "ultron-news",
+    "ultron-refactor",
+    "ultron-self-improve",
+    "ultron-skill-editor",
+    "ultron-test",
+];
+
+/// Multiplicative penalty applied to META agents during delegate ranking.
+const META_PENALTY: f32 = 0.55;
+/// Additive boost applied to agents the detected intent/workflow prefers.
+const SPECIALIST_BOOST: f32 = 0.20;
+
+/// Specialist agent names the detected `intent` should prioritise. These are
+/// REAL agents in `~/.claude/agents` (verified). The boost lifts them above the
+/// meta agents when the prompt clearly belongs to their domain.
+fn preferred_specialists(intent: &str) -> &'static [&'static str] {
+    match intent {
+        "security" => &["security-auditor", "penetration-tester", "ultron-security", "code-reviewer"],
+        "bug_fix" => &["debugger", "error-detective", "qa-expert"],
+        "performance" => &["performance-engineer", "ultron-perf", "debugger"],
+        "testing" => &["test-automator", "qa-expert", "code-reviewer"],
+        "ui_design" => &[
+            "frontend-developer",
+            "react-specialist",
+            "ui-designer",
+            "accessibility-tester",
+        ],
+        "docs" => &["documentation-engineer", "ultron-docs"],
+        "refactor" => &["refactoring-specialist", "ultron-refactor", "code-reviewer"],
+        "architecture_review" => &["architect-reviewer", "ultron-arch"],
+        "feature" => &["architect-reviewer", "fullstack-developer", "code-reviewer"],
+        "research" => &["ai-engineer", "llm-architect", "architect-reviewer"],
+        "game" => &["unreal-engine-engineer", "cpp-pro", "architect-reviewer"],
+        "learning" => &["llm-architect", "code-reviewer"],
+        _ => &["code-reviewer", "qa-expert"],
+    }
+}
+
+/// Re-rank the raw semantic catalog hits so that real specialists pertinent to
+/// the detected `intent` rank above the generic ULTRON-internal meta agents.
+///
+/// Rules (first-match-wins ordering preserved upstream):
+///   - META agents get a multiplicative `META_PENALTY` (demoted)...
+///   - ...UNLESS they are also in `preferred_specialists(intent)` (e.g.
+///     `ultron-docs` for the `docs` intent), in which case the penalty is
+///     waived and they get the boost like any other preferred specialist.
+///   - Any preferred specialist gets an additive `SPECIALIST_BOOST`.
+/// Then sort by adjusted score (desc) and keep the top `keep`.
+fn rebalance_delegates(
+    hits: Vec<catalog::CatalogHit>,
+    intent: &str,
+    keep: usize,
+) -> Vec<AgentChoice> {
+    let preferred = preferred_specialists(intent);
+    let mut scored: Vec<AgentChoice> = hits
+        .into_iter()
+        .map(|h| {
+            let is_preferred = preferred.iter().any(|p| *p == h.name);
+            let is_meta = META_AGENTS.contains(&h.name.as_str());
+            let mut score = h.score;
+            // Demote meta agents that are not pertinent to this intent.
+            if is_meta && !is_preferred {
+                score *= META_PENALTY;
+            }
+            // Boost specialists this intent prefers.
+            if is_preferred {
+                score += SPECIALIST_BOOST;
+            }
+            AgentChoice {
+                name: h.name,
+                description: h.description,
+                score,
+            }
+        })
+        .collect();
+    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(keep);
+    scored
+}
+
 /// Build the orchestration context for a prompt. Pure read — writes no memory.
 pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationContext {
     let (intent, wf_id) = classify_intent(prompt);
@@ -228,14 +428,10 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
         });
 
     // Real specialists to DELEGATE to (semantic match over the agent catalog).
-    let delegate_agents: Vec<AgentChoice> = catalog::search_catalog(prompt, Some("agent"), 5)
-        .into_iter()
-        .map(|h| AgentChoice {
-            name: h.name,
-            description: h.description,
-            score: h.score,
-        })
-        .collect();
+    // Over-fetch, then rebalance so the meta ULTRON-internal agents don't crowd
+    // out the real specialists pertinent to the detected intent.
+    let raw_hits = catalog::search_catalog(prompt, Some("agent"), 12);
+    let delegate_agents: Vec<AgentChoice> = rebalance_delegates(raw_hits, intent, 5);
     if delegate_agents.is_empty() {
         warnings.push("agent catalog empty/unavailable — run `catalog_reindex`".to_string());
     }
@@ -308,6 +504,98 @@ mod tests {
         assert_eq!(classify_intent("sigue con esto").1, "quick");
         assert_eq!(classify_intent("lanza el orquestador").0, "continue");
         assert_eq!(classify_intent("algo totalmente ambiguo xyz").0, "general");
+    }
+
+    #[test]
+    fn classifies_new_intents_ui_test_perf_docs_refactor() {
+        // UI / design -> feature flow
+        assert_eq!(
+            classify_intent("diseña la interfaz del dashboard"),
+            ("ui_design", "feature")
+        );
+        assert_eq!(
+            classify_intent("crea un componente responsive con tailwind"),
+            ("ui_design", "feature")
+        );
+        // Testing -> quick flow
+        assert_eq!(
+            classify_intent("escribe tests unitarios para el parser"),
+            ("testing", "quick")
+        );
+        assert_eq!(
+            classify_intent("falta cobertura en este modulo"),
+            ("testing", "quick")
+        );
+        // Performance -> debug flow
+        assert_eq!(
+            classify_intent("optimiza esta consulta, va lento"),
+            ("performance", "debug")
+        );
+        assert_eq!(
+            classify_intent("hay un cuello de botella en el render"),
+            ("performance", "debug")
+        );
+        // Docs -> quick flow
+        assert_eq!(
+            classify_intent("documenta esta API en el readme"),
+            ("docs", "quick")
+        );
+        // Refactor -> quick flow
+        assert_eq!(
+            classify_intent("refactoriza este modulo sin cambiar comportamiento"),
+            ("refactor", "quick")
+        );
+    }
+
+    #[test]
+    fn rebalance_demotes_meta_and_boosts_specialists() {
+        // Meta agent ranks first by raw semantic score; the pertinent specialist
+        // is below it. After rebalancing for the `bug_fix` intent, `debugger`
+        // (a preferred specialist) must outrank `ultron-refactor` (a meta agent
+        // not pertinent to this intent).
+        let hits = vec![
+            catalog::CatalogHit {
+                entity: "agent".into(),
+                name: "ultron-refactor".into(),
+                description: "meta refactor".into(),
+                score: 0.90,
+                kind: String::new(),
+            },
+            catalog::CatalogHit {
+                entity: "agent".into(),
+                name: "debugger".into(),
+                description: "systematic debugging".into(),
+                score: 0.80,
+                kind: String::new(),
+            },
+        ];
+        let ranked = rebalance_delegates(hits, "bug_fix", 5);
+        assert_eq!(
+            ranked[0].name, "debugger",
+            "preferred specialist must outrank a non-pertinent meta agent"
+        );
+        assert_eq!(ranked[1].name, "ultron-refactor");
+        // ultron-refactor demoted: 0.90 * META_PENALTY < 0.90
+        assert!(ranked[1].score < 0.90);
+    }
+
+    #[test]
+    fn rebalance_waives_penalty_for_pertinent_meta() {
+        // For the `docs` intent, `ultron-docs` IS a preferred specialist, so it
+        // must NOT be penalised — it should be boosted instead.
+        let hits = vec![catalog::CatalogHit {
+            entity: "agent".into(),
+            name: "ultron-docs".into(),
+            description: "refresh docs".into(),
+            score: 0.50,
+            kind: String::new(),
+        }];
+        let ranked = rebalance_delegates(hits, "docs", 5);
+        assert_eq!(ranked[0].name, "ultron-docs");
+        assert!(
+            ranked[0].score > 0.50,
+            "pertinent meta agent should be boosted, not penalised"
+        );
     }
 
     // Real e2e: needs ultron_catalog + ultron_memory indexed (run after the

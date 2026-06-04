@@ -103,56 +103,10 @@ jobs:
         working-directory: control-center
         run: npx tsc --noEmit
 
-  python:
-    name: Python (uv sync + pytest)
-    runs-on: windows-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-
-      - name: Install uv
-        # setup-uv@v6 supports Node 24; enable-cache disabled because v6
-        # sometimes returns 400 on first run for new repos.
-        uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: false
-
-      - name: Sync dependencies
-        run: uv sync
-        continue-on-error: false
-
-      # Many cockpit scripts and tests resolve paths via
-      # os.path.expanduser("~/.ultron/...") rather than honouring an env
-      # var. On a CI runner ~ is C:\Users\runneradmin and that path is
-      # empty, so 160+ tests fail with FileNotFoundError on real repo
-      # files like config/skills-manifest-schema.json. Fix: create a
-      # junction (NTFS hardlink at directory level — zero copy, atomic)
-      # that points ~/.ultron at the checkout. Tests then see the
-      # canonical layout they expect. Junctions persist for the job
-      # only because the runner is ephemeral.
-      - name: Link workspace as ~/.ultron
-        shell: pwsh
-        run: |
-          $target = Join-Path $env:USERPROFILE ".ultron"
-          if (Test-Path -LiteralPath $target) {
-              Remove-Item -LiteralPath $target -Recurse -Force
-          }
-          New-Item -ItemType Junction -Path $target -Target "$env:GITHUB_WORKSPACE" | Out-Null
-          Write-Host "Linked $target -> $env:GITHUB_WORKSPACE"
-
-      - name: Run tests
-        # v15.5.21: test_multimodel.py, test_meta_prompter.py and
-        # test_telemetry_written were un-ignored once their underlying bugs
-        # were fixed — the CI now runs them for real.
-        # test_auto_recall.py and test_backup_watch.py still assume a
-        # fully-provisioned local environment (installed weekly-backup
-        # scheduled task, kill-switch state) that a fresh runner cannot
-        # offer even with the junction above. The other 900+ tests run
-        # unchanged.
-        # TODO: add @pytest.mark.requires_local_env to the 2 remaining
-        # files and switch to that marker instead of file-level ignores.
-        run: >
-          uv run pytest tests/ -q --tb=short
-          --ignore=tests/test_auto_recall.py
-          --ignore=tests/test_backup_watch.py
+  # NOTE: the legacy `python` job (uv sync + `uv run pytest tests/`) was
+  # removed during the 2026-06-04 cleanup. The 15.x Python test suite that
+  # lived in `tests/` has been archived to `_legacy_archive/tests-python-15x/`
+  # and is no longer part of the runtime, so the job had no `tests/` directory
+  # to run and would fail on every push. The two remaining Python gates that
+  # still matter — version-drift and personal-info-leak — run as their own
+  # jobs above and are unaffected.

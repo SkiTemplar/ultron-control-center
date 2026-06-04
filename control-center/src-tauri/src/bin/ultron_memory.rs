@@ -10,6 +10,7 @@
 //!   ultron-memory recall <query> [--project X]  # hybrid recall context pack
 //!   ultron-memory stats                         # memory health counts
 //!   ultron-memory reindex                       # rebuild the dense index
+//!   ultron-memory catalog [--agents|--skills]   # (re)index agent/skill catalog
 //!   ultron-memory eval [--project X] [--golden] # recall@8 + (optional) golden metrics
 //!   ultron-memory eval-full [--project X]        # golden-set ranking metrics only
 //!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
@@ -54,6 +55,42 @@ fn run() -> Result<serde_json::Value, String> {
             let (indexed, errors) =
                 ul::memory::qdrant_index::reindex_all().map_err(|e| e.to_string())?;
             Ok(serde_json::json!({ "indexed": indexed, "errors": errors }))
+        }
+        // (Re)index the agent/skill catalog (`ultron_catalog`) used by the
+        // orchestrator's `delegate_agents` semantic routing. Idempotent.
+        //   ultron-memory catalog            # agents + enabled skills (default)
+        //   ultron-memory catalog --agents   # agents only
+        //   ultron-memory catalog --skills   # enabled skills only
+        // `.disabled` skills are never indexed (they must not be routed to).
+        "catalog" => {
+            let only_agents = has_flag(&args, "--agents");
+            let only_skills = has_flag(&args, "--skills");
+
+            let indexed_agents = if only_skills {
+                None
+            } else {
+                Some(ul::memory::catalog::index_agents()?)
+            };
+            // Skills are additive: surface a skill failure as a field instead of
+            // discarding agent counts that were already committed.
+            let (indexed_skills, skill_error) = if only_agents {
+                (None, None)
+            } else {
+                match ul::memory::catalog::index_skills() {
+                    Ok(c) => (Some(c), None),
+                    Err(e) => (None, Some(e)),
+                }
+            };
+
+            let (a_ok, a_err) = indexed_agents.unwrap_or((0, 0));
+            let (s_ok, s_err) = indexed_skills.unwrap_or((0, 0));
+            Ok(serde_json::json!({
+                "indexed_agents": a_ok,
+                "indexed_skills": s_ok,
+                "errors": a_err + s_err,
+                "skill_error": skill_error,
+                "collection": ul::memory::catalog::CATALOG_COLLECTION,
+            }))
         }
         "eval" => {
             // Default: the substring-based golden recall@8 report + security gate
@@ -110,7 +147,7 @@ fn run() -> Result<serde_json::Value, String> {
             );
             std::process::exit(code);
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval [--golden]|eval-full|reconcile|doctor|candidate|capture> [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|doctor|candidate|capture> [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
