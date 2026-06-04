@@ -464,3 +464,34 @@ hallazgo P0/P1 cae; son refinamientos):
 seguridad (C2↔recall↔router) la marcaron **ambos** como rota de extremo a extremo. Las únicas correcciones son
 de precisión de caracterización (regex→substring; scaffolded→sin-wiring; path memory_graph). **Riesgo de
 alucinación en §1-§7: bajo, con doble verificación file:line.**
+
+---
+
+## Apéndice C — Implementación autónoma + revisión adversarial (sesión 2026-06-04)
+
+Tras el análisis, se implementaron las tareas autónomas seguras (commits sobre `f936a66`):
+
+| Commit | Cambio | Verificación runtime |
+|---|---|---|
+| `cda7a99` | **H2** sensitivity write-path (gate Secret deja de estar hueco) | 138 tests · recall 0.9166 · leaks=0 |
+| `79a962c` | **W4** index_item en 6 write-paths (Qdrant deja de derivar al aprobar) | in_sync 943=943 |
+| `54d9b4f` | **L0** dedupe exacto por content_hash | +2 tests |
+| `4b29882` | **review-fix** (ver abajo) | 140 tests · 0.9166 · in_sync |
+| `47c01da`/`09d9cd6` | docs/specs + artefactos (mcp-policy, hook-manifest, golden-set 942, UI-map, specs maintenance/control) | json/yaml/py/node OK |
+
+**Revisión adversarial independiente** (workflow `wwn90ij2y`, 3 especialistas read-only sobre H2/W4/L0):
+- **code-reviewer**: `clean` (13 observaciones, 0 bugs — precedencia Quarantine>Merge correcta, L0 parity verificada, W4 best-effort correcto).
+- **security-auditor**: `issues_found` — **2 P1 reales** que la sesión introdujo, **ya cerrados en `4b29882`**:
+  1. **L0 cross-project**: `content_hash` no incluía scope/project → merge entre proyectos distintos. Fix: filtro `(scope, project_id IS ?)` + test.
+  2. **Redaction incompleta**: `edit`/`supersede` no redactaban y W4 ahora los indexa → secreto vía edit llegaría al embedding. + tags no redactados. Fix: redaction+sensitivity en edit/supersede + `redact_tags`.
+- **artifact-reviewer**: `issues_found` — golden_set trivial (query==summary ~97.7%, no mide recall semántico) [P1 validez métrica, no integridad]; manifest SoT note (8/10 hooks corren desde `~/.claude/scripts`).
+
+**Follow-ups diferidos** (P2/P3, no bloqueantes, registrados en kanban):
+- P2: W4 indexa items `Secret` sin marcador filtrable en payload Qdrant (mitigado por gate de recall; fuga solo vía `memory_unified_search`=H3). Fix: añadir `sensitivity` al payload + filtro `must_not`.
+- P2: L0 Merge no propaga `project_id` (to_item lo descarta) — añadir `proposed_project_id` a MemoryCandidate.
+- P2: `risk_level` → enum `RiskLevel` (hardening; mitigado con const `SECRET_RISK_MARKER`).
+- P1-validez: regenerar golden_set con paráfrasis real (queries que no compartan tokens literales con el summary).
+- P2: hook manifest — distinguir `live_path` (`~/.claude/scripts`) vs `versioned_path` o migrar SoT.
+
+**Lección**: la verificación adversarial independiente sobre el escritor único cazó 2 bugs P1 reales que ni
+el autor ni los tests unitarios detectaron — confirma el patrón "cierre con auditorías independientes".
