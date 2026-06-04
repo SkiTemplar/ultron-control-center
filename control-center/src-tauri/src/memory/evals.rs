@@ -67,6 +67,14 @@ pub struct EvalReport {
     pub recall_at_k: f32,
     /// Per-query breakdown, preserving input order.
     pub per_query: Vec<EvalResult>,
+    /// SECURITY GATE: count of returned items that are `Secret` (must be 0 —
+    /// recall must never surface secrets). Non-zero = governance regression.
+    pub secret_leak_count: usize,
+    /// SECURITY GATE: count of returned items whose status is not `Active`
+    /// (deprecated/rejected/stale leaking into recall). Must be 0.
+    pub stale_leak_count: usize,
+    /// Offending ids (secret or non-active) for diagnosis. Empty on a clean run.
+    pub leaked_ids: Vec<String>,
 }
 
 impl EvalReport {
@@ -87,8 +95,40 @@ impl EvalReport {
             matched,
             recall_at_k,
             per_query,
+            secret_leak_count: 0,
+            stale_leak_count: 0,
+            leaked_ids: Vec::new(),
         }
     }
+}
+
+/// Pure leak classifier for the security gate: given `(id, sensitivity, status)`
+/// of the items recall returned, count `Secret` items (secret leak) and
+/// non-`Active` items (stale/governance leak), collecting the offending ids.
+/// Recall MUST never surface either; a non-zero count is a regression. PURE.
+fn classify_leaks(
+    rows: &[(String, super::model::Sensitivity, super::model::Status)],
+) -> (usize, usize, Vec<String>) {
+    use super::model::{Sensitivity, Status};
+    let mut secret = 0usize;
+    let mut stale = 0usize;
+    let mut leaked: Vec<String> = Vec::new();
+    for (id, sens, status) in rows {
+        let is_secret = *sens == Sensitivity::Secret;
+        let is_stale = *status != Status::Active;
+        if is_secret {
+            secret += 1;
+        }
+        if is_stale {
+            stale += 1;
+        }
+        if is_secret || is_stale {
+            leaked.push(id.clone());
+        }
+    }
+    leaked.sort();
+    leaked.dedup();
+    (secret, stale, leaked)
 }
 
 /// Case-insensitive OR-match: does ANY summary contain ANY expected substring?
@@ -111,16 +151,8 @@ fn summaries_match(summaries: &[String], expect_any_of: &[String]) -> bool {
 #[must_use]
 pub fn default_goldens() -> Vec<GoldenQuery> {
     vec![
-        GoldenQuery::new(
-            "qdrant",
-            &["qdrant", "vector", "embedding"],
-            "single-term",
-        ),
-        GoldenQuery::new(
-            "memoria",
-            &["memoria", "memory", "kernel"],
-            "single-term",
-        ),
+        GoldenQuery::new("qdrant", &["qdrant", "vector", "embedding"], "single-term"),
+        GoldenQuery::new("memoria", &["memoria", "memory", "kernel"], "single-term"),
         GoldenQuery::new(
             "embeddings E5 dense",
             &["embedding", "e5", "dense", "vector"],
@@ -177,8 +209,12 @@ pub fn default_goldens() -> Vec<GoldenQuery> {
 /// Evaluate ONE golden query against the live recall pipeline. FAIL-SAFE: a
 /// `recall_pack` error degrades to `hits=0, matched=false` (no panic). This is
 /// the I/O boundary; everything it consumes (`summaries_match`) is pure.
-fn score_query(golden: &GoldenQuery, project_id: Option<&str>, k: usize) -> EvalResult {
-    let (hits, matched) = match recall_pack(&golden.query, k, project_id) {
+fn score_query(
+    golden: &GoldenQuery,
+    project_id: Option<&str>,
+    k: usize,
+) -> (EvalResult, Vec<String>) {
+    let (hits, matched, ids) = match recall_pack(&golden.query, k, project_id) {
         Ok(pack) => {
             let summaries: Vec<String> = pack
                 .entries
@@ -186,20 +222,28 @@ fn score_query(golden: &GoldenQuery, project_id: Option<&str>, k: usize) -> Eval
                 .filter_map(|e| e.summary.clone())
                 .collect();
             let matched = summaries_match(&summaries, &golden.expect_any_of);
-            (pack.entries.len(), matched)
+            let ids: Vec<String> = pack
+                .entries
+                .iter()
+                .map(|e| e.canonical_id.clone())
+                .collect();
+            (pack.entries.len(), matched, ids)
         }
         Err(e) => {
             // Degrade quietly; a failing source must not abort the eval run.
             eprintln!("[evals] recall_pack failed for '{}': {e}", golden.query);
-            (0, false)
+            (0, false, Vec::new())
         }
     };
-    EvalResult {
-        query: golden.query.clone(),
-        category: golden.category.clone(),
-        hits,
-        matched,
-    }
+    (
+        EvalResult {
+            query: golden.query.clone(),
+            category: golden.category.clone(),
+            hits,
+            matched,
+        },
+        ids,
+    )
 }
 
 /// Run the full embedded golden set against the live recall pipeline and return
@@ -209,11 +253,34 @@ fn score_query(golden: &GoldenQuery, project_id: Option<&str>, k: usize) -> Eval
 #[must_use]
 pub fn run(project_id: Option<&str>, k: usize) -> EvalReport {
     let goldens = default_goldens();
-    let per_query: Vec<EvalResult> = goldens
-        .iter()
-        .map(|g| score_query(g, project_id, k))
-        .collect();
-    EvalReport::from_results(per_query)
+    let mut per_query: Vec<EvalResult> = Vec::with_capacity(goldens.len());
+    let mut returned_ids: Vec<String> = Vec::new();
+    for g in &goldens {
+        let (result, ids) = score_query(g, project_id, k);
+        returned_ids.extend(ids);
+        per_query.push(result);
+    }
+    let mut report = EvalReport::from_results(per_query);
+
+    // SECURITY GATE: look up every returned item in the SoT and assert recall
+    // never surfaced a Secret or non-Active item. Read-only; degrades to "no
+    // leaks measured" if brain.db is unavailable (recall would also have failed).
+    returned_ids.sort();
+    returned_ids.dedup();
+    if let Ok(conn) = super::sqlite_store::open_conn() {
+        let rows: Vec<(String, super::model::Sensitivity, super::model::Status)> = returned_ids
+            .iter()
+            .filter_map(|id| match super::sqlite_store::get_item(&conn, id) {
+                Ok(Some(item)) => Some((item.id, item.sensitivity, item.status)),
+                _ => None,
+            })
+            .collect();
+        let (secret, stale, leaked) = classify_leaks(&rows);
+        report.secret_leak_count = secret;
+        report.stale_leak_count = stale;
+        report.leaked_ids = leaked;
+    }
+    report
 }
 
 #[cfg(test)]
@@ -290,6 +357,31 @@ mod tests {
             summaries_match(&summaries, &["NADA".to_string(), "RECALL".to_string()]),
             "OR-match: second needle hits"
         );
+    }
+
+    #[test]
+    fn classify_leaks_flags_secret_and_stale() {
+        use super::super::model::{Sensitivity, Status};
+        let rows = vec![
+            ("ok".to_string(), Sensitivity::Internal, Status::Active),
+            ("sec".to_string(), Sensitivity::Secret, Status::Active),
+            ("dep".to_string(), Sensitivity::Internal, Status::Deprecated),
+        ];
+        let (secret, stale, leaked) = classify_leaks(&rows);
+        assert_eq!(secret, 1, "one Secret item must be flagged");
+        assert_eq!(stale, 1, "one non-Active item must be flagged");
+        assert_eq!(leaked, vec!["dep".to_string(), "sec".to_string()]);
+    }
+
+    #[test]
+    fn classify_leaks_clean_when_all_active_internal() {
+        use super::super::model::{Sensitivity, Status};
+        let rows = vec![
+            ("a".to_string(), Sensitivity::Internal, Status::Active),
+            ("b".to_string(), Sensitivity::Public, Status::Active),
+        ];
+        let (secret, stale, leaked) = classify_leaks(&rows);
+        assert_eq!((secret, stale, leaked.len()), (0, 0, 0));
     }
 
     #[test]
