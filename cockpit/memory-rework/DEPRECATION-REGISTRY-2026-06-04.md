@@ -7,6 +7,12 @@
 >
 > Contrato (08-AUDIT 3.8): nada pasa a `deleted` sin snapshot/rollback o prueba de regenerabilidad;
 > todo delete emite evento auditado; la limpieza es idempotente; no rompe `eval`/`reconcile`/hooks/startup.
+>
+> **[SEED del registry persistente — OLA K]** Este doc es la **semilla** de la tabla `deprecation_entries`
+> en `brain.db` (migración aditiva `schema_version 2→3`). El contrato `scan → plan → apply --confirm`
+> que lo convierte en estado vivo (con eventos auditados y rollback) está en
+> `specs/SPEC-MAINTENANCE-CLI.md`. `ultron maintenance seed` carga estas 42 entries 1:1; los scanners
+> read-only reconcilian cuáles siguen vivos (`last_seen`). Editar aquí ≈ editar el seed, no el estado vivo.
 
 ## Leyenda de riesgo
 - **alto**: store competidor vivo / escritura fuera del SoT / posible perdida de datos.

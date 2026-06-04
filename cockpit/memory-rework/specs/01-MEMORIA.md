@@ -1,7 +1,7 @@
 # SPEC FULL — Sistema de MEMORIA (ULTRON)
-### Autocontenido para revisión por IA externa · 2026-06-04 · rama `fullize-2026-05-30` (HEAD `823ed67`)
+### Autocontenido para revisión por IA externa · 2026-06-04 · rama `fullize-2026-05-30` · HEAD = `git rev-parse --short HEAD`
 
-> **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]** HEAD real `823ed67` (no `0532dee`). Conteos verificados: 943 active / 34 candidates / 1043 events.
+> **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]** No se hardcodea HEAD (queda stale). Linea de commits relevante a esta spec: `4558554` (cierre 100% docs) ← `79a962c` (W4 index_item write-path) ← `cda7a99` (OLA A/H2 sensitivity write-path) ← `f936a66` (refresco specs) ← `823ed67`. Verifica con `git rev-parse --short HEAD`. Conteos verificados: 943 active / 35 candidates / ~1043 events.
 
 ## 1. Propósito
 Memory-Orchestrated Agent Runtime LOCAL para Claude Code: que el asistente RECUPERE contexto por *recall* en vez de re-leer el código. NO chatbot con memoria, NO lista de recuerdos en Qdrant, NO demo. Memoria canónica auditable, recuperable, explicable, editable, eficiente en tokens.
@@ -12,14 +12,14 @@ Memory-Orchestrated Agent Runtime LOCAL para Claude Code: que el asistente RECUP
 - Qdrant nativo `D:\Ultron\qdrant` (sin Docker) = índice vectorial.
 - Embeddings: MultilingualE5-Large 1024d (fastembed-rs 4.9.1), prefijos `query:`/`passage:` manuales.
 - Sidecar CLI `ultron-memory.exe` (bin/ultron_memory.rs) usado por los hooks Node.
-- Escala real: 943 items active, 34 candidates pending, ~995 eventos.
+- Escala real: 943 items active, 35 candidates pending, ~1043 eventos.
 
 ## 3. Arquitectura (archivos)
 - `memory/model.rs` — MemoryItem/MemoryEvent/MemoryCandidate + enums (`str_enum!`).
 - `memory/sqlite_store.rs` — esquema canónico, CRUD, FTS5, migraciones idempotentes (`apply_schema`), `search_items` (FTS5 OR / LIKE term-OR fallback), `fts5_available` (probe).
 - `memory/service.rs` — `MemoryService` = ÚNICO escritor; candidates, edit, relabel, pin, deprecate, supersede, stats, dedupe FTS. `create_candidate` tiene TODO Fase D (contradiction).
 - `memory/qdrant_index.rs` — índice E5 `ultron_memory`: `index_item`/`reindex_all`/`search_dense`/`search_dense_scored`/`remove_item`.
-- `memory/qdrant_store.rs` — legacy BGE-384 (Fase F: retirar).
+- `memory/qdrant_store.rs` — legacy BGE-384 sobre `ultron_sessions` (Fase F: retirar). **READ-PATH VIVO:** el WRITE a `ultron_sessions` (384d, 72 pts) ya esta cortado (hook `stop-compress`, commit `d3a16ff`), pero la LECTURA sigue activa en `commands/memory/memory_graph.rs:200` (`crate::qdrant::search("ultron_sessions", ...)` dentro de `unified_search_inner`, comando Tauri `memory_unified_search`). NO esta neutralizada del todo: es un read-path legacy fuera del pipeline canonico (`build_trace`/`assemble_pack`), no afecta `recall@8`, pero cerrarlo es parte de Fase F.
 - `memory/migrations.rs` — ETL one-shot (sessions/kg/decisions/vault) + MigrationReport + backup.
 - `memory/catalog.rs` — catálogo de agentes en `ultron_catalog` (solo agentes hoy).
 - `commands/memory/recall_unified.rs` — `build_trace`/`assemble_pack` (recall híbrido), `recall`/`recall_inspect`/`memory_reindex`, `recall_pack` (CLI).
@@ -78,7 +78,7 @@ Memory-Orchestrated Agent Runtime LOCAL para Claude Code: que el asistente RECUP
 4. **Contextual Retrieval** (contexto situacional por item antes de embeber/indexar).
 5. **Meta-cognición**: decay (incrementar access_count en recall + sweep stale) · bi-temporal · KG 1-hop en recall.
 6. **Seguridad**: secret-detector en write-path + deletion verificado (SQLite+Qdrant+backups).
-7. **Fase F cleanup**: borrar recall.rs/recall_hybrid/qdrant_store 384/mem0.
+7. **Fase F cleanup**: borrar recall.rs/recall_hybrid/qdrant_store 384/mem0. **Incluye cortar el read-path vivo de `ultron_sessions`** en `memory_graph.rs:200` (`memory_unified_search`): el WRITE ya esta cortado, pero la LECTURA legacy sigue consultando la coleccion 384d; mientras no se retire, `ultron_sessions` NO esta neutralizada (solo write-dead, read-alive).
 
 ## 8. Preguntas para la IA
 - ¿RRF+coseno+rerank vs late-interaction (ColBERT) a escala 1-usuario / 943 items multilingües?
@@ -86,3 +86,12 @@ Memory-Orchestrated Agent Runtime LOCAL para Claude Code: que el asistente RECUP
 - ¿Reflection por umbral de importancia vs sleep-time vs clustering — cuál para 1 usuario local?
 - ¿Golden-set honesto sin LoCoMo/LongMemEval (multi-sesión sintéticos)? El actual: 12 golden, recall@8=0.917.
 - ¿fts5 en release+qdrant: por qué el probe falla si rusqlite bundled debería traerlo?
+
+## 9. Aceptación / Tests / Runtime-verification / Rollback
+
+Contrato vinculante (schemas memory item / source-trust / sensitivity / dedupe): ver `../CONTRACTS-2026-06-04.md`.
+
+- **Aceptación (DoD):** `MemoryService` = único escritor (invariante en CI); nada a `active` sin política/inbox; gate `sensitivity=Secret` y `vault off-by-default` activos en `assemble_pack`; sin secretos en SQLite/Qdrant/logs/embeddings (redacción write-path OLA A); `recall@8 >= 0.917` sin regresión vs baseline.
+- **Tests:** `cargo test --manifest-path control-center/src-tauri/Cargo.toml --no-default-features --lib memory` (store + service + assemble_pack puro + invariantes de gobernanza).
+- **Runtime-verification:** `ultron-memory eval` → `recall@8` (baseline 0.917) + `secret_leak`/`stale_leak`=0 sobre el store real · `ultron-memory reconcile` → in_sync SQLite↔Qdrant 943=943 · `ultron-memory stats` · `curl http://127.0.0.1:6333/collections/ultron_memory` (943 pts, 1024d).
+- **Rollback:** Qdrant `ultron_memory` es índice derivado reconstruible (`ultron-memory reindex` / `reindex_all`); migraciones de esquema son aditivas idempotentes (`apply_schema`, `user_version`) con snapshot previo de `brain.db`; cada unidad cerrada es un commit revertible (`git revert`).

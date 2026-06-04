@@ -4,6 +4,12 @@
 > `C:\Users\USER\.ultron`. NINGUNA limpieza ejecutada: este doc define categorias, niveles de
 > riesgo y un plan dry-run. Acceptance 08-AUDIT 3.9: explicar los ~40 GB sin inspeccion manual y
 > proponer liberacion por niveles sin tocar datos canonicos.
+>
+> **[SEED del registry persistente — OLA L]** Este doc es la **semilla** del dominio `disk_footprint`
+> de `deprecation_entries` (`brain.db`). El contrato `disk scan → disk plan → disk apply --confirm`,
+> el `FASTEMBED_CACHE_PATH` canonico para dedupe de las 6 copias y las retention policies estan en
+> `specs/SPEC-MAINTENANCE-CLI.md`. `ultron maintenance seed` carga estas categorias; los scanners
+> read-only refrescan tamanos (`size_bytes`/`last_seen`). Editar aqui ≈ editar el seed, no el estado vivo.
 
 ## 1. Top-level por tamano
 

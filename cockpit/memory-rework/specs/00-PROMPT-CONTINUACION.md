@@ -1,5 +1,9 @@
 # PROMPT DE CONTINUACION — ULTRON Memory Rework (limpio)
-### 2026-06-04 (noche) · rama `fullize-2026-05-30` · HEAD `d3a16ff`
+### 2026-06-04 (noche) · rama `fullize-2026-05-30` · HEAD = `git rev-parse --short HEAD`
+
+> **HEAD vivo:** no se hardcodea SHA (queda stale en una commit). Ultimos hitos de esta linea:
+> `4558554` (cierre 100% docs) ← `79a962c` (W4 index_item write-path) ← `cda7a99` (OLA A/H2 sensitivity write-path)
+> ← `f936a66` (refresco de specs) ← `d3a16ff` (OLA I P0 hooks). Verifica con `git rev-parse --short HEAD`.
 
 > Documento de reanudacion LIMPIO y CURRENT. Reemplaza versiones anteriores que tenian
 > HEAD/Quota stale. Verdad verificada a runtime (git, Qdrant API, `ultron-memory eval/reconcile`,
@@ -28,6 +32,13 @@
 - Mem0 cloud cortado (hook `mem0-sync.js` fuera de Stop). 
 - `quota-capture.js` huerfano fuera de PostToolUse + `quota-state.json` borrado.
 - `stop-compress-session.js` ya no escribe a `ultron_sessions` 384d (fuera del SoT).
+
+> **ACLARACION read-path (no neutralizado del todo):** se corto el WRITE a `ultron_sessions`, pero la
+> coleccion 72/384d SIGUE VIVA en LECTURA: `commands/memory/memory_graph.rs:200`
+> (`crate::qdrant::search("ultron_sessions", ...)` dentro de `unified_search_inner` / comando
+> `memory_unified_search`) aun la consulta. Es un read-path legacy fuera del pipeline canonico de recall
+> (`assemble_pack`), por lo que no contamina `recall@8`, pero queda como deuda: cortarlo es parte de
+> Fase F cleanup (retirar `qdrant_store.rs` 384d + su lectura) antes de declarar `ultron_sessions` muerta.
 
 ---
 
@@ -99,3 +110,14 @@ Tras editar memory: rebuild release + copiar a `~/.ultron/bin` para que los hook
 - Conservar MEMORY KERNEL (recall_inspect/inbox/candidate_approve/stats) como base de una UI simple
   futura de revision/aprobacion de memoria; podar solo lo de features muertas (workday/kg/decisions huerfanos).
 - Quota % = QUITADO (cbb2d5c), no reintroducir sin senal real.
+
+---
+
+## 8. Aceptacion / Tests / Runtime-verification / Rollback
+
+Contrato vinculante de cada unidad cerrada: ver `../CONTRACTS-2026-06-04.md` (schemas memory item / source-trust / dedupe / hooks / router / MCP).
+
+- **Aceptacion (DoD):** cada item del plan §4 cierra como commit verificado a runtime real (no solo `cargo check`); invariantes del escritor unico intactos; sin secretos en stores/logs/embeddings; `recall@8 >= 0.917` (no regresion vs baseline) salvo que el item declare un nuevo baseline medido.
+- **Tests:** `cargo test --manifest-path control-center/src-tauri/Cargo.toml --no-default-features --lib memory` (gobernanza + assemble_pack puro). Ver §5 para el build del sidecar `ultron-memory`.
+- **Runtime-verification:** `ultron-memory eval` (recall@8 + secret_leak/stale_leak=0) · `ultron-memory reconcile` (in_sync SQLite<->Qdrant 943=943) · `ultron-memory stats` · `curl http://127.0.0.1:6333/collections/ultron_memory`.
+- **Rollback:** Qdrant es indice derivado reconstruible (`ultron-memory reindex` / `reindex_all`); migraciones SQLite son aditivas idempotentes con snapshot previo de `brain.db`; config viva tiene backup en `backups/config-2026-06-04-preP0/`; `git revert` por unidad cerrada (un commit = un item).
