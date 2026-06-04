@@ -165,6 +165,8 @@ pub mod evals;
 // OLA A (2026-06-04): write-path secret/PII detector. Built + tested in isolation;
 // wiring into MemoryService::create_candidate is gated on confirmation.
 pub mod redaction;
+// OLA B (2026-06-04): stable text normalization + content hashing (dedupe/idempotency key).
+pub mod texthash;
 
 // Canonical memory kernel re-exports (Fase A).
 pub use model::{

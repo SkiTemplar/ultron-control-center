@@ -17,13 +17,16 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use rusqlite::{Connection, Row, named_params, params};
+use rusqlite::{named_params, params, Connection, Row};
 
 use super::model::{
-    Actor, CandidateAction, CandidateStatus, MemoryCandidate, MemoryEvent, MemoryItem, MemoryType,
-    Scope, Sensitivity, Source, Stability, Status, EventType, estimate_tokens, now_millis,
+    estimate_tokens, now_millis, Actor, CandidateAction, CandidateStatus, EventType,
+    MemoryCandidate, MemoryEvent, MemoryItem, MemoryType, Scope, Sensitivity, Source, Stability,
+    Status,
 };
-use super::{Capabilities, MemoryDoc, MemoryError, MemoryHit, MemoryStore, Query, StoreHealth, StoreKind};
+use super::{
+    Capabilities, MemoryDoc, MemoryError, MemoryHit, MemoryStore, Query, StoreHealth, StoreKind,
+};
 
 // ---------------------------------------------------------------------------
 // Path + connection
@@ -33,7 +36,10 @@ fn brain_db_path() -> Result<PathBuf, MemoryError> {
     dirs::home_dir()
         .map(|h| h.join(".ultron").join("brain.db"))
         .ok_or_else(|| {
-            MemoryError::IoError(std::io::Error::new(std::io::ErrorKind::NotFound, "no HOME dir"))
+            MemoryError::IoError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "no HOME dir",
+            ))
         })
 }
 
@@ -86,6 +92,9 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
             expires_at      INTEGER,
             supersedes      TEXT, superseded_by TEXT, contradicts TEXT, derived_from TEXT,
             qdrant_point_id TEXT,
+            content_hash    TEXT,
+            normalized_text TEXT,
+            schema_version  INTEGER NOT NULL DEFAULT 1,
             token_estimate  INTEGER NOT NULL DEFAULT 0,
             access_count    INTEGER NOT NULL DEFAULT 0,
             last_accessed_at INTEGER, last_injected_at INTEGER,
@@ -150,9 +159,25 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
         })
         .unwrap_or(true);
     if !has_pinned {
-        let _ = conn
-            .execute_batch("ALTER TABLE memory_items ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;");
+        let _ = conn.execute_batch(
+            "ALTER TABLE memory_items ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;",
+        );
     }
+
+    // OLA B (2026-06-04): additive content_hash / normalized_text / schema_version
+    // columns + one-shot backfill of pre-existing rows. Same idempotent pattern as
+    // `pinned` above; backfill is gated by PRAGMA user_version so it runs once, not
+    // on every open. ADDITIVE + reversible (snapshot taken in backups/).
+    add_column_if_missing(conn, "content_hash", "TEXT");
+    add_column_if_missing(conn, "normalized_text", "TEXT");
+    add_column_if_missing(conn, "schema_version", "INTEGER NOT NULL DEFAULT 1");
+    // Index AFTER the ADD COLUMN: on a pre-existing DB that lacked content_hash,
+    // creating this index inside the CREATE TABLE batch above would fail with
+    // "no such column" and abort apply_schema. (Fresh DBs already have it.)
+    let _ = conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_items_content_hash ON memory_items(content_hash);",
+    );
+    backfill_derived_columns(conn);
 
     if fts5_available(conn) {
         conn.execute_batch(
@@ -178,6 +203,73 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
         .map_err(|e| MemoryError::RemoteUnavailable(format!("schema fts5: {e}")))?;
     }
     Ok(())
+}
+
+/// Idempotent `ALTER TABLE memory_items ADD COLUMN`. SQLite lacks
+/// `ADD COLUMN IF NOT EXISTS`, so probe `table_info` first. `decl` is always a
+/// constant code literal (never user input) -> no injection surface.
+fn add_column_if_missing(conn: &Connection, col: &str, decl: &str) {
+    let present = conn
+        .prepare("PRAGMA table_info(memory_items)")
+        .ok()
+        .map(|mut s| {
+            s.query_map([], |r| r.get::<_, String>(1))
+                .map(|it| it.flatten().any(|c| c == col))
+                .unwrap_or(true) // on error assume present -> never re-ALTER
+        })
+        .unwrap_or(true);
+    if !present {
+        let _ = conn.execute_batch(&format!(
+            "ALTER TABLE memory_items ADD COLUMN {col} {decl};"
+        ));
+    }
+}
+
+/// One-shot backfill of `content_hash` + `normalized_text` for rows written
+/// before those columns existed (the legacy active items). Gated by
+/// `PRAGMA user_version`: computes once, then bumps the version so later opens
+/// skip it with a single cheap PRAGMA read. Re-entrant-safe (only NULL rows).
+/// The joined text mirrors `MemoryItem::searchable_text()` so a backfilled hash
+/// equals the hash `insert_item` would later write for the same row.
+fn backfill_derived_columns(conn: &Connection) {
+    const USER_VERSION_DERIVED: i64 = 2;
+    let uv: i64 = conn
+        .query_row("PRAGMA user_version", [], |r| r.get(0))
+        .unwrap_or(0);
+    if uv >= USER_VERSION_DERIVED {
+        return;
+    }
+    let rows: Vec<(String, String)> = match conn
+        .prepare("SELECT id, title, summary, content FROM memory_items WHERE content_hash IS NULL")
+    {
+        Ok(mut stmt) => stmt
+            .query_map([], |r| {
+                let title: Option<String> = r.get(1)?;
+                let summary: Option<String> = r.get(2)?;
+                let content: Option<String> = r.get(3)?;
+                let joined = [title, summary, content]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Ok((r.get::<_, String>(0)?, joined))
+            })
+            .map(|it| it.flatten().collect())
+            .unwrap_or_default(),
+        Err(_) => return,
+    };
+    let _ = conn.execute_batch("BEGIN");
+    for (id, raw) in &rows {
+        let normalized = super::texthash::normalize_text(raw);
+        let chash = super::texthash::content_hash(&normalized);
+        let _ = conn.execute(
+            "UPDATE memory_items SET normalized_text = ?1, content_hash = ?2, \
+             schema_version = ?3 WHERE id = ?4 AND content_hash IS NULL",
+            params![normalized, chash, super::model::SCHEMA_VERSION, id],
+        );
+    }
+    let _ = conn.execute_batch("COMMIT");
+    let _ = conn.execute_batch(&format!("PRAGMA user_version = {USER_VERSION_DERIVED};"));
 }
 
 // ---------------------------------------------------------------------------
@@ -238,6 +330,9 @@ fn item_from_row(row: &Row) -> rusqlite::Result<MemoryItem> {
         validated_by_user: validated != 0,
         validated_at: row.get("validated_at")?,
         pinned: row.get::<_, i64>("pinned")? != 0,
+        content_hash: row.get("content_hash")?,
+        normalized_text: row.get("normalized_text")?,
+        schema_version: row.get::<_, Option<i64>>("schema_version")?.unwrap_or(1),
     })
 }
 
@@ -245,26 +340,33 @@ const ITEM_COLS: &str = "id,type,scope,project_id,repo_id,branch,workflow_id,age
 title,summary,content,content_json,tags,status,confidence,importance,stability,sensitivity,\
 source,source_session_id,created_at,updated_at,expires_at,supersedes,superseded_by,contradicts,\
 derived_from,qdrant_point_id,token_estimate,access_count,last_accessed_at,last_injected_at,\
-validated_by_user,validated_at,pinned";
+validated_by_user,validated_at,pinned,content_hash,normalized_text,schema_version";
 
 // ---------------------------------------------------------------------------
 // memory_items CRUD (low-level, &Connection)
 // ---------------------------------------------------------------------------
 
 pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), MemoryError> {
+    // OLA B: derive content_hash + normalized_text authoritatively here. Every
+    // write path funnels through insert_item, so the dedupe key stays consistent
+    // regardless of caller, and is computed AFTER redaction (service.rs).
+    let normalized = super::texthash::normalize_text(&item.searchable_text());
+    let content_hash = super::texthash::content_hash(&normalized);
     conn.execute(
         "INSERT OR REPLACE INTO memory_items (
             id,type,scope,project_id,repo_id,branch,workflow_id,agent_id,skill_id,
             title,summary,content,content_json,tags,status,confidence,importance,stability,
             sensitivity,source,source_session_id,created_at,updated_at,expires_at,supersedes,
             superseded_by,contradicts,derived_from,qdrant_point_id,token_estimate,access_count,
-            last_accessed_at,last_injected_at,validated_by_user,validated_at,pinned
+            last_accessed_at,last_injected_at,validated_by_user,validated_at,pinned,
+            content_hash,normalized_text,schema_version
         ) VALUES (
             :id,:type,:scope,:project_id,:repo_id,:branch,:workflow_id,:agent_id,:skill_id,
             :title,:summary,:content,:content_json,:tags,:status,:confidence,:importance,:stability,
             :sensitivity,:source,:source_session_id,:created_at,:updated_at,:expires_at,:supersedes,
             :superseded_by,:contradicts,:derived_from,:qdrant_point_id,:token_estimate,:access_count,
-            :last_accessed_at,:last_injected_at,:validated_by_user,:validated_at,:pinned
+            :last_accessed_at,:last_injected_at,:validated_by_user,:validated_at,:pinned,
+            :content_hash,:normalized_text,:schema_version
         )",
         named_params! {
             ":id": item.id, ":type": item.kind.as_str(), ":scope": item.scope.as_str(),
@@ -285,6 +387,9 @@ pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), Me
             ":validated_by_user": i64::from(item.validated_by_user),
             ":validated_at": item.validated_at,
             ":pinned": i64::from(item.pinned),
+            ":content_hash": content_hash,
+            ":normalized_text": normalized,
+            ":schema_version": super::model::SCHEMA_VERSION,
         },
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_item: {e}")))?;
@@ -299,8 +404,13 @@ pub(crate) fn get_item(conn: &Connection, id: &str) -> Result<Option<MemoryItem>
     let mut rows = stmt
         .query(params![id])
         .map_err(|e| MemoryError::RemoteUnavailable(format!("get_item query: {e}")))?;
-    match rows.next().map_err(|e| MemoryError::ParseError(e.to_string()))? {
-        Some(row) => Ok(Some(item_from_row(row).map_err(|e| MemoryError::ParseError(e.to_string()))?)),
+    match rows
+        .next()
+        .map_err(|e| MemoryError::ParseError(e.to_string()))?
+    {
+        Some(row) => Ok(Some(
+            item_from_row(row).map_err(|e| MemoryError::ParseError(e.to_string()))?,
+        )),
         None => Ok(None),
     }
 }
@@ -386,8 +496,10 @@ pub(crate) fn search_items(
             status.as_str(),
             limit as i64
         );
-        let binds: Vec<String> =
-            terms.iter().flat_map(|n| [n.clone(), n.clone(), n.clone()]).collect();
+        let binds: Vec<String> = terms
+            .iter()
+            .flat_map(|n| [n.clone(), n.clone(), n.clone()])
+            .collect();
         let mut stmt = conn
             .prepare(&sql)
             .map_err(|e| MemoryError::RemoteUnavailable(format!("search LIKE prepare: {e}")))?;
@@ -479,7 +591,10 @@ pub(crate) fn list_by_type_status(
         .prepare(&sql)
         .map_err(|e| MemoryError::RemoteUnavailable(format!("list_by_type prepare: {e}")))?;
     let rows = stmt
-        .query_map(params![kind.as_str(), status.as_str(), limit as i64], item_from_row)
+        .query_map(
+            params![kind.as_str(), status.as_str(), limit as i64],
+            item_from_row,
+        )
         .map_err(|e| MemoryError::RemoteUnavailable(format!("list_by_type query: {e}")))?;
     Ok(rows.flatten().collect())
 }
@@ -597,14 +712,20 @@ fn candidate_from_row(row: &Row) -> rusqlite::Result<MemoryCandidate> {
     })
 }
 
-pub(crate) fn get_candidate(conn: &Connection, id: &str) -> Result<Option<MemoryCandidate>, MemoryError> {
+pub(crate) fn get_candidate(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<MemoryCandidate>, MemoryError> {
     let mut stmt = conn
         .prepare("SELECT * FROM memory_candidates WHERE id = ?1")
         .map_err(|e| MemoryError::RemoteUnavailable(format!("get_candidate prepare: {e}")))?;
     let mut rows = stmt
         .query(params![id])
         .map_err(|e| MemoryError::RemoteUnavailable(format!("get_candidate query: {e}")))?;
-    match rows.next().map_err(|e| MemoryError::ParseError(e.to_string()))? {
+    match rows
+        .next()
+        .map_err(|e| MemoryError::ParseError(e.to_string()))?
+    {
         Some(row) => Ok(Some(
             candidate_from_row(row).map_err(|e| MemoryError::ParseError(e.to_string()))?,
         )),
@@ -663,7 +784,8 @@ pub fn import_kg_jsonl(conn: &Connection) -> Result<(), MemoryError> {
     let graph = crate::kg::read_graph_inner()
         .map_err(|e| MemoryError::ParseError(format!("kg.jsonl read: {e}")))?;
     for ent in &graph.entities {
-        let obs_json = serde_json::to_string(&ent.observations).unwrap_or_else(|_| "[]".to_string());
+        let obs_json =
+            serde_json::to_string(&ent.observations).unwrap_or_else(|_| "[]".to_string());
         conn.execute(
             "INSERT OR REPLACE INTO kg_entities (name, entity_type, observations) VALUES (?1,?2,?3)",
             params![ent.name, ent.entity_type, obs_json],
@@ -743,7 +865,11 @@ impl MemoryStore for SqliteStore {
         Ok(items
             .into_iter()
             .map(|it| MemoryHit {
-                text: it.summary.clone().or(it.content.clone()).unwrap_or_default(),
+                text: it
+                    .summary
+                    .clone()
+                    .or(it.content.clone())
+                    .unwrap_or_default(),
                 id: it.id,
                 // Importance as a coarse score until Fase B real ranking lands.
                 score: it.importance.clamp(0.0, 1.0),
@@ -806,7 +932,12 @@ mod tests {
     #[test]
     fn insert_then_get_roundtrips_an_item() {
         let conn = mem_conn();
-        let mut item = MemoryItem::new(MemoryType::Decision, Scope::Project, Source::UserExplicit, Status::Active);
+        let mut item = MemoryItem::new(
+            MemoryType::Decision,
+            Scope::Project,
+            Source::UserExplicit,
+            Status::Active,
+        );
         item.summary = Some("usar bge-m3 para embeddings".into());
         item.project_id = Some("ultron".into());
         item.importance = 0.9;
@@ -821,18 +952,132 @@ mod tests {
     }
 
     #[test]
+    fn insert_populates_content_hash_and_normalized() {
+        let conn = mem_conn();
+        let mut item = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
+        item.summary = Some("  Memoria   Canonica  EN SQLite ".into());
+        insert_item(&conn, &item).unwrap();
+
+        let got = get_item(&conn, &item.id).unwrap().expect("item exists");
+        assert_eq!(
+            got.normalized_text.as_deref(),
+            Some("memoria canonica en sqlite")
+        );
+        assert!(
+            got.content_hash.is_some(),
+            "content_hash computed on insert"
+        );
+        assert_eq!(got.schema_version, crate::memory::model::SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn apply_schema_is_idempotent_for_olab_columns() {
+        let conn = mem_conn();
+        // Re-applying must not error (ADD COLUMN guarded by table_info probe).
+        apply_schema(&conn).expect("re-apply once");
+        apply_schema(&conn).expect("re-apply twice");
+    }
+
+    #[test]
+    fn backfill_refills_rows_with_null_content_hash() {
+        let conn = mem_conn();
+        let mut item = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
+        item.summary = Some("memoria canonica".into());
+        insert_item(&conn, &item).unwrap();
+        // Simulate a legacy row (pre-OLA-B) and re-arm the one-shot gate.
+        conn.execute(
+            "UPDATE memory_items SET content_hash=NULL, normalized_text=NULL WHERE id=?1",
+            params![item.id],
+        )
+        .unwrap();
+        conn.execute_batch("PRAGMA user_version = 0;").unwrap();
+
+        backfill_derived_columns(&conn);
+
+        let got = get_item(&conn, &item.id).unwrap().expect("item exists");
+        assert_eq!(got.normalized_text.as_deref(), Some("memoria canonica"));
+        assert_eq!(
+            got.content_hash,
+            Some(crate::memory::texthash::content_hash("memoria canonica"))
+        );
+    }
+
+    #[test]
+    fn apply_schema_migrates_a_pre_olab_table_and_backfills() {
+        // Regression: reproduce the REAL brain.db path (a table predating the
+        // OLA B columns). The content_hash index MUST be created after the
+        // ALTER ADD COLUMN, else apply_schema aborts with "no such column".
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE memory_items (
+                id TEXT PRIMARY KEY, type TEXT NOT NULL, scope TEXT NOT NULL,
+                project_id TEXT, repo_id TEXT, branch TEXT, workflow_id TEXT,
+                agent_id TEXT, skill_id TEXT, title TEXT, summary TEXT, content TEXT,
+                content_json TEXT, tags TEXT, status TEXT NOT NULL DEFAULT 'pending',
+                confidence REAL NOT NULL DEFAULT 0.5, importance REAL NOT NULL DEFAULT 0.5,
+                stability TEXT NOT NULL DEFAULT 'durable', sensitivity TEXT NOT NULL DEFAULT 'internal',
+                source TEXT NOT NULL, source_session_id TEXT, created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL, expires_at INTEGER, supersedes TEXT, superseded_by TEXT,
+                contradicts TEXT, derived_from TEXT, qdrant_point_id TEXT,
+                token_estimate INTEGER NOT NULL DEFAULT 0, access_count INTEGER NOT NULL DEFAULT 0,
+                last_accessed_at INTEGER, last_injected_at INTEGER,
+                validated_by_user INTEGER NOT NULL DEFAULT 0, validated_at INTEGER,
+                pinned INTEGER NOT NULL DEFAULT 0
+            );
+            INSERT INTO memory_items (id,type,scope,summary,status,source,created_at,updated_at)
+            VALUES ('legacy','fact','global','memoria legacy','active','tool_observed',0,0);",
+        )
+        .unwrap();
+
+        apply_schema(&conn).expect("migrate pre-OLA-B schema without aborting");
+
+        let got = get_item(&conn, "legacy")
+            .unwrap()
+            .expect("legacy item survives migration");
+        assert!(
+            got.content_hash.is_some(),
+            "legacy row is backfilled on migrate"
+        );
+        assert_eq!(got.schema_version, crate::memory::model::SCHEMA_VERSION);
+    }
+
+    #[test]
     fn search_only_returns_active_items() {
         let conn = mem_conn();
-        let mut active = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        let mut active = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
         active.summary = Some("oauth refactor decision".into());
         insert_item(&conn, &active).unwrap();
 
-        let mut rejected = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Rejected);
+        let mut rejected = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Rejected,
+        );
         rejected.summary = Some("oauth refactor decision".into());
         insert_item(&conn, &rejected).unwrap();
 
         let hits = search_items(&conn, "oauth", Status::Active, 10).unwrap();
-        assert_eq!(hits.len(), 1, "rejected items must not surface in active search");
+        assert_eq!(
+            hits.len(),
+            1,
+            "rejected items must not surface in active search"
+        );
         assert_eq!(hits[0].id, active.id);
     }
 
@@ -842,25 +1087,47 @@ mod tests {
         // (OR), not only the literal phrase (which returned 0 for every multi-word
         // query). Covers both the FTS5 path and, structurally, the LIKE fallback.
         let conn = mem_conn();
-        let mut a = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        let mut a = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
         a.summary = Some("memoria canonica en sqlite".into());
         insert_item(&conn, &a).unwrap();
-        let mut b = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        let mut b = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
         b.summary = Some("indice qdrant vectorial".into());
         insert_item(&conn, &b).unwrap();
 
         let hits = search_items(&conn, "memoria qdrant", Status::Active, 10).unwrap();
-        assert_eq!(hits.len(), 2, "multi-term query must match either term (OR), not the exact phrase");
+        assert_eq!(
+            hits.len(),
+            2,
+            "multi-term query must match either term (OR), not the exact phrase"
+        );
     }
 
     #[test]
     fn deleted_item_is_gone() {
         let conn = mem_conn();
-        let item = MemoryItem::new(MemoryType::Task, Scope::Session, Source::AssistantInferred, Status::Active);
+        let item = MemoryItem::new(
+            MemoryType::Task,
+            Scope::Session,
+            Source::AssistantInferred,
+            Status::Active,
+        );
         insert_item(&conn, &item).unwrap();
         delete_item(&conn, &item.id).unwrap();
         assert!(get_item(&conn, &item.id).unwrap().is_none());
-        assert!(matches!(delete_item(&conn, &item.id), Err(MemoryError::NotFound(_))));
+        assert!(matches!(
+            delete_item(&conn, &item.id),
+            Err(MemoryError::NotFound(_))
+        ));
     }
 
     #[test]
@@ -886,8 +1153,18 @@ mod tests {
         assert_eq!(pending.len(), 1);
 
         set_candidate_status(&conn, &c.id, CandidateStatus::Approved).unwrap();
-        assert_eq!(list_candidates(&conn, CandidateStatus::Pending, 10).unwrap().len(), 0);
-        assert_eq!(list_candidates(&conn, CandidateStatus::Approved, 10).unwrap().len(), 1);
+        assert_eq!(
+            list_candidates(&conn, CandidateStatus::Pending, 10)
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            list_candidates(&conn, CandidateStatus::Approved, 10)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
@@ -895,11 +1172,21 @@ mod tests {
         // "do not use again" (rejected) and quarantine must drop items from recall.
         let conn = mem_conn();
         for status in [Status::Rejected, Status::Quarantined, Status::Deprecated] {
-            let mut it = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, status);
+            let mut it = MemoryItem::new(
+                MemoryType::Fact,
+                Scope::Global,
+                Source::ToolObserved,
+                status,
+            );
             it.summary = Some("oauth token refresh edge case".into());
             insert_item(&conn, &it).unwrap();
         }
-        let mut active = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        let mut active = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
         active.summary = Some("oauth token refresh edge case".into());
         insert_item(&conn, &active).unwrap();
 
@@ -915,14 +1202,22 @@ mod tests {
         let mut c = MemoryCandidate::new(MemoryType::Decision, Scope::Project);
         c.proposed_summary = Some("usar MultilingualE5Large para recall".into());
         insert_candidate(&conn, &c).unwrap();
-        assert!(search_items(&conn, "MultilingualE5Large", Status::Active, 10).unwrap().is_empty());
+        assert!(
+            search_items(&conn, "MultilingualE5Large", Status::Active, 10)
+                .unwrap()
+                .is_empty()
+        );
 
         let item = c.to_item(Status::Active, Source::UserExplicit);
         insert_item(&conn, &item).unwrap();
         set_candidate_status(&conn, &c.id, CandidateStatus::Approved).unwrap();
 
         let hits = search_items(&conn, "MultilingualE5Large", Status::Active, 10).unwrap();
-        assert_eq!(hits.len(), 1, "an approved candidate must appear in active recall");
+        assert_eq!(
+            hits.len(),
+            1,
+            "an approved candidate must appear in active recall"
+        );
     }
 
     #[test]
@@ -935,13 +1230,23 @@ mod tests {
         insert_candidate(&conn, &c).unwrap(); // INSERT OR REPLACE
         let got = get_candidate(&conn, &c.id).unwrap().unwrap();
         assert_eq!(got.proposed_summary.as_deref(), Some("editado"));
-        assert_eq!(list_candidates(&conn, CandidateStatus::Pending, 10).unwrap().len(), 1);
+        assert_eq!(
+            list_candidates(&conn, CandidateStatus::Pending, 10)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 
     #[test]
     fn relabel_changes_scope_and_type_persist() {
         let conn = mem_conn();
-        let mut it = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::AssistantInferred, Status::Active);
+        let mut it = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::AssistantInferred,
+            Status::Active,
+        );
         insert_item(&conn, &it).unwrap();
         it.scope = Scope::Project;
         it.kind = MemoryType::Architecture;
@@ -954,11 +1259,21 @@ mod tests {
     #[test]
     fn pinned_items_listed_unpinned_excluded() {
         let conn = mem_conn();
-        let mut pinned = MemoryItem::new(MemoryType::Architecture, Scope::Project, Source::UserExplicit, Status::Active);
+        let mut pinned = MemoryItem::new(
+            MemoryType::Architecture,
+            Scope::Project,
+            Source::UserExplicit,
+            Status::Active,
+        );
         pinned.pinned = true;
         pinned.summary = Some("decisión fundacional".into());
         insert_item(&conn, &pinned).unwrap();
-        let unpinned = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ToolObserved, Status::Active);
+        let unpinned = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Active,
+        );
         insert_item(&conn, &unpinned).unwrap();
 
         let got = list_pinned(&conn, 10).unwrap();
@@ -970,12 +1285,36 @@ mod tests {
     #[test]
     fn list_by_type_status_filters_by_type() {
         let conn = mem_conn();
-        insert_item(&conn, &MemoryItem::new(MemoryType::Decision, Scope::Project, Source::UserExplicit, Status::Active)).unwrap();
-        insert_item(&conn, &MemoryItem::new(MemoryType::Task, Scope::Project, Source::UserExplicit, Status::Active)).unwrap();
+        insert_item(
+            &conn,
+            &MemoryItem::new(
+                MemoryType::Decision,
+                Scope::Project,
+                Source::UserExplicit,
+                Status::Active,
+            ),
+        )
+        .unwrap();
+        insert_item(
+            &conn,
+            &MemoryItem::new(
+                MemoryType::Task,
+                Scope::Project,
+                Source::UserExplicit,
+                Status::Active,
+            ),
+        )
+        .unwrap();
 
-        let decisions = list_by_type_status(&conn, MemoryType::Decision, Status::Active, 10).unwrap();
+        let decisions =
+            list_by_type_status(&conn, MemoryType::Decision, Status::Active, 10).unwrap();
         assert_eq!(decisions.len(), 1);
         assert_eq!(decisions[0].kind, MemoryType::Decision);
-        assert_eq!(list_by_type_status(&conn, MemoryType::Task, Status::Active, 10).unwrap().len(), 1);
+        assert_eq!(
+            list_by_type_status(&conn, MemoryType::Task, Status::Active, 10)
+                .unwrap()
+                .len(),
+            1
+        );
     }
 }

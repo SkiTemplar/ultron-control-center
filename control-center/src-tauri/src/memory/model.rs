@@ -245,6 +245,26 @@ pub struct MemoryItem {
     /// User-elevated: always considered for recall + Session Resume, regardless
     /// of recency/score. Distinct from `stability` (expected lifetime).
     pub pinned: bool,
+    /// OLA B: stable FNV-1a hash of the normalized searchable text (dedupe /
+    /// idempotency key, see memory/texthash.rs). `None` only for legacy rows
+    /// not yet backfilled.
+    #[serde(default)]
+    pub content_hash: Option<String>,
+    /// OLA B: lowercased, whitespace-collapsed searchable text (hash input +
+    /// cheap near-dup compare). `None` for legacy rows not yet backfilled.
+    #[serde(default)]
+    pub normalized_text: Option<String>,
+    /// OLA B: schema generation that produced this row.
+    #[serde(default = "default_schema_version")]
+    pub schema_version: i64,
+}
+
+/// Canonical schema generation for `memory_items`. Bump on backfill-relevant
+/// shape changes: 1 = base (pre-OLA B), 2 = + content_hash/normalized_text.
+pub const SCHEMA_VERSION: i64 = 2;
+
+fn default_schema_version() -> i64 {
+    SCHEMA_VERSION
 }
 
 impl MemoryItem {
@@ -291,6 +311,9 @@ impl MemoryItem {
             validated_by_user: false,
             validated_at: None,
             pinned: false,
+            content_hash: None,
+            normalized_text: None,
+            schema_version: SCHEMA_VERSION,
         }
     }
 
@@ -468,9 +491,15 @@ mod tests {
     fn enum_roundtrips_through_string() {
         assert_eq!(Status::parse("active"), Some(Status::Active));
         assert_eq!(Status::Deprecated.as_str(), "deprecated");
-        assert_eq!(MemoryType::parse("session_summary"), Some(MemoryType::SessionSummary));
+        assert_eq!(
+            MemoryType::parse("session_summary"),
+            Some(MemoryType::SessionSummary)
+        );
         assert_eq!(Scope::Project.to_string(), "project");
-        assert_eq!(Source::parse("imported_sessions"), Some(Source::ImportedSessions));
+        assert_eq!(
+            Source::parse("imported_sessions"),
+            Some(Source::ImportedSessions)
+        );
         assert_eq!(Status::parse("bogus"), None);
     }
 
@@ -484,8 +513,18 @@ mod tests {
 
     #[test]
     fn new_item_has_defaults_and_unique_id() {
-        let a = MemoryItem::new(MemoryType::Fact, Scope::Project, Source::ToolObserved, Status::Pending);
-        let b = MemoryItem::new(MemoryType::Fact, Scope::Project, Source::ToolObserved, Status::Pending);
+        let a = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Project,
+            Source::ToolObserved,
+            Status::Pending,
+        );
+        let b = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Project,
+            Source::ToolObserved,
+            Status::Pending,
+        );
         assert_ne!(a.id, b.id, "ids must be unique");
         assert_eq!(a.status, Status::Pending);
         assert_eq!(a.confidence, 0.5);
