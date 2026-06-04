@@ -1,0 +1,12 @@
+<project-card project="orbitaldb" trust="system">
+Ficha de "OrbitalDB - Android Mobile App" (Kotlin) recordada de la memoria (stale-by-default: verifica contra el codigo actual):
+Proposito: Android app for exploring astronomical objects (planets, moons, asteroids) from NASA and Solar System APIs with Firebase auth and SQLite favorites storage
+  - OrbitalDB es un proyecto Android nativo escrito en Kotlin (no Dart-Flutter como se especificó inicialmente); ubicado en C:/Users/USER/CARRERA/ASIGNATURAS/AppMoviles/codigo/OrbitalDB
+  - app/src/main/java/com/example/orbitaldb/ contiene: data/ (APIs y BD), model/ (ObservableItem sealed class), ui/ (Fragments y ViewModels), MainActivity.kt (entry point), OrbitalDbApp.kt, ServiceLocator.kt
+  - ServiceLocator.kt actúa como inyector de dependencias manual; separa UI (Fragments + ViewModels), Data (Repositories), y API/DB (Retrofit + SQLite) en capas independientes
+  - NASA APOD (foto del día), NASA Image Library (búsqueda/metadata), Solar System OpenData (catálogo cuerpos celestes); todas vía Retrofit con retry en ViewModels cuando fallan
+  - Kotlin 1.8+, AndroidX (Navigation 2.8.9, Lifecycle 2.8.7, Fragment 1.8.5), Retrofit 2.11.0 + Gson, Firebase Auth + Realtime DB, SQLite nativo, Glide 4.16.0, Coroutines 1.8.1, Material 3
+  - LoginFragment → DiscoverFragment (hub APOD+Body aleatorio) → BodiesFragment (lista filtrable) → DetailFragment (detalle item) → ObservatoryFragment (lista favoritos con swipe-delete); all Fragments en single nav_graph
+  - LoginFragment y RegisterFragment usan FirebaseAuth.signInWithEmailAndPassword() y createUserWithEmailAndPassword(); datos de usuario guardados en Firebase Realtime Database
+  - DiscoverViewModel, BodiesViewModel, DetailViewModel, ObservatoryViewModel implementan UiState<T> sealed class (Loading, Success, Error) para manejar async states
+</project-card>

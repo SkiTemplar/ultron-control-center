@@ -1,0 +1,12 @@
+<project-card project="niajska" trust="system">
+Ficha de "niajska" (JavaScript / TypeScript) recordada de la memoria (stale-by-default: verifica contra el codigo actual):
+Proposito: Plataforma web para gestionar un club gastronómico privado: dinners, rankings, votaciones y administración de miembros.
+  - Niajska es una plataforma web para el Club Niasjka, un grupo privado de amigos que organiza cenas mensuales en restaurantes, votadas y rankings de miembros.
+  - Supabase PostgreSQL con RLS policies, migraciones versionadas, JWT auth, service role para operaciones privilegiadas.
+  - Next.js 16.2 + React 19 + TypeScript + TailwindCSS 4 + Lucide icons; arquitectura App Router con server components/actions.
+  - MVP completo: auth, temporada CRUD, dinners CRUD + votación, club view, admin tools (multas, miembros, fondo), cronicas, ausencias; tests para scoring/seasons.
+  - Layout: /app (App Router, 25 pages), /lib (lógica), /components (reusables), /public (PWA assets), /supabase/migrations (schema).
+  - Temporada (sept año N a agosto año N+1), sorteo aleatorio de meses asignados, 3 jugadores en 'Nevera' (camara) por bajo ranking, presidente es top 1.
+  - 7 categorías votadas 0-5: tres principales (calidad, cantidad, RCP) peso 1x, cuatro secundarias (ubicación, originalidad, ambiente, servicio) peso 0.25x cada una.
+  - Root / redirige a /login, rutas /(app)/* requieren user en session (verificado en layout.tsx middleware), logout by Supabase auth.
+</project-card>

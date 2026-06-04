@@ -31,7 +31,7 @@ function render(ctx) {
   }
   if (Array.isArray(ctx.memories) && ctx.memories.length) {
     out.push('relevant_memories:');
-    for (const m of ctx.memories.slice(0, 6)) out.push(`  - [${m.scope || ''}] ${m.summary || ''}`);
+    for (const m of ctx.memories.slice(0, 12)) out.push(`  - [${m.scope || ''}] ${m.summary || ''}`);
   }
   if (Array.isArray(ctx.constraints) && ctx.constraints.length) {
     out.push(`constraints: ${ctx.constraints.join(' | ')}`);

@@ -761,6 +761,9 @@ fn candidate_from_row(row: &Row) -> rusqlite::Result<MemoryCandidate> {
         id: row.get("id")?,
         proposed_type: MemoryType::parse(&pt).unwrap_or(MemoryType::Fact),
         proposed_scope: Scope::parse(&ps).unwrap_or(Scope::Global),
+        // No dedicated column: the project survives the round-trip as a
+        // `project:<id>` entry inside proposed_tags, which to_item recovers.
+        proposed_project_id: None,
         proposed_title: row.get("proposed_title")?,
         proposed_summary: row.get("proposed_summary")?,
         proposed_content: row.get("proposed_content")?,

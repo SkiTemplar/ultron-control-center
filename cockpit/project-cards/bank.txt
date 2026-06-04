@@ -1,0 +1,12 @@
+<project-card project="bank" trust="system">
+Ficha de "Bank (Finanzas Personales)" (?) recordada de la memoria (stale-by-default: verifica contra el codigo actual):
+Proposito: Sistema completo de gestión financiera personal que sincroniza transacciones bancarias KutxaBank, categoriza gastos, gestiona fondos de ahorro y proporciona análisis visuales mediante Streamlit.
+  - Carpeta /finanzas contiene lógica principal (sync, BD, dashboard, utilidades). Root tiene CLAUDE.md (wake-up para Tío Gilito), notion_kutxabank.py (versión legacy integrada).
+  - Python 3.10+ con Streamlit (UI), SQLite (persistencia), Enable Banking API (sync KutxaBank), Notion API (datos alternativos), Plotly (gráficos), python-jose (OAuth).
+  - 3 tablas core: movimientos (id, fecha, descripcion, importe, tipo, categoria, fondo_asociado, sincronizado_notion), fondos (nombre, objetivo_eur, ahorrado_eur, aportacion_mensual, estado), stats_mensuales (mes, total_ingresos, total_gastos, balance, ahorro_total).
+  - Usa API Enable Banking (PRODUCTION) con OAuth2 para conectar KutxaBank de forma segura; alternativa fallback es import CSV exportado del banco; credenciales en .env: APPLICATION_ID, PRIVATE_KEY_PATH (PEM).
+  - Proyecto usa .env para: APPLICATION_ID y PRIVATE_KEY_PATH (Enable Banking OAuth), NOTION_TOKEN, NOTION_DB_* (Notion), ANTHROPIC_API_KEY (IA). Raiz tiene archivos .pem y sesión JSON. ADVERTENCIA: credenciales visibles en notion_kutxabank.py (legacy integrado).
+  - Dos estrategias: (1) keyword-matching local en categorizer.py con 16 categorías temáticas predefinidas; (2) IA (Claude/Anthropic) en notion_kutxabank.py si API configurada (fallback a keywords).
+  - config.json define saldo inicial, objetivos de fondos (Emergencias, Viaje, Fondo futuro), límites mensuales por categoría, reglas de ahorro automático (% nómina → fondos), frecuencia sync.
+  - dashboard.py (38KB) es la UI interactiva con Plotly; ofrece filtros por período (mes, 3m, 6m, año), métricas KPI, gráficos de gastos por categoría, análisis de fondos, tema dark (brand colors: verde, rojo, azul, ámbar).
+</project-card>

@@ -1,0 +1,12 @@
+<project-card project="entregafinal" trust="system">
+Ficha de "EntregaFinal" (Unity-CSharp) recordada de la memoria (stale-by-default: verifica contra el codigo actual):
+Proposito: Juego puzzle basado en turnos en Unity donde un jugador navega una grid evadiendo un enemigo IA y llegando a una zona objetivo, con sistema de energía y undo de movimientos.
+  - GameManager implementa Singleton con lock para evitar race conditions; crea instancia automáticamente si no existe y nunca se destruye entre escenas (DontDestroyOnLoad).
+  - Código organizado en: Managers (GameManager), Commands (ICommand, MoveCommand, CommandInvoker), AI (EnemyAI), UI (UIManager), y entidades (PlayerController, GoalZone).
+  - Movimientos del jugador se encapsulan en MoveCommand que almacena posición anterior, costo de energía, y permite deshacer guardando historial en Stack en CommandInvoker.
+  - Jugador comienza con 10 energía; cada movimiento cuesta 1; sin energía suficiente falla el movimiento y se dispara GameOver automáticamente.
+  - EnemyAI se mueve 2 casillas por turno del jugador usando raycast para detectar obstáculos; prioriza dirección horizontal vs vertical según distancia al jugador.
+  - GameManager dispara 6 eventos (OnEnergyChanged, OnTurnEnded, OnGameOver, OnGameWon, OnGameRestarted, CommandInvoker.OnCommandExecuted/Undone) que UIManager, PlayerController, EnemyAI y GoalZone suscriben.
+  - Victoria: jugador entra a GoalZone (detección by proximity <1.5 o OnTriggerEnter). Derrota: energía llega a 0 o colisiona con enemigo.
+  - Movimiento: WASD o flechas en grid con detección de colisiones por raycast. Undo: Z. Obstáculos validados antes de ejecutar comando.
+</project-card>

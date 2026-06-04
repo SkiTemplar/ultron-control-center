@@ -414,6 +414,11 @@ pub struct MemoryCandidate {
     pub id: String,
     pub proposed_type: MemoryType,
     pub proposed_scope: Scope,
+    /// Project the promoted item belongs to (e.g. "tortunabo", "bank"). Optional
+    /// so older candidates / session captures stay project-agnostic. `serde(default)`
+    /// keeps deserialization of pre-existing candidates in brain.db backward-compatible.
+    #[serde(default)]
+    pub proposed_project_id: Option<String>,
     pub proposed_title: Option<String>,
     pub proposed_summary: Option<String>,
     pub proposed_content: Option<String>,
@@ -438,6 +443,7 @@ impl MemoryCandidate {
             id: new_id(),
             proposed_type,
             proposed_scope,
+            proposed_project_id: None,
             proposed_title: None,
             proposed_summary: None,
             proposed_content: None,
@@ -460,6 +466,14 @@ impl MemoryCandidate {
     #[must_use]
     pub fn to_item(&self, status: Status, source: Source) -> MemoryItem {
         let mut item = MemoryItem::new(self.proposed_type, self.proposed_scope, source, status);
+        // Prefer the explicit field (direct in-memory path); fall back to a
+        // `project:<id>` tag, which is how the project survives a round-trip
+        // through SQLite (the candidate table has no project column).
+        item.project_id = self.proposed_project_id.clone().or_else(|| {
+            self.proposed_tags
+                .iter()
+                .find_map(|t| t.strip_prefix("project:").map(str::to_string))
+        });
         item.title = self.proposed_title.clone();
         item.summary = self.proposed_summary.clone();
         item.content = self.proposed_content.clone();

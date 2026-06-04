@@ -179,6 +179,29 @@ fn emit_candidate(json: &str) -> Result<String, String> {
     c.proposed_title = v.get("title").and_then(|x| x.as_str()).map(String::from);
     c.proposed_summary = v.get("summary").and_then(|x| x.as_str()).map(String::from);
     c.proposed_content = v.get("content").and_then(|x| x.as_str()).map(String::from);
+    // Project so the promoted item is filterable per-project in recall (e.g.
+    // "tortunabo", "bank"). Persisted BOTH as proposed_project_id (direct path)
+    // AND as a `project:<id>` tag, because the candidate round-trips through
+    // SQLite (no project column) before approval; to_item recovers it from the
+    // tag. Without this, CLI-ingested memories land project_id = None.
+    let project_id = v.get("project").and_then(|x| x.as_str()).map(String::from);
+    c.proposed_project_id = project_id.clone();
+    let mut tags: Vec<String> = v
+        .get("tags")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|t| t.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    if let Some(pid) = &project_id {
+        let marker = format!("project:{pid}");
+        if !tags.iter().any(|t| t == &marker) {
+            tags.push(marker);
+        }
+    }
+    c.proposed_tags = tags;
     if let Some(imp) = v.get("importance").and_then(serde_json::Value::as_f64) {
         c.importance = imp as f32;
     }

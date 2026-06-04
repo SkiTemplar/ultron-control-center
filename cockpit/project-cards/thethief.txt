@@ -1,0 +1,12 @@
+<project-card project="thethief" trust="system">
+Ficha de "TheThief" (?) recordada de la memoria (stale-by-default: verifica contra el codigo actual):
+Proposito: A first-person stealth game built in Unreal Engine 5.6 where the player is a thief stealing coins from a village while avoiding guards and villagers.
+  - UE5.6 C++ with Enhanced Input System, Behavior Trees, AI Perception, and Niagara particles; target is Runtime module with Editor-only plugins.
+  - Player is AThiefCharacter (extends BaseCharacter) with Sprint/Combat/Steal/Stealth states, coin collection, witness detection, and interaction with Enhanced Input.
+  - Source code organized in Public/Private split with AI, Characters, Components, Game, Items, Player, and UI subsystems; 51 total header files across modular structure.
+  - AGuardCharacter uses EnemyController with BehaviorTree to manage patrol/investigate/chase/attack states; includes voice lines, weapon socket attachment, and capture detection.
+  - AThiefGameMode (extends GameModeBase) manages EThiefGameState (MainMenu/Playing/Paused/Won/Captured) with UI widget system and audio pitch modulation.
+  - AVillagerCharacter inherits BaseEnemy with EVillagerState (Walking/Talking/Fleeing/AlertingGuard), coin holding, and witness-to-crime mechanics with guard escalation.
+  - Abstract ABaseCharacter extends ACharacter with health, damage direction calculation, hit reactions, ragdoll, and callbacks for subclass customization (ABaseEnemy, AThiefCharacter).
+  - Custom C++ BT nodes (Decorators: CanSeeTarget/GuardStateCheck/VillagerStateCheck/IsInCaptureRange; Services: UpdateTargetLocation/CheckVisibility/SetFocusOnTarget/SetNewSpeed; Tasks: 20+ custom tasks) enable reusable, testable AI logic.
+</project-card>

@@ -1,0 +1,12 @@
+<project-card project="timely" trust="system">
+Ficha de "Timely (Tasker)" (JavaScript/TypeScript) recordada de la memoria (stale-by-default: verifica contra el codigo actual):
+Proposito: Offline task planner with intelligent scheduling algorithm for students, optimizing study time and deadlines across multiple modes
+  - Timely (codename Tasker) is a full-stack offline task/study planner combining PWA and Electron desktop app for intelligent task scheduling without internet dependency.
+  - scheduler.ts implements X-Y-Z scoring with 8 planning modes (concentrado, equilibrado, variado, deadline_first, balanceo_asignaturas, progreso_uniforme, deadline_carga, tipo_tarea) considering urgency, priority, progress, momentum, and learning curve.
+  - Frontend uses React 19 with TypeScript and Vite 5, state management via Context API + useReducer, with dual-backend support (Electron IPC + localStorage).
+  - Task (title, type, priority, estimated_h, completed_h, deadline, status), Block (weekday, time, allowed types), Plan (task→date→block allocation), Session (time tracking) persist across runs.
+  - vercel.json configures PWA deployment with Service Worker caching strategy; electron-builder.json packages Windows portable .exe with electron-builder --config --win portable.
+  - src/ splits into app/ (business logic), components/ (UI), pages/ (routes), styles/ (CSS); electron/ handles desktop main process and IPC.
+  - src/app/api.ts wraps window.api (Electron) vs apiMock (PWA localStorage), exposing: settings, tasks, blocks, plans, sessions, projects endpoints with typed CRUD.
+  - AppProvider wraps app with global AppState (tasks, blocks, plans, projects, settings, currentDate, activeSession, loading, error); actions dispatched via useApp() hook.
+</project-card>

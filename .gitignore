@@ -362,3 +362,4 @@ secrets/
 config/paths.toml
 config/constitution.json
 config/skill-trust.yaml
+.claude/

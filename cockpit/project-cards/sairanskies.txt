@@ -1,0 +1,12 @@
+<project-card project="sairanskies" trust="system">
+Ficha de "SairanSkies (Unreal Engine 5.6)" (C++ (Unreal Engine)) recordada de la memoria (stale-by-default: verifica contra el codigo actual):
+Proposito: Third-person action game with combo-based combat, enemy AI with two-circle group tactics, grapple mechanic, clone teleport, and ultimate laser ability.
+  - Third-person action game with light/heavy combo attacks, parry system inspired by Sekiro, targeting and grapple mechanic, clone teleport, and ultimate 5-second laser after 4 kills.
+  - Enemies use Behavior Trees with AI Perception (sight/hearing), state machine (Idle→Patrolling→Investigating→Chasing→OuterCircle→InnerCircle→Attacking→Dead), and GroupCombatManager (World Subsystem) enforcing 'two circles' for realistic group combat.
+  - ASairanCharacter serves as hub with 8+ modular ActorComponent instances (Combat, Targeting, Grapple, Clone, Checkpoint, WeaponLerp, Interaction, ProceduralLimbs, Ultimate).
+  - UCombatComponent manages 5-hit light combo, heavy/charged attack, parry with Sekiro-style perfect window (triggers slow-mo), and hit detection gated by animation notify AN_EnableHitDetection.
+  - XP bar fills on kills (25 XP per kill, 4 kills full); when full, player activates ultimate for 5-second laser that fires line traces at 3 ticks/sec (0.33s interval), dealing 35–55 damage per tick to all hit actors.
+  - AWeaponBase features normal white/blue swing trail + blood red trail on hit (both render simultaneously), and three attachment points: hand (combat), back (sheathed), block (stance).
+  - Player can walk/run (toggle via L3/Shift), double-jump with variable gravity (2.5x falling, 1.5x normal), dash 600 cm in direction of movement with 0.25s duration + 0.4s cooldown, and gains i-frames during dash.
+  - Each enemy configured via FEnemyCombatConfig, FEnemyPerceptionConfig, FEnemyPatrolConfig, FEnemyBehaviorConfig, FEnemyConversationConfig; plus animation/sound/VFX configs.
+</project-card>
