@@ -11,6 +11,7 @@ export type Tab =
   | "agents"
   | "rules"
   | "projects"
+  | "finance"
   | "notes"
   | "plans"
   | "changelog"
@@ -89,6 +90,10 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
     items: [
       { id: "sessions", label: "Sessions", available: true, featureKey: "sessions" },
       { id: "projects", label: "Projects", available: true, featureKey: "projects" },
+      // Finance: native read-only dashboard of the Bank/finanzas project
+      // (Tío Gilito). Surfaces saldo/fondos/movimientos without launching the
+      // separate Streamlit app; the buttons spawn a Tío Gilito CLI session.
+      { id: "finance", label: "Finance", available: true },
       // v2.5: Plans tab removed from sidebar (per user). Per-project kanban
       // lives inside Projects -> Board. Workdays removed (fullize 2026-06-01).
     ],

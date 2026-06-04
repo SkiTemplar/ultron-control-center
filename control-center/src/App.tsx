@@ -20,6 +20,7 @@ import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
 import { Plans } from "./components/Plans";
+import { Finance } from "./components/Finance";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";
 // Hooks is now rendered inside the System tab as an inner sub-tab (v15.2 F7).
@@ -560,6 +561,9 @@ function AppInner() {
         </TabErrorBoundary>
         <TabErrorBoundary tab="projects">
           {tab === "projects" && <ProjectsPane />}
+        </TabErrorBoundary>
+        <TabErrorBoundary tab="finance">
+          {tab === "finance" && <Finance />}
         </TabErrorBoundary>
         <TabErrorBoundary tab="system">
           {tab === "system" && <System />}

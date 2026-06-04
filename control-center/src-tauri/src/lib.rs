@@ -16,8 +16,6 @@
 // `frontend/src/lib/bindings.ts` from the command signatures so frontend
 // invokes are type-checked.
 
-pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
-pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
 mod activity_timeline;
 mod agent_orchestration;
 mod agents;
@@ -25,59 +23,62 @@ mod ai_router;
 mod alerts_admin;
 mod auth;
 mod backup_status;
+mod batches;
+mod batches_queue;
 mod button_prompts;
 mod claude_sessions;
-mod commands_registry;
 mod codex_fallback;
+mod commands_registry;
 mod cost_watchdog;
+mod decisions;
+mod detach;
+mod diagnostics_native;
 mod ecc_memory;
+mod env_keys;
 mod features;
+mod finance;
 mod hooks_admin;
 mod hotkeys;
 mod in_app_shortcuts;
 mod installed_apps;
 mod instructions;
 mod kanban;
-mod migration;
 mod kg;
 mod library;
 mod logs;
 mod maintenance;
 mod mcps;
 mod mem0;
+pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
 mod memory_status;
+mod migration;
 mod notes;
+pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
 mod plans;
 mod plugins_info;
 mod project_agents;
+mod project_context;
 mod project_hotkeys;
 mod projects;
-mod project_context;
-mod detach;
+mod proxy;
 mod pty;
+pub mod qdrant;
 mod recall;
 mod rules;
-mod diagnostics_native;
 mod sessions;
 mod sessions_tags;
-#[cfg(test)]
-mod test_support;
-mod work_sessions;
-pub mod qdrant;
 mod settings;
-mod batches;
-mod batches_queue;
-mod env_keys;
 mod skills;
 mod system;
 mod tabs;
+#[cfg(test)]
+mod test_support;
 mod toast_emit;
 mod tray;
 mod update_checker;
 mod usage;
+mod work_sessions;
 mod workdays;
-mod decisions;
-mod proxy;
 mod workflow_loader;
 mod workflow_runs;
 
@@ -131,9 +132,7 @@ pub fn run() {
     // (dotenvy::from_filename does not override pre-existing env vars).
     if let Some(home) = dirs::home_dir() {
         let _ = dotenvy::from_filename(home.join(".ultron").join(".env"));
-        let _ = dotenvy::from_filename(
-            home.join(".ultron").join("control-center").join(".env"),
-        );
+        let _ = dotenvy::from_filename(home.join(".ultron").join("control-center").join(".env"));
     }
     let _ = dotenvy::dotenv();
 
@@ -262,6 +261,8 @@ pub fn run() {
             // -- Qdrant status/embed (recall_semantic retired: legacy 384d path, Ola 0) --
             qdrant::qdrant_status,
             qdrant::qdrant_embed_query,
+            // -- FINANCE: native read-only dashboard of the Bank/finanzas project --
+            finance::finance_overview,
             // -- MEMORY CORE: health only (recall_hybrid retired Ola 0; memory_health still used by MemoryStatusCard) --
             commands::memory::memory_health,
             // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
@@ -621,7 +622,10 @@ pub fn run() {
             let shortcut_handle = app.global_shortcut();
             let spec = hotkeys::load_hotkey_spec();
             let shortcut = hotkeys::parse_hotkey(&spec).unwrap_or_else(|e| {
-                eprintln!("[ultron] persisted hotkey '{}' rejected: {} — falling back", spec, e);
+                eprintln!(
+                    "[ultron] persisted hotkey '{}' rejected: {} — falling back",
+                    spec, e
+                );
                 Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyU)
             });
             if let Err(e) = shortcut_handle.register(shortcut) {
@@ -784,8 +788,8 @@ fn persist_headless(report: &diagnostics_native::DiagnosticReport) -> std::io::R
         .map_err(std::io::Error::other)?;
     std::fs::create_dir_all(&dir)?;
     let path = dir.join(format!("{}.json", report.timestamp));
-    let body = serde_json::to_vec_pretty(report)
-        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    let body =
+        serde_json::to_vec_pretty(report).map_err(|e| std::io::Error::other(e.to_string()))?;
     std::fs::write(path, body)
 }
 
