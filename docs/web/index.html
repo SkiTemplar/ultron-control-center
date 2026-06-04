@@ -77,6 +77,7 @@
   .topbar nav a:hover{color:var(--ink);}
   /* tablet: se descarta la zona menos crítica para evitar el wrap a dos líneas */
   @media (max-width:860px){.topbar nav a[href="#capture"],.topbar nav a[href="#doctor"]{display:none;}}
+  @media (max-width:780px){.topbar nav a[href="#router"]{display:none;}}
   @media (max-width:680px){.topbar nav{display:none;}}
 
   /* ── Hero ───────────────────────────────────────────────── */
@@ -251,6 +252,19 @@
   .scroll-x{overflow-x:auto;margin:22px 0;}
   .scroll-x table{margin:0;min-width:480px;}
 
+  /* ── Tabla comparativa (vs) — columna ULTRON resaltada SOLO con tinta + hairline ── */
+  table.vs{min-width:560px;}
+  table.vs thead th,table.vs tbody td{vertical-align:top;}
+  table.vs td.dim{color:var(--ink-3);font-family:var(--mono);font-size:11.5px;letter-spacing:0.02em;white-space:nowrap;}
+  /* la columna de ULTRON gana jerarquía con borde lateral y tinta más viva, sin color */
+  table.vs th.hot{color:var(--ink);border-left:1px solid var(--line-2);border-right:1px solid var(--line-2);}
+  table.vs td.hot{
+    color:var(--ink-2);background:var(--bg-2);
+    border-left:1px solid var(--line-2);border-right:1px solid var(--line-2);
+  }
+  table.vs td.hot b{color:var(--ink);}
+  table.vs tbody tr:last-child td.hot{border-bottom:1px solid var(--line-2);}
+
   /* ── Callout ────────────────────────────────────────────── */
   .call{border:1px solid var(--line);border-left:2px solid var(--ink-4);background:var(--bg-1);padding:16px 20px;margin:24px 0;}
   .call .cl{font-family:var(--mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px;}
@@ -292,6 +306,7 @@
       <a href="#router">Router</a>
       <a href="#orchestrator">Orquestador</a>
       <a href="#doctor">Doctor</a>
+      <a href="#compare">Comparativa</a>
     </nav>
   </div>
 </header>
@@ -322,8 +337,8 @@
         <div class="v">RRF <span class="u">· k=60</span></div>
       </div>
       <div class="cell">
-        <div class="k">Router</div>
-        <div class="v">8 providers <span class="u">· 9 zonas</span></div>
+        <div class="k">Catálogo</div>
+        <div class="v">197 <span class="u">· 78 agentes + 119 skills</span></div>
       </div>
     </div>
   </div>
@@ -349,8 +364,16 @@
       Toda mutación persistente atraviesa un único punto, <code class="t">MemoryService</code>, y
       cada mutación deja un evento de auditoría en el log <em>append-only</em>
       <code class="t">memory_events</code>. Ni los hooks ni los agentes escriben memoria
-      directamente: <b>proponen candidatos</b>, y un humano —o una política de auto-aprobación—
-      los promociona. Un candidato rechazado nunca se convierte en memoria.
+      directamente: <b>proponen candidatos</b> a una <b>bandeja de entrada</b>, y un humano los
+      promociona desde la UI. <b>Nada entra en la memoria activa sin aprobación.</b> Un candidato
+      rechazado nunca se convierte en memoria.
+    </p>
+    <p>
+      La bandeja ofrece cuatro acciones por candidato —<b>Aprobar</b>, <b>Rechazar</b>,
+      <b>Editar</b> (corregir resumen, importancia o confianza antes de aceptar) y <b>Merge</b>
+      cuando el dedupe lo sugiere— más un <b>Aceptar todos</b> con confirmación en dos fases.
+      Aprobar como usuario marca el ítem <code class="t">validated_by_user</code>; la decisión, sea
+      cual sea, queda registrada como evento.
     </p>
 
     <div class="fig">
@@ -371,8 +394,8 @@
           <div class="arrow"><span>inbox →</span></div>
           <div class="node">
             <div class="nb"><span>decide</span></div>
-            <div class="nt">Humano · Política</div>
-            <div class="nd">Approve · Reject · Edit · Merge desde la bandeja de entrada.</div>
+            <div class="nt">Humano</div>
+            <div class="nd">Approve · Reject · Edit · Merge · Aceptar todos. Nada entra sin tu visto bueno.</div>
           </div>
           <div class="arrow"><span>approve →</span></div>
           <div class="node lead">
@@ -469,6 +492,65 @@
       de auditoría con el snapshot previo. Es una acción explícita (derecho al olvido, purga de un
       secreto filtrado), nunca un movimiento automático del ciclo de vida.
     </p>
+
+    <h3>importance y confidence dinámicos</h3>
+    <p>
+      Antes, cada candidato llegaba al inbox con un <code class="t">importance = 0.55</code> y un
+      <code class="t">confidence = 0.50</code> idénticos: la bandeja mostraba el mismo 55 % / 50 %
+      para todo y los dos números no decían nada. Ahora ambos se <b>derivan</b> de señales reales —y
+      son funciones puras, testeadas sin router ni base de datos—. Importancia (cuánto <em>importa</em>)
+      y confianza (cómo de seguro es que el hecho es <em>cierto</em>) se mueven por separado, así que
+      las dos columnas no van en bloque.
+    </p>
+
+    <div class="scroll-x">
+    <table>
+      <thead><tr><th>Señal</th><th>Entra en</th><th>Efecto</th></tr></thead>
+      <tbody>
+        <tr><td>Tipo de memoria</td><td><span class="dim">importance</span></td><td>decisión / restricción / arquitectura altas (<code>0.78</code>) · resumen de sesión baja (<code>0.40</code>)</td></tr>
+        <tr><td>Especificidad del texto</td><td><span class="dim">importance</span></td><td>bonus acotado por longitud y concreción (dígitos, rutas, identificadores)</td></tr>
+        <tr><td>Procedencia</td><td><span class="dim">ambas</span></td><td>extracción del router pesa más que el <em>fallback</em> local degradado</td></tr>
+        <tr><td>Score del LLM</td><td><span class="dim">ambas</span></td><td>cuando el modelo se autocalifica, se mezcla (50/50 en importance)</td></tr>
+        <tr><td>Cuerpo muy corto</td><td><span class="dim">confidence</span></td><td>penalización: más probable que sea ruido o truncado</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>
+      Ambos quedan acotados a <code class="t">[0.05, 0.95]</code> — nunca un 0 ni un 100 % falsos.
+    </p>
+
+    <h3>Detección de contradicciones</h3>
+    <p>
+      Cuando un candidato propone algo, un detector busca los ítems ACTIVE semánticamente más
+      cercanos (mismo scope y proyecto) y le pregunta a un juez LLM si alguno <b>choca</b> con la
+      propuesta. Si lo hay, el candidato no se rechaza ni se auto-resuelve: pasa a
+      <b>cuarentena</b> con los ids en conflicto adjuntos, fuera del recall, esperando que
+      <b>decidas tú</b> cuál vale. Es <em>advisory</em> puro — la decisión de cuarentena se testea
+      sin red, base de datos ni LLM.
+    </p>
+    <div class="call key">
+      <div class="cl">Nunca auto-resuelve</div>
+      <p>
+        El detector es <b>fail-safe por construcción</b>: con Qdrant/E5 apagado el paso semántico
+        devuelve vacío y la tubería del candidato no se bloquea; y el juez LLM es tolerante —ante
+        cualquier fallo de parseo o ruta reporta «sin contradicción»—, de modo que un modelo
+        degradado <b>jamás</b> pone una memoria en cuarentena por error. Solo un <code class="t">Some(true)</code>
+        seguro marca conflicto.
+      </p>
+    </div>
+
+    <h3>Resolutor temporal</h3>
+    <p>
+      Cada ítem lleva una ventana de vigencia <code class="t">valid_from</code> /
+      <code class="t">valid_to</code>. Cuando una afirmación se reemplaza vía
+      <code class="t">supersede</code>, la nueva pasa a vigente <em>ahora</em>
+      (<code class="t">valid_from = now</code>, <code class="t">valid_to = NULL</code>) y la vieja
+      recibe un <code class="t">valid_to</code> en el instante del relevo. El recall (sección 02)
+      prefiere lo vigente: un ítem cuya validez <b>terminó en el pasado</b> se excluye del context
+      pack con motivo trazado, mientras que <code class="t">valid_to</code> nulo o futuro se inyecta.
+      Lo viejo y superado deja de aparecer — sin perder la fila histórica, que sigue siendo
+      consultable y auditable.
+    </p>
   </div>
 </section>
 
@@ -511,7 +593,7 @@
           <div class="node">
             <div class="nb"><span>ensamblado</span><span>assemble_pack()</span></div>
             <div class="nt">Gobernanza + presupuesto</div>
-            <div class="nd">Límite · status=active · scope de proyecto (global aplica en todo) · vault off-by-default · <b>gate de secreto</b> · presupuesto 1500 tokens. Solo resúmenes; el contenido completo es lazy.</div>
+            <div class="nd">Límite · status=active · scope de proyecto (global aplica en todo) · <b>gate temporal</b> (vigente) · vault off-by-default · <b>gate de secreto</b> · presupuesto 1500 tokens. Solo resúmenes; el contenido completo es lazy.</div>
           </div>
         </div>
       </div>
@@ -572,6 +654,28 @@
         <tr><td><code>warnings</code></td><td>p. ej. «dense recall empty — sparse-only», o candidatos pendientes en el inbox.</td></tr>
       </tbody>
     </table>
+
+    <h4>Recall cross-project — buscar en todo el cerebro</h4>
+    <p>
+      Por defecto el recall se ciñe al proyecto actual. Pero puedes pedirle que busque en
+      <b>todos</b> los proyectos a la vez —«¿te acuerdas de aquel otro proyecto?»—. En modo
+      <code class="t">cross_project</code> se relaja <b>únicamente</b> el filtro de proyecto: el k-NN
+      denso deja de filtrar por proyecto y <code class="t">assemble_pack</code> admite ítems
+      <code class="t">scope=project</code> de cualquier origen. Todo lo demás sigue intacto —
+      <code class="t">status=active</code>, gate temporal y, sobre todo, <b>el gate de secreto</b>:
+      un ítem Secret de otro proyecto <b>nunca</b> entra. Se activa por bandera explícita o por una
+      <b>detección conservadora</b> de frases como «en todos mis proyectos» / «across projects»,
+      siempre que exista un proyecto actual. Cuando se relaja, queda un warning en el trace.
+    </p>
+    <div class="call">
+      <div class="cl">Relaja el proyecto, no la seguridad</div>
+      <p>
+        El control de ruido del vault se ancla sobre <code class="t">project_id.is_some()</code>, no
+        sobre el filtro de proyecto, así que un recall cross-project lanzado desde dentro de un
+        proyecto sigue dejando el vault apagado por defecto. La invariante <b>«cross relaja el
+        proyecto, no la seguridad»</b> está cubierta por un test unitario que corre sin Qdrant/E5.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -849,8 +953,8 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
       <p class="sec-sub">
         El orquestador «Ultron» toma un prompt —posiblemente impreciso— y construye un
         <em>contexto de orquestación</em>: intención → workflow → agentes a delegar → memorias
-        relevantes → restricciones. No reinventa capacidades: <b>delega</b> en los agentes reales de
-        <code class="t">~/.claude/agents/</code>.
+        relevantes → restricciones. No reinventa capacidades: <b>delega</b> en los especialistas
+        reales del catálogo, que esta sesión <b>pasó de 78 a 197</b> al conectar también las skills.
       </p>
     </div>
 
@@ -873,7 +977,7 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
             <div class="node">
               <div class="nb"><span>paso 2 · semántico</span></div>
               <div class="nt">search_catalog()</div>
-              <div class="nd">Búsqueda E5 sobre <code>ultron_catalog</code> (las fichas de los agentes). Top-5 especialistas reales por similitud.</div>
+              <div class="nd">Búsqueda E5 sobre <code>ultron_catalog</code> (78 agentes + 119 skills). Top-5 especialistas reales por similitud, rebalanceados por intención.</div>
             </div>
             <div class="node">
               <div class="nb"><span>paso 3 · contexto</span></div>
@@ -897,20 +1001,24 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
       intención y un workflow; lo específico va antes que lo general y el primer match gana. Es
       rápido y no consume tokens. La <b>elección del especialista</b> es semántica: se embebe el
       prompt con E5 y se busca en el catálogo indexado, de modo que «revisa seguridad» trae al
-      agente de security/review aunque el prompt no nombre a ninguno.
+      agente de security/review aunque el prompt no nombre a ninguno. Las reglas cubren ahora también
+      <b>UI/diseño, testing, performance, docs y refactor</b>, no solo seguridad y bugs.
     </p>
 
     <div class="scroll-x">
     <table>
-      <thead><tr><th>Intención (regla)</th><th>Workflow</th><th>Patrones (extracto)</th></tr></thead>
+      <thead><tr><th>Intención (regla)</th><th>Workflow</th><th>Especialistas que prioriza</th></tr></thead>
       <tbody>
-        <tr><td><code>security</code></td><td><code>security</code></td><td><span class="dim">seguridad · security · vulnerab · owasp · pentest · cve</span></td></tr>
-        <tr><td><code>bug_fix</code></td><td><code>debug</code></td><td><span class="dim">bug · arregla · fix · error · crash · no funciona</span></td></tr>
-        <tr><td><code>game</code></td><td><code>game</code></td><td><span class="dim">unity · unreal · gameplay · shader · netcode</span></td></tr>
-        <tr><td><code>feature</code></td><td><code>feature</code></td><td><span class="dim">implementa · añade · desarrolla · crea un/una</span></td></tr>
-        <tr><td><code>research</code></td><td><code>research</code></td><td><span class="dim">investiga · compara · evalúa · estado del arte</span></td></tr>
-        <tr><td><code>learning</code></td><td><code>learning</code></td><td><span class="dim">aprende · explícame · tutorial · cómo funciona</span></td></tr>
-        <tr><td><span class="dim">— sin match —</span></td><td><code>quick</code></td><td><span class="dim">general (default)</span></td></tr>
+        <tr><td><code>security</code></td><td><code>security</code></td><td><span class="dim">security-auditor · penetration-tester · code-reviewer</span></td></tr>
+        <tr><td><code>bug_fix</code></td><td><code>debug</code></td><td><span class="dim">debugger · error-detective · qa-expert</span></td></tr>
+        <tr><td><code>ui_design</code></td><td><code>feature</code></td><td><span class="dim">frontend-developer · react-specialist · ui-designer · accessibility-tester</span></td></tr>
+        <tr><td><code>testing</code></td><td><code>quick</code></td><td><span class="dim">test-automator · qa-expert · code-reviewer</span></td></tr>
+        <tr><td><code>performance</code></td><td><code>debug</code></td><td><span class="dim">performance-engineer · ultron-perf · debugger</span></td></tr>
+        <tr><td><code>docs</code></td><td><code>quick</code></td><td><span class="dim">documentation-engineer · ultron-docs</span></td></tr>
+        <tr><td><code>refactor</code></td><td><code>quick</code></td><td><span class="dim">refactoring-specialist · ultron-refactor · code-reviewer</span></td></tr>
+        <tr><td><code>game</code></td><td><code>game</code></td><td><span class="dim">unreal-engine-engineer · cpp-pro · architect-reviewer</span></td></tr>
+        <tr><td><code>feature</code></td><td><code>feature</code></td><td><span class="dim">architect-reviewer · fullstack-developer · code-reviewer</span></td></tr>
+        <tr><td><span class="dim">— sin match —</span></td><td><code>quick</code></td><td><span class="dim">code-reviewer · qa-expert (default)</span></td></tr>
       </tbody>
     </table>
     </div>
@@ -933,6 +1041,35 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
     (<span class="s">"general"</span>, <span class="s">"quick"</span>) <span class="c">// default</span>
 }</code>
     </pre>
+
+    <h3>Las skills, conectadas — el catálogo pasa de 78 a 197</h3>
+    <p>
+      Hasta ahora el catálogo solo indexaba los <b>78 agentes</b> de
+      <code class="t">~/.claude/agents/</code>. Esta sesión conectó también las <b>skills
+      habilitadas</b> —119— al mismo índice E5, así que ahora <b>197</b> capacidades compiten por el
+      prompt. Agente y skill viven en una sola colección, con el id namespaced
+      (<code class="t">agent::{name}</code> vs <code class="t">skill::{name}</code>) y un campo
+      <code class="t">entity</code> en el payload, de modo que una búsqueda puede filtrar a agentes,
+      a skills, o dejar que compitan ambos. Las skills <code class="t">.disabled</code> se excluyen:
+      nunca se enruta a una capacidad apagada.
+    </p>
+    <p>
+      Cada skill se clasifica en un <code class="t">kind</code> grueso —<b>persona</b>
+      (alfred, terry-davis…), <b>technical</b> (rust-patterns, docker-patterns…) o <b>meta</b>
+      (council, superpowers, skill-creator…)— para que el orquestador pueda pesar una persona
+      distinto de una capacidad técnica sin un segundo lookup.
+    </p>
+
+    <h4>Rebalanceo: especialistas por encima de los meta</h4>
+    <p>
+      Sobre los <em>hits</em> semánticos crudos, <code class="t">rebalance_delegates</code> re-ordena:
+      penaliza a los agentes meta internos de ULTRON cuando no vienen a cuento del intent, y aplica un
+      <b>boost aditivo</b> a los especialistas que la intención prefiere — salvo que un agente meta
+      sea él mismo el pertinente (p. ej. <code class="t">ultron-docs</code> para el intent
+      <code class="t">docs</code>), en cuyo caso se le perdona la penalización. Así un «diseña una
+      pantalla bonita» sube a <code class="t">frontend-developer</code> y
+      <code class="t">ui-designer</code> por delante del genérico.
+    </p>
 
     <div class="call">
       <div class="cl">Agentes fantasma saneados</div>
@@ -1003,14 +1140,109 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
   </div>
 </section>
 
+<!-- ════════════════ 08 · COMPARATIVA ════════════════ -->
+<section id="compare">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">08</span><span>Para presentar</span><span class="rule"></span></div>
+      <h2>Memoria «normal» vs. la memoria de ULTRON.</h2>
+      <p class="sec-sub">
+        Sin tecnicismos, para enseñar la diferencia. La mayoría de asistentes «recuerdan» pegando
+        notas sueltas en su servidor cuando les apetece. ULTRON <b>toma acta de cada sesión, te la
+        pasa para que tú la apruebes</b>, y la guarda en <b>tu propio ordenador</b> — organizada,
+        buscable por significado y para siempre, sin que se le escape un secreto.
+      </p>
+    </div>
+
+    <div class="scroll-x">
+    <table class="vs">
+      <thead>
+        <tr>
+          <th></th>
+          <th>Un chatbot normal</th>
+          <th class="hot">ULTRON</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="dim">Dónde vive</td>
+          <td>En el servidor del proveedor (la nube)</td>
+          <td class="hot"><b>En tu ordenador</b> — privada, local</td>
+        </tr>
+        <tr>
+          <td class="dim">Quién decide qué se guarda</td>
+          <td>El sistema, cuando quiere</td>
+          <td class="hot"><b>Tú</b>, en una bandeja de entrada (aprobar / rechazar / editar)</td>
+        </tr>
+        <tr>
+          <td class="dim">Qué recuerda</td>
+          <td>Notas sueltas y genéricas</td>
+          <td class="hot">Decisiones, preferencias y hechos de proyecto, <b>organizados</b></td>
+        </tr>
+        <tr>
+          <td class="dim">Entre sesiones</td>
+          <td>A medias; a menudo repites contexto</td>
+          <td class="hot"><b>Total</b>: arranca sabiendo dónde lo dejasteis</td>
+        </tr>
+        <tr>
+          <td class="dim">Entre proyectos</td>
+          <td>No</td>
+          <td class="hot"><b>Sí</b> — «¿te acuerdas de aquel otro proyecto?»</td>
+        </tr>
+        <tr>
+          <td class="dim">Cómo busca</td>
+          <td>Por coincidencia de palabras</td>
+          <td class="hot">Por <b>significado</b></td>
+        </tr>
+        <tr>
+          <td class="dim">Secretos / privacidad</td>
+          <td>Caja negra</td>
+          <td class="hot"><b>Nunca</b> expone claves; tachado automático</td>
+        </tr>
+        <tr>
+          <td class="dim">Contradicciones y caducidad</td>
+          <td>No las gestiona</td>
+          <td class="hot">Las <b>detecta y avisa</b>; lo superado deja de salir</td>
+        </tr>
+        <tr>
+          <td class="dim">Permanencia</td>
+          <td>Limitada, se puede resetear/perder</td>
+          <td class="hot"><b>Permanente</b>, versionada y tuya</td>
+        </tr>
+        <tr>
+          <td class="dim">Auditable</td>
+          <td>No</td>
+          <td class="hot"><b>Sí</b> — todo queda registrado</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <div class="call key">
+      <div class="cl">El cierre</div>
+      <p>
+        Un chatbot normal es como un becario brillante <b>con amnesia</b>: cada día empieza de cero y
+        vuelves a contarle todo. ULTRON es como un asistente que <b>toma actas, te las hace firmar y
+        las archiva en tu despacho</b>: al día siguiente ya sabe qué decidisteis, qué prefieres y qué
+        toca — y nunca deja una contraseña a la vista. Cuanto más trabajáis juntos, <b>más sabe de ti
+        y de tus proyectos</b>, sin que te repitas y sin que tus datos salgan de tu ordenador.
+      </p>
+    </div>
+    <p style="font-size:15px;color:var(--ink);max-width:62ch;">
+      No es «un chat que recuerda un poco». Es una <b>memoria de trabajo real, privada y bajo tu
+      control</b>.
+    </p>
+  </div>
+</section>
+
 </main>
 
 <footer>
   <div class="wrap">
     <div class="ftitle">Procedencia · backend Tauri / Rust</div>
     <div class="files">
-      <code><b>memory/</b>{service, sqlite_store, qdrant_index, redaction, capture, catalog, doctor}.rs</code>
-      <code><b>commands/memory/</b>recall_unified.rs</code>
+      <code><b>memory/</b>{service, sqlite_store, qdrant_index, redaction, capture, catalog, contradiction, doctor}.rs</code>
+      <code><b>commands/memory/</b>{recall_unified, inbox}.rs</code>
       <code><b>src/</b>ai_router.rs</code>
       <code><b>src/</b>orchestrator.rs</code>
     </div>
