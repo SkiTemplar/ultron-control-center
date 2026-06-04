@@ -9,10 +9,10 @@
 No solo proxy para Claude Code, sino ORQUESTADOR MULTI-IA: elegir el mejor modelo por tarea/coste/capacidad, despachar subagentes a Claude/Codex/Gemini/free-tier(NIM), gobernar las tareas baratas del kernel de memoria, y resiliencia por cuota.
 
 ## 2. Arquitectura (archivos)
-- `ai_router.rs` (~88KB) — `route(zone_id, prompt) -> Result<String,String>`: carga zona, prueba primary, cascada por fallbacks, quota-guard (`is_critical`), skip-sin-key, métricas (`bump_metrics`). Zonas en seed_zones (utility/light/summarize/routing-decision/...). Wrappers `call_anthropic`/`call_openai_compat`/`call_gemini`/`call_cli`.
+- `ai_router.rs` (~88KB) — `route(zone_id, prompt) -> Result<String,String>`: carga zona, prueba primary, cascada por fallbacks, skip-sin-key, métricas (`bump_metrics`). **[Verificado f936a66 + Codex/Gemini: NO hay quota-guard; `route()` = load_zones + cascada + skip-sin-key + bump_metrics, `ai_router.rs:1365-1424`].** Zonas en seed_zones (utility/light/summarize/routing-decision/...). Wrappers `call_anthropic`/`call_openai_compat`/`call_gemini`/`call_cli`.
 - `proxy.rs` + Node `~/.ultron/proxy/ultron-proxy.mjs` — proxy free-tier (NIM/OpenRouter/Groq) con streaming + tool-calls + failover.
 - `codex_fallback.rs` — lanzar sesión Codex (manual hoy).
-- `quota_watchdog.rs` — SSOT cuota (ver spec 04-QUOTA).
+- ~~`quota_watchdog.rs`~~ — **BORRADO en `cbb2d5c`** (Quota % quitado, -465 líneas; ya no existe en `src`). Ver 04-QUOTA.
 - `pty.rs::build_command` — YA soporta `claude|codex|gemini`.
 - Front: `components/AIRouter/*` (Dashboard/Modelos/Providers/Keys/Proxy).
 
@@ -22,7 +22,7 @@ No solo proxy para Claude Code, sino ORQUESTADOR MULTI-IA: elegir el mejor model
 | route() gobierna tareas internas | ✅ | ~10 callers reales: cost_watchdog.rs:279, hooks_admin.rs:1490, workdays.rs:1595/1698, plugins_info.rs:1031, library.rs:1107, project_agents.rs:471/734, sessions_tags.rs:298 |
 | Comentario stale "solo botón Test" | ✅ corregido | `1a14a27`-adjacent; era falso |
 | Proxy free-tier real | ✅ | ultron-proxy.mjs (NIM qwen3-coder verificado) |
-| Quota-guard antes de cada provider | ✅ | ai_router.rs:1526 is_critical() |
+| ~~Quota-guard antes de cada provider~~ | ⚫ QUITADO (`cbb2d5c`) | `is_critical()` ya no existe (0 matches en src); `route()` sin guard de cuota. Ver 04-QUOTA |
 | Métricas por modelo/día/free-tier gauge | ✅ | bump_metrics |
 | **Orquestador despacha multi-IA** | 🔴 | delegate_task_inner (agent_orchestration.rs:291) hardcodea "claude"; resolve_cheap_model:155 literal "claude-haiku-4-5" |
 | **Kernel de memoria consume route()** | 🟡 scaffolded | ai_tasks.rs listo (route("utility"/"summarize")), NO enganchado |

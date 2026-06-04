@@ -19,11 +19,11 @@ MemoryItem {
   text: string                    # [EXISTE] contenido canonico
   status: enum                    # [EXISTE] active|deprecated|rejected|pending|stale
   sensitivity: enum               # [EXISTE] Public|Internal|Secret  (gate Secret en recall, Ola 0)
-  # --- ANADIR (Ola A/B) ---
-  normalized_text: string         # [ANADIR] texto normalizado (lower, sin ruido) para dedupe/FTS
-  content_hash: string            # [ANADIR] sha256(normalized_text) -> dedupe exacto + idempotencia indexado
+  # --- OLA A/B (verificado f936a66 + Codex/Gemini) ---
+  normalized_text: string         # [EXISTE Ola B] texto normalizado (lower, sin ruido) para dedupe/FTS (texthash.rs)
+  content_hash: string            # [EXISTE Ola B] FNV-1a 64-bit hex(normalized_text) -> dedupe exacto + idempotencia (NO sha256; texthash.rs:26-37). Aun SIN lookup find_by_content_hash; qdrant_point_id existe pero no se genera en index_item
   semantic_cluster_id: string?    # [ANADIR] cluster de duplicados (dedupe multicapa)
-  schema_version: int             # [ANADIR] version del esquema del item (migraciones)
+  schema_version: int             # [EXISTE Ola B, =2] version del esquema del item (migraciones aditivas)
   valid_from: ts                  # [ANADIR] bitemporalidad (supersession/temporal queries)
   valid_to: ts?                   # [ANADIR] null = vigente; set = superseded/stale
   source_trust: enum              # [ANADIR] user_explicit > tool_observed > assistant_inferred > external_imported
@@ -56,7 +56,7 @@ con `source_trust<=assistant_inferred` pasa a `active` sin politica/inbox explic
 ## 3. Write-path security (OLA A, codigo)
 
 Pipeline obligatorio ANTES de persistir a SQLite y ANTES de generar embeddings:
-1. `secret_detect(text)` -> si hit: redactar irreversible o marcar `sensitivity=Secret` + NO indexar.
+1. **[HECHO OLA A/H2 — commits 2c28c20, cda7a99]** `secret_detect(text)` -> redacta in-place (`redaction.rs`, cableado en `create_candidate`+`add_imported`) + escala `sensitivity=Secret` (H2: el gate Secret del recall ya NO está hueco) + candidate->`Quarantine` (anti-poisoning).
 2. `pii_detect(text)` -> redactar segun retention_class.
 3. `prompt_injection_scan(text)` si `source_trust<=external_imported` -> quarantine si hit.
 4. `content_hash` + dedupe (ver 4) antes de insertar.
