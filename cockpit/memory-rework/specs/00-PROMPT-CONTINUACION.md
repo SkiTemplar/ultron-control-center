@@ -1,5 +1,10 @@
 # PROMPT DE CONTINUACION — ULTRON (para mañana / para pasar a una IA)
-### 2026-06-04 · rama `fullize-2026-05-30` · HEAD `0532dee`
+### 2026-06-04 · rama `fullize-2026-05-30` · HEAD `823ed67`
+
+> **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]**
+> HEAD real **`823ed67`** (no `0532dee`; +4 commits). El item **[7] Quota ya NO aplica**:
+> el sistema de Quota % fue **QUITADO** en `cbb2d5c` (quota_watchdog.rs borrado). Retomar Quota
+> = re-implementar de cero con señal real, no "enganchar lo existente". Embeddings = **E5-Large 1024d**.
 
 ## Cómo usar este prompt
 - **Para una IA externa que revise/mejore**: pégale este archivo + los specs `01..07` de `cockpit/memory-rework/specs/`. Cada spec es autocontenido (arquitectura + status + qué falta + preguntas).

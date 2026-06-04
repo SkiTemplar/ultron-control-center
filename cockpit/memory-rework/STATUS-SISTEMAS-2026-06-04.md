@@ -1,5 +1,10 @@
 # STATUS DE SISTEMAS — ULTRON (post-batch 2026-06-04)
-### Spec + estado real por subsistema, tras 10 commits en `fullize-2026-05-30` (HEAD `0532dee`)
+### Spec + estado real por subsistema, tras 10 commits en `fullize-2026-05-30` (HEAD `823ed67`)
+
+> **[RECONCILIADO 2026-06-04 — ver `STATE-RECONCILIATION-2026-06-04.md`]**
+> HEAD real **`823ed67`** (no `0532dee`). **La Seccion 4 (QUOTA ROUTING) esta STALE**: el sistema de
+> Quota % fue **QUITADO** en `cbb2d5c` (quota_watchdog.rs borrado, `is_critical()` ya no existe). La fila
+> "Quota routing ~45%" del resumen ejecutivo no aplica. Lo correcto es `04-QUOTA.md`.
 
 > Complementa `SPECS-SISTEMA-2026-06-04.md` (arquitectura) con el ESTADO verificado.
 > Leyenda: ✅ hecho+verificado en runtime · 🟡 parcial/scaffolded · 🔴 pendiente · ⚪ sin auditar.

@@ -1,5 +1,9 @@
 # PLAN DE IMPLEMENTACIÓN — Memory-Orchestrated Agent Runtime
 
+> **[RECONCILIADO 2026-06-04 — ver `STATE-RECONCILIATION-2026-06-04.md`]** "Embeddings = bge-m3" (B1 · Sidecar bge-m3)
+> fue **DESCARTADO**; se implemento **E5-Large 1024d** (ver `STATUS.md:22`). "ECC y Mem0 fuera" (linea ~84) AUN NO
+> se aplico: `mem0-sync.js` sigue activo escribiendo a Mem0 cloud (ver registro de deprecados DR-02). HEAD real `823ed67`.
+
 > 2026-06-03 · rama `fullize-2026-05-30` · estado: **PARA REVISIÓN DE USER**.
 > No se toca código de producción hasta OK explícito. Ver `DIAGNOSIS.md` (auditoría) y
 > `MASTER-PROMPT.md` (prompt original + refinamientos vinculantes).

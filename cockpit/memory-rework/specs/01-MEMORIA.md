@@ -1,5 +1,7 @@
 # SPEC FULL — Sistema de MEMORIA (ULTRON)
-### Autocontenido para revisión por IA externa · 2026-06-04 · rama `fullize-2026-05-30` (HEAD `0532dee`)
+### Autocontenido para revisión por IA externa · 2026-06-04 · rama `fullize-2026-05-30` (HEAD `823ed67`)
+
+> **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]** HEAD real `823ed67` (no `0532dee`). Conteos verificados: 943 active / 34 candidates / 1043 events.
 
 ## 1. Propósito
 Memory-Orchestrated Agent Runtime LOCAL para Claude Code: que el asistente RECUPERE contexto por *recall* en vez de re-leer el código. NO chatbot con memoria, NO lista de recuerdos en Qdrant, NO demo. Memoria canónica auditable, recuperable, explicable, editable, eficiente en tokens.

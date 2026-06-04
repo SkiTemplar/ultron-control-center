@@ -1,6 +1,11 @@
 # SPECS DEL SISTEMA — Memoria · Skills/Agentes · AI Routing · MCPs
 ### Documento autocontenido para revisión por una segunda IA (2026-06-04)
 
+> **[RECONCILIADO 2026-06-04 — ver `STATE-RECONCILIATION-2026-06-04.md`]**
+> Las menciones a "Quota plomeria ya cableada (quota_watchdog.rs, try_assignment_call:1526 is_critical())"
+> estan STALE: Quota fue **QUITADO** en `cbb2d5c`. El "gap 5: Quota ciega" del AI Router ya no aplica.
+> HEAD real `823ed67`. Embeddings reales = **E5-Large 1024d** (bge-m3 descartado).
+
 > Objetivo: que una IA externa, SIN acceso al repo, entienda la arquitectura real,
 > el estado verificado y los gaps, y proponga mejoras. Todo está cruzado con
 > evidencia `archivo:linea` y verificación en runtime. Sé crítico: buscamos el

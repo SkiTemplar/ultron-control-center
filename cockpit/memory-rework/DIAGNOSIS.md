@@ -1,5 +1,9 @@
 # DIAGNÓSTICO — Memory-Orchestrated Agent Runtime (Fase 1)
 
+> **[RECONCILIADO 2026-06-04 — ver `STATE-RECONCILIATION-2026-06-04.md`]** La decision locked "Embeddings = `bge-m3`"
+> (seccion ~161) fue **DESCARTADA** durante la implementacion: fastembed 4.9.1 no lo soporta bien. Lo implementado
+> y verificado es **MultilingualE5-Large 1024d** (ver `STATUS.md:22`). HEAD real `823ed67`.
+
 > 2026-06-03 · rama `fullize-2026-05-30` · basado en lectura directa de código +
 > 9 auditores paralelos (workflow `ultron-memory-audit`, 261 tool-uses).
 > Evidencia con `file:line`. Veredicto por componente: GOOD/WRAP/MIGRATE/REWRITE/REMOVE.

@@ -1,6 +1,10 @@
 # SPEC FULL — AI ROUTER (ULTRON)
 ### Autocontenido para revisión por IA externa · 2026-06-04
 
+> **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]**
+> La fila "Quota-guard antes de cada provider | OK | ai_router.rs:1526 is_critical()" esta STALE:
+> Quota fue **QUITADO** en `cbb2d5c`, `is_critical()` ya no existe (0 matches). El gap "quota ciega" no aplica.
+
 ## 1. Propósito
 No solo proxy para Claude Code, sino ORQUESTADOR MULTI-IA: elegir el mejor modelo por tarea/coste/capacidad, despachar subagentes a Claude/Codex/Gemini/free-tier(NIM), gobernar las tareas baratas del kernel de memoria, y resiliencia por cuota.
 

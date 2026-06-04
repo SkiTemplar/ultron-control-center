@@ -1,5 +1,10 @@
 # MASTER PLAN CONSOLIDADO — Memory-Orchestrated Agent Runtime + AI Router multi-IA
 
+> **[RECONCILIADO 2026-06-04 — ver `STATE-RECONCILIATION-2026-06-04.md`]** (doc de 2026-06-03, pre-removal).
+> **OLA 8 (Quota gradual) quedo OBSOLETA**: las tareas I1/I2/I3 editan `quota_watchdog.rs` que fue **borrado**
+> en `cbb2d5c`. Si se retoma Quota, es trabajo nuevo (re-crear watchdog con señal real), no editar lineas existentes.
+> La frase "el lazo reactivo ya esta cableado (is_critical consultado)" ya no aplica. HEAD real `823ed67`.
+
 > Fecha: 2026-06-03. Rama `fullize-2026-05-30`. Fuente: 4 workflows de auditoría/investigación a máximo nivel.
 > Este documento UNIFICA sus hallazgos en olas de implementación ordenadas por dependencia.
 > Acompaña a `STATUS.md` (biblia de reanudación), `DIAGNOSIS.md`, `PLAN.md`, `MASTER-PROMPT.md`.

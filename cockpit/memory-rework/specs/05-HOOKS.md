@@ -1,6 +1,11 @@
 # SPEC FULL — HOOKS (ULTRON ↔ Claude Code)
 ### Autocontenido para revisión por IA externa · 2026-06-04
 
+> **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]**
+> `quota-capture.js` (PostToolUse) quedo **HUERFANO** tras `cbb2d5c` (su consumidor backend fue borrado):
+> escribe `quota-state.json` que nadie lee. No es solo "fragil", es codigo muerto. Candidato a desregistrar.
+> Ademas: hooks fragmentados en 3 arboles; SoT vivo (`~/.claude/scripts`) NO versionado (P1).
+
 ## 1. Propósito
 Integrar el kernel de memoria con Claude Code vía hooks Node que REUSAN la lógica canónica (sidecar `ultron-memory.exe`), sin duplicar lógica en JS. Capturar contexto (SessionStart), enrutar (UserPromptSubmit) y proponer memoria (Stop).
 
