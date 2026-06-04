@@ -263,6 +263,8 @@ pub fn run() {
             qdrant::qdrant_embed_query,
             // -- FINANCE: native read-only dashboard of the Bank/finanzas project --
             finance::finance_overview,
+            finance::finance_sync,
+            finance::finance_open_setup,
             // -- MEMORY CORE: health only (recall_hybrid retired Ola 0; memory_health still used by MemoryStatusCard) --
             commands::memory::memory_health,
             // -- MEMORY KERNEL Fase A3: one-shot ETL migration --
