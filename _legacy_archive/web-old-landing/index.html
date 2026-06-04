@@ -1,0 +1,541 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ULTRON Genesis · v14.x.x</title>
+<meta name="description" content="A personal AI OS built on Claude Code. 1157 tests. 780 indexed notes. 0.58 ms dispatcher. Multi-model. Self-diagnosing. Ships with a TUI cockpit.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<nav id="topnav" aria-label="Section navigation">
+  <span class="brand">ULTRON <span class="mono dim">v14.x.x</span></span>
+  <ul>
+    <li><a href="#what">What it is</a></li>
+    <li><a href="#cockpit">Cockpit</a></li>
+    <li><a href="#capabilities">Capabilities</a></li>
+    <li><a href="#specs">Specs</a></li>
+    <li><a href="#hardening">Security</a></li>
+    <li><a href="#doctor">Doctor</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<section class="hero" id="top">
+  <p class="eyebrow mono">GENESIS RELEASE &middot; 2026-05-20</p>
+  <h1>An AI that remembers you.<span class="version mono">v14.x.x</span></h1>
+  <p class="lede">
+    ULTRON is a personal AI operating system built on top of Claude Code.
+    It runs in your terminal, never forgets what you told it last week, routes your prompts
+    to the right specialist before Claude even starts thinking, and checks itself
+    every session so it doesn&rsquo;t drift on you.
+  </p>
+  <p class="lede" style="margin-top:0.5rem">
+    Not a plugin. Not a prompt template. An operating layer. One person built it, for himself,
+    because nothing else did what he needed.
+  </p>
+  <p class="hero-specs mono">
+    <span>1157 tests passing</span>
+    <span>780 notes indexed</span>
+    <span>0.58 ms dispatch</span>
+    <span>1380 / 1500 tok overhead</span>
+  </p>
+</section>
+
+<section class="problem" id="problem">
+  <p class="section-tag mono">01 &mdash; The problem with AI assistants</p>
+  <div class="problem-grid">
+    <div>
+      <p>
+        Every AI session starts from zero. You explain the project again. You paste the context again.
+        You re-type the architecture you described three days ago. The AI is smart &mdash;
+        it just doesn&rsquo;t know who you are.
+      </p>
+      <p>
+        That&rsquo;s not an assistant. That&rsquo;s a colleague with amnesia who happens
+        to be very good at their job when they remember things.
+      </p>
+    </div>
+    <div>
+      <p>
+        The other problem is routing. &ldquo;Hey, help me with my code&rdquo; could mean
+        100 different things. The right specialist for a UE5 shader bug is not the same
+        one you want for a financial analysis or a security audit. A vanilla Claude setup
+        doesn&rsquo;t know the difference until you tell it.
+      </p>
+      <p>
+        ULTRON solves both. Memory that actually persists. Routing that fires before
+        the first token is spent. A system that knows which tool to reach for
+        &mdash; automatically.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="what">
+  <p class="section-tag mono">02 &mdash; What you actually get</p>
+  <h2>Five things that change your daily workflow.</h2>
+
+  <div class="cap-grid">
+    <article class="cap">
+      <h3>It remembers you</h3>
+      <p>
+        780 notes indexed. Every project, decision, and session stored in a three-layer vault.
+        Each new session starts with a 400-token primer of what matters right now &mdash;
+        no manual copy-paste, no re-explaining context.
+      </p>
+      <p class="mono dim">L0 hot context &middot; L1 indexed &middot; L2 vault &middot; L3 remote</p>
+    </article>
+    <article class="cap">
+      <h3>It routes before thinking</h3>
+      <p>
+        Before Claude processes your prompt, ULTRON classifies it against 56 routing rules
+        in 0.58 ms. &ldquo;Audit the security of this repo&rdquo; goes to the security specialist.
+        &ldquo;REDACTED_TEAM score&rdquo; goes to the football persona.
+        Right expert, right context, zero overhead.
+      </p>
+      <p class="mono dim">intent-dispatcher.py &middot; 56 rules &middot; FTS5 fallback</p>
+    </article>
+    <article class="cap">
+      <h3>It brings in peers</h3>
+      <p>
+        For hard problems, ULTRON calls Codex CLI as a peer critic or Gemini
+        as a long-context specialist. They work on sandboxed read-only copies.
+        Three models, one answer, no hallucination amplification.
+      </p>
+      <p class="mono dim">/minidual /dual /maxdual &middot; /triple /maxtriple</p>
+    </article>
+    <article class="cap">
+      <h3>It checks itself</h3>
+      <p>
+        Doctor runs 16 detectors every session. Token overhead, memory drift, stale notes,
+        secrets leaking into config, prompt-injection rules, MCP server health.
+        It tells you what&rsquo;s wrong and, with <span class="mono">--fix</span>, repairs most of it.
+      </p>
+      <p class="mono dim">16 detectors &middot; --health-check &middot; --fix interactive</p>
+    </article>
+    <article class="cap">
+      <h3>It has a face</h3>
+      <p>
+        The TUI Cockpit is a full terminal dashboard. News (Tech, Football, Space editions),
+        Project browser, Scheduler, System Health with inline Doctor output, Skills market.
+        Everything in one place. No commands to memorise.
+      </p>
+      <p class="mono dim">ultron tui &middot; Textual &middot; keys 1&ndash;5</p>
+    </article>
+    <article class="cap">
+      <h3>It stays secure</h3>
+      <p>
+        Every third-party skill is scanned before it enters the manifest. 12 prompt-injection rules.
+        MCP allowlist. Secrets scanner. Settings integrity ledger. Hook payload cap.
+        Path traversal guard. You can add skills without trusting blindly.
+      </p>
+      <p class="mono dim">PI001&ndash;PI012 &middot; S5-C hardening</p>
+    </article>
+  </div>
+</section>
+
+<section id="cockpit">
+  <p class="section-tag mono">03 &mdash; Cockpit TUI</p>
+  <h2>The face of ULTRON. One command, everything.</h2>
+  <p class="dim">
+    Run <span class="mono">ultron tui</span> (or just <span class="mono">ultron</span>) from any terminal.
+    Five views. No memorising subcommands.
+  </p>
+
+  <div class="cap-grid">
+    <article class="cap">
+      <h3>1 &mdash; Projects</h3>
+      <p>
+        All your active projects. Status, last session, open in IDE directly from the list.
+        Scanner auto-discovers new ones in your CARRERA directory.
+      </p>
+    </article>
+    <article class="cap">
+      <h3>2 &mdash; News</h3>
+      <p>
+        Today&rsquo;s ULTRON Times &mdash; three editions: Tech/AI, Football (REDACTED_TEAM &middot; La Liga),
+        Space &amp; Cosmos. Generate any missing edition with one button &rarr; Gemini.
+        ALERTS from the security pipeline surface here inline, not just as a count.
+      </p>
+    </article>
+    <article class="cap">
+      <h3>3 &mdash; Scheduler</h3>
+      <p>
+        Windows Task Scheduler tasks managed from the TUI. Install, enable, disable, trigger manually.
+        Cron jobs for news, memory sync, and brain-index updates all visible in one table.
+      </p>
+    </article>
+    <article class="cap">
+      <h3>4 &mdash; Health</h3>
+      <p>
+        Disk, CLIs, critical files, Python environment, news freshness.
+        &ldquo;Run Doctor (inline)&rdquo; executes <span class="mono">doctor --health-check</span>
+        and shows output inside the TUI without spawning a terminal.
+      </p>
+    </article>
+    <article class="cap">
+      <h3>f &mdash; Skills</h3>
+      <p>
+        392-entry manifest browsable by layer: Meta orchestrators, Personas (14 specialists),
+        Engineering, Security, Testing, Game Dev, and more. Kirkardo audit button on each skill.
+      </p>
+    </article>
+    <article class="cap">
+      <h3>v &mdash; Vault</h3>
+      <p>
+        L2 memory vault at a glance. Sync status, dirty notes, push to remote.
+        Memory bridge from Claude Code project memories into the vault.
+      </p>
+    </article>
+  </div>
+</section>
+
+<section class="architecture" id="architecture">
+  <p class="section-tag mono">04 &mdash; Architecture</p>
+  <h2>Six layers. Each one has one job.</h2>
+  <p class="dim">
+    You don&rsquo;t need to understand all six to use ULTRON. But knowing the shape helps
+    when something breaks or when you want to extend it.
+    The key rule: each layer only loads what the layer above it requests.
+  </p>
+
+  <ol class="stack" aria-label="System layers">
+    <li>
+      <span class="layer-num mono">LAYER 0</span>
+      <span class="layer-name">Claude Code Session</span>
+      <span class="layer-role">Opus 4.7 orchestrator &middot; ~200K context window &middot; the brain</span>
+    </li>
+    <li>
+      <span class="layer-num mono">LAYER 1</span>
+      <span class="layer-name">Hooks</span>
+      <span class="layer-role">Fire on session events &middot; route intent &middot; sync memory &middot; block injections</span>
+    </li>
+    <li>
+      <span class="layer-num mono">LAYER 2</span>
+      <span class="layer-name">ZTMSI &mdash; Zero-Token Memory &amp; Skills Index</span>
+      <span class="layer-role">SQLite FTS5 &middot; 780 notes &middot; answers in &lt;5 ms &middot; costs zero tokens</span>
+    </li>
+    <li>
+      <span class="layer-num mono">LAYER 3</span>
+      <span class="layer-name">Stratified Memory</span>
+      <span class="layer-role">L0 hot (400 tok) &middot; L1 indexed &middot; L2 cold vault &middot; L3 remote git backup</span>
+    </li>
+    <li>
+      <span class="layer-num mono">LAYER 4</span>
+      <span class="layer-name">Skills &amp; Manifest</span>
+      <span class="layer-role">392 entries &middot; SSOT frontmatter &middot; security-scanned at admit time &middot; auto-discovered</span>
+    </li>
+    <li>
+      <span class="layer-num mono">LAYER 5</span>
+      <span class="layer-name">Multi-Model</span>
+      <span class="layer-role">Codex CLI peer critic &middot; Gemini long-context &middot; sandboxed &middot; file-based async</span>
+    </li>
+    <li>
+      <span class="layer-num mono">LAYER 6</span>
+      <span class="layer-name">Observability</span>
+      <span class="layer-role">Append-only alerts bus &middot; dispatcher telemetry &middot; doctor self-check &middot; TUI dashboard</span>
+    </li>
+  </ol>
+</section>
+
+<section class="capabilities" id="capabilities">
+  <p class="section-tag mono">05 &mdash; Capabilities</p>
+  <h2>Fourteen subsystems. All verified at release.</h2>
+  <p class="dim">Every item below has a script path, a test, or a documented protocol. Nothing is aspirational.</p>
+
+  <div class="cap-grid">
+    <article class="cap">
+      <h3>Power Modes</h3>
+      <p>Five session intensities. LOW locks the budget. ULTRA opens the full pipeline including Dual Mode and vault sync. LEARN captures and stores what the session teaches.</p>
+      <p class="mono dim">LOW &middot; MEDIUM &middot; HIGH &middot; ULTRA &middot; LEARN</p>
+    </article>
+    <article class="cap">
+      <h3>Layered Memory</h3>
+      <p>L0 primes every session in under 400 tokens. L1 is indexed and queryable. L2 is the cold vault with git history. L3 is the remote backup. Each layer is independent; any can be rebuilt.</p>
+      <p class="mono dim">L0 + L1 + L2 + L3</p>
+    </article>
+    <article class="cap">
+      <h3>Brain Index (ZTMSI)</h3>
+      <p>FTS5 SQLite over every vault note, chunked to paragraph level. BM25 ranking. Zero tokens consumed &mdash; it answers before the LLM is involved.</p>
+      <p class="mono dim">780 notes &middot; ~10,240 chunks &middot; &lt;5 ms median</p>
+    </article>
+    <article class="cap">
+      <h3>Intent Dispatcher</h3>
+      <p>56 pre-compiled regex rules. Classifies your prompt in 0.58 ms. Routes to the right skill, loads the right context, suggests the right mode &mdash; before Claude reads a single character.</p>
+      <p class="mono dim">p95 0.58 ms &middot; 40 ms budget &middot; 52&times; margin</p>
+    </article>
+    <article class="cap">
+      <h3>Hooks Pipeline</h3>
+      <p>Nine hooks on Claude Code session events. Validated stdin, 4 MiB payload cap, depth limit 10. Never blocks the user. Auto-approves read-only tools. Blocks dangerous Bash patterns.</p>
+      <p class="mono dim">SessionStart &middot; UserPromptSubmit &middot; PreToolUse &middot; PostToolUse &middot; Stop</p>
+    </article>
+    <article class="cap">
+      <h3>Skills Manifest</h3>
+      <p>Single source of truth for 392 skills. 22 curated personas + 370 auto-discovered. Schema-validated on every sync. Kirkardo can audit any skill from the TUI.</p>
+      <p class="mono dim">392 entries &middot; SSOT frontmatter &middot; JSON Schema validated</p>
+    </article>
+    <article class="cap">
+      <h3>Kirkardo Audits</h3>
+      <p>Independent skill reviewer. Runs on Sonnet (quick) or Opus (full). Reads active ALERTS before auditing &mdash; flags CVEs or API changes that affect the skill under review. Score out of 10.</p>
+      <p class="mono dim">evaluator: kirkardo-independent &middot; ALERTS-aware</p>
+    </article>
+    <article class="cap">
+      <h3>Dual Mode</h3>
+      <p>Codex CLI as a peer critic. Three intensities: /minidual (1 round), /dual (3 rounds), /maxdual (5 rounds). Sandbox read-only, ignore-user-config. Claude orchestrates, Codex criticises, Claude writes.</p>
+      <p class="mono dim">/minidual /dual /maxdual</p>
+    </article>
+    <article class="cap">
+      <h3>Gemini MCP</h3>
+      <p>Long-context specialist. Delegated automatically when codebase &gt;150 files or context &gt;80K tokens. Also handles image analysis, video generation, deep research, and second-opinion architecture reviews.</p>
+      <p class="mono dim">gemini-2.5-pro &middot; Veo video &middot; /triple /maxtriple</p>
+    </article>
+    <article class="cap">
+      <h3>MCP Resilience</h3>
+      <p>9 servers probed in parallel on session start with a 3-second timeout. Degraded servers get a one-line fallback note. The session continues &mdash; nothing blocks.</p>
+      <p class="mono dim">9 servers &middot; parallel probe &middot; graceful degradation</p>
+    </article>
+    <article class="cap">
+      <h3>Doctor v2</h3>
+      <p>16 detectors: orphans, drift, retention, token overhead, secrets, settings integrity, provenance, security scan failures. TTY-gated interactive fix. Now runs inline inside the TUI Health view.</p>
+      <p class="mono dim">16 detectors &middot; --fix &middot; --health-check &middot; --token-audit</p>
+    </article>
+    <article class="cap">
+      <h3>Security (S5-C)</h3>
+      <p>12 prompt-injection rules (PI001&ndash;PI012). MCP allowlist enforced before install. Secrets scanner for API keys. Settings integrity ledger. Path traversal guard. Per-skill trust waivers.</p>
+      <p class="mono dim">PI001&ndash;PI012 &middot; skill_provenance &middot; mcp_allowlist</p>
+    </article>
+    <article class="cap">
+      <h3>Cockpit &amp; TUI</h3>
+      <p>PowerShell entry point with typed wrapper. <span class="mono">ultron tui</span> launches a Textual terminal dashboard with 6 views: Projects, News, Scheduler, Health, Skills, Vault.</p>
+      <p class="mono dim">ultron.ps1 &middot; tui.py &middot; Textual</p>
+    </article>
+    <article class="cap">
+      <h3>News Pipeline</h3>
+      <p>Three daily editions (Tech/AI, Football, Space) generated by Gemini with URL-level deduplication across 7 days. ALERTS from the security pipeline surface in the News view and in Kirkardo audits.</p>
+      <p class="mono dim">newsletter-*.html &middot; dedup 7d &middot; ALERTS-wired</p>
+    </article>
+  </div>
+</section>
+
+<section class="specs" id="specs">
+  <p class="section-tag mono">06 &mdash; Specs</p>
+  <h2>Numbers. Not adjectives.</h2>
+  <p class="dim">Click any row for context.</p>
+
+  <div class="spec-table">
+
+    <p class="spec-head mono">Memory</p>
+
+    <details class="spec-row">
+      <summary><span>Notes indexed</span><span class="mono">780</span></summary>
+      <p>Markdown notes in the L2 vault plus the L1 bridges (projects, sessions, skills). Each carries a frontmatter token estimate and a layer tag used by the brain index for BM25 scoring.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>Chunks queryable</span><span class="mono">~10,240</span></summary>
+      <p>Paragraph-level chunks produced by the frontmatter backfill. The FTS5 <span class="mono">chunks_fts</span> table is what the dispatcher queries. Each chunk is ~135 tokens on average.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>L0 hot-context budget</span><span class="mono">&le; 400 tok</span></summary>
+      <p>Pre-computed by SessionStart into <span class="mono">~/.ultron/.tmp/context.md</span>. Includes last sessions, top stale notes, and any unacked alerts at <span class="mono">warn</span> or above.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>Vault layers</span><span class="mono">L0 + L1 + L2 + L3</span></summary>
+      <p>L0 is the 400-token hot primer. L1 is the FTS5 index. L2 is the cold git vault at <span class="mono">~/.ultron-vault/</span>. L3 is the remote backup. Any layer can be rebuilt from the ones below it.</p>
+    </details>
+
+    <p class="spec-head mono">Routing</p>
+
+    <details class="spec-row">
+      <summary><span>Dispatcher rules</span><span class="mono">56</span></summary>
+      <p>Pre-compiled regex patterns covering architecture, code review, debugging, UE5, finance, security, standup, news, audit (Kirkardo), and more. First match wins; confidence threshold 0.70.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>Dispatcher internal p95</span><span class="mono">0.58 ms</span></summary>
+      <p>Measured inside <span class="mono">intent-dispatcher.py</span>, excluding Python startup. The 40 ms hook budget gives a 52&times; margin. No tokens consumed on a cache hit.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>Slash short-circuit p95</span><span class="mono">0.001 ms</span></summary>
+      <p>Slash commands skip the brain-index path entirely. ZTMSI cost is zero. Routing line emitted immediately.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>FTS5 median query</span><span class="mono">~4 ms</span></summary>
+      <p>Live measurement on the 10,047-chunk index. p50 3.9 ms. Falls back to ZTMSI when dispatcher rules miss and confidence &ge; 0.70.</p>
+    </details>
+
+    <p class="spec-head mono">Budget</p>
+
+    <details class="spec-row">
+      <summary><span>Always-on token overhead</span><span class="mono">1380 / 1500 tok</span></summary>
+      <p>Measured by <span class="mono">doctor --token-audit</span>. L0 primer + global CLAUDE.md + MEMORY.md. Release gate E1 PASS. 120 token headroom before the budget trips.</p>
+    </details>
+
+    <p class="spec-head mono">Coverage</p>
+
+    <details class="spec-row">
+      <summary><span>Tests passing</span><span class="mono">584 / 584</span></summary>
+      <p>Across 16 test files: alerts (21), mcp_resilience (20), intent_dispatcher (19), brain_index_chunks (6), multimodel (6), skill_manifest (11), doctor (37), skill_security (32), settings_integrity (8), hook_validator (13), secrets_scanner (12), provenance (8), path_traversal (7), routing (27), personas (26), cockpit (71).</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>Skills in manifest</span><span class="mono">392</span></summary>
+      <p>22 curated personas + 370 auto-discovered from <span class="mono">~/.claude/skills/*/SKILL.md</span>. Schema-validated on every <span class="mono">manifest sync</span> with security pre-flight scan.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>Power modes</span><span class="mono">5</span></summary>
+      <p>LOW, MEDIUM, HIGH, ULTRA, LEARN. Triggered automatically by the UserPromptSubmit hook from slash commands (<span class="mono">/high</span>, <span class="mono">/ultra</span>) or natural-language phrases.</p>
+    </details>
+
+    <p class="spec-head mono">Security</p>
+
+    <details class="spec-row">
+      <summary><span>Prompt-injection rules</span><span class="mono">12</span></summary>
+      <p>PI001&ndash;PI012. PI012 detects embedded system prompt overrides. Block beats quarantine beats warn. Trusted-source flag can downgrade <span class="mono">warn</span> to <span class="mono">allow</span> &mdash; never <span class="mono">block</span>.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>MCP servers monitored</span><span class="mono">9</span></summary>
+      <p>Probed in parallel at SessionStart with a 3-second per-probe timeout. Pending probes at deadline are marked <span class="mono">degraded</span>. The session continues regardless.</p>
+    </details>
+    <details class="spec-row">
+      <summary><span>Doctor detectors</span><span class="mono">16</span></summary>
+      <p>12 base (A&ndash;M): orphans, drift, retention, token overhead. 4 security (N&ndash;Q): provenance, settings integrity, secrets, scan failures. <span class="mono">--health-check</span> filters to MCP + ZTMSI + L0 findings only.</p>
+    </details>
+
+  </div>
+</section>
+
+<section class="hardening" id="hardening">
+  <p class="section-tag mono">07 &mdash; Security hardening</p>
+  <h2>What can attack it, and what stops it.</h2>
+  <p class="dim">Every row is a real threat with a real countermeasure wired in Genesis.</p>
+
+  <div class="hard-table">
+    <p class="hard-head">Attack surface</p>
+    <p class="hard-head">Genesis countermeasure</p>
+
+    <p class="hard-cell">Third-party skill with hostile frontmatter</p>
+    <p class="hard-cell mono">PI001&ndash;PI012 scanner runs before manifest admit</p>
+
+    <p class="hard-cell">Prompt injection in skill descriptions</p>
+    <p class="hard-cell mono">&ldquo;ignore previous instructions&rdquo; &rarr; block</p>
+
+    <p class="hard-cell">MCP supply chain (rogue server install)</p>
+    <p class="hard-cell mono">mcp_allowlist.yaml enforced before settings.json mutation</p>
+
+    <p class="hard-cell">Hook payload bombs (unbounded stdin)</p>
+    <p class="hard-cell mono">hook_input_validator &middot; 4 MiB cap &middot; depth cap 10</p>
+
+    <p class="hard-cell">Secrets leaking into config or logs</p>
+    <p class="hard-cell mono">secrets_scanner &middot; OpenAI / Anthropic / GitHub / AWS keys</p>
+
+    <p class="hard-cell">Settings drift after third-party install</p>
+    <p class="hard-cell mono">settings_integrity append-only snapshot ledger</p>
+
+    <p class="hard-cell">Path traversal from user-supplied paths</p>
+    <p class="hard-cell mono">path_traversal_guard.safe_resolve(user_path, base)</p>
+
+    <p class="hard-cell">Skill drift after admit (file modified)</p>
+    <p class="hard-cell mono">skill_md_sha1 invalidates trust waivers on next sync</p>
+  </div>
+</section>
+
+<section class="doctor" id="doctor">
+  <p class="section-tag mono">08 &mdash; Doctor</p>
+  <h2>It checks itself. Every session.</h2>
+  <p class="dim">
+    16 detectors. Run from the TUI Health view (inline, no new terminal) or from the command line.
+    <span class="mono">--fix</span> is interactive &mdash; it shows you what it wants to change before touching anything.
+  </p>
+
+<pre class="terminal" aria-label="Token audit output">
+$ ultron doctor --token-audit
+
+ULTRON TOKEN AUDIT (E1)
+=======================
+  context.md                    357 tok
+  MEMORY.md                     389 tok
+  global CLAUDE.md              634 tok
+  --------------------------------
+  TOTAL                        1380 tok
+  LIMIT                        1500 tok
+  STATUS                       PASS  (120 tok headroom)
+</pre>
+
+<pre class="terminal" aria-label="Health check output">
+$ ultron doctor --health-check
+
+ULTRON HEALTH CHECK
+===================
+  MCP servers : 1 issue(s)
+    - MCP 'gemini' status=degraded (fallback severity=warn)
+  Brain index : OK
+  L0 context  : OK
+
+Exit 1 (warn) &mdash; gemini degraded but fallback is wired
+</pre>
+
+  <p class="caption">
+    16 detectors &middot; interactive <span class="mono">--fix</span> &middot; TTY-gated &middot;
+    inline in TUI (Health view, key 4) &middot; weekly auto-doctor via stop hook opt-in
+  </p>
+</section>
+
+<section class="sprints" id="sprints">
+  <p class="section-tag mono">09 &mdash; How we got here</p>
+  <h2>Six sprints from broken to Genesis.</h2>
+  <p class="dim">
+    ULTRON was rebuilt from scratch because the old version was accumulating layers
+    like geological sediment. Every feature added more tokens, more files, more confusion.
+    Genesis was a deliberate reset with a clear architecture and release gates.
+  </p>
+
+  <ol class="trail" aria-label="Sprint sequence">
+    <li>
+      <span class="step-id mono">S0</span>
+      <span class="step-name">Clean House &mdash; Delete the sediment</span>
+      <span class="step-tag mono">v13.5</span>
+    </li>
+    <li>
+      <span class="step-id mono">S1</span>
+      <span class="step-name">Silent Exec + Alerts bus &mdash; No popups, append-only events</span>
+      <span class="step-tag mono">v13.6</span>
+    </li>
+    <li>
+      <span class="step-id mono">S2</span>
+      <span class="step-name">ZTMSI + Dispatcher &mdash; Zero-token memory, 0.58 ms routing</span>
+      <span class="step-tag mono">v13.7</span>
+    </li>
+    <li>
+      <span class="step-id mono">S3</span>
+      <span class="step-name">Layered Memory &mdash; L0/L1/L2/L3 with context packet builder</span>
+      <span class="step-tag mono">v13.7</span>
+    </li>
+    <li>
+      <span class="step-id mono">S4</span>
+      <span class="step-name">Manifest &mdash; 392-entry SSOT, auto-discover, security pre-flight</span>
+      <span class="step-tag mono">v13.7.0</span>
+    </li>
+    <li>
+      <span class="step-id mono">S5</span>
+      <span class="step-name">Genesis &mdash; All gates green, TUI polished, ALERTS wired end-to-end</span>
+      <span class="step-tag mono">v14.0.0</span>
+    </li>
+  </ol>
+</section>
+
+</main>
+
+<footer>
+  <p class="mono">ULTRON v14.x.x GENESIS &middot; 2026-05-16 &middot; ~/.ultron/ &middot; Personal AI OS</p>
+  <p class="dim" style="margin-top:0.5rem;font-size:0.85rem">
+    Built by one developer. Not for sale. Not a product. A system that works the way its owner thinks.
+  </p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

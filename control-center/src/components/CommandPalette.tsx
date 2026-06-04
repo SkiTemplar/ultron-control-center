@@ -45,6 +45,8 @@ const TAB_ACTIONS: { id: Tab; label: string; group: string }[] = [
   { id: "rules", label: "Library · Rules", group: "Navigate" },
   { id: "sessions", label: "Go to Sessions", group: "Navigate" },
   { id: "projects", label: "Go to Projects", group: "Navigate" },
+  { id: "finance", label: "Go to Finance", group: "Navigate" },
+  { id: "memory", label: "Go to Memory", group: "Navigate" },
   { id: "plans", label: "Go to Plans", group: "Navigate" },
   { id: "settings", label: "Go to Settings", group: "Navigate" },
   { id: "changelog", label: "Go to Changelog", group: "Navigate (More)" },

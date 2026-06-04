@@ -12,6 +12,7 @@ export type Tab =
   | "rules"
   | "projects"
   | "finance"
+  | "memory"
   | "notes"
   | "plans"
   | "changelog"
@@ -79,9 +80,13 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       // command palette and deep-links — App.tsx routes them all to
       // <Library initial="..." /> so deep-linking still feels native.
       { id: "library", label: "Library", available: true, featureKey: "skills" },
+      // Memory tab (re-added 2026-06-04): human-in-the-loop validation of the
+      // memory kernel — candidate inbox (approve/reject/edit) + brain.db health
+      // (Memory Trace). The backend kernel was backend-only after fullize
+      // 2026-06-01; this surfaces the inbox + governance commands again.
+      { id: "memory", label: "Memory", available: true },
       // v2.6 (card-v26-fb-005): cross-project markdown notes at
-      // ~/.ultron/cockpit/notes/. Memory tab removed (fullize 2026-06-01) —
-      // the brain is backend-only now. Inbox removed entirely.
+      // ~/.ultron/cockpit/notes/.
       { id: "notes", label: "Notes", available: true },
     ],
   },
