@@ -1,0 +1,1025 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>ULTRON — Backend</title>
+<meta name="description" content="Anatomía del backend de ULTRON Control Center: memoria gobernada, recall híbrido, enrutador de IA y orquestación por intención. Extraído del código Rust real." />
+<style>
+  /* ───────────────────────────────────────────────────────────────
+     ULTRON Backend — documento técnico. Negro puro, monocromo,
+     hairlines de 1px, sans + mono. Sin gradientes, sin radios gordos,
+     sin sombras de color, sin emojis. Jerarquía por tamaño y peso.
+     ─────────────────────────────────────────────────────────────── */
+  :root{
+    --bg:#000000;
+    --bg-1:#070707;
+    --bg-2:#0c0c0d;
+    --line:#1c1c1e;
+    --line-2:#2a2a2d;
+    --ink:#ededed;
+    --ink-2:#a0a0a4;
+    --ink-3:#6e6e72;
+    --ink-4:#4a4a4e;
+    --code-comment:#787880;  /* comentarios de código: legibles sin competir con el código activo */
+    --accent:#ededed;       /* el acento es el blanco; se usa con cuentagotas */
+    --mono:"Berkeley Mono","SF Mono",ui-monospace,"JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace;
+    --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --maxw:920px;
+    --pad:28px;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;-webkit-text-size-adjust:100%;scrollbar-gutter:stable;}
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto;}
+    *{transition-duration:.01ms !important;animation-duration:.01ms !important;}
+  }
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:15px;
+    line-height:1.7;
+    letter-spacing:-0.011em;
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+    text-rendering:optimizeLegibility;
+    font-feature-settings:"kern","liga","calt";
+    overflow-wrap:break-word;
+  }
+  ::selection{background:#26262a;color:#fff;}
+  a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--line-2);transition:border-color .15s ease,color .15s ease;}
+  a:hover{border-color:var(--ink);}
+  :focus-visible{outline:1px solid var(--ink-2);outline-offset:3px;}
+  a:focus-visible{outline-offset:4px;}
+  code,pre,.mono,.kbd{font-family:var(--mono);font-feature-settings:"ss01","cv01";}
+  h1,h2,h3,h4{letter-spacing:-0.02em;font-weight:560;text-wrap:balance;}
+  p{text-wrap:pretty;}
+
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 var(--pad);}
+
+  /* ── Topbar ─────────────────────────────────────────────── */
+  .topbar{
+    position:sticky;top:0;z-index:50;
+    background:rgba(0,0,0,0.72);
+    backdrop-filter:saturate(140%) blur(10px);
+    border-bottom:1px solid var(--line);
+  }
+  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:52px;}
+  .brand{font-family:var(--mono);font-size:12.5px;letter-spacing:0.04em;color:var(--ink);border:none;}
+  .brand .dim{color:var(--ink-3);}
+  .topbar nav{display:flex;gap:2px;}
+  .topbar nav a{
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
+    padding:6px 9px;border:none;letter-spacing:0.02em;transition:color .15s ease;
+  }
+  .topbar nav a:hover{color:var(--ink);}
+  /* tablet: se descarta la zona menos crítica para evitar el wrap a dos líneas */
+  @media (max-width:860px){.topbar nav a[href="#capture"],.topbar nav a[href="#doctor"]{display:none;}}
+  @media (max-width:680px){.topbar nav{display:none;}}
+
+  /* ── Hero ───────────────────────────────────────────────── */
+  .hero{border-bottom:1px solid var(--line);padding:96px 0 72px;position:relative;}
+  .hero::before{
+    /* retícula sutilísima, no gradiente de color */
+    content:"";position:absolute;inset:0;pointer-events:none;
+    background-image:linear-gradient(var(--bg-1) 1px,transparent 1px),linear-gradient(90deg,var(--bg-1) 1px,transparent 1px);
+    background-size:38px 38px;
+    -webkit-mask-image:radial-gradient(120% 80% at 50% 0%,#000 0%,transparent 70%);
+    mask-image:radial-gradient(120% 80% at 50% 0%,#000 0%,transparent 70%);
+    opacity:.5;
+  }
+  .hero .wrap{position:relative;}
+  .eyebrow{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:0.22em;text-transform:uppercase;
+    color:var(--ink-3);margin:0 0 24px;display:flex;align-items:center;gap:10px;
+  }
+  .eyebrow .tick{width:6px;height:6px;background:var(--ink);display:inline-block;}
+  h1{
+    font-size:clamp(33px,7.2vw,46px);line-height:1.05;margin:0 0 22px;
+    font-weight:580;letter-spacing:-0.035em;max-width:16ch;
+  }
+  .lede{font-size:17px;line-height:1.62;color:var(--ink-2);max-width:62ch;margin:0;font-weight:400;}
+  .lede b{color:var(--ink);font-weight:520;}
+
+  .specbar{
+    display:flex;flex-wrap:wrap;gap:0;margin-top:48px;
+    border:1px solid var(--line);
+  }
+  .specbar .cell{
+    flex:1 1 0;min-width:150px;padding:16px 18px;border-right:1px solid var(--line);
+  }
+  .specbar .cell:last-child{border-right:none;}
+  .specbar .k{font-family:var(--mono);font-size:10.5px;letter-spacing:0.12em;text-transform:uppercase;color:var(--ink-4);margin-bottom:7px;}
+  .specbar .v{font-family:var(--mono);font-size:13px;color:var(--ink);letter-spacing:-0.01em;}
+  .specbar .v .u{color:var(--ink-3);}
+  @media (max-width:720px){
+    .specbar .cell{flex-basis:50%;border-bottom:1px solid var(--line);}
+    .specbar .cell:nth-child(2n){border-right:none;}
+    /* fila inferior (3ª y 4ª celda): sin borde abajo, lo cierra el borde del contenedor */
+    .specbar .cell:nth-last-child(-n+2){border-bottom:none;}
+  }
+  @media (max-width:420px){
+    .specbar .cell{flex-basis:100%;border-right:none;}
+    .specbar .cell:nth-last-child(-n+2){border-bottom:1px solid var(--line);}
+    .specbar .cell:last-child{border-bottom:none;}
+  }
+
+  /* ── Sections ───────────────────────────────────────────── */
+  section{border-bottom:1px solid var(--line);padding:84px 0;}
+  .sec-head{margin-bottom:40px;}
+  .sec-kicker{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:0.04em;color:var(--ink-3);
+    display:flex;align-items:center;gap:12px;margin-bottom:18px;
+  }
+  .sec-kicker .num{color:var(--ink);}
+  .sec-kicker .rule{flex:1;height:1px;background:var(--line);}
+  h2{font-size:clamp(24px,4.4vw,30px);line-height:1.12;margin:0 0 16px;font-weight:560;letter-spacing:-0.03em;}
+  .sec-sub{font-size:16px;color:var(--ink-2);max-width:66ch;margin:0;line-height:1.62;}
+  .sec-sub b{color:var(--ink);font-weight:520;}
+
+  h3{font-size:18px;margin:52px 0 14px;font-weight:560;letter-spacing:-0.02em;}
+  /* el primero tras el encabezado no necesita el respiro completo (el sec-head ya lo da) */
+  .sec-head + h3{margin-top:8px;}
+  h4{
+    font-family:var(--mono);font-size:12px;letter-spacing:0.08em;text-transform:uppercase;
+    color:var(--ink-3);margin:34px 0 12px;font-weight:500;
+  }
+  p{margin:14px 0;color:var(--ink-2);}
+  p b{color:var(--ink);font-weight:520;}
+  strong{color:var(--ink);font-weight:520;}
+  em{font-style:italic;color:var(--ink);}
+
+  code.t{
+    font-size:12.5px;color:var(--ink);background:var(--bg-2);
+    border:1px solid var(--line);padding:1px 6px;letter-spacing:-0.01em;
+  }
+
+  /* ── Prose lists ───────────────────────────────────────── */
+  ul.list{list-style:none;padding:0;margin:18px 0;border-top:1px solid var(--line);}
+  ul.list li{
+    padding:13px 0 13px 28px;border-bottom:1px solid var(--line);position:relative;
+    color:var(--ink-2);font-size:14.5px;line-height:1.55;
+  }
+  ul.list li::before{
+    content:"";position:absolute;left:2px;top:21px;width:9px;height:1px;background:var(--ink-4);
+  }
+  ul.list li b{color:var(--ink);font-weight:520;}
+  ul.list li .mono{color:var(--ink);font-size:12.5px;}
+
+  /* ── Diagram primitives ─────────────────────────────────── */
+  .fig{
+    border:1px solid var(--line);background:var(--bg-1);margin:28px 0;
+  }
+  .fig-cap{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;
+    color:var(--ink-4);padding:13px 18px;border-bottom:1px solid var(--line);
+    display:flex;justify-content:space-between;align-items:center;
+  }
+  .fig-cap .id{color:var(--ink-3);}
+  .fig-body{padding:26px 22px;overflow-x:auto;}
+
+  .flow{display:flex;align-items:stretch;gap:0;min-width:max-content;}
+  .flow.v{flex-direction:column;min-width:0;}
+  .node{
+    border:1px solid var(--line-2);background:var(--bg-2);padding:14px 15px;min-width:158px;flex:none;
+  }
+  .node.lead{border-color:#3a3a3e;}
+  .node .nb{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;
+    color:var(--ink-4);margin-bottom:9px;display:flex;justify-content:space-between;
+  }
+  .node .nt{font-family:var(--mono);font-size:13px;color:var(--ink);letter-spacing:-0.01em;line-height:1.3;}
+  .node .nd{font-size:12px;color:var(--ink-3);margin-top:7px;line-height:1.45;}
+  .node .nd code{color:var(--ink-2);font-size:11px;}
+  .arrow{
+    display:flex;align-items:center;justify-content:center;flex:none;min-width:44px;padding:0 6px;
+    font-family:var(--mono);font-size:11px;color:var(--ink-4);
+  }
+  .arrow.v{flex-direction:column;min-height:34px;padding:6px 0;}
+  .arrow .lab{font-size:9.5px;color:var(--ink-4);letter-spacing:0.04em;}
+  .col2{display:flex;gap:14px;flex-wrap:wrap;}
+  .col2 > .node{flex:1 1 200px;}
+
+  /* ── Layer stack (storage) ──────────────────────────────── */
+  .layers{display:flex;flex-direction:column;}
+  .layer{
+    display:grid;grid-template-columns:170px 1fr;gap:20px;align-items:start;
+    border:1px solid var(--line);border-bottom:none;padding:18px 20px;background:var(--bg-1);
+  }
+  .layer:last-child{border-bottom:1px solid var(--line);}
+  .layer.truth{background:var(--bg-2);}
+  .layer .ln{font-family:var(--mono);font-size:13px;color:var(--ink);letter-spacing:-0.01em;}
+  .layer .lr{font-family:var(--mono);font-size:9.5px;letter-spacing:0.1em;text-transform:uppercase;color:var(--ink-4);margin-top:6px;}
+  .layer .ld{font-size:13.5px;color:var(--ink-2);line-height:1.55;}
+  .layer .ld code{color:var(--ink);font-size:12px;}
+  @media (max-width:640px){.layer{grid-template-columns:1fr;gap:8px;}}
+
+  /* ── Code blocks ────────────────────────────────────────── */
+  pre{
+    background:var(--bg-1);border:1px solid var(--line);margin:22px 0;padding:0;overflow-x:auto;
+    /* el pre solo es el contenedor: colapsa la indentación HTML entre .head y code.
+       el code reactiva white-space:pre para conservar el formato real del código. */
+    white-space:normal;
+  }
+  pre .head{
+    display:block;
+    font-family:var(--mono);font-size:10.5px;letter-spacing:0.06em;color:var(--code-comment);
+    padding:10px 16px;border-bottom:1px solid var(--line);
+  }
+  pre code{display:block;white-space:pre;padding:16px 18px;font-size:12.5px;line-height:1.62;color:var(--ink-2);}
+  pre .c{color:var(--code-comment);font-style:italic;}  /* comentario */
+  pre .k{color:var(--ink);}          /* keyword */
+  pre .s{color:#bdbdc0;}             /* string */
+  pre .n{color:#cfcfd2;}             /* número / const */
+  pre .f{color:#e6e6e8;font-weight:500;} /* fn / tipo */
+
+  /* ── Tables ─────────────────────────────────────────────── */
+  table{width:100%;border-collapse:collapse;margin:22px 0;font-size:13.5px;max-width:100%;}
+  /* prose cells pueden romper palabras largas; los code-tokens no fuerzan overflow de página */
+  tbody td{overflow-wrap:anywhere;}
+  thead th{
+    font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;
+    color:var(--ink-4);font-weight:500;text-align:left;padding:11px 14px;border-bottom:1px solid var(--line-2);
+  }
+  tbody td{padding:12px 14px;border-bottom:1px solid var(--line);color:var(--ink-2);vertical-align:top;}
+  tbody tr:last-child td{border-bottom:none;}
+  td .mono,td code{font-family:var(--mono);font-size:12px;color:var(--ink);}
+  td .dim{color:var(--ink-3);}  /* patrones/clases: contenido legible, no decoración */
+  /* tablas anchas (router, intención): scroll horizontal contenido, sin romper el layout */
+  .scroll-x{overflow-x:auto;margin:22px 0;}
+  .scroll-x table{margin:0;min-width:480px;}
+
+  /* ── Callout ────────────────────────────────────────────── */
+  .call{border:1px solid var(--line);border-left:2px solid var(--ink-4);background:var(--bg-1);padding:16px 20px;margin:24px 0;}
+  .call .cl{font-family:var(--mono);font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px;}
+  .call p{margin:0;font-size:14px;color:var(--ink-2);line-height:1.6;}
+  .call p b{color:var(--ink);}
+  .call.key{border-left-color:var(--ink);}
+
+  /* ── Footer ─────────────────────────────────────────────── */
+  footer{padding:64px 0 96px;}
+  footer .ftitle{font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;color:var(--ink-4);margin-bottom:18px;}
+  footer .files{display:flex;flex-direction:column;gap:4px;}
+  footer .files code{font-family:var(--mono);font-size:12px;color:var(--ink-3);}
+  footer .files code b{color:var(--ink-2);font-weight:400;}
+  footer .meta{margin-top:30px;padding-top:22px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--ink-4);line-height:1.8;}
+
+  @media (max-width:640px){
+    :root{--pad:20px;}
+    section{padding:60px 0;}
+    .hero{padding:68px 0 52px;}
+    .specbar{margin-top:40px;}
+    h3{margin-top:44px;}
+    .fig-body{padding:22px 18px;}
+  }
+  @media (max-width:400px){
+    :root{--pad:16px;}
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <span class="brand">ULTRON<span class="dim"> / backend</span></span>
+    <nav>
+      <a href="#memory">Memoria</a>
+      <a href="#recall">Recall</a>
+      <a href="#security">Seguridad</a>
+      <a href="#capture">Captura</a>
+      <a href="#router">Router</a>
+      <a href="#orchestrator">Orquestador</a>
+      <a href="#doctor">Doctor</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <p class="eyebrow"><span class="tick"></span>Referencia de arquitectura · backend Tauri / Rust</p>
+    <h1>El cerebro de ULTRON, por dentro.</h1>
+    <p class="lede">
+      ULTRON Control Center separa lo que la mayoría de sistemas mezcla: <b>dónde vive la verdad</b>
+      y <b>cómo se encuentra rápido</b>. Una memoria gobernada con un único escritor, un índice
+      vectorial reconstruible, recuperación híbrida fusionada por rango, un enrutador de modelos con
+      conmutación por fallo y un orquestador que delega en agentes reales. Todo lo que sigue está
+      leído del código, línea por línea — no inferido.
+    </p>
+
+    <div class="specbar">
+      <div class="cell">
+        <div class="k">Fuente de verdad</div>
+        <div class="v">brain.db <span class="u">· SQLite WAL</span></div>
+      </div>
+      <div class="cell">
+        <div class="k">Índice denso</div>
+        <div class="v">Qdrant <span class="u">· E5 1024-d</span></div>
+      </div>
+      <div class="cell">
+        <div class="k">Fusión recall</div>
+        <div class="v">RRF <span class="u">· k=60</span></div>
+      </div>
+      <div class="cell">
+        <div class="k">Router</div>
+        <div class="v">8 providers <span class="u">· 9 zonas</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<main>
+
+<!-- ════════════════ 01 · MEMORIA ════════════════ -->
+<section id="memory">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">01</span><span>Memoria gobernada</span><span class="rule"></span></div>
+      <h2>Un solo lugar para la verdad. Un solo escritor.</h2>
+      <p class="sec-sub">
+        La verdad vive en <code class="t">~/.ultron/brain.db</code>, una base SQLite en modo WAL.
+        El índice semántico vive aparte, en Qdrant, y es <b>derivado</b>: se puede borrar y
+        reconstruir en cualquier momento sin perder un solo dato.
+      </p>
+    </div>
+
+    <h3>La invariante de gobernanza</h3>
+    <p>
+      Toda mutación persistente atraviesa un único punto, <code class="t">MemoryService</code>, y
+      cada mutación deja un evento de auditoría en el log <em>append-only</em>
+      <code class="t">memory_events</code>. Ni los hooks ni los agentes escriben memoria
+      directamente: <b>proponen candidatos</b>, y un humano —o una política de auto-aprobación—
+      los promociona. Un candidato rechazado nunca se convierte en memoria.
+    </p>
+
+    <div class="fig">
+      <div class="fig-cap"><span>Flujo de gobernanza · propuesta → memoria activa</span><span class="id">service.rs</span></div>
+      <div class="fig-body">
+        <div class="flow">
+          <div class="node">
+            <div class="nb"><span>propone</span></div>
+            <div class="nt">Hook · Agente</div>
+            <div class="nd">Nunca toca <code>memory_items</code>. Crea un <code>MemoryCandidate</code> en estado <code>pending</code>.</div>
+          </div>
+          <div class="arrow"><span>create_candidate →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>único escritor</span></div>
+            <div class="nt">MemoryService</div>
+            <div class="nd">Redacción de secretos · dedupe L0 + FTS · clasificación. Inserta y emite evento.</div>
+          </div>
+          <div class="arrow"><span>inbox →</span></div>
+          <div class="node">
+            <div class="nb"><span>decide</span></div>
+            <div class="nt">Humano · Política</div>
+            <div class="nd">Approve · Reject · Edit · Merge desde la bandeja de entrada.</div>
+          </div>
+          <div class="arrow"><span>approve →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>verdad</span></div>
+            <div class="nt">memory_items · ACTIVE</div>
+            <div class="nd">Solo lo aprobado es recall-eligible. Se sincroniza al índice.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="call key">
+      <div class="cl">Invariante</div>
+      <p>
+        Un ítem en estado <code class="t">pending</code>, <code class="t">deprecated</code>,
+        <code class="t">rejected</code>, <code class="t">quarantined</code> o
+        <code class="t">stale</code> <b>no</b> es elegible para recall. Solo los
+        <code class="t">active</code> se inyectan como contexto. Esta invariante está protegida por
+        tests unitarios que corren sin Qdrant.
+      </p>
+    </div>
+
+    <h3>Las dos capas de almacenamiento</h3>
+    <p>
+      <code class="t">brain.db</code> manda. Qdrant acelera. El servicio mantiene el índice en paso
+      con cada escritura vía <code class="t">sync_index</code>: un ítem que pasa a ACTIVE se
+      (re)indexa; cualquier otro estado lo elimina del índice. Los errores de Qdrant se ignoran a
+      propósito —la verdad está en SQLite— y cualquier desincronización es detectable y reparable.
+    </p>
+
+    <div class="layers">
+      <div class="layer truth">
+        <div>
+          <div class="ln">brain.db</div>
+          <div class="lr">fuente de verdad</div>
+        </div>
+        <div class="ld">
+          SQLite en modo WAL (lectores concurrentes). Guarda <code>memory_items</code> con su ciclo
+          de vida, scope, sensibilidad, <code>content_hash</code> y estimación de tokens; el log
+          <code>memory_events</code> append-only; los candidatos del inbox; y el grafo de
+          conocimiento colapsado. Búsqueda léxica vía FTS5 / bm25.
+        </div>
+      </div>
+      <div class="layer">
+        <div>
+          <div class="ln">ultron_memory</div>
+          <div class="lr">índice denso derivado</div>
+        </div>
+        <div class="ld">
+          Colección Qdrant de los ítems ACTIVE embebidos con MultilingualE5Large (1024 dimensiones),
+          con payload filtrable (status, scope, project). Reconstruible con
+          <code>reindex_all</code>; el id del punto es el id canónico del ítem. Nunca es la verdad.
+        </div>
+      </div>
+      <div class="layer">
+        <div>
+          <div class="ln">ultron_catalog</div>
+          <div class="lr">índice de capacidades</div>
+        </div>
+        <div class="ld">
+          Misma infraestructura E5 1024-d, pero indexa las fichas de
+          <code>~/.claude/agents/*.md</code>. Es lo que el orquestador consulta para escoger
+          especialista por similitud (sección 05).
+        </div>
+      </div>
+    </div>
+
+    <h4>Dedupe en dos niveles</h4>
+    <p>
+      Al proponer un candidato, <code class="t">create_candidate</code> calcula el
+      <code class="t">content_hash</code> que el ítem tendría tras aprobarse y busca un ACTIVE con
+      el mismo hash <em>dentro del mismo scope y proyecto</em> — una coincidencia exacta en otro
+      proyecto es una casi-duplicada, no una duplicada, y nunca se fusiona a través de la frontera.
+      En paralelo, una búsqueda FTS detecta casi-duplicados léxicos. Cualquiera de las dos cambia la
+      acción recomendada a <code class="t">Merge</code> para que el inbox una en vez de acumular.
+    </p>
+
+    <pre>
+      <span class="head">memory/sqlite_store.rs — dedupe L0 exacto, con frontera de proyecto</span>
+      <code><span class="c">// El content_hash se deriva SIEMPRE en insert_item, después de la redacción,</span>
+<span class="c">// así que la clave de dedupe es consistente venga de donde venga la escritura.</span>
+<span class="k">pub fn</span> <span class="f">find_active_by_content_hash</span>(
+    conn: &amp;Connection, hash: &amp;<span class="k">str</span>, scope: Scope, project_id: Option&lt;&amp;<span class="k">str</span>&gt;,
+) -&gt; Result&lt;Option&lt;MemoryItem&gt;&gt; {
+    <span class="c">// WHERE content_hash = ?1 AND status = 'active' AND scope = ?3 AND project_id IS ?4</span>
+    <span class="c">// → idéntico en OTRO proyecto NO es duplicado (CONTRACTS §4).</span>
+}</code>
+    </pre>
+
+    <p>
+      Borrar tiene dos sabores. <code class="t">deprecate</code> conserva la fila pero la saca del
+      recall. <code class="t">forget</code> es el olvido verificable: elimina la fila de la fuente
+      de verdad de forma irreversible, retira el punto del índice y deja un único rastro — el evento
+      de auditoría con el snapshot previo. Es una acción explícita (derecho al olvido, purga de un
+      secreto filtrado), nunca un movimiento automático del ciclo de vida.
+    </p>
+  </div>
+</section>
+
+<!-- ════════════════ 02 · RECALL ════════════════ -->
+<section id="recall">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">02</span><span>Recuperación híbrida</span><span class="rule"></span></div>
+      <h2>Denso y disperso, fusionados por rango.</h2>
+      <p class="sec-sub">
+        Hay <b>un único</b> camino de recuperación. Consulta dos fuentes en paralelo y las combina
+        con <b>Reciprocal Rank Fusion</b>. El resultado no es texto crudo: es un <em>context
+        pack</em> de resúmenes bajo un presupuesto de tokens.
+      </p>
+    </div>
+
+    <div class="fig">
+      <div class="fig-cap"><span>Pipeline de recall · build_trace()</span><span class="id">recall_unified.rs</span></div>
+      <div class="fig-body">
+        <div class="flow v">
+          <div class="col2">
+            <div class="node">
+              <div class="nb"><span>fuente A · densa</span><span>k=30</span></div>
+              <div class="nt">E5 query → Qdrant k-NN</div>
+              <div class="nd">Embedding de la consulta (prefijo <code>query:</code>), filtro <code>status=active</code> (+ proyecto). Devuelve ids + coseno real.</div>
+            </div>
+            <div class="node">
+              <div class="nb"><span>fuente B · dispersa</span><span>k=30</span></div>
+              <div class="nt">FTS5 / bm25</div>
+              <div class="nd">Búsqueda léxica term-OR sobre los <code>memory_items</code> ACTIVE en brain.db. Ids ordenados best-first.</div>
+            </div>
+          </div>
+          <div class="arrow v"><span>↓</span><span class="lab">dos listas ordenadas</span></div>
+          <div class="node lead">
+            <div class="nb"><span>fusión</span><span>RRF · k=60</span></div>
+            <div class="nt">score(d) = Σ 1 / (k + rank + 1)</div>
+            <div class="nd">Suma el aporte de cada fuente por id; lo que aparece en AMBAS sube. Empate de score RRF → desempata el coseno E5 real; luego, estable por id.</div>
+          </div>
+          <div class="arrow v"><span>↓</span><span class="lab">candidatos fusionados</span></div>
+          <div class="node">
+            <div class="nb"><span>ensamblado</span><span>assemble_pack()</span></div>
+            <div class="nt">Gobernanza + presupuesto</div>
+            <div class="nd">Límite · status=active · scope de proyecto (global aplica en todo) · vault off-by-default · <b>gate de secreto</b> · presupuesto 1500 tokens. Solo resúmenes; el contenido completo es lazy.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h4>Por qué RRF y no sumar puntuaciones</h4>
+    <p>
+      RRF combina por <b>rango</b>, no por puntuación bruta, así que no hay que normalizar escalas
+      incompatibles —el coseno de E5 contra el bm25 de FTS5—. Un documento relevante en ambas
+      fuentes gana de forma natural. La constante de amortiguación <code class="t">k = 60</code> es
+      el valor estándar. ULTRON añade un desempate fino: ante igual score RRF, gana el de mayor
+      similitud coseno real, una señal de calidad continua sobre el rango discreto.
+    </p>
+
+    <pre>
+      <span class="head">commands/memory/recall_unified.rs — constantes y fusión</span>
+      <code><span class="k">const</span> <span class="n">RRF_K</span>: f32 = <span class="n">60.0</span>;       <span class="c">// amortiguación estándar</span>
+<span class="k">const</span> <span class="n">FANOUT_K</span>: usize = <span class="n">30</span>;      <span class="c">// top-K de cada fuente antes de fusionar</span>
+<span class="k">const</span> <span class="n">DEFAULT_LIMIT</span>: usize = <span class="n">8</span>;    <span class="c">// entradas finales inyectadas</span>
+<span class="k">const</span> <span class="n">TOKEN_BUDGET</span>: i64 = <span class="n">1500</span>;  <span class="c">// presupuesto del context pack (solo resúmenes)</span>
+
+<span class="k">pub fn</span> <span class="f">rrf_fuse</span>(lists: &amp;[Vec&lt;String&gt;], k: f32) -&gt; Vec&lt;(String, f32)&gt; {
+    <span class="k">let mut</span> scores = HashMap::new();
+    <span class="k">for</span> list <span class="k">in</span> lists {
+        <span class="k">for</span> (rank, id) <span class="k">in</span> list.iter().enumerate() {
+            *scores.entry(id.clone()).or_insert(<span class="n">0.0</span>) += <span class="n">1.0</span> / (k + rank <span class="k">as</span> f32 + <span class="n">1.0</span>);
+        }
+    }
+    <span class="c">// orden desc; desempate por coseno real, luego estable por id</span>
+}</code>
+    </pre>
+
+    <div class="call">
+      <div class="cl">Degradación limpia</div>
+      <p>
+        Si E5/Qdrant no está disponible —vector cero o servicio caído— la fuente densa devuelve
+        una lista vacía y el recall sigue funcionando <b>solo con sparse</b>. Se añade un warning al
+        trace, pero nunca falla. La verdad está en SQLite; el índice es un acelerador.
+      </p>
+    </div>
+
+    <h4>El «por qué esta memoria» — Retrieval Inspector</h4>
+    <p>
+      El mismo núcleo expone <code class="t">recall_inspect</code>, que devuelve el trace completo y
+      auditable de cada turno: el orden de cada fuente, los scores RRF, lo inyectado <em>con su
+      razón</em> —<code class="t">"dense#2 + sparse#5"</code>— y lo descartado <em>con el
+      motivo exacto</em>.
+    </p>
+
+    <table>
+      <thead><tr><th>Campo del trace</th><th>Qué cuenta</th></tr></thead>
+      <tbody>
+        <tr><td><code>dense_ids</code></td><td>Orden devuelto por E5/Qdrant.</td></tr>
+        <tr><td><code>sparse_ids</code></td><td>Orden devuelto por FTS5/bm25.</td></tr>
+        <tr><td><code>fused</code></td><td>Tras RRF: score, rango denso, rango sparse, coseno real.</td></tr>
+        <tr><td><code>injected</code></td><td>Lo que entró al context pack, con su razón.</td></tr>
+        <tr><td><code>discarded</code></td><td>Lo retirado y el motivo: límite, fuera de proyecto, vault, secreto, presupuesto.</td></tr>
+        <tr><td><code>warnings</code></td><td>p. ej. «dense recall empty — sparse-only», o candidatos pendientes en el inbox.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- ════════════════ 03 · SEGURIDAD ════════════════ -->
+<section id="security">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">03</span><span>Gates de seguridad</span><span class="rule"></span></div>
+      <h2>Nunca se inyectan secretos. En ningún sentido.</h2>
+      <p class="sec-sub">
+        Dos defensas independientes. Una en la <b>escritura</b>: que un secreto no llegue ni a la
+        verdad ni al índice. Otra en la <b>lectura</b>: que jamás se inyecte material clasificado
+        como secreto en el contexto del modelo.
+      </p>
+    </div>
+
+    <div class="fig">
+      <div class="fig-cap"><span>Defensa en dos frentes</span><span class="id">redaction.rs · recall_unified.rs</span></div>
+      <div class="fig-body">
+        <div class="flow">
+          <div class="node">
+            <div class="nb"><span>entrada</span></div>
+            <div class="nt">Texto con credencial</div>
+            <div class="nd">p. ej. un transcript que contiene <code>sk-ant-…</code></div>
+          </div>
+          <div class="arrow"><span>redact + cuarentena →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>gate de escritura</span></div>
+            <div class="nt">Secreto redactado<br/>sensitivity = Secret</div>
+            <div class="nd">No llega en claro ni a brain.db ni a Qdrant. Monótono: nunca se degrada.</div>
+          </div>
+          <div class="arrow"><span>recall →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>gate de lectura</span></div>
+            <div class="nt">Secret-gate</div>
+            <div class="nd">Aunque existiera un ítem Secret, NUNCA entra al pack. Con razón trazada.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h4>Escritura · detector sin dependencias</h4>
+    <p>
+      Antes de persistir cualquier texto y antes de generar embeddings, un detector recorre las
+      palabras y reconoce formas de credencial por prefijo —anthropic, openai, github, google,
+      aws, slack, gitlab, mem0—, además de asignaciones <code class="t">key=value</code>, cabeceras
+      <code class="t">Bearer</code> y bloques PEM de clave privada. Sesga a <b>no</b> marcar texto
+      ambiguo: el prefijo debe ir seguido de una cola suficientemente larga, para mantener bajo el
+      falso positivo. Si detecta algo, redacta el texto, sube la sensibilidad a
+      <code class="t">Secret</code> y pone el candidato en <b>cuarentena</b> — nunca se auto-aprueba.
+    </p>
+    <p>
+      Y no se aplica en un solo sitio. Cada ruta de escritura corre el mismo guardia:
+      <code class="t">create_candidate</code>, <code class="t">add_imported</code>,
+      <code class="t">edit</code> y <code class="t">supersede</code>. Un edit que introduce un token
+      escala la sensibilidad antes de re-indexar.
+    </p>
+
+    <h4>Lectura · la sensibilidad es monótona</h4>
+    <p>
+      En el ensamblado del pack, cualquier ítem con <code class="t">sensitivity == Secret</code> se
+      descarta siempre, con el motivo registrado. La elevación de sensibilidad nunca baja: una vez
+      Secret, Secret para siempre. Es un riesgo de auditoría de primer nivel, y por eso está
+      cubierto por un test unitario que corre sin Qdrant.
+    </p>
+
+    <pre>
+      <span class="head">memory/service.rs — la sensibilidad sube ante secreto y nunca baja</span>
+      <code><span class="k">fn</span> <span class="f">raised_sensitivity</span>(current: Sensitivity, secret_detected: bool) -&gt; Sensitivity {
+    <span class="k">if</span> secret_detected { Sensitivity::Secret } <span class="k">else</span> { current }
+}
+
+<span class="c">// commands/memory/recall_unified.rs — gate de lectura dentro de assemble_pack()</span>
+<span class="k">if</span> item.sensitivity == Sensitivity::Secret {
+    discarded.push(discard(<span class="s">"sensitivity=secret (excluded from context pack)"</span>));
+    <span class="k">continue</span>;
+}</code>
+    </pre>
+
+    <div class="call key">
+      <div class="cl">Verificable, no prometido</div>
+      <p>
+        El comando <code class="t">doctor</code> corre un eval de seguridad sobre un set fijo de
+        consultas y exige <b>secret_leak = 0</b> y <b>stale_leak = 0</b>. Cualquier fuga es un
+        <code class="t">Error</code> con código de salida 2 — un gate de CI, no una buena intención.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ 04 · CAPTURA ════════════════ -->
+<section id="capture">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">04</span><span>Captura de sesiones</span><span class="rule"></span></div>
+      <h2>La conversación se recuerda sola. Pero pide permiso.</h2>
+      <p class="sec-sub">
+        Al cerrar una sesión (hook Stop), el transcript llega a
+        <code class="t">capture_session</code>, que extrae unos pocos hechos durables y los propone
+        como candidatos al inbox gobernado. Nada de esto escribe memoria activa.
+      </p>
+    </div>
+
+    <div class="fig">
+      <div class="fig-cap"><span>capture.rs · de transcript a candidatos</span><span class="id">CAPTURE_ZONE = "chat"</span></div>
+      <div class="fig-body">
+        <div class="flow">
+          <div class="node">
+            <div class="nb"><span>Stop hook</span></div>
+            <div class="nt">Transcript</div>
+            <div class="nd">Se ignora si mide menos de 40 caracteres. La cola se recorta a ~6000 chars (lo más reciente).</div>
+          </div>
+          <div class="arrow"><span>route("chat") →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>extracción</span></div>
+            <div class="nt">AI Router · zona chat</div>
+            <div class="nd">Pide máx. 5 hechos durables en formato <code>TIPO | título | resumen</code>. Ignora lo efímero. Alimenta de paso la telemetría real del router.</div>
+          </div>
+          <div class="arrow"><span>por hecho →</span></div>
+          <div class="node">
+            <div class="nb"><span>MemoryService</span></div>
+            <div class="nt">create_candidate()</div>
+            <div class="nd">Cada hecho → un MemoryCandidate. Pasa por redacción + dedupe. Aterriza en el inbox. Nunca auto-promociona.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="call">
+      <div class="cl">Fail-safe</div>
+      <p>
+        Si el router no tiene ningún provider usable, degrada a una <b>heurística local barata</b>
+        que propone un único resumen de sesión desde la cola del transcript. Así el hook Stop nunca
+        da error y siempre se propone al menos un candidato — sin escribir
+        <code class="t">memory_items</code> directamente: el único escritor sigue siendo
+        <code class="t">MemoryService</code>.
+      </p>
+    </div>
+
+    <pre>
+      <span class="head">memory/capture.rs — la zona del router y el fallback local</span>
+      <code><span class="k">const</span> <span class="n">CAPTURE_ZONE</span>: &amp;<span class="k">str</span> = <span class="s">"chat"</span>; <span class="c">// claude-haiku primario, groq fallback</span>
+<span class="k">const</span> <span class="n">MAX_FACTS</span>: usize = <span class="n">5</span>;          <span class="c">// mantiene el inbox denso en señal</span>
+
+<span class="k">match</span> ai_router::route(CAPTURE_ZONE, &amp;extraction_prompt(transcript)) {
+    Ok(resp) =&gt; { <span class="c">// parsea "TIPO | título | resumen", una línea por hecho</span> }
+    Err(_)   =&gt; { <span class="c">// heurística local: un SessionSummary desde la cola</span> }
+}</code>
+    </pre>
+  </div>
+</section>
+
+<!-- ════════════════ 05 · AI ROUTER ════════════════ -->
+<section id="router">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">05</span><span>AI Router</span><span class="rule"></span></div>
+      <h2>Zonas, providers, fallback y telemetría real.</h2>
+      <p class="sec-sub">
+        El router decide a qué <code class="t">(provider, modelo)</code> va cada tarea según su
+        <b>zona</b>. Deliberadamente simple: sin sidecar LiteLLM. Tres ficheros JSON bajo
+        <code class="t">~/.ultron/cockpit/ai-router/</code> guardan providers, zonas y métricas.
+      </p>
+    </div>
+
+    <div class="layers">
+      <div class="layer">
+        <div><div class="ln">providers.json</div><div class="lr">catálogo</div></div>
+        <div class="ld">id · tipo (Cloud / Local / CLI) · coste por Mtok · modelos · variable de entorno de la API key. El estado de la key se recalcula contra el entorno del proceso en cada lectura.</div>
+      </div>
+      <div class="layer">
+        <div><div class="ln">zones.json</div><div class="lr">enrutado</div></div>
+        <div class="ld">id · clase de tarea · asignación primaria · cadena de fallbacks. Cada zona mapea una intención a una ruta concreta.</div>
+      </div>
+      <div class="layer">
+        <div><div class="ln">metrics.json</div><div class="lr">telemetría</div></div>
+        <div class="ld">contadores por provider y por modelo · tokens · latencia · fallback_rate (EMA) · gauge diario de free-tier · ahorro estimado.</div>
+      </div>
+    </div>
+
+    <h3>Las zonas semilla — mapa intención → ruta</h3>
+    <div class="scroll-x">
+    <table>
+      <thead><tr><th>Zona</th><th>Clase</th><th>Primario</th><th>Fallback</th></tr></thead>
+      <tbody>
+        <tr><td><code>chat</code></td><td><span class="dim">light</span></td><td><code>claude-haiku</code></td><td><code>groq · llama-3.3-70b</code></td></tr>
+        <tr><td><code>code-edit</code></td><td><span class="dim">medium</span></td><td><code>codex · gpt-5</code></td><td><code>deepseek-coder</code></td></tr>
+        <tr><td><code>code-review</code></td><td><span class="dim">light</span></td><td><code>claude-haiku</code></td><td><span class="dim">—</span></td></tr>
+        <tr><td><code>research-web</code></td><td><span class="dim">medium</span></td><td><code>gemini-2.5-flash</code></td><td><code>claude-haiku</code></td></tr>
+        <tr><td><code>summarize</code></td><td><span class="dim">trivial</span></td><td><code>groq · llama-3.3-70b</code></td><td><code>gemini-2.5-flash</code></td></tr>
+        <tr><td><code>routing-decision</code></td><td><span class="dim">trivial</span></td><td><code>claude-haiku</code></td><td><code>groq · llama-3.3-70b</code></td></tr>
+        <tr><td><code>code-fast-local</code></td><td><span class="dim">light</span></td><td><code>ollama · qwen2.5-coder</code></td><td><span class="dim">—</span></td></tr>
+        <tr><td><code>utility</code></td><td><span class="dim">trivial</span></td><td><code>groq · llama-3.3-70b</code></td><td><code>claude-haiku</code></td></tr>
+        <tr><td><code>light</code></td><td><span class="dim">light</span></td><td><code>groq · llama-3.3-70b</code></td><td><code>ollama · qwen2.5-coder</code></td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>
+      Ocho providers en el catálogo: <b>anthropic</b> (claude-haiku) · <b>codex</b> / <b>groq</b> /
+      <b>deepseek</b> (OpenAI-compat) · <b>gemini</b> (generativelanguage v1beta) · <b>ollama</b>
+      (local, sin key) · más dos CLI por suscripción OAuth (<b>codex-cli</b>, <b>gemini-cli</b>) que
+      se marcan «configurados» solo si el binario está en el PATH.
+    </p>
+
+    <h3>La cadena de fallback</h3>
+    <div class="fig">
+      <div class="fig-cap"><span>route(zone, prompt) · primario, luego fallbacks en orden</span><span class="id">ai_router.rs</span></div>
+      <div class="fig-body">
+        <div class="flow">
+          <div class="node">
+            <div class="nb"><span>paso 0</span></div>
+            <div class="nt">Carga la zona</div>
+            <div class="nd">Calcula una vez los providers deshabilitados (sin API key usable / CLI ausente).</div>
+          </div>
+          <div class="arrow"><span>intenta →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>primario</span></div>
+            <div class="nt">zone.primary</div>
+            <div class="nd">Si no tiene key se salta —no cuenta como intento—. Si responde OK, devuelve.</div>
+          </div>
+          <div class="arrow"><span>si falla →</span></div>
+          <div class="node">
+            <div class="nb"><span>fallbacks</span></div>
+            <div class="nt">zone.fallbacks[ ]</div>
+            <div class="nd">Camina la cadena en orden; gana la primera respuesta válida.</div>
+          </div>
+          <div class="arrow"><span>cada intento →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>telemetría</span></div>
+            <div class="nt">bump_metrics()</div>
+            <div class="nd">Cuenta TODO intento, éxito y fallo: count, success, tokens, latencia, fallback_rate, ahorro, gauge diario.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p>
+      <code class="t">route()</code> solo devuelve <code class="t">Err</code> cuando TODOS los
+      providers de la cadena fallaron. Las claves se leen del entorno en el momento de la llamada,
+      así que una key añadida tras el arranque se recoge de inmediato. El ahorro se contabiliza
+      cuando una ruta cae a un provider más barato que el primario: se mide lo «descargado» de
+      Claude y la diferencia de tarifa.
+    </p>
+
+    <pre>
+      <span class="head">ai_router.rs — el corazón de la conmutación por fallo</span>
+      <code><span class="k">let</span> chain = std::iter::once(&amp;zone.primary).chain(zone.fallbacks.iter());
+<span class="k">for</span> assignment <span class="k">in</span> chain {
+    <span class="k">if</span> disabled.contains(&amp;assignment.provider_id) { <span class="k">continue</span>; } <span class="c">// sin key → saltar</span>
+    <span class="k">let</span> outcome = try_assignment_call(assignment, prompt, zone.system_prompt);
+    bump_metrics(...);                  <span class="c">// cuenta éxito Y fallo</span>
+    <span class="k">if let</span> Ok(co) = outcome { <span class="k">return</span> Ok(co.text); } <span class="c">// primera respuesta válida gana</span>
+}
+Err(<span class="s">"all providers failed for zone ..."</span>)</code>
+    </pre>
+
+    <div class="call">
+      <div class="cl">No es decorativo</div>
+      <p>
+        <code class="t">route()</code> gobierna tareas internas reales —resúmenes, naming,
+        decisiones de intención, la extracción de memoria de la sección 04— con quince y pico
+        <em>callers</em> en el backend, no solo el botón «Test» de la UI. El proxy de Node, aparte,
+        gobierna el tráfico del propio host de la CLI de Claude Code.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ 06 · ORQUESTADOR ════════════════ -->
+<section id="orchestrator">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">06</span><span>Detector de intención</span><span class="rule"></span></div>
+      <h2>Escribes algo vago. Sale un plan con especialistas.</h2>
+      <p class="sec-sub">
+        El orquestador «Ultron» toma un prompt —posiblemente impreciso— y construye un
+        <em>contexto de orquestación</em>: intención → workflow → agentes a delegar → memorias
+        relevantes → restricciones. No reinventa capacidades: <b>delega</b> en los agentes reales de
+        <code class="t">~/.claude/agents/</code>.
+      </p>
+    </div>
+
+    <div class="fig">
+      <div class="fig-cap"><span>orchestrator.rs · prompt → OrchestrationContext</span><span class="id">token_budget = 2000</span></div>
+      <div class="fig-body">
+        <div class="flow v">
+          <div class="node lead" style="min-width:0">
+            <div class="nb"><span>entrada</span></div>
+            <div class="nt">Prompt del usuario</div>
+            <div class="nd">p. ej. «revisa el código en busca de fallos de seguridad»</div>
+          </div>
+          <div class="arrow v"><span>↓</span></div>
+          <div class="col2">
+            <div class="node">
+              <div class="nb"><span>paso 1 · barato</span></div>
+              <div class="nt">classify_intent()</div>
+              <div class="nd">Reglas por patrón (bilingüe es/en), primer match gana. No se gasta un modelo grande en lo que resuelven reglas. Devuelve (intent, workflow_id).</div>
+            </div>
+            <div class="node">
+              <div class="nb"><span>paso 2 · semántico</span></div>
+              <div class="nt">search_catalog()</div>
+              <div class="nd">Búsqueda E5 sobre <code>ultron_catalog</code> (las fichas de los agentes). Top-5 especialistas reales por similitud.</div>
+            </div>
+            <div class="node">
+              <div class="nb"><span>paso 3 · contexto</span></div>
+              <div class="nt">build_trace()</div>
+              <div class="nd">Recall híbrido (sección 02) para traer memorias relevantes, ya con presupuesto de tokens.</div>
+            </div>
+          </div>
+          <div class="arrow v"><span>↓</span></div>
+          <div class="node lead" style="min-width:0">
+            <div class="nb"><span>salida</span></div>
+            <div class="nt">OrchestrationContext</div>
+            <div class="nd">prompt + intent + workflow (con agentes fantasma saneados) + agentes a delegar + memorias + restricciones + warnings, bajo 2000 tokens.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Dos detecciones complementarias</h3>
+    <p>
+      La <b>intención gruesa</b> es determinista: una tabla de reglas mapea patrones de texto a una
+      intención y un workflow; lo específico va antes que lo general y el primer match gana. Es
+      rápido y no consume tokens. La <b>elección del especialista</b> es semántica: se embebe el
+      prompt con E5 y se busca en el catálogo indexado, de modo que «revisa seguridad» trae al
+      agente de security/review aunque el prompt no nombre a ninguno.
+    </p>
+
+    <div class="scroll-x">
+    <table>
+      <thead><tr><th>Intención (regla)</th><th>Workflow</th><th>Patrones (extracto)</th></tr></thead>
+      <tbody>
+        <tr><td><code>security</code></td><td><code>security</code></td><td><span class="dim">seguridad · security · vulnerab · owasp · pentest · cve</span></td></tr>
+        <tr><td><code>bug_fix</code></td><td><code>debug</code></td><td><span class="dim">bug · arregla · fix · error · crash · no funciona</span></td></tr>
+        <tr><td><code>game</code></td><td><code>game</code></td><td><span class="dim">unity · unreal · gameplay · shader · netcode</span></td></tr>
+        <tr><td><code>feature</code></td><td><code>feature</code></td><td><span class="dim">implementa · añade · desarrolla · crea un/una</span></td></tr>
+        <tr><td><code>research</code></td><td><code>research</code></td><td><span class="dim">investiga · compara · evalúa · estado del arte</span></td></tr>
+        <tr><td><code>learning</code></td><td><code>learning</code></td><td><span class="dim">aprende · explícame · tutorial · cómo funciona</span></td></tr>
+        <tr><td><span class="dim">— sin match —</span></td><td><code>quick</code></td><td><span class="dim">general (default)</span></td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <pre>
+      <span class="head">orchestrator.rs — reglas de intención (extracto), primer match gana</span>
+      <code><span class="k">const</span> <span class="n">RULES</span>: &amp;[IntentRule] = &amp;[
+    IntentRule { intent: <span class="s">"security"</span>, workflow_id: <span class="s">"security"</span>,
+        patterns: &amp;[<span class="s">"seguridad"</span>, <span class="s">"security"</span>, <span class="s">"vulnerab"</span>, <span class="s">"owasp"</span>, <span class="s">"pentest"</span>, <span class="s">"cve"</span>] },
+    IntentRule { intent: <span class="s">"bug_fix"</span>, workflow_id: <span class="s">"debug"</span>,
+        patterns: &amp;[<span class="s">"bug"</span>, <span class="s">"arregla"</span>, <span class="s">"fix"</span>, <span class="s">"error"</span>, <span class="s">"crash"</span>, <span class="s">"no funciona"</span>] },
+    <span class="c">// … game, feature, research, learning, architecture_review, memory, continue</span>
+];
+
+<span class="k">pub fn</span> <span class="f">classify_intent</span>(prompt: &amp;<span class="k">str</span>) -&gt; (&amp;<span class="k">'static str</span>, &amp;<span class="k">'static str</span>) {
+    <span class="k">let</span> p = prompt.to_lowercase();
+    <span class="k">for</span> r <span class="k">in</span> RULES {
+        <span class="k">if</span> r.patterns.iter().any(|pat| p.contains(pat)) { <span class="k">return</span> (r.intent, r.workflow_id); }
+    }
+    (<span class="s">"general"</span>, <span class="s">"quick"</span>) <span class="c">// default</span>
+}</code>
+    </pre>
+
+    <div class="call">
+      <div class="cl">Agentes fantasma saneados</div>
+      <p>
+        Los templates de workflow pueden referirse a agentes que no existen en disco
+        (planner, architect, tdd-guide…). El orquestador cruza cada paso contra
+        <code class="t">known_agent_names()</code> —los <code class="t">.md</code> reales— y descarta
+        los fantasma con un warning, en vez de fallar en silencio. Es de <b>solo lectura</b>: jamás
+        escribe memoria persistente; eso solo lo hace el Memory Agent.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ 07 · DOCTOR ════════════════ -->
+<section id="doctor">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">07</span><span>Control plane</span><span class="rule"></span></div>
+      <h2>Operar sin adivinar: doctor, solo lectura.</h2>
+      <p class="sec-sub">
+        <code class="t">ultron-memory doctor</code> es un comando de salud. Cada chequeo es una
+        función pura que <b>solo lee</b> —brain.db, Qdrant REST, disco, filesystem— y nunca muta. La
+        severidad agregada se mapea al código de salida del proceso, así que CI puede ramificar.
+      </p>
+    </div>
+
+    <p>
+      Hasta diez chequeos, cada uno con severidad <code class="t">Ok</code> &lt;
+      <code class="t">Warn</code> &lt; <code class="t">Error</code>. El máximo de todos fija
+      <code class="t">max_severity</code> y el exit code: <span class="mono">0 = ok</span>,
+      <span class="mono">1 = warn</span>, <span class="mono">2 = error</span>.
+    </p>
+
+    <table>
+      <thead><tr><th>Chequeo</th><th>Qué verifica</th><th>Verde si</th></tr></thead>
+      <tbody>
+        <tr><td><code>sqlite</code></td><td>brain.db abre, integrity_check, user_version</td><td><span class="dim">integrity = ok · uv ∈ {2,3}</span></td></tr>
+        <tr><td><code>qdrant_*</code></td><td>una sonda por colección: status, dim, points</td><td><span class="dim">green · dim correcta</span></td></tr>
+        <tr><td><code>reconcile</code></td><td>drift SQLite ↔ Qdrant (missing / orphan)</td><td><span class="dim">in_sync · counts iguales</span></td></tr>
+        <tr><td><code>evals</code></td><td>recall@8 + gate de seguridad</td><td><span class="dim">recall@8 ≥ 0.90 · leaks = 0</span></td></tr>
+        <tr><td><code>sidecars</code></td><td>ultron-memory.exe + ultron-embed.exe presentes</td><td><span class="dim">ambos no vacíos</span></td></tr>
+        <tr><td><code>versions</code></td><td>anti stale-binary: ¿corre el binario desplegado?</td><td><span class="dim">en uso = desplegado</span></td></tr>
+        <tr><td><code>disk</code></td><td>espacio libre en el volumen de ~/.ultron</td><td><span class="dim">≥ 5 GB</span></td></tr>
+        <tr><td><code>deprecation_deadlines</code></td><td>entradas del registro de deprecación vencidas</td><td><span class="dim">sin deadlines vencidos</span></td></tr>
+      </tbody>
+    </table>
+
+    <p>
+      Dos detalles delatan que esto se diseñó operando un sistema real, no en abstracto. El chequeo
+      <code class="t">versions</code> avisa cuando el binario desplegado es más nuevo que el que
+      corre —el clásico «no se ha aplicado» que en realidad es un <em>.exe</em> viejo—. Y el de
+      <code class="t">evals</code> trata cualquier fuga de secreto o de ítem stale como
+      <code class="t">Error</code> duro, no como nota: la recuperación se audita en cada
+      <em>health-check</em>.
+    </p>
+
+    <pre>
+      <span class="head">memory/doctor.rs — severidad agregada → código de salida</span>
+      <code><span class="k">pub fn</span> <span class="f">exit_code</span>(&amp;self) -&gt; i32 {
+    <span class="k">match</span> self.max_severity {
+        Severity::Ok =&gt; <span class="n">0</span>,
+        Severity::Warn =&gt; <span class="n">1</span>,
+        Severity::Error =&gt; <span class="n">2</span>,
+    }
+}</code>
+    </pre>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="ftitle">Procedencia · backend Tauri / Rust</div>
+    <div class="files">
+      <code><b>memory/</b>{service, sqlite_store, qdrant_index, redaction, capture, catalog, doctor}.rs</code>
+      <code><b>commands/memory/</b>recall_unified.rs</code>
+      <code><b>src/</b>ai_router.rs</code>
+      <code><b>src/</b>orchestrator.rs</code>
+    </div>
+    <div class="meta">
+      Página estática autocontenida · CSS inline · sin dependencias de red · sin JavaScript.<br/>
+      Contenido fiel al código fuente, verificado constante a constante. No generado por inferencia libre.
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

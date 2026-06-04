@@ -193,7 +193,8 @@ config/skill-trust.yaml
 *.lock.tmp
 
 # === v15.2.12: web landing + download.html (personal/desactualizado) ===
-web/
+# Solo el web/ de RAIZ (landing viejo). docs/web/ (web del backend) SI se versiona.
+/web/
 docs/download.html
 
 # === v15.2.18: deprecated cockpit/ docs + icons (Control Center has its own) ===
