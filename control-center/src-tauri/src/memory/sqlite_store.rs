@@ -202,6 +202,10 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
         )
         .map_err(|e| MemoryError::RemoteUnavailable(format!("schema fts5: {e}")))?;
     }
+
+    // OLA M/K (2026-06-04): additive v3 tables (trace_events + deprecation
+    // registry) + memory_events.trace_id. Idempotent; coordinated single bump.
+    super::schema_v3::apply_schema_v3(conn)?;
     Ok(())
 }
 
@@ -460,6 +464,30 @@ pub(crate) fn delete_item(conn: &Connection, id: &str) -> Result<(), MemoryError
 }
 
 /// FTS5 (bm25) or LIKE fallback over memory_items, filtered to a single status.
+/// Max distinct query terms fed into the sparse OR-expansion. Each term becomes
+/// 3 `LIKE` nodes (title/summary/content) in the fallback branch, so SQLite's
+/// expression-tree depth limit (`SQLITE_LIMIT_EXPR_DEPTH = 1000`) is reached at
+/// ~334 terms — a long orchestration prompt would otherwise abort `prepare()`
+/// with "Expression tree is too large". 24 terms -> 72 nodes, far below the cap,
+/// and the most informative tokens of a prompt come first. Dedup avoids wasting
+/// the budget on repeats.
+const MAX_SPARSE_TERMS: usize = 24;
+
+/// Tokenise a free-text query into the bounded, de-duplicated set of terms used
+/// by BOTH sparse branches (FTS5 `MATCH` and the `LIKE` fallback). Drops <2-char
+/// noise, dedups case-insensitively (preserving first-seen order + original
+/// case), and caps at `MAX_SPARSE_TERMS`. Pure; unit-tested below.
+fn sparse_terms(query: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    query
+        .split_whitespace()
+        .filter(|t| t.chars().count() >= 2)
+        .filter(|t| seen.insert(t.to_lowercase()))
+        .take(MAX_SPARSE_TERMS)
+        .map(String::from)
+        .collect()
+}
+
 pub(crate) fn search_items(
     conn: &Connection,
     query: &str,
@@ -479,9 +507,8 @@ pub(crate) fn search_items(
         // entire query forced an exact-phrase match, so any multi-word query with
         // stopwords returned 0 hits. Tokenise, quote+escape each term (>=2 chars
         // to drop noise), and join with OR to restore sparse recall.
-        let terms: Vec<String> = query
-            .split_whitespace()
-            .filter(|t| t.chars().count() >= 2)
+        let terms: Vec<String> = sparse_terms(query)
+            .iter()
             .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
             .collect();
         let fts_query = if terms.is_empty() {
@@ -506,9 +533,8 @@ pub(crate) fn search_items(
         // B3 fallback: when FTS5 is unavailable (the release + `qdrant` build can
         // land here), do a TERM-OR LIKE instead of a whole-string substring —
         // otherwise a multi-word query matches only the literal phrase and returns 0.
-        let terms: Vec<String> = query
-            .split_whitespace()
-            .filter(|t| t.chars().count() >= 2)
+        let terms: Vec<String> = sparse_terms(query)
+            .iter()
             .map(|t| format!("%{t}%"))
             .collect();
         let terms = if terms.is_empty() {
@@ -961,6 +987,22 @@ mod tests {
         let conn = Connection::open_in_memory().expect("open in-memory");
         apply_schema(&conn).expect("schema");
         conn
+    }
+
+    #[test]
+    fn sparse_terms_caps_and_dedups() {
+        // The runtime bug: a long orchestration prompt produced hundreds of terms
+        // -> 3N LIKE nodes -> SQLite expression-tree depth overflow. The cap must
+        // hold it at <= MAX_SPARSE_TERMS regardless of prompt length.
+        let huge = (0..500)
+            .map(|i| format!("term{i}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert_eq!(super::sparse_terms(&huge).len(), super::MAX_SPARSE_TERMS);
+
+        // <2-char noise dropped; case-insensitive dedup; first-seen order + case.
+        let t = super::sparse_terms("Qdrant qdrant a memoria  memoria E5");
+        assert_eq!(t, vec!["Qdrant", "memoria", "E5"]);
     }
 
     #[test]

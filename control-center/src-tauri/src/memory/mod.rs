@@ -157,6 +157,8 @@ pub mod qdrant_index;
 pub mod qdrant_store;
 pub mod service;
 pub mod sqlite_store;
+pub mod schema_v3;
+pub mod doctor;
 // Fase D/E (Olas 5/7): cheap-brain LLM tasks, contradiction, reflection, evals.
 pub mod ai_tasks;
 pub mod contradiction;

@@ -89,7 +89,18 @@ fn run() -> Result<serde_json::Value, String> {
             let id = emit_candidate(&buf)?;
             Ok(serde_json::json!({ "candidate_id": id }))
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval [--golden]|eval-full|reconcile|candidate> [args]".to_string()),
+        "doctor" => {
+            // Read-only health report. Prints JSON to stdout and exits with a
+            // code mirroring max_severity (0=ok, 1=warn, 2=error) for gates.
+            let report = ul::memory::doctor::run_doctor();
+            let code = report.exit_code();
+            println!(
+                "{}",
+                serde_json::to_string(&report).unwrap_or_else(|_| "{}".to_string())
+            );
+            std::process::exit(code);
+        }
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval [--golden]|eval-full|reconcile|doctor|candidate> [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
