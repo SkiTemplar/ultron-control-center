@@ -53,10 +53,13 @@ Memory-Orchestrated Agent Runtime LOCAL para Claude Code: que el asistente RECUP
 | Vault off-by-default bajo proyecto | ✅ verificado e2e | Ola 1b `0d123e7` |
 | Sparse multi-término | ✅ verificado e2e (0→30) | fix `5e7b7ca` |
 | Eval harness + baseline | ✅ recall@8=0.917 | `0532dee` (`ultron-memory eval`) |
+| content_hash / normalized_text / schema_version | ✅ OLA B1 `ba7e21b` | FNV-1a estable; migración aditiva idempotente + backfill 943/943 verificado en brain.db real; user_version=2 |
+| reconcile --check (SQLite↔Qdrant) | ✅ OLA B3 `b003a30` | `ultron-memory reconcile` → in_sync=true 943=943 (cross-check Python) |
+| eval security gate (secret/stale-leak) | ✅ OLA C `7c64e21` | `eval` reporta secret_leak/stale_leak=0 sobre el store real |
 | Inbox validación humana | ✅ | inbox.rs (approve/reject/edit/relabel/deprecate/quarantine/pin/history) |
 | Retrieval Inspector | ✅ | recall_inspect (why-this-memory) |
 | Session Resume + Pinning | ✅ | session_resume.rs |
-| Contradiction detection | 🟡 scaffolded, NO enganchado | contradiction.rs (`84280d5`); TODO en service.rs:57 |
+| Contradiction detection | 🟡 scaffolded, NEXT (OLA E · requiere API keys) | contradiction.rs (`84280d5`); TODO en service.rs:57 |
 | Cerebro barato (ai_tasks) | 🟡 scaffolded, NO enganchado | ai_tasks.rs |
 | Reflection/consolidación | 🟡 scaffolded, NO enganchado | reflection.rs |
 | Sparse = bm25 real | 🔴 deuda | fts5_available=false en release+qdrant → LIKE (no bm25) |
@@ -65,7 +68,7 @@ Memory-Orchestrated Agent Runtime LOCAL para Claude Code: que el asistente RECUP
 | Decay + scoring recency*importance*relevance | 🔴 | access_count=0 (recall no incrementa) |
 | Bi-temporal (valid_from/valid_to) | 🔴 | solo ingestion-time |
 | KG en retrieval | 🔴 | kg_entities=11/kg_relations=8, recall no los toca |
-| Secret redaction en write-path + deletion verificado | 🔴 | redacción solo en logs |
+| Secret/PII redaction en write-path | ✅ OLA A (`9cf27c9`/`2c28c20`) | redaction.rs cableado en create_candidate+add_imported (detector dependency-free); deletion-verificado (Qdrant/backups/logs) aún pendiente |
 | Dual-store legacy (recall.rs/qdrant_store 384/mem0) | 🔴 deuda | peso muerto (tabla legacy vacía) |
 
 ## 7. QUÉ FALTA (priorizado)

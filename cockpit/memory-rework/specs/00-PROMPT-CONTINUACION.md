@@ -1,79 +1,101 @@
-# PROMPT DE CONTINUACION — ULTRON (para mañana / para pasar a una IA)
-### 2026-06-04 · rama `fullize-2026-05-30` · HEAD `823ed67`
+# PROMPT DE CONTINUACION — ULTRON Memory Rework (limpio)
+### 2026-06-04 (noche) · rama `fullize-2026-05-30` · HEAD `d3a16ff`
 
-> **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]**
-> HEAD real **`823ed67`** (no `0532dee`; +4 commits). El item **[7] Quota ya NO aplica**:
-> el sistema de Quota % fue **QUITADO** en `cbb2d5c` (quota_watchdog.rs borrado). Retomar Quota
-> = re-implementar de cero con señal real, no "enganchar lo existente". Embeddings = **E5-Large 1024d**.
-
-## Cómo usar este prompt
-- **Para una IA externa que revise/mejore**: pégale este archivo + los specs `01..07` de `cockpit/memory-rework/specs/`. Cada spec es autocontenido (arquitectura + status + qué falta + preguntas).
-- **Para retomar tú con Claude Code**: pega la sección "PROMPT" de abajo.
+> Documento de reanudacion LIMPIO y CURRENT. Reemplaza versiones anteriores que tenian
+> HEAD/Quota stale. Verdad verificada a runtime (git, Qdrant API, `ultron-memory eval/reconcile`,
+> tests, brain.db real). Para retomar: lee este doc + `STATE-RECONCILIATION-2026-06-04.md`
+> (mapa de hallazgos) + `CONTRACTS-2026-06-04.md` (schemas de diseno).
 
 ---
 
-## PROMPT (copiar-pegar para retomar)
+## 1. Estado actual verificado (lo que YA funciona)
 
-```
-Retomamos ULTRON (Memory-Orchestrated Agent Runtime, rama fullize-2026-05-30, HEAD 0532dee).
-Contexto autoritativo (leer ANTES, en orden):
-1. cockpit/memory-rework/STATUS.md (biblia de reanudacion)
-2. cockpit/memory-rework/MASTER-PLAN-CONSOLIDADO-2026-06-03.md (10 olas)
-3. cockpit/memory-rework/STATUS-SISTEMAS-2026-06-04.md (estado por subsistema)
-4. cockpit/memory-rework/specs/01..07 (specs full individuales)
+**Nucleo de memoria: seguro, consistente y medible.** Base que el audit pedia antes de tocar ranking.
 
-Estado: nucleo de memoria VERIFICADO e2e (recall hibrido real, sparse 0->30,
-vault off-by-default, invariantes en CI, eval baseline recall@8=0.917). 4 modulos
-(ai_tasks/contradiction/reflection/evals) SCAFFOLDED (compilan + tests) pero NO
-enganchados al pipeline vivo.
+| Capa | Estado | Evidencia runtime |
+|---|---|---|
+| SQLite `~/.ultron/brain.db` = SoT | ✅ | 943 active, 34 candidates, schema_version=2, user_version=2 |
+| Qdrant `ultron_memory` (E5 1024d) = indice derivado | ✅ | 943 puntos, in_sync con SQLite |
+| `MemoryService` = unico escritor | ✅ | invariantes en CI |
+| **Seguridad write-path (OLA A)**: redaccion secret/PII antes de persistir/indexar | ✅ VIVO | `memory/redaction.rs` cableado en create_candidate + add_imported; sidecar desplegado |
+| **content_hash / normalized_text / schema_version (OLA B1)** | ✅ | FNV-1a estable; migracion aditiva + backfill 943/943 verificado |
+| **`ultron-memory reconcile` (OLA B3)**: drift SQLite↔Qdrant read-only | ✅ | in_sync=true 943/943; cross-check Python |
+| **eval security gate (OLA C)**: secret/stale-leak | ✅ | leak=0 sobre store real |
+| Recall hibrido (dense E5 + sparse FTS/LIKE → RRF → coseno → pack) | ✅ | **baseline recall@8 = 0.917** (`ultron-memory eval`) |
+| Hooks memoria (SessionStart resume, UserPromptSubmit orchestrate) | ✅ | via sidecar `~/.ultron/bin/ultron-memory.exe` |
 
-Reglas duras: SQLite=fuente de verdad, Qdrant=indice; MemoryService=unico escritor;
-verificacion 100% runtime real antes de avanzar; reuse-over-rebuild; agentes paralelos
-crean archivos nuevos, wiring final manual; no frankenstein; ASCII puro en .ps1/.rs strings.
-
-Antes de tocar codigo: cerrar la app ULTRON (yo la cierro) para poder rebuild;
-asegurar Qdrant arriba (curl 127.0.0.1:6333/collections/ultron_memory) para verificar e2e.
-
-Plan de ataque (orden por impacto, cada uno = commit verificado):
-[1] ENGANCHAR contradiction::check en service.rs::create_candidate (escritor critico:
-    con cuidado, e2e con API keys del AI Router). Medir vs baseline recall@8=0.917.
-[2] ENGANCHAR ai_tasks::extract en el Stop hook (reemplazar la cascada Groq->Anthropic
-    duplicada de stop-compress-session.js) -> respeta escritor unico.
-[3] RERANKER cross-encoder (sidecar ultron-rerank, bge-reranker-v2-m3 ONNX, warm como
-    ultron-embed) tras RRF en recall_unified + en catalog::search_catalog. Medir vs baseline.
-[4] index_skills() en catalog.rs (skills NO indexadas, solo agentes) + catalog-reindex CLI.
-[5] AI Router: temperature/response_schema en ZoneAssignment+wrappers + cache + selector
-    dinamico + delegate_task_inner despacha a Codex/Gemini (pty ya soporta los 3).
-[6] Investigar fts5_available=false en release+qdrant (bm25 real > LIKE term-OR actual).
-[7] Quota: senal real (headers anthropic-ratelimit-unified-5h/7d) + is_soft_constrained
-    + quota:critical -> launch_codex_fallback.
-[8] Hooks: reorientar Stop->candidate; dedup routers; invertir SoT a ~/.ultron/hooks.
-[9] Auditar MCPs + rotar GITHUB_TOKEN.
-
-Verificacion: tras cada cambio, cargo test --no-default-features --lib memory; para recall,
-rebuild sidecar (cargo build --release --bin ultron-memory --features qdrant) + ultron-memory eval
-(comparar recall@k vs 0.917). Commit por item.
-```
+**Limpieza P0 hecha (2026-06-04 noche, backup en `backups/config-2026-06-04-preP0/`):**
+- Mem0 cloud cortado (hook `mem0-sync.js` fuera de Stop). 
+- `quota-capture.js` huerfano fuera de PostToolUse + `quota-state.json` borrado.
+- `stop-compress-session.js` ya no escribe a `ultron_sessions` 384d (fuera del SoT).
 
 ---
 
-## Resumen de lo hecho esta noche (2026-06-04, 10 commits)
-- `1a14a27` Ola 0 seguridad (gate Secret + ruta legacy cortada)
-- `aeb3091` higiene repo
-- `b916c5a` Ola 1a (coseno real, budget)
-- `31cb151` master plan + kanban
-- `0574db0` Ola 3-D2 (invariantes en CI) + specs
-- `0d123e7` Ola 1b (vault off-by-default)
-- `5e7b7ca` **fix sparse roto en produccion** (verificado e2e 0->30)
-- `84280d5` Olas 5/7 scaffolding (ai_tasks/contradiction/reflection/evals)
-- `0532dee` eval harness + baseline recall@8=0.917
-- (+ docs status/specs)
+## 2. Reglas duras (no negociables)
 
-## Workflows de analisis disponibles (outputs en tasks/*.output del transcript dir)
-w83p7ntwp (auditoria memoria PARTIAL 62%) · w4uv2ocgd (SOTA ~55-60%) · waqq5qec7 (quota) ·
-wqpf1uiwm (AI router) · wwoac1zg1 (skills/agentes) · w9x5bdil5 (implementacion 4 modulos).
+- SQLite `brain.db` = fuente de verdad. Qdrant = indice derivado reconstruible (`reindex_all`).
+- `MemoryService` (memory/service.rs) = UNICO escritor persistente. Hooks/agentes/MCPs proponen candidates.
+- Nada a `active` sin politica/inbox. Auto-captura → candidate/quarantine.
+- NO escribir secretos en SQLite/Qdrant/logs/backups/embeddings → redactar antes (OLA A ya lo hace en el write-path).
+- NO borrar sin snapshot/backup + dry-run + reversibilidad.
+- Verificacion 100% runtime real (cargo test + eval/reconcile + datos reales), no solo `cargo check`.
+- Reuse-over-rebuild. Commit por unidad cerrada. ASCII puro en `.ps1`; `.rs` rustfmt-clean.
+- **Config global (`~/.claude/settings.json`), rotacion de tokens, borrados irreversibles → requieren confirmacion explicita, incluso en modo autonomo.**
+- UV para Python (`uv run python`, nunca `python` pelado).
 
-## Verdad incomoda (honestidad)
-"El mejor sistema de memoria del mundo" NO esta acabado — el nucleo critico SI (seguridad,
-recall real, medible). Lo que falta (reranker, meta-cognicion, enganche de componentes,
-multi-IA, fts5 bm25) es real y necesita ciclos coordinados rebuild+Qdrant+keys, no batch a ciegas.
+## 3. Antes de tocar codigo
+- App ULTRON cerrada (file-lock del `.exe`) para rebuild.
+- Qdrant arriba: `curl http://127.0.0.1:6333/collections/ultron_memory`.
+- Snapshot `brain.db` antes de cualquier migracion/escritura masiva.
+
+---
+
+## 4. Plan de ataque (orden por prioridad, cada item = commit verificado)
+
+**Hecho:** OLA 0 (reconciliacion) · OLA A (redaccion write-path) · OLA B1 (content_hash+migracion) ·
+OLA B3 (reconcile --check) · OLA C (eval security gate) · limpieza P0 config viva (parcial).
+
+**Siguiente (gated/supervisado):**
+1. **Contradiction wiring** (cerrar TODO `service.rs:57`): embed proposed_summary → `qdrant_index::search_dense`
+   → `ai_tasks::judge_contradiction` (AI Router, **requiere API keys** + e2e vs baseline 0.917) →
+   set contradiction_candidates + recommended_action=Quarantine. NUNCA auto-approve. [SUPERVISADO: keys]
+2. **Hooks SoT repoint** a `~/.ultron/hooks` (versionado): copiar live → versionado, reapuntar settings.json,
+   borrar duplicados. [config global → confirmacion; probar una sesion despues]
+3. **reconcile --repair** (dry-run + --apply): reindex de missing + delete de orphans. Qdrant es
+   reconstruible pero muta → dry-run por defecto, --apply con confirmacion.
+4. **Stop → `ultron-memory candidate`**: reescribir stop-compress para emitir candidate (no solo
+   appendPendingDecisions); cierra el camino canonico de captura de sesion.
+5. **OLA D retrieval**: golden set ≥100 categorizado (precision@k/nDCG/context-waste) → reranker
+   cross-encoder (bge-reranker-v2-m3 ONNX, sidecar warm) tras RRF. Medir vs 0.917.
+6. **OLA E**: dedupe multicapa (usar content_hash + normalized_text ya disponibles) + contradiction +
+   supersession bitemporal (valid_from/valid_to) + reflection grounded.
+7. **AI Router (OLA F)**: temperature/response_schema en zonas + validacion JSON + cache + selector dinamico.
+8. **Skills/Agentes (OLA G)**: `index_skills()` en catalog.rs (hoy solo agentes) + reranker + activation policy.
+9. **MCPs (OLA J)**: auditar, rotar GITHUB_TOKEN, bloquear ecc-memory como competidor.
+10. **Disco (OLA L)**: limpieza nivel 1/2 (~9.8 GB) con dry-run.
+
+## 5. Comandos de verificacion
+```
+cargo test --manifest-path control-center/src-tauri/Cargo.toml --no-default-features --lib memory
+cargo build --release --bin ultron-memory --features qdrant --manifest-path control-center/src-tauri/Cargo.toml
+ultron-memory eval        # recall@8 (baseline 0.917) + secret_leak/stale_leak (deben ser 0)
+ultron-memory reconcile   # in_sync SQLite<->Qdrant (943=943)
+ultron-memory stats
+curl http://127.0.0.1:6333/collections/ultron_memory
+```
+Tras editar memory: rebuild release + copiar a `~/.ultron/bin` para que los hooks vivos usen el binario nuevo.
+
+## 6. Artefactos de referencia (cockpit/memory-rework/)
+- `STATE-RECONCILIATION-2026-06-04.md` — verdad + hallazgos P0-P3 + plan.
+- `CONTRACTS-2026-06-04.md` — schemas policy/manifest (memory item, source-trust, dedupe, hooks, router, MCP).
+- `DEPRECATION-REGISTRY-2026-06-04.md` — 42 artefactos deprecados/huerfanos.
+- `DISK-FOOTPRINT-2026-06-04.md` — ~40 GB explicado, plan por niveles.
+- `NIGHT-RUN-2026-06-04.md` — log del run nocturno (decisiones + commits + turnkey).
+- specs `01..07` — por subsistema (01-MEMORIA y 05-HOOKS al dia; resto con banner de reconciliacion).
+
+## 7. Decisiones del dueno (2026-06-04)
+- Mem0 = FUERA (cortado el hook; comandos mem0_* pendientes de marcar read-only).
+- Hooks SoT → `~/.ultron/hooks` (versionado) [repoint pendiente].
+- Conservar MEMORY KERNEL (recall_inspect/inbox/candidate_approve/stats) como base de una UI simple
+  futura de revision/aprobacion de memoria; podar solo lo de features muertas (workday/kg/decisions huerfanos).
+- Quota % = QUITADO (cbb2d5c), no reintroducir sin senal real.

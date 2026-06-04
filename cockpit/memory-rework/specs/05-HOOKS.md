@@ -1,10 +1,11 @@
 # SPEC FULL — HOOKS (ULTRON ↔ Claude Code)
 ### Autocontenido para revisión por IA externa · 2026-06-04
 
-> **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]**
-> `quota-capture.js` (PostToolUse) quedo **HUERFANO** tras `cbb2d5c` (su consumidor backend fue borrado):
-> escribe `quota-state.json` que nadie lee. No es solo "fragil", es codigo muerto. Candidato a desregistrar.
-> Ademas: hooks fragmentados en 3 arboles; SoT vivo (`~/.claude/scripts`) NO versionado (P1).
+> **[RECONCILIADO + LIMPIEZA P0 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`, `../NIGHT-RUN-2026-06-04.md`]**
+> EJECUTADO (commit `d3a16ff`; backup en `backups/config-2026-06-04-preP0/`): `mem0-sync.js` y
+> `quota-capture.js` RETIRADOS de settings.json; `quota-state.json` borrado; `stop-compress-session.js`
+> ya NO escribe a `ultron_sessions` 384d (fuera del SoT). PENDIENTE (P1, supervisado): repoint completo
+> de hooks SoT a `~/.ultron/hooks` (config global) y Stop→`ultron-memory candidate`.
 
 ## 1. Propósito
 Integrar el kernel de memoria con Claude Code vía hooks Node que REUSAN la lógica canónica (sidecar `ultron-memory.exe`), sin duplicar lógica en JS. Capturar contexto (SessionStart), enrutar (UserPromptSubmit) y proponer memoria (Stop).
@@ -25,11 +26,11 @@ Integrar el kernel de memoria con Claude Code vía hooks Node que REUSAN la lóg
 | UserPromptSubmit | routing-dispatcher.js | 🟡 router #1 (keyword) |
 | UserPromptSubmit | save-user-prompt.js | ✅ |
 | UserPromptSubmit | **memory-orchestrate.js** | ✅ activado (router #2: orchestration-context) |
-| Stop | stop-compress-session.js | 🔴 escribe DIRECTO a Qdrant/Mem0 (viola escritor único) |
-| Stop | mem0-sync.js | 🟡 legacy (Mem0 fuera del canon) |
+| Stop | stop-compress-session.js | ✅ OLA I P0 (`d3a16ff`): upsert a ultron_sessions CORTADO; conserva appendPendingDecisions; falta Stop→candidate |
+| Stop | ~~mem0-sync.js~~ | ⚫ RETIRADO de settings.json (OLA I P0; Mem0 fuera del canon) |
 | Stop | kanban-update-reminder.js | ✅ |
 | Stop | batch-capture.js | ✅ cola Run Batch |
-| PostToolUse | quota-capture.js | 🟡 scraping de texto frágil |
+| PostToolUse | ~~quota-capture.js~~ | ⚫ RETIRADO + quota-state.json borrado (huérfano tras cbb2d5c) |
 
 ## 4. Sidecar CLI (`ultron-memory.exe`)
 Subcomandos: `resume` (SessionStart), `orchestrate <prompt>` (UserPromptSubmit), `recall <query>`, `stats`, `reindex`, **`eval`** (nuevo), `candidate` (stdin JSON). Helper `lib/ultron-memory-cli.js` (FAIL-SAFE: localiza binario env→~/.ultron/bin→target; null si falla → hook no-op).
@@ -40,7 +41,7 @@ Subcomandos: `resume` (SessionStart), `orchestrate <prompt>` (UserPromptSubmit),
 | Memoria activada (SessionStart+UserPromptSubmit) | ✅ verificado runtime |
 | Sidecar único (no duplicar lógica en JS) | ✅ |
 | Ruta legacy sin gobernanza cortada | ✅ Ola 0 |
-| **Stop → emisor de candidates** | 🔴 sigue escribiendo directo a Qdrant/Mem0 |
+| **Stop → emisor de candidates** | 🟡 upsert ultron_sessions cortado (P0 `d3a16ff`); falta Stop→`ultron-memory candidate` |
 | Dedup de hooks | 🟡 2 routers UserPromptSubmit; 3-4 inyectores SessionStart (posible contexto duplicado) |
 | SoT versionada (~/.ultron/hooks) | 🔴 hooks vivos en ~/.claude sin git |
 | Latencia (cold-start E5 ~4-6s vs timeout 8s) | 🟡 a veces no inyecta orchestration-context |

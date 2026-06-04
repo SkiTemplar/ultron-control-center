@@ -13,13 +13,15 @@
 ## 0. Resumen ejecutivo
 | Subsistema | Estado | % a "mejor del mundo" |
 |---|---|---|
-| **Memoria** | 🟡 núcleo sólido y verificado; falta motor avanzado | ~60% |
+| **Memoria** | ✅ núcleo seguro (redacción write-path) + consistente (content_hash/reconcile) + medible (eval security gate); falta motor avanzado (reranker/dedupe/contradiction) | ~70% |
 | **AI Router** | 🟡 gobierna 10 callers; infrautilizado | ~40% |
-| **Skills/Agentes routing** | 🔴 sugiere, no activa; sin reranker | ~30% |
-| **Quota routing** | 🟡 plomería existe; señal ciega | ~45% |
-| **Hooks** | 🟡 memoria activada; falta reorientar Stop + dedup | ~65% |
+| **Skills/Agentes routing** | 🔴 sugiere, no activa; sin reranker; catálogo solo agentes | ~30% |
+| **Quota routing** | ⚫ QUITADO en `cbb2d5c` — no aplica (huérfanos limpiados) | n/a |
+| **Hooks** | 🟡 memoria activada; Mem0/quota/ultron_sessions cortados (P0 2026-06-04); falta repoint SoT a ~/.ultron/hooks | ~72% |
 | **Orquestador** | 🟡 intent→workflow→agentes real; intent regex | ~55% |
 | **MCPs** | ⚪ sin auditar | n/d |
+
+> Actualizado a HEAD `d3a16ff` (2026-06-04 noche). Memoria: OLA A (redacción) + OLA B1 (content_hash/migración/backfill 943) + OLA B3 (reconcile) + OLA C (eval security gate) hechos y verificados a runtime; recall@8=0.917 estable. Hooks: limpieza P0 de config viva ejecutada (Mem0/quota huérfano/ultron_sessions). Las secciones por subsistema abajo conservan su detalle; las marcadas con banner siguen vigentes salvo Memoria/Hooks (al día arriba).
 
 ---
 
