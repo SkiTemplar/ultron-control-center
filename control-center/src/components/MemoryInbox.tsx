@@ -399,6 +399,7 @@ export function MemoryInbox() {
   const [busyId, setBusyId] = useState<string | null>(null);
   // Bulk approve-all in-flight guard (blocks the whole inbox while running).
   const [approvingAll, setApprovingAll] = useState(false);
+  const [confirmingAll, setConfirmingAll] = useState(false);
 
   const loadStats = useCallback(async () => {
     try {
@@ -484,10 +485,15 @@ export function MemoryInbox() {
   const onApproveAll = useCallback(async () => {
     const n = candidates.length;
     if (n === 0) return;
-    const ok = window.confirm(
-      `Aprobar los ${n} candidatos pendientes y promoverlos a memorias ACTIVAS? Esta accion es masiva.`,
-    );
-    if (!ok) return;
+    // Two-phase confirm: window.confirm is mapped to the Tauri dialog plugin,
+    // which the capabilities ACL blocks. First click arms, second click within
+    // 4s executes. Same pattern as BatchDropdown "Clear all".
+    if (!confirmingAll) {
+      setConfirmingAll(true);
+      window.setTimeout(() => setConfirmingAll(false), 4000);
+      return;
+    }
+    setConfirmingAll(false);
     setApprovingAll(true);
     setListError(null);
     try {
@@ -505,7 +511,7 @@ export function MemoryInbox() {
     } finally {
       setApprovingAll(false);
     }
-  }, [candidates.length, refreshAll]);
+  }, [candidates.length, confirmingAll, refreshAll]);
 
   const pendingCount = candidates.length;
   const flagged = useMemo(
@@ -540,7 +546,11 @@ export function MemoryInbox() {
               disabled={loading || approvingAll || busyId !== null}
               title="Aprobar todos los candidatos pendientes y promoverlos a memorias ACTIVAS"
             >
-              {approvingAll ? "Aprobando..." : `Aceptar todos (${pendingCount})`}
+              {approvingAll
+                ? "Aprobando..."
+                : confirmingAll
+                  ? `Confirmar: aprobar ${pendingCount}?`
+                  : `Aceptar todos (${pendingCount})`}
             </SmallButton>
           )}
           <SmallButton onClick={() => void refreshAll()} disabled={loading || approvingAll}>
