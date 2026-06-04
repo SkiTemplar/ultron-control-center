@@ -489,6 +489,36 @@ impl MemoryService {
         Ok(new_item)
     }
 
+    // -- hard delete (H4: verifiable forget) ---------------------------------
+
+    /// Permanently and irreversibly delete an item (H4 — verifiable forget).
+    ///
+    /// Unlike [`Self::deprecate`] / `set_status(Rejected|Quarantined)` (which keep
+    /// the row but make it non-recall-eligible), `forget` removes the row from the
+    /// SoT (`brain.db`) entirely. This is an EXPLICIT, INTENTIONAL erasure (right
+    /// to be forgotten / leaked-secret purge), never an automatic lifecycle move.
+    ///
+    /// Order: get_item (NotFound if absent) -> snapshot `before` for audit ->
+    /// `store::delete_item` (SQLite SoT) -> `qdrant_index::remove_item` (best-effort,
+    /// keeps reconcile clean) -> append a `MemoryEvent` (`Updated` + reason
+    /// `forgotten`, `before` = item_json — the only surviving record of the item).
+    pub fn forget(id: &str, actor: Actor, reason: Option<String>) -> Result<(), MemoryError> {
+        let conn = store::open_conn()?;
+        let item =
+            store::get_item(&conn, id)?.ok_or_else(|| MemoryError::NotFound(id.to_string()))?;
+        let before = serde_json::to_string(&item).unwrap_or_default();
+        // Remove from the SoT (SQLite). Propagate any error — the delete MUST land.
+        store::delete_item(&conn, id)?;
+        // Best-effort: drop the derived dense point so recall can't resurface it.
+        let _ = super::qdrant_index::remove_item(id);
+        let reason = reason.unwrap_or_else(|| "forgotten".to_string());
+        let ev = MemoryEvent::new(EventType::Updated, Some(id.to_string()), actor)
+            .with_reason(reason)
+            .with_before(before);
+        let _ = store::insert_event(&conn, &ev);
+        Ok(())
+    }
+
     // -- stats ---------------------------------------------------------------
 
     pub fn stats() -> Result<MemoryStats, MemoryError> {

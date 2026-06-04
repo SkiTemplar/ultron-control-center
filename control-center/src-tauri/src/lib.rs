@@ -283,6 +283,8 @@ pub fn run() {
             commands::memory::memory_item_deprecate,
             commands::memory::memory_item_quarantine,
             commands::memory::memory_do_not_use,
+            // H4: verifiable forget — permanent hard delete (SQLite + Qdrant + audit)
+            commands::memory::memory_forget,
             commands::memory::memory_item_history,
             commands::memory::memory_item_pin,
             commands::memory::memory_item_unpin,

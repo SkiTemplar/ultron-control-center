@@ -78,8 +78,16 @@ pub async fn memory_item_edit(
     confidence: Option<f32>,
 ) -> Result<MemoryItem, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        MemoryService::edit(&id, title, summary, content, importance, confidence, Actor::User)
-            .map_err(|e| e.to_string())
+        MemoryService::edit(
+            &id,
+            title,
+            summary,
+            content,
+            importance,
+            confidence,
+            Actor::User,
+        )
+        .map_err(|e| e.to_string())
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -109,13 +117,19 @@ pub async fn memory_item_relabel(
 
 /// Deprecate an item (no longer recall-eligible) + retire from the dense index.
 #[tauri::command]
-pub async fn memory_item_deprecate(id: String, reason: Option<String>) -> Result<MemoryItem, String> {
+pub async fn memory_item_deprecate(
+    id: String,
+    reason: Option<String>,
+) -> Result<MemoryItem, String> {
     retire(id, Status::Deprecated, reason).await
 }
 
 /// Quarantine an item (suspect; held out of recall) + retire from the index.
 #[tauri::command]
-pub async fn memory_item_quarantine(id: String, reason: Option<String>) -> Result<MemoryItem, String> {
+pub async fn memory_item_quarantine(
+    id: String,
+    reason: Option<String>,
+) -> Result<MemoryItem, String> {
     retire(id, Status::Quarantined, reason).await
 }
 
@@ -123,7 +137,28 @@ pub async fn memory_item_quarantine(id: String, reason: Option<String>) -> Resul
 /// The recall path also rechecks status on load, so injection is doubly blocked.
 #[tauri::command]
 pub async fn memory_do_not_use(id: String, reason: Option<String>) -> Result<MemoryItem, String> {
-    retire(id, Status::Rejected, reason.or_else(|| Some("user: do not use again".to_string()))).await
+    retire(
+        id,
+        Status::Rejected,
+        reason.or_else(|| Some("user: do not use again".to_string())),
+    )
+    .await
+}
+
+/// Forget an item — PERMANENT, IRREVERSIBLE hard delete (H4: verifiable forget).
+///
+/// Unlike `memory_item_deprecate` / `memory_do_not_use` (which keep the row but
+/// hold it out of recall), this purges the row from the SoT (`brain.db`) and the
+/// dense index entirely. Intended for right-to-be-forgotten / leaked-secret purge.
+/// The append-only audit log retains a `forgotten` event with the erased item's
+/// json as the sole surviving provenance.
+#[tauri::command]
+pub async fn memory_forget(id: String, reason: Option<String>) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        MemoryService::forget(&id, Actor::User, reason).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 /// Pin an item — always surfaced in recall + Session Resume (req #17).
@@ -148,7 +183,10 @@ pub async fn memory_item_unpin(id: String) -> Result<MemoryItem, String> {
 
 /// Full audit history (events) for one memory.
 #[tauri::command]
-pub async fn memory_item_history(id: String, limit: Option<u32>) -> Result<Vec<MemoryEvent>, String> {
+pub async fn memory_item_history(
+    id: String,
+    limit: Option<u32>,
+) -> Result<Vec<MemoryEvent>, String> {
     let n = limit.map(|n| n as usize).unwrap_or(50);
     tauri::async_runtime::spawn_blocking(move || {
         MemoryService::history(&id, n).map_err(|e| e.to_string())

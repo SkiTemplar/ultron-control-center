@@ -150,18 +150,21 @@ pub enum StoreKind {
     Qdrant,
 }
 
-pub mod model;
-pub mod sqlite_store;
-pub mod qdrant_store;
-pub mod qdrant_index;
 pub mod catalog;
-pub mod service;
 pub mod migrations;
+pub mod model;
+pub mod qdrant_index;
+pub mod qdrant_store;
+pub mod service;
+pub mod sqlite_store;
 // Fase D/E (Olas 5/7): cheap-brain LLM tasks, contradiction, reflection, evals.
 pub mod ai_tasks;
 pub mod contradiction;
-pub mod reflection;
 pub mod evals;
+// OLA C: pure ranking-quality metrics (precision@k/recall@k/MRR/nDCG/context-waste)
+// for the golden set. No I/O — unit-testable without Qdrant. See evals.rs for the loader.
+pub mod eval_metrics;
+pub mod reflection;
 // OLA A (2026-06-04): write-path secret/PII detector. Built + tested in isolation;
 // wiring into MemoryService::create_candidate is gated on confirmation.
 pub mod redaction;
@@ -169,12 +172,12 @@ pub mod redaction;
 pub mod texthash;
 
 // Canonical memory kernel re-exports (Fase A).
+pub use migrations::MigrationReport;
 pub use model::{
     Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate, MemoryEvent, MemoryItem,
     MemoryType, Scope, Sensitivity, Source, Stability, Status,
 };
 pub use service::{MemoryService, MemoryStats};
-pub use migrations::MigrationReport;
 
 /// Health status returned by `MemoryStore::health`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -307,12 +310,13 @@ impl Mem0Store {
 
 impl MemoryStore for Mem0Store {
     fn add(&self, doc: MemoryDoc) -> Result<MemoryHit, MemoryError> {
-        let ns = self.effective_namespace(doc.namespace.as_deref()).to_string();
+        let ns = self
+            .effective_namespace(doc.namespace.as_deref())
+            .to_string();
         let text = doc.text.clone();
         let ns_clone = ns.clone();
-        let mem = Self::block_on(async move {
-            crate::mem0::add_inner(text, ns_clone, None).await
-        })?;
+        let mem =
+            Self::block_on(async move { crate::mem0::add_inner(text, ns_clone, None).await })?;
         Ok(MemoryHit {
             id: mem.id.clone(),
             text: if mem.memory.is_empty() {
@@ -333,9 +337,10 @@ impl MemoryStore for Mem0Store {
         let ns_clone = ns.clone();
         let text = query.text.clone();
         let limit = query.limit;
-        let results = Self::block_on(async move {
-            crate::mem0::search_inner(text, Some(ns_clone), limit).await
-        })?;
+        let results =
+            Self::block_on(
+                async move { crate::mem0::search_inner(text, Some(ns_clone), limit).await },
+            )?;
         Ok(results
             .into_iter()
             .map(|m| MemoryHit {
@@ -357,13 +362,10 @@ impl MemoryStore for Mem0Store {
     }
 
     fn health(&self) -> Result<StoreHealth, MemoryError> {
-        let status =
-            Self::block_on(async { crate::mem0::status_inner().await })?;
+        let status = Self::block_on(async { crate::mem0::status_inner().await })?;
         Ok(StoreHealth {
             healthy: status.connected,
-            message: status
-                .error
-                .unwrap_or_else(|| "Mem0 connected".to_string()),
+            message: status.error.unwrap_or_else(|| "Mem0 connected".to_string()),
             latency_ms: status.latency_ms,
         })
     }
@@ -427,7 +429,12 @@ impl MemoryStore for EccStore {
                 let text = if e.observations.is_empty() {
                     format!("[{}] {}", e.entity_type, e.name)
                 } else {
-                    format!("[{}] {}: {}", e.entity_type, e.name, e.observations.join("; "))
+                    format!(
+                        "[{}] {}: {}",
+                        e.entity_type,
+                        e.name,
+                        e.observations.join("; ")
+                    )
                 };
                 MemoryHit {
                     id: format!("ecc::{}", e.name),
@@ -529,8 +536,8 @@ impl MemoryStore for KgStore {
     }
 
     fn search(&self, query: Query) -> Result<Vec<MemoryHit>, MemoryError> {
-        let graph = crate::kg::search_nodes_inner(query.text.clone())
-            .map_err(MemoryError::ParseError)?;
+        let graph =
+            crate::kg::search_nodes_inner(query.text.clone()).map_err(MemoryError::ParseError)?;
         let limit = query.limit.unwrap_or(50) as usize;
         let hits: Vec<MemoryHit> = graph
             .entities
@@ -540,7 +547,12 @@ impl MemoryStore for KgStore {
                 let text = if e.observations.is_empty() {
                     format!("[{}] {}", e.entity_type, e.name)
                 } else {
-                    format!("[{}] {}: {}", e.entity_type, e.name, e.observations.join("; "))
+                    format!(
+                        "[{}] {}: {}",
+                        e.entity_type,
+                        e.name,
+                        e.observations.join("; ")
+                    )
                 };
                 MemoryHit {
                     id: format!("kg::{}", e.name),
