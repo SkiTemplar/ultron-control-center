@@ -10,13 +10,12 @@
 //     missing binary — falls back to "light mode").
 //   - Hydrate from proxy_state_enabled on mount.
 //   - Poll proxy_health every 5s while enabled.
-//   - Auto-enable on quota:critical, auto-disable on quota:reset.
+//   - (Quota auto-enable/disable removed in cbb2d5c — manual toggle only.)
 //   - When running, best-effort fetch the proxy's own /health to show which
 //     backend (NVIDIA NIM / OpenRouter / Groq) and model are active.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 
 // Mirror del enum Rust ProxyStatus.
 type ProxyStatus = "running" | "starting" | "stopped" | "binary_missing" | "error";
@@ -130,42 +129,9 @@ export function ProxyControl() {
     };
   }, [enabled, refreshHealth]);
 
-  // Auto enable/disable on quota events.
-  const unCritical = useRef<Promise<() => void> | null>(null);
-  const unReset = useRef<Promise<() => void> | null>(null);
-  useEffect(() => {
-    unCritical.current = listen("quota:critical", () => {
-      setEnabled((prev) => {
-        if (prev) return prev;
-        void (async () => {
-          try {
-            await persist(true);
-            setEnabled(true);
-          } catch (e) {
-            console.error("[proxy] quota:critical auto-ON failed:", e);
-          } finally {
-            void refreshHealth();
-          }
-        })();
-        return prev;
-      });
-    });
-    unReset.current = listen("quota:reset", () => {
-      void persist(false)
-        .catch((e: unknown) => console.error("[proxy] quota:reset error:", e))
-        .finally(() => {
-          setEnabled(false);
-          void refreshHealth();
-        });
-    });
-    return () => {
-      void unCritical.current?.then((fn) => fn());
-      void unReset.current?.then((fn) => fn());
-      unCritical.current = null;
-      unReset.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Quota auto-enable/disable removed (DR-11): the Claude-quota watchdog backend
+  // was deleted in cbb2d5c (false signal), so `quota:critical` / `quota:reset`
+  // are never emitted. The proxy is now toggled manually only.
 
   const toggle = useCallback(async () => {
     const next = !enabled;
