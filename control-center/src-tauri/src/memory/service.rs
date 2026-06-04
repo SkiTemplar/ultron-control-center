@@ -12,7 +12,7 @@ use serde::Serialize;
 
 use super::model::{
     estimate_tokens, now_millis, Actor, CandidateAction, CandidateStatus, EventType,
-    MemoryCandidate, MemoryEvent, MemoryItem, MemoryType, Scope, Source, Status,
+    MemoryCandidate, MemoryEvent, MemoryItem, MemoryType, Scope, Sensitivity, Source, Status,
 };
 use super::redaction;
 use super::sqlite_store as store;
@@ -30,6 +30,17 @@ pub struct MemoryStats {
     pub deprecated: i64,
     pub stale: i64,
     pub candidates_pending: i64,
+}
+
+/// Raise sensitivity to [`Sensitivity::Secret`] when the write-path detected a
+/// credential. Monotonic: it never lowers an already-higher classification (H2 /
+/// OLA A — see CONTRACTS-2026-06-04.md write-path security + recall Secret-gate).
+fn raised_sensitivity(current: Sensitivity, secret_detected: bool) -> Sensitivity {
+    if secret_detected {
+        Sensitivity::Secret
+    } else {
+        current
+    }
 }
 
 impl MemoryService {
@@ -64,6 +75,15 @@ impl MemoryService {
                     }
                 }
             }
+        }
+
+        // Write-path sensitivity (OLA A / H2): a candidate that carried a
+        // credential is quarantined (never auto-approved) and tagged so the
+        // promoted item is marked Secret on approve. `redacted` reuses the same
+        // detector as redaction::classify_sensitivity; takes precedence over Merge.
+        if redacted {
+            cand.recommended_action = CandidateAction::Quarantine;
+            cand.risk_level = "secret".to_string();
         }
         // TODO(Fase D — contradiction_detector): embed proposed_summary, compare
         // against active items of the same scope/type via qdrant_index::search_dense;
@@ -129,6 +149,9 @@ impl MemoryService {
             .ok_or_else(|| MemoryError::NotFound(format!("candidate {id}")))?;
 
         let mut item = cand.to_item(Status::Active, Source::AssistantInferred);
+        // H2: carry the write-path secret marker to the item so the recall
+        // Secret-gate (recall_unified) excludes it. Monotonic — never downgrades.
+        item.sensitivity = raised_sensitivity(item.sensitivity, cand.risk_level == "secret");
         if matches!(actor, Actor::User) {
             item.validated_by_user = true;
             item.validated_at = Some(now_millis());
@@ -168,10 +191,13 @@ impl MemoryService {
         // Write-path secret guard (OLA A): redact credentials from imported text
         // (external/ETL sources are lower-trust) before persisting/indexing.
         let mut item = item.clone();
-        redaction::redact_in_place(&mut item.title);
-        redaction::redact_in_place(&mut item.summary);
-        redaction::redact_in_place(&mut item.content);
-        redaction::redact_in_place(&mut item.content_json);
+        let mut secret = false;
+        secret |= redaction::redact_in_place(&mut item.title);
+        secret |= redaction::redact_in_place(&mut item.summary);
+        secret |= redaction::redact_in_place(&mut item.content);
+        secret |= redaction::redact_in_place(&mut item.content_json);
+        // H2: mark imported item Secret if any credential was detected (never downgrade).
+        item.sensitivity = raised_sensitivity(item.sensitivity, secret);
         store::insert_item(&conn, &item)?;
         let ev = MemoryEvent::new(EventType::Imported, Some(item.id.clone()), Actor::Migration)
             .with_after(serde_json::to_string(&item).unwrap_or_default());
@@ -468,5 +494,28 @@ mod tests {
         assert!(store::search_items(&conn, "canonical", Status::Active, 10)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn sensitivity_is_raised_on_secret_and_never_downgraded() {
+        use super::super::model::Sensitivity;
+        // a detected credential raises to Secret regardless of prior class
+        assert_eq!(
+            raised_sensitivity(Sensitivity::Internal, true),
+            Sensitivity::Secret
+        );
+        assert_eq!(
+            raised_sensitivity(Sensitivity::Public, true),
+            Sensitivity::Secret
+        );
+        // no secret -> preserve current; monotonic, never downgrades
+        assert_eq!(
+            raised_sensitivity(Sensitivity::Internal, false),
+            Sensitivity::Internal
+        );
+        assert_eq!(
+            raised_sensitivity(Sensitivity::Secret, false),
+            Sensitivity::Secret
+        );
     }
 }
