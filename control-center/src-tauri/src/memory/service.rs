@@ -43,6 +43,20 @@ fn raised_sensitivity(current: Sensitivity, secret_detected: bool) -> Sensitivit
     }
 }
 
+/// Best-effort: keep the derived dense index (Qdrant `ultron_memory`) in step
+/// with a write to the SoT. ACTIVE items are (re)indexed; non-active items are
+/// removed. Errors are swallowed — `brain.db` is the source of truth and any
+/// drift is detectable/repairable via `reconcile`. (W4: closes the gap where a
+/// newly approved/edited/restored item never reached Qdrant until a manual
+/// `reindex_all`, so `in_sync` would drift on the first approval.)
+fn sync_index(item: &MemoryItem) {
+    if matches!(item.status, Status::Active) {
+        let _ = super::qdrant_index::index_item(item);
+    } else {
+        let _ = super::qdrant_index::remove_item(&item.id);
+    }
+}
+
 impl MemoryService {
     // -- candidate intake (what hooks/agents call) ---------------------------
 
@@ -157,6 +171,7 @@ impl MemoryService {
             item.validated_at = Some(now_millis());
         }
         store::insert_item(&conn, &item)?;
+        sync_index(&item); // W4: keep the dense index in sync with the approval
         store::set_candidate_status(&conn, id, CandidateStatus::Approved)?;
 
         let ev = MemoryEvent::new(EventType::Approved, Some(item.id.clone()), actor)
@@ -199,6 +214,7 @@ impl MemoryService {
         // H2: mark imported item Secret if any credential was detected (never downgrade).
         item.sensitivity = raised_sensitivity(item.sensitivity, secret);
         store::insert_item(&conn, &item)?;
+        sync_index(&item); // W4: index active imports (bulk ETL still runs reindex_all)
         let ev = MemoryEvent::new(EventType::Imported, Some(item.id.clone()), Actor::Migration)
             .with_after(serde_json::to_string(&item).unwrap_or_default());
         let _ = store::insert_event(&conn, &ev);
@@ -263,6 +279,7 @@ impl MemoryService {
         item.updated_at = now_millis();
         item.token_estimate = estimate_tokens(&item.searchable_text());
         store::insert_item(&conn, &item)?;
+        sync_index(&item); // W4: re-embed/refresh the dense index after an edit
 
         let ev = MemoryEvent::new(EventType::Edited, Some(item.id.clone()), actor)
             .with_before(before)
@@ -291,6 +308,7 @@ impl MemoryService {
         item.status = status;
         item.updated_at = now_millis();
         store::insert_item(&conn, &item)?;
+        sync_index(&item); // W4: Active -> (re)index ; non-active -> remove from index
 
         let mut ev = MemoryEvent::new(event_type, Some(item.id.clone()), actor)
             .with_before(before)
@@ -368,6 +386,7 @@ impl MemoryService {
         }
         item.updated_at = now_millis();
         store::insert_item(&conn, &item)?;
+        sync_index(&item); // W4: refresh the dense index payload (scope/type) after relabel
         let ev = MemoryEvent::new(EventType::Edited, Some(item.id.clone()), actor)
             .with_before(before)
             .with_after(serde_json::to_string(&item).unwrap_or_default());
@@ -390,11 +409,13 @@ impl MemoryService {
         new_item.supersedes = Some(old_id.to_string());
         new_item.updated_at = now_millis();
         store::insert_item(&conn, &new_item)?;
+        sync_index(&new_item); // W4: index the new active item
 
         old.status = Status::Deprecated;
         old.superseded_by = Some(new_item.id.clone());
         old.updated_at = now_millis();
         store::insert_item(&conn, &old)?;
+        sync_index(&old); // W4: drop the superseded (now deprecated) item from the index
 
         let ev = MemoryEvent::new(EventType::Deprecated, Some(old_id.to_string()), actor)
             .with_reason(format!("superseded by {}", new_item.id));
