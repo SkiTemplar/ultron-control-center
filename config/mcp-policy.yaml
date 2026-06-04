@@ -1,0 +1,213 @@
+# ULTRON OLA J — MCP Policy (Source of Truth for MCP governance)
+# =============================================================================
+# Generated 2026-06-04 (HEAD f936a66). Read-only declaration: this file does
+# NOT enforce anything by itself; it is the canonical classification consumed
+# by audit tooling (mcp_secret_scan.py, mcp_health_check.py, the cockpit MCP
+# panel). Enforcement lives in mcp_installer.py + mcp-allowlist.yaml.
+#
+# CONTEXT (runtime truth 2026-06-04):
+#   MCP is configured across 3 competing sources:
+#     1. ~/.claude/settings.json  (context7@latest, playwright, codex, github http)
+#     2. ~/.claude.json           (github-pat [token HARDCODED -> flagged],
+#                                   railway-mcp-server, qdrant-disabled)
+#     3. plugin ecc (.mcp.json)   (github, context7, exa, memory [competing store],
+#                                   playwright, sequential-thinking) + gemini (project)
+#   github appears THREE times (settings.json http, ~/.claude.json github-pat,
+#   ecc plugin github) -> 2 of them are duplicates of the canonical one.
+#
+# CORE RULES (mirrored from the memory rework constitution):
+#   - SQLite brain.db is the single Source of Truth for memory.
+#   - MemoryService is the ONLY writer of memory.
+#   - MCP servers PROPOSE candidates; they MUST NOT write memory directly.
+#     => writes_memory MUST be false for every server except the one explicitly
+#        owning a store. 'ecc-memory' is a COMPETING store and is therefore
+#        classified `duplicate`/dangerous and slated to be blocked.
+#   - No secrets in stores, logs, or embeddings. Tokens must be ${VAR}
+#     references, never literal values.
+#
+# FIELD SEMANTICS:
+#   classification : core | optional | duplicate | dangerous
+#   canonical      : true  => this entry is the single approved instance for its
+#                             logical capability; false => superseded/duplicate.
+#   duplicate_of   : name of the canonical server this one duplicates (or null).
+#   tool_allowlist : PROPOSED minimal tool surface (advisory; not yet enforced).
+#                    "*" means "no allowlist proposed yet — needs scoping".
+#   token_scope    : minimal | desconocido  (desconocido = scope not audited /
+#                    over-broad token suspected; must be reviewed).
+#   version_pin    : explicit pin, or a FALTA-pin marker when unpinned/floating.
+#   writes_memory  : true ONLY for 'ecc-memory' (which is why it is blocked).
+# =============================================================================
+schema_version: "1"
+generated_at: "2026-06-04"
+head: "f936a66"
+
+policy_defaults:
+  # Global invariants any consumer of this file may assert against.
+  allow_memory_writes_from_mcp: false   # only MemoryService writes memory
+  require_env_var_tokens: true          # literal tokens are a violation
+  block_competing_stores: true          # ecc-memory et al.
+
+servers:
+
+  # ---- CORE (canonical, keep) ----------------------------------------------
+  context7:
+    classification: core
+    canonical: true
+    duplicate_of: null
+    tool_allowlist:
+      - resolve-library-id
+      - query-docs
+    token_scope: minimal          # no token required (public docs proxy)
+    version_pin: "@latest"        # FALTA pin: floating @latest — pin to a digest/version
+    version_pin_status: "FALTA"   # action: replace @latest with an immutable pin
+    writes_memory: false
+    notes: >-
+      Read-only documentation lookup. Appears in settings.json AND the ecc
+      plugin .mcp.json; treat settings.json copy as canonical, ecc copy as a
+      duplicate (see ecc-context7 below if/when split out).
+
+  playwright:
+    classification: core
+    canonical: true
+    duplicate_of: null
+    tool_allowlist: "*"           # browser automation surface is large; scope per-use
+    token_scope: minimal          # no credential
+    version_pin: "FALTA"          # @playwright/mcp not pinned in settings.json
+    version_pin_status: "FALTA"
+    writes_memory: false
+    notes: >-
+      Local browser automation. No secrets. Also present in ecc plugin
+      (duplicate). Keep one canonical instance.
+
+  codex:
+    classification: core
+    canonical: true
+    duplicate_of: null
+    tool_allowlist: "*"           # codex exposes a broad agent surface; sandbox=ro caps it
+    token_scope: desconocido      # uses OpenAI auth via codex CLI; scope not audited here
+    version_pin: "FALTA"          # @openai/codex unpinned
+    version_pin_status: "FALTA"
+    writes_memory: false
+    notes: >-
+      GPT-5.5 codex, configured sandbox=ro (read-only) in settings.json. Keep,
+      but audit the underlying OpenAI credential scope.
+
+  github:
+    classification: core
+    canonical: true
+    duplicate_of: null
+    tool_allowlist:
+      - search_repositories
+      - search_code
+      - get_file_contents
+      - list_commits
+      - get_pull_request
+      - list_pull_requests
+      - create_pull_request
+      - create_issue
+      - get_issue
+    token_scope: minimal          # settings.json uses http + Bearer ${GITHUB_TOKEN} (env ref OK)
+    version_pin: "n/a-http"       # remote http transport; no package to pin
+    version_pin_status: "OK"
+    writes_memory: false
+    notes: >-
+      CANONICAL github server. Transport: http, Bearer ${GITHUB_TOKEN} (env
+      reference, NOT a literal token). This is the approved github instance;
+      github-pat and the ecc plugin github are duplicates of THIS.
+
+  # ---- DUPLICATE (github x3) -----------------------------------------------
+  github-pat:
+    classification: duplicate
+    canonical: false
+    duplicate_of: github
+    tool_allowlist: []            # should be disabled, not allowlisted
+    token_scope: desconocido      # token is HARDCODED literal in ~/.claude.json -> VIOLATION
+    version_pin: "FALTA"
+    version_pin_status: "FALTA"
+    writes_memory: false
+    security_flag: "literal_token_hardcoded"   # detected by mcp_secret_scan.py
+    action: "remove_or_convert_to_env_ref"
+    notes: >-
+      Duplicate of canonical `github`, AND its token is a hardcoded literal
+      (gho_...) in ~/.claude.json. Two violations: redundant + secret-in-config.
+      Remove this server; if a PAT is genuinely needed, fold it into the
+      canonical github entry behind ${GITHUB_TOKEN}. NEVER store the literal.
+
+  ecc-memory:
+    classification: dangerous
+    canonical: false
+    duplicate_of: null            # not a duplicate of github; a competing MEMORY store
+    tool_allowlist: []            # BLOCK: no tools should be reachable
+    token_scope: minimal          # local store, no token, but capability is the risk
+    version_pin: "@2026.1.26"
+    version_pin_status: "PINNED"
+    writes_memory: true           # the ONLY server with writes_memory=true -> must be blocked
+    competing_store: true
+    action: "block"
+    notes: >-
+      COMPETING MEMORY STORE (ecc plugin `memory` server, knowledge-graph
+      backend). Violates the core rule that SQLite brain.db is the single SoT
+      and MemoryService is the only writer. writes_memory=true is precisely why
+      this is dangerous: it can persist memory outside the SoT. BLOCK it (drop
+      from the active MCP set) so all memory flows through MemoryService as
+      candidates only.
+
+  # ---- OPTIONAL (keep available, low priority) -----------------------------
+  exa:
+    classification: optional
+    canonical: true
+    duplicate_of: null
+    tool_allowlist:
+      - web_search_exa
+      - web_fetch_exa
+    token_scope: desconocido      # EXA_API_KEY — verify it is an env ref, not literal
+    version_pin: "FALTA"
+    version_pin_status: "FALTA"
+    writes_memory: false
+    notes: >-
+      Web search/fetch (ecc plugin). Optional research tool. Confirm the API
+      key is supplied via env var, not a literal in any config.
+
+  gemini:
+    classification: optional
+    canonical: true
+    duplicate_of: null
+    tool_allowlist: "*"
+    token_scope: desconocido      # @rlabs-inc/gemini-mcp uses a Gemini API key
+    version_pin: "FALTA"
+    version_pin_status: "FALTA"
+    writes_memory: false
+    notes: >-
+      Gemini MCP (project scope). Optional second-opinion / large-context
+      assist. Audit the Gemini API key source.
+
+  railway-mcp-server:
+    classification: optional
+    canonical: true
+    duplicate_of: null
+    tool_allowlist: "*"
+    token_scope: desconocido      # Railway API token — verify env ref
+    version_pin: "FALTA"
+    version_pin_status: "FALTA"
+    writes_memory: false
+    notes: >-
+      Railway deploy/ops MCP (~/.claude.json). Optional infra tool; only needed
+      for Railway-hosted services. Confirm token is an env reference.
+
+# =============================================================================
+# SUMMARY (for quick audit consumption)
+# -----------------------------------------------------------------------------
+# core      : context7, playwright, codex, github
+# optional  : exa, gemini, railway-mcp-server
+# duplicate : github-pat (-> github)
+# dangerous : ecc-memory (competing store, writes_memory=true, BLOCK)
+#
+# github appears 3x total: canonical `github` (http/${GITHUB_TOKEN}) is kept;
+# `github-pat` is a duplicate WITH a hardcoded token (block + scrub); the ecc
+# plugin github instance is a duplicate too (use the canonical one).
+#
+# version_pin FALTA (needs immutable pin): context7(@latest), playwright, codex,
+# github-pat, exa, gemini, railway-mcp-server.
+#
+# writes_memory=true ONLY: ecc-memory  -> must be blocked.
+# =============================================================================

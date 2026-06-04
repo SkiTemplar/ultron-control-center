@@ -1,0 +1,130 @@
+{
+  "schema": 1,
+  "purpose": "Synthetic adversarial fixtures for the memory security/quality gate. NONE of these are drawn from real brain.db data; every seed_item is fabricated. The harness asserts that for each fixture's query, none of the must_not_return_ids appear in the retrieved/injected context. A failure means the retriever leaked a secret, surfaced stale/superseded data, crossed a project boundary, returned a duplicate, or ignored temporal supersession.",
+  "generated_at": "2026-06-04T00:00:00Z",
+  "negatives": [
+    {
+      "kind": "secret_leak",
+      "rationale": "A memory row that accidentally captured an API key must never be retrievable. The write-path redaction should have stripped it; this fixture verifies the read-path also refuses to surface it.",
+      "seed_item": {
+        "id": "neg-secret-001",
+        "type": "fact",
+        "scope": "global",
+        "title": "Deploy token for staging",
+        "summary": "The staging deploy uses token sk-FAKE0000example0000notarealsecret0000",
+        "content": "Remember the staging deploy token is sk-FAKE0000example0000notarealsecret0000 and the GitHub PAT ghp_FAKE0000example0000notarealsecret00 for CI.",
+        "tags": ["deploy", "ci", "secret"],
+        "sensitivity": "secret"
+      },
+      "query": "what is the staging deploy token",
+      "must_not_return_ids": ["neg-secret-001"]
+    },
+    {
+      "kind": "secret_leak",
+      "rationale": "PEM private key material must never enter an embedding or be returned in context.",
+      "seed_item": {
+        "id": "neg-secret-002",
+        "type": "fact",
+        "scope": "project",
+        "project_id": "ultron",
+        "title": "Signing key backup",
+        "summary": "Backup of the release signing key",
+        "content": "-----BEGIN RSA PRIVATE KEY-----\nFAKEBASE64NOTAREALKEYxxxxxxxxxxxxxxxxxxxxxxxxxxxx\n-----END RSA PRIVATE KEY-----",
+        "tags": ["signing", "secret"],
+        "sensitivity": "secret"
+      },
+      "query": "release signing private key",
+      "must_not_return_ids": ["neg-secret-002"]
+    },
+    {
+      "kind": "stale",
+      "rationale": "A memory marked stale/expired (past expires_at) must not be retrieved as if current. The retriever should treat status!='active' or expired items as non-results.",
+      "seed_item": {
+        "id": "neg-stale-001",
+        "type": "fact",
+        "scope": "global",
+        "title": "Qdrant collection name (OLD)",
+        "summary": "The active Qdrant collection is ultron_legacy_v1",
+        "content": "The memory vectors live in collection ultron_legacy_v1 with 768 dimensions.",
+        "tags": ["qdrant", "infra"],
+        "status": "stale",
+        "expires_at": 1700000000
+      },
+      "query": "which qdrant collection holds the memory vectors",
+      "must_not_return_ids": ["neg-stale-001"]
+    },
+    {
+      "kind": "cross_project",
+      "rationale": "A project-scoped memory belonging to project 'finanzas' must not leak into a query issued in the context of project 'gamedev'. Scope isolation is a hard boundary.",
+      "seed_item": {
+        "id": "neg-crossproj-001",
+        "type": "fact",
+        "scope": "project",
+        "project_id": "finanzas",
+        "title": "Bank account balance threshold",
+        "summary": "Alert when checking account drops below 1500 EUR",
+        "content": "Personal finance rule: trigger a Tio Gilito alert when the balance is under 1500 EUR.",
+        "tags": ["finanzas", "budget"]
+      },
+      "query": "what is the budget alert threshold",
+      "query_context": { "active_project_id": "gamedev" },
+      "must_not_return_ids": ["neg-crossproj-001"]
+    },
+    {
+      "kind": "duplicate",
+      "rationale": "Two near-identical items: a canonical and an unmerged duplicate. The retriever must return at most the canonical, never the duplicate, to avoid context waste and double-counting in metrics.",
+      "seed_item": {
+        "id": "neg-dup-canonical-001",
+        "type": "decision",
+        "scope": "global",
+        "title": "Embedding model decision",
+        "summary": "Decision: standardize on bge-m3 1024d for memory embeddings",
+        "content": "We standardize all memory embeddings on bge-m3 at 1024 dimensions.",
+        "tags": ["embeddings", "decision"],
+        "content_hash": "fnv-canonical-aaaa"
+      },
+      "duplicate_item": {
+        "id": "neg-dup-shadow-001",
+        "type": "decision",
+        "scope": "global",
+        "title": "Embedding model decision (dup)",
+        "summary": "Decision: standardize on bge-m3 1024d for memory embeddings",
+        "content": "We standardize all memory embeddings on bge-m3 at 1024 dimensions.",
+        "tags": ["embeddings", "decision"],
+        "content_hash": "fnv-canonical-aaaa",
+        "supersedes": null,
+        "superseded_by": null
+      },
+      "query": "which embedding model do we use for memory",
+      "must_not_return_ids": ["neg-dup-shadow-001"]
+    },
+    {
+      "kind": "temporal_superseded",
+      "rationale": "An old decision that has been explicitly superseded by a newer one must not be returned in place of (or alongside) its successor. superseded_by points at the live row.",
+      "seed_item": {
+        "id": "neg-superseded-old-001",
+        "type": "decision",
+        "scope": "global",
+        "title": "Default model (OLD)",
+        "summary": "Decision: default routing model is Sonnet 4.5",
+        "content": "All general routing defaults to Sonnet 4.5.",
+        "tags": ["routing", "model"],
+        "superseded_by": "neg-superseded-new-001",
+        "status": "superseded"
+      },
+      "successor_item": {
+        "id": "neg-superseded-new-001",
+        "type": "decision",
+        "scope": "global",
+        "title": "Default model (CURRENT)",
+        "summary": "Decision: default routing model is Opus 4.8",
+        "content": "All general routing now defaults to Opus 4.8, superseding the Sonnet 4.5 decision.",
+        "tags": ["routing", "model"],
+        "supersedes": "neg-superseded-old-001",
+        "status": "active"
+      },
+      "query": "what is the default routing model",
+      "must_not_return_ids": ["neg-superseded-old-001"]
+    }
+  ]
+}
