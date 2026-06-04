@@ -186,6 +186,26 @@ impl MemoryService {
             .with_reason(reason)
             .with_after(serde_json::to_string(&cand).unwrap_or_default());
         let _ = store::insert_event(&conn, &ev);
+
+        // Auto-approve hook (opt-in). When the persisted `auto_approve` setting is
+        // ON and this candidate is CLEAN, promote it straight to ACTIVE — skipping
+        // the inbox — reusing the exact same `approve_candidate` path the human UI
+        // uses (so redaction/sensitivity/index-sync all still apply).
+        //
+        // SECURITY SALVAGUARDA: `candidate_is_clean` is FALSE for any candidate with
+        // the secret marker or a contradiction finding, so those ALWAYS stay in the
+        // inbox for human review. FAIL-SAFE: `auto_approve_enabled` defaults to false
+        // on any read error, so a settings glitch can never silently auto-promote.
+        // Approved as Actor::System (not User): it is a policy promotion, not a human
+        // validation, so it is not marked `validated_by_user`. Errors are swallowed —
+        // the candidate is already safely in the inbox if the promotion fails.
+        if super::auto_approve::auto_approve_enabled()
+            && super::auto_approve::candidate_is_clean(&cand)
+        {
+            drop(conn); // approve_candidate opens its own connection.
+            let _ = Self::approve_candidate(&cand.id, Actor::System);
+        }
+
         Ok(cand.id.clone())
     }
 

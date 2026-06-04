@@ -277,6 +277,10 @@ pub fn run() {
             commands::memory::memory_inbox_list,
             commands::memory::memory_candidate_approve,
             commands::memory::memory_inbox_approve_all,
+            // Auto-approve policy: persisted toggle + guarded bulk promote of clean ones.
+            commands::memory::memory_auto_approve_get,
+            commands::memory::memory_auto_approve_set,
+            commands::memory::memory_inbox_approve_clean,
             commands::memory::memory_candidate_reject,
             commands::memory::memory_candidate_edit,
             commands::memory::memory_item_edit,

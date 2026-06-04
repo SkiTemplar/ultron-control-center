@@ -116,6 +116,83 @@ function Chip({
   );
 }
 
+// A hard-edge, monochrome on/off switch (no emojis). Reuses the Control Center
+// var(--color-*) tokens; the knob slides and the track turns accent when ON.
+function ToggleSwitch({
+  on,
+  disabled,
+  onClick,
+  label,
+}: {
+  on: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className="relative inline-flex h-[18px] w-[32px] shrink-0 items-center transition-colors"
+      style={{
+        background: on ? "var(--color-accent)" : "var(--color-surface-3, var(--color-surface-2))",
+        border: `1px solid ${on ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.6 : 1,
+      }}
+    >
+      <span
+        className="block h-[12px] w-[12px] transition-transform"
+        style={{
+          background: on ? "var(--color-bg, #000)" : "var(--color-text-tertiary)",
+          transform: on ? "translateX(15px)" : "translateX(2px)",
+        }}
+      />
+    </button>
+  );
+}
+
+// The auto-approve control: a labelled switch + a short safety subtitle. Lives in
+// the Memory header so the policy is always visible alongside the inbox.
+function AutoApproveControl({
+  on,
+  busy,
+  onToggle,
+}: {
+  on: boolean;
+  busy: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div
+      className="flex items-start gap-2.5 px-3 py-2"
+      style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
+    >
+      <ToggleSwitch on={on} disabled={busy} onClick={onToggle} label="Auto-aprobar candidatos" />
+      <div className="min-w-0">
+        <div
+          className="text-[12px] font-medium leading-tight"
+          style={{ color: "var(--color-text)" }}
+        >
+          Auto-aprobar candidatos
+        </div>
+        <div
+          className="text-[10.5px] leading-tight"
+          style={{ color: "var(--color-text-tertiary)" }}
+        >
+          {busy
+            ? "Aplicando..."
+            : "Los limpios entran solos. Secretos y contradicciones siguen requiriendo tu OK."}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Health strip — one figure per status so the user SEES the brain working.
 // ---------------------------------------------------------------------------
@@ -400,6 +477,10 @@ export function MemoryInbox() {
   // Bulk approve-all in-flight guard (blocks the whole inbox while running).
   const [approvingAll, setApprovingAll] = useState(false);
   const [confirmingAll, setConfirmingAll] = useState(false);
+  // Auto-approve policy: persisted toggle. When ON, future CLEAN candidates skip
+  // the inbox; secrets / contradictions always stay here for human review.
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [autoBusy, setAutoBusy] = useState(false);
 
   const loadStats = useCallback(async () => {
     try {
@@ -425,13 +506,24 @@ export function MemoryInbox() {
     }
   }, []);
 
+  const loadAuto = useCallback(async () => {
+    try {
+      const on = (await invoke("memory_auto_approve_get")) as boolean;
+      setAutoApprove(!!on);
+    } catch {
+      // Fail-safe: treat an unreadable setting as OFF.
+      setAutoApprove(false);
+    }
+  }, []);
+
   const refreshAll = useCallback(async () => {
     await Promise.all([loadList(), loadStats()]);
   }, [loadList, loadStats]);
 
   useEffect(() => {
     void refreshAll();
-  }, [refreshAll]);
+    void loadAuto();
+  }, [refreshAll, loadAuto]);
 
   // Run a mutation, then refresh both the list and the health counts so the
   // UI always reflects the SoT after an action.
@@ -513,6 +605,34 @@ export function MemoryInbox() {
     }
   }, [candidates.length, confirmingAll, refreshAll]);
 
+  // Flip the auto-approve policy. On ENABLE we also offer to clear the existing
+  // backlog of CLEAN pending candidates in one shot (the backend command applies
+  // the same secret/contradiction safeguard, so flagged ones are left behind).
+  const onToggleAuto = useCallback(async () => {
+    const next = !autoApprove;
+    setAutoBusy(true);
+    setListError(null);
+    try {
+      const stored = (await invoke("memory_auto_approve_set", { enabled: next })) as boolean;
+      setAutoApprove(!!stored);
+      if (stored) {
+        const res = (await invoke("memory_inbox_approve_clean")) as ApproveAllResult;
+        await refreshAll();
+        if (res.failed.length > 0) {
+          setListError(
+            `Auto-aprobar activado. ${res.approved} limpios aprobados, ${res.failed.length} fallaron.`,
+          );
+        }
+      }
+    } catch (e) {
+      setListError(errMsg(e));
+      // Re-sync the toggle with whatever actually persisted.
+      void loadAuto();
+    } finally {
+      setAutoBusy(false);
+    }
+  }, [autoApprove, refreshAll, loadAuto]);
+
   const pendingCount = candidates.length;
   const flagged = useMemo(
     () =>
@@ -558,6 +678,13 @@ export function MemoryInbox() {
           </SmallButton>
         </div>
       </div>
+
+      {/* Auto-approve policy toggle */}
+      <AutoApproveControl
+        on={autoApprove}
+        busy={autoBusy || approvingAll}
+        onToggle={() => void onToggleAuto()}
+      />
 
       {/* Memory Trace / health */}
       <Card

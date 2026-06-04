@@ -7,8 +7,8 @@
 // it from the dense index (retire-from-index).
 
 use crate::memory::{
-    qdrant_index, Actor, MemoryCandidate, MemoryEvent, MemoryItem, MemoryService, MemoryStats,
-    MemoryType, Scope, Status,
+    auto_approve, qdrant_index, Actor, MemoryCandidate, MemoryEvent, MemoryItem, MemoryService,
+    MemoryStats, MemoryType, Scope, Status,
 };
 
 // ---------------------------------------------------------------------------
@@ -70,6 +70,66 @@ pub async fn memory_inbox_approve_all() -> Result<ApproveAllResult, String> {
         let mut approved = 0u32;
         let mut failed: Vec<ApproveFailure> = Vec::new();
         for cand in pending {
+            match MemoryService::approve_candidate(&cand.id, Actor::User) {
+                Ok(_) => approved += 1,
+                Err(e) => failed.push(ApproveFailure {
+                    id: cand.id,
+                    error: e.to_string(),
+                }),
+            }
+        }
+        Ok(ApproveAllResult { approved, failed })
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+// ---------------------------------------------------------------------------
+// Auto-approve policy (persisted setting + guarded bulk promote)
+// ---------------------------------------------------------------------------
+
+/// Read the persisted `auto_approve` flag. Fail-safe: returns `false` on any
+/// read error (no HOME / missing / malformed file).
+#[tauri::command]
+pub async fn memory_auto_approve_get() -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(|| Ok(auto_approve::auto_approve_enabled()))
+        .await
+        .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Persist the `auto_approve` flag. When set to `true`, future CLEAN candidates
+/// are auto-promoted on creation (see `MemoryService::create_candidate`); secrets
+/// and contradictions always stay in the inbox. Returns the stored value.
+#[tauri::command]
+pub async fn memory_auto_approve_set(enabled: bool) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        auto_approve::write_settings(auto_approve::MemorySettings {
+            auto_approve: enabled,
+        })
+        .map(|s| s.auto_approve)
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
+}
+
+/// Bulk-approve only the CLEAN pending candidates (no secret marker, no
+/// contradiction). Mirrors `memory_inbox_approve_all` but applies the same
+/// security safeguard as the auto-approve hook, so flagged candidates are left in
+/// the inbox for human review. Used when the user turns the toggle ON to clear the
+/// existing backlog of clean candidates in one shot.
+#[tauri::command]
+pub async fn memory_inbox_approve_clean() -> Result<ApproveAllResult, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let pending =
+            MemoryService::list_pending_candidates(usize::MAX).map_err(|e| e.to_string())?;
+
+        let mut approved = 0u32;
+        let mut failed: Vec<ApproveFailure> = Vec::new();
+        for cand in pending {
+            // Safeguard: skip anything that must stay under human review.
+            if !auto_approve::candidate_is_clean(&cand) {
+                continue;
+            }
             match MemoryService::approve_candidate(&cand.id, Actor::User) {
                 Ok(_) => approved += 1,
                 Err(e) => failed.push(ApproveFailure {

@@ -150,6 +150,9 @@ pub enum StoreKind {
     Qdrant,
 }
 
+// Auto-approve policy: persisted `auto_approve` setting + the "clean candidate"
+// security safeguard (never auto-approves secrets / contradictions).
+pub mod auto_approve;
 pub mod capture;
 pub mod catalog;
 pub mod doctor;
