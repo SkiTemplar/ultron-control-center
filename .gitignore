@@ -284,6 +284,8 @@ brain.db.bak-*
 # Sidecar ultron-memory compilado (regenerable: cargo build / install-sidecars)
 bin/ultron-memory.exe
 bin/*.exe
+# Deploy backups del sidecar (regenerables; creados al desplegar a ~/.ultron/bin)
+bin/*.bak-*
 # Cola de Run Batch (runtime per-instalacion)
 batches/queue.jsonl
 batches/queue-pending.jsonl
