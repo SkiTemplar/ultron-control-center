@@ -91,6 +91,18 @@ impl MemoryService {
             }
         }
 
+        // L0 exact dedupe (OLA E): if an ACTIVE item already has the same
+        // content_hash this candidate would produce on approve, flag it as a Merge
+        // candidate. Complements the FTS near-dupe above (exact > lexical-similar).
+        let probe = cand.to_item(Status::Active, Source::AssistantInferred);
+        let probe_hash = super::texthash::content_hash(&probe.searchable_text());
+        if let Ok(Some(existing)) = store::find_active_by_content_hash(&conn, &probe_hash) {
+            if !cand.duplicate_candidates.contains(&existing.id) {
+                cand.duplicate_candidates.push(existing.id);
+            }
+            cand.recommended_action = CandidateAction::Merge;
+        }
+
         // Write-path sensitivity (OLA A / H2): a candidate that carried a
         // credential is quarantined (never auto-approved) and tagged so the
         // promoted item is marked Secret on approve. `redacted` reuses the same

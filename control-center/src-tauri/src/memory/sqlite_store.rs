@@ -415,6 +415,32 @@ pub(crate) fn get_item(conn: &Connection, id: &str) -> Result<Option<MemoryItem>
     }
 }
 
+/// L0 exact dedupe (OLA E): the first ACTIVE item whose `content_hash` matches.
+/// Uses `idx_items_content_hash`; complements the FTS near-dupe path.
+pub(crate) fn find_active_by_content_hash(
+    conn: &Connection,
+    hash: &str,
+) -> Result<Option<MemoryItem>, MemoryError> {
+    let sql = format!(
+        "SELECT {ITEM_COLS} FROM memory_items WHERE content_hash = ?1 AND status = ?2 LIMIT 1"
+    );
+    let mut stmt = conn.prepare(&sql).map_err(|e| {
+        MemoryError::RemoteUnavailable(format!("find_by_content_hash prepare: {e}"))
+    })?;
+    let mut rows = stmt
+        .query(params![hash, Status::Active.as_str()])
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("find_by_content_hash query: {e}")))?;
+    match rows
+        .next()
+        .map_err(|e| MemoryError::ParseError(e.to_string()))?
+    {
+        Some(row) => Ok(Some(
+            item_from_row(row).map_err(|e| MemoryError::ParseError(e.to_string()))?,
+        )),
+        None => Ok(None),
+    }
+}
+
 pub(crate) fn delete_item(conn: &Connection, id: &str) -> Result<(), MemoryError> {
     let n = conn
         .execute("DELETE FROM memory_items WHERE id = ?1", params![id])
@@ -973,6 +999,56 @@ mod tests {
             "content_hash computed on insert"
         );
         assert_eq!(got.schema_version, crate::memory::model::SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn find_active_by_content_hash_finds_exact_dupe() {
+        let conn = mem_conn();
+        let mut item = MemoryItem::new(
+            MemoryType::Decision,
+            Scope::Project,
+            Source::UserExplicit,
+            Status::Active,
+        );
+        item.summary = Some("usar sqlite como source of truth".into());
+        insert_item(&conn, &item).unwrap();
+        let hash = get_item(&conn, &item.id)
+            .unwrap()
+            .unwrap()
+            .content_hash
+            .expect("content_hash computed on insert");
+
+        assert_eq!(
+            find_active_by_content_hash(&conn, &hash)
+                .unwrap()
+                .map(|i| i.id),
+            Some(item.id)
+        );
+        assert!(find_active_by_content_hash(&conn, "0000000000000000")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn find_active_by_content_hash_ignores_non_active() {
+        let conn = mem_conn();
+        let mut item = MemoryItem::new(
+            MemoryType::Fact,
+            Scope::Global,
+            Source::ToolObserved,
+            Status::Deprecated,
+        );
+        item.summary = Some("hecho deprecado".into());
+        insert_item(&conn, &item).unwrap();
+        let hash = get_item(&conn, &item.id)
+            .unwrap()
+            .unwrap()
+            .content_hash
+            .unwrap();
+        assert!(
+            find_active_by_content_hash(&conn, &hash).unwrap().is_none(),
+            "non-active items must not be returned as active dupes"
+        );
     }
 
     #[test]
