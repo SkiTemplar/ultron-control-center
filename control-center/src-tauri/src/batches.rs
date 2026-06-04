@@ -42,7 +42,10 @@ pub fn batches_dir() -> Result<PathBuf, String> {
 
 fn is_allowed_ext(p: &PathBuf) -> bool {
     matches!(
-        p.extension().and_then(|e| e.to_str()).map(|s| s.to_ascii_lowercase()).as_deref(),
+        p.extension()
+            .and_then(|e| e.to_str())
+            .map(|s| s.to_ascii_lowercase())
+            .as_deref(),
         Some("bat") | Some("cmd") | Some("ps1")
     )
 }
@@ -51,7 +54,11 @@ fn validate_inside(p: &PathBuf, root: &PathBuf) -> Result<(), String> {
     let cp = fs::canonicalize(p).map_err(|e| format!("canonicalize: {e}"))?;
     let cr = fs::canonicalize(root).map_err(|e| format!("canonicalize root: {e}"))?;
     if !cp.starts_with(&cr) {
-        return Err(format!("path escape: {} not under {}", cp.display(), cr.display()));
+        return Err(format!(
+            "path escape: {} not under {}",
+            cp.display(),
+            cr.display()
+        ));
     }
     Ok(())
 }
@@ -76,7 +83,11 @@ pub fn list_batches_inner() -> Result<Vec<BatchEntry>, String> {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         out.push(BatchEntry {
-            name: p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string(),
+            name: p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string(),
             path: p.to_string_lossy().to_string(),
             size_bytes: meta.len(),
             modified_epoch,
@@ -114,7 +125,9 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
             ])
             .output()
     } else {
-        Command::new("cmd").args(["/C", &cand.to_string_lossy()]).output()
+        Command::new("cmd")
+            .args(["/C", &cand.to_string_lossy()])
+            .output()
     };
 
     let path_str = cand.to_string_lossy().to_string();
@@ -143,7 +156,14 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
     // and can requeue / fix. A successful run leaves the queue untouched.
     if !success {
         let last_error = if stderr.trim().is_empty() {
-            format!("exit {}", output.status.code().map(|c| c.to_string()).unwrap_or_else(|| "?".into()))
+            format!(
+                "exit {}",
+                output
+                    .status
+                    .code()
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "?".into())
+            )
         } else {
             stderr.clone()
         };
@@ -174,7 +194,9 @@ pub struct BatchCleanupReport {
 pub fn delete_batch_single_inner(name: String) -> Result<(), String> {
     // Reject names that look like path traversal before we even touch the FS.
     if name.contains('/') || name.contains('\\') || name.contains("..") {
-        return Err("invalid batch name: must be a bare filename with no path separators".to_string());
+        return Err(
+            "invalid batch name: must be a bare filename with no path separators".to_string(),
+        );
     }
     let dir = batches_dir()?;
     let cand = dir.join(&name);
@@ -200,11 +222,17 @@ pub fn delete_batch_single_inner(name: String) -> Result<(), String> {
 pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
     let dir = batches_dir()?;
     if !dir.exists() {
-        return Ok(BatchCleanupReport { deleted: Vec::new(), kept: 0 });
+        return Ok(BatchCleanupReport {
+            deleted: Vec::new(),
+            kept: 0,
+        });
     }
     let mut deleted: Vec<String> = Vec::new();
     let mut kept: usize = 0;
-    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+    for entry in std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
         let path = entry.path();
         if !path.is_file() {
             continue;
@@ -234,13 +262,19 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
 pub fn cleanup_old_batches_inner(older_than_days: u32) -> Result<BatchCleanupReport, String> {
     let dir = batches_dir()?;
     if !dir.exists() {
-        return Ok(BatchCleanupReport { deleted: Vec::new(), kept: 0 });
+        return Ok(BatchCleanupReport {
+            deleted: Vec::new(),
+            kept: 0,
+        });
     }
     let now = std::time::SystemTime::now();
     let cutoff_secs = (older_than_days as u64).saturating_mul(86_400);
     let mut deleted: Vec<String> = Vec::new();
     let mut kept: usize = 0;
-    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())?.flatten() {
+    for entry in std::fs::read_dir(&dir)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
         let path = entry.path();
         if !path.is_file() {
             continue;
@@ -249,10 +283,7 @@ pub fn cleanup_old_batches_inner(older_than_days: u32) -> Result<BatchCleanupRep
             kept += 1;
             continue;
         }
-        let mtime = entry
-            .metadata()
-            .and_then(|m| m.modified())
-            .ok();
+        let mtime = entry.metadata().and_then(|m| m.modified()).ok();
         let age = mtime
             .and_then(|t| now.duration_since(t).ok())
             .map(|d| d.as_secs())

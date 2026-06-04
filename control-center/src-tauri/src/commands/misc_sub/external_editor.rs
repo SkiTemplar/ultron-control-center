@@ -39,10 +39,7 @@ use std::path::{Path, PathBuf};
 ///   - `code` not on PATH / cmd.exe missing     → `Err("spawn code: …")`
 ///   - VS Code returns a non-zero exit status   → `Err("code exited …")`
 #[tauri::command]
-pub async fn open_in_vscode(
-    folder_path: String,
-    file_path: String,
-) -> Result<(), String> {
+pub async fn open_in_vscode(folder_path: String, file_path: String) -> Result<(), String> {
     let folder = folder_path.trim();
     let file = file_path.trim();
     if folder.is_empty() && file.is_empty() {
@@ -133,8 +130,7 @@ pub fn read_text_file(path: String) -> Result<String, String> {
     if !raw.exists() {
         return Err(format!("path not found: {path}"));
     }
-    let canonical = std::fs::canonicalize(&raw)
-        .map_err(|e| format!("canonicalize {path}: {e}"))?;
+    let canonical = std::fs::canonicalize(&raw).map_err(|e| format!("canonicalize {path}: {e}"))?;
     if !canonical.is_file() {
         return Err(format!("not a file: {path}"));
     }
@@ -149,8 +145,8 @@ pub fn read_text_file(path: String) -> Result<String, String> {
     }
 
     // Size cap before reading so a bad path can't OOM the renderer.
-    let metadata = std::fs::metadata(&canonical)
-        .map_err(|e| format!("stat {}: {e}", canonical.display()))?;
+    let metadata =
+        std::fs::metadata(&canonical).map_err(|e| format!("stat {}: {e}", canonical.display()))?;
     const MAX_BYTES: u64 = 4 * 1024 * 1024;
     if metadata.len() > MAX_BYTES {
         return Err(format!(
@@ -160,6 +156,5 @@ pub fn read_text_file(path: String) -> Result<String, String> {
         ));
     }
 
-    std::fs::read_to_string(&canonical)
-        .map_err(|e| format!("read {}: {e}", canonical.display()))
+    std::fs::read_to_string(&canonical).map_err(|e| format!("read {}: {e}", canonical.display()))
 }

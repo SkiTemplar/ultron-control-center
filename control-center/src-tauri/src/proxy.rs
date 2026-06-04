@@ -271,10 +271,7 @@ pub fn proxy_start_inner() -> Result<ProxyHealth, String> {
                 .iter()
                 .map(|p| p.display().to_string())
                 .collect();
-            return Err(format!(
-                "proxy no encontrado en: {}",
-                paths.join(", ")
-            ));
+            return Err(format!("proxy no encontrado en: {}", paths.join(", ")));
         }
     };
 
@@ -285,7 +282,8 @@ pub fn proxy_start_inner() -> Result<ProxyHealth, String> {
     let mut cmd = match &binary {
         ProxyBinary::Exe(path) => {
             let mut c = std::process::Command::new(path);
-            c.arg(format!("--port={PROXY_PORT}")).arg("--bind=127.0.0.1");
+            c.arg(format!("--port={PROXY_PORT}"))
+                .arg("--bind=127.0.0.1");
             c
         }
         ProxyBinary::NodeScript(path) => {
@@ -351,9 +349,7 @@ pub fn proxy_stop_inner() -> Result<(), String> {
         .map_err(|e| format!("proxy mutex poisoned: {e}"))?;
 
     if let Some(mut child) = slot.take() {
-        child
-            .kill()
-            .map_err(|e| format!("kill proxy: {e}"))?;
+        child.kill().map_err(|e| format!("kill proxy: {e}"))?;
         // Recogemos el exit status para evitar zombie en Windows.
         let _ = child.wait();
     }
@@ -484,7 +480,8 @@ fn persist_proxy_state(enabled: bool) -> Result<(), String> {
         std::fs::create_dir_all(parent).map_err(|e| format!("create proxy cockpit dir: {e}"))?;
     }
     let body = serde_json::json!({ "enabled": enabled, "updated_at": Utc::now() });
-    let bytes = serde_json::to_vec_pretty(&body).map_err(|e| format!("serialize proxy state: {e}"))?;
+    let bytes =
+        serde_json::to_vec_pretty(&body).map_err(|e| format!("serialize proxy state: {e}"))?;
     let tmp = path.with_extension("json.tmp");
     std::fs::write(&tmp, &bytes).map_err(|e| format!("write proxy state tmp: {e}"))?;
     std::fs::rename(&tmp, &path).map_err(|e| format!("rename proxy state: {e}"))?;
@@ -493,10 +490,18 @@ fn persist_proxy_state(enabled: bool) -> Result<(), String> {
 
 /// Lee el estado persistido. Devuelve `false` si el archivo no existe.
 pub fn read_proxy_state_enabled() -> bool {
-    let Ok(path) = proxy_state_path() else { return false; };
-    let Ok(bytes) = std::fs::read(&path) else { return false; };
-    let Ok(val) = serde_json::from_slice::<serde_json::Value>(&bytes) else { return false; };
-    val.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false)
+    let Ok(path) = proxy_state_path() else {
+        return false;
+    };
+    let Ok(bytes) = std::fs::read(&path) else {
+        return false;
+    };
+    let Ok(val) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+        return false;
+    };
+    val.get("enabled")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 // ---------------------------------------------------------------------------

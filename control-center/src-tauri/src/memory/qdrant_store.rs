@@ -11,7 +11,9 @@
 // frontend ingest path writes to Qdrant via the dedicated session-recall-inject
 // sidecar binary, not through this adapter.
 
-use super::{Capabilities, MemoryDoc, MemoryError, MemoryHit, MemoryStore, Query, StoreHealth, StoreKind};
+use super::{
+    Capabilities, MemoryDoc, MemoryError, MemoryHit, MemoryStore, Query, StoreHealth, StoreKind,
+};
 
 const COLLECTION: &str = "ultron_sessions";
 const DEFAULT_K: u32 = 10;
@@ -104,8 +106,8 @@ impl MemoryStore for QdrantStore {
         // Strip the "qdrant::" prefix if present, then attempt deletion via
         // the REST API directly.
         let point_id = id.strip_prefix("qdrant::").unwrap_or(id);
-        let base = std::env::var("QDRANT_URL")
-            .unwrap_or_else(|_| "http://localhost:6333".to_string());
+        let base =
+            std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string());
         let url = format!("{base}/collections/{COLLECTION}/points/delete");
 
         // Build the id value — numeric or string.

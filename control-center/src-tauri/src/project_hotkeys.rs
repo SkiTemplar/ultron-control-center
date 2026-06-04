@@ -32,11 +32,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 /// was handled as a project-slot press. The caller (handler in lib.rs)
 /// should short-circuit further dispatch when this returns true so
 /// other shortcuts (e.g. the Ctrl+Alt+U toggle) keep working.
-pub fn handle_shortcut(
-    app: &AppHandle,
-    shortcut: &Shortcut,
-    state: ShortcutState,
-) -> bool {
+pub fn handle_shortcut(app: &AppHandle, shortcut: &Shortcut, state: ShortcutState) -> bool {
     if state != ShortcutState::Pressed {
         return false;
     }
@@ -143,23 +139,46 @@ fn code_from_combo_name(name: &str) -> Option<Code> {
         let c = n.chars().next().unwrap();
         if c.is_ascii_alphabetic() {
             return Some(match c {
-                'a' => Code::KeyA, 'b' => Code::KeyB, 'c' => Code::KeyC,
-                'd' => Code::KeyD, 'e' => Code::KeyE, 'f' => Code::KeyF,
-                'g' => Code::KeyG, 'h' => Code::KeyH, 'i' => Code::KeyI,
-                'j' => Code::KeyJ, 'k' => Code::KeyK, 'l' => Code::KeyL,
-                'm' => Code::KeyM, 'n' => Code::KeyN, 'o' => Code::KeyO,
-                'p' => Code::KeyP, 'q' => Code::KeyQ, 'r' => Code::KeyR,
-                's' => Code::KeyS, 't' => Code::KeyT, 'u' => Code::KeyU,
-                'v' => Code::KeyV, 'w' => Code::KeyW, 'x' => Code::KeyX,
-                'y' => Code::KeyY, 'z' => Code::KeyZ,
+                'a' => Code::KeyA,
+                'b' => Code::KeyB,
+                'c' => Code::KeyC,
+                'd' => Code::KeyD,
+                'e' => Code::KeyE,
+                'f' => Code::KeyF,
+                'g' => Code::KeyG,
+                'h' => Code::KeyH,
+                'i' => Code::KeyI,
+                'j' => Code::KeyJ,
+                'k' => Code::KeyK,
+                'l' => Code::KeyL,
+                'm' => Code::KeyM,
+                'n' => Code::KeyN,
+                'o' => Code::KeyO,
+                'p' => Code::KeyP,
+                'q' => Code::KeyQ,
+                'r' => Code::KeyR,
+                's' => Code::KeyS,
+                't' => Code::KeyT,
+                'u' => Code::KeyU,
+                'v' => Code::KeyV,
+                'w' => Code::KeyW,
+                'x' => Code::KeyX,
+                'y' => Code::KeyY,
+                'z' => Code::KeyZ,
                 _ => return None,
             });
         }
         if c.is_ascii_digit() {
             return Some(match c {
-                '0' => Code::Digit0, '1' => Code::Digit1, '2' => Code::Digit2,
-                '3' => Code::Digit3, '4' => Code::Digit4, '5' => Code::Digit5,
-                '6' => Code::Digit6, '7' => Code::Digit7, '8' => Code::Digit8,
+                '0' => Code::Digit0,
+                '1' => Code::Digit1,
+                '2' => Code::Digit2,
+                '3' => Code::Digit3,
+                '4' => Code::Digit4,
+                '5' => Code::Digit5,
+                '6' => Code::Digit6,
+                '7' => Code::Digit7,
+                '8' => Code::Digit8,
                 '9' => Code::Digit9,
                 _ => return None,
             });
@@ -169,10 +188,18 @@ fn code_from_combo_name(name: &str) -> Option<Code> {
         "space" => Some(Code::Space),
         "enter" | "return" => Some(Code::Enter),
         "tab" => Some(Code::Tab),
-        "f1" => Some(Code::F1), "f2" => Some(Code::F2), "f3" => Some(Code::F3),
-        "f4" => Some(Code::F4), "f5" => Some(Code::F5), "f6" => Some(Code::F6),
-        "f7" => Some(Code::F7), "f8" => Some(Code::F8), "f9" => Some(Code::F9),
-        "f10" => Some(Code::F10), "f11" => Some(Code::F11), "f12" => Some(Code::F12),
+        "f1" => Some(Code::F1),
+        "f2" => Some(Code::F2),
+        "f3" => Some(Code::F3),
+        "f4" => Some(Code::F4),
+        "f5" => Some(Code::F5),
+        "f6" => Some(Code::F6),
+        "f7" => Some(Code::F7),
+        "f8" => Some(Code::F8),
+        "f9" => Some(Code::F9),
+        "f10" => Some(Code::F10),
+        "f11" => Some(Code::F11),
+        "f12" => Some(Code::F12),
         _ => None,
     }
 }
@@ -230,7 +257,10 @@ pub fn register_custom_hotkeys(app: &AppHandle) -> Result<(), String> {
     let mut new_cache: Vec<(Shortcut, usize)> = Vec::new();
     for entry in file.slots.values() {
         let Some(sc) = parse_combo(&entry.combo) else {
-            eprintln!("[ultron] custom slot {} bad combo '{}'", entry.slot, entry.combo);
+            eprintln!(
+                "[ultron] custom slot {} bad combo '{}'",
+                entry.slot, entry.combo
+            );
             continue;
         };
         if let Err(e) = handle.register(sc) {

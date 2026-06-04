@@ -67,7 +67,11 @@ pub fn session_resume_inner(project_id: Option<String>) -> Result<SessionResume,
     let next_action = open_tasks
         .first()
         .and_then(|t| t.summary.clone())
-        .or_else(|| active_workflows.first().map(|w| format!("continue workflow {}", w.workflow_id)));
+        .or_else(|| {
+            active_workflows
+                .first()
+                .map(|w| format!("continue workflow {}", w.workflow_id))
+        });
 
     let mut warnings = Vec::new();
     if stats.candidates_pending > 0 {

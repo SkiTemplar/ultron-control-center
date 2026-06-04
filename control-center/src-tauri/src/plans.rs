@@ -61,7 +61,10 @@ fn plans_path() -> Option<PathBuf> {
 }
 
 fn extract_str(v: &serde_json::Value, key: &str) -> String {
-    v.get(key).and_then(|x| x.as_str()).unwrap_or("").to_string()
+    v.get(key)
+        .and_then(|x| x.as_str())
+        .unwrap_or("")
+        .to_string()
 }
 fn extract_opt_str(v: &serde_json::Value, key: &str) -> Option<String> {
     v.get(key)
@@ -227,7 +230,17 @@ pub fn patch_plan_status_inner(id: String, new_status: String) -> Result<bool, S
     if id.trim().is_empty() {
         return Err("id is empty".into());
     }
-    let allowed = ["open", "in_progress", "revision", "blocked", "resolved", "rejected", "wontfix", "archived", "merged"];
+    let allowed = [
+        "open",
+        "in_progress",
+        "revision",
+        "blocked",
+        "resolved",
+        "rejected",
+        "wontfix",
+        "archived",
+        "merged",
+    ];
     if !allowed.contains(&new_status.as_str()) {
         return Err(format!("invalid status '{}'", new_status));
     }
@@ -270,7 +283,8 @@ pub fn patch_plan_status_inner(id: String, new_status: String) -> Result<bool, S
             serde_json::Value::String(format_unix_iso(now)),
         );
     }
-    let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, &serialized).map_err(|e| format!("write: {}", e))?;
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
@@ -368,7 +382,11 @@ pub fn add_plan_inner(p: CreatePlanPayload) -> Result<PlanMutateResult, String> 
         .filter_map(|v| v.get("id").and_then(|x| x.as_str()).map(String::from))
         .collect();
     let base = slugify(title);
-    let base = if base.is_empty() { "plan".to_string() } else { base };
+    let base = if base.is_empty() {
+        "plan".to_string()
+    } else {
+        base
+    };
     let mut id = base.clone();
     let mut i = 2u32;
     while existing.contains(&id) {
@@ -406,9 +424,9 @@ pub fn update_plan_inner(p: UpdatePlanPayload) -> Result<PlanMutateResult, Strin
         .get_mut("items")
         .and_then(|v| v.as_array_mut())
         .ok_or_else(|| "no items[]".to_string())?;
-    let target = items.iter_mut().find(|v| {
-        v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone())
-    });
+    let target = items
+        .iter_mut()
+        .find(|v| v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone()));
     let entry = target.ok_or_else(|| format!("plan '{}' not found", p.id))?;
     if let Some(title) = p.title.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         entry["title"] = serde_json::Value::String(title.to_string());
@@ -582,18 +600,41 @@ fn format_unix_iso(secs: u64) -> String {
     loop {
         let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
         let yd: i64 = if leap { 366 } else { 365 };
-        if days < yd { break; }
+        if days < yd {
+            break;
+        }
         days -= yd;
         year += 1;
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let mdays: [i64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mdays: [i64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {
         days -= mdays[month];
         month += 1;
     }
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, h, m, s)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year,
+        month + 1,
+        days + 1,
+        h,
+        m,
+        s
+    )
 }
 
 // LIB_RS_WIRING:

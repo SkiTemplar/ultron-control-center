@@ -30,9 +30,7 @@ pub async fn task_detail(
 }
 
 #[tauri::command]
-pub async fn rich_system_info(
-    app: tauri::AppHandle,
-) -> Result<system::RichSystemInfo, String> {
+pub async fn rich_system_info(app: tauri::AppHandle) -> Result<system::RichSystemInfo, String> {
     system::rich_system_info_inner(&app).await
 }
 

@@ -27,10 +27,7 @@ pub use slash_commands::*;
 /// in newest-first order. Malformed lines are silently skipped.
 /// Used by `alerts.rs` (and potentially other misc_sub commands) via
 /// `super::read_jsonl_tail`.
-pub(super) fn read_jsonl_tail<T>(
-    path: std::path::PathBuf,
-    limit: usize,
-) -> Result<Vec<T>, String>
+pub(super) fn read_jsonl_tail<T>(path: std::path::PathBuf, limit: usize) -> Result<Vec<T>, String>
 where
     T: serde::de::DeserializeOwned,
 {

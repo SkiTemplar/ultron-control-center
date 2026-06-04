@@ -144,7 +144,10 @@ pub fn read_plugin_info_inner() -> Result<PluginInfo, String> {
 pub fn list_all_plugins_inner() -> Result<Vec<PluginEntry>, String> {
     let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
     let cache = home.join(".claude").join("plugins").join("cache");
-    let manifest = home.join(".claude").join("plugins").join("installed_plugins.json");
+    let manifest = home
+        .join(".claude")
+        .join("plugins")
+        .join("installed_plugins.json");
 
     let installed_set = read_installed_manifest(&manifest);
 
@@ -163,7 +166,10 @@ pub fn list_all_plugins_inner() -> Result<Vec<PluginEntry>, String> {
             Ok(rd) => rd,
             Err(_) => continue,
         };
-        for plugin in plugin_dirs.filter_map(|e| e.ok()).filter(|e| e.path().is_dir()) {
+        for plugin in plugin_dirs
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+        {
             let name = plugin.file_name().to_string_lossy().to_string();
             // Pick latest version dir by mtime.
             let plugin_path = plugin.path();
@@ -241,12 +247,13 @@ pub fn uninstall_plugin_cache_inner(name: &str, marketplace: &str) -> Result<(),
     if !dir.exists() {
         return Ok(());
     }
-    std::fs::remove_dir_all(&dir)
-        .map_err(|e| format!("remove {}: {e}", dir.display()))
+    std::fs::remove_dir_all(&dir).map_err(|e| format!("remove {}: {e}", dir.display()))
 }
 
 fn read_installed_manifest(path: &Path) -> Vec<String> {
-    let Ok(raw) = std::fs::read_to_string(path) else { return Vec::new() };
+    let Ok(raw) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
     let Ok(json): Result<serde_json::Value, _> = serde_json::from_str(&raw) else {
         return Vec::new();
     };
@@ -284,8 +291,12 @@ fn count_files_matching(dir: &std::path::Path, ext: &str) -> usize {
 
 fn count_mcp_servers(root: &std::path::Path) -> usize {
     let p = root.join("mcp-configs").join("mcp-servers.json");
-    let Ok(txt) = std::fs::read_to_string(&p) else { return 0 };
-    let Ok(json): Result<serde_json::Value, _> = serde_json::from_str(&txt) else { return 0 };
+    let Ok(txt) = std::fs::read_to_string(&p) else {
+        return 0;
+    };
+    let Ok(json): Result<serde_json::Value, _> = serde_json::from_str(&txt) else {
+        return 0;
+    };
     json.get("mcpServers")
         .and_then(|v| v.as_object())
         .map(|m| m.len())
@@ -363,16 +374,22 @@ fn gh_for_update(args: &[&str]) -> std::process::Command {
 /// (auth, sources, …) is none of our business.
 fn load_marketplace_repo_map() -> std::collections::HashMap<String, String> {
     let mut out = std::collections::HashMap::new();
-    let Some(home) = dirs::home_dir() else { return out };
+    let Some(home) = dirs::home_dir() else {
+        return out;
+    };
     let candidates = [
-        home.join(".claude").join("plugins").join("marketplaces.json"),
+        home.join(".claude")
+            .join("plugins")
+            .join("marketplaces.json"),
         home.join(".claude").join("plugins").join("registry.json"),
     ];
     for path in candidates.iter() {
         if !path.exists() {
             continue;
         }
-        let Ok(raw) = std::fs::read_to_string(path) else { continue };
+        let Ok(raw) = std::fs::read_to_string(path) else {
+            continue;
+        };
         let Ok(json): Result<serde_json::Value, _> = serde_json::from_str(&raw) else {
             continue;
         };
@@ -384,11 +401,10 @@ fn load_marketplace_repo_map() -> std::collections::HashMap<String, String> {
             .or_else(|| json.as_object());
         let Some(root) = root else { continue };
         for (slug, v) in root.iter() {
-            let entry: MarketplaceRegistryEntry =
-                match serde_json::from_value(v.clone()) {
-                    Ok(e) => e,
-                    Err(_) => continue,
-                };
+            let entry: MarketplaceRegistryEntry = match serde_json::from_value(v.clone()) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
             let repo = entry
                 .repo
                 .or(entry.repository)
@@ -448,14 +464,7 @@ pub fn check_plugin_updates_inner() -> Result<Vec<PluginUpdateStatus>, String> {
             continue;
         };
 
-        let output = gh_for_update(&[
-            "repo",
-            "view",
-            &repo_slug,
-            "--json",
-            "pushedAt",
-        ])
-        .output();
+        let output = gh_for_update(&["repo", "view", &repo_slug, "--json", "pushedAt"]).output();
 
         match output {
             Ok(o) if o.status.success() => {
@@ -618,8 +627,7 @@ fn update_cache_path() -> Option<std::path::PathBuf> {
 fn ensure_cockpit_dir() -> Result<std::path::PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
     let dir = home.join(".ultron").join("cockpit");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("create cockpit dir: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create cockpit dir: {e}"))?;
     Ok(dir)
 }
 
@@ -641,7 +649,9 @@ fn load_update_cache(max_age_secs: u64) -> Option<Vec<PluginBulkUpdate>> {
 
 /// Persist the freshly-fetched results to the 1-hour cache file.
 fn save_update_cache(entries: &[PluginBulkUpdate]) {
-    let Ok(cockpit) = ensure_cockpit_dir() else { return };
+    let Ok(cockpit) = ensure_cockpit_dir() else {
+        return;
+    };
     let path = cockpit.join("plugin-update-cache.json");
     let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let cache = UpdateCache {
@@ -662,7 +672,9 @@ fn save_update_cache(entries: &[PluginBulkUpdate]) {
 /// ```
 fn load_known_marketplaces() -> std::collections::HashMap<String, String> {
     let mut out = std::collections::HashMap::new();
-    let Some(home) = dirs::home_dir() else { return out };
+    let Some(home) = dirs::home_dir() else {
+        return out;
+    };
     let path = home
         .join(".claude")
         .join("plugins")
@@ -670,11 +682,15 @@ fn load_known_marketplaces() -> std::collections::HashMap<String, String> {
     if !path.exists() {
         return out;
     }
-    let Ok(raw) = std::fs::read_to_string(&path) else { return out };
+    let Ok(raw) = std::fs::read_to_string(&path) else {
+        return out;
+    };
     let Ok(json): Result<serde_json::Value, _> = serde_json::from_str(&raw) else {
         return out;
     };
-    let Some(obj) = json.as_object() else { return out };
+    let Some(obj) = json.as_object() else {
+        return out;
+    };
     for (slug, v) in obj.iter() {
         let entry: Result<KnownMarketplaceEntry, _> = serde_json::from_value(v.clone());
         if let Ok(e) = entry {
@@ -688,10 +704,10 @@ fn load_known_marketplaces() -> std::collections::HashMap<String, String> {
 
 /// Read `installed_plugins.json` and return a map of
 /// `coordinate (lowercase) → InstalledPluginRecord`.
-fn load_installed_plugin_records()
-    -> std::collections::HashMap<String, InstalledPluginRecord>
-{
-    let Some(home) = dirs::home_dir() else { return Default::default() };
+fn load_installed_plugin_records() -> std::collections::HashMap<String, InstalledPluginRecord> {
+    let Some(home) = dirs::home_dir() else {
+        return Default::default();
+    };
     let path = home
         .join(".claude")
         .join("plugins")
@@ -707,10 +723,14 @@ fn load_installed_plugin_records()
     };
     let mut out = std::collections::HashMap::new();
     for (coord, entries_val) in plugins_obj.iter() {
-        let Some(arr) = entries_val.as_array() else { continue };
+        let Some(arr) = entries_val.as_array() else {
+            continue;
+        };
         let Some(last) = arr.last() else { continue };
-        let Ok(record): Result<InstalledPluginRecord, _> =
-            serde_json::from_value(last.clone()) else { continue };
+        let Ok(record): Result<InstalledPluginRecord, _> = serde_json::from_value(last.clone())
+        else {
+            continue;
+        };
         out.insert(coord.to_lowercase(), record);
     }
     out
@@ -742,10 +762,7 @@ fn gh_cmd_v2(args: &[&str]) -> std::process::Command {
 
 /// Fetch the latest commit SHA + message + date for `<owner>/<repo>` at
 /// `subpath`. When `subpath` is empty this probes the repo root.
-fn fetch_latest_commit(
-    repo_slug: &str,
-    subpath: &str,
-) -> Result<(String, String, String), String> {
+fn fetch_latest_commit(repo_slug: &str, subpath: &str) -> Result<(String, String, String), String> {
     let endpoint = if subpath.is_empty() {
         format!("repos/{repo_slug}/commits?per_page=1")
     } else {
@@ -1050,7 +1067,10 @@ mod bulk_update_tests {
 
     #[test]
     fn plugin_subpath_whole_repo_plugins() {
-        assert_eq!(plugin_repo_subpath("superpowers-marketplace", "superpowers"), "");
+        assert_eq!(
+            plugin_repo_subpath("superpowers-marketplace", "superpowers"),
+            ""
+        );
         assert_eq!(plugin_repo_subpath("ecc", "ecc"), "");
         assert_eq!(plugin_repo_subpath("openai-codex", "codex"), "");
     }

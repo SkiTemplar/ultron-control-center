@@ -158,8 +158,7 @@ fn read_all() -> Result<Vec<BatchQueueEntry>, String> {
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let mut out = Vec::new();
     for (i, line) in text.lines().enumerate() {
         let trimmed = line.trim();
@@ -176,14 +175,13 @@ fn read_all() -> Result<Vec<BatchQueueEntry>, String> {
 
 fn write_atomic(path: &PathBuf, entries: &[BatchQueueEntry]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
     }
     let tmp = path.with_extension("jsonl.tmp");
     let mut f = fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
     for entry in entries {
-        let line = serde_json::to_string(entry)
-            .map_err(|e| format!("serialize queue entry: {e}"))?;
+        let line =
+            serde_json::to_string(entry).map_err(|e| format!("serialize queue entry: {e}"))?;
         writeln!(f, "{line}").map_err(|e| format!("write tmp: {e}"))?;
     }
     f.sync_all().ok();
@@ -261,7 +259,9 @@ pub fn record_inner(
     reason: BatchQueueReason,
     last_error: Option<String>,
 ) -> Result<BatchQueueEntry, String> {
-    let _g = queue_lock().lock().map_err(|_| "batches queue lock poisoned")?;
+    let _g = queue_lock()
+        .lock()
+        .map_err(|_| "batches queue lock poisoned")?;
     let mut entries = read_all()?;
     let entry = upsert(&mut entries, name, path, reason, last_error);
     let path_buf = queue_path()?;
@@ -283,7 +283,9 @@ pub fn list_inner() -> Result<Vec<BatchQueueEntry>, String> {
 /// Remove a queued entry by id (e.g. after a successful manual run, or a user
 /// dismiss). Returns Err if the id is unknown.
 pub fn dismiss_inner(id: &str) -> Result<(), String> {
-    let _g = queue_lock().lock().map_err(|_| "batches queue lock poisoned")?;
+    let _g = queue_lock()
+        .lock()
+        .map_err(|_| "batches queue lock poisoned")?;
     let mut entries = read_all()?;
     let before = entries.len();
     entries.retain(|e| e.id != id);
@@ -299,7 +301,9 @@ pub fn dismiss_inner(id: &str) -> Result<(), String> {
 /// as "pending retry". The script itself is unchanged on disk; the actual run
 /// is still a human click (`execute_batch`). Returns the updated entry.
 pub fn requeue_inner(id: &str) -> Result<BatchQueueEntry, String> {
-    let _g = queue_lock().lock().map_err(|_| "batches queue lock poisoned")?;
+    let _g = queue_lock()
+        .lock()
+        .map_err(|_| "batches queue lock poisoned")?;
     let mut entries = read_all()?;
     let entry = entries
         .iter_mut()
@@ -391,7 +395,9 @@ pub fn enqueue_command_inner(
 
     // Serialise the write under the same lock as the queue mutation so a
     // concurrent drain can't observe a half-written pair.
-    let _g = queue_lock().lock().map_err(|_| "batches queue lock poisoned")?;
+    let _g = queue_lock()
+        .lock()
+        .map_err(|_| "batches queue lock poisoned")?;
 
     // Atomic-ish write: tmp + rename so a reader never sees a partial script.
     let tmp = target.with_extension("ps1.tmp");
@@ -438,10 +444,7 @@ pub fn pending_queue_path() -> Result<PathBuf, String> {
 
 /// Parse pending lines into entries, deduped against `existing_keys` AND within
 /// the batch. PURE (no I/O) so it is unit-testable.
-fn parse_pending_lines(
-    text: &str,
-    existing_keys: &HashSet<String>,
-) -> Vec<BatchQueueEntry> {
+fn parse_pending_lines(text: &str, existing_keys: &HashSet<String>) -> Vec<BatchQueueEntry> {
     let mut seen = existing_keys.clone();
     let mut added: Vec<BatchQueueEntry> = Vec::new();
 
@@ -483,7 +486,9 @@ fn parse_pending_lines(
 /// entries newly added (deduped against what was already queued).
 pub fn drain_pending_inner() -> Result<Vec<BatchQueueEntry>, String> {
     let ppath = pending_queue_path()?;
-    let _g = queue_lock().lock().map_err(|_| "batches queue lock poisoned")?;
+    let _g = queue_lock()
+        .lock()
+        .map_err(|_| "batches queue lock poisoned")?;
 
     let draining = ppath.with_extension("draining");
     match fs::rename(&ppath, &draining) {
@@ -502,8 +507,10 @@ pub fn drain_pending_inner() -> Result<Vec<BatchQueueEntry>, String> {
         .map_err(|e| format!("read draining {}: {e}", draining.display()))?;
 
     let mut entries = read_all()?;
-    let existing: HashSet<String> =
-        entries.iter().map(|e| dedup_key(&e.name, e.reason)).collect();
+    let existing: HashSet<String> = entries
+        .iter()
+        .map(|e| dedup_key(&e.name, e.reason))
+        .collect();
 
     let added = parse_pending_lines(&text, &existing);
 
@@ -534,8 +541,14 @@ mod tests {
     fn reason_round_trips_and_parses_lenient() {
         assert_eq!(BatchQueueReason::Rejected.as_str(), "rejected");
         assert_eq!(BatchQueueReason::Failed.as_str(), "failed");
-        assert_eq!(BatchQueueReason::AiCannotExecute.as_str(), "ai_cannot_execute");
-        assert_eq!(BatchQueueReason::parse_lenient("REJECTED"), BatchQueueReason::Rejected);
+        assert_eq!(
+            BatchQueueReason::AiCannotExecute.as_str(),
+            "ai_cannot_execute"
+        );
+        assert_eq!(
+            BatchQueueReason::parse_lenient("REJECTED"),
+            BatchQueueReason::Rejected
+        );
         assert_eq!(
             BatchQueueReason::parse_lenient("permission-denied"),
             BatchQueueReason::Rejected
@@ -545,7 +558,10 @@ mod tests {
             BatchQueueReason::AiCannotExecute
         );
         // Unknown → Failed (never panics).
-        assert_eq!(BatchQueueReason::parse_lenient("garbage"), BatchQueueReason::Failed);
+        assert_eq!(
+            BatchQueueReason::parse_lenient("garbage"),
+            BatchQueueReason::Failed
+        );
     }
 
     #[test]
@@ -564,7 +580,10 @@ mod tests {
         assert!(clean.contains("\r\n"));
         assert!(clean.contains('\t'));
         // Every byte is ASCII now.
-        assert!(clean.is_ascii(), "sanitized script must be pure ASCII: {clean:?}");
+        assert!(
+            clean.is_ascii(),
+            "sanitized script must be pure ASCII: {clean:?}"
+        );
         // The em-dash and ñ / é became spaces, not removed length.
         assert!(!clean.contains('—'));
         assert!(!clean.contains('ñ'));
@@ -596,12 +615,27 @@ mod tests {
     #[test]
     fn upsert_inserts_then_bumps_attempts() {
         let mut entries: Vec<BatchQueueEntry> = Vec::new();
-        let first = upsert(&mut entries, "fix.ps1", "/p/fix.ps1", BatchQueueReason::Failed, Some("boom".into()));
+        let first = upsert(
+            &mut entries,
+            "fix.ps1",
+            "/p/fix.ps1",
+            BatchQueueReason::Failed,
+            Some("boom".into()),
+        );
         assert_eq!(first.attempts, 1);
         assert_eq!(entries.len(), 1);
 
-        let second = upsert(&mut entries, "fix.ps1", "/p/fix.ps1", BatchQueueReason::Failed, Some("boom2".into()));
-        assert_eq!(second.attempts, 2, "same name+reason must bump, not duplicate");
+        let second = upsert(
+            &mut entries,
+            "fix.ps1",
+            "/p/fix.ps1",
+            BatchQueueReason::Failed,
+            Some("boom2".into()),
+        );
+        assert_eq!(
+            second.attempts, 2,
+            "same name+reason must bump, not duplicate"
+        );
         assert_eq!(entries.len(), 1);
         assert_eq!(second.last_error.as_deref(), Some("boom2"));
         assert_eq!(second.id, first.id, "id is stable across re-enqueue");
@@ -612,7 +646,11 @@ mod tests {
         let mut entries: Vec<BatchQueueEntry> = Vec::new();
         upsert(&mut entries, "x.ps1", "", BatchQueueReason::Failed, None);
         upsert(&mut entries, "x.ps1", "", BatchQueueReason::Rejected, None);
-        assert_eq!(entries.len(), 2, "same name, different reason → distinct rows");
+        assert_eq!(
+            entries.len(),
+            2,
+            "same name, different reason → distinct rows"
+        );
     }
 
     #[test]

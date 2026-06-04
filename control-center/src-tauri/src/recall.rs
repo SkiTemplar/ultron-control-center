@@ -190,7 +190,11 @@ fn find_session_jsonl(cwd_hint: &str) -> Option<(PathBuf, String)> {
             continue;
         }
         let recovered = cwd_from_jsonl(&pdir);
-        let folder_name = pdir.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        let folder_name = pdir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
         let matches = match recovered.as_deref() {
             Some(c) => Path::new(c)
                 .file_name()
@@ -239,7 +243,11 @@ fn find_global_newest_jsonl() -> Option<(PathBuf, String)> {
         if !pdir.is_dir() {
             continue;
         }
-        let folder_name = pdir.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        let folder_name = pdir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
         if let Some((p, mtime)) = newest_jsonl(&pdir) {
             let take = match &best {
                 None => true,
@@ -490,11 +498,7 @@ fn format_iso(secs: u64) -> String {
 // Markdown + prompt rendering
 // ---------------------------------------------------------------------------
 
-fn render_summary_md(
-    cwd_hint: Option<&str>,
-    iso: Option<&str>,
-    digest: &SessionDigest,
-) -> String {
+fn render_summary_md(cwd_hint: Option<&str>, iso: Option<&str>, digest: &SessionDigest) -> String {
     let mut out = String::with_capacity(2048);
     out.push_str("## Última sesión\n\n");
     if let Some(c) = cwd_hint {
@@ -503,7 +507,10 @@ fn render_summary_md(
     if let Some(t) = iso {
         out.push_str(&format!("- **Fecha:** {}\n", t));
     }
-    out.push_str(&format!("- **Mensajes analizados:** {}\n", digest.message_count));
+    out.push_str(&format!(
+        "- **Mensajes analizados:** {}\n",
+        digest.message_count
+    ));
 
     if !digest.topics.is_empty() {
         out.push_str("- **Topics:** ");
@@ -537,10 +544,7 @@ fn render_summary_md(
     out
 }
 
-fn render_suggested_prompt(
-    cwd_hint: Option<&str>,
-    digest: &SessionDigest,
-) -> String {
+fn render_suggested_prompt(cwd_hint: Option<&str>, digest: &SessionDigest) -> String {
     let topic = digest
         .topics
         .first()
@@ -656,7 +660,8 @@ pub async fn recall_last_session_inner(
         found: false,
         session_id: None,
         last_active_iso: None,
-        summary_md: "## Última sesión\n\nNo se encontró ninguna sesión previa para este proyecto.".to_string(),
+        summary_md: "## Última sesión\n\nNo se encontró ninguna sesión previa para este proyecto."
+            .to_string(),
         suggested_prompt: "Empecemos de cero. ¿Cuál es la tarea?".to_string(),
         source: "none".to_string(),
     })
@@ -668,13 +673,15 @@ pub async fn recall_last_session_global_inner() -> Result<RecallResult, String> 
             found: false,
             session_id: None,
             last_active_iso: None,
-            summary_md: "## Última sesión\n\nNo hay ninguna sesión registrada en `~/.claude/projects/`.".to_string(),
+            summary_md:
+                "## Última sesión\n\nNo hay ninguna sesión registrada en `~/.claude/projects/`."
+                    .to_string(),
             suggested_prompt: "Empecemos de cero. ¿En qué quieres trabajar?".to_string(),
             source: "none".to_string(),
         });
     };
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("read jsonl {}: {}", path.display(), e))?;
+    let text =
+        fs::read_to_string(&path).map_err(|e| format!("read jsonl {}: {}", path.display(), e))?;
     let digest = digest_jsonl(&text);
     let iso = mtime_iso(&path);
     let session_id = path
@@ -684,10 +691,7 @@ pub async fn recall_last_session_global_inner() -> Result<RecallResult, String> 
 
     // Best-effort recovered cwd for display.
     let parent_dir = path.parent().map(|p| p.to_path_buf());
-    let cwd_hint = parent_dir
-        .as_ref()
-        .and_then(cwd_from_jsonl)
-        .or(Some(slug));
+    let cwd_hint = parent_dir.as_ref().and_then(cwd_from_jsonl).or(Some(slug));
     let summary_md = render_summary_md(cwd_hint.as_deref(), iso.as_deref(), &digest);
     let suggested_prompt = render_suggested_prompt(cwd_hint.as_deref(), &digest);
     Ok(RecallResult {
@@ -744,8 +748,11 @@ mod tests {
     fn fixture_simple_extracts_files_and_decisions() {
         let d = digest_jsonl(&fixture("session_simple.jsonl"));
         assert_eq!(d.message_count, 5);
-        assert!(d.files.iter().any(|f| f.contains("oauth")),
-            "expected oauth in files, got {:?}", d.files);
+        assert!(
+            d.files.iter().any(|f| f.contains("oauth")),
+            "expected oauth in files, got {:?}",
+            d.files
+        );
         assert!(!d.decisions.is_empty(), "expected a decision");
         assert!(d.last_user_message.is_some());
         assert!(d.last_assistant_message.is_some());
@@ -755,8 +762,10 @@ mod tests {
     fn fixture_malformed_tolerates_bad_lines() {
         let d = digest_jsonl(&fixture("session_malformed.jsonl"));
         assert!(d.message_count <= 4);
-        assert!(d.last_assistant_message.is_some(),
-            "valid assistant line must still parse");
+        assert!(
+            d.last_assistant_message.is_some(),
+            "valid assistant line must still parse"
+        );
     }
 
     #[test]
@@ -782,10 +791,12 @@ mod tests {
     fn make_jsonl() -> String {
         // Two user turns + one assistant turn with a tool_use Edit + a
         // decision-flavoured assistant message.
-        let lines = [r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Necesito refactorizar el módulo de autenticación para que soporte OAuth"}]}}"#,
+        let lines = [
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Necesito refactorizar el módulo de autenticación para que soporte OAuth"}]}}"#,
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"C:/proj/src/auth/oauth.rs"}}]}}"#,
             r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"OK, hecho. Decisión: usar el flujo PKCE para el cliente desktop."}]}}"#,
-            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Perfecto, ahora añade tests"}]}}"#];
+            r#"{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Perfecto, ahora añade tests"}]}}"#,
+        ];
         lines.join("\n")
     }
 

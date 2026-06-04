@@ -161,10 +161,9 @@ fn load_kg_entities(project_name: &str, project_path: &str) -> Vec<KgEntitySnap>
         .entities
         .into_iter()
         .filter(|e| {
-            let obs_match = e
-                .observations
-                .iter()
-                .any(|o| o.to_lowercase().contains(&name_lc) || o.to_lowercase().contains(&path_lc));
+            let obs_match = e.observations.iter().any(|o| {
+                o.to_lowercase().contains(&name_lc) || o.to_lowercase().contains(&path_lc)
+            });
             let name_match = e.name.to_lowercase().contains(&name_lc);
             obs_match || name_match
         })
@@ -181,9 +180,7 @@ fn load_kg_entities(project_name: &str, project_path: &str) -> Vec<KgEntitySnap>
 // Kanban helpers
 // ---------------------------------------------------------------------------
 
-fn load_kanban_bugs_and_steps(
-    project_id: &str,
-) -> (Vec<KanbanCardSnap>, Vec<String>) {
+fn load_kanban_bugs_and_steps(project_id: &str) -> (Vec<KanbanCardSnap>, Vec<String>) {
     let board = match crate::kanban::load(project_id) {
         Ok(b) => b,
         Err(_) => return (vec![], vec![]),
@@ -218,10 +215,7 @@ fn load_kanban_bugs_and_steps(
     for card in &board.cards {
         let is_done = done_ids.contains(&card.column_id);
         let is_in_progress = in_progress_ids.contains(&card.column_id);
-        let col_name_str = col_name
-            .get(&card.column_id)
-            .cloned()
-            .unwrap_or_default();
+        let col_name_str = col_name.get(&card.column_id).cloned().unwrap_or_default();
 
         if !is_done && card.tags.iter().any(|t| t.to_lowercase() == "bug") {
             bugs.push(KanbanCardSnap {
@@ -271,9 +265,18 @@ fn load_decisions(project_id: &str) -> Vec<DecisionRecordSnap> {
         .filter_map(|line| {
             let v: serde_json::Value = serde_json::from_str(line).ok()?;
             Some(DecisionRecordSnap {
-                title: v.get("title").and_then(|x| x.as_str()).map(|s| s.to_string()),
-                date: v.get("date").and_then(|x| x.as_str()).map(|s| s.to_string()),
-                status: v.get("status").and_then(|x| x.as_str()).map(|s| s.to_string()),
+                title: v
+                    .get("title")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
+                date: v
+                    .get("date")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
+                status: v
+                    .get("status")
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string()),
                 summary: v
                     .get("summary")
                     .or_else(|| v.get("context"))
@@ -347,12 +350,29 @@ pub async fn load_inner(
         let kg_entities = load_kg_entities(&name_clone, &path_clone);
         let (recent_bugs, next_steps) = load_kanban_bugs_and_steps(&id_clone);
         let recent_decisions = load_decisions(&id_clone);
-        (claude_md, claude_md_path, git_summary, kg_entities, recent_bugs, next_steps, recent_decisions)
+        (
+            claude_md,
+            claude_md_path,
+            git_summary,
+            kg_entities,
+            recent_bugs,
+            next_steps,
+            recent_decisions,
+        )
     });
 
     // Await both: sync first (cheap, local FS), then Mem0 (network, may be slow)
-    let (claude_md, claude_md_path, git_summary, kg_entities, recent_bugs, mut next_steps, recent_decisions) =
-        sync_handle.await.map_err(|e| format!("blocking task panicked: {e}"))?;
+    let (
+        claude_md,
+        claude_md_path,
+        git_summary,
+        kg_entities,
+        recent_bugs,
+        mut next_steps,
+        recent_decisions,
+    ) = sync_handle
+        .await
+        .map_err(|e| format!("blocking task panicked: {e}"))?;
 
     let (mem0_entries, mem0_error) = load_mem0_entries(&project_name, &project_id).await;
 
@@ -379,9 +399,8 @@ pub async fn load_inner(
     next_steps.extend(mem0_next);
 
     // Normalise project path for display (strip Windows \\?\ prefix)
-    let claude_md_path_display = claude_md_path.map(|p| {
-        p.strip_prefix(r"\\?\").unwrap_or(&p).to_string()
-    });
+    let claude_md_path_display =
+        claude_md_path.map(|p| p.strip_prefix(r"\\?\").unwrap_or(&p).to_string());
 
     Ok(ProjectContextPayload {
         claude_md,
@@ -400,10 +419,7 @@ pub async fn load_inner(
 // CLAUDE.md creator — generates a starter template
 // ---------------------------------------------------------------------------
 
-pub fn create_claude_md_stub(
-    project_path: &str,
-    project_name: &str,
-) -> Result<String, String> {
+pub fn create_claude_md_stub(project_path: &str, project_name: &str) -> Result<String, String> {
     let (path, exists) = resolve_claude_md(project_path);
     if exists {
         return Err("CLAUDE.md already exists".to_string());

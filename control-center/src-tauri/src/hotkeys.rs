@@ -100,8 +100,8 @@ pub fn parse_hotkey(spec: &str) -> Result<Shortcut, String> {
                 if key.is_some() {
                     return Err(format!("multiple non-modifier keys: '{}'", other));
                 }
-                let code = code_from_name(other)
-                    .ok_or_else(|| format!("unknown key '{}'", other))?;
+                let code =
+                    code_from_name(other).ok_or_else(|| format!("unknown key '{}'", other))?;
                 key = Some(code);
             }
         }
@@ -120,23 +120,46 @@ fn code_from_name(name: &str) -> Option<Code> {
         let c = n.chars().next().unwrap();
         if c.is_ascii_alphabetic() {
             return match c {
-                'a' => Some(Code::KeyA), 'b' => Some(Code::KeyB), 'c' => Some(Code::KeyC),
-                'd' => Some(Code::KeyD), 'e' => Some(Code::KeyE), 'f' => Some(Code::KeyF),
-                'g' => Some(Code::KeyG), 'h' => Some(Code::KeyH), 'i' => Some(Code::KeyI),
-                'j' => Some(Code::KeyJ), 'k' => Some(Code::KeyK), 'l' => Some(Code::KeyL),
-                'm' => Some(Code::KeyM), 'n' => Some(Code::KeyN), 'o' => Some(Code::KeyO),
-                'p' => Some(Code::KeyP), 'q' => Some(Code::KeyQ), 'r' => Some(Code::KeyR),
-                's' => Some(Code::KeyS), 't' => Some(Code::KeyT), 'u' => Some(Code::KeyU),
-                'v' => Some(Code::KeyV), 'w' => Some(Code::KeyW), 'x' => Some(Code::KeyX),
-                'y' => Some(Code::KeyY), 'z' => Some(Code::KeyZ),
+                'a' => Some(Code::KeyA),
+                'b' => Some(Code::KeyB),
+                'c' => Some(Code::KeyC),
+                'd' => Some(Code::KeyD),
+                'e' => Some(Code::KeyE),
+                'f' => Some(Code::KeyF),
+                'g' => Some(Code::KeyG),
+                'h' => Some(Code::KeyH),
+                'i' => Some(Code::KeyI),
+                'j' => Some(Code::KeyJ),
+                'k' => Some(Code::KeyK),
+                'l' => Some(Code::KeyL),
+                'm' => Some(Code::KeyM),
+                'n' => Some(Code::KeyN),
+                'o' => Some(Code::KeyO),
+                'p' => Some(Code::KeyP),
+                'q' => Some(Code::KeyQ),
+                'r' => Some(Code::KeyR),
+                's' => Some(Code::KeyS),
+                't' => Some(Code::KeyT),
+                'u' => Some(Code::KeyU),
+                'v' => Some(Code::KeyV),
+                'w' => Some(Code::KeyW),
+                'x' => Some(Code::KeyX),
+                'y' => Some(Code::KeyY),
+                'z' => Some(Code::KeyZ),
                 _ => None,
             };
         }
         if c.is_ascii_digit() {
             return match c {
-                '0' => Some(Code::Digit0), '1' => Some(Code::Digit1), '2' => Some(Code::Digit2),
-                '3' => Some(Code::Digit3), '4' => Some(Code::Digit4), '5' => Some(Code::Digit5),
-                '6' => Some(Code::Digit6), '7' => Some(Code::Digit7), '8' => Some(Code::Digit8),
+                '0' => Some(Code::Digit0),
+                '1' => Some(Code::Digit1),
+                '2' => Some(Code::Digit2),
+                '3' => Some(Code::Digit3),
+                '4' => Some(Code::Digit4),
+                '5' => Some(Code::Digit5),
+                '6' => Some(Code::Digit6),
+                '7' => Some(Code::Digit7),
+                '8' => Some(Code::Digit8),
                 '9' => Some(Code::Digit9),
                 _ => None,
             };
@@ -148,10 +171,18 @@ fn code_from_name(name: &str) -> Option<Code> {
         "tab" => Some(Code::Tab),
         "escape" | "esc" => Some(Code::Escape),
         "backspace" => Some(Code::Backspace),
-        "f1" => Some(Code::F1), "f2" => Some(Code::F2), "f3" => Some(Code::F3),
-        "f4" => Some(Code::F4), "f5" => Some(Code::F5), "f6" => Some(Code::F6),
-        "f7" => Some(Code::F7), "f8" => Some(Code::F8), "f9" => Some(Code::F9),
-        "f10" => Some(Code::F10), "f11" => Some(Code::F11), "f12" => Some(Code::F12),
+        "f1" => Some(Code::F1),
+        "f2" => Some(Code::F2),
+        "f3" => Some(Code::F3),
+        "f4" => Some(Code::F4),
+        "f5" => Some(Code::F5),
+        "f6" => Some(Code::F6),
+        "f7" => Some(Code::F7),
+        "f8" => Some(Code::F8),
+        "f9" => Some(Code::F9),
+        "f10" => Some(Code::F10),
+        "f11" => Some(Code::F11),
+        "f12" => Some(Code::F12),
         _ => None,
     }
 }

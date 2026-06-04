@@ -168,16 +168,15 @@ pub async fn unified_search_inner(
     // Sync layers run on the blocking thread pool so they don't starve the
     // async executor.
     let needle_clone = needle.clone();
-    let (skills, agents, rules) =
-        tauri::async_runtime::spawn_blocking(move || {
-            (
-                filter_skills(&needle_clone, top_k),
-                filter_agents(&needle_clone, top_k),
-                filter_rules(&needle_clone, top_k),
-            )
-        })
-        .await
-        .map_err(|e| e.to_string())?;
+    let (skills, agents, rules) = tauri::async_runtime::spawn_blocking(move || {
+        (
+            filter_skills(&needle_clone, top_k),
+            filter_agents(&needle_clone, top_k),
+            filter_rules(&needle_clone, top_k),
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?;
 
     // Async layers: mem0 (cloud) and kg (local JSONL).
     let mem0_results = if needle.is_empty() {

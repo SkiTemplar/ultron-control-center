@@ -20,8 +20,8 @@ pub fn read_curated_catalog() -> Result<serde_json::Value, String> {
             "domains": []
         }));
     }
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     serde_json::from_str(&text).map_err(|e| format!("parse curated-catalog.json: {e}"))
 }
 
@@ -242,7 +242,11 @@ fn extract_summary(body: &str) -> String {
     if trimmed.len() <= 240 {
         return trimmed.to_string();
     }
-    let cut = trimmed.char_indices().nth(237).map(|(i, _)| i).unwrap_or(237);
+    let cut = trimmed
+        .char_indices()
+        .nth(237)
+        .map(|(i, _)| i)
+        .unwrap_or(237);
     format!("{}…", &trimmed[..cut])
 }
 
@@ -321,8 +325,8 @@ fn run_gh_search_repos(args: Vec<String>) -> Result<Vec<RepoHit>, String> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let hits: Vec<GhRepoHit> = serde_json::from_str(&stdout)
-        .map_err(|e| format!("gh json parse: {e}"))?;
+    let hits: Vec<GhRepoHit> =
+        serde_json::from_str(&stdout).map_err(|e| format!("gh json parse: {e}"))?;
 
     let out = hits
         .into_iter()
@@ -406,7 +410,12 @@ pub async fn github_search_trending(
 ) -> Result<Vec<RepoHit>, String> {
     let kind = kind.unwrap_or_else(|| "all".to_string());
     let topics: Vec<&str> = match kind.as_str() {
-        "skill" | "skills" => vec!["claude-skill", "claude-skills", "agent-skill", "claude-code-skills"],
+        "skill" | "skills" => vec![
+            "claude-skill",
+            "claude-skills",
+            "agent-skill",
+            "claude-code-skills",
+        ],
         "agent" | "agents" => vec!["claude-agent", "claude-agents", "claude-code-agents"],
         "mcp" => vec!["mcp", "mcp-server", "model-context-protocol"],
         _ => vec![
@@ -497,8 +506,8 @@ pub fn list_skill_files(entry_path: String) -> Result<Vec<SiblingFile>, String> 
     };
 
     let mut out: Vec<SiblingFile> = Vec::new();
-    let read_dir = std::fs::read_dir(&dir)
-        .map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
+    let read_dir =
+        std::fs::read_dir(&dir).map_err(|e| format!("read_dir {}: {e}", dir.display()))?;
     for entry in read_dir {
         let entry = match entry {
             Ok(e) => e,
@@ -542,7 +551,10 @@ pub fn list_skill_files(entry_path: String) -> Result<Vec<SiblingFile>, String> 
     out.sort_by(|a, b| match (a.is_dir, b.is_dir) {
         (true, false) => std::cmp::Ordering::Less,
         (false, true) => std::cmp::Ordering::Greater,
-        _ => a.name.to_ascii_lowercase().cmp(&b.name.to_ascii_lowercase()),
+        _ => a
+            .name
+            .to_ascii_lowercase()
+            .cmp(&b.name.to_ascii_lowercase()),
     });
     // Cap final list at 32 entries — large plugin bundles should be opened
     // in an external editor, not browsed from inside the Control Center.
@@ -566,7 +578,9 @@ pub struct AiInstallArgs {
 /// install. Returns an `AiInstallResult` that the UI previews before the
 /// user confirms execution (or falls back to clipboard if AI is unavailable).
 #[tauri::command]
-pub async fn library_install_via_ai(args: AiInstallArgs) -> Result<library::AiInstallResult, String> {
+pub async fn library_install_via_ai(
+    args: AiInstallArgs,
+) -> Result<library::AiInstallResult, String> {
     library::install_via_ai_inner(args.repo_url, args.target_scope, args.dry_run).await
 }
 
@@ -576,7 +590,8 @@ mod catalog_tests {
 
     #[test]
     fn strips_frontmatter_and_title() {
-        let body = "---\nname: foo\ndescription: x\n---\n\n# Foo\n\nFirst real line here.\nSecond line.\n";
+        let body =
+            "---\nname: foo\ndescription: x\n---\n\n# Foo\n\nFirst real line here.\nSecond line.\n";
         let s = extract_summary(body);
         assert_eq!(s, "First real line here. Second line.");
     }

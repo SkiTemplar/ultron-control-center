@@ -337,10 +337,7 @@ pub struct SyncResult {
 
 pub fn sync_mem0_manual_inner() -> Result<SyncResult, String> {
     let home = dirs::home_dir().ok_or("no home dir")?;
-    let script = home
-        .join(".claude")
-        .join("scripts")
-        .join("mem0-sync.js");
+    let script = home.join(".claude").join("scripts").join("mem0-sync.js");
     if !script.exists() {
         return Err(format!("mem0-sync.js not found at {}", script.display()));
     }

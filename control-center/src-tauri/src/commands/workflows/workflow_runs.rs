@@ -38,12 +38,7 @@ pub async fn workflow_record_run(
         .transpose()?;
 
     tauri::async_runtime::spawn_blocking(move || {
-        workflow_runs::record_run_inner(
-            workflow_id,
-            project_id,
-            ts,
-            steps_total.unwrap_or(0),
-        )
+        workflow_runs::record_run_inner(workflow_id, project_id, ts, steps_total.unwrap_or(0))
     })
     .await
     .map_err(|e| e.to_string())?

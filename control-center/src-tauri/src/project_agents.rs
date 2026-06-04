@@ -187,7 +187,7 @@ pub fn detect_stack(project_path: &str) -> Vec<String> {
         ("flask", "python"),
         ("go ", "go"),
         ("golang", "go"),
-        ("module ", "go"),          // go.mod starts with "module"
+        ("module ", "go"), // go.mod starts with "module"
         ("java", "java"),
         ("spring", "java"),
         ("kotlin", "kotlin"),
@@ -279,8 +279,7 @@ fn fallback_proposal(stack: &[String], agents: &[(String, String)]) -> AgentRost
         })
         .collect();
 
-    let by_name: std::collections::HashSet<&str> =
-        agents.iter().map(|(n, _)| n.as_str()).collect();
+    let by_name: std::collections::HashSet<&str> = agents.iter().map(|(n, _)| n.as_str()).collect();
     let mut recommended: Vec<RosterEntry> = Vec::new();
     let mut used: std::collections::HashSet<String> = Default::default();
 
@@ -318,7 +317,13 @@ fn fallback_proposal(stack: &[String], agents: &[(String, String)]) -> AgentRost
         if recommended.len() >= 7 {
             break;
         }
-        add(slug, role, "Universal baseline agent", &mut recommended, &mut used);
+        add(
+            slug,
+            role,
+            "Universal baseline agent",
+            &mut recommended,
+            &mut used,
+        );
     }
 
     AgentRosterProposal {
@@ -336,10 +341,7 @@ fn fallback_proposal(stack: &[String], agents: &[(String, String)]) -> AgentRost
 ///   "gaps": [{"suggested_name": "...", "reason": "..."}]
 /// }
 /// ```
-fn parse_ai_response(
-    raw: &str,
-    stack: Vec<String>,
-) -> Result<AgentRosterProposal, String> {
+fn parse_ai_response(raw: &str, stack: Vec<String>) -> Result<AgentRosterProposal, String> {
     // The model may wrap the JSON in a markdown fence — strip it.
     let trimmed = raw.trim();
     let json_str = if let Some(s) = trimmed.strip_prefix("```json") {
@@ -412,8 +414,11 @@ pub fn propose_roster_inner(
 
     // Current roster so the AI does not re-suggest already-pinned agents.
     let current_roster = roster_load(project_id)?;
-    let pinned_names: Vec<&str> =
-        current_roster.entries.iter().map(|e| e.name.as_str()).collect();
+    let pinned_names: Vec<&str> = current_roster
+        .entries
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect();
 
     // Build a human-readable catalogue: "rust-engineer — Rust systems / Tauri backend"
     let agents_catalogue = agents
@@ -535,19 +540,14 @@ pub fn invoke_from_session_inner(
 
     // Build the delegation text.  Claude Code understands natural-language
     // sub-agent instructions — "Use the X agent to: <task>" is idiomatic.
-    let instruction = format!(
-        "Use the {agent_name} agent to: {sanitized}\n"
-    );
+    let instruction = format!("Use the {agent_name} agent to: {sanitized}\n");
 
     // write_inner expects base64-encoded bytes.
     let engine = base64::engine::general_purpose::STANDARD;
     let encoded = engine.encode(instruction.as_bytes());
     write_inner(pty_id.clone(), encoded)?;
 
-    Ok(InvokeResult {
-        pty_id,
-        sent: true,
-    })
+    Ok(InvokeResult { pty_id, sent: true })
 }
 
 // ---------------------------------------------------------------------------
@@ -562,10 +562,7 @@ pub fn invoke_from_session_inner(
 ///   "recommended": [{"name": "...", "reason": "...", "tags": ["..."]}]
 /// }
 /// ```
-fn parse_skill_ai_response(
-    raw: &str,
-    stack: Vec<String>,
-) -> Result<SkillRosterProposal, String> {
+fn parse_skill_ai_response(raw: &str, stack: Vec<String>) -> Result<SkillRosterProposal, String> {
     let trimmed = raw.trim();
     let json_str = if let Some(s) = trimmed.strip_prefix("```json") {
         s.trim_end_matches("```").trim()
@@ -599,7 +596,10 @@ fn parse_skill_ai_response(
         })
         .unwrap_or_default();
 
-    Ok(SkillRosterProposal { recommended, detected_stack: stack })
+    Ok(SkillRosterProposal {
+        recommended,
+        detected_stack: stack,
+    })
 }
 
 /// Deterministic fallback for skill proposals when the AI Router is unavailable.
@@ -771,7 +771,11 @@ mod tests {
             make_skill("react-hooks", "React hooks best practices for UI"),
         ];
         let proposal = fallback_skill_proposal(&stack, &skills);
-        let names: Vec<&str> = proposal.recommended.iter().map(|e| e.name.as_str()).collect();
+        let names: Vec<&str> = proposal
+            .recommended
+            .iter()
+            .map(|e| e.name.as_str())
+            .collect();
         assert!(
             names.contains(&"rust-patterns"),
             "rust-patterns expected in proposal, got: {names:?}"

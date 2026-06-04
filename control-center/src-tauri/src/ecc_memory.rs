@@ -112,8 +112,8 @@ pub fn ecc_memory_read() -> Result<EccMemorySnapshot, String> {
         });
     };
 
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
 
     let mut entities: Vec<EccEntity> = Vec::new();
     let mut relations: Vec<EccRelation> = Vec::new();
@@ -210,8 +210,7 @@ pub fn bootstrap_ecc_memory_inner() -> Result<String, String> {
     let home = dirs::home_dir().ok_or("no home dir")?;
     let target = home.join(".claude").join("memory.jsonl");
     if let Some(parent) = target.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
     }
     // Seed with a single entity so consumers that expect non-empty JSONL
     // (and the GUI's status pill) report "loaded" instead of "empty".
@@ -224,8 +223,7 @@ pub fn bootstrap_ecc_memory_inner() -> Result<String, String> {
             "Replace or extend via the memory MCP (create_entities / add_observations)."
         ]
     });
-    let line = serde_json::to_string(&seed)
-        .map_err(|e| format!("serialize seed: {e}"))?;
+    let line = serde_json::to_string(&seed).map_err(|e| format!("serialize seed: {e}"))?;
     std::fs::write(&target, format!("{line}\n"))
         .map_err(|e| format!("write {}: {e}", target.display()))?;
     Ok(target.display().to_string())
@@ -281,9 +279,7 @@ mod tests {
                                 .and_then(|v| v.as_array())
                                 .map(|arr| {
                                     arr.iter()
-                                        .filter_map(|x| {
-                                            x.as_str().map(|s| s.to_string())
-                                        })
+                                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
                                         .collect()
                                 })
                                 .unwrap_or_default(),

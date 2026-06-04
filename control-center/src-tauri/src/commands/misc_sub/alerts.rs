@@ -1,6 +1,6 @@
 // Alerts / changelog / UI alert sink commands.
-use crate::alerts_admin;
 use super::read_jsonl_tail;
+use crate::alerts_admin;
 
 #[tauri::command]
 pub async fn read_alerts(limit: Option<usize>) -> Result<Vec<serde_json::Value>, String> {
@@ -14,9 +14,21 @@ pub async fn read_alerts(limit: Option<usize>) -> Result<Vec<serde_json::Value>,
     let filtered: Vec<serde_json::Value> = raw
         .into_iter()
         .filter(|v| {
-            let has_message = v.get("message").and_then(|m| m.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
-            let has_source = v.get("source").and_then(|s| s.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
-            let has_severity = v.get("severity").and_then(|s| s.as_str()).map(|s| !s.is_empty()).unwrap_or(false);
+            let has_message = v
+                .get("message")
+                .and_then(|m| m.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+            let has_source = v
+                .get("source")
+                .and_then(|s| s.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
+            let has_severity = v
+                .get("severity")
+                .and_then(|s| s.as_str())
+                .map(|s| !s.is_empty())
+                .unwrap_or(false);
             has_message || has_source || has_severity
         })
         .collect();
@@ -78,15 +90,41 @@ pub async fn record_ui_alert(
         loop {
             let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
             let yd: i64 = if leap { 366 } else { 365 };
-            if days < yd { break; }
+            if days < yd {
+                break;
+            }
             days -= yd;
             year += 1;
         }
         let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-        let mdays: [i64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+        let mdays: [i64; 12] = [
+            31,
+            if leap { 29 } else { 28 },
+            31,
+            30,
+            31,
+            30,
+            31,
+            31,
+            30,
+            31,
+            30,
+            31,
+        ];
         let mut month = 0usize;
-        while month < 12 && days >= mdays[month] { days -= mdays[month]; month += 1; }
-        format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, h, m, s)
+        while month < 12 && days >= mdays[month] {
+            days -= mdays[month];
+            month += 1;
+        }
+        format!(
+            "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+            year,
+            month + 1,
+            days + 1,
+            h,
+            m,
+            s
+        )
     };
     let entry = serde_json::json!({
         "timestamp": iso,

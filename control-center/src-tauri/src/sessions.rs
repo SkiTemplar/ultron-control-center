@@ -121,8 +121,7 @@ pub struct SpawnFlags {
 /// across the powershell.exe argument boundary without dealing with quote
 /// escaping. Encoding is RFC 4648 standard alphabet with `=` padding.
 pub fn base64_encode(input: &str) -> String {
-    const ALPH: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const ALPH: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let bytes = input.as_bytes();
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     let mut i = 0;
@@ -187,7 +186,6 @@ fn prepend_agent_directive(prompt: &str, agent: Option<&str>) -> String {
         _ => prompt.to_string(),
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // run_inline

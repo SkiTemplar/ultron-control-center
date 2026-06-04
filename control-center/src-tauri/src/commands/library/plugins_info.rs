@@ -48,14 +48,10 @@ pub async fn check_plugin_updates() -> Result<Vec<pi::PluginUpdateStatus>, Strin
 /// Results are cached to `~/.ultron/cockpit/plugin-update-cache.json` for
 /// 1 hour to avoid hammering the GitHub API on every panel open.
 #[tauri::command]
-pub async fn plugin_check_updates_bulk(
-    force: bool,
-) -> Result<Vec<pi::PluginBulkUpdate>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        pi::plugin_check_updates_bulk_inner(force)
-    })
-    .await
-    .map_err(|e| format!("join error: {e}"))?
+pub async fn plugin_check_updates_bulk(force: bool) -> Result<Vec<pi::PluginBulkUpdate>, String> {
+    tauri::async_runtime::spawn_blocking(move || pi::plugin_check_updates_bulk_inner(force))
+        .await
+        .map_err(|e| format!("join error: {e}"))?
 }
 
 /// AI-powered changelog summary for a single plugin.
@@ -71,10 +67,7 @@ pub async fn plugin_changelog_summary(
     installed_sha: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        pi::plugin_changelog_summary_inner(
-            &coordinate,
-            installed_sha.as_deref(),
-        )
+        pi::plugin_changelog_summary_inner(&coordinate, installed_sha.as_deref())
     })
     .await
     .map_err(|e| format!("join error: {e}"))?

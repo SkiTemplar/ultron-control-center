@@ -155,16 +155,30 @@ pub fn search_catalog(query: &str, entity: Option<&str>, k: u32) -> Vec<CatalogH
     if vector.iter().all(|&x| x == 0.0) {
         return Vec::new();
     }
-    let filter = entity.map(|e| {
-        serde_json::json!({ "must": [{ "key": "entity", "match": { "value": e } }] })
-    });
+    let filter = entity
+        .map(|e| serde_json::json!({ "must": [{ "key": "entity", "match": { "value": e } }] }));
     match crate::qdrant::search_with_vector(CATALOG_COLLECTION, vector, k, filter) {
         Ok(hits) => hits
             .into_iter()
             .map(|h| CatalogHit {
-                entity: h.payload.get("entity").and_then(|v| v.as_str()).unwrap_or("agent").to_string(),
-                name: h.payload.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                description: h.payload.get("description").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                entity: h
+                    .payload
+                    .get("entity")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("agent")
+                    .to_string(),
+                name: h
+                    .payload
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                description: h
+                    .payload
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 score: h.score,
             })
             .collect(),
@@ -206,16 +220,25 @@ mod tests {
     fn e2e_catalog_index_and_route() {
         let (indexed, errors) = index_agents().expect("index_agents");
         eprintln!("\n=== CATALOG === indexed={indexed} errors={errors}");
-        assert!(indexed >= 50, "expected the real agent catalog (~78) indexed");
+        assert!(
+            indexed >= 50,
+            "expected the real agent catalog (~78) indexed"
+        );
 
-        let hits = search_catalog("review my code for security vulnerabilities and quality", Some("agent"), 5);
+        let hits = search_catalog(
+            "review my code for security vulnerabilities and quality",
+            Some("agent"),
+            5,
+        );
         eprintln!("=== ROUTE 'review code security' ===");
         for h in &hits {
             eprintln!("  [{:.3}] {}", h.score, h.name);
         }
         assert!(!hits.is_empty(), "catalog search returned nothing");
         assert!(
-            hits.iter().take(5).any(|h| h.name.contains("review") || h.name.contains("security")),
+            hits.iter()
+                .take(5)
+                .any(|h| h.name.contains("review") || h.name.contains("security")),
             "a code-review/security agent should rank in the top 5"
         );
     }

@@ -1,6 +1,6 @@
 // Project CRUD + launcher + open-in-IDE commands.
-use crate::projects;
 use crate::project_context;
+use crate::projects;
 
 #[tauri::command]
 pub async fn list_projects() -> Result<Vec<projects::ProjectInfo>, String> {
@@ -16,9 +16,7 @@ pub async fn open_project(
 }
 
 #[tauri::command]
-pub async fn scan_projects(
-    app: tauri::AppHandle,
-) -> Result<Vec<projects::ProjectInfo>, String> {
+pub async fn scan_projects(app: tauri::AppHandle) -> Result<Vec<projects::ProjectInfo>, String> {
     projects::scan_projects_inner(&app).await
 }
 
@@ -39,17 +37,20 @@ pub async fn create_project(
     notes: Option<String>,
 ) -> Result<projects::CreateProjectResult, String> {
     // F2: route through *_with_emit so project.created notifications fire
-    projects::create_project_inner_with_emit(&app, projects::CreateProjectPayload {
-        name,
-        path,
-        ide,
-        language,
-        tags,
-        default_provider,
-        default_shell,
-        parent_folder_override,
-        notes,
-    })
+    projects::create_project_inner_with_emit(
+        &app,
+        projects::CreateProjectPayload {
+            name,
+            path,
+            ide,
+            language,
+            tags,
+            default_provider,
+            default_shell,
+            parent_folder_override,
+            notes,
+        },
+    )
 }
 
 #[tauri::command]
@@ -149,10 +150,7 @@ pub async fn launch_item(
 }
 
 #[tauri::command]
-pub async fn launch_all_items(
-    app: tauri::AppHandle,
-    project_id: String,
-) -> Result<usize, String> {
+pub async fn launch_all_items(app: tauri::AppHandle, project_id: String) -> Result<usize, String> {
     projects::launch_all_items_inner(app, project_id).await
 }
 
@@ -169,7 +167,9 @@ pub async fn open_project_in_ide(
     if !p.is_dir() && !p.is_file() {
         return Err(format!("path not found: {}", path));
     }
-    let canonical = p.canonicalize().map_err(|e| format!("canonicalize: {}", e))?;
+    let canonical = p
+        .canonicalize()
+        .map_err(|e| format!("canonicalize: {}", e))?;
     let canonical_str = canonical.to_string_lossy().to_string();
     // Strip the Windows extended path prefix \\?\ which `code` doesn't like.
     let cleaned = canonical_str
@@ -192,9 +192,7 @@ pub async fn open_project_in_ide(
     let slug_to_cli = |s: &str| match s.to_ascii_lowercase().as_str() {
         "vscode" | "vs code" | "code" => Some("code"),
         "cursor" => Some("cursor"),
-        "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => {
-            Some("code-insiders")
-        }
+        "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => Some("code-insiders"),
         "rider" => Some("rider"),
         "webstorm" => Some("webstorm"),
         "pycharm" => Some("pycharm"),
@@ -231,8 +229,11 @@ pub async fn open_project_in_ide(
     }
 
     for cli in &candidates {
-        if std::process::Command::new("where").arg(cli).output()
-            .map(|o| o.status.success()).unwrap_or(false)
+        if std::process::Command::new("where")
+            .arg(cli)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
         {
             // Use cmd /C to invoke the .cmd shim winget installs.
             let mut cmd = std::process::Command::new("cmd");
@@ -255,7 +256,9 @@ pub async fn open_project_in_ide(
         use std::os::windows::process::CommandExt;
         explorer.creation_flags(0x08000000);
     }
-    explorer.spawn().map_err(|e| format!("spawn explorer: {}", e))?;
+    explorer
+        .spawn()
+        .map_err(|e| format!("spawn explorer: {}", e))?;
     Ok("opened in file explorer (no IDE on PATH)".to_string())
 }
 
@@ -287,10 +290,7 @@ pub async fn project_claude_md_load(project_path: String) -> Result<String, Stri
 }
 
 #[tauri::command]
-pub async fn project_claude_md_save(
-    project_path: String,
-    content: String,
-) -> Result<(), String> {
+pub async fn project_claude_md_save(project_path: String, content: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = resolve_claude_md(&project_path);
         if let Some(parent) = path.parent() {

@@ -283,11 +283,14 @@ pub fn link_ai_inner(
 /// Return the currently active session for a project, if any.
 pub fn active_session_inner(project_id: String) -> Result<Option<WorkSession>, String> {
     let sessions = read_all(&project_id)?;
-    Ok(sessions.into_iter().find(|s| s.status == WorkSessionStatus::Active))
+    Ok(sessions
+        .into_iter()
+        .find(|s| s.status == WorkSessionStatus::Active))
 }
 
 fn parse_epoch_secs(ts: &str) -> Option<u64> {
-    ts.strip_prefix("epoch:").and_then(|n| n.parse::<u64>().ok())
+    ts.strip_prefix("epoch:")
+        .and_then(|n| n.parse::<u64>().ok())
 }
 
 /// Auto-link an AI session to a work-session using the 2h gap heuristic.
@@ -392,9 +395,7 @@ pub fn project_work_session_link_ai(
 }
 
 #[tauri::command]
-pub fn project_work_session_active(
-    project_id: String,
-) -> Result<Option<WorkSession>, String> {
+pub fn project_work_session_active(project_id: String) -> Result<Option<WorkSession>, String> {
     active_session_inner(project_id)
 }
 

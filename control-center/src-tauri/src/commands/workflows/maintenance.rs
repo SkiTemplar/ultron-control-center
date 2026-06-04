@@ -7,7 +7,9 @@ pub async fn list_maintenance_commands() -> Result<Vec<maintenance::MaintenanceC
 }
 
 #[tauri::command]
-pub async fn run_maintenance_command(kind: String) -> Result<maintenance::MaintenanceResult, String> {
+pub async fn run_maintenance_command(
+    kind: String,
+) -> Result<maintenance::MaintenanceResult, String> {
     maintenance::run_maintenance_inner(kind)
 }
 

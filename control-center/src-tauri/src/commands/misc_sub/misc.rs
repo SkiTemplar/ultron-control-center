@@ -30,10 +30,7 @@ pub async fn list_logs() -> Result<Vec<logs::LogSource>, String> {
 }
 
 #[tauri::command]
-pub async fn tail_log(
-    source_id: String,
-    lines: Option<usize>,
-) -> Result<logs::LogTail, String> {
+pub async fn tail_log(source_id: String, lines: Option<usize>) -> Result<logs::LogTail, String> {
     logs::tail_log_inner(source_id, lines)
 }
 
@@ -60,7 +57,9 @@ pub async fn compute_activity_timeline(
 }
 
 #[tauri::command]
-pub async fn compute_cost(window_hours: Option<u32>) -> Result<cost_watchdog::CostSnapshot, String> {
+pub async fn compute_cost(
+    window_hours: Option<u32>,
+) -> Result<cost_watchdog::CostSnapshot, String> {
     cost_watchdog::compute_cost_inner(window_hours.unwrap_or(6))
 }
 

@@ -102,10 +102,7 @@ pub enum LoaderError {
 /// Creates `~/.ultron/cockpit/workflows/` if it does not yet exist.
 pub fn workflows_dir() -> Result<PathBuf, LoaderError> {
     let home = dirs::home_dir().ok_or(LoaderError::NoHome)?;
-    let dir = home
-        .join(".ultron")
-        .join("cockpit")
-        .join("workflows");
+    let dir = home.join(".ultron").join("cockpit").join("workflows");
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
@@ -183,8 +180,7 @@ pub fn load_user_workflows() -> Result<Vec<UserWorkflow>, String> {
 /// Returns `Ok(())` when valid, `Err(message)` with a human-readable reason
 /// otherwise. Checks id slug format, label length, and step count.
 fn validate_user_workflow(wf: &UserWorkflow, file_name: &str) -> Result<(), String> {
-    validate_workflow_id(&wf.id)
-        .map_err(|e| format!("{file_name}: id — {e}"))?;
+    validate_workflow_id(&wf.id).map_err(|e| format!("{file_name}: id — {e}"))?;
 
     let label = wf.label.trim();
     if label.is_empty() {
@@ -255,13 +251,10 @@ pub fn merge_with_builtin(
     user: Vec<UserWorkflow>,
     builtin: Vec<WorkflowDefinition>,
 ) -> Vec<WorkflowDefinition> {
-    let mut out: Vec<WorkflowDefinition> = user
-        .into_iter()
-        .map(user_workflow_to_definition)
-        .collect();
+    let mut out: Vec<WorkflowDefinition> =
+        user.into_iter().map(user_workflow_to_definition).collect();
 
-    let user_ids: std::collections::HashSet<String> =
-        out.iter().map(|w| w.id.clone()).collect();
+    let user_ids: std::collections::HashSet<String> = out.iter().map(|w| w.id.clone()).collect();
 
     for b in builtin {
         if !user_ids.contains(&b.id) {
@@ -302,7 +295,10 @@ fn user_workflow_to_definition(wf: UserWorkflow) -> WorkflowDefinition {
 /// but never bubble up to the caller. Calling this at startup is idempotent.
 pub fn migrate_legacy_json_if_present() {
     let Some(home) = dirs::home_dir() else { return };
-    let src = home.join(".ultron").join("cockpit").join("workflows-old.json");
+    let src = home
+        .join(".ultron")
+        .join("cockpit")
+        .join("workflows-old.json");
     if !src.is_file() {
         return;
     }

@@ -39,7 +39,10 @@ fn projects_dir() -> Option<PathBuf> {
 /// Convert mtime to ISO 8601 in UTC without pulling in chrono.
 fn mtime_iso(meta: &fs::Metadata) -> Option<String> {
     let modified = meta.modified().ok()?;
-    let secs = modified.duration_since(SystemTime::UNIX_EPOCH).ok()?.as_secs();
+    let secs = modified
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
     Some(format_iso(secs))
 }
 
@@ -53,18 +56,41 @@ fn format_iso(secs: u64) -> String {
     loop {
         let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
         let yd: i64 = if leap { 366 } else { 365 };
-        if days < yd { break; }
+        if days < yd {
+            break;
+        }
         days -= yd;
         year += 1;
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let mdays: [i64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mdays: [i64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {
         days -= mdays[month];
         month += 1;
     }
-    format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, h, m, s)
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year,
+        month + 1,
+        days + 1,
+        h,
+        m,
+        s
+    )
 }
 
 /// Recover the original cwd from Claude's slugified folder name. Claude
@@ -160,7 +186,9 @@ fn extract_first_user_message(path: &PathBuf) -> Option<String> {
     // Bounded scan — first 200 lines is plenty to find an initial user
     // message even in a transcript that begins with system metadata.
     for line in content.lines().take(200) {
-        if line.is_empty() { continue; }
+        if line.is_empty() {
+            continue;
+        }
         let parsed: serde_json::Value = match serde_json::from_str(line) {
             Ok(v) => v,
             Err(_) => continue,
@@ -169,7 +197,9 @@ fn extract_first_user_message(path: &PathBuf) -> Option<String> {
         //   {"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}
         // We tolerate a couple of shapes (string content, single-block, multi-block).
         let typ = parsed.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if typ != "user" { continue; }
+        if typ != "user" {
+            continue;
+        }
         let msg = parsed.get("message").unwrap_or(&parsed);
         if let Some(s) = msg.get("content").and_then(|v| v.as_str()) {
             return Some(trim_preview(s));
@@ -360,8 +390,7 @@ fn find_git_root_above(cwd: &str) -> Option<String> {
     // Cycle-detection set guards against adversarial symlinks where
     // `parent()` can return a path already visited (KIRKARDO 3 MED).
     // The 8-level bound is kept as a defense-in-depth ceiling.
-    let mut seen: std::collections::HashSet<std::path::PathBuf> =
-        std::collections::HashSet::new();
+    let mut seen: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
     for _ in 0..8 {
         if !seen.insert(current.clone()) {
             // Already visited this exact path — symlink loop, abort.

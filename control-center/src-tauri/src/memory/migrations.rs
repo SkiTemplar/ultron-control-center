@@ -94,7 +94,11 @@ pub fn etl_sessions(report: &mut SourceReport) -> Result<(), MemoryError> {
     };
     for p in points {
         let pl = &p.payload;
-        if pl.get("embed_stub").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if pl
+            .get("embed_stub")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
             report.skipped_stub += 1;
             continue;
         }
@@ -102,14 +106,25 @@ pub fn etl_sessions(report: &mut SourceReport) -> Result<(), MemoryError> {
             report.skipped_existing += 1;
             continue;
         }
-        let text = pl.get("text").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let text = pl
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         if text.is_empty() {
             report.errors += 1;
             continue;
         }
         let kind = pl.get("kind").and_then(|v| v.as_str()).unwrap_or("fact");
-        let importance = pl.get("importance").and_then(serde_json::Value::as_f64).unwrap_or(0.5) as f32;
-        let used_ai = pl.get("used_ai").and_then(serde_json::Value::as_bool).unwrap_or(true);
+        let importance = pl
+            .get("importance")
+            .and_then(serde_json::Value::as_f64)
+            .unwrap_or(0.5) as f32;
+        let used_ai = pl
+            .get("used_ai")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
         let project = pl.get("project").and_then(|v| v.as_str()).unwrap_or("");
         let date = pl.get("date").and_then(|v| v.as_str()).unwrap_or("");
 
@@ -123,7 +138,10 @@ pub fn etl_sessions(report: &mut SourceReport) -> Result<(), MemoryError> {
         item.content = Some(text);
         item.importance = importance.clamp(0.0, 1.0);
         item.project_id = normalize_project(project);
-        item.source_session_id = pl.get("session_id").and_then(|v| v.as_str()).map(str::to_string);
+        item.source_session_id = pl
+            .get("session_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
         item.qdrant_point_id = Some(p.id.clone());
         if let Some(ms) = date_to_millis(date) {
             item.created_at = ms;
@@ -222,7 +240,10 @@ pub fn etl_vault(report: &mut SourceReport) -> Result<(), MemoryError> {
         report.note = "no HOME dir".to_string();
         return Ok(());
     };
-    let distilled = home.join(".ultron-vault").join("50_SESSIONS_LOG").join("distilled");
+    let distilled = home
+        .join(".ultron-vault")
+        .join("50_SESSIONS_LOG")
+        .join("distilled");
     if !distilled.exists() {
         report.note = format!("vault distilled dir not found: {}", distilled.display());
         return Ok(());
@@ -270,17 +291,31 @@ pub fn etl_vault(report: &mut SourceReport) -> Result<(), MemoryError> {
                     continue;
                 }
             };
-            let target = v.get("target").and_then(|t| t.as_str()).unwrap_or("").trim().to_string();
+            let target = v
+                .get("target")
+                .and_then(|t| t.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
             if target.is_empty() {
                 continue;
             }
-            let domain = v.get("domain").and_then(|d| d.as_str()).unwrap_or("general").to_string();
-            let mut item = MemoryItem::new(kind, Scope::Global, Source::ImportedVault, Status::Active);
+            let domain = v
+                .get("domain")
+                .and_then(|d| d.as_str())
+                .unwrap_or("general")
+                .to_string();
+            let mut item =
+                MemoryItem::new(kind, Scope::Global, Source::ImportedVault, Status::Active);
             item.summary = Some(target.clone());
             item.content = Some(target);
             item.source_session_id = v.get("sid").and_then(|s| s.as_str()).map(str::to_string);
             item.tags = vec!["imported_vault".to_string(), domain];
-            if let Some(ms) = v.get("ts").and_then(|t| t.as_str()).and_then(date_to_millis) {
+            if let Some(ms) = v
+                .get("ts")
+                .and_then(|t| t.as_str())
+                .and_then(date_to_millis)
+            {
                 item.created_at = ms;
                 item.updated_at = ms;
             }
@@ -305,8 +340,12 @@ fn backup_brain_db() -> Option<String> {
     if !src.exists() {
         return None;
     }
-    let dst = home.join(".ultron").join(format!("brain.db.bak-{}", super::model::now_millis()));
-    std::fs::copy(&src, &dst).ok().map(|_| dst.display().to_string())
+    let dst = home
+        .join(".ultron")
+        .join(format!("brain.db.bak-{}", super::model::now_millis()));
+    std::fs::copy(&src, &dst)
+        .ok()
+        .map(|_| dst.display().to_string())
 }
 
 /// Run the full one-shot migration (backup + all sources). Idempotent.
@@ -339,7 +378,10 @@ mod tests {
     #[test]
     fn project_basename_is_normalised() {
         assert_eq!(normalize_project(".ultron").as_deref(), Some("ultron"));
-        assert_eq!(normalize_project("control-center").as_deref(), Some("control-center"));
+        assert_eq!(
+            normalize_project("control-center").as_deref(),
+            Some("control-center")
+        );
         assert_eq!(normalize_project("  "), None);
     }
 

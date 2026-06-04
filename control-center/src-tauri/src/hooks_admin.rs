@@ -235,10 +235,7 @@ fn flatten_hooks(root: &serde_json::Value) -> Vec<Hook> {
                 let Some(entry_obj) = entry.as_object() else {
                     continue;
                 };
-                let type_str = entry_obj
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let type_str = entry_obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 // Either "command" (enabled) or "disabled-command" (our
                 // toggle-off marker). Anything else we skip — could be a
                 // future Claude Code hook type we don't model yet.
@@ -427,9 +424,7 @@ where
             // without holding the borrow past the lookup — we re-borrow
             // when we apply the mutation so we can safely touch
             // `group_obj` afterwards to (re)write the matcher.
-            let target_idx: Option<usize> = match group_obj
-                .get("hooks")
-                .and_then(|v| v.as_array())
+            let target_idx: Option<usize> = match group_obj.get("hooks").and_then(|v| v.as_array())
             {
                 Some(inner_arr) => {
                     let mut found: Option<usize> = None;
@@ -437,10 +432,7 @@ where
                         let Some(entry_obj) = entry.as_object() else {
                             continue;
                         };
-                        let type_str = entry_obj
-                            .get("type")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let type_str = entry_obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
                         if type_str != "command" && type_str != "disabled-command" {
                             continue;
                         }
@@ -502,10 +494,7 @@ where
             // is gone.
             match &matcher {
                 Some(m) if !m.is_empty() => {
-                    group_obj.insert(
-                        "matcher".to_string(),
-                        serde_json::Value::String(m.clone()),
-                    );
+                    group_obj.insert("matcher".to_string(), serde_json::Value::String(m.clone()));
                 }
                 _ => {
                     group_obj.remove("matcher");
@@ -552,8 +541,7 @@ fn delete_entry_by_id(
                 .get("matcher")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let Some(inner_arr) = group_obj.get_mut("hooks").and_then(|v| v.as_array_mut())
-            else {
+            let Some(inner_arr) = group_obj.get_mut("hooks").and_then(|v| v.as_array_mut()) else {
                 continue;
             };
             let mut entry_idx_to_remove: Option<usize> = None;
@@ -561,10 +549,7 @@ fn delete_entry_by_id(
                 let Some(entry_obj) = entry.as_object() else {
                     continue;
                 };
-                let type_str = entry_obj
-                    .get("type")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let type_str = entry_obj.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 if type_str != "command" && type_str != "disabled-command" {
                     continue;
                 }
@@ -906,10 +891,7 @@ pub fn delete_hook_inner(id: String) -> Result<HookMutationResult, String> {
 /// env var so hooks that read it explicitly can opt in. Hooks that read
 /// stdin directly will block on EOF and hit the timeout — that's the
 /// intended behavior (the UI displays a banner explaining why).
-pub fn test_hook_inner(
-    id: String,
-    mock_payload: Option<String>,
-) -> Result<HookTestResult, String> {
+pub fn test_hook_inner(id: String, mock_payload: Option<String>) -> Result<HookTestResult, String> {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
@@ -1166,14 +1148,9 @@ pub async fn request_hook_via_ai_inner(
     // can refine. Same pattern as Memory's "New note with AI" — no
     // inline round-trip parsing because hooks deserve a human-in-the-loop
     // confirmation step.
-    let _ = crate::sessions::spawn_session_inner(
-        app,
-        "claude".to_string(),
-        Some(prompt),
-        None,
-        None,
-    )
-    .await?;
+    let _ =
+        crate::sessions::spawn_session_inner(app, "claude".to_string(), Some(prompt), None, None)
+            .await?;
     Ok("Claude session abierta — pega el JSON resultante en Add hook".to_string())
 }
 
@@ -1191,11 +1168,21 @@ pub struct HookLastFired {
 
 pub fn hooks_last_fired_inner(id: String) -> HookLastFired {
     let Some(home) = dirs::home_dir() else {
-        return HookLastFired { id, timestamp: None, project: None, exit_code: None };
+        return HookLastFired {
+            id,
+            timestamp: None,
+            project: None,
+            exit_code: None,
+        };
     };
     let base = home.join(".claude").join("projects");
     if !base.exists() {
-        return HookLastFired { id, timestamp: None, project: None, exit_code: None };
+        return HookLastFired {
+            id,
+            timestamp: None,
+            project: None,
+            exit_code: None,
+        };
     }
     let mut latest: Option<(String, String, Option<i32>)> = None;
     if let Ok(rd) = std::fs::read_dir(&base) {
@@ -1205,7 +1192,9 @@ pub fn hooks_last_fired_inner(id: String) -> HookLastFired {
                 continue;
             }
             let project_slug = entry.file_name().to_string_lossy().to_string();
-            let Ok(txt) = std::fs::read_to_string(&p) else { continue };
+            let Ok(txt) = std::fs::read_to_string(&p) else {
+                continue;
+            };
             // Look at the most recent 50 lines for this hook's id.
             for line in txt.lines().rev().take(50) {
                 let Ok(json): Result<serde_json::Value, _> = serde_json::from_str(line) else {
@@ -1245,7 +1234,12 @@ pub fn hooks_last_fired_inner(id: String) -> HookLastFired {
             project: Some(proj),
             exit_code: ec,
         },
-        None => HookLastFired { id, timestamp: None, project: None, exit_code: None },
+        None => HookLastFired {
+            id,
+            timestamp: None,
+            project: None,
+            exit_code: None,
+        },
     }
 }
 
@@ -1267,11 +1261,7 @@ pub struct HookNameResult {
 
 /// Path to the names cache JSON.
 fn names_cache_path() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| {
-        h.join(".ultron")
-            .join("cockpit")
-            .join("hooks-names.json")
-    })
+    dirs::home_dir().map(|h| h.join(".ultron").join("cockpit").join("hooks-names.json"))
 }
 
 /// Read the entire cache map (hook_id → name_record). Returns an empty map on
@@ -1331,7 +1321,8 @@ fn heuristic_name(command: &str) -> String {
         let lower = line.trim().to_lowercase();
         if lower.starts_with("function ") {
             if let Some(name) = lower.strip_prefix("function ") {
-                let name = name.split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
+                let name = name
+                    .split(|c: char| !c.is_alphanumeric() && c != '-' && c != '_')
                     .next()
                     .unwrap_or("")
                     .to_string();
@@ -1658,11 +1649,14 @@ fn extract_script_path(command: &str) -> Option<PathBuf> {
         let tok = raw.trim_matches(|c| c == '"' || c == '\'');
         let lower = tok.to_ascii_lowercase();
         if EXTS.iter().any(|e| lower.ends_with(e)) {
-            let expanded = if let Some(rest) = tok.strip_prefix("~/").or_else(|| tok.strip_prefix("~\\")) {
-                dirs::home_dir().map(|h| h.join(rest)).unwrap_or_else(|| PathBuf::from(tok))
-            } else {
-                PathBuf::from(tok)
-            };
+            let expanded =
+                if let Some(rest) = tok.strip_prefix("~/").or_else(|| tok.strip_prefix("~\\")) {
+                    dirs::home_dir()
+                        .map(|h| h.join(rest))
+                        .unwrap_or_else(|| PathBuf::from(tok))
+                } else {
+                    PathBuf::from(tok)
+                };
             return Some(expanded);
         }
     }
@@ -1699,10 +1693,8 @@ fn parse_script_header(path: &Path) -> Option<String> {
             .trim_start_matches('#')
             .trim();
         // Stop once code starts (no comment marker and we already have text).
-        let is_comment = t.starts_with("/*")
-            || t.starts_with('*')
-            || t.starts_with("//")
-            || t.starts_with('#');
+        let is_comment =
+            t.starts_with("/*") || t.starts_with('*') || t.starts_with("//") || t.starts_with('#');
         if !is_comment {
             if summary_lines.is_empty() {
                 continue;

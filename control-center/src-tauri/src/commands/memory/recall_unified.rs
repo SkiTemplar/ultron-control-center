@@ -15,7 +15,9 @@ use serde::Serialize;
 
 use crate::memory::qdrant_index;
 use crate::memory::sqlite_store as store;
-use crate::memory::{Actor, EventType, MemoryEvent, MemoryService, Scope, Sensitivity, Source, Status};
+use crate::memory::{
+    Actor, EventType, MemoryEvent, MemoryService, Scope, Sensitivity, Source, Status,
+};
 
 const RRF_K: f32 = 60.0; // standard RRF damping constant
 const DEFAULT_LIMIT: usize = 8; // final entries returned
@@ -33,7 +35,7 @@ pub struct RecallEntry {
     pub dense_rank: Option<usize>,
     pub sparse_rank: Option<usize>,
     pub dense_score: Option<f32>, // raw E5 cosine similarity (B1: tie-break / quality signal)
-    pub reason: String, // "why this memory" — e.g. "dense#2 + sparse#5"
+    pub reason: String,           // "why this memory" — e.g. "dense#2 + sparse#5"
     pub token_estimate: i64,
 }
 
@@ -196,24 +198,36 @@ pub(crate) fn assemble_pack(
 /// compact `recall` and the verbose `recall_inspect` derive from this so there is
 /// ONE retrieval path. Global-scope items bypass the project filter (they apply
 /// everywhere). Emits a `Retrieved` audit event.
-pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -> Result<RecallTrace, String> {
+pub(crate) fn build_trace(
+    query: &str,
+    limit: usize,
+    project_id: Option<&str>,
+) -> Result<RecallTrace, String> {
     use std::collections::HashMap;
 
     // (1) DENSE — E5 query embedding + Qdrant filtered k-NN (empty if offline).
     //     Score-aware (B1): keep the cosine similarity to break RRF ties.
     let dense_scored = qdrant_index::search_dense_scored(query, FANOUT_K as u32, project_id);
     let dense_ids: Vec<String> = dense_scored.iter().map(|(id, _)| id.clone()).collect();
-    let dense_score_map: HashMap<&str, f32> =
-        dense_scored.iter().map(|(id, s)| (id.as_str(), *s)).collect();
+    let dense_score_map: HashMap<&str, f32> = dense_scored
+        .iter()
+        .map(|(id, s)| (id.as_str(), *s))
+        .collect();
     // (2) SPARSE — FTS5/bm25 over ACTIVE items.
     let sparse_items =
         MemoryService::search_active(query, FANOUT_K).map_err(|e| format!("sparse search: {e}"))?;
     let sparse_ids: Vec<String> = sparse_items.iter().map(|it| it.id.clone()).collect();
 
-    let dense_rank: HashMap<&str, usize> =
-        dense_ids.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
-    let sparse_rank: HashMap<&str, usize> =
-        sparse_ids.iter().enumerate().map(|(i, id)| (id.as_str(), i)).collect();
+    let dense_rank: HashMap<&str, usize> = dense_ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (id.as_str(), i))
+        .collect();
+    let sparse_rank: HashMap<&str, usize> = sparse_ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| (id.as_str(), i))
+        .collect();
 
     // (3) RRF fusion + dedup by canonical_id; cosine similarity carried for tie-break.
     let mut fused: Vec<FusedHit> = rrf_fuse(&[dense_ids.clone(), sparse_ids.clone()], RRF_K)
@@ -296,7 +310,11 @@ pub(crate) fn build_trace(query: &str, limit: usize, project_id: Option<&str>) -
 }
 
 /// Sync compact recall pack — reused by the CLI sidecar (`ultron-memory recall`).
-pub fn recall_pack(query: &str, limit: usize, project_id: Option<&str>) -> Result<RecallPack, String> {
+pub fn recall_pack(
+    query: &str,
+    limit: usize,
+    project_id: Option<&str>,
+) -> Result<RecallPack, String> {
     let t = build_trace(query, limit, project_id)?;
     Ok(RecallPack {
         dense_hits: t.dense_ids.len(),
@@ -314,9 +332,11 @@ pub async fn recall(
     project_id: Option<String>,
 ) -> Result<RecallPack, String> {
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
-    tauri::async_runtime::spawn_blocking(move || recall_pack(&query, final_limit, project_id.as_deref()))
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        recall_pack(&query, final_limit, project_id.as_deref())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 /// Retrieval Inspector: the full per-turn trace (query, filters, dense/sparse
@@ -328,9 +348,11 @@ pub async fn recall_inspect(
     project_id: Option<String>,
 ) -> Result<RecallTrace, String> {
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
-    tauri::async_runtime::spawn_blocking(move || build_trace(&query, final_limit, project_id.as_deref()))
-        .await
-        .map_err(|e| format!("spawn_blocking: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        build_trace(&query, final_limit, project_id.as_deref())
+    })
+    .await
+    .map_err(|e| format!("spawn_blocking: {e}"))?
 }
 
 /// Rebuild the dense index (`ultron_memory`) from all ACTIVE items.
@@ -390,31 +412,81 @@ mod tests {
         let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
         apply_schema(&conn).expect("schema");
 
-        let mut mk = |status: Status, scope: Scope, sens: Sensitivity, project: Option<&str>, sm: &str| {
-            let mut it = MemoryItem::new(MemoryType::Fact, scope, Source::ToolObserved, status);
-            it.summary = Some(sm.to_string());
-            it.sensitivity = sens;
-            it.project_id = project.map(str::to_string);
-            it.token_estimate = 20;
-            insert_item(&conn, &it).expect("insert");
-            it.id
-        };
+        let mut mk =
+            |status: Status, scope: Scope, sens: Sensitivity, project: Option<&str>, sm: &str| {
+                let mut it = MemoryItem::new(MemoryType::Fact, scope, Source::ToolObserved, status);
+                it.summary = Some(sm.to_string());
+                it.sensitivity = sens;
+                it.project_id = project.map(str::to_string);
+                it.token_estimate = 20;
+                insert_item(&conn, &it).expect("insert");
+                it.id
+            };
 
-        let ok = mk(Status::Active, Scope::Project, Sensitivity::Internal, Some("ultron"), "ok item");
-        let rejected = mk(Status::Rejected, Scope::Project, Sensitivity::Internal, Some("ultron"), "rejected");
-        let deprecated = mk(Status::Deprecated, Scope::Project, Sensitivity::Internal, Some("ultron"), "deprecated");
-        let secret = mk(Status::Active, Scope::Project, Sensitivity::Secret, Some("ultron"), "secret key");
-        let cross = mk(Status::Active, Scope::Project, Sensitivity::Internal, Some("otro"), "cross proj");
-        let global = mk(Status::Active, Scope::Global, Sensitivity::Internal, None, "global pref");
+        let ok = mk(
+            Status::Active,
+            Scope::Project,
+            Sensitivity::Internal,
+            Some("ultron"),
+            "ok item",
+        );
+        let rejected = mk(
+            Status::Rejected,
+            Scope::Project,
+            Sensitivity::Internal,
+            Some("ultron"),
+            "rejected",
+        );
+        let deprecated = mk(
+            Status::Deprecated,
+            Scope::Project,
+            Sensitivity::Internal,
+            Some("ultron"),
+            "deprecated",
+        );
+        let secret = mk(
+            Status::Active,
+            Scope::Project,
+            Sensitivity::Secret,
+            Some("ultron"),
+            "secret key",
+        );
+        let cross = mk(
+            Status::Active,
+            Scope::Project,
+            Sensitivity::Internal,
+            Some("otro"),
+            "cross proj",
+        );
+        let global = mk(
+            Status::Active,
+            Scope::Global,
+            Sensitivity::Internal,
+            None,
+            "global pref",
+        );
         let vault = {
-            let mut it = MemoryItem::new(MemoryType::Fact, Scope::Global, Source::ImportedVault, Status::Active);
+            let mut it = MemoryItem::new(
+                MemoryType::Fact,
+                Scope::Global,
+                Source::ImportedVault,
+                Status::Active,
+            );
             it.summary = Some("vault bulk note".into());
             it.token_estimate = 20;
             insert_item(&conn, &it).expect("insert");
             it.id
         };
 
-        let ids = [&ok, &rejected, &deprecated, &secret, &cross, &global, &vault];
+        let ids = [
+            &ok,
+            &rejected,
+            &deprecated,
+            &secret,
+            &cross,
+            &global,
+            &vault,
+        ];
         let fused: Vec<FusedHit> = ids
             .iter()
             .enumerate()
@@ -431,14 +503,25 @@ mod tests {
         let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
         assert!(inj.contains(&&ok), "active in-project item must inject");
-        assert!(inj.contains(&&global), "global-scope item must inject under project filter");
+        assert!(
+            inj.contains(&&global),
+            "global-scope item must inject under project filter"
+        );
         assert!(!inj.contains(&&rejected), "rejected must NOT inject");
         assert!(!inj.contains(&&deprecated), "deprecated must NOT inject");
-        assert!(!inj.contains(&&secret), "secret must NOT inject (audit top-risk #2)");
-        assert!(!inj.contains(&&cross), "cross-project must NOT inject");
-        assert!(!inj.contains(&&vault), "vault must be off-by-default under project filter (Ola 1b)");
         assert!(
-            discarded.iter().any(|d| d.canonical_id == secret && d.reason.contains("secret")),
+            !inj.contains(&&secret),
+            "secret must NOT inject (audit top-risk #2)"
+        );
+        assert!(!inj.contains(&&cross), "cross-project must NOT inject");
+        assert!(
+            !inj.contains(&&vault),
+            "vault must be off-by-default under project filter (Ola 1b)"
+        );
+        assert!(
+            discarded
+                .iter()
+                .any(|d| d.canonical_id == secret && d.reason.contains("secret")),
             "secret exclusion must be traced in discarded"
         );
     }
@@ -456,7 +539,12 @@ mod tests {
         match crate::qdrant::embed_e5("hola mundo, prueba de embedding", false) {
             Ok(v) => {
                 let all_zero = v.iter().all(|&x| x == 0.0);
-                eprintln!("E5 OK: dim={} all_zero={} first3={:?}", v.len(), all_zero, &v[..3.min(v.len())]);
+                eprintln!(
+                    "E5 OK: dim={} all_zero={} first3={:?}",
+                    v.len(),
+                    all_zero,
+                    &v[..3.min(v.len())]
+                );
                 assert_eq!(v.len(), 1024, "E5 must be 1024-d");
                 assert!(!all_zero, "E5 returned a zero vector");
             }
@@ -481,7 +569,10 @@ mod tests {
         //    downloads the ONNX model — may take minutes.
         let (indexed, errors) = qdrant_index::reindex_all().expect("reindex_all");
         eprintln!("\n=== REINDEX === indexed={indexed} errors={errors}");
-        assert!(indexed > 0, "expected >=1 active item indexed into ultron_memory");
+        assert!(
+            indexed > 0,
+            "expected >=1 active item indexed into ultron_memory"
+        );
 
         // 4) Hybrid recall (replicates the `recall` command's sync core).
         let query = "qdrant";
@@ -533,7 +624,10 @@ mod tests {
         let stats = MemoryService::stats().expect("stats");
         eprintln!(
             "\n=== RESUME SLICES === active={} decisions={} pinned={} pending_candidates={}",
-            stats.active, decisions.len(), pinned.len(), stats.candidates_pending
+            stats.active,
+            decisions.len(),
+            pinned.len(),
+            stats.candidates_pending
         );
         assert!(stats.active > 0, "real brain.db must have active items");
 
@@ -541,7 +635,10 @@ mod tests {
         if let Some(d) = decisions.first() {
             MemoryService::pin(&d.id, Actor::User).expect("pin");
             let after = MemoryService::list_pinned(50).expect("pinned after");
-            assert!(after.iter().any(|p| p.id == d.id), "pinned item must appear");
+            assert!(
+                after.iter().any(|p| p.id == d.id),
+                "pinned item must appear"
+            );
             eprintln!("=== pin/unpin OK on {} ===\n", d.id);
             MemoryService::unpin(&d.id, Actor::User).expect("unpin");
         }

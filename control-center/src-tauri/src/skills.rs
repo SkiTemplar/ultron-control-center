@@ -286,7 +286,10 @@ fn layer_root(home: &Path, layer: &str) -> Result<PathBuf, String> {
     match layer {
         "active" => Ok(home.join(".claude/skills")),
         "vaulted" => Ok(home.join(".ultron/skill-vault")),
-        other => Err(format!("invalid layer '{}': expected active|vaulted", other)),
+        other => Err(format!(
+            "invalid layer '{}': expected active|vaulted",
+            other
+        )),
     }
 }
 
@@ -344,10 +347,7 @@ pub fn create_skill_inner(
 
 /// Overwrite an existing SKILL.md after backing up the previous version to
 /// ~/.ultron/backups/skill-edits/<name>-<ts>.md. Refuses if the file is missing.
-pub fn update_skill_md_inner(
-    name: String,
-    content: String,
-) -> Result<SkillUpdateResult, String> {
+pub fn update_skill_md_inner(name: String, content: String) -> Result<SkillUpdateResult, String> {
     validate_slug(&name)?;
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
     let dir = locate_skill_dir(&home, &name)?;
@@ -409,8 +409,7 @@ pub fn delete_skill_inner(name: String, soft: bool) -> Result<SkillDeleteResult,
     if let Err(_e) = fs::rename(&from, &to) {
         copy_dir_recursive(&from, &to)
             .map_err(|e| format!("copy fallback {}→{}: {}", from.display(), to.display(), e))?;
-        fs::remove_dir_all(&from)
-            .map_err(|e| format!("remove src {}: {}", from.display(), e))?;
+        fs::remove_dir_all(&from).map_err(|e| format!("remove src {}: {}", from.display(), e))?;
     }
 
     Ok(SkillDeleteResult {
@@ -449,7 +448,11 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 pub(crate) fn format_ymd_local(ts: u64) -> String {
     let days = (ts / 86400) as i64;
     let z = days + 719468;
-    let era = if z >= 0 { z / 146097 } else { (z - 146096) / 146097 };
+    let era = if z >= 0 {
+        z / 146097
+    } else {
+        (z - 146096) / 146097
+    };
     let doe = z - era * 146097;
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
     let mut y = yoe + era * 400;
@@ -540,7 +543,12 @@ impl Sha1Engine {
                 40..=59 => ((b & c) | (b & d) | (c & d), 0x8F1BBCDC),
                 _ => (b ^ c ^ d, 0xCA62C1D6),
             };
-            let temp = a.rotate_left(5).wrapping_add(f).wrapping_add(e).wrapping_add(k).wrapping_add(w[i]);
+            let temp = a
+                .rotate_left(5)
+                .wrapping_add(f)
+                .wrapping_add(e)
+                .wrapping_add(k)
+                .wrapping_add(w[i]);
             e = d;
             d = c;
             c = b.rotate_left(30);
@@ -739,10 +747,7 @@ fn collect_skills_from(
         if !path.is_dir() {
             continue;
         }
-        let dir_name = path
-            .file_name()
-            .and_then(|s| s.to_str())
-            .unwrap_or("");
+        let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
         // Legacy convention: `_disabled/` container directory.
         // Recurse into it and surface each child as a disabled skill.
@@ -877,10 +882,16 @@ pub fn skill_toggle_inner(name: String, enabled: bool) -> Result<SkillEntry, Str
         return Err(format!("skill '{name}' not found at enabled path"));
     }
     if path_suffix_disabled.exists() {
-        return Err(format!("skill '{name}' already disabled (suffix path exists)"));
+        return Err(format!(
+            "skill '{name}' already disabled (suffix path exists)"
+        ));
     }
-    std::fs::rename(&path_enabled, &path_suffix_disabled)
-        .map_err(|e| format!("rename {:?} → {:?}: {e}", path_enabled, path_suffix_disabled))?;
+    std::fs::rename(&path_enabled, &path_suffix_disabled).map_err(|e| {
+        format!(
+            "rename {:?} → {:?}: {e}",
+            path_enabled, path_suffix_disabled
+        )
+    })?;
     let (n, desc, e, _) = read_skill_meta(&path_suffix_disabled);
     Ok(SkillEntry {
         name: n,
@@ -1082,9 +1093,9 @@ mod tests {
         }"#;
         let skills = parse_registry_skills(json);
         let high = skills.iter().find(|s| s.name == "too-high").unwrap();
-        let low  = skills.iter().find(|s| s.name == "too-low").unwrap();
+        let low = skills.iter().find(|s| s.name == "too-low").unwrap();
         assert_eq!(high.priority, 10, "values >10 clamped to 10");
-        assert_eq!(low.priority,  1,  "values <1 clamped to 1");
+        assert_eq!(low.priority, 1, "values <1 clamped to 1");
     }
 
     // -----------------------------------------------------------------------

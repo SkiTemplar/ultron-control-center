@@ -47,7 +47,13 @@ fn home_join(rel: &str) -> Option<PathBuf> {
 /// doesn't tell you why*. This catalog leans on background-task logs that
 /// Notifications would never surface (doctor stdout, backup robocopy output,
 /// etc.).
-fn catalog() -> Vec<(&'static str, &'static str, &'static str, &'static str, &'static str)> {
+fn catalog() -> Vec<(
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+    &'static str,
+)> {
     vec![
         (
             "alerts",
@@ -147,13 +153,26 @@ fn iso_from_systime(t: SystemTime) -> Option<String> {
     loop {
         let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
         let yd: i64 = if leap { 366 } else { 365 };
-        if days < yd { break; }
+        if days < yd {
+            break;
+        }
         days -= yd;
         year += 1;
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     let mdays: [i64; 12] = [
-        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {
@@ -162,7 +181,12 @@ fn iso_from_systime(t: SystemTime) -> Option<String> {
     }
     Some(format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month + 1, days + 1, h, m, s
+        year,
+        month + 1,
+        days + 1,
+        h,
+        m,
+        s
     ))
 }
 
@@ -176,10 +200,7 @@ pub fn list_logs_inner() -> Result<Vec<LogSource>, String> {
         let exists = path.exists();
         let (size_bytes, last_modified) = if exists {
             match fs::metadata(&path) {
-                Ok(m) => (
-                    m.len(),
-                    m.modified().ok().and_then(iso_from_systime),
-                ),
+                Ok(m) => (m.len(), m.modified().ok().and_then(iso_from_systime)),
                 Err(_) => (0, None),
             }
         } else {
@@ -232,9 +253,11 @@ pub fn tail_log_inner(source_id: String, lines: Option<usize>) -> Result<LogTail
         // + Seek so we don't allocate the whole file.
         use std::io::{Read, Seek, SeekFrom};
         let mut f = fs::File::open(&path).map_err(|e| format!("open: {}", e))?;
-        f.seek(SeekFrom::End(-(MAX_READ as i64))).map_err(|e| format!("seek: {}", e))?;
+        f.seek(SeekFrom::End(-(MAX_READ as i64)))
+            .map_err(|e| format!("seek: {}", e))?;
         let mut buf = Vec::with_capacity(MAX_READ as usize);
-        f.read_to_end(&mut buf).map_err(|e| format!("read tail: {}", e))?;
+        f.read_to_end(&mut buf)
+            .map_err(|e| format!("read tail: {}", e))?;
         // Drop the first line in case we sliced mid-utf8 or mid-line.
         let s = String::from_utf8_lossy(&buf).to_string();
         if let Some(idx) = s.find('\n') {

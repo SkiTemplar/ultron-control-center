@@ -1,7 +1,6 @@
 use crate::kanban::{
-    self, append_run, card_by_id, column_by_name, create_card, delete_card, load, move_card,
-    save, update_card, Card, CardPartial, CardPatch, CardRun, Column, ColumnRole, KanbanBoard,
-    RunStatus,
+    self, append_run, card_by_id, column_by_name, create_card, delete_card, load, move_card, save,
+    update_card, Card, CardPartial, CardPatch, CardRun, Column, ColumnRole, KanbanBoard, RunStatus,
 };
 use crate::pty::spawn_inner;
 use tauri::{AppHandle, Runtime};
@@ -161,10 +160,7 @@ async fn dispatch<R: Runtime>(
 }
 
 fn materialize_prompt(card: &Card, board_default: Option<&str>) -> Option<String> {
-    let tmpl = card
-        .prompt_template
-        .as_deref()
-        .or(board_default)?;
+    let tmpl = card.prompt_template.as_deref().or(board_default)?;
     let mut out = tmpl.to_string();
     out = out.replace("{title}", &card.title);
     out = out.replace("{description}", &card.description);
@@ -248,11 +244,7 @@ pub async fn kanban_delete_column(
     reassign_to_column_id: Option<String>,
 ) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
-        kanban::delete_column(
-            &project_id,
-            &column_id,
-            reassign_to_column_id.as_deref(),
-        )
+        kanban::delete_column(&project_id, &column_id, reassign_to_column_id.as_deref())
     })
     .await
     .map_err(|e| e.to_string())?
@@ -276,9 +268,7 @@ pub async fn kanban_reorder_columns(
     project_id: String,
     ordered_ids: Vec<String>,
 ) -> Result<KanbanBoard, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        kanban::reorder_columns(&project_id, &ordered_ids)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || kanban::reorder_columns(&project_id, &ordered_ids))
+        .await
+        .map_err(|e| e.to_string())?
 }

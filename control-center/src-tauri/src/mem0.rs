@@ -130,10 +130,7 @@ fn append_log(entry: &Mem0LogEntry) {
     let Some(path) = log_path() else { return };
     if let Some(parent) = path.parent() {
         if let Err(e) = std::fs::create_dir_all(parent) {
-            eprintln!(
-                "[mem0] failed to create log dir {}: {e}",
-                parent.display()
-            );
+            eprintln!("[mem0] failed to create log dir {}: {e}", parent.display());
             // Without the parent dir the open() below will fail anyway —
             // bail early so we don't double-log the same root cause.
             return;
@@ -740,8 +737,7 @@ pub fn diagnostics_inner() -> Result<Mem0Diagnostics, String> {
 
     let mut recent: Vec<Mem0LogEntry> = Vec::new();
     if path.exists() {
-        let text = std::fs::read_to_string(&path)
-            .map_err(|e| format!("read mem0 log: {e}"))?;
+        let text = std::fs::read_to_string(&path).map_err(|e| format!("read mem0 log: {e}"))?;
         // Take the last MEM0_LOG_MAX_ENTRIES lines.
         let lines: Vec<&str> = text.lines().rev().take(MEM0_LOG_MAX_ENTRIES).collect();
         for line in lines.into_iter().rev() {

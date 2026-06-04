@@ -73,8 +73,8 @@ pub fn read_graph_inner() -> Result<KgGraph, String> {
     if !path.exists() {
         return Ok(KgGraph::default());
     }
-    let text = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text =
+        std::fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let mut graph = KgGraph::default();
     for raw in text.lines() {
         let line = raw.trim();
@@ -151,13 +151,12 @@ pub fn read_graph_inner() -> Result<KgGraph, String> {
 fn write_graph(graph: &KgGraph) -> Result<(), String> {
     let path = kg_path()?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
     }
     let tmp = path.with_extension("jsonl.tmp");
     {
-        let mut f = std::fs::File::create(&tmp)
-            .map_err(|e| format!("create {}: {e}", tmp.display()))?;
+        let mut f =
+            std::fs::File::create(&tmp).map_err(|e| format!("create {}: {e}", tmp.display()))?;
         for ent in &graph.entities {
             let line = serde_json::json!({
                 "type": "entity",
@@ -233,10 +232,7 @@ pub fn delete_entity_inner(name: String) -> Result<KgGraph, String> {
     Ok(graph)
 }
 
-pub fn add_observations_inner(
-    name: String,
-    observations: Vec<String>,
-) -> Result<KgGraph, String> {
+pub fn add_observations_inner(name: String, observations: Vec<String>) -> Result<KgGraph, String> {
     let _guard = kg_write_lock()
         .lock()
         .map_err(|e| format!("kg lock poisoned: {e}"))?;
@@ -281,9 +277,10 @@ pub fn create_relations_inner(relations: Vec<KgRelation>) -> Result<KgGraph, Str
             ));
         }
         // Dedupe on (from, to, type).
-        let already = graph.relations.iter().any(|r| {
-            r.from == from && r.to == to && r.relation_type == relation_type
-        });
+        let already = graph
+            .relations
+            .iter()
+            .any(|r| r.from == from && r.to == to && r.relation_type == relation_type);
         if !already {
             graph.relations.push(KgRelation {
                 from,
@@ -332,8 +329,7 @@ pub fn search_nodes_inner(query: String) -> Result<KgGraph, String> {
         })
         .cloned()
         .collect();
-    let names: std::collections::HashSet<String> =
-        matches.iter().map(|e| e.name.clone()).collect();
+    let names: std::collections::HashSet<String> = matches.iter().map(|e| e.name.clone()).collect();
     let relations: Vec<KgRelation> = graph
         .relations
         .into_iter()
@@ -514,6 +510,9 @@ mod tests {
 
         let g = delete_entity_inner("a".into()).unwrap();
         assert_eq!(g.entities.len(), 1);
-        assert!(g.relations.is_empty(), "relations referencing a should drop");
+        assert!(
+            g.relations.is_empty(),
+            "relations referencing a should drop"
+        );
     }
 }

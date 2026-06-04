@@ -56,10 +56,7 @@ pub async fn set_backup_schedule(
     day: String,
     time: String,
 ) -> Result<backup_status::BackupScheduleInfo, String> {
-    backup_status::set_backup_schedule_inner(backup_status::SetBackupSchedulePayload {
-        day,
-        time,
-    })
+    backup_status::set_backup_schedule_inner(backup_status::SetBackupSchedulePayload { day, time })
 }
 
 /// Persiste API keys de proveedores IA como variables de entorno de usuario

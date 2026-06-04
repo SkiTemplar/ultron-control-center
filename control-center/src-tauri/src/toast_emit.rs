@@ -122,7 +122,18 @@ fn format_iso(now: u64) -> String {
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     let mdays: [i64; 12] = [
-        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {

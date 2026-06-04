@@ -10,8 +10,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct OpenTab {
-    pub id: String,         // "home" | project_id
-    pub kind: String,       // "home" | "project"
+    pub id: String,   // "home" | project_id
+    pub kind: String, // "home" | "project"
     pub title: String,
     #[serde(default)]
     pub order: u32,
@@ -19,10 +19,7 @@ pub struct OpenTab {
 
 pub fn tabs_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
-    Ok(home
-        .join(".ultron")
-        .join("cockpit")
-        .join("open-tabs.json"))
+    Ok(home.join(".ultron").join("cockpit").join("open-tabs.json"))
 }
 
 pub fn load() -> Result<Vec<OpenTab>, String> {
@@ -61,7 +58,8 @@ pub fn save(tabs: &[OpenTab]) -> Result<(), String> {
     let json = serde_json::to_string_pretty(tabs).map_err(|e| format!("serialize: {e}"))?;
     {
         let mut f = fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
-        f.write_all(json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
+        f.write_all(json.as_bytes())
+            .map_err(|e| format!("write tmp: {e}"))?;
         f.sync_all().ok();
     }
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))?;

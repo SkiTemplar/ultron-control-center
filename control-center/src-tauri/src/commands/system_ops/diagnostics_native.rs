@@ -20,9 +20,7 @@ const ANALYZE_PROMPT_PREFIX: &str = "You are an expert SRE. Given the following 
 // ---------------------------------------------------------------------------
 
 fn diagnostics_dir() -> Result<PathBuf, String> {
-    Ok(crate::ultron_root()?
-        .join("cockpit")
-        .join("diagnostics"))
+    Ok(crate::ultron_root()?.join("cockpit").join("diagnostics"))
 }
 
 fn write_atomic(path: &Path, body: &[u8]) -> Result<(), String> {
@@ -179,10 +177,7 @@ pub fn diagnostic_schedule_get() -> Result<ScheduleConfig, String> {
 }
 
 #[tauri::command]
-pub fn diagnostic_schedule_set(
-    enabled: bool,
-    time_hhmm: String,
-) -> Result<ScheduleConfig, String> {
+pub fn diagnostic_schedule_set(enabled: bool, time_hhmm: String) -> Result<ScheduleConfig, String> {
     if !time_hhmm_valid(&time_hhmm) {
         return Err("invalid time format, expected HH:MM".to_string());
     }
@@ -225,16 +220,7 @@ fn register_task(time_hhmm: &str) -> Result<(), String> {
     let tr = format!("\"{}\" --run-diagnostic", exe.display());
     let status = std::process::Command::new("schtasks.exe")
         .args([
-            "/create",
-            "/tn",
-            TASK_NAME,
-            "/tr",
-            &tr,
-            "/sc",
-            "daily",
-            "/st",
-            time_hhmm,
-            "/f",
+            "/create", "/tn", TASK_NAME, "/tr", &tr, "/sc", "daily", "/st", time_hhmm, "/f",
         ])
         .status()
         .map_err(|e| format!("schtasks: {e}"))?;
@@ -336,13 +322,21 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
 
         "ai-router-no-keys" => {
             // Check: at least one cloud provider has a usable API key.
-            let has_any = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GROQ_API_KEY", "DEEPSEEK_API_KEY"]
-                .iter()
-                .any(|k| {
-                    std::env::var(k)
-                        .map(|v| !v.trim().is_empty() && !v.contains("your-key") && !v.starts_with("xxx"))
-                        .unwrap_or(false)
-                });
+            let has_any = [
+                "ANTHROPIC_API_KEY",
+                "OPENAI_API_KEY",
+                "GEMINI_API_KEY",
+                "GROQ_API_KEY",
+                "DEEPSEEK_API_KEY",
+            ]
+            .iter()
+            .any(|k| {
+                std::env::var(k)
+                    .map(|v| {
+                        !v.trim().is_empty() && !v.contains("your-key") && !v.starts_with("xxx")
+                    })
+                    .unwrap_or(false)
+            });
             if has_any {
                 DiagnosticCheckResult {
                     status: "ok".into(),
@@ -353,7 +347,10 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
                 DiagnosticCheckResult {
                     status: "warn".into(),
                     details: "No cloud provider API keys detected in the environment.".into(),
-                    suggested_fix: Some("Set ANTHROPIC_API_KEY (or GROQ/GEMINI/OPENAI) in Settings > API Keys.".into()),
+                    suggested_fix: Some(
+                        "Set ANTHROPIC_API_KEY (or GROQ/GEMINI/OPENAI) in Settings > API Keys."
+                            .into(),
+                    ),
                 }
             }
         }
@@ -400,7 +397,10 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
             use std::net::TcpStream;
             use std::time::Duration;
             let addr = "1.1.1.1:443";
-            match TcpStream::connect_timeout(&addr.parse().expect("static addr"), Duration::from_secs(3)) {
+            match TcpStream::connect_timeout(
+                &addr.parse().expect("static addr"),
+                Duration::from_secs(3),
+            ) {
                 Ok(_) => DiagnosticCheckResult {
                     status: "ok".into(),
                     details: "1.1.1.1:443 reachable — network looks healthy.".into(),
@@ -409,7 +409,9 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
                 Err(e) => DiagnosticCheckResult {
                     status: "fail".into(),
                     details: format!("Cannot reach 1.1.1.1:443 — {e}"),
-                    suggested_fix: Some("Try flushing DNS (ipconfig /flushdns) or renewing your IP lease.".into()),
+                    suggested_fix: Some(
+                        "Try flushing DNS (ipconfig /flushdns) or renewing your IP lease.".into(),
+                    ),
                 },
             }
         }
@@ -444,27 +446,39 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
             Err(_) => DiagnosticCheckResult {
                 status: "warn".into(),
                 details: "gh not found on PATH.".into(),
-                suggested_fix: Some("Install with: scoop install gh  OR  winget install GitHub.cli".into()),
+                suggested_fix: Some(
+                    "Install with: scoop install gh  OR  winget install GitHub.cli".into(),
+                ),
             },
         },
 
         "tauri-capabilities-denied" => {
             // Check: capabilities/default.json exists and is parseable.
-            let cap_path = std::env::current_exe()
-                .ok()
-                .and_then(|e| e.parent().map(|p| p.join("..").join("capabilities").join("default.json")));
+            let cap_path = std::env::current_exe().ok().and_then(|e| {
+                e.parent()
+                    .map(|p| p.join("..").join("capabilities").join("default.json"))
+            });
             let detail = cap_path
                 .and_then(|p| std::fs::read_to_string(p).ok())
                 .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
                 .map(|_| "capabilities/default.json found and valid.".to_string())
-                .unwrap_or_else(|| "capabilities/default.json not found or unreadable.".to_string());
+                .unwrap_or_else(|| {
+                    "capabilities/default.json not found or unreadable.".to_string()
+                });
             // We can't definitively determine if permissions are blocked from inside,
             // so we report "unknown" unless we can confirm the file is intact.
-            let status = if detail.contains("found and valid") { "ok" } else { "unknown" };
+            let status = if detail.contains("found and valid") {
+                "ok"
+            } else {
+                "unknown"
+            };
             DiagnosticCheckResult {
                 status: status.into(),
                 details: detail,
-                suggested_fix: Some("Review src-tauri/capabilities/default.json for missing shell/fs scopes.".into()),
+                suggested_fix: Some(
+                    "Review src-tauri/capabilities/default.json for missing shell/fs scopes."
+                        .into(),
+                ),
             }
         }
 
@@ -474,7 +488,13 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
         "plugins-out-of-date" => {
             // Check: ECC plugin cache directory exists.
             let cache_exists = dirs::home_dir()
-                .map(|h| h.join(".claude").join("plugins").join("cache").join("ecc").exists())
+                .map(|h| {
+                    h.join(".claude")
+                        .join("plugins")
+                        .join("cache")
+                        .join("ecc")
+                        .exists()
+                })
                 .unwrap_or(false);
             if cache_exists {
                 DiagnosticCheckResult {
@@ -486,7 +506,9 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
                 DiagnosticCheckResult {
                     status: "warn".into(),
                     details: "ECC plugin cache not found at ~/.claude/plugins/cache/ecc/.".into(),
-                    suggested_fix: Some("Run /plugin install ecc@ecc in a Claude Code session.".into()),
+                    suggested_fix: Some(
+                        "Run /plugin install ecc@ecc in a Claude Code session.".into(),
+                    ),
                 }
             }
         }
@@ -523,15 +545,24 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
                 .map(|h| dir_size_mb(&h.join(".ultron")))
                 .unwrap_or(0);
             let (status, detail) = if size_mb > 500 {
-                ("warn", format!("~/.ultron is {size_mb} MB — consider cleaning old logs/sessions."))
+                (
+                    "warn",
+                    format!("~/.ultron is {size_mb} MB — consider cleaning old logs/sessions."),
+                )
             } else {
-                ("ok", format!("~/.ultron is {size_mb} MB — within normal range."))
+                (
+                    "ok",
+                    format!("~/.ultron is {size_mb} MB — within normal range."),
+                )
             };
             DiagnosticCheckResult {
                 status: status.into(),
                 details: detail,
                 suggested_fix: if size_mb > 500 {
-                    Some("Clear %TEMP% and old diagnostics under ~/.ultron/cockpit/diagnostics/.".into())
+                    Some(
+                        "Clear %TEMP% and old diagnostics under ~/.ultron/cockpit/diagnostics/."
+                            .into(),
+                    )
                 } else {
                     None
                 },
@@ -541,7 +572,8 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
         "projects-json-missing" => {
             let ok = dirs::home_dir()
                 .and_then(|h| {
-                    std::fs::read_to_string(h.join(".ultron").join("cockpit").join("projects.json")).ok()
+                    std::fs::read_to_string(h.join(".ultron").join("cockpit").join("projects.json"))
+                        .ok()
                 })
                 .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
                 .is_some();
@@ -576,12 +608,21 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
                         let changes = String::from_utf8_lossy(&o.stdout);
                         let n = changes.lines().filter(|l| !l.trim().is_empty()).count();
                         if n == 0 {
-                            ("ok", "No uncommitted changes in ~/.ultron/cockpit/.".to_string())
+                            (
+                                "ok",
+                                "No uncommitted changes in ~/.ultron/cockpit/.".to_string(),
+                            )
                         } else {
-                            ("warn", format!("{n} uncommitted change(s) in ~/.ultron/cockpit/."))
+                            (
+                                "warn",
+                                format!("{n} uncommitted change(s) in ~/.ultron/cockpit/."),
+                            )
                         }
                     }
-                    _ => ("unknown", "Could not run git status in ~/.ultron/cockpit/.".to_string()),
+                    _ => (
+                        "unknown",
+                        "Could not run git status in ~/.ultron/cockpit/.".to_string(),
+                    ),
                 }
             } else {
                 ("unknown", "Cannot resolve home directory.".to_string())
@@ -612,7 +653,9 @@ pub fn diagnostics_run(error_id: String) -> DiagnosticCheckResult {
 /// unreadable entries silently so a permission error doesn't crash the check.
 fn dir_size_mb(root: &std::path::Path) -> u64 {
     fn recurse(path: &std::path::Path, acc: &mut u64) {
-        let Ok(entries) = std::fs::read_dir(path) else { return; };
+        let Ok(entries) = std::fs::read_dir(path) else {
+            return;
+        };
         for entry in entries.flatten() {
             let p = entry.path();
             if p.is_dir() {

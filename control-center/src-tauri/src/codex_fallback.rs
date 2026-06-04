@@ -241,7 +241,11 @@ fn collect_recent_signals() -> Vec<String> {
     let token_path = tmp.join("token-usage.jsonl");
     for line in read_jsonl_tail_lines(&token_path, SIGNAL_TAIL_LINES) {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-            let ts = v.get("ts").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let ts = v
+                .get("ts")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             let layer = v
                 .get("layer")
                 .and_then(|x| x.as_str())
@@ -249,10 +253,7 @@ fn collect_recent_signals() -> Vec<String> {
                 .to_string();
             let tokens = v.get("tokens").and_then(|x| x.as_i64()).unwrap_or(0);
             let limit = v.get("limit").and_then(|x| x.as_i64()).unwrap_or(0);
-            let rendered = format!(
-                "[{}] token-usage {}: {}/{}",
-                ts, layer, tokens, limit
-            );
+            let rendered = format!("[{}] token-usage {}: {}/{}", ts, layer, tokens, limit);
             signals.push(Signal {
                 ts,
                 source: format!("token-usage:{}", layer),
@@ -266,7 +267,11 @@ fn collect_recent_signals() -> Vec<String> {
     let doctor_path = tmp.join("doctor-fix-log.jsonl");
     for line in read_jsonl_tail_lines(&doctor_path, SIGNAL_TAIL_LINES) {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) {
-            let ts = v.get("ts").and_then(|x| x.as_str()).unwrap_or("").to_string();
+            let ts = v
+                .get("ts")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .to_string();
             let finding = v
                 .get("finding_id")
                 .and_then(|x| x.as_str())
@@ -278,10 +283,7 @@ fn collect_recent_signals() -> Vec<String> {
                 .unwrap_or("?")
                 .to_string();
             let exit = v.get("exit_code").and_then(|x| x.as_i64()).unwrap_or(-1);
-            let rendered = format!(
-                "[{}] doctor {} ({}, exit={})",
-                ts, finding, action, exit
-            );
+            let rendered = format!("[{}] doctor {} ({}, exit={})", ts, finding, action, exit);
             signals.push(Signal {
                 ts,
                 source: format!("doctor:{}", finding),
@@ -549,14 +551,9 @@ pub async fn launch_codex_fallback_inner(
     // fallback path consistent with regular "new session" launches and
     // means improvements to spawn_session_inner (logging, retries, flag
     // validation) automatically apply here.
-    let result = crate::sessions::spawn_session_inner(
-        app,
-        "codex".to_string(),
-        Some(prompt),
-        cwd,
-        None,
-    )
-    .await?;
+    let result =
+        crate::sessions::spawn_session_inner(app, "codex".to_string(), Some(prompt), cwd, None)
+            .await?;
     Ok(result.provider)
 }
 

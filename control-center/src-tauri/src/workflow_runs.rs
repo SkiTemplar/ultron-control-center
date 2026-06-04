@@ -102,8 +102,7 @@ pub struct RunUpdate {
 fn db_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
     let dir = home.join(".ultron").join("cockpit");
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("create cockpit dir: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create cockpit dir: {e}"))?;
     Ok(dir.join("workflow-runs.db"))
 }
 
@@ -113,8 +112,7 @@ fn db_path() -> Result<PathBuf, String> {
 
 fn open_conn() -> Result<Connection, String> {
     let path = db_path()?;
-    let conn = Connection::open(&path)
-        .map_err(|e| format!("open workflow-runs.db: {e}"))?;
+    let conn = Connection::open(&path).map_err(|e| format!("open workflow-runs.db: {e}"))?;
 
     // WAL mode: non-blocking concurrent reads + single writer.
     conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
@@ -406,7 +404,10 @@ pub fn set_run_state(id: i64, state: &WorkflowState) -> Result<(), String> {
     let conn = open_conn()?;
     let json = serde_json::to_string(state).map_err(|e| format!("serialize state: {e}"))?;
     let n = conn
-        .execute("UPDATE workflow_runs SET state_json = ?1 WHERE id = ?2", params![json, id])
+        .execute(
+            "UPDATE workflow_runs SET state_json = ?1 WHERE id = ?2",
+            params![json, id],
+        )
         .map_err(|e| format!("set run state {id}: {e}"))?;
     if n == 0 {
         return Err(format!("workflow run {id} not found"));
@@ -418,9 +419,15 @@ pub fn set_run_state(id: i64, state: &WorkflowState) -> Result<(), String> {
 pub fn get_run_state(id: i64) -> Result<WorkflowState, String> {
     let conn = open_conn()?;
     let json: Option<String> = conn
-        .query_row("SELECT state_json FROM workflow_runs WHERE id = ?1", params![id], |r| r.get(0))
+        .query_row(
+            "SELECT state_json FROM workflow_runs WHERE id = ?1",
+            params![id],
+            |r| r.get(0),
+        )
         .map_err(|e| format!("get run state {id}: {e}"))?;
-    Ok(json.and_then(|j| serde_json::from_str(&j).ok()).unwrap_or_default())
+    Ok(json
+        .and_then(|j| serde_json::from_str(&j).ok())
+        .unwrap_or_default())
 }
 
 #[cfg(test)]
@@ -515,11 +522,7 @@ mod tests {
         conn
     }
 
-    fn insert_run(
-        conn: &Connection,
-        workflow_id: &str,
-        project_id: Option<&str>,
-    ) -> i64 {
+    fn insert_run(conn: &Connection, workflow_id: &str, project_id: Option<&str>) -> i64 {
         let ts = Utc::now().to_rfc3339();
         conn.execute(
             "INSERT INTO workflow_runs (workflow_id, project_id, started_at, status, steps_total)

@@ -340,10 +340,7 @@ fn mem0_configured() -> bool {
     let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) else {
         return false;
     };
-    json.get("mcpServers")
-        .and_then(|m| m.get("mem0"))
-        .is_some()
-        || json.get("mem0").is_some()
+    json.get("mcpServers").and_then(|m| m.get("mem0")).is_some() || json.get("mem0").is_some()
 }
 
 pub fn run_full_diagnostic_native() -> DiagnosticReport {

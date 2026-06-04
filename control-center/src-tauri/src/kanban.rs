@@ -296,7 +296,8 @@ pub fn save(board: &KanbanBoard) -> Result<(), String> {
     let json = serde_json::to_string_pretty(board).map_err(|e| format!("serialize: {e}"))?;
     {
         let mut f = fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
-        f.write_all(json.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
+        f.write_all(json.as_bytes())
+            .map_err(|e| format!("write tmp: {e}"))?;
         f.sync_all().ok();
     }
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))?;
@@ -436,7 +437,9 @@ pub fn delete_card(project_id: &str, card_id: &str) -> Result<(), String> {
 }
 
 pub fn append_run(project_id: &str, card_id: &str, run: CardRun) -> Result<(), String> {
-    let _g = kanban_lock().lock().map_err(|_| "kanban lock poisoned".to_string())?;
+    let _g = kanban_lock()
+        .lock()
+        .map_err(|_| "kanban lock poisoned".to_string())?;
     let mut board = load(project_id)?;
     let card = board
         .cards
@@ -450,7 +453,10 @@ pub fn append_run(project_id: &str, card_id: &str, run: CardRun) -> Result<(), S
 }
 
 pub fn column_by_name<'a>(board: &'a KanbanBoard, name: &str) -> Option<&'a Column> {
-    board.columns.iter().find(|c| c.name.eq_ignore_ascii_case(name))
+    board
+        .columns
+        .iter()
+        .find(|c| c.name.eq_ignore_ascii_case(name))
 }
 
 pub fn card_by_id<'a>(board: &'a KanbanBoard, card_id: &str) -> Option<&'a Card> {
@@ -472,10 +478,23 @@ pub fn add_column(
     name: impl Into<String>,
     role: ColumnRole,
 ) -> Result<Column, String> {
-    let _g = kanban_lock().lock().map_err(|_| "kanban lock poisoned".to_string())?;
+    let _g = kanban_lock()
+        .lock()
+        .map_err(|_| "kanban lock poisoned".to_string())?;
     let mut board = load(project_id)?;
-    let next_order = board.columns.iter().map(|c| c.order).max().map(|m| m + 1).unwrap_or(0);
-    let col = Column { id: new_ulid("col"), name: name.into(), order: next_order, role };
+    let next_order = board
+        .columns
+        .iter()
+        .map(|c| c.order)
+        .max()
+        .map(|m| m + 1)
+        .unwrap_or(0);
+    let col = Column {
+        id: new_ulid("col"),
+        name: name.into(),
+        order: next_order,
+        role,
+    };
     board.columns.push(col.clone());
     save(&board)?;
     Ok(col)
@@ -494,7 +513,11 @@ pub(crate) fn delete_column_in_memory(
         return Err(format!("column {column_id} not found"));
     }
 
-    let card_count = board.cards.iter().filter(|c| c.column_id == column_id).count();
+    let card_count = board
+        .cards
+        .iter()
+        .filter(|c| c.column_id == column_id)
+        .count();
 
     if card_count > 0 {
         match reassign_to_column_id {
@@ -537,7 +560,9 @@ pub fn delete_column(
     column_id: &str,
     reassign_to_column_id: Option<&str>,
 ) -> Result<(), String> {
-    let _g = kanban_lock().lock().map_err(|_| "kanban lock poisoned".to_string())?;
+    let _g = kanban_lock()
+        .lock()
+        .map_err(|_| "kanban lock poisoned".to_string())?;
     let mut board = load(project_id)?;
     delete_column_in_memory(&mut board, column_id, reassign_to_column_id)?;
     save(&board)?;
@@ -550,7 +575,9 @@ pub fn rename_column(
     column_id: &str,
     name: impl Into<String>,
 ) -> Result<Column, String> {
-    let _g = kanban_lock().lock().map_err(|_| "kanban lock poisoned".to_string())?;
+    let _g = kanban_lock()
+        .lock()
+        .map_err(|_| "kanban lock poisoned".to_string())?;
     let mut board = load(project_id)?;
     let col = board
         .columns
@@ -569,7 +596,9 @@ pub fn rename_column(
 /// return `Err`.  The `order` field of each column is set to its index in
 /// `ordered_ids`.
 pub fn reorder_columns(project_id: &str, ordered_ids: &[String]) -> Result<KanbanBoard, String> {
-    let _g = kanban_lock().lock().map_err(|_| "kanban lock poisoned".to_string())?;
+    let _g = kanban_lock()
+        .lock()
+        .map_err(|_| "kanban lock poisoned".to_string())?;
     let mut board = load(project_id)?;
 
     if ordered_ids.len() != board.columns.len() {
@@ -610,12 +639,19 @@ mod tests {
         assert_eq!(board.columns.len(), 2, "fixture has 2 columns");
         assert_eq!(board.cards.len(), 5, "fixture has 5 cards");
         assert_eq!(
-            board.cards.iter().filter(|c| c.column_id == "col-done").count(),
+            board
+                .cards
+                .iter()
+                .filter(|c| c.column_id == "col-done")
+                .count(),
             2,
             "2 cards in the Done column"
         );
         assert!(
-            board.cards.iter().any(|c| c.tags.contains(&"rust".to_string())),
+            board
+                .cards
+                .iter()
+                .any(|c| c.tags.contains(&"rust".to_string())),
             "card-2 carries tags"
         );
     }
@@ -696,10 +732,7 @@ mod tests {
 
     #[test]
     fn role_inference_done_maps_to_done() {
-        assert_eq!(
-            ColumnRole::infer_from_name("Done"),
-            Some(ColumnRole::Done)
-        );
+        assert_eq!(ColumnRole::infer_from_name("Done"), Some(ColumnRole::Done));
     }
 
     #[test]
@@ -732,7 +765,13 @@ mod tests {
         assert!(changed, "should report that roles were updated");
 
         let role = |name: &str| {
-            board.columns.iter().find(|c| c.name == name).unwrap().role.clone()
+            board
+                .columns
+                .iter()
+                .find(|c| c.name == name)
+                .unwrap()
+                .role
+                .clone()
         };
         assert_eq!(role("Backlog"), ColumnRole::Todo);
         assert_eq!(role("In Progress"), ColumnRole::Doing);
@@ -785,7 +824,10 @@ mod tests {
             order: 1,
             role: ColumnRole::Todo, // explicit non-Done role
         };
-        assert!(!is_done_column(&col_not_done), "role=Todo must NOT be detected as done");
+        assert!(
+            !is_done_column(&col_not_done),
+            "role=Todo must NOT be detected as done"
+        );
     }
 
     /// `is_done_column` falls back to name matching when role is Other.
@@ -987,7 +1029,9 @@ fn archive_path(project_id: &str, sanitised_name: &str) -> Result<PathBuf, Strin
 /// existing archive — we append the new batch instead of clobbering it. This
 /// matches how the user described the feature ("agrupar por sprint").
 pub fn archive_done(project_id: &str, archive_name: &str) -> Result<KanbanArchive, String> {
-    let _g = kanban_lock().lock().map_err(|_| "kanban lock poisoned".to_string())?;
+    let _g = kanban_lock()
+        .lock()
+        .map_err(|_| "kanban lock poisoned".to_string())?;
     let safe = sanitise_archive_name(archive_name);
     if safe.is_empty() {
         return Err("archive name is empty after sanitisation".into());
@@ -1032,8 +1076,8 @@ pub fn archive_done(project_id: &str, archive_name: &str) -> Result<KanbanArchiv
     // Merge with the existing archive (if any) so re-using a name appends.
     let archive_path = archive_path(project_id, &safe)?;
     let mut archive = if archive_path.exists() {
-        let raw = fs::read_to_string(&archive_path)
-            .map_err(|e| format!("read existing archive: {e}"))?;
+        let raw =
+            fs::read_to_string(&archive_path).map_err(|e| format!("read existing archive: {e}"))?;
         let existing: KanbanArchive =
             serde_json::from_str(&raw).map_err(|e| format!("parse archive: {e}"))?;
         existing

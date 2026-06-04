@@ -94,7 +94,13 @@ fn cache_get(key: &str) -> Option<Vec<RemoteItem>> {
 fn cache_put(key: String, items: Vec<RemoteItem>) {
     if let Ok(mut guard) = CACHE.lock() {
         let map = guard.get_or_insert_with(HashMap::new);
-        map.insert(key, CacheEntry { items, inserted_at: Instant::now() });
+        map.insert(
+            key,
+            CacheEntry {
+                items,
+                inserted_at: Instant::now(),
+            },
+        );
     }
 }
 
@@ -145,12 +151,10 @@ pub async fn search_github_inner(
         limit_str,
     ];
 
-    let output = tauri::async_runtime::spawn_blocking(move || {
-        gh_command(&args).output()
-    })
-    .await
-    .map_err(|e| format!("spawn join: {e}"))?
-    .map_err(|e| format!("gh search code failed: {e}"))?;
+    let output = tauri::async_runtime::spawn_blocking(move || gh_command(&args).output())
+        .await
+        .map_err(|e| format!("spawn join: {e}"))?
+        .map_err(|e| format!("gh search code failed: {e}"))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -192,7 +196,8 @@ pub async fn search_github_inner(
                         && p.to_ascii_lowercase().ends_with("/readme.md");
                     let is_flat_skill = {
                         // .claude/skills/<name>.md (parent dir literally "skills").
-                        let parent_is_skills = p.rsplit('/')
+                        let parent_is_skills = p
+                            .rsplit('/')
                             .nth(1)
                             .map(|seg| seg == "skills")
                             .unwrap_or(false);
@@ -211,7 +216,8 @@ pub async fn search_github_inner(
                     // `.claude/agents/README.md` rejection too — README is
                     // not a kebab-case agent slug downstream anyway.
                     let parent_is_agents = h
-                        .path.rsplit('/')
+                        .path
+                        .rsplit('/')
                         .nth(1)
                         .map(|seg| seg == "agents")
                         .unwrap_or(false);
@@ -288,12 +294,10 @@ pub async fn install_from_github_inner(
 ) -> Result<PathBuf, String> {
     let endpoint = format!("repos/{}/{}/contents/{}", owner, repo, path);
     let args: Vec<String> = vec!["api".into(), endpoint];
-    let output = tauri::async_runtime::spawn_blocking(move || {
-        gh_command(&args).output()
-    })
-    .await
-    .map_err(|e| format!("spawn join: {e}"))?
-    .map_err(|e| format!("gh api failed: {e}"))?;
+    let output = tauri::async_runtime::spawn_blocking(move || gh_command(&args).output())
+        .await
+        .map_err(|e| format!("spawn join: {e}"))?
+        .map_err(|e| format!("gh api failed: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("gh api exited {}: {}", output.status, stderr));
@@ -311,7 +315,11 @@ pub async fn install_from_github_inner(
         return Err(format!("unexpected encoding: {}", resp.encoding));
     }
     // GitHub wraps base64 with newlines every 60 chars.
-    let cleaned: String = resp.content.chars().filter(|c| !c.is_whitespace()).collect();
+    let cleaned: String = resp
+        .content
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
     let bytes = base64_decode(&cleaned)?;
     let body = String::from_utf8(bytes).map_err(|e| format!("not utf-8: {e}"))?;
 
@@ -334,8 +342,7 @@ pub async fn install_from_github_inner(
             resolve_agent_target(&name, target_scope, target_project_id.as_deref())?
         }
         LibraryKind::Skill => {
-            resolve_skill_dir(&name, target_scope, target_project_id.as_deref())?
-                .join("SKILL.md")
+            resolve_skill_dir(&name, target_scope, target_project_id.as_deref())?.join("SKILL.md")
         }
     };
 
@@ -385,18 +392,17 @@ pub fn agent_create_inner(
     if !is_kebab(&spec.name) {
         return Err(format!("invalid name (must be kebab-case): {}", spec.name));
     }
-    let target = resolve_agent_target(
-        &spec.name,
-        target_scope,
-        target_project_id.as_deref(),
-    )?;
+    let target = resolve_agent_target(&spec.name, target_scope, target_project_id.as_deref())?;
     if target.exists() {
         return Err(format!("agent already exists: {}", target.display()));
     }
     let mut fm = String::new();
     fm.push_str("---\n");
     fm.push_str(&format!("name: {}\n", spec.name));
-    fm.push_str(&format!("description: {}\n", yaml_string(&spec.description)));
+    fm.push_str(&format!(
+        "description: {}\n",
+        yaml_string(&spec.description)
+    ));
     if !spec.tools.is_empty() {
         let arr: Vec<String> = spec.tools.iter().map(|t| format!("\"{}\"", t)).collect();
         fm.push_str(&format!("tools: [{}]\n", arr.join(", ")));
@@ -435,7 +441,10 @@ pub fn skill_create_inner(
     let mut fm = String::new();
     fm.push_str("---\n");
     fm.push_str(&format!("name: {}\n", spec.name));
-    fm.push_str(&format!("description: {}\n", yaml_string(&spec.description)));
+    fm.push_str(&format!(
+        "description: {}\n",
+        yaml_string(&spec.description)
+    ));
     fm.push_str("---\n\n");
     fm.push_str(&spec.body);
     if !fm.ends_with('\n') {
@@ -545,14 +554,18 @@ fn resolve_skill_dir(
 
 fn is_kebab(s: &str) -> bool {
     !s.is_empty()
-        && s.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && s.chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
         && !s.starts_with('-')
         && !s.ends_with('-')
         && !s.contains("--")
 }
 
 fn yaml_string(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', "\\n");
+    let escaped = s
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n");
     format!("\"{}\"", escaped)
 }
 
@@ -668,7 +681,13 @@ fn parse_github_slug(url: &str) -> Option<(String, String)> {
 /// Sanitise a repo name to a filesystem-safe directory component.
 fn sanitize_dir_name(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -707,7 +726,11 @@ fn read_capped(path: &Path, max_bytes: usize) -> Option<String> {
     if bytes.is_empty() {
         return None;
     }
-    let truncated = if bytes.len() > max_bytes { &bytes[..max_bytes] } else { &bytes[..] };
+    let truncated = if bytes.len() > max_bytes {
+        &bytes[..max_bytes]
+    } else {
+        &bytes[..]
+    };
     Some(String::from_utf8_lossy(truncated).into_owned())
 }
 
@@ -789,10 +812,7 @@ fn collect_nested_skill_mds(root: &Path, parts: &mut Vec<String>) {
         }
         let skill_md = dir.join("SKILL.md");
         if let Some(content) = read_capped(&skill_md, 4_000) {
-            let label = dir
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("skill");
+            let label = dir.file_name().and_then(|s| s.to_str()).unwrap_or("skill");
             parts.push(format!("=== skills/{}/SKILL.md ===\n{}", label, content));
         }
     }
@@ -868,7 +888,10 @@ fn collect_stack_context() -> String {
     if let Some(home) = dirs::home_dir() {
         let claude_md = home.join(".claude").join("CLAUDE.md");
         if let Some(content) = read_capped(&claude_md, 3_000) {
-            parts.push(format!("=== ~/.claude/CLAUDE.md (current stack) ===\n{}", content));
+            parts.push(format!(
+                "=== ~/.claude/CLAUDE.md (current stack) ===\n{}",
+                content
+            ));
         }
     }
 
@@ -933,12 +956,20 @@ fn parse_ai_report(raw: &str) -> Result<InstallReport, String> {
     };
 
     // Find the first `{` and last `}` to isolate the JSON object.
-    let start = stripped.find('{').ok_or_else(|| "no JSON object in AI response".to_string())?;
-    let end = stripped.rfind('}').ok_or_else(|| "no closing } in AI response".to_string())?;
+    let start = stripped
+        .find('{')
+        .ok_or_else(|| "no JSON object in AI response".to_string())?;
+    let end = stripped
+        .rfind('}')
+        .ok_or_else(|| "no closing } in AI response".to_string())?;
     let json_slice = &stripped[start..=end];
 
-    serde_json::from_str::<InstallReport>(json_slice)
-        .map_err(|e| format!("AI report parse error: {e}\nRaw slice: {}", &json_slice[..json_slice.len().min(400)]))
+    serde_json::from_str::<InstallReport>(json_slice).map_err(|e| {
+        format!(
+            "AI report parse error: {e}\nRaw slice: {}",
+            &json_slice[..json_slice.len().min(400)]
+        )
+    })
 }
 
 /// Execute the install steps from the report. Returns a list of errors
@@ -994,7 +1025,12 @@ fn execute_steps(steps: &[InstallStep]) -> Vec<String> {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
                 let stderr = String::from_utf8_lossy(&out.stderr);
-                errors.push(format!("step `{}` exited {}: {}", step.cmd, out.status, stderr.trim()));
+                errors.push(format!(
+                    "step `{}` exited {}: {}",
+                    step.cmd,
+                    out.status,
+                    stderr.trim()
+                ));
             }
             Err(e) => {
                 errors.push(format!("step `{}` spawn error: {e}", step.cmd));
@@ -1051,8 +1087,7 @@ fn execute_copies(repo_dir: &Path, copies: &[CopyFile]) -> (Vec<String>, Vec<Str
 
 /// Recursively copy a directory.
 fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
-    std::fs::create_dir_all(dst)
-        .map_err(|e| format!("mkdir {}: {e}", dst.display()))?;
+    std::fs::create_dir_all(dst).map_err(|e| format!("mkdir {}: {e}", dst.display()))?;
     for entry in std::fs::read_dir(src).map_err(|e| format!("readdir {}: {e}", src.display()))? {
         let entry = entry.map_err(|e| format!("entry: {e}"))?;
         let ty = entry.file_type().map_err(|e| format!("filetype: {e}"))?;
@@ -1060,8 +1095,7 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
         if ty.is_dir() {
             copy_dir_recursive(&entry.path(), &dest_path)?;
         } else {
-            std::fs::copy(entry.path(), &dest_path)
-                .map_err(|e| format!("copy: {e}"))?;
+            std::fs::copy(entry.path(), &dest_path).map_err(|e| format!("copy: {e}"))?;
         }
     }
     Ok(())
@@ -1079,15 +1113,18 @@ pub async fn install_via_ai_inner(
 
     // --- Step 2: prepare temp dir ---
     let temp_base = ultron_root()?.join("cockpit").join("temp-install");
-    let dir_name = format!("{}-{}", sanitize_dir_name(&owner), sanitize_dir_name(&repo_name));
+    let dir_name = format!(
+        "{}-{}",
+        sanitize_dir_name(&owner),
+        sanitize_dir_name(&repo_name)
+    );
     let temp_dir = temp_base.join(&dir_name);
 
     // Remove stale temp dir from a previous failed install, if any.
     if temp_dir.exists() {
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
-    std::fs::create_dir_all(&temp_dir)
-        .map_err(|e| format!("create temp dir: {e}"))?;
+    std::fs::create_dir_all(&temp_dir).map_err(|e| format!("create temp dir: {e}"))?;
 
     // --- Step 3: clone ---
     if let Err(e) = clone_repo(&owner, &repo_name, &temp_dir) {
@@ -1125,7 +1162,9 @@ pub async fn install_via_ai_inner(
         Ok(r) => r,
         Err(e) => {
             let _ = std::fs::remove_dir_all(&temp_dir);
-            return Err(format!("AI response could not be parsed as InstallReport: {e}"));
+            return Err(format!(
+                "AI response could not be parsed as InstallReport: {e}"
+            ));
         }
     };
 
@@ -1216,7 +1255,8 @@ mod ai_install_tests {
 
     #[test]
     fn parse_ai_report_strips_markdown_fence() {
-        let raw = "```json\n{\"compatible\":false,\"reason\":\"nope\",\"install_type\":\"unknown\"}\n```";
+        let raw =
+            "```json\n{\"compatible\":false,\"reason\":\"nope\",\"install_type\":\"unknown\"}\n```";
         let r = parse_ai_report(raw).unwrap();
         assert!(!r.compatible);
     }

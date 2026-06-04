@@ -118,7 +118,10 @@ pub fn get_env_keys_status_inner() -> Result<Vec<EnvKeyStatus>, String> {
     let mut rows: Vec<EnvKeyStatus> = Vec::with_capacity(ALLOWED_KEYS.len());
     for key in ALLOWED_KEYS {
         let proc_val = std::env::var(key).ok();
-        let active = proc_val.as_deref().map(|v| !v.trim().is_empty()).unwrap_or(false);
+        let active = proc_val
+            .as_deref()
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
         let user_val = user_scope.get(*key);
         let configured = active || user_val.is_some();
         // Preferimos el valor del proceso para masking; si no, el del registro.
@@ -146,9 +149,7 @@ pub struct EnvKeysSaveResult {
     pub errors: HashMap<String, String>,
 }
 
-pub fn set_env_vars_keys_inner(
-    keys: HashMap<String, String>,
-) -> Result<EnvKeysSaveResult, String> {
+pub fn set_env_vars_keys_inner(keys: HashMap<String, String>) -> Result<EnvKeysSaveResult, String> {
     let mut saved: Vec<String> = Vec::new();
     let mut skipped: Vec<String> = Vec::new();
     let mut errors: HashMap<String, String> = HashMap::new();
@@ -195,7 +196,11 @@ pub fn set_env_vars_keys_inner(
         }
     }
 
-    Ok(EnvKeysSaveResult { saved, skipped, errors })
+    Ok(EnvKeysSaveResult {
+        saved,
+        skipped,
+        errors,
+    })
 }
 
 #[cfg(test)]

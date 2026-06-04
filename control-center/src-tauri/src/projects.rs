@@ -244,9 +244,7 @@ fn normalise_ide(raw: Option<&str>) -> Option<String> {
     let canonical = match lower.as_str() {
         "vscode" | "vs code" | "code" => Some("vscode"),
         "cursor" => Some("cursor"),
-        "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => {
-            Some("code-insiders")
-        }
+        "code-insiders" | "code insiders" | "vscode-insiders" | "insiders" => Some("code-insiders"),
         "intellij" | "idea" | "intellij idea" => Some("intellij"),
         "rider" => Some("rider"),
         "webstorm" => Some("webstorm"),
@@ -345,21 +343,31 @@ pub async fn open_project_inner(
         return Err(format!("invalid project id '{}'", id));
     }
     let registry = registry_path().ok_or_else(|| "no HOME".to_string())?;
-    let raw = std::fs::read_to_string(&registry)
-        .map_err(|e| format!("read projects.json: {}", e))?;
+    let raw =
+        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
     let root: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
     let entry = root
         .get("projects")
         .and_then(|v| v.as_array())
         .and_then(|arr| {
-            arr.iter().find(|p| p.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
+            arr.iter()
+                .find(|p| p.get("id").and_then(|x| x.as_str()) == Some(id.as_str()))
         })
         .cloned()
         .ok_or_else(|| format!("project '{}' not found", id))?;
 
-    let ide = entry.get("ide").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
-    let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let ide = entry
+        .get("ide")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let path = entry
+        .get("path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     let path_ref = std::path::Path::new(&path);
     let is_file = path_ref.is_file();
     let is_dir = path_ref.is_dir();
@@ -571,8 +579,8 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
     let registry = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/cockpit/projects.json");
-    let raw = std::fs::read_to_string(&registry)
-        .map_err(|e| format!("read projects.json: {}", e))?;
+    let raw =
+        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
     let mut root: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
 
@@ -610,7 +618,18 @@ pub fn create_project_inner(p: CreateProjectPayload) -> Result<CreateProjectResu
             }
             let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
             let mdays: [i64; 12] = [
-                31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+                31,
+                if leap { 29 } else { 28 },
+                31,
+                30,
+                31,
+                30,
+                31,
+                31,
+                30,
+                31,
+                30,
+                31,
             ];
             let mut month = 0usize;
             while month < 12 && days >= mdays[month] {
@@ -735,8 +754,8 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
     let registry = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/cockpit/projects.json");
-    let raw = std::fs::read_to_string(&registry)
-        .map_err(|e| format!("read projects.json: {}", e))?;
+    let raw =
+        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
     let mut root: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
     let projects = root
@@ -744,9 +763,9 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
         .and_then(|v| v.as_array_mut())
         .ok_or_else(|| "projects.json has no projects[]".to_string())?;
 
-    let target = projects.iter_mut().find(|v| {
-        v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone())
-    });
+    let target = projects
+        .iter_mut()
+        .find(|v| v.get("id").and_then(|x| x.as_str()).map(String::from) == Some(p.id.clone()));
     let entry = match target {
         Some(e) => e,
         None => return Err(format!("project '{}' not found", p.id)),
@@ -840,7 +859,8 @@ pub fn update_project_inner(p: UpdateProjectPayload) -> Result<UpdateProjectResu
         }
     }
 
-    let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
     atomic_write(&registry, &serialized)?;
     Ok(UpdateProjectResult {
         success: true,
@@ -946,9 +966,9 @@ pub fn set_default_provider_inner(
         // border moves.
         if let Some(items) = entry.get_mut("items").and_then(|v| v.as_array_mut()) {
             let providers = ["claude", "codex", "gemini"];
-            let already_has_target = items.iter().any(|it| {
-                it.get("kind").and_then(|k| k.as_str()) == Some(normalised.as_str())
-            });
+            let already_has_target = items
+                .iter()
+                .any(|it| it.get("kind").and_then(|k| k.as_str()) == Some(normalised.as_str()));
             if !already_has_target {
                 for it in items.iter_mut() {
                     let kind = it
@@ -985,8 +1005,8 @@ pub fn delete_project_inner(id: String) -> Result<DeleteProjectResult, String> {
     let registry = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/cockpit/projects.json");
-    let raw = std::fs::read_to_string(&registry)
-        .map_err(|e| format!("read projects.json: {}", e))?;
+    let raw =
+        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
     let mut root: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
     let projects = root
@@ -997,7 +1017,8 @@ pub fn delete_project_inner(id: String) -> Result<DeleteProjectResult, String> {
     projects.retain(|p| p.get("id").and_then(|v| v.as_str()) != Some(id.as_str()));
     let after = projects.len();
 
-    let serialized = serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
     atomic_write(&registry, &serialized)?;
 
     Ok(DeleteProjectResult {
@@ -1239,8 +1260,8 @@ fn load_registry_mut() -> Result<(PathBuf, serde_json::Value), String> {
     let registry = dirs::home_dir()
         .ok_or_else(|| "no HOME".to_string())?
         .join(".ultron/cockpit/projects.json");
-    let raw = std::fs::read_to_string(&registry)
-        .map_err(|e| format!("read projects.json: {}", e))?;
+    let raw =
+        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
     let root: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
     Ok((registry, root))
@@ -1435,8 +1456,8 @@ pub fn reorder_launcher_items_inner(
 /// synthesis as `list_projects_inner` so launch_item works on legacy entries.
 fn load_items_for(project_id: &str) -> Result<Vec<LauncherItem>, String> {
     let registry = registry_path().ok_or_else(|| "no HOME".to_string())?;
-    let raw = std::fs::read_to_string(&registry)
-        .map_err(|e| format!("read projects.json: {}", e))?;
+    let raw =
+        std::fs::read_to_string(&registry).map_err(|e| format!("read projects.json: {}", e))?;
     let root: serde_json::Value =
         serde_json::from_str(&raw).map_err(|e| format!("parse: {}", e))?;
     let arr = root
@@ -1593,7 +1614,9 @@ pub async fn open_in_ide(path: &str, preferred: Option<&str>) -> Result<(), Stri
     if !p.is_dir() && !p.is_file() {
         return Err(format!("path not found: {}", path));
     }
-    let canonical = p.canonicalize().map_err(|e| format!("canonicalize: {}", e))?;
+    let canonical = p
+        .canonicalize()
+        .map_err(|e| format!("canonicalize: {}", e))?;
     let canonical_str = canonical.to_string_lossy().to_string();
     let cleaned = canonical_str
         .strip_prefix(r"\\?\")
@@ -1760,7 +1783,10 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
             // spawn-success as enough. Quoting via PowerShell to keep the
             // path with spaces intact.
             let ps_path = format!("'{}'", path.replace('\'', "''"));
-            let cmd = format!("Start-Process -FilePath explorer.exe -ArgumentList {}", ps_path);
+            let cmd = format!(
+                "Start-Process -FilePath explorer.exe -ArgumentList {}",
+                ps_path
+            );
             let _ = app
                 .shell()
                 .command("powershell.exe")
@@ -1813,10 +1839,7 @@ async fn dispatch_item(app: &tauri::AppHandle, item: &LauncherItem) -> Result<()
             if let Some(p) = direct_path {
                 return open_in_ide(p, item.cwd.as_deref()).await;
             }
-            Err(
-                "ide item needs `path` (or move it onto the project's preferred_ide)"
-                    .into(),
-            )
+            Err("ide item needs `path` (or move it onto the project's preferred_ide)".into())
         }
         other => Err(format!("unknown launcher kind '{}'", other)),
     }
@@ -1908,32 +1931,40 @@ mod tests {
         // mock here. Instead we replicate the documented invariant in a
         // doc-style test: a slice of LauncherItems should yield exactly the
         // non-folder kinds when filtered the same way as the inner loop.
-        let items = [LauncherItem {
+        let items = [
+            LauncherItem {
                 kind: "folder".into(),
                 path: Some(r"C:\proj".into()),
-                cwd: None, args: None, label: None,
-                    provider: None,
+                cwd: None,
+                args: None,
+                label: None,
+                provider: None,
             },
             LauncherItem {
                 kind: "claude".into(),
                 path: None,
                 cwd: Some(r"C:\proj".into()),
-                args: None, label: None,
-                    provider: None,
+                args: None,
+                label: None,
+                provider: None,
             },
             LauncherItem {
                 kind: "codex".into(),
                 path: None,
                 cwd: Some(r"C:\proj".into()),
-                args: None, label: None,
-                    provider: None,
+                args: None,
+                label: None,
+                provider: None,
             },
             LauncherItem {
                 kind: "folder".into(),
                 path: Some(r"C:\proj\sub".into()),
-                cwd: None, args: None, label: None,
-                    provider: None,
-            }];
+                cwd: None,
+                args: None,
+                label: None,
+                provider: None,
+            },
+        ];
 
         // Match the predicate in launch_all_items_inner — skip kind=="folder".
         let dispatched: Vec<&str> = items

@@ -88,8 +88,7 @@ fn enumerate_project_dirs() -> Result<Vec<(String, String)>, String> {
         return Ok(Vec::new());
     }
 
-    let entries =
-        fs::read_dir(&projects_root).map_err(|e| format!("read projects dir: {e}"))?;
+    let entries = fs::read_dir(&projects_root).map_err(|e| format!("read projects dir: {e}"))?;
 
     let mut out: Vec<(String, String)> = Vec::new();
     for entry in entries.flatten() {
@@ -212,7 +211,7 @@ mod tests {
 
     fn make_board(
         project_id: &str,
-        columns: Vec<(&str, &str)>, // (id, name)
+        columns: Vec<(&str, &str)>,                      // (id, name)
         cards: Vec<(&str, &str, &str, Vec<&str>, &str)>, // (id, title, col_id, tags, updated_at)
     ) -> KanbanBoard {
         KanbanBoard {
@@ -251,7 +250,10 @@ mod tests {
 
     #[test]
     fn derive_priority_returns_highest_tag() {
-        assert_eq!(derive_priority(&["p2".into(), "p0".into(), "bug".into()]), "p0");
+        assert_eq!(
+            derive_priority(&["p2".into(), "p0".into(), "bug".into()]),
+            "p0"
+        );
         assert_eq!(derive_priority(&["p3".into(), "p1".into()]), "p1");
         assert_eq!(derive_priority(&["bug".into(), "feat".into()]), "none");
         assert_eq!(derive_priority(&[]), "none");
@@ -276,7 +278,13 @@ mod tests {
             ],
             vec![
                 ("c1", "Active task", "col-ip", vec!["p1"], "epoch:1000"),
-                ("c2", "Blocked task", "col-blocked", vec!["p0"], "epoch:2000"),
+                (
+                    "c2",
+                    "Blocked task",
+                    "col-blocked",
+                    vec!["p0"],
+                    "epoch:2000",
+                ),
                 ("c3", "Backlog task", "col-backlog", vec![], "epoch:3000"),
                 ("c4", "Done task", "col-done", vec!["p0"], "epoch:4000"),
             ],
@@ -366,22 +374,34 @@ mod tests {
     fn stats_map_counts_per_bucket() {
         let items = vec![
             CrossProjectTodayItem {
-                project_id: "a".into(), project_name: "A".into(),
-                card_id: "c1".into(), card_title: "T1".into(),
-                card_priority: "p0".into(), status: "in_progress".into(),
-                tags: vec![], updated_at: "epoch:1".into(),
+                project_id: "a".into(),
+                project_name: "A".into(),
+                card_id: "c1".into(),
+                card_title: "T1".into(),
+                card_priority: "p0".into(),
+                status: "in_progress".into(),
+                tags: vec![],
+                updated_at: "epoch:1".into(),
             },
             CrossProjectTodayItem {
-                project_id: "a".into(), project_name: "A".into(),
-                card_id: "c2".into(), card_title: "T2".into(),
-                card_priority: "p1".into(), status: "blocked".into(),
-                tags: vec![], updated_at: "epoch:2".into(),
+                project_id: "a".into(),
+                project_name: "A".into(),
+                card_id: "c2".into(),
+                card_title: "T2".into(),
+                card_priority: "p1".into(),
+                status: "blocked".into(),
+                tags: vec![],
+                updated_at: "epoch:2".into(),
             },
             CrossProjectTodayItem {
-                project_id: "b".into(), project_name: "B".into(),
-                card_id: "c3".into(), card_title: "T3".into(),
-                card_priority: "p1".into(), status: "in_progress".into(),
-                tags: vec![], updated_at: "epoch:3".into(),
+                project_id: "b".into(),
+                project_name: "B".into(),
+                card_id: "c3".into(),
+                card_title: "T3".into(),
+                card_priority: "p1".into(),
+                status: "in_progress".into(),
+                tags: vec![],
+                updated_at: "epoch:3".into(),
             },
         ];
 

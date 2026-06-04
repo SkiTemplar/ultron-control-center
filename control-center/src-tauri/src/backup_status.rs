@@ -245,7 +245,10 @@ fn resolved_sources() -> Vec<String> {
             return from_env;
         }
     }
-    DEFAULT_BACKUP_SOURCES.iter().map(|s| s.to_string()).collect()
+    DEFAULT_BACKUP_SOURCES
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -273,8 +276,12 @@ pub struct BackupSourcesInfo {
 }
 
 fn list_home_top_level() -> Vec<String> {
-    let Some(home) = dirs::home_dir() else { return Vec::new(); };
-    let Ok(rd) = fs::read_dir(&home) else { return Vec::new(); };
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let Ok(rd) = fs::read_dir(&home) else {
+        return Vec::new();
+    };
     let mut names: Vec<String> = rd
         .flatten()
         .filter(|e| e.file_type().map(|t| t.is_dir()).unwrap_or(false))
@@ -287,7 +294,10 @@ fn list_home_top_level() -> Vec<String> {
 pub fn get_backup_sources_inner() -> Result<BackupSourcesInfo, String> {
     let configured = read_configured_sources().unwrap_or_default();
     let active = resolved_sources();
-    let defaults: Vec<String> = DEFAULT_BACKUP_SOURCES.iter().map(|s| s.to_string()).collect();
+    let defaults: Vec<String> = DEFAULT_BACKUP_SOURCES
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let home = dirs::home_dir().ok_or_else(|| "no HOME".to_string())?;
 
     let mut candidates: Vec<BackupSourceCandidate> = Vec::new();
@@ -295,7 +305,9 @@ pub fn get_backup_sources_inner() -> Result<BackupSourcesInfo, String> {
 
     // Active sources first (whether they live on disk or not — keep the row visible).
     for name in active.iter() {
-        if seen.contains(name) { continue; }
+        if seen.contains(name) {
+            continue;
+        }
         seen.insert(name.clone());
         let abs = home.join(name);
         candidates.push(BackupSourceCandidate {
@@ -308,7 +320,9 @@ pub fn get_backup_sources_inner() -> Result<BackupSourcesInfo, String> {
     }
     // Then any default that's not already in the active list.
     for d in defaults.iter() {
-        if seen.contains(d) { continue; }
+        if seen.contains(d) {
+            continue;
+        }
         seen.insert(d.clone());
         let abs = home.join(d);
         candidates.push(BackupSourceCandidate {
@@ -321,14 +335,27 @@ pub fn get_backup_sources_inner() -> Result<BackupSourcesInfo, String> {
     }
     // Finally, populate with $HOME top-level folders so the user can pick more.
     for name in list_home_top_level() {
-        if seen.contains(&name) { continue; }
+        if seen.contains(&name) {
+            continue;
+        }
         // Skip noisy system folders that nobody would back up.
         if matches!(
             name.as_str(),
-            "AppData" | "NTUSER.DAT" | "Application Data" | "Local Settings"
-                | "Cookies" | "Recent" | "SendTo" | "NetHood" | "PrintHood"
-                | "Templates" | "Datos de programa" | "Entorno de red"
-                | "Configuración local" | "Mis documentos" | "Menú Inicio"
+            "AppData"
+                | "NTUSER.DAT"
+                | "Application Data"
+                | "Local Settings"
+                | "Cookies"
+                | "Recent"
+                | "SendTo"
+                | "NetHood"
+                | "PrintHood"
+                | "Templates"
+                | "Datos de programa"
+                | "Entorno de red"
+                | "Configuración local"
+                | "Mis documentos"
+                | "Menú Inicio"
                 | "Reciente"
         ) {
             continue;
@@ -407,8 +434,8 @@ pub fn set_backup_sources_inner(
         // (Windows) — never a cross-device copy+delete.
         let tmp = cfg.with_extension("json.tmp");
         {
-            let file = fs::File::create(&tmp)
-                .map_err(|e| format!("create backup-config tmp: {}", e))?;
+            let file =
+                fs::File::create(&tmp).map_err(|e| format!("create backup-config tmp: {}", e))?;
             let mut writer = BufWriter::new(file);
             writer
                 .write_all(json.as_bytes())
@@ -417,8 +444,7 @@ pub fn set_backup_sources_inner(
                 .flush()
                 .map_err(|e| format!("flush backup-config tmp: {}", e))?;
         }
-        fs::rename(&tmp, &cfg)
-            .map_err(|e| format!("rename backup-config.json: {}", e))?;
+        fs::rename(&tmp, &cfg).map_err(|e| format!("rename backup-config.json: {}", e))?;
         // Mirror into the env var so any in-process script reads it without
         // re-reading the JSON.
         if cleaned.is_empty() {
@@ -502,9 +528,7 @@ fn task_registered() -> bool {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
-    cmd.output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    cmd.output().map(|o| o.status.success()).unwrap_or(false)
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -565,9 +589,7 @@ fn register_weekly_task(day: &str, time: &str) -> Result<(), String> {
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
     }
-    let output = cmd
-        .output()
-        .map_err(|e| format!("spawn schtasks: {}", e))?;
+    let output = cmd.output().map_err(|e| format!("spawn schtasks: {}", e))?;
     if !output.status.success() {
         return Err(format!(
             "schtasks /Create failed (exit {:?}): {}",
@@ -605,16 +627,16 @@ pub fn set_backup_schedule_inner(
         day: day.clone(),
         time: time.clone(),
     });
-    let json = serde_json::to_string_pretty(&cfg)
-        .map_err(|e| format!("serialize config: {}", e))?;
+    let json =
+        serde_json::to_string_pretty(&cfg).map_err(|e| format!("serialize config: {}", e))?;
     // Atomic write: serialise to a sibling tmp file then rename over the
     // target. Same pattern as `set_backup_sources_inner` and the rest of the
     // codebase (kanban, kg, sessions-tags). Guarantees the on-disk file is
     // never in a partial state if the process is killed mid-write.
     let tmp = cfg_path.with_extension("json.tmp");
     {
-        let file = fs::File::create(&tmp)
-            .map_err(|e| format!("create backup-config tmp: {}", e))?;
+        let file =
+            fs::File::create(&tmp).map_err(|e| format!("create backup-config tmp: {}", e))?;
         let mut writer = BufWriter::new(file);
         writer
             .write_all(json.as_bytes())
@@ -623,8 +645,7 @@ pub fn set_backup_schedule_inner(
             .flush()
             .map_err(|e| format!("flush backup-config tmp: {}", e))?;
     }
-    fs::rename(&tmp, &cfg_path)
-        .map_err(|e| format!("rename backup-config.json: {}", e))?;
+    fs::rename(&tmp, &cfg_path).map_err(|e| format!("rename backup-config.json: {}", e))?;
 
     // Register the Windows scheduled task. On Linux/macOS we just store the
     // preference — the weekly-backup script doesn't ship a Unix entry point
@@ -652,18 +673,41 @@ fn iso_from_systime(t: SystemTime) -> Option<String> {
     loop {
         let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
         let yd: i64 = if leap { 366 } else { 365 };
-        if days < yd { break; }
+        if days < yd {
+            break;
+        }
         days -= yd;
         year += 1;
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let mdays: [i64; 12] = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mdays: [i64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {
         days -= mdays[month];
         month += 1;
     }
-    Some(format!("{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z", year, month + 1, days + 1, h, m, s))
+    Some(format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year,
+        month + 1,
+        days + 1,
+        h,
+        m,
+        s
+    ))
 }
 
 fn classify(age_hours: Option<f64>) -> &'static str {
@@ -702,9 +746,8 @@ pub fn backup_status_inner() -> Result<BackupStatusReport, String> {
         let name = ent.file_name().to_string_lossy().to_string();
         let meta = ent.metadata().ok();
         let mtime = meta.as_ref().and_then(|m| m.modified().ok());
-        let age_hours = mtime.and_then(|t| {
-            now.duration_since(t).ok().map(|d| d.as_secs_f64() / 3600.0)
-        });
+        let age_hours =
+            mtime.and_then(|t| now.duration_since(t).ok().map(|d| d.as_secs_f64() / 3600.0));
         let last_iso = mtime.and_then(iso_from_systime);
         let status = classify(age_hours).to_string();
         entries.push(BackupEntry {

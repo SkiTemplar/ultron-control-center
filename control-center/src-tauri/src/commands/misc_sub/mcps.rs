@@ -54,7 +54,11 @@ pub async fn run_mcp_health_check(app: tauri::AppHandle) -> Result<Vec<mcps::Mcp
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        return Err(format!("health check failed (exit {:?}): {}", output.status.code(), stderr));
+        return Err(format!(
+            "health check failed (exit {:?}): {}",
+            output.status.code(),
+            stderr
+        ));
     }
     mcps::list_mcps_inner()
 }

@@ -2,9 +2,8 @@
 // (`crate::kg`). See module-level doc in `src-tauri/src/kg.rs`.
 
 use crate::kg::{
-    add_observations_inner, create_entities_inner, create_relations_inner,
-    delete_entity_inner, delete_relation_inner, read_graph_inner, search_nodes_inner,
-    KgEntity, KgGraph, KgRelation,
+    add_observations_inner, create_entities_inner, create_relations_inner, delete_entity_inner,
+    delete_relation_inner, read_graph_inner, search_nodes_inner, KgEntity, KgGraph, KgRelation,
 };
 
 #[tauri::command]
@@ -23,10 +22,7 @@ pub fn kg_delete_entity(name: String) -> Result<KgGraph, String> {
 }
 
 #[tauri::command]
-pub fn kg_add_observations(
-    name: String,
-    observations: Vec<String>,
-) -> Result<KgGraph, String> {
+pub fn kg_add_observations(name: String, observations: Vec<String>) -> Result<KgGraph, String> {
     add_observations_inner(name, observations)
 }
 

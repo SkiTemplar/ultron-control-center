@@ -62,47 +62,127 @@ const RULES: &[IntentRule] = &[
     IntentRule {
         intent: "security",
         workflow_id: "security",
-        patterns: &["seguridad", "security", "vulnerab", "owasp", "pentest", "secreto", "secret", "auth ", "cve"],
+        patterns: &[
+            "seguridad",
+            "security",
+            "vulnerab",
+            "owasp",
+            "pentest",
+            "secreto",
+            "secret",
+            "auth ",
+            "cve",
+        ],
     },
     IntentRule {
         intent: "bug_fix",
         workflow_id: "debug",
-        patterns: &["bug", "arregla", "arreglar", "fix", "error", "falla", "rompe", "crash", "debug", "depura", "no funciona"],
+        patterns: &[
+            "bug",
+            "arregla",
+            "arreglar",
+            "fix",
+            "error",
+            "falla",
+            "rompe",
+            "crash",
+            "debug",
+            "depura",
+            "no funciona",
+        ],
     },
     IntentRule {
         intent: "game",
         workflow_id: "game",
-        patterns: &["unity", "unreal", "gameplay", "shader", "niagara", "blueprint", "videojuego", " juego", "netcode"],
+        patterns: &[
+            "unity",
+            "unreal",
+            "gameplay",
+            "shader",
+            "niagara",
+            "blueprint",
+            "videojuego",
+            " juego",
+            "netcode",
+        ],
     },
     IntentRule {
         intent: "feature",
         workflow_id: "feature",
-        patterns: &["implementa", "feature", "añade", "agrega", "desarrolla", "nueva funcion", "build a ", "crea un", "crea una"],
+        patterns: &[
+            "implementa",
+            "feature",
+            "añade",
+            "agrega",
+            "desarrolla",
+            "nueva funcion",
+            "build a ",
+            "crea un",
+            "crea una",
+        ],
     },
     IntentRule {
         intent: "research",
         workflow_id: "research",
-        patterns: &["investiga", "research", "compara", "evalua", "deep research", "busca informacion", "estado del arte"],
+        patterns: &[
+            "investiga",
+            "research",
+            "compara",
+            "evalua",
+            "deep research",
+            "busca informacion",
+            "estado del arte",
+        ],
     },
     IntentRule {
         intent: "learning",
         workflow_id: "learning",
-        patterns: &["aprende", "explica", "explícame", "explicame", "tutorial", "apuntes", "enséñame", "ensename", "como funciona", "learn"],
+        patterns: &[
+            "aprende",
+            "explica",
+            "explícame",
+            "explicame",
+            "tutorial",
+            "apuntes",
+            "enséñame",
+            "ensename",
+            "como funciona",
+            "learn",
+        ],
     },
     IntentRule {
         intent: "architecture_review",
         workflow_id: "quick",
-        patterns: &["arquitectura", "architecture", "revisa el diseño", "design review", "refactor"],
+        patterns: &[
+            "arquitectura",
+            "architecture",
+            "revisa el diseño",
+            "design review",
+            "refactor",
+        ],
     },
     IntentRule {
         intent: "memory",
         workflow_id: "quick",
-        patterns: &["memoria", "recuerda", "olvida", "no uses esa", "actualiza la decision"],
+        patterns: &[
+            "memoria",
+            "recuerda",
+            "olvida",
+            "no uses esa",
+            "actualiza la decision",
+        ],
     },
     IntentRule {
         intent: "continue",
         workflow_id: "quick",
-        patterns: &["sigue", "continúa", "continua", "retoma", "lanza el orquestador", "orquestador"],
+        patterns: &[
+            "sigue",
+            "continúa",
+            "continua",
+            "retoma",
+            "lanza el orquestador",
+            "orquestador",
+        ],
     },
 ];
 
@@ -124,22 +204,37 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
     let mut warnings: Vec<String> = Vec::new();
 
     // Selected workflow (built-in), with ghost step-agents sanitized.
-    let workflow = list_workflows_inner().into_iter().find(|w| w.id == wf_id).map(|w| {
-        let mut steps = Vec::new();
-        for s in &w.steps {
-            if known.is_empty() || known.contains(&s.agent) {
-                steps.push(s.agent.clone());
-            } else {
-                warnings.push(format!("workflow step agent '{}' not found on disk (ghost) — skipped", s.agent));
+    let workflow = list_workflows_inner()
+        .into_iter()
+        .find(|w| w.id == wf_id)
+        .map(|w| {
+            let mut steps = Vec::new();
+            for s in &w.steps {
+                if known.is_empty() || known.contains(&s.agent) {
+                    steps.push(s.agent.clone());
+                } else {
+                    warnings.push(format!(
+                        "workflow step agent '{}' not found on disk (ghost) — skipped",
+                        s.agent
+                    ));
+                }
             }
-        }
-        WorkflowChoice { id: w.id, label: w.label, description: w.description, steps }
-    });
+            WorkflowChoice {
+                id: w.id,
+                label: w.label,
+                description: w.description,
+                steps,
+            }
+        });
 
     // Real specialists to DELEGATE to (semantic match over the agent catalog).
     let delegate_agents: Vec<AgentChoice> = catalog::search_catalog(prompt, Some("agent"), 5)
         .into_iter()
-        .map(|h| AgentChoice { name: h.name, description: h.description, score: h.score })
+        .map(|h| AgentChoice {
+            name: h.name,
+            description: h.description,
+            score: h.score,
+        })
         .collect();
     if delegate_agents.is_empty() {
         warnings.push("agent catalog empty/unavailable — run `catalog_reindex`".to_string());
@@ -194,10 +289,22 @@ mod tests {
     #[test]
     fn classifies_vague_prompts_to_workflows() {
         assert_eq!(classify_intent("arregla el bug de login").1, "debug");
-        assert_eq!(classify_intent("revisa la seguridad del endpoint").1, "security");
-        assert_eq!(classify_intent("implementa una feature de export").1, "feature");
-        assert_eq!(classify_intent("investiga opciones de embeddings").1, "research");
-        assert_eq!(classify_intent("explícame cómo funciona Qdrant").1, "learning");
+        assert_eq!(
+            classify_intent("revisa la seguridad del endpoint").1,
+            "security"
+        );
+        assert_eq!(
+            classify_intent("implementa una feature de export").1,
+            "feature"
+        );
+        assert_eq!(
+            classify_intent("investiga opciones de embeddings").1,
+            "research"
+        );
+        assert_eq!(
+            classify_intent("explícame cómo funciona Qdrant").1,
+            "learning"
+        );
         assert_eq!(classify_intent("sigue con esto").1, "quick");
         assert_eq!(classify_intent("lanza el orquestador").0, "continue");
         assert_eq!(classify_intent("algo totalmente ambiguo xyz").0, "general");
@@ -208,7 +315,10 @@ mod tests {
     #[test]
     #[ignore = "e2e: real catalog + memory + E5"]
     fn e2e_orchestrate_real() {
-        let ctx = orchestrate("revisa el código en busca de fallos de seguridad", Some("ultron"));
+        let ctx = orchestrate(
+            "revisa el código en busca de fallos de seguridad",
+            Some("ultron"),
+        );
         eprintln!("\n=== ORCHESTRATE route={} ===", ctx.route);
         eprintln!("workflow: {:?}", ctx.workflow.as_ref().map(|w| &w.id));
         eprintln!("delegate agents:");
@@ -221,9 +331,17 @@ mod tests {
         }
         assert_eq!(ctx.route, "security");
         assert!(ctx.workflow.is_some(), "a workflow must be selected");
-        assert!(!ctx.delegate_agents.is_empty(), "agents to delegate must be found");
         assert!(
-            ctx.delegate_agents.iter().take(5).any(|a| a.name.contains("security") || a.name.contains("review") || a.name.contains("pentest")),
+            !ctx.delegate_agents.is_empty(),
+            "agents to delegate must be found"
+        );
+        assert!(
+            ctx.delegate_agents
+                .iter()
+                .take(5)
+                .any(|a| a.name.contains("security")
+                    || a.name.contains("review")
+                    || a.name.contains("pentest")),
             "a security/review specialist should be selected"
         );
     }

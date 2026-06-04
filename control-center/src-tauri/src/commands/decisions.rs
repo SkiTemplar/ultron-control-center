@@ -51,9 +51,7 @@ pub async fn decisions_delete(project_id: String, id: String) -> Result<(), Stri
 /// Drain the Stop-hook pending file into proposed decisions (auto-capture).
 /// Returns the newly added records (empty when nothing was pending).
 #[tauri::command]
-pub async fn decisions_drain_pending(
-    project_id: String,
-) -> Result<Vec<DecisionRecord>, String> {
+pub async fn decisions_drain_pending(project_id: String) -> Result<Vec<DecisionRecord>, String> {
     tauri::async_runtime::spawn_blocking(move || drain_pending_inner(&project_id))
         .await
         .map_err(|e| e.to_string())?
@@ -78,9 +76,7 @@ pub async fn decisions_search(
 /// Search decisions across ALL projects (wraps decisions_search with scope=None).
 /// This is the `kanban_decisions_search` variant mentioned in KIRKARDO 24.
 #[tauri::command]
-pub async fn kanban_decisions_search(
-    query: String,
-) -> Result<Vec<DecisionSearchResult>, String> {
+pub async fn kanban_decisions_search(query: String) -> Result<Vec<DecisionSearchResult>, String> {
     tauri::async_runtime::spawn_blocking(move || search_inner(&query, None))
         .await
         .map_err(|e| e.to_string())?

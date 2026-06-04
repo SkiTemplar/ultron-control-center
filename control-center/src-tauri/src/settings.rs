@@ -56,7 +56,18 @@ fn iso_now_compact() -> String {
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     let mdays: [i64; 12] = [
-        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {
@@ -92,7 +103,18 @@ fn iso_pretty(secs: u64) -> String {
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     let mdays: [i64; 12] = [
-        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {
@@ -139,19 +161,16 @@ fn list_recent_backups(dir: &PathBuf) -> Vec<String> {
 
 pub fn settings_read_inner() -> Result<SettingsSnapshot, String> {
     let path = claude_settings_path().ok_or_else(|| "no HOME".to_string())?;
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("read settings.json: {}", e))?;
-    let content: serde_json::Value = serde_json::from_str(&raw)
-        .map_err(|e| format!("parse settings.json: {}", e))?;
+    let raw = fs::read_to_string(&path).map_err(|e| format!("read settings.json: {}", e))?;
+    let content: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse settings.json: {}", e))?;
     let meta = fs::metadata(&path).ok();
     let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-    let modified = meta
-        .and_then(|m| m.modified().ok())
-        .and_then(|t| {
-            t.duration_since(std::time::UNIX_EPOCH)
-                .ok()
-                .map(|d| iso_pretty(d.as_secs()))
-        });
+    let modified = meta.and_then(|m| m.modified().ok()).and_then(|t| {
+        t.duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| iso_pretty(d.as_secs()))
+    });
     let backup_dir = backups_dir().ok_or_else(|| "no HOME".to_string())?;
     let recent_backups = list_recent_backups(&backup_dir);
 
@@ -305,7 +324,8 @@ pub fn purge_legacy_autostart_inner() -> Result<AutostartPurgeResult, String> {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
-        let approved_path = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
+        let approved_path =
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run";
         let app_name = "ULTRON Control Center";
 
         // Check whether the Run value is absent (we should only clean

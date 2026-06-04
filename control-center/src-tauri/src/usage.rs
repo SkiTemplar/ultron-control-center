@@ -146,7 +146,18 @@ fn epoch_to_date(secs: i64) -> String {
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     let mdays: [i64; 12] = [
-        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {
@@ -173,7 +184,18 @@ fn iso_diff_days(a: &str, b: &str) -> Option<i64> {
         }
         let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
         let mdays: [i64; 12] = [
-            31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+            31,
+            if leap { 29 } else { 28 },
+            31,
+            30,
+            31,
+            30,
+            31,
+            31,
+            30,
+            31,
+            30,
+            31,
         ];
         for mm in 0..(m as usize - 1) {
             total += mdays[mm];
@@ -211,8 +233,7 @@ fn compute_live_usage() -> Option<StatsCache> {
     if !dir.exists() {
         return None;
     }
-    let mut sessions: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
+    let mut sessions: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut messages: u64 = 0;
     let mut daily_msgs: BTreeMap<String, u64> = BTreeMap::new();
     let mut daily_sessions_seen: BTreeMap<String, std::collections::HashSet<String>> =
@@ -281,10 +302,9 @@ fn compute_live_usage() -> Option<StatsCache> {
                             *hour_counts.entry(h.to_string()).or_insert(0) += 1;
                         }
                     }
-                    "tool_use"
-                        if !date.is_empty() => {
-                            *daily_tools.entry(date.clone()).or_insert(0) += 1;
-                        }
+                    "tool_use" if !date.is_empty() => {
+                        *daily_tools.entry(date.clone()).or_insert(0) += 1;
+                    }
                     "assistant" => {
                         let msg = v.get("message").cloned().unwrap_or(serde_json::Value::Null);
                         let model = msg
@@ -322,8 +342,7 @@ fn compute_live_usage() -> Option<StatsCache> {
                         if !date.is_empty() {
                             *daily_model_tokens
                                 .entry((date.clone(), model.clone()))
-                                .or_insert(0) +=
-                                inp + out + cache_read + cache_create;
+                                .or_insert(0) += inp + out + cache_read + cache_create;
                         }
                     }
                     _ => {}
@@ -378,10 +397,9 @@ fn compute_live_usage() -> Option<StatsCache> {
 
 pub fn claude_usage_inner() -> Result<UsageReport, String> {
     let path = cache_path().ok_or_else(|| "no HOME".to_string())?;
-    let raw = fs::read_to_string(&path)
-        .map_err(|e| format!("read stats-cache.json: {}", e))?;
-    let mut cache: StatsCache = serde_json::from_str(&raw)
-        .map_err(|e| format!("parse stats-cache.json: {}", e))?;
+    let raw = fs::read_to_string(&path).map_err(|e| format!("read stats-cache.json: {}", e))?;
+    let mut cache: StatsCache =
+        serde_json::from_str(&raw).map_err(|e| format!("parse stats-cache.json: {}", e))?;
 
     let today = today_utc_iso();
     let cache_age_days = cache
@@ -474,13 +492,21 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
         if (0..7).contains(&age) {
             report.last_7_days.tokens_total += total;
             for (m, v) in &t.tokens_by_model {
-                *report.last_7_days.tokens_by_model.entry(m.clone()).or_insert(0) += v;
+                *report
+                    .last_7_days
+                    .tokens_by_model
+                    .entry(m.clone())
+                    .or_insert(0) += v;
             }
         }
         if (0..30).contains(&age) {
             report.last_30_days.tokens_total += total;
             for (m, v) in &t.tokens_by_model {
-                *report.last_30_days.tokens_by_model.entry(m.clone()).or_insert(0) += v;
+                *report
+                    .last_30_days
+                    .tokens_by_model
+                    .entry(m.clone())
+                    .or_insert(0) += v;
             }
         }
     }
@@ -494,9 +520,7 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
     for date in recent_sorted {
         let act = activity_by_date.get(date.as_str());
         let tok = tokens_by_date.get(date.as_str());
-        let tokens: u64 = tok
-            .map(|t| t.tokens_by_model.values().sum())
-            .unwrap_or(0);
+        let tokens: u64 = tok.map(|t| t.tokens_by_model.values().sum()).unwrap_or(0);
         report.daily_recent.push(DailyPoint {
             date: date.clone(),
             messages: act.map(|a| a.message_count).unwrap_or(0),

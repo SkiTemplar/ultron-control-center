@@ -32,7 +32,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-
 #[derive(Debug, Serialize, Clone)]
 pub struct AgentInfo {
     pub name: String,
@@ -84,7 +83,11 @@ fn parse_frontmatter(text: &str) -> (Option<String>, Option<String>, Vec<String>
         if let Some(rest) = line.strip_prefix("description:") {
             let trimmed = rest.trim();
             if !trimmed.is_empty() && trimmed != ">" && trimmed != "|" {
-                description = Some(trimmed.trim_matches(|c: char| c == '"' || c == '\'').to_string());
+                description = Some(
+                    trimmed
+                        .trim_matches(|c: char| c == '"' || c == '\'')
+                        .to_string(),
+                );
             }
         } else if let Some(rest) = line.strip_prefix("model:") {
             let m = rest.trim().trim_matches(|c: char| c == '"' || c == '\'');
@@ -94,7 +97,11 @@ fn parse_frontmatter(text: &str) -> (Option<String>, Option<String>, Vec<String>
         } else if let Some(rest) = line.strip_prefix("tools:") {
             let t = rest.trim();
             if !t.is_empty() && !t.starts_with('[') {
-                tools = t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+                tools = t
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
             }
         }
     }
@@ -219,7 +226,11 @@ fn audit_all_agents_map() -> Option<std::collections::HashMap<String, AgentSecur
         let findings_count = v
             .get("findings")
             .and_then(|f| f.as_array())
-            .map(|a| a.iter().filter(|x| !x.get("waived").and_then(|w| w.as_bool()).unwrap_or(false)).count())
+            .map(|a| {
+                a.iter()
+                    .filter(|x| !x.get("waived").and_then(|w| w.as_bool()).unwrap_or(false))
+                    .count()
+            })
             .unwrap_or(0) as u64;
         let high_severity_rules: Vec<String> = v
             .get("findings")
@@ -233,9 +244,7 @@ fn audit_all_agents_map() -> Option<std::collections::HashMap<String, AgentSecur
                         let sev = x.get("severity").and_then(|s| s.as_str()).unwrap_or("");
                         !waived && (sev == "high" || sev == "critical")
                     })
-                    .filter_map(|x| {
-                        x.get("rule_id").and_then(|r| r.as_str()).map(String::from)
-                    })
+                    .filter_map(|x| x.get("rule_id").and_then(|r| r.as_str()).map(String::from))
                     .collect()
             })
             .unwrap_or_default();
@@ -541,10 +550,7 @@ fn collect_agents_from(root: &Path, origin: AgentOrigin) -> Vec<AgentEntry> {
             // with the markdown frontmatter and the actual file path
             // (KIRKARDO 2 HIGH — previous lowercasing produced
             // `MyAgent.md` → stem="myagent" mismatching the frontmatter).
-            let fname = p
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("");
+            let fname = p.file_name().and_then(|s| s.to_str()).unwrap_or("");
             let fname_lower = fname.to_ascii_lowercase();
             let (enabled, stem_len) =
                 if let Some(idx) = fname_lower.strip_suffix(".md.disabled").map(|s| s.len()) {
@@ -614,8 +620,7 @@ pub fn agent_toggle_inner(name: String, enabled: bool) -> Result<AgentEntry, Str
         || name.starts_with('.')
     {
         return Err(
-            "invalid agent name: only [a-zA-Z0-9_-.] allowed, no leading dot or '..'"
-                .to_string(),
+            "invalid agent name: only [a-zA-Z0-9_-.] allowed, no leading dot or '..'".to_string(),
         );
     }
     let root = global_agents_dir()?;
@@ -742,7 +747,10 @@ mod tests {
         let (desc, model, tools) = parse_frontmatter(md);
         assert_eq!(desc.as_deref(), Some("A test agent for the suite"));
         assert_eq!(model.as_deref(), Some("claude-sonnet-4-6"));
-        assert_eq!(tools, vec!["Read".to_string(), "Glob".to_string(), "Grep".to_string()]);
+        assert_eq!(
+            tools,
+            vec!["Read".to_string(), "Glob".to_string(), "Grep".to_string()]
+        );
     }
 
     #[test]

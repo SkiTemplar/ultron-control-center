@@ -156,9 +156,21 @@ impl AlertShape {
     /// alert that has been acknowledged; the Notifications tab never wants
     /// to see it, and bulk deletes should evict it so the file stays clean.
     fn is_orphan_tombstone(&self) -> bool {
-        let has_message = self.message.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
-        let has_source = self.source.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
-        let has_severity = self.severity.as_deref().map(|s| !s.is_empty()).unwrap_or(false);
+        let has_message = self
+            .message
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+        let has_source = self
+            .source
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
+        let has_severity = self
+            .severity
+            .as_deref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false);
         let acked = self.ack.unwrap_or(false);
         acked && !has_message && !has_source && !has_severity
     }
@@ -206,8 +218,7 @@ pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize,
     // opportunity to evict orphan ack-tombstones (see is_orphan_tombstone).
     let targets: std::collections::HashSet<String> = fingerprints.into_iter().collect();
 
-    let original =
-        fs::read_to_string(&path).map_err(|e| format!("read alerts.jsonl: {}", e))?;
+    let original = fs::read_to_string(&path).map_err(|e| format!("read alerts.jsonl: {}", e))?;
 
     // Pass 1: figure out which alert ids get deleted (so their ack tombstones
     // can be evicted in pass 2). We need this because tombstones are
@@ -283,12 +294,12 @@ pub fn delete_alerts_by_fingerprints(fingerprints: Vec<String>) -> Result<usize,
     // Atomic write: tmp file in same directory, then rename.
     let tmp_path = path.with_extension("jsonl.tmp");
     {
-        let mut f =
-            fs::File::create(&tmp_path).map_err(|e| format!("create tmp: {}", e))?;
+        let mut f = fs::File::create(&tmp_path).map_err(|e| format!("create tmp: {}", e))?;
         for line in &kept {
             f.write_all(line.as_bytes())
                 .map_err(|e| format!("write tmp: {}", e))?;
-            f.write_all(b"\n").map_err(|e| format!("write tmp: {}", e))?;
+            f.write_all(b"\n")
+                .map_err(|e| format!("write tmp: {}", e))?;
         }
         f.sync_all().ok();
     }

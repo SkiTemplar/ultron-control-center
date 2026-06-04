@@ -405,7 +405,10 @@ async fn scan_apps(app: &tauri::AppHandle) -> Result<(Vec<InstalledApp>, Vec<Str
     }
     let trimmed = stdout.trim();
     if trimmed.is_empty() {
-        return Ok((Vec::new(), vec!["inventory script produced no output".into()]));
+        return Ok((
+            Vec::new(),
+            vec!["inventory script produced no output".into()],
+        ));
     }
     let parsed: PsInventoryResult = serde_json::from_str(trimmed)
         .map_err(|e| format!("parse inventory json: {} (output: {:.500})", e, trimmed))?;
@@ -812,7 +815,10 @@ mod tests {
         // Multiple quotes — each doubled
         assert_eq!(ps_single_quote_escape("'a'b'"), "''a''b''");
         // Backslash, $, backtick are literal inside PS single quotes; left as-is.
-        assert_eq!(ps_single_quote_escape("C:\\Program Files"), "C:\\Program Files");
+        assert_eq!(
+            ps_single_quote_escape("C:\\Program Files"),
+            "C:\\Program Files"
+        );
         assert_eq!(ps_single_quote_escape("$var"), "$var");
         assert_eq!(ps_single_quote_escape("`backtick`"), "`backtick`");
     }

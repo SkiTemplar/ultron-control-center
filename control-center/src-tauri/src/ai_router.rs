@@ -261,7 +261,11 @@ fn seed_providers() -> Vec<Provider> {
             id: "claude-haiku".into(),
             name: "Anthropic Claude Haiku".into(),
             cost_per_mtok: 1.25,
-            supports: vec![ProviderClass::Trivial, ProviderClass::Light, ProviderClass::Medium],
+            supports: vec![
+                ProviderClass::Trivial,
+                ProviderClass::Light,
+                ProviderClass::Medium,
+            ],
             api_key_status: ApiKeyStatus::Missing,
             health_endpoint: Some("https://api.anthropic.com/v1/models".into()),
             kind: ProviderKind::Cloud,
@@ -275,7 +279,11 @@ fn seed_providers() -> Vec<Provider> {
             id: "codex".into(),
             name: "OpenAI Codex (gpt-5)".into(),
             cost_per_mtok: 10.0,
-            supports: vec![ProviderClass::Light, ProviderClass::Medium, ProviderClass::Heavy],
+            supports: vec![
+                ProviderClass::Light,
+                ProviderClass::Medium,
+                ProviderClass::Heavy,
+            ],
             api_key_status: ApiKeyStatus::Missing,
             health_endpoint: Some("https://api.openai.com/v1/models".into()),
             kind: ProviderKind::Cloud,
@@ -289,11 +297,14 @@ fn seed_providers() -> Vec<Provider> {
             id: "gemini".into(),
             name: "Google Gemini".into(),
             cost_per_mtok: 0.35,
-            supports: vec![ProviderClass::Trivial, ProviderClass::Light, ProviderClass::Medium, ProviderClass::Heavy],
+            supports: vec![
+                ProviderClass::Trivial,
+                ProviderClass::Light,
+                ProviderClass::Medium,
+                ProviderClass::Heavy,
+            ],
             api_key_status: ApiKeyStatus::Missing,
-            health_endpoint: Some(
-                "https://generativelanguage.googleapis.com/v1beta/models".into(),
-            ),
+            health_endpoint: Some("https://generativelanguage.googleapis.com/v1beta/models".into()),
             kind: ProviderKind::Cloud,
             key_env_var: "GEMINI_API_KEY".into(),
             base_url: "https://generativelanguage.googleapis.com".into(),
@@ -322,7 +333,11 @@ fn seed_providers() -> Vec<Provider> {
             id: "ollama".into(),
             name: "Ollama (local)".into(),
             cost_per_mtok: 0.0,
-            supports: vec![ProviderClass::Trivial, ProviderClass::Light, ProviderClass::Medium],
+            supports: vec![
+                ProviderClass::Trivial,
+                ProviderClass::Light,
+                ProviderClass::Medium,
+            ],
             api_key_status: ApiKeyStatus::Configured, // local; no key needed.
             health_endpoint: Some("http://localhost:11434/api/tags".into()),
             kind: ProviderKind::Local,
@@ -358,7 +373,11 @@ fn seed_providers() -> Vec<Provider> {
             id: "codex-cli".into(),
             name: "OpenAI Codex CLI (gpt-5 via OAuth)".into(),
             cost_per_mtok: 0.0, // covered by ChatGPT Plus subscription
-            supports: vec![ProviderClass::Light, ProviderClass::Medium, ProviderClass::Heavy],
+            supports: vec![
+                ProviderClass::Light,
+                ProviderClass::Medium,
+                ProviderClass::Heavy,
+            ],
             api_key_status: ApiKeyStatus::Configured, // patched by detect_cli at load time
             health_endpoint: None,
             kind: ProviderKind::Cli,
@@ -553,8 +572,7 @@ fn seed_zones() -> Vec<Zone> {
 // ---------------------------------------------------------------------------
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &PathBuf) -> Result<T, String> {
-    let bytes =
-        fs::read(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
+    let bytes = fs::read(path).map_err(|e| format!("read {}: {}", path.display(), e))?;
     serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {}", path.display(), e))
 }
 
@@ -662,8 +680,7 @@ fn load_metrics() -> Result<RouterMetrics, String> {
 // execute `.cmd` shims — `std::process::Command::new("codex")` alone fails.
 // ---------------------------------------------------------------------------
 
-static CLI_CACHE: Lazy<Mutex<HashMap<String, bool>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static CLI_CACHE: Lazy<Mutex<HashMap<String, bool>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Returns `true` when `command` resolves on the current PATH.
 ///
@@ -764,7 +781,9 @@ fn probe_provider(provider: &Provider) -> bool {
     // any < 500 response means the upstream is reachable.
     if provider.id == "claude-haiku" {
         if let Ok(key) = std::env::var(&provider.key_env_var) {
-            req = req.header("x-api-key", key).header("anthropic-version", "2023-06-01");
+            req = req
+                .header("x-api-key", key)
+                .header("anthropic-version", "2023-06-01");
         }
     } else if provider.id == "gemini" {
         if let Ok(key) = std::env::var(&provider.key_env_var) {
@@ -836,10 +855,7 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                     model: zone.primary.model.clone(),
                     latency_ms: 0,
                     response_excerpt: String::new(),
-                    error: Some(format!(
-                        "CLI '{}' not found on PATH. {}",
-                        cmd, install_hint
-                    )),
+                    error: Some(format!("CLI '{}' not found on PATH. {}", cmd, install_hint)),
                 };
             }
         }
@@ -868,12 +884,48 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
     let outcome = match provider.kind {
         ProviderKind::Cli => call_cli(&provider, sample_prompt),
         _ => match provider.id.as_str() {
-            "claude-haiku" => call_anthropic(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-            "codex" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-            "groq" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-            "deepseek" => call_openai_compat(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-            "gemini" => call_gemini(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
-            "ollama" => call_ollama(&provider, &zone.primary.model, sample_prompt, zone.system_prompt.as_deref(), zone.primary.max_tokens),
+            "claude-haiku" => call_anthropic(
+                &provider,
+                &zone.primary.model,
+                sample_prompt,
+                zone.system_prompt.as_deref(),
+                zone.primary.max_tokens,
+            ),
+            "codex" => call_openai_compat(
+                &provider,
+                &zone.primary.model,
+                sample_prompt,
+                zone.system_prompt.as_deref(),
+                zone.primary.max_tokens,
+            ),
+            "groq" => call_openai_compat(
+                &provider,
+                &zone.primary.model,
+                sample_prompt,
+                zone.system_prompt.as_deref(),
+                zone.primary.max_tokens,
+            ),
+            "deepseek" => call_openai_compat(
+                &provider,
+                &zone.primary.model,
+                sample_prompt,
+                zone.system_prompt.as_deref(),
+                zone.primary.max_tokens,
+            ),
+            "gemini" => call_gemini(
+                &provider,
+                &zone.primary.model,
+                sample_prompt,
+                zone.system_prompt.as_deref(),
+                zone.primary.max_tokens,
+            ),
+            "ollama" => call_ollama(
+                &provider,
+                &zone.primary.model,
+                sample_prompt,
+                zone.system_prompt.as_deref(),
+                zone.primary.max_tokens,
+            ),
             other => Err(format!("no wrapper implemented for provider '{}'", other)),
         },
     };
@@ -989,8 +1041,8 @@ fn call_anthropic(
     if !status.is_success() {
         return Err(format!("anthropic {}: {}", status, truncate(&text, 200)));
     }
-    let v: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("parse anthropic response: {}", e))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("parse anthropic response: {}", e))?;
     let out = v
         .get("content")
         .and_then(|c| c.get(0))
@@ -999,8 +1051,14 @@ fn call_anthropic(
         .unwrap_or("(no text in response)")
         .to_string();
     let usage = TokenUsage {
-        input_tokens: v.pointer("/usage/input_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
-        output_tokens: v.pointer("/usage/output_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
+        input_tokens: v
+            .pointer("/usage/input_tokens")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
+        output_tokens: v
+            .pointer("/usage/output_tokens")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
     };
     Ok(CallOutcome { text: out, usage })
 }
@@ -1041,7 +1099,12 @@ fn call_openai_compat(
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("{} {}: {}", provider.id, status, truncate(&text, 200)));
+        return Err(format!(
+            "{} {}: {}",
+            provider.id,
+            status,
+            truncate(&text, 200)
+        ));
     }
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| format!("parse {} response: {}", provider.id, e))?;
@@ -1054,8 +1117,14 @@ fn call_openai_compat(
         .unwrap_or("(no text in response)")
         .to_string();
     let usage = TokenUsage {
-        input_tokens: v.pointer("/usage/prompt_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
-        output_tokens: v.pointer("/usage/completion_tokens").and_then(|x| x.as_u64()).unwrap_or(0),
+        input_tokens: v
+            .pointer("/usage/prompt_tokens")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
+        output_tokens: v
+            .pointer("/usage/completion_tokens")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
     };
     Ok(CallOutcome { text: out, usage })
 }
@@ -1081,8 +1150,7 @@ fn call_gemini(
     });
     if let Some(sys) = system {
         if !sys.is_empty() {
-            body["systemInstruction"] =
-                serde_json::json!({ "parts": [{ "text": sys }] });
+            body["systemInstruction"] = serde_json::json!({ "parts": [{ "text": sys }] });
         }
     }
     let resp = client
@@ -1097,8 +1165,8 @@ fn call_gemini(
     if !status.is_success() {
         return Err(format!("gemini {}: {}", status, truncate(&text, 200)));
     }
-    let v: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("parse gemini response: {}", e))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("parse gemini response: {}", e))?;
     let out = v
         .get("candidates")
         .and_then(|c| c.get(0))
@@ -1110,8 +1178,14 @@ fn call_gemini(
         .unwrap_or("(no text in response)")
         .to_string();
     let usage = TokenUsage {
-        input_tokens: v.pointer("/usageMetadata/promptTokenCount").and_then(|x| x.as_u64()).unwrap_or(0),
-        output_tokens: v.pointer("/usageMetadata/candidatesTokenCount").and_then(|x| x.as_u64()).unwrap_or(0),
+        input_tokens: v
+            .pointer("/usageMetadata/promptTokenCount")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
+        output_tokens: v
+            .pointer("/usageMetadata/candidatesTokenCount")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
     };
     Ok(CallOutcome { text: out, usage })
 }
@@ -1155,15 +1229,18 @@ fn call_ollama(
     if !status.is_success() {
         return Err(format!("ollama {}: {}", status, truncate(&text, 200)));
     }
-    let v: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("parse ollama response: {}", e))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("parse ollama response: {}", e))?;
     let out = v
         .get("response")
         .and_then(|r| r.as_str())
         .unwrap_or("(no response field)")
         .to_string();
     let usage = TokenUsage {
-        input_tokens: v.get("prompt_eval_count").and_then(|x| x.as_u64()).unwrap_or(0),
+        input_tokens: v
+            .get("prompt_eval_count")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(0),
         output_tokens: v.get("eval_count").and_then(|x| x.as_u64()).unwrap_or(0),
     };
     Ok(CallOutcome { text: out, usage })
@@ -1234,9 +1311,8 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, String> {
         let safe_prompt = sanitize_for_cmd(prompt);
         let safe_cmd = sanitize_for_cmd(cmd);
         let safe_model = sanitize_for_cmd(model);
-        let shell_arg = format!(
-            "{safe_cmd} {prompt_flag} \"{safe_prompt}\" {model_flag} {safe_model}"
-        );
+        let shell_arg =
+            format!("{safe_cmd} {prompt_flag} \"{safe_prompt}\" {model_flag} {safe_model}");
         std::process::Command::new("cmd")
             .args(["/C", &shell_arg])
             .stdin(Stdio::null())
@@ -1268,7 +1344,10 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, String> {
     if stdout.trim().is_empty() {
         return Err(format!("{cmd} produced no output"));
     }
-    Ok(CallOutcome { text: stdout, usage: TokenUsage::default() })
+    Ok(CallOutcome {
+        text: stdout,
+        usage: TokenUsage::default(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1461,10 +1540,7 @@ fn try_assignment_call(
                     "gemini" => "Install with: npm install -g @google/gemini-cli",
                     _ => "Install the CLI and ensure it is on PATH",
                 };
-                return Err(format!(
-                    "CLI '{}' not found on PATH. {}",
-                    cmd, install_hint
-                ));
+                return Err(format!("CLI '{}' not found on PATH. {}", cmd, install_hint));
             }
             return call_cli(provider, prompt);
         }
@@ -1484,10 +1560,34 @@ fn try_assignment_call(
     }
 
     match provider.id.as_str() {
-        "claude-haiku" => call_anthropic(provider, &assignment.model, prompt, system_prompt, assignment.max_tokens),
-        "codex" | "groq" | "deepseek" => call_openai_compat(provider, &assignment.model, prompt, system_prompt, assignment.max_tokens),
-        "gemini" => call_gemini(provider, &assignment.model, prompt, system_prompt, assignment.max_tokens),
-        "ollama" => call_ollama(provider, &assignment.model, prompt, system_prompt, assignment.max_tokens),
+        "claude-haiku" => call_anthropic(
+            provider,
+            &assignment.model,
+            prompt,
+            system_prompt,
+            assignment.max_tokens,
+        ),
+        "codex" | "groq" | "deepseek" => call_openai_compat(
+            provider,
+            &assignment.model,
+            prompt,
+            system_prompt,
+            assignment.max_tokens,
+        ),
+        "gemini" => call_gemini(
+            provider,
+            &assignment.model,
+            prompt,
+            system_prompt,
+            assignment.max_tokens,
+        ),
+        "ollama" => call_ollama(
+            provider,
+            &assignment.model,
+            prompt,
+            system_prompt,
+            assignment.max_tokens,
+        ),
         other => Err(format!("no wrapper implemented for provider '{}'", other)),
     }
 }
@@ -1513,7 +1613,10 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     let mut metrics = load_metrics().unwrap_or_default();
 
     // --- Per-provider (by_class) ---
-    let pm = metrics.by_class.entry(s.provider_id.to_string()).or_default();
+    let pm = metrics
+        .by_class
+        .entry(s.provider_id.to_string())
+        .or_default();
     pm.count = pm.count.saturating_add(1);
     if s.success {
         pm.success_count = pm.success_count.saturating_add(1);
@@ -1620,7 +1723,10 @@ fn disabled_providers_set() -> std::collections::HashSet<String> {
         .unwrap_or_default()
         .into_iter()
         .filter(|p| {
-            matches!(compute_key_status(p), ApiKeyStatus::Missing | ApiKeyStatus::Placeholder)
+            matches!(
+                compute_key_status(p),
+                ApiKeyStatus::Missing | ApiKeyStatus::Placeholder
+            )
         })
         .map(|p| p.id)
         .collect()
@@ -1671,10 +1777,7 @@ pub fn ai_router_validate_keys() -> Result<Vec<KeyValidation>, String> {
                     warning: if installed {
                         None
                     } else {
-                        Some(format!(
-                            "CLI '{}' not found on PATH. {}",
-                            cmd, install_hint
-                        ))
+                        Some(format!("CLI '{}' not found on PATH. {}", cmd, install_hint))
                     },
                 };
             }
@@ -2040,7 +2143,10 @@ mod tests {
 
         let w = warning.expect("warning should be present when key is absent");
         assert!(w.contains(key_var), "warning must name the env var");
-        assert!(w.contains("warn-provider"), "warning must name the provider");
+        assert!(
+            w.contains("warn-provider"),
+            "warning must name the provider"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -2092,7 +2198,10 @@ mod tests {
     fn seed_providers_includes_cli_providers() {
         let ids: Vec<String> = seed_providers().into_iter().map(|p| p.id).collect();
         assert!(ids.iter().any(|id| id == "codex-cli"), "missing codex-cli");
-        assert!(ids.iter().any(|id| id == "gemini-cli"), "missing gemini-cli");
+        assert!(
+            ids.iter().any(|id| id == "gemini-cli"),
+            "missing gemini-cli"
+        );
     }
 
     #[test]

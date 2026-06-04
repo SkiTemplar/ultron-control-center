@@ -1,4 +1,4 @@
-﻿// ULTRON Control Center 2.0 - Workdays domain
+// ULTRON Control Center 2.0 - Workdays domain
 //
 // 2026-05-26 redesign: automatic workflow tracking.
 //
@@ -47,18 +47,32 @@ fn workday_lock() -> &'static Mutex<()> {
 fn new_id(prefix: &str) -> String {
     static C: AtomicU64 = AtomicU64::new(0);
     let n = C.fetch_add(1, Ordering::Relaxed);
-    let t = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_micros()).unwrap_or(0);
+    let t = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_micros())
+        .unwrap_or(0);
     format!("{prefix}-{t}-{n}")
 }
 fn now_iso() -> String {
-    let s = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let s = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
     format!("epoch:{}", s)
 }
-fn today_date() -> String { chrono::Local::now().format("%Y-%m-%d").to_string() }
+fn today_date() -> String {
+    chrono::Local::now().format("%Y-%m-%d").to_string()
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkdayStatus { Planned, InProgress, Paused, Completed, Archived }
+pub enum WorkdayStatus {
+    Planned,
+    InProgress,
+    Paused,
+    Completed,
+    Archived,
+}
 impl std::fmt::Display for WorkdayStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
@@ -73,11 +87,21 @@ impl std::fmt::Display for WorkdayStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum GoalStatus { #[default] Pending, Done, Skipped }
+pub enum GoalStatus {
+    #[default]
+    Pending,
+    Done,
+    Skipped,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
-pub enum GoalSource { #[default] Manual, AiInferred, Kanban }
+pub enum GoalSource {
+    #[default]
+    Manual,
+    AiInferred,
+    Kanban,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkdayGoal {
@@ -146,59 +170,90 @@ pub struct WorkdayAiSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Workday {
     pub id: String,
-    #[serde(default)] pub template_id: Option<String>,
+    #[serde(default)]
+    pub template_id: Option<String>,
     /// Workflow template id (quick / feature / debug / security / research /
     /// game / learning) -- matches the canonical seven defined in
     /// `agent_orchestration::list_workflows_inner`. Used to seed the goal
     /// list and to drive the agent sequence the next session will follow.
-    #[serde(default)] pub workflow_template: Option<String>,
+    #[serde(default)]
+    pub workflow_template: Option<String>,
     /// Project the workday is bound to. Auto-set when the workday is created
     /// by a session-start hook. Older workdays may carry `None`.
-    #[serde(default)] pub project_id: Option<String>,
+    #[serde(default)]
+    pub project_id: Option<String>,
     /// Canonical filesystem cwd the workday was opened from. Used by the
     /// auto-linker to match incoming sessions to an existing workday.
-    #[serde(default)] pub project_cwd: Option<String>,
+    #[serde(default)]
+    pub project_cwd: Option<String>,
     pub title: String,
     pub status: WorkdayStatus,
     pub planned_date: String,
-    #[serde(default)] pub start_ts: Option<String>,
-    #[serde(default)] pub end_ts: Option<String>,
-    #[serde(default)] pub focus_seconds: u64,
-    #[serde(default)] pub break_seconds: u64,
-    #[serde(default)] pub energy_before: Option<u8>,
-    #[serde(default)] pub energy_after: Option<u8>,
-    #[serde(default)] pub mood_note: Option<String>,
-    #[serde(default)] pub retro_good: Option<String>,
-    #[serde(default)] pub retro_bad: Option<String>,
-    #[serde(default)] pub retro_learned: Option<String>,
-    #[serde(default)] pub summary_md: Option<String>,
+    #[serde(default)]
+    pub start_ts: Option<String>,
+    #[serde(default)]
+    pub end_ts: Option<String>,
+    #[serde(default)]
+    pub focus_seconds: u64,
+    #[serde(default)]
+    pub break_seconds: u64,
+    #[serde(default)]
+    pub energy_before: Option<u8>,
+    #[serde(default)]
+    pub energy_after: Option<u8>,
+    #[serde(default)]
+    pub mood_note: Option<String>,
+    #[serde(default)]
+    pub retro_good: Option<String>,
+    #[serde(default)]
+    pub retro_bad: Option<String>,
+    #[serde(default)]
+    pub retro_learned: Option<String>,
+    #[serde(default)]
+    pub summary_md: Option<String>,
     /// Resumen automático IA de la jornada (auto-contexto). Distinto de summary_md.
-    #[serde(default)] pub ai_summary: Option<WorkdayAiSummary>,
-    #[serde(default)] pub goals: Vec<WorkdayGoal>,
-    #[serde(default)] pub linked_sessions: Vec<String>,
-    #[serde(default)] pub linked_tasks: Vec<String>,
+    #[serde(default)]
+    pub ai_summary: Option<WorkdayAiSummary>,
+    #[serde(default)]
+    pub goals: Vec<WorkdayGoal>,
+    #[serde(default)]
+    pub linked_sessions: Vec<String>,
+    #[serde(default)]
+    pub linked_tasks: Vec<String>,
     /// Shared context that subsequent agents/sessions can read and append
     /// to. Replaces the old "notes" model with a structured surface that
     /// stays small enough to inline into prompts.
-    #[serde(default)] pub context: WorkdayContext,
+    #[serde(default)]
+    pub context: WorkdayContext,
     pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkdayTemplate {
-    pub id: String, pub name: String,
-    #[serde(default)] pub default_title: Option<String>,
-    #[serde(default)] pub default_goals: Vec<String>,
-    #[serde(default)] pub notes: Option<String>,
-    pub created_at: String, pub updated_at: String,
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub default_title: Option<String>,
+    #[serde(default)]
+    pub default_goals: Vec<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WorkdayMetrics {
-    pub id: String, pub title: String, pub status: WorkdayStatus, pub planned_date: String,
-    pub focus_minutes: u64, pub break_minutes: u64,
-    pub total_goals: usize, pub completed_goals: usize,
-    pub linked_sessions: usize, pub linked_tasks: usize,
+    pub id: String,
+    pub title: String,
+    pub status: WorkdayStatus,
+    pub planned_date: String,
+    pub focus_minutes: u64,
+    pub break_minutes: u64,
+    pub total_goals: usize,
+    pub completed_goals: usize,
+    pub linked_sessions: usize,
+    pub linked_tasks: usize,
 }
 
 /// Aggregated "today" view returned by `workday_today_timeline`. Carries the
@@ -212,27 +267,49 @@ pub struct WorkdayTodayView {
 }
 
 pub fn workdays_dir() -> Result<PathBuf, String> {
-    Ok(dirs::home_dir().ok_or_else(|| "no home".to_string())?.join(".ultron").join("cockpit").join("workdays"))
+    Ok(dirs::home_dir()
+        .ok_or_else(|| "no home".to_string())?
+        .join(".ultron")
+        .join("cockpit")
+        .join("workdays"))
 }
 fn templates_dir() -> Result<PathBuf, String> {
-    Ok(dirs::home_dir().ok_or_else(|| "no home".to_string())?.join(".ultron").join("cockpit").join("workday-templates"))
+    Ok(dirs::home_dir()
+        .ok_or_else(|| "no home".to_string())?
+        .join(".ultron")
+        .join("cockpit")
+        .join("workday-templates"))
 }
-fn workday_path(id: &str) -> Result<PathBuf, String> { Ok(workdays_dir()?.join(format!("{id}.json"))) }
-fn template_path(id: &str) -> Result<PathBuf, String> { Ok(templates_dir()?.join(format!("{id}.json"))) }
+fn workday_path(id: &str) -> Result<PathBuf, String> {
+    Ok(workdays_dir()?.join(format!("{id}.json")))
+}
+fn template_path(id: &str) -> Result<PathBuf, String> {
+    Ok(templates_dir()?.join(format!("{id}.json")))
+}
 
 fn atomic_write(path: &PathBuf, j: &str) -> Result<(), String> {
-    if let Some(p) = path.parent() { fs::create_dir_all(p).map_err(|e| format!("mkdir: {e}"))?; }
+    if let Some(p) = path.parent() {
+        fs::create_dir_all(p).map_err(|e| format!("mkdir: {e}"))?;
+    }
     let tmp = path.with_extension("json.tmp");
-    { let mut f = fs::File::create(&tmp).map_err(|e| format!("create: {e}"))?;
-      f.write_all(j.as_bytes()).map_err(|e| format!("write: {e}"))?; f.sync_all().ok(); }
+    {
+        let mut f = fs::File::create(&tmp).map_err(|e| format!("create: {e}"))?;
+        f.write_all(j.as_bytes())
+            .map_err(|e| format!("write: {e}"))?;
+        f.sync_all().ok();
+    }
     fs::rename(&tmp, path).map_err(|e| format!("rename: {e}"))
 }
 fn persist_workday(wd: &Workday) -> Result<(), String> {
     let p = workday_path(&wd.id)?;
-    atomic_write(&p, &serde_json::to_string_pretty(wd).map_err(|e| format!("ser: {e}"))?)
+    atomic_write(
+        &p,
+        &serde_json::to_string_pretty(wd).map_err(|e| format!("ser: {e}"))?,
+    )
 }
 fn load_from_path(p: &PathBuf) -> Result<Workday, String> {
-    serde_json::from_str(&fs::read_to_string(p).map_err(|e| format!("read: {e}"))?).map_err(|e| format!("parse: {e}"))
+    serde_json::from_str(&fs::read_to_string(p).map_err(|e| format!("read: {e}"))?)
+        .map_err(|e| format!("parse: {e}"))
 }
 /// O(1) lookup of a workday by id (KIRKARDO 17 HIGH fix). External callers
 /// (agent_orchestration blackboard) should prefer this over
@@ -260,90 +337,182 @@ pub fn get_workday_by_id(id: &str) -> Result<Option<Workday>, String> {
 
 fn load_wd(id: &str) -> Result<Workday, String> {
     let p = workday_path(id)?;
-    if !p.exists() { return Err(format!("workday {id} not found")); }
+    if !p.exists() {
+        return Err(format!("workday {id} not found"));
+    }
     load_from_path(&p)
 }
 fn persist_template(t: &WorkdayTemplate) -> Result<(), String> {
     let p = template_path(&t.id)?;
-    atomic_write(&p, &serde_json::to_string_pretty(t).map_err(|e| format!("ser: {e}"))?)
+    atomic_write(
+        &p,
+        &serde_json::to_string_pretty(t).map_err(|e| format!("ser: {e}"))?,
+    )
 }
 
 fn assert_transition(from: &WorkdayStatus, to: &WorkdayStatus) -> Result<(), String> {
-    let ok = matches!((from, to),
+    let ok = matches!(
+        (from, to),
         (WorkdayStatus::Planned, WorkdayStatus::InProgress)
-        | (WorkdayStatus::InProgress, WorkdayStatus::Paused)
-        | (WorkdayStatus::Paused, WorkdayStatus::InProgress)
-        | (WorkdayStatus::InProgress, WorkdayStatus::Completed)
-        | (WorkdayStatus::Completed, WorkdayStatus::Archived)
-        | (WorkdayStatus::InProgress, WorkdayStatus::Archived)
-        | (WorkdayStatus::Paused, WorkdayStatus::Archived));
-    if ok { Ok(()) } else { Err(format!("invalid transition: {} -> {}", from, to)) }
+            | (WorkdayStatus::InProgress, WorkdayStatus::Paused)
+            | (WorkdayStatus::Paused, WorkdayStatus::InProgress)
+            | (WorkdayStatus::InProgress, WorkdayStatus::Completed)
+            | (WorkdayStatus::Completed, WorkdayStatus::Archived)
+            | (WorkdayStatus::InProgress, WorkdayStatus::Archived)
+            | (WorkdayStatus::Paused, WorkdayStatus::Archived)
+    );
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("invalid transition: {} -> {}", from, to))
+    }
 }
 
 fn gen_summary(wd: &Workday) -> String {
-    let fm = wd.focus_seconds / 60; let bm = wd.break_seconds / 60;
+    let fm = wd.focus_seconds / 60;
+    let bm = wd.break_seconds / 60;
     let tot = wd.goals.len();
-    let done = wd.goals.iter().filter(|g| g.status == GoalStatus::Done).count();
-    let gl: String = wd.goals.iter().map(|g| {
-        let m = match g.status { GoalStatus::Done => "[x]", GoalStatus::Skipped => "[~]", GoalStatus::Pending => "[ ]" };
-        format!("- {m} {}\n", g.text)
-    }).collect();
+    let done = wd
+        .goals
+        .iter()
+        .filter(|g| g.status == GoalStatus::Done)
+        .count();
+    let gl: String = wd
+        .goals
+        .iter()
+        .map(|g| {
+            let m = match g.status {
+                GoalStatus::Done => "[x]",
+                GoalStatus::Skipped => "[~]",
+                GoalStatus::Pending => "[ ]",
+            };
+            format!("- {m} {}\n", g.text)
+        })
+        .collect();
     format!("# {}\n\nFecha: {}  \nEstado: {}  \nFoco: {fm} min  \nDescanso: {bm} min  \nTareas: {done}/{tot}  \n\n## Objetivos\n{gl}",
         wd.title, wd.planned_date, wd.status)
 }
 
-pub fn create_workday_inner(title: String, planned_date: Option<String>, template_id: Option<String>, goals: Option<Vec<String>>) -> Result<Workday, String> {
+pub fn create_workday_inner(
+    title: String,
+    planned_date: Option<String>,
+    template_id: Option<String>,
+    goals: Option<Vec<String>>,
+) -> Result<Workday, String> {
     let d = planned_date.unwrap_or_else(today_date);
-    let gi: Vec<WorkdayGoal> = goals.unwrap_or_default().into_iter()
-        .map(|text| WorkdayGoal { id: new_id("goal"), text, status: GoalStatus::Pending, source: GoalSource::Manual, linked_card_id: None }).collect();
-    let wd = Workday { id: new_id("wd"), template_id, workflow_template: None,
-        project_id: None, project_cwd: None,
-        title, status: WorkdayStatus::Planned, planned_date: d,
-        start_ts: None, end_ts: None, focus_seconds: 0, break_seconds: 0,
-        energy_before: None, energy_after: None, mood_note: None,
-        retro_good: None, retro_bad: None, retro_learned: None, summary_md: None,
+    let gi: Vec<WorkdayGoal> = goals
+        .unwrap_or_default()
+        .into_iter()
+        .map(|text| WorkdayGoal {
+            id: new_id("goal"),
+            text,
+            status: GoalStatus::Pending,
+            source: GoalSource::Manual,
+            linked_card_id: None,
+        })
+        .collect();
+    let wd = Workday {
+        id: new_id("wd"),
+        template_id,
+        workflow_template: None,
+        project_id: None,
+        project_cwd: None,
+        title,
+        status: WorkdayStatus::Planned,
+        planned_date: d,
+        start_ts: None,
+        end_ts: None,
+        focus_seconds: 0,
+        break_seconds: 0,
+        energy_before: None,
+        energy_after: None,
+        mood_note: None,
+        retro_good: None,
+        retro_bad: None,
+        retro_learned: None,
+        summary_md: None,
         ai_summary: None,
-        goals: gi, linked_sessions: Vec::new(), linked_tasks: Vec::new(),
-        context: WorkdayContext::default(), created_at: now_iso() };
-    persist_workday(&wd)?; Ok(wd)
+        goals: gi,
+        linked_sessions: Vec::new(),
+        linked_tasks: Vec::new(),
+        context: WorkdayContext::default(),
+        created_at: now_iso(),
+    };
+    persist_workday(&wd)?;
+    Ok(wd)
 }
 pub fn start_workday_inner(id: String, energy_before: Option<u8>) -> Result<Workday, String> {
     let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::InProgress)?;
-    wd.status = WorkdayStatus::InProgress; wd.start_ts = Some(now_iso());
-    if let Some(e) = energy_before { wd.energy_before = Some(e); }
-    persist_workday(&wd)?; Ok(wd)
+    wd.status = WorkdayStatus::InProgress;
+    wd.start_ts = Some(now_iso());
+    if let Some(e) = energy_before {
+        wd.energy_before = Some(e);
+    }
+    persist_workday(&wd)?;
+    Ok(wd)
 }
-pub fn pause_workday_inner(id: String, break_seconds_delta: Option<u64>) -> Result<Workday, String> {
+pub fn pause_workday_inner(
+    id: String,
+    break_seconds_delta: Option<u64>,
+) -> Result<Workday, String> {
     let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::Paused)?;
     wd.status = WorkdayStatus::Paused;
-    if let Some(d) = break_seconds_delta { wd.break_seconds += d; }
-    persist_workday(&wd)?; Ok(wd)
+    if let Some(d) = break_seconds_delta {
+        wd.break_seconds += d;
+    }
+    persist_workday(&wd)?;
+    Ok(wd)
 }
 pub fn resume_workday_inner(id: String) -> Result<Workday, String> {
     let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::InProgress)?;
     wd.status = WorkdayStatus::InProgress;
-    persist_workday(&wd)?; Ok(wd)
+    persist_workday(&wd)?;
+    Ok(wd)
 }
-pub fn complete_workday_inner(id: String, focus_seconds: Option<u64>, energy_after: Option<u8>, mood_note: Option<String>, retro_good: Option<String>, retro_bad: Option<String>, retro_learned: Option<String>) -> Result<Workday, String> {
+pub fn complete_workday_inner(
+    id: String,
+    focus_seconds: Option<u64>,
+    energy_after: Option<u8>,
+    mood_note: Option<String>,
+    retro_good: Option<String>,
+    retro_bad: Option<String>,
+    retro_learned: Option<String>,
+) -> Result<Workday, String> {
     let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::Completed)?;
-    if let Some(s) = focus_seconds { wd.focus_seconds = s; }
-    if let Some(e) = energy_after { wd.energy_after = Some(e); }
-    if let Some(m) = mood_note { wd.mood_note = Some(m); }
-    if let Some(g) = retro_good { wd.retro_good = Some(g); }
-    if let Some(b) = retro_bad { wd.retro_bad = Some(b); }
-    if let Some(l) = retro_learned { wd.retro_learned = Some(l); }
-    wd.status = WorkdayStatus::Completed; wd.end_ts = Some(now_iso());
-    let s = gen_summary(&wd); wd.summary_md = Some(s.clone());
+    if let Some(s) = focus_seconds {
+        wd.focus_seconds = s;
+    }
+    if let Some(e) = energy_after {
+        wd.energy_after = Some(e);
+    }
+    if let Some(m) = mood_note {
+        wd.mood_note = Some(m);
+    }
+    if let Some(g) = retro_good {
+        wd.retro_good = Some(g);
+    }
+    if let Some(b) = retro_bad {
+        wd.retro_bad = Some(b);
+    }
+    if let Some(l) = retro_learned {
+        wd.retro_learned = Some(l);
+    }
+    wd.status = WorkdayStatus::Completed;
+    wd.end_ts = Some(now_iso());
+    let s = gen_summary(&wd);
+    wd.summary_md = Some(s.clone());
     persist_workday(&wd)?;
-    let wid = wd.id.clone(); let wt = wd.title.clone(); let wdt = wd.planned_date.clone();
+    let wid = wd.id.clone();
+    let wt = wd.title.clone();
+    let wdt = wd.planned_date.clone();
     tauri::async_runtime::spawn(async move {
         let md = serde_json::json!({"source":"workday","workday_id":wid,"title":wt,"date":wdt});
         let _ = crate::mem0::add_inner(s, "workdays".to_string(), Some(md)).await;
@@ -355,26 +524,48 @@ pub fn archive_workday_inner(id: String) -> Result<Workday, String> {
     let mut wd = load_wd(&id)?;
     assert_transition(&wd.status, &WorkdayStatus::Archived)?;
     wd.status = WorkdayStatus::Archived;
-    persist_workday(&wd)?; Ok(wd)
+    persist_workday(&wd)?;
+    Ok(wd)
 }
-pub fn list_workdays_inner(status_filter: Option<String>, date_from: Option<String>, date_to: Option<String>, limit: Option<usize>) -> Result<Vec<Workday>, String> {
+pub fn list_workdays_inner(
+    status_filter: Option<String>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    limit: Option<usize>,
+) -> Result<Vec<Workday>, String> {
     let d = workdays_dir()?;
-    if !d.exists() { return Ok(Vec::new()); }
+    if !d.exists() {
+        return Ok(Vec::new());
+    }
     let es = fs::read_dir(&d).map_err(|e| format!("read: {e}"))?;
     let mut ws: Vec<Workday> = Vec::new();
     for e in es.flatten() {
         let p = e.path();
-        if p.extension().and_then(|x| x.to_str()) != Some("json") { continue; }
-        if let Ok(wd) = load_from_path(&p) { ws.push(wd); }
+        if p.extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
+        if let Ok(wd) = load_from_path(&p) {
+            ws.push(wd);
+        }
     }
-    if let Some(ref sf) = status_filter { ws.retain(|wd| wd.status.to_string() == *sf); }
-    if let Some(ref f) = date_from { ws.retain(|wd| wd.planned_date >= *f); }
-    if let Some(ref t) = date_to { ws.retain(|wd| wd.planned_date <= *t); }
+    if let Some(ref sf) = status_filter {
+        ws.retain(|wd| wd.status.to_string() == *sf);
+    }
+    if let Some(ref f) = date_from {
+        ws.retain(|wd| wd.planned_date >= *f);
+    }
+    if let Some(ref t) = date_to {
+        ws.retain(|wd| wd.planned_date <= *t);
+    }
     ws.sort_by(|a, b| b.planned_date.cmp(&a.planned_date));
-    if let Some(n) = limit { ws.truncate(n); }
+    if let Some(n) = limit {
+        ws.truncate(n);
+    }
     Ok(ws)
 }
-pub fn get_workday_detail_inner(id: String) -> Result<Workday, String> { load_wd(&id) }
+pub fn get_workday_detail_inner(id: String) -> Result<Workday, String> {
+    load_wd(&id)
+}
 pub fn link_session_inner(id: String, session_id: String) -> Result<Workday, String> {
     let _g = workday_lock().lock().map_err(|_| "workday lock poisoned")?;
     let mut wd = load_wd(&id)?;
@@ -393,48 +584,93 @@ pub fn link_session_inner(id: String, session_id: String) -> Result<Workday, Str
 }
 pub fn link_task_inner(id: String, task_id: String) -> Result<Workday, String> {
     let mut wd = load_wd(&id)?;
-    if !wd.linked_tasks.contains(&task_id) { wd.linked_tasks.push(task_id); persist_workday(&wd)?; }
+    if !wd.linked_tasks.contains(&task_id) {
+        wd.linked_tasks.push(task_id);
+        persist_workday(&wd)?;
+    }
     Ok(wd)
 }
 pub fn get_workday_metrics_inner(id: String) -> Result<WorkdayMetrics, String> {
     let wd = load_wd(&id)?;
-    Ok(WorkdayMetrics { id: wd.id.clone(), title: wd.title.clone(), status: wd.status.clone(),
+    Ok(WorkdayMetrics {
+        id: wd.id.clone(),
+        title: wd.title.clone(),
+        status: wd.status.clone(),
         planned_date: wd.planned_date.clone(),
-        focus_minutes: wd.focus_seconds/60, break_minutes: wd.break_seconds/60,
+        focus_minutes: wd.focus_seconds / 60,
+        break_minutes: wd.break_seconds / 60,
         total_goals: wd.goals.len(),
-        completed_goals: wd.goals.iter().filter(|g| g.status==GoalStatus::Done).count(),
-        linked_sessions: wd.linked_sessions.len(), linked_tasks: wd.linked_tasks.len() })
+        completed_goals: wd
+            .goals
+            .iter()
+            .filter(|g| g.status == GoalStatus::Done)
+            .count(),
+        linked_sessions: wd.linked_sessions.len(),
+        linked_tasks: wd.linked_tasks.len(),
+    })
 }
 pub fn list_templates_inner() -> Result<Vec<WorkdayTemplate>, String> {
     let d = templates_dir()?;
-    if !d.exists() { return Ok(Vec::new()); }
+    if !d.exists() {
+        return Ok(Vec::new());
+    }
     let es = fs::read_dir(&d).map_err(|e| format!("read: {e}"))?;
     let mut ts: Vec<WorkdayTemplate> = Vec::new();
     for e in es.flatten() {
         let p = e.path();
-        if p.extension().and_then(|x| x.to_str()) != Some("json") { continue; }
+        if p.extension().and_then(|x| x.to_str()) != Some("json") {
+            continue;
+        }
         if let Ok(r) = fs::read_to_string(&p) {
-            if let Ok(t) = serde_json::from_str::<WorkdayTemplate>(&r) { ts.push(t); }
+            if let Ok(t) = serde_json::from_str::<WorkdayTemplate>(&r) {
+                ts.push(t);
+            }
         }
     }
     ts.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     Ok(ts)
 }
-pub fn save_template_inner(name: String, default_title: Option<String>, default_goals: Option<Vec<String>>, notes: Option<String>) -> Result<WorkdayTemplate, String> {
+pub fn save_template_inner(
+    name: String,
+    default_title: Option<String>,
+    default_goals: Option<Vec<String>>,
+    notes: Option<String>,
+) -> Result<WorkdayTemplate, String> {
     let n = now_iso();
-    let t = WorkdayTemplate { id: new_id("tmpl"), name, default_title,
-        default_goals: default_goals.unwrap_or_default(), notes,
-        created_at: n.clone(), updated_at: n };
-    persist_template(&t)?; Ok(t)
+    let t = WorkdayTemplate {
+        id: new_id("tmpl"),
+        name,
+        default_title,
+        default_goals: default_goals.unwrap_or_default(),
+        notes,
+        created_at: n.clone(),
+        updated_at: n,
+    };
+    persist_template(&t)?;
+    Ok(t)
 }
-pub fn update_goal_inner(workday_id: String, goal_id: String, status: GoalStatus, text: Option<String>) -> Result<Workday, String> {
+pub fn update_goal_inner(
+    workday_id: String,
+    goal_id: String,
+    status: GoalStatus,
+    text: Option<String>,
+) -> Result<Workday, String> {
     let mut wd = load_wd(&workday_id)?;
-    let g = wd.goals.iter_mut().find(|x| x.id == goal_id).ok_or_else(|| format!("goal {goal_id} not found"))?;
+    let g = wd
+        .goals
+        .iter_mut()
+        .find(|x| x.id == goal_id)
+        .ok_or_else(|| format!("goal {goal_id} not found"))?;
     g.status = status;
-    if let Some(t) = text { g.text = t; }
-    persist_workday(&wd)?; Ok(wd)
+    if let Some(t) = text {
+        g.text = t;
+    }
+    persist_workday(&wd)?;
+    Ok(wd)
 }
-pub fn workday_list_inner(limit: Option<usize>) -> Result<Vec<Workday>, String> { list_workdays_inner(None, None, None, limit) }
+pub fn workday_list_inner(limit: Option<usize>) -> Result<Vec<Workday>, String> {
+    list_workdays_inner(None, None, None, limit)
+}
 
 // ---------------------------------------------------------------------------
 // Automatic surface (2026-05-26 redesign)
@@ -470,13 +706,23 @@ fn resolve_project_for_cwd(cwd: &str) -> Option<(String, String)> {
 /// Try to find an existing `in_progress` workday for the given project and
 /// today's date. Falls back to matching on `project_cwd` when `project_id`
 /// is absent (handles older workdays that pre-date the new fields).
-fn find_active_workday_for_project(project_id: &str, project_cwd: &str) -> Result<Option<Workday>, String> {
+fn find_active_workday_for_project(
+    project_id: &str,
+    project_cwd: &str,
+) -> Result<Option<Workday>, String> {
     let today = today_date();
-    let all = list_workdays_inner(Some("in_progress".to_string()), Some(today.clone()), Some(today), None)?;
+    let all = list_workdays_inner(
+        Some("in_progress".to_string()),
+        Some(today.clone()),
+        Some(today),
+        None,
+    )?;
     for wd in all {
         let match_id = wd.project_id.as_deref() == Some(project_id);
         let match_cwd = match wd.project_cwd.as_deref() {
-            Some(c) => c.replace('\\', "/").eq_ignore_ascii_case(&project_cwd.replace('\\', "/")),
+            Some(c) => c
+                .replace('\\', "/")
+                .eq_ignore_ascii_case(&project_cwd.replace('\\', "/")),
             None => false,
         };
         if match_id || match_cwd {
@@ -491,7 +737,10 @@ fn find_active_workday_for_project(project_id: &str, project_cwd: &str) -> Resul
 /// sees the same agent sequence laid out as goals when the workday opens.
 fn goals_for_workflow(workflow: &str) -> Vec<String> {
     match workflow {
-        "quick" => vec!["Terry: surgical fix".to_string(), "Kirkardo: 30s validation".to_string()],
+        "quick" => vec![
+            "Terry: surgical fix".to_string(),
+            "Kirkardo: 30s validation".to_string(),
+        ],
         "feature" => vec![
             "Don Claudio: architect".to_string(),
             "Terry: TDD implementation".to_string(),
@@ -568,7 +817,13 @@ pub fn auto_start_for_project_inner(
         .map(goals_for_workflow)
         .unwrap_or_default()
         .into_iter()
-        .map(|text| WorkdayGoal { id: new_id("goal"), text, status: GoalStatus::Pending, source: GoalSource::Manual, linked_card_id: None })
+        .map(|text| WorkdayGoal {
+            id: new_id("goal"),
+            text,
+            status: GoalStatus::Pending,
+            source: GoalSource::Manual,
+            linked_card_id: None,
+        })
         .collect();
     let now = now_iso();
     let wd = Workday {
@@ -576,7 +831,11 @@ pub fn auto_start_for_project_inner(
         template_id: None,
         workflow_template,
         project_id: Some(project_id),
-        project_cwd: if project_path.is_empty() { None } else { Some(project_path) },
+        project_cwd: if project_path.is_empty() {
+            None
+        } else {
+            Some(project_path)
+        },
         title: auto_title(&project_name, &date),
         status: WorkdayStatus::InProgress,
         planned_date: date,
@@ -714,7 +973,11 @@ pub fn today_timeline_inner() -> Result<WorkdayTodayView, String> {
             other.push(wd);
         }
     }
-    Ok(WorkdayTodayView { date, active, other_today: other })
+    Ok(WorkdayTodayView {
+        date,
+        active,
+        other_today: other,
+    })
 }
 
 /// Return historic workdays (everything *not* dated today), sorted by date
@@ -723,7 +986,9 @@ pub fn history_inner(limit: Option<usize>) -> Result<Vec<Workday>, String> {
     let today = today_date();
     let mut all = list_workdays_inner(None, None, None, None)?;
     all.retain(|wd| wd.planned_date != today);
-    if let Some(n) = limit { all.truncate(n); }
+    if let Some(n) = limit {
+        all.truncate(n);
+    }
     Ok(all)
 }
 
@@ -802,11 +1067,10 @@ pub fn list_workflow_templates_inner() -> Result<Vec<WorkflowTemplate>, String> 
                 "terry-davis".to_string(),
                 "kirkardo".to_string(),
             ],
-            prompt_skeleton:
-                "Workflow: security\n\nScope: <files / endpoints / surfaces>\n\
+            prompt_skeleton: "Workflow: security\n\nScope: <files / endpoints / surfaces>\n\
                  Threat actors: <who, capabilities>\n\nDeliverable: signed-off threat model + \
                  patch + regression tests."
-                    .to_string(),
+                .to_string(),
         },
         WorkflowTemplate {
             id: "research".to_string(),
@@ -817,11 +1081,10 @@ pub fn list_workflow_templates_inner() -> Result<Vec<WorkflowTemplate>, String> 
                 "novalbos".to_string(),
                 "terry-davis".to_string(),
             ],
-            prompt_skeleton:
-                "Workflow: research\n\nQuestion: <what we don't know>\n\
+            prompt_skeleton: "Workflow: research\n\nQuestion: <what we don't know>\n\
                  Sources: <papers, repos, vendor docs>\n\n\
                  Output: notes-for-notebooklm + 1-page summary + go/no-go recommendation."
-                    .to_string(),
+                .to_string(),
         },
         WorkflowTemplate {
             id: "gamedev".to_string(),
@@ -832,23 +1095,21 @@ pub fn list_workflow_templates_inner() -> Result<Vec<WorkflowTemplate>, String> 
                 "terry-davis".to_string(),
                 "kirkardo".to_string(),
             ],
-            prompt_skeleton:
-                "Workflow: gamedev\n\nSystem: <gameplay system or mechanic>\n\
+            prompt_skeleton: "Workflow: gamedev\n\nSystem: <gameplay system or mechanic>\n\
                  Engine: <Unreal / Unity / custom>\n\nReplication / netcode considerations: \
                  <single-player or multiplayer>\n\nAcceptance: builds in editor + plays as \
                  designed in PIE."
-                    .to_string(),
+                .to_string(),
         },
         WorkflowTemplate {
             id: "learning".to_string(),
             name: "Learning".to_string(),
             description: "Structured learning plan + hands-on exercise.".to_string(),
             agent_slugs: vec!["novalbos".to_string(), "terry-davis".to_string()],
-            prompt_skeleton:
-                "Workflow: learning\n\nTopic: <what to learn>\n\
+            prompt_skeleton: "Workflow: learning\n\nTopic: <what to learn>\n\
                  Current level: <beginner / intermediate / advanced>\n\n\
                  Deliverable: NotebookLM-ready notes + 1 working exercise."
-                    .to_string(),
+                .to_string(),
         },
     ])
 }
@@ -857,9 +1118,7 @@ pub fn list_workflow_templates_inner() -> Result<Vec<WorkflowTemplate>, String> 
 /// the frontend before showing the templates tab: if a workday is already
 /// active for the project, we surface it directly instead of asking the user
 /// to pick a template.
-pub fn active_today_for_project_inner(
-    project_id: String,
-) -> Result<Option<Workday>, String> {
+pub fn active_today_for_project_inner(project_id: String) -> Result<Option<Workday>, String> {
     let project_path = crate::projects::list_projects_inner()
         .ok()
         .and_then(|ps| ps.into_iter().find(|p| p.id == project_id))
@@ -883,11 +1142,7 @@ pub fn start_with_template_inner(
         .find(|t| t.id == template_id)
         .ok_or_else(|| format!("unknown workflow template: {template_id}"))?;
 
-    let wd = auto_start_for_project_inner(
-        project_id,
-        None,
-        Some(tpl.id.clone()),
-    )?;
+    let wd = auto_start_for_project_inner(project_id, None, Some(tpl.id.clone()))?;
 
     // If the workday was just created (no notes yet for this template) seed
     // it with the prompt skeleton so the next agent invocation can read it.
@@ -1069,7 +1324,8 @@ fn write_pending_links(items: &[PendingLink]) -> Result<(), String> {
     let tmp = path.with_extension("jsonl.tmp");
     {
         let mut f = fs::File::create(&tmp).map_err(|e| format!("create pending: {e}"))?;
-        f.write_all(buf.as_bytes()).map_err(|e| format!("write pending: {e}"))?;
+        f.write_all(buf.as_bytes())
+            .map_err(|e| format!("write pending: {e}"))?;
         f.sync_all().ok();
     }
     fs::rename(&tmp, &path).map_err(|e| format!("rename pending: {e}"))
@@ -1149,7 +1405,11 @@ pub fn drain_pending_links_inner() -> Result<DrainReport, String> {
         // Strategy 1: project-aware auto-start.
         let cwd_match = entry.cwd.as_deref().and_then(|c| {
             let c = c.trim();
-            if c.is_empty() { None } else { Some(c.to_string()) }
+            if c.is_empty() {
+                None
+            } else {
+                Some(c.to_string())
+            }
         });
         let mut linked_via_project = false;
         if let Some(cwd) = cwd_match.clone() {
@@ -1172,10 +1432,9 @@ pub fn drain_pending_links_inner() -> Result<DrainReport, String> {
                 }
                 Ok(None) => {}
                 Err(e) => {
-                    report.errors.push(format!(
-                        "auto-start {}: {e}",
-                        entry.session_id
-                    ));
+                    report
+                        .errors
+                        .push(format!("auto-start {}: {e}", entry.session_id));
                 }
             }
         }
@@ -1187,10 +1446,9 @@ pub fn drain_pending_links_inner() -> Result<DrainReport, String> {
             match link_session_inner(active.id.clone(), entry.session_id.clone()) {
                 Ok(_) => report.linked += 1,
                 Err(e) => {
-                    report.errors.push(format!(
-                        "link {} -> {}: {e}",
-                        entry.session_id, active.id
-                    ));
+                    report
+                        .errors
+                        .push(format!("link {} -> {}: {e}", entry.session_id, active.id));
                     leftover.push(entry);
                 }
             }
@@ -1263,9 +1521,7 @@ pub fn wipe_all_with_backup_inner() -> Result<WipeReport, String> {
     {
         let p = e.path();
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if (name.starts_with("wd-") && name.ends_with(".json"))
-            || name == "_pending-links.jsonl"
-        {
+        if (name.starts_with("wd-") && name.ends_with(".json")) || name == "_pending-links.jsonl" {
             targets.push(p);
         }
     }
@@ -1284,11 +1540,10 @@ pub fn wipe_all_with_backup_inner() -> Result<WipeReport, String> {
     let archive_path = dir.join(format!("archive-{epoch}.zip"));
 
     {
-        let file = fs::File::create(&archive_path)
-            .map_err(|e| format!("create zip: {e}"))?;
+        let file = fs::File::create(&archive_path).map_err(|e| format!("create zip: {e}"))?;
         let mut zip = ZipWriter::new(file);
-        let options = SimpleFileOptions::default()
-            .compression_method(zip::CompressionMethod::Deflated);
+        let options =
+            SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
         for src in &targets {
             let entry_name = src
@@ -1297,8 +1552,7 @@ pub fn wipe_all_with_backup_inner() -> Result<WipeReport, String> {
                 .unwrap_or("unknown");
             zip.start_file(entry_name, options)
                 .map_err(|e| format!("zip entry {entry_name}: {e}"))?;
-            let mut f = fs::File::open(src)
-                .map_err(|e| format!("open {entry_name}: {e}"))?;
+            let mut f = fs::File::open(src).map_err(|e| format!("open {entry_name}: {e}"))?;
             let mut buf = Vec::new();
             f.read_to_end(&mut buf)
                 .map_err(|e| format!("read {entry_name}: {e}"))?;
@@ -1596,7 +1850,11 @@ pub fn goals_auto_fill_inner(workday_id: String) -> Result<Workday, String> {
         Ok(response) => {
             let lines: Vec<String> = response
                 .lines()
-                .map(|l| l.trim_start_matches(['-', '*', ' ', '\t']).trim().to_string())
+                .map(|l| {
+                    l.trim_start_matches(['-', '*', ' ', '\t'])
+                        .trim()
+                        .to_string()
+                })
                 .filter(|l| !l.is_empty())
                 .collect();
             // Guard: if AI returned a different count, fall back to raw titles.
@@ -1639,7 +1897,9 @@ pub fn goals_auto_fill_inner(workday_id: String) -> Result<Workday, String> {
 
 /// Extrae el número de un timestamp "epoch:N". 0 si no parsea.
 fn epoch_secs(ts: &str) -> u64 {
-    ts.strip_prefix("epoch:").and_then(|s| s.trim().parse::<u64>().ok()).unwrap_or(0)
+    ts.strip_prefix("epoch:")
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0)
 }
 
 /// Genera (o regenera) el resumen IA de la jornada vía `ai_router::route("utility")`.
@@ -1754,7 +2014,12 @@ pub fn context_auto_append_inner(
 /// requiring the Control Center to be running.
 pub fn active_workday_id_today_inner() -> Result<Option<String>, String> {
     let today = today_date();
-    let all = list_workdays_inner(Some("in_progress".to_string()), Some(today.clone()), Some(today), None)?;
+    let all = list_workdays_inner(
+        Some("in_progress".to_string()),
+        Some(today.clone()),
+        Some(today),
+        None,
+    )?;
     Ok(all.into_iter().next().map(|w| w.id))
 }
 
@@ -1824,4 +2089,3 @@ pub fn day_view_inner(date: Option<String>) -> Result<WorkdayDayView, String> {
         workdays,
     })
 }
-

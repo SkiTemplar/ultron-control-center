@@ -49,10 +49,7 @@ pub async fn delete_agent(name: String) -> Result<agents::AgentMutationResult, S
 }
 
 #[tauri::command]
-pub async fn agent_toggle(
-    name: String,
-    enabled: bool,
-) -> Result<agents::AgentEntry, String> {
+pub async fn agent_toggle(name: String, enabled: bool) -> Result<agents::AgentEntry, String> {
     agents::agent_toggle_inner(name, enabled)
 }
 
@@ -105,8 +102,7 @@ pub async fn agents_pinned_load(project_id: String) -> Result<PinnedAgents, Stri
         if !path.exists() {
             return Ok(PinnedAgents::default());
         }
-        let raw =
-            std::fs::read_to_string(&path).map_err(|e| format!("read pinned: {e}"))?;
+        let raw = std::fs::read_to_string(&path).map_err(|e| format!("read pinned: {e}"))?;
         let p: PinnedAgents =
             serde_json::from_str(&raw).map_err(|e| format!("parse pinned: {e}"))?;
         Ok::<PinnedAgents, String>(p)
@@ -208,11 +204,9 @@ pub async fn project_roster_save(
 pub async fn project_roster_load(
     project_id: String,
 ) -> Result<project_agents::AgentRosterFile, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        project_agents::roster_load(&project_id)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || project_agents::roster_load(&project_id))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Ask the AI Router to propose relevant skills for the project.
@@ -255,18 +249,14 @@ pub async fn project_invoke_agent_from_session(
 }
 
 #[tauri::command]
-pub async fn agents_pinned_save(
-    project_id: String,
-    pinned: PinnedAgents,
-) -> Result<(), String> {
+pub async fn agents_pinned_save(project_id: String, pinned: PinnedAgents) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
         let path = pinned_path(&project_id)?;
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
         }
         let tmp = path.with_extension("json.tmp");
-        let json =
-            serde_json::to_string_pretty(&pinned).map_err(|e| format!("serialize: {e}"))?;
+        let json = serde_json::to_string_pretty(&pinned).map_err(|e| format!("serialize: {e}"))?;
         std::fs::write(&tmp, json).map_err(|e| format!("write tmp: {e}"))?;
         std::fs::rename(&tmp, &path).map_err(|e| format!("rename: {e}"))?;
         Ok::<(), String>(())

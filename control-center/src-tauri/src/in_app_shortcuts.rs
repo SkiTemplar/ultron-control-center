@@ -52,7 +52,10 @@ fn default_bindings() -> HashMap<String, String> {
         ("tab.skills", "Alt+8"),
         ("tab.settings", "Alt+0"),
     ];
-    pairs.iter().map(|(k, v)| ((*k).into(), (*v).into())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| ((*k).into(), (*v).into()))
+        .collect()
 }
 
 /// Read the on-disk map and merge over defaults. Missing file or
@@ -102,8 +105,7 @@ pub fn set_in_app_shortcuts(map: HashMap<String, String>) -> Result<(), String> 
         }
         obj.insert(k, Value::String(trimmed.to_string()));
     }
-    let body =
-        serde_json::to_string_pretty(&Value::Object(obj)).map_err(|e| e.to_string())?;
+    let body = serde_json::to_string_pretty(&Value::Object(obj)).map_err(|e| e.to_string())?;
     let tmp = path.with_extension("json.tmp");
     fs::write(&tmp, body).map_err(|e| e.to_string())?;
     fs::rename(&tmp, &path).map_err(|e| e.to_string())?;

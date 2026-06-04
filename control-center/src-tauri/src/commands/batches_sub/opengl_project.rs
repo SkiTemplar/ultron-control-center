@@ -157,11 +157,7 @@ fn is_invalid_name_char(c: char) -> bool {
     matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') || c.is_control()
 }
 
-fn write_file(
-    path: &Path,
-    contents: &str,
-    files_created: &mut Vec<String>,
-) -> Result<(), String> {
+fn write_file(path: &Path, contents: &str, files_created: &mut Vec<String>) -> Result<(), String> {
     fs::write(path, contents).map_err(|e| format!("write {}: {e}", path.display()))?;
     files_created.push(path.to_string_lossy().to_string());
     Ok(())

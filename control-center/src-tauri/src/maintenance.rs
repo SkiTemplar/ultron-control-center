@@ -7,10 +7,10 @@
 // the capability ACL is irrelevant. CREATE_NO_WINDOW keeps console
 // flashes off the user's screen.
 
-use std::path::PathBuf;
-use std::process::Command;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
+use std::path::PathBuf;
+use std::process::Command;
 
 use serde::Serialize;
 
@@ -302,12 +302,18 @@ fn cockpit(home: &PathBuf) -> PathBuf {
 
 #[cfg(target_os = "windows")]
 fn backup_script(home: &PathBuf) -> PathBuf {
-    home.join(".ultron").join("scripts").join("backup").join("weekly-backup.ps1")
+    home.join(".ultron")
+        .join("scripts")
+        .join("backup")
+        .join("weekly-backup.ps1")
 }
 
 #[cfg(not(target_os = "windows"))]
 fn backup_script(home: &PathBuf) -> PathBuf {
-    home.join(".ultron").join("scripts").join("backup").join("weekly-backup.sh")
+    home.join(".ultron")
+        .join("scripts")
+        .join("backup")
+        .join("weekly-backup.sh")
 }
 
 fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String> {
@@ -809,7 +815,10 @@ pub fn run_backup_now_inner() -> Result<MaintenanceResult, String> {
             command.env("ULTRON_BACKUP_ROOT", trimmed);
         }
     }
-    let sources_cfg = home.join(".ultron").join("cockpit").join("backup-config.json");
+    let sources_cfg = home
+        .join(".ultron")
+        .join("cockpit")
+        .join("backup-config.json");
     if let Ok(raw) = std::fs::read_to_string(&sources_cfg) {
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
             if let Some(arr) = val.get("sources").and_then(|v| v.as_array()) {

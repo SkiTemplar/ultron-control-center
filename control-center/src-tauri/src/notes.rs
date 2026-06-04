@@ -61,7 +61,8 @@ pub fn save_inner(project_id: &str, body: &str) -> Result<(), String> {
     let tmp = path.with_extension("md.tmp");
     {
         let mut f = fs::File::create(&tmp).map_err(|e| format!("create tmp: {}", e))?;
-        f.write_all(body.as_bytes()).map_err(|e| format!("write tmp: {}", e))?;
+        f.write_all(body.as_bytes())
+            .map_err(|e| format!("write tmp: {}", e))?;
         f.sync_all().ok();
     }
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
@@ -99,7 +100,11 @@ fn global_note_path(slug: &str) -> Result<PathBuf, String> {
 }
 
 fn first_line(body: &str) -> &str {
-    body.lines().next().unwrap_or("").trim_start_matches('#').trim()
+    body.lines()
+        .next()
+        .unwrap_or("")
+        .trim_start_matches('#')
+        .trim()
 }
 
 fn mtime_iso(meta: &fs::Metadata) -> Option<String> {
@@ -130,7 +135,11 @@ pub fn list_global_inner() -> Result<Vec<NoteEntry>, String> {
         let body = fs::read_to_string(&path).unwrap_or_default();
         let title = {
             let line = first_line(&body);
-            if line.is_empty() { slug.clone() } else { line.to_string() }
+            if line.is_empty() {
+                slug.clone()
+            } else {
+                line.to_string()
+            }
         };
         let meta = entry.metadata().ok();
         let size_bytes = meta.as_ref().map(|m| m.len()).unwrap_or(0);
@@ -148,7 +157,13 @@ pub fn list_global_inner() -> Result<Vec<NoteEntry>, String> {
         } else {
             preview
         };
-        out.push(NoteEntry { slug, title, size_bytes, modified_iso, preview });
+        out.push(NoteEntry {
+            slug,
+            title,
+            size_bytes,
+            modified_iso,
+            preview,
+        });
     }
     out.sort_by(|a, b| b.modified_iso.cmp(&a.modified_iso));
     Ok(out)
@@ -164,7 +179,11 @@ pub fn load_global_inner(slug: &str) -> Result<String, String> {
 
 pub fn save_global_inner(slug: &str, body: &str) -> Result<(), String> {
     if body.len() > MAX_NOTES_BYTES {
-        return Err(format!("notes too large ({} bytes, max {})", body.len(), MAX_NOTES_BYTES));
+        return Err(format!(
+            "notes too large ({} bytes, max {})",
+            body.len(),
+            MAX_NOTES_BYTES
+        ));
     }
     let path = global_note_path(slug)?;
     if let Some(parent) = path.parent() {
@@ -173,7 +192,8 @@ pub fn save_global_inner(slug: &str, body: &str) -> Result<(), String> {
     let tmp = path.with_extension("md.tmp");
     {
         let mut f = fs::File::create(&tmp).map_err(|e| format!("create tmp: {}", e))?;
-        f.write_all(body.as_bytes()).map_err(|e| format!("write tmp: {}", e))?;
+        f.write_all(body.as_bytes())
+            .map_err(|e| format!("write tmp: {}", e))?;
         f.sync_all().ok();
     }
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
@@ -261,7 +281,13 @@ pub fn list_project_notes_inner(project_id: &str) -> Result<Vec<NoteEntry>, Stri
         } else {
             preview
         };
-        out.push(NoteEntry { slug, title, size_bytes, modified_iso, preview });
+        out.push(NoteEntry {
+            slug,
+            title,
+            size_bytes,
+            modified_iso,
+            preview,
+        });
     }
     out.sort_by(|a, b| b.modified_iso.cmp(&a.modified_iso));
     Ok(out)
@@ -275,11 +301,7 @@ pub fn load_project_note_inner(project_id: &str, slug: &str) -> Result<String, S
     fs::read_to_string(&path).map_err(|e| format!("read {}: {}", path.display(), e))
 }
 
-pub fn save_project_note_inner(
-    project_id: &str,
-    slug: &str,
-    body: &str,
-) -> Result<(), String> {
+pub fn save_project_note_inner(project_id: &str, slug: &str, body: &str) -> Result<(), String> {
     if body.len() > MAX_NOTES_BYTES {
         return Err(format!(
             "notes too large ({} bytes, max {})",
@@ -294,7 +316,8 @@ pub fn save_project_note_inner(
     let tmp = path.with_extension("md.tmp");
     {
         let mut f = fs::File::create(&tmp).map_err(|e| format!("create tmp: {}", e))?;
-        f.write_all(body.as_bytes()).map_err(|e| format!("write tmp: {}", e))?;
+        f.write_all(body.as_bytes())
+            .map_err(|e| format!("write tmp: {}", e))?;
         f.sync_all().ok();
     }
     fs::rename(&tmp, &path).map_err(|e| format!("rename: {}", e))?;
@@ -312,16 +335,12 @@ pub fn delete_project_note_inner(project_id: &str, slug: &str) -> Result<(), Str
 /// Copy a global note into a project's notebook directory. Returns the
 /// final slug used (which may differ from the source slug if a same-named
 /// note already exists in the project).
-pub fn send_global_to_project_inner(
-    slug: &str,
-    project_id: &str,
-) -> Result<String, String> {
+pub fn send_global_to_project_inner(slug: &str, project_id: &str) -> Result<String, String> {
     let src = global_note_path(slug)?;
     if !src.exists() {
         return Err(format!("source note '{}' not found", slug));
     }
-    let body = fs::read_to_string(&src)
-        .map_err(|e| format!("read {}: {}", src.display(), e))?;
+    let body = fs::read_to_string(&src).map_err(|e| format!("read {}: {}", src.display(), e))?;
 
     // Resolve a unique slug inside the project notebook so we never
     // clobber an existing project note.

@@ -143,7 +143,10 @@ mod tests {
 
     #[test]
     fn any_finding_recommends_quarantine_never_approve() {
-        let findings = vec![ContradictionFinding::new("mem-1", "usar postgres, no sqlite")];
+        let findings = vec![ContradictionFinding::new(
+            "mem-1",
+            "usar postgres, no sqlite",
+        )];
         let action = recommended_action(&findings);
         assert_eq!(action, Some(CandidateAction::Quarantine));
         assert_ne!(
@@ -160,7 +163,10 @@ mod tests {
             ContradictionFinding::new("b", "reason b"),
             ContradictionFinding::new("c", "reason c"),
         ];
-        assert_eq!(recommended_action(&findings), Some(CandidateAction::Quarantine));
+        assert_eq!(
+            recommended_action(&findings),
+            Some(CandidateAction::Quarantine)
+        );
     }
 
     #[test]

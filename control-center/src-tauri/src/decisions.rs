@@ -180,8 +180,7 @@ pub(crate) fn read_all(project_id: &str) -> Result<Vec<DecisionRecord>, String> 
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let text = fs::read_to_string(&path)
-        .map_err(|e| format!("read {}: {e}", path.display()))?;
+    let text = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let mut out = Vec::new();
     for (i, line) in text.lines().enumerate() {
         let trimmed = line.trim();
@@ -198,15 +197,12 @@ pub(crate) fn read_all(project_id: &str) -> Result<Vec<DecisionRecord>, String> 
 
 fn write_atomic(path: &PathBuf, records: &[DecisionRecord]) -> Result<(), String> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|e| format!("mkdir {}: {e}", parent.display()))?;
     }
     let tmp = path.with_extension("jsonl.tmp");
-    let mut f = fs::File::create(&tmp)
-        .map_err(|e| format!("create tmp: {e}"))?;
+    let mut f = fs::File::create(&tmp).map_err(|e| format!("create tmp: {e}"))?;
     for rec in records {
-        let line = serde_json::to_string(rec)
-            .map_err(|e| format!("serialize decision: {e}"))?;
+        let line = serde_json::to_string(rec).map_err(|e| format!("serialize decision: {e}"))?;
         writeln!(f, "{line}").map_err(|e| format!("write tmp: {e}"))?;
     }
     f.sync_all().ok();
@@ -226,7 +222,9 @@ pub fn add_inner(project_id: &str, payload: DecisionPayload) -> Result<DecisionR
         return Err("rationale must be at least 10 characters".to_string());
     }
 
-    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+    let _g = decisions_lock()
+        .lock()
+        .map_err(|_| "decisions lock poisoned")?;
     let mut records = read_all(project_id)?;
 
     let rec = DecisionRecord {
@@ -261,7 +259,9 @@ pub fn update_inner(
     id: &str,
     patch: DecisionPatch,
 ) -> Result<DecisionRecord, String> {
-    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+    let _g = decisions_lock()
+        .lock()
+        .map_err(|_| "decisions lock poisoned")?;
     let mut records = read_all(project_id)?;
 
     let pos = records
@@ -322,7 +322,9 @@ pub fn list_inner(project_id: &str) -> Result<Vec<DecisionRecord>, String> {
 }
 
 pub fn delete_inner(project_id: &str, id: &str) -> Result<(), String> {
-    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+    let _g = decisions_lock()
+        .lock()
+        .map_err(|_| "decisions lock poisoned")?;
     let mut records = read_all(project_id)?;
     let before = records.len();
     records.retain(|r| r.id != id);
@@ -441,7 +443,11 @@ struct PendingDecision {
 
 /// Normalised title used for dedup (case + whitespace insensitive).
 fn normalize_title(s: &str) -> String {
-    s.trim().to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ")
+    s.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Parse raw `decisions-pending.jsonl` lines into deduplicated `Proposed`
@@ -532,14 +538,14 @@ fn parse_pending_lines(
 /// decisions that were manually added or that are already in a terminal status
 /// (`Accepted`, `Superseded`, `Rejected`).
 pub fn reject_all_auto_inner(project_id: &str) -> Result<usize, String> {
-    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+    let _g = decisions_lock()
+        .lock()
+        .map_err(|_| "decisions lock poisoned")?;
     let mut records = read_all(project_id)?;
 
     let mut count = 0usize;
     for rec in &mut records {
-        if rec.status == DecisionStatus::Proposed
-            && rec.tags.iter().any(|t| t == "auto-captured")
-        {
+        if rec.status == DecisionStatus::Proposed && rec.tags.iter().any(|t| t == "auto-captured") {
             rec.status = DecisionStatus::Rejected;
             count += 1;
         }
@@ -590,7 +596,9 @@ pub(crate) fn purge_noise_confirmed(
         return Err("purge requiere confirm=true".to_string());
     }
 
-    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+    let _g = decisions_lock()
+        .lock()
+        .map_err(|_| "decisions lock poisoned")?;
     let records = read_all(project_id)?;
 
     // Partition: only auto-Proposed noise is purgeable.
@@ -620,8 +628,7 @@ pub(crate) fn purge_noise_confirmed(
             .unwrap_or(0);
         let backup = path.with_file_name(format!("decisions.jsonl.purge-backup-{epoch}"));
         if path.exists() {
-            fs::copy(&path, &backup)
-                .map_err(|e| format!("backup purge: {e}"))?;
+            fs::copy(&path, &backup).map_err(|e| format!("backup purge: {e}"))?;
         }
 
         // Retain only the 5 most recent purge backups; delete older ones.
@@ -645,7 +652,9 @@ pub struct PurgeNoiseResult {
 /// Keep only the `max_keep` most-recent `decisions.jsonl.purge-backup-*`
 /// files in `dir`, deleting older ones. Silent on I/O errors.
 fn prune_purge_backups(dir: &std::path::Path, max_keep: usize) {
-    let Ok(entries) = fs::read_dir(dir) else { return; };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
     let mut backups: Vec<std::path::PathBuf> = entries
         .flatten()
         .filter_map(|e| {
@@ -683,7 +692,9 @@ fn prune_purge_backups(dir: &std::path::Path, max_keep: usize) {
 /// drain is recovered on the next call.
 pub fn drain_pending_inner(project_id: &str) -> Result<Vec<DecisionRecord>, String> {
     let ppath = pending_decisions_path(project_id)?;
-    let _g = decisions_lock().lock().map_err(|_| "decisions lock poisoned")?;
+    let _g = decisions_lock()
+        .lock()
+        .map_err(|_| "decisions lock poisoned")?;
 
     let draining = ppath.with_extension("draining");
     match fs::rename(&ppath, &draining) {
@@ -703,8 +714,10 @@ pub fn drain_pending_inner(project_id: &str) -> Result<Vec<DecisionRecord>, Stri
         .map_err(|e| format!("read draining {}: {e}", draining.display()))?;
 
     let mut records = read_all(project_id)?;
-    let existing: std::collections::HashSet<String> =
-        records.iter().map(|r| normalize_title(&r.decision)).collect();
+    let existing: std::collections::HashSet<String> = records
+        .iter()
+        .map(|r| normalize_title(&r.decision))
+        .collect();
 
     let added = parse_pending_lines(&text, project_id, &existing);
 
@@ -750,7 +763,10 @@ pub fn search_inner(
         };
         return Ok(records
             .into_iter()
-            .map(|r| DecisionSearchResult { record: r, score: 0 })
+            .map(|r| DecisionSearchResult {
+                record: r,
+                score: 0,
+            })
             .collect());
     }
 
@@ -763,13 +779,19 @@ pub fn search_inner(
         .into_iter()
         .filter_map(|r| {
             let score = score_record(&r, &needle);
-            if score > 0 { Some(DecisionSearchResult { record: r, score }) } else { None }
+            if score > 0 {
+                Some(DecisionSearchResult { record: r, score })
+            } else {
+                None
+            }
         })
         .collect();
 
     // Highest score first; ties broken by newest date.
     results.sort_by(|a, b| {
-        b.score.cmp(&a.score).then_with(|| b.record.date.cmp(&a.record.date))
+        b.score
+            .cmp(&a.score)
+            .then_with(|| b.record.date.cmp(&a.record.date))
     });
     Ok(results)
 }
@@ -785,13 +807,23 @@ fn score_record(r: &DecisionRecord, needle: &str) -> u32 {
     if r.tags.iter().any(|t| t.to_lowercase().contains(needle)) {
         score += 2;
     }
-    if r.alternatives_considered.iter().any(|a| a.to_lowercase().contains(needle)) {
+    if r.alternatives_considered
+        .iter()
+        .any(|a| a.to_lowercase().contains(needle))
+    {
         score += 1;
     }
-    if r.author.as_deref().map(|a| a.to_lowercase().contains(needle)).unwrap_or(false) {
+    if r.author
+        .as_deref()
+        .map(|a| a.to_lowercase().contains(needle))
+        .unwrap_or(false)
+    {
         score += 1;
     }
-    if r.context_urls.iter().any(|u| u.to_lowercase().contains(needle)) {
+    if r.context_urls
+        .iter()
+        .any(|u| u.to_lowercase().contains(needle))
+    {
         score += 1;
     }
     score
@@ -806,8 +838,7 @@ fn gather_all_projects() -> Result<Vec<DecisionRecord>, String> {
         return Ok(Vec::new());
     }
     let mut all: Vec<DecisionRecord> = Vec::new();
-    let entries = fs::read_dir(&projects_dir)
-        .map_err(|e| format!("read projects dir: {e}"))?;
+    let entries = fs::read_dir(&projects_dir).map_err(|e| format!("read projects dir: {e}"))?;
     for entry in entries.flatten() {
         let meta = entry.metadata().ok();
         if meta.map(|m| m.is_dir()).unwrap_or(false) {
@@ -871,12 +902,8 @@ fn fire_auto_sync(rec: &DecisionRecord) {
             "status": rec_clone.status.to_string(),
             "tags": rec_clone.tags,
         });
-        if let Err(e) = crate::mem0::add_inner(
-            text,
-            rec_clone.project_id.clone(),
-            Some(metadata),
-        )
-        .await
+        if let Err(e) =
+            crate::mem0::add_inner(text, rec_clone.project_id.clone(), Some(metadata)).await
         {
             eprintln!("[decisions] mem0 sync warning for {}: {e}", rec_clone.id);
         }
@@ -942,8 +969,11 @@ mod tests {
     fn parse_pending_dedups_against_existing_decisions() {
         let mut existing = HashSet::new();
         existing.insert(normalize_title("Adoptar ECC como sistema activo"));
-        let out =
-            parse_pending_lines(r#"{"decision":"adoptar ECC como sistema activo"}"#, "p", &existing);
+        let out = parse_pending_lines(
+            r#"{"decision":"adoptar ECC como sistema activo"}"#,
+            "p",
+            &existing,
+        );
         assert!(out.is_empty());
     }
 
@@ -1038,28 +1068,29 @@ mod tests {
         };
         let score_a = score_record(&rec_title, "react");
         let score_b = score_record(&rec_rationale, "react");
-        assert!(score_a > score_b, "title match should outscore rationale-only match");
+        assert!(
+            score_a > score_b,
+            "title match should outscore rationale-only match"
+        );
     }
 
     #[test]
     fn write_atomic_roundtrip() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("decisions.jsonl");
-        let records = vec![
-            DecisionRecord {
-                id: "dec-1".into(),
-                project_id: "proj".into(),
-                decision: "use rust".into(),
-                rationale: "memory safety matters here".into(),
-                alternatives_considered: vec!["go".into()],
-                date: "epoch:100".into(),
-                status: DecisionStatus::Accepted,
-                supersedes_id: None,
-                context_urls: vec![],
-                author: Some("USER".into()),
-                tags: vec!["backend".into()],
-            },
-        ];
+        let records = vec![DecisionRecord {
+            id: "dec-1".into(),
+            project_id: "proj".into(),
+            decision: "use rust".into(),
+            rationale: "memory safety matters here".into(),
+            alternatives_considered: vec!["go".into()],
+            date: "epoch:100".into(),
+            status: DecisionStatus::Accepted,
+            supersedes_id: None,
+            context_urls: vec![],
+            author: Some("USER".into()),
+            tags: vec!["backend".into()],
+        }];
         write_atomic(&path, &records).unwrap();
         assert!(path.exists());
         let text = std::fs::read_to_string(&path).unwrap();
@@ -1074,7 +1105,10 @@ mod tests {
         let path = tmp.path().join("decisions.jsonl");
         write_atomic(&path, &[]).unwrap();
         let tmp_path = path.with_extension("jsonl.tmp");
-        assert!(!tmp_path.exists(), ".tmp file must not linger after success");
+        assert!(
+            !tmp_path.exists(),
+            ".tmp file must not linger after success"
+        );
     }
 
     #[test]
@@ -1146,7 +1180,8 @@ mod tests {
     #[test]
     fn noise_filter_applied_in_parse_pending() {
         // Git-state noise → dropped.
-        let noise = r#"{"decision":"Working tree is completely clean","rationale":"git status output"}"#;
+        let noise =
+            r#"{"decision":"Working tree is completely clean","rationale":"git status output"}"#;
         // Real decision → kept.
         let real = r#"{"decision":"Migrar a embeddings e5-small por soporte multilingüe","rationale":"e5-small tiene soporte nativo de español"}"#;
         let text = format!("{noise}\n{real}");
@@ -1209,28 +1244,49 @@ mod tests {
         // Titulo corto (< NOISE_MIN_TITLE_LEN) => is_noise=true, pero
         // author != "auto" => la condicion de purga NO se cumple.
         // Usamos "abc" (3 chars) para garantizar que is_noise sea true.
-        let rec = make_record("id-manual", "abc", Some("USER"), DecisionStatus::Proposed);
+        let rec = make_record(
+            "id-manual",
+            "abc",
+            Some("USER"),
+            DecisionStatus::Proposed,
+        );
 
         // Verificar que el titulo SÍ dispara is_noise (prerequisito del test).
-        assert!(is_noise(&rec.decision, &rec.rationale), "abc debe ser ruido por titulo corto");
+        assert!(
+            is_noise(&rec.decision, &rec.rationale),
+            "abc debe ser ruido por titulo corto"
+        );
 
         // La condicion de purga requiere is_auto AND is_proposed AND noisy.
         // Como is_auto=false, la condicion completa es false => no se purga.
         let is_auto = rec.author.as_deref() == Some("auto");
         assert!(!is_auto, "decision manual no debe marcarse como auto");
-        let purgeable = is_auto && rec.status == DecisionStatus::Proposed && is_noise(&rec.decision, &rec.rationale);
-        assert!(!purgeable, "decision manual nunca debe purgarse aunque el titulo sea ruido");
+        let purgeable = is_auto
+            && rec.status == DecisionStatus::Proposed
+            && is_noise(&rec.decision, &rec.rationale);
+        assert!(
+            !purgeable,
+            "decision manual nunca debe purgarse aunque el titulo sea ruido"
+        );
     }
 
     #[test]
     fn purge_noise_does_not_delete_accepted_auto() {
         // Aunque sea auto y ruido, si ya fue Accepted no debe tocarse.
-        let rec = make_record("id-accepted", "Working tree is completely clean", Some("auto"), DecisionStatus::Accepted);
+        let rec = make_record(
+            "id-accepted",
+            "Working tree is completely clean",
+            Some("auto"),
+            DecisionStatus::Accepted,
+        );
         let is_auto = rec.author.as_deref() == Some("auto");
         let is_proposed = rec.status == DecisionStatus::Proposed;
         let noisy = is_noise(&rec.decision, &rec.rationale);
         // Accepted => is_proposed=false => condicion de purga NO se cumple
-        assert!(is_auto && !is_proposed && noisy, "accepted no debe purgarse");
+        assert!(
+            is_auto && !is_proposed && noisy,
+            "accepted no debe purgarse"
+        );
     }
 
     #[test]
@@ -1245,7 +1301,10 @@ mod tests {
         let is_auto = rec.author.as_deref() == Some("auto");
         let is_proposed = rec.status == DecisionStatus::Proposed;
         let noisy = is_noise(&rec.decision, &rec.rationale);
-        assert!(is_auto && is_proposed && noisy, "debe clasificarse como purgable");
+        assert!(
+            is_auto && is_proposed && noisy,
+            "debe clasificarse como purgable"
+        );
     }
 
     #[test]
@@ -1260,7 +1319,10 @@ mod tests {
         let is_auto = rec.author.as_deref() == Some("auto");
         let is_proposed = rec.status == DecisionStatus::Proposed;
         let noisy = is_noise(&rec.decision, &rec.rationale);
-        assert!(is_auto && is_proposed && !noisy, "decision real no debe purgarse");
+        assert!(
+            is_auto && is_proposed && !noisy,
+            "decision real no debe purgarse"
+        );
     }
 
     #[test]

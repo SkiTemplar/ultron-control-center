@@ -7,9 +7,8 @@
 // memory_health: per-store health check + embeddings_real flag.
 
 use crate::memory::{
-    EccStore, HybridRecall, KgStore, MemoryHit, MemoryStore, Query,
-    qdrant_store::QdrantStore,
-    sqlite_store::SqliteStore,
+    qdrant_store::QdrantStore, sqlite_store::SqliteStore, EccStore, HybridRecall, KgStore,
+    MemoryHit, MemoryStore, Query,
 };
 
 /// Fan-out semantic + keyword recall across all registered memory stores.
@@ -21,10 +20,7 @@ use crate::memory::{
 ///   4. KgStore      — kg.jsonl substring search
 ///   5. Mem0Store    — cloud recall (skipped when MEM0_API_KEY not configured)
 #[tauri::command]
-pub async fn recall_hybrid(
-    query: String,
-    limit: Option<u32>,
-) -> Result<Vec<MemoryHit>, String> {
+pub async fn recall_hybrid(query: String, limit: Option<u32>) -> Result<Vec<MemoryHit>, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let mut stores: Vec<Box<dyn crate::memory::MemoryStore>> = Vec::new();
 
@@ -42,7 +38,9 @@ pub async fn recall_hybrid(
 
         // Mem0 — only when a real API key is configured.
         if mem0_key_is_configured() {
-            stores.push(Box::new(crate::memory::Mem0Store::new(Some("USER".into()))));
+            stores.push(Box::new(crate::memory::Mem0Store::new(Some(
+                "USER".into(),
+            ))));
         }
 
         let recall = HybridRecall::new(stores);
@@ -67,10 +65,10 @@ pub async fn memory_health() -> Result<serde_json::Value, String> {
         let embeddings_real = probe_embeddings_real();
 
         let stores: Vec<(&str, Box<dyn crate::memory::MemoryStore>)> = vec![
-            ("qdrant",  Box::new(QdrantStore::new())),
-            ("sqlite",  Box::new(SqliteStore::new())),
-            ("ecc",     Box::new(EccStore::new())),
-            ("kg",      Box::new(KgStore::new())),
+            ("qdrant", Box::new(QdrantStore::new())),
+            ("sqlite", Box::new(SqliteStore::new())),
+            ("ecc", Box::new(EccStore::new())),
+            ("kg", Box::new(KgStore::new())),
         ];
 
         let mut statuses = serde_json::Map::new();

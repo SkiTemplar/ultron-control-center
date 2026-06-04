@@ -99,8 +99,7 @@ fn load_tags_at(path: &Path) -> Result<Vec<TagEntry>, String> {
     if !path.exists() {
         return Ok(Vec::new());
     }
-    let file =
-        fs::File::open(path).map_err(|e| format!("open sessions-tags.jsonl: {}", e))?;
+    let file = fs::File::open(path).map_err(|e| format!("open sessions-tags.jsonl: {}", e))?;
     let reader = std::io::BufReader::new(file);
     let mut out = Vec::new();
     for line in reader.lines() {
@@ -157,14 +156,13 @@ fn upsert_tag_at(path: &Path, entry: TagEntry) -> Result<(), String> {
     // another volume would degrade to copy+delete = non-atomic.
     let tmp = path.with_extension("jsonl.tmp");
     {
-        let file = fs::File::create(&tmp)
-            .map_err(|e| format!("create sessions-tags tmp: {}", e))?;
+        let file =
+            fs::File::create(&tmp).map_err(|e| format!("create sessions-tags tmp: {}", e))?;
         let mut writer = BufWriter::new(file);
         for e in &existing {
-            let line = serde_json::to_string(e)
-                .map_err(|e| format!("serialize tag entry: {}", e))?;
-            writeln!(writer, "{}", line)
-                .map_err(|e| format!("write sessions-tags tmp: {}", e))?;
+            let line =
+                serde_json::to_string(e).map_err(|e| format!("serialize tag entry: {}", e))?;
+            writeln!(writer, "{}", line).map_err(|e| format!("write sessions-tags tmp: {}", e))?;
         }
         writer
             .flush()
@@ -339,8 +337,7 @@ pub fn sessions_auto_tag(
 pub fn sessions_bulk_auto_tag(requests: Vec<AutoTagRequest>) -> Result<Vec<TagEntry>, String> {
     let mut results = Vec::with_capacity(requests.len());
     for req in requests {
-        let tags = generate_tags(&req.session_id, req.first_prompt.as_deref())
-            .unwrap_or_default();
+        let tags = generate_tags(&req.session_id, req.first_prompt.as_deref()).unwrap_or_default();
         let entry = TagEntry {
             session_id: req.session_id.clone(),
             tags,
@@ -442,9 +439,17 @@ mod tests {
         upsert_tag_at(&path, mk("s1", "gamma")).unwrap();
 
         let all = load_tags_at(&path).unwrap();
-        assert_eq!(all.len(), 2, "upsert must not duplicate the same session_id");
+        assert_eq!(
+            all.len(),
+            2,
+            "upsert must not duplicate the same session_id"
+        );
         let s1 = all.iter().find(|e| e.session_id == "s1").unwrap();
-        assert_eq!(s1.tags, vec!["gamma"], "upsert must overwrite previous tags");
+        assert_eq!(
+            s1.tags,
+            vec!["gamma"],
+            "upsert must overwrite previous tags"
+        );
 
         let _ = fs::remove_file(&path);
     }
@@ -462,11 +467,18 @@ mod tests {
         let old = all.iter().find(|e| e.session_id == "old").unwrap();
         assert_eq!(old.project, None, "v1 entry (no project) -> None");
         let new = all.iter().find(|e| e.session_id == "new").unwrap();
-        assert_eq!(new.project.as_deref(), Some("ultron"), "v2 project preserved");
+        assert_eq!(
+            new.project.as_deref(),
+            Some("ultron"),
+            "v2 project preserved"
+        );
         // None must be skipped on re-serialise so a rollback to a v1 reader
         // never trips over an unexpected null.
         let s = serde_json::to_string(old).unwrap();
-        assert!(!s.contains("project"), "None project must skip serialisation");
+        assert!(
+            !s.contains("project"),
+            "None project must skip serialisation"
+        );
 
         let _ = fs::remove_file(&path);
     }

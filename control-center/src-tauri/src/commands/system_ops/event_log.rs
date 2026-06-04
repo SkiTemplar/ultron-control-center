@@ -138,9 +138,7 @@ fn query_event_log(limit: u32, scope: EventLogScope) -> Result<Vec<EventLogEntry
     ]);
     cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
 
-    let out = cmd
-        .output()
-        .map_err(|e| format!("wevtutil spawn: {e}"))?;
+    let out = cmd.output().map_err(|e| format!("wevtutil spawn: {e}"))?;
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
         return Err(format!(

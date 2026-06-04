@@ -5,8 +5,8 @@
 // commands the UI uses to drive operations directly from the cards.
 
 use crate::memory_status::{
-    self, EccCardStatus, GraphifyCardStatus, IndexResult, Mem0CardStatus,
-    MemoryFilesCardStatus, SyncResult,
+    self, EccCardStatus, GraphifyCardStatus, IndexResult, Mem0CardStatus, MemoryFilesCardStatus,
+    SyncResult,
 };
 
 #[tauri::command]

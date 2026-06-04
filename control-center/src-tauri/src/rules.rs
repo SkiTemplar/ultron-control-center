@@ -75,13 +75,10 @@ pub fn read_inner(path: String) -> Result<String, String> {
     // both sides so the comparison is consistent.
     let root = rules_root()?;
     let canonical_root = std::fs::canonicalize(&root).unwrap_or_else(|_| root.clone());
-    let canonical = std::fs::canonicalize(&path)
-        .map_err(|e| format!("canonicalize {path}: {e}"))?;
+    let canonical =
+        std::fs::canonicalize(&path).map_err(|e| format!("canonicalize {path}: {e}"))?;
     if !canonical.starts_with(&canonical_root) {
-        return Err(format!(
-            "path {} outside rules root",
-            canonical.display()
-        ));
+        return Err(format!("path {} outside rules root", canonical.display()));
     }
     std::fs::read_to_string(&canonical).map_err(|e| format!("read {path}: {e}"))
 }
@@ -112,9 +109,7 @@ pub fn write_inner(name: String, body: String) -> Result<String, String> {
     }
     // Final sandbox check after parent creation: the parent (which now
     // exists) must canonicalize inside the rules root.
-    let parent = target
-        .parent()
-        .ok_or_else(|| "no parent dir".to_string())?;
+    let parent = target.parent().ok_or_else(|| "no parent dir".to_string())?;
     let canonical_parent =
         std::fs::canonicalize(parent).map_err(|e| format!("canonicalize parent: {e}"))?;
     // v2.6 bug fix: canonicalize root too to match Windows UNC prefix.

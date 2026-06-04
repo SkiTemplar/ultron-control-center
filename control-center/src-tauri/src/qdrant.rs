@@ -197,16 +197,13 @@ pub fn ensure_collection(collection: &str) -> Result<(), String> {
     let url = format!("{base}/collections/{collection}");
 
     // Check existence first.
-    let resp = client
-        .get(&url)
-        .send()
-        .map_err(|e| {
-            if e.is_connect() || e.is_timeout() {
-                qdrant_not_running_msg(&base)
-            } else {
-                format!("qdrant GET collection: {e}")
-            }
-        })?;
+    let resp = client.get(&url).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant GET collection: {e}")
+        }
+    })?;
 
     if resp.status().as_u16() == 200 {
         return Ok(()); // already exists
@@ -269,17 +266,13 @@ pub fn upsert_point(
     });
 
     let url = format!("{base}/collections/{collection}/points");
-    let resp = client
-        .put(&url)
-        .json(&body)
-        .send()
-        .map_err(|e| {
-            if e.is_connect() || e.is_timeout() {
-                qdrant_not_running_msg(&base)
-            } else {
-                format!("qdrant upsert: {e}")
-            }
-        })?;
+    let resp = client.put(&url).json(&body).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant upsert: {e}")
+        }
+    })?;
 
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
@@ -537,17 +530,13 @@ pub fn search(collection: &str, query: &str, k: u32) -> Result<Vec<QdrantHit>, S
         "with_vector": false
     });
 
-    let resp = client
-        .post(&url)
-        .json(&body)
-        .send()
-        .map_err(|e| {
-            if e.is_connect() || e.is_timeout() {
-                qdrant_not_running_msg(&base)
-            } else {
-                format!("qdrant search: {e}")
-            }
-        })?;
+    let resp = client.post(&url).json(&body).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant search: {e}")
+        }
+    })?;
 
     if resp.status().as_u16() == 404 {
         // Collection does not exist yet — return empty results rather than error.
@@ -637,25 +626,23 @@ pub async fn recall_semantic(query: String, k: Option<u32>) -> Result<Vec<Qdrant
 pub fn qdrant_ping() -> Result<String, String> {
     let base = qdrant_base_url();
     let client = http_client()?;
-    let resp = client
-        .get(format!("{base}/"))
-        .send()
-        .map_err(|e| {
-            if e.is_connect() || e.is_timeout() {
-                qdrant_not_running_msg(&base)
-            } else {
-                format!("qdrant ping: {e}")
-            }
-        })?;
+    let resp = client.get(format!("{base}/")).send().map_err(|e| {
+        if e.is_connect() || e.is_timeout() {
+            qdrant_not_running_msg(&base)
+        } else {
+            format!("qdrant ping: {e}")
+        }
+    })?;
 
     #[derive(Deserialize)]
     struct PingResponse {
         version: Option<String>,
         title: Option<String>,
     }
-    let pr: PingResponse = resp
-        .json()
-        .unwrap_or(PingResponse { version: None, title: None });
+    let pr: PingResponse = resp.json().unwrap_or(PingResponse {
+        version: None,
+        title: None,
+    });
 
     Ok(pr.version.or(pr.title).unwrap_or_else(|| "ok".to_string()))
 }
@@ -700,7 +687,10 @@ mod tests {
             parsed.result[2].id.is_number(),
             "3rd hit exercises the numeric-id arm of search()"
         );
-        assert!(parsed.result.iter().all(|h| h.payload.contains_key("project")));
+        assert!(parsed
+            .result
+            .iter()
+            .all(|h| h.payload.contains_key("project")));
     }
 
     #[test]

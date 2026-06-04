@@ -187,42 +187,40 @@ async fn run_ps(
     #[cfg(not(target_os = "windows"))]
     {
         let _ = (app, args);
-        return Err(
-            "Scheduled tasks are a Windows-only feature today. \
+        return Err("Scheduled tasks are a Windows-only feature today. \
              Linux equivalent (systemd timers / cron) is on the v15.5.x backlog."
-                .to_string(),
-        );
+            .to_string());
     }
     #[cfg(target_os = "windows")]
     {
-    let script = script_path()?;
-    let script_str = script.to_string_lossy().to_string();
-    let mut full_args: Vec<String> = vec![
-        "-NoProfile".into(),
-        "-NonInteractive".into(),
-        "-ExecutionPolicy".into(),
-        "Bypass".into(),
-        "-File".into(),
-        script_str,
-    ];
-    for a in args {
-        full_args.push((*a).to_string());
-    }
-    let str_args: Vec<&str> = full_args.iter().map(String::as_str).collect();
+        let script = script_path()?;
+        let script_str = script.to_string_lossy().to_string();
+        let mut full_args: Vec<String> = vec![
+            "-NoProfile".into(),
+            "-NonInteractive".into(),
+            "-ExecutionPolicy".into(),
+            "Bypass".into(),
+            "-File".into(),
+            script_str,
+        ];
+        for a in args {
+            full_args.push((*a).to_string());
+        }
+        let str_args: Vec<&str> = full_args.iter().map(String::as_str).collect();
 
-    let output = app
-        .shell()
-        .command("powershell.exe")
-        .args(str_args)
-        .output()
-        .await
-        .map_err(|e| format!("spawn ps: {}", e))?;
-    Ok((
-        String::from_utf8_lossy(&output.stdout).to_string(),
-        String::from_utf8_lossy(&output.stderr).to_string(),
-        output.status.code(),
-        output.status.success(),
-    ))
+        let output = app
+            .shell()
+            .command("powershell.exe")
+            .args(str_args)
+            .output()
+            .await
+            .map_err(|e| format!("spawn ps: {}", e))?;
+        Ok((
+            String::from_utf8_lossy(&output.stdout).to_string(),
+            String::from_utf8_lossy(&output.stderr).to_string(),
+            output.status.code(),
+            output.status.success(),
+        ))
     } // end #[cfg(target_os = "windows")]
 }
 
@@ -230,9 +228,7 @@ async fn run_ps(
 // Commands
 // ---------------------------------------------------------------------------
 
-pub async fn list_tasks_inner(
-    app: &tauri::AppHandle,
-) -> Result<Vec<ScheduledTaskInfo>, String> {
+pub async fn list_tasks_inner(app: &tauri::AppHandle) -> Result<Vec<ScheduledTaskInfo>, String> {
     let (stdout, stderr, code, ok) = run_ps(app, &["-Action", "list"]).await?;
     if !ok {
         return Err(format!(
@@ -247,8 +243,8 @@ pub async fn list_tasks_inner(
     // Tolerant parse: ConvertTo-Json in PS 5.1 collapses single-element
     // arrays to objects unless you wrap in @(). If we ever land in that
     // shape we re-wrap before deserialising so the UI still gets a list.
-    let parsed: serde_json::Value =
-        serde_json::from_str(trimmed).map_err(|e| format!("parse tasks json: {} (output: {})", e, trimmed))?;
+    let parsed: serde_json::Value = serde_json::from_str(trimmed)
+        .map_err(|e| format!("parse tasks json: {} (output: {})", e, trimmed))?;
     let arr_value = if parsed.is_array() {
         parsed
     } else {
@@ -258,10 +254,7 @@ pub async fn list_tasks_inner(
         .map_err(|e| format!("parse tasks json (normalised): {}", e))
 }
 
-pub async fn run_task_inner(
-    app: &tauri::AppHandle,
-    name: String,
-) -> Result<RunTaskResult, String> {
+pub async fn run_task_inner(app: &tauri::AppHandle, name: String) -> Result<RunTaskResult, String> {
     if !name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
@@ -291,10 +284,7 @@ pub async fn system_info_inner(app: &tauri::AppHandle) -> Result<SystemInfo, Str
         .map_err(|e| format!("parse system info: {}", e))
 }
 
-pub async fn task_detail_inner(
-    app: &tauri::AppHandle,
-    name: String,
-) -> Result<TaskDetail, String> {
+pub async fn task_detail_inner(app: &tauri::AppHandle, name: String) -> Result<TaskDetail, String> {
     if !name
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
@@ -304,8 +294,7 @@ pub async fn task_detail_inner(
     if !name.starts_with("ULTRON") && !name.starts_with("Ultron") {
         return Err("only ULTRON-* tasks allowed".to_string());
     }
-    let (stdout, stderr, code, ok) =
-        run_ps(app, &["-Action", "detail", "-Name", &name]).await?;
+    let (stdout, stderr, code, ok) = run_ps(app, &["-Action", "detail", "-Name", &name]).await?;
     if !ok {
         return Err(format!(
             "system_tasks.ps1 detail failed (exit {:?}): {}",
@@ -316,9 +305,7 @@ pub async fn task_detail_inner(
         .map_err(|e| format!("parse task detail: {} (output: {})", e, stdout.trim()))
 }
 
-pub async fn rich_system_info_inner(
-    app: &tauri::AppHandle,
-) -> Result<RichSystemInfo, String> {
+pub async fn rich_system_info_inner(app: &tauri::AppHandle) -> Result<RichSystemInfo, String> {
     let (stdout, stderr, code, ok) = run_ps(app, &["-Action", "richinfo"]).await?;
     if !ok {
         return Err(format!(
@@ -359,8 +346,12 @@ fn validate_trigger_at(at: &str) -> Result<(), String> {
     if bytes.len() != 5 || bytes[2] != b':' {
         return Err(format!("invalid trigger time '{}' (expected HH:MM)", at));
     }
-    let h: u32 = at[0..2].parse().map_err(|_| format!("invalid hour in '{}'", at))?;
-    let m: u32 = at[3..5].parse().map_err(|_| format!("invalid minute in '{}'", at))?;
+    let h: u32 = at[0..2]
+        .parse()
+        .map_err(|_| format!("invalid hour in '{}'", at))?;
+    let m: u32 = at[3..5]
+        .parse()
+        .map_err(|_| format!("invalid minute in '{}'", at))?;
     if h > 23 || m > 59 {
         return Err(format!("invalid trigger time '{}'", at));
     }
@@ -455,8 +446,7 @@ pub async fn delete_task_inner(
     name: String,
 ) -> Result<DeleteTaskResult, String> {
     validate_task_name(&name)?;
-    let (stdout, stderr, code, ok) =
-        run_ps(app, &["-Action", "delete", "-Name", &name]).await?;
+    let (stdout, stderr, code, ok) = run_ps(app, &["-Action", "delete", "-Name", &name]).await?;
     if !ok {
         return Err(format!(
             "system_tasks.ps1 delete failed (exit {:?}): {}",

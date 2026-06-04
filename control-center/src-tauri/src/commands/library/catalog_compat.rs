@@ -158,7 +158,8 @@ fn parse_package_json(body: &str, stack: &mut DetectedStack) {
         for section in &["dependencies", "devDependencies"] {
             if let Some(obj) = val.get(section).and_then(|v| v.as_object()) {
                 for key in obj.keys() {
-                    let name = key.trim_start_matches('@')
+                    let name = key
+                        .trim_start_matches('@')
                         .split('/')
                         .next()
                         .unwrap_or(key)
@@ -166,12 +167,24 @@ fn parse_package_json(body: &str, stack: &mut DetectedStack) {
                     stack.deps.insert(name.clone());
                     // Derive tags from well-known deps.
                     match name.as_str() {
-                        "react" | "react-dom" => { stack.tags.insert("react".to_string()); }
-                        "next" => { stack.tags.insert("nextjs".to_string()); }
-                        "vue" => { stack.tags.insert("vue".to_string()); }
-                        "svelte" => { stack.tags.insert("svelte".to_string()); }
-                        "express" | "fastify" | "hono" => { stack.tags.insert("node".to_string()); }
-                        "@tauri-apps" => { stack.tags.insert("tauri".to_string()); }
+                        "react" | "react-dom" => {
+                            stack.tags.insert("react".to_string());
+                        }
+                        "next" => {
+                            stack.tags.insert("nextjs".to_string());
+                        }
+                        "vue" => {
+                            stack.tags.insert("vue".to_string());
+                        }
+                        "svelte" => {
+                            stack.tags.insert("svelte".to_string());
+                        }
+                        "express" | "fastify" | "hono" => {
+                            stack.tags.insert("node".to_string());
+                        }
+                        "@tauri-apps" => {
+                            stack.tags.insert("tauri".to_string());
+                        }
                         _ => {}
                     }
                 }
@@ -200,9 +213,15 @@ fn parse_cargo_toml(body: &str, stack: &mut DetectedStack) {
                 if !dep.is_empty() && !dep.starts_with('#') {
                     stack.deps.insert(dep.clone());
                     match dep.as_str() {
-                        "tauri" => { stack.tags.insert("tauri".to_string()); }
-                        "tokio" | "async_std" => { stack.tags.insert("async-rust".to_string()); }
-                        "axum" | "actix_web" | "warp" => { stack.tags.insert("rust-web".to_string()); }
+                        "tauri" => {
+                            stack.tags.insert("tauri".to_string());
+                        }
+                        "tokio" | "async_std" => {
+                            stack.tags.insert("async-rust".to_string());
+                        }
+                        "axum" | "actix_web" | "warp" => {
+                            stack.tags.insert("rust-web".to_string());
+                        }
                         _ => {}
                     }
                 }
@@ -227,14 +246,23 @@ fn parse_pyproject_toml(body: &str, stack: &mut DetectedStack) {
         if in_deps && !trimmed.is_empty() && !trimmed.starts_with('#') {
             // Dep lines look like `"fastapi>=0.95"` or `fastapi`.
             let cleaned = trimmed.trim_matches(|c: char| c == '"' || c == '\'' || c == ',');
-            if let Some(name) = cleaned.split(|c: char| c == '>' || c == '<' || c == '=' || c == '[').next() {
+            if let Some(name) = cleaned
+                .split(|c: char| c == '>' || c == '<' || c == '=' || c == '[')
+                .next()
+            {
                 let dep = name.trim().to_ascii_lowercase();
                 if !dep.is_empty() {
                     stack.deps.insert(dep.clone());
                     match dep.as_str() {
-                        "fastapi" => { stack.tags.insert("fastapi".to_string()); }
-                        "django" => { stack.tags.insert("django".to_string()); }
-                        "flask" => { stack.tags.insert("flask".to_string()); }
+                        "fastapi" => {
+                            stack.tags.insert("fastapi".to_string());
+                        }
+                        "django" => {
+                            stack.tags.insert("django".to_string());
+                        }
+                        "flask" => {
+                            stack.tags.insert("flask".to_string());
+                        }
                         _ => {}
                     }
                 }
@@ -272,7 +300,12 @@ pub fn score_item(hit: &RepoHit, stack: &DetectedStack) -> CompatReport {
     // Clamp to [0.0, 1.0] and round to 2 decimals.
     let final_score = (score.clamp(0.0, 1.0) * 100.0).round() / 100.0;
 
-    CompatReport { item_id, compat_score: final_score, reasons, blocked_by }
+    CompatReport {
+        item_id,
+        compat_score: final_score,
+        reasons,
+        blocked_by,
+    }
 }
 
 fn score_language(hit: &RepoHit, stack: &DetectedStack, reasons: &mut Vec<String>) -> f32 {
@@ -311,7 +344,11 @@ fn score_topics(hit: &RepoHit, stack: &DetectedStack, reasons: &mut Vec<String>)
     }
 
     let item_topics: HashSet<String> = hit.topics.iter().map(|t| t.to_ascii_lowercase()).collect();
-    let overlap: Vec<&String> = stack.tags.iter().filter(|t| item_topics.contains(t.as_str())).collect();
+    let overlap: Vec<&String> = stack
+        .tags
+        .iter()
+        .filter(|t| item_topics.contains(t.as_str()))
+        .collect();
 
     if !overlap.is_empty() {
         let matched: Vec<&str> = overlap.iter().map(|s| s.as_str()).collect();
@@ -337,24 +374,56 @@ fn score_deps(
     let repo_name_lower = hit.name.to_ascii_lowercase().replace('-', "_");
 
     // Cross-ecosystem hard blockers: pip-only package in a Rust-only stack, etc.
-    let is_rust_stack = stack.languages.contains("rust") && !stack.languages.contains("python") && !stack.languages.contains("javascript");
-    let is_python_stack = stack.languages.contains("python") && !stack.languages.contains("rust") && !stack.languages.contains("javascript");
-    let is_js_stack = (stack.languages.contains("typescript") || stack.languages.contains("javascript"))
+    let is_rust_stack = stack.languages.contains("rust")
+        && !stack.languages.contains("python")
+        && !stack.languages.contains("javascript");
+    let is_python_stack = stack.languages.contains("python")
+        && !stack.languages.contains("rust")
+        && !stack.languages.contains("javascript");
+    let is_js_stack = (stack.languages.contains("typescript")
+        || stack.languages.contains("javascript"))
         && !stack.languages.contains("rust")
         && !stack.languages.contains("python");
 
     // A known Python-only package in a Rust-only stack is a likely blocker.
-    let python_only_packages = ["django", "flask", "fastapi", "celery", "sqlalchemy", "pytest", "numpy", "pandas"];
+    let python_only_packages = [
+        "django",
+        "flask",
+        "fastapi",
+        "celery",
+        "sqlalchemy",
+        "pytest",
+        "numpy",
+        "pandas",
+    ];
     let rust_only_packages = ["tokio", "actix", "axum", "serde", "rayon", "rocket"];
 
     if is_rust_stack && python_only_packages.contains(&repo_name_lower.as_str()) {
-        return (0.0, Some(format!("Python package '{}' incompatible with Rust-only stack", hit.name)));
+        return (
+            0.0,
+            Some(format!(
+                "Python package '{}' incompatible with Rust-only stack",
+                hit.name
+            )),
+        );
     }
     if is_python_stack && rust_only_packages.contains(&repo_name_lower.as_str()) {
-        return (0.0, Some(format!("Rust crate '{}' incompatible with Python-only stack", hit.name)));
+        return (
+            0.0,
+            Some(format!(
+                "Rust crate '{}' incompatible with Python-only stack",
+                hit.name
+            )),
+        );
     }
     if is_js_stack && rust_only_packages.contains(&repo_name_lower.as_str()) {
-        return (0.0, Some(format!("Rust crate '{}' incompatible with JS/TS-only stack", hit.name)));
+        return (
+            0.0,
+            Some(format!(
+                "Rust crate '{}' incompatible with JS/TS-only stack",
+                hit.name
+            )),
+        );
     }
 
     // Dep already in our stack → small bonus hint, still counts as +0.40.
@@ -374,11 +443,16 @@ fn score_deps(
 const CACHE_TTL_SECS: u64 = 3600; // 1 hour
 
 fn cache_path() -> Result<PathBuf, String> {
-    Ok(ultron_root()?.join("cockpit").join("library-catalog-compat.json"))
+    Ok(ultron_root()?
+        .join("cockpit")
+        .join("library-catalog-compat.json"))
 }
 
 fn now_secs() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs()
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 fn build_input_key(hits: &[RepoHit]) -> String {
@@ -420,10 +494,7 @@ fn write_cache(input_key: &str, reports: &[CompatReport]) {
 
 /// Analyse a list of `RepoHit` items for compatibility with the current stack.
 /// Results are cached for 1 hour. Pass `force_refresh = true` to bypass cache.
-pub fn analyze_catalog_compat_inner(
-    items: Vec<RepoHit>,
-    force_refresh: bool,
-) -> Vec<CompatReport> {
+pub fn analyze_catalog_compat_inner(items: Vec<RepoHit>, force_refresh: bool) -> Vec<CompatReport> {
     let input_key = build_input_key(&items);
 
     if !force_refresh {
@@ -497,7 +568,11 @@ mod tests {
         let stack = ts_rust_stack();
         let hit = make_hit("foo/bar", Some("TypeScript"), &[]);
         let report = score_item(&hit, &stack);
-        assert!((report.compat_score - 0.70).abs() < 0.01, "expected 0.70, got {}", report.compat_score);
+        assert!(
+            (report.compat_score - 0.70).abs() < 0.01,
+            "expected 0.70, got {}",
+            report.compat_score
+        );
         // 0.30 language + 0.0 topics + 0.40 no-conflict = 0.70
     }
 
@@ -507,7 +582,11 @@ mod tests {
         let hit = make_hit("foo/bar", Some("TypeScript"), &["tauri", "claude-code"]);
         let report = score_item(&hit, &stack);
         // 0.30 + 0.30 + 0.40 = 1.00
-        assert!((report.compat_score - 1.0).abs() < 0.01, "expected 1.0, got {}", report.compat_score);
+        assert!(
+            (report.compat_score - 1.0).abs() < 0.01,
+            "expected 1.0, got {}",
+            report.compat_score
+        );
     }
 
     #[test]
@@ -516,7 +595,11 @@ mod tests {
         let hit = make_hit("foo/bar", Some("Python"), &[]);
         let report = score_item(&hit, &stack);
         // 0.0 language + 0.0 topics + 0.40 no-conflict = 0.40
-        assert!((report.compat_score - 0.40).abs() < 0.01, "expected 0.40, got {}", report.compat_score);
+        assert!(
+            (report.compat_score - 0.40).abs() < 0.01,
+            "expected 0.40, got {}",
+            report.compat_score
+        );
     }
 
     #[test]
@@ -532,10 +615,7 @@ mod tests {
 
     #[test]
     fn input_key_is_sorted() {
-        let hits = vec![
-            make_hit("z/repo", None, &[]),
-            make_hit("a/repo", None, &[]),
-        ];
+        let hits = vec![make_hit("z/repo", None, &[]), make_hit("a/repo", None, &[])];
         let key = build_input_key(&hits);
         assert_eq!(key, "a/repo,z/repo");
     }

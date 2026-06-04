@@ -88,16 +88,23 @@ fn run_migrations_at(cockpit: &Path, app_version: &str, dry: bool) -> MigrationR
 
     if migrated {
         if from_version == 0 {
-            actions.push("Primer arranque v2.14 (sin meta.json previo): declarado breaking change.".to_string());
+            actions.push(
+                "Primer arranque v2.14 (sin meta.json previo): declarado breaking change."
+                    .to_string(),
+            );
         } else {
-            actions.push(format!("Migrando schema v{from_version} -> v{CURRENT_SCHEMA_VERSION}."));
+            actions.push(format!(
+                "Migrando schema v{from_version} -> v{CURRENT_SCHEMA_VERSION}."
+            ));
         }
         // Ensure features.json exists with defaults (never overwrite an existing one).
         let features = cockpit.join("features.json");
         if !features.exists() {
             actions.push("Crear features.json con defaults.".to_string());
             if !dry {
-                if let Ok(json) = serde_json::to_string_pretty(&crate::features::Features::default()) {
+                if let Ok(json) =
+                    serde_json::to_string_pretty(&crate::features::Features::default())
+                {
                     let _ = std::fs::create_dir_all(cockpit);
                     let tmp = features.with_extension("json.tmp");
                     if std::fs::write(&tmp, &json).is_ok() {
@@ -189,7 +196,8 @@ mod tests {
         use std::sync::atomic::{AtomicU64, Ordering};
         static SEQ: AtomicU64 = AtomicU64::new(0);
         let n = SEQ.fetch_add(1, Ordering::SeqCst);
-        let dir = std::env::temp_dir().join(format!("ultron_mig_test_{}_{}", std::process::id(), n));
+        let dir =
+            std::env::temp_dir().join(format!("ultron_mig_test_{}_{}", std::process::id(), n));
         let _ = std::fs::create_dir_all(&dir);
         dir
     }
@@ -224,8 +232,14 @@ mod tests {
         let r = run_migrations_at(&c, "2.14.0", true);
         assert!(r.dry_run);
         assert!(r.migrated, "dry run still reports it WOULD migrate");
-        assert!(read_meta_at(&c).is_none(), "dry run must not write meta.json");
-        assert!(!c.join("features.json").exists(), "dry run must not write features.json");
+        assert!(
+            read_meta_at(&c).is_none(),
+            "dry run must not write meta.json"
+        );
+        assert!(
+            !c.join("features.json").exists(),
+            "dry run must not write features.json"
+        );
         let _ = std::fs::remove_dir_all(&c);
     }
 
@@ -235,7 +249,10 @@ mod tests {
         std::fs::write(c.join("features.json"), "{\"memory\":false}").unwrap();
         run_migrations_at(&c, "2.14.0", false);
         let kept = std::fs::read_to_string(c.join("features.json")).unwrap();
-        assert!(kept.contains("\"memory\":false"), "existing features.json preserved");
+        assert!(
+            kept.contains("\"memory\":false"),
+            "existing features.json preserved"
+        );
         let _ = std::fs::remove_dir_all(&c);
     }
 }

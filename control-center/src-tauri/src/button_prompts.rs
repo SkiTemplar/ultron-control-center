@@ -384,7 +384,10 @@ fn catalog_path() -> Option<PathBuf> {
     if new_path.exists() {
         return Some(new_path);
     }
-    let legacy_path = home.join(".ultron").join("cockpit").join("button-prompts.json");
+    let legacy_path = home
+        .join(".ultron")
+        .join("cockpit")
+        .join("button-prompts.json");
     if legacy_path.exists() {
         return Some(legacy_path);
     }
@@ -478,10 +481,7 @@ pub fn list_button_prompts_inner() -> Result<ButtonPromptsCatalog, String> {
 /// mutate → write_stored so concurrent callers cannot interleave and lose each
 /// other's changes. The final `build_catalog()` is a pure read after the write
 /// has landed on disk, so it is intentionally outside the critical section.
-pub fn update_button_prompt_inner(
-    key: String,
-    prompt: String,
-) -> Result<ButtonPrompt, String> {
+pub fn update_button_prompt_inner(key: String, prompt: String) -> Result<ButtonPrompt, String> {
     let defaults = build_defaults();
     let default_entry = defaults
         .iter()
@@ -558,7 +558,10 @@ mod tests {
                         Instrucción:\n{ai_instruction}";
         let rendered = interpolate(
             template,
-            &[("skill_name", "agents"), ("ai_instruction", "rename FooBar to foo_bar")],
+            &[
+                ("skill_name", "agents"),
+                ("ai_instruction", "rename FooBar to foo_bar"),
+            ],
         );
         assert!(rendered.contains("~/.claude/skills/agents/SKILL.md"));
         assert!(rendered.contains("rename FooBar to foo_bar"));
@@ -574,12 +577,20 @@ mod tests {
         assert!(keys.contains("dashboard.pc_diagnose_analyse"));
         assert!(keys.contains("skills.create_with_ai"));
         assert!(keys.contains("agents.edit_with_ai"));
-        assert!(defaults.len() >= 10, "expected >= 10 default buttons, got {}", defaults.len());
+        assert!(
+            defaults.len() >= 10,
+            "expected >= 10 default buttons, got {}",
+            defaults.len()
+        );
 
         for b in &defaults {
             assert!(!b.prompt.is_empty(), "{} has empty prompt", b.key);
             assert_eq!(b.prompt, b.default_prompt, "{} default mismatch", b.key);
-            assert!(!b.overridden, "{} should not be marked overridden by default", b.key);
+            assert!(
+                !b.overridden,
+                "{} should not be marked overridden by default",
+                b.key
+            );
         }
     }
 

@@ -26,9 +26,7 @@ pub async fn delete_batch_single(name: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn cleanup_old_batches(
-    older_than_days: u32,
-) -> Result<BatchCleanupReport, String> {
+pub async fn cleanup_old_batches(older_than_days: u32) -> Result<BatchCleanupReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
         batches::cleanup_old_batches_inner(older_than_days)
     })

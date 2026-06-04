@@ -266,9 +266,9 @@ fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, 
                 let mut probe = std::process::Command::new("where");
                 probe.arg(trimmed);
                 probe.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-                let output = probe.output().map_err(|e| {
-                    format!("PATH probe failed: {e}")
-                })?;
+                let output = probe
+                    .output()
+                    .map_err(|e| format!("PATH probe failed: {e}"))?;
                 if !output.status.success() {
                     return Err(format!(
                         "'{}' not found on PATH. Install the CLI first, e.g. `npm install -g @{0}/cli` (or equivalent), then retry.",
@@ -470,8 +470,7 @@ pub fn spawn_inner<R: Runtime>(
                                 if let Some(s) = reg.get_mut(&id_for_reader) {
                                     s.output_buffer.extend_from_slice(slice);
                                     if s.output_buffer.len() > PTY_REPLAY_BUFFER_MAX {
-                                        let drop_n =
-                                            s.output_buffer.len() - PTY_REPLAY_BUFFER_MAX;
+                                        let drop_n = s.output_buffer.len() - PTY_REPLAY_BUFFER_MAX;
                                         s.output_buffer.drain(0..drop_n);
                                     }
                                     s.subscribed
@@ -629,7 +628,10 @@ pub fn replay_inner(session_id: String) -> Result<String, String> {
 /// The returned string is base64-encoded raw PTY output (including ANSI
 /// escape codes). Callers that need plain text should strip ANSI sequences
 /// before inspecting the content.
-pub fn capture_output_inner(session_id: &str, since_offset: usize) -> Result<CaptureResult, String> {
+pub fn capture_output_inner(
+    session_id: &str,
+    since_offset: usize,
+) -> Result<CaptureResult, String> {
     let reg = registry().lock().map_err(|e| e.to_string())?;
     let s = match reg.get(session_id) {
         Some(s) => s,
@@ -704,11 +706,23 @@ mod tests {
     // card-vis-notif-session-error
     #[test]
     fn notify_only_on_positive_exit_and_when_enabled() {
-        assert!(should_notify_session_error(1, true), "code 1 + enabled -> notify");
+        assert!(
+            should_notify_session_error(1, true),
+            "code 1 + enabled -> notify"
+        );
         assert!(should_notify_session_error(2, true));
-        assert!(!should_notify_session_error(0, true), "clean exit -> no notify");
-        assert!(!should_notify_session_error(-1, true), "manual kill (-1) -> no notify");
-        assert!(!should_notify_session_error(1, false), "toggle off -> no notify");
+        assert!(
+            !should_notify_session_error(0, true),
+            "clean exit -> no notify"
+        );
+        assert!(
+            !should_notify_session_error(-1, true),
+            "manual kill (-1) -> no notify"
+        );
+        assert!(
+            !should_notify_session_error(1, false),
+            "toggle off -> no notify"
+        );
     }
 
     #[test]
@@ -725,7 +739,13 @@ mod tests {
 
     #[test]
     fn build_command_accepts_known_providers() {
-        for p in ["claude", "codex", "gemini", "powershell", "powershell-admin"] {
+        for p in [
+            "claude",
+            "codex",
+            "gemini",
+            "powershell",
+            "powershell-admin",
+        ] {
             let r = build_command(p, None);
             assert!(r.is_ok(), "provider {p} should be accepted");
         }
@@ -816,8 +836,7 @@ mod tests {
 
     #[test]
     fn capture_output_unknown_session_returns_empty() {
-        let result =
-            capture_output_inner("nonexistent-session-xyz", 0).expect("should not error");
+        let result = capture_output_inner("nonexistent-session-xyz", 0).expect("should not error");
         assert!(
             result.data_b64.is_empty(),
             "unknown session should return empty data"

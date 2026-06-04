@@ -8,7 +8,13 @@ use tauri::{AppHandle, Emitter, Manager, WebviewWindowBuilder};
 pub(crate) fn window_label(project_id: &str) -> String {
     let sanitised: String = project_id
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     format!("project_{sanitised}")
 }
@@ -34,9 +40,16 @@ pub fn detach_project_window_inner(
 
     if let Some(existing) = app.get_webview_window(&label) {
         existing.show().map_err(|e| format!("show: {e}"))?;
-        existing.unminimize().map_err(|e| format!("unminimize: {e}"))?;
-        existing.set_focus().map_err(|e| format!("set_focus: {e}"))?;
-        return Ok(DetachResult { label, created: false });
+        existing
+            .unminimize()
+            .map_err(|e| format!("unminimize: {e}"))?;
+        existing
+            .set_focus()
+            .map_err(|e| format!("set_focus: {e}"))?;
+        return Ok(DetachResult {
+            label,
+            created: false,
+        });
     }
 
     let url = format!("/detached/project?id={}", urlencoded(&project_id));
@@ -45,21 +58,17 @@ pub fn detach_project_window_inner(
     let pid_for_close = project_id.clone();
     let label_for_close = label.clone();
 
-    let window = WebviewWindowBuilder::new(
-        app,
-        &label,
-        tauri::WebviewUrl::App(url.into()),
-    )
-    .title(format!("Project — {project_id}"))
-    .inner_size(1000.0, 700.0)
-    .min_inner_size(700.0, 500.0)
-    .resizable(true)
-    .decorations(true)
-    .skip_taskbar(false)
-    .center()
-    .visible(true)
-    .build()
-    .map_err(|e| format!("crear ventana '{project_id}': {e}"))?;
+    let window = WebviewWindowBuilder::new(app, &label, tauri::WebviewUrl::App(url.into()))
+        .title(format!("Project — {project_id}"))
+        .inner_size(1000.0, 700.0)
+        .min_inner_size(700.0, 500.0)
+        .resizable(true)
+        .decorations(true)
+        .skip_taskbar(false)
+        .center()
+        .visible(true)
+        .build()
+        .map_err(|e| format!("crear ventana '{project_id}': {e}"))?;
 
     window.on_window_event(move |event| {
         if matches!(
@@ -82,19 +91,21 @@ pub fn detach_project_window_inner(
         }
     });
 
-    Ok(DetachResult { label, created: true })
+    Ok(DetachResult {
+        label,
+        created: true,
+    })
 }
 
-pub fn reattach_project_window_inner(
-    app: &AppHandle,
-    project_id: String,
-) -> Result<(), String> {
+pub fn reattach_project_window_inner(app: &AppHandle, project_id: String) -> Result<(), String> {
     if project_id.is_empty() {
         return Err("project_id no puede estar vacio".to_string());
     }
     let label = window_label(&project_id);
     if let Some(window) = app.get_webview_window(&label) {
-        window.close().map_err(|e| format!("cerrar ventana '{label}': {e}"))?;
+        window
+            .close()
+            .map_err(|e| format!("cerrar ventana '{label}': {e}"))?;
     }
     Ok(())
 }

@@ -69,8 +69,7 @@ pub fn init_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let open_i = MenuItem::with_id(app, "open", "Open ULTRON", true, None::<&str>)?;
     let new_claude_i =
         MenuItem::with_id(app, "new_claude", "New Claude session", true, None::<&str>)?;
-    let new_codex_i =
-        MenuItem::with_id(app, "new_codex", "New Codex session", true, None::<&str>)?;
+    let new_codex_i = MenuItem::with_id(app, "new_codex", "New Codex session", true, None::<&str>)?;
     let new_gemini_i =
         MenuItem::with_id(app, "new_gemini", "New Gemini session", true, None::<&str>)?;
     let plans_i = MenuItem::with_id(app, "open_plans", "Open Plans", true, None::<&str>)?;

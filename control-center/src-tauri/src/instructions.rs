@@ -8,8 +8,8 @@
 // reads the GUIDE.md automatically instead of re-deriving the rules each
 // time.
 
-use std::path::PathBuf;
 use serde::Serialize;
+use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Clone)]
 pub struct InstructionEntry {
@@ -50,8 +50,6 @@ pub fn instruction_path_inner(kind: String) -> Result<String, String> {
     if !KINDS.iter().any(|(k, _)| *k == kind.as_str()) {
         return Err(format!("unknown instruction kind '{}'", kind));
     }
-    let p = root()
-        .ok_or_else(|| "no HOME".to_string())?
-        .join(&kind);
+    let p = root().ok_or_else(|| "no HOME".to_string())?.join(&kind);
     Ok(p.to_string_lossy().to_string())
 }

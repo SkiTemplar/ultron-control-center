@@ -355,13 +355,26 @@ pub(crate) fn epoch_secs_to_iso(secs: u64) -> String {
     loop {
         let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
         let yd: i64 = if leap { 366 } else { 365 };
-        if days < yd { break; }
+        if days < yd {
+            break;
+        }
         days -= yd;
         year += 1;
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
     let mdays: [i64; 12] = [
-        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
     ];
     let mut month = 0usize;
     while month < 12 && days >= mdays[month] {
@@ -370,7 +383,12 @@ pub(crate) fn epoch_secs_to_iso(secs: u64) -> String {
     }
     format!(
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
-        year, month + 1, days + 1, h, m, s
+        year,
+        month + 1,
+        days + 1,
+        h,
+        m,
+        s
     )
 }
 
@@ -381,13 +399,17 @@ pub(crate) fn epoch_secs_to_iso(secs: u64) -> String {
 ///   - 1 event per kanban_move context entry (source = "kanban")
 fn ingest_workdays(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     let dir = root.join("cockpit").join("workdays");
-    let Ok(entries) = fs::read_dir(&dir) else { return };
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        let Ok(text) = fs::read_to_string(&path) else { continue };
+        let Ok(text) = fs::read_to_string(&path) else {
+            continue;
+        };
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) else {
             continue;
         };
@@ -397,7 +419,11 @@ fn ingest_workdays(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
             .and_then(|x| x.as_str())
             .unwrap_or("workday")
             .to_string();
-        let status = v.get("status").and_then(|x| x.as_str()).unwrap_or("").to_string();
+        let status = v
+            .get("status")
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
 
         // Event: workday created
         if let Some(raw) = v.get("created_at").and_then(|x| x.as_str()) {
@@ -434,29 +460,20 @@ fn ingest_workdays(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
         }
 
         // Event(s): kanban_move entries living in the context buckets.
-        let Some(context) = v.get("context") else { continue };
-        let buckets = [
-            "notes",
-            "decisions",
-            "file_changes",
-            "agent_messages",
-        ];
+        let Some(context) = v.get("context") else {
+            continue;
+        };
+        let buckets = ["notes", "decisions", "file_changes", "agent_messages"];
         for bname in &buckets {
             let Some(arr) = context.get(*bname).and_then(|x| x.as_array()) else {
                 continue;
             };
             for ent in arr {
-                let kind_field = ent
-                    .get("kind")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("");
+                let kind_field = ent.get("kind").and_then(|x| x.as_str()).unwrap_or("");
                 if !kind_field.starts_with("kanban_move") {
                     continue;
                 }
-                let raw_created = ent
-                    .get("created_at")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("");
+                let raw_created = ent.get("created_at").and_then(|x| x.as_str()).unwrap_or("");
                 let Some(ts) = workday_ts_to_iso(raw_created) else {
                     continue;
                 };

@@ -96,13 +96,21 @@ struct HealthDoc {
 
 fn read_health() -> HealthDoc {
     let Some(home) = dirs::home_dir() else {
-        return HealthDoc { checked_at: None, results: BTreeMap::new() };
+        return HealthDoc {
+            checked_at: None,
+            results: BTreeMap::new(),
+        };
     };
     let path = home.join(".ultron/.tmp/mcp-health.json");
     match fs::read_to_string(&path) {
-        Ok(raw) => serde_json::from_str::<HealthDoc>(&raw)
-            .unwrap_or(HealthDoc { checked_at: None, results: BTreeMap::new() }),
-        Err(_) => HealthDoc { checked_at: None, results: BTreeMap::new() },
+        Ok(raw) => serde_json::from_str::<HealthDoc>(&raw).unwrap_or(HealthDoc {
+            checked_at: None,
+            results: BTreeMap::new(),
+        }),
+        Err(_) => HealthDoc {
+            checked_at: None,
+            results: BTreeMap::new(),
+        },
     }
 }
 
@@ -272,7 +280,9 @@ fn collect_plugin_mcps() -> Vec<(String, String, McpServerCfg)> {
         if depth > 6 {
             continue;
         }
-        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            continue;
+        };
         for entry in rd.filter_map(|e| e.ok()) {
             let p = entry.path();
             if p.is_dir() {
@@ -287,8 +297,7 @@ fn collect_plugin_mcps() -> Vec<(String, String, McpServerCfg)> {
                 // like a plugin root. Heuristic: the directory two levels
                 // above (cache/<marketplace>/<plugin>/<version>/.mcp.json)
                 // or one level above for marketplaces/<plugin>/.mcp.json.
-                let plugin_slug = derive_plugin_slug(&p)
-                    .unwrap_or_else(|| "unknown".to_string());
+                let plugin_slug = derive_plugin_slug(&p).unwrap_or_else(|| "unknown".to_string());
                 let parsed = parse_mcp_file(&p);
                 for (name, cfg) in parsed.into_iter() {
                     out.push((plugin_slug.clone(), name, cfg));
@@ -300,9 +309,7 @@ fn collect_plugin_mcps() -> Vec<(String, String, McpServerCfg)> {
 }
 
 fn derive_plugin_slug(mcp_path: &std::path::Path) -> Option<String> {
-    let parts: Vec<&std::ffi::OsStr> = mcp_path
-        .iter()
-        .collect::<Vec<_>>();
+    let parts: Vec<&std::ffi::OsStr> = mcp_path.iter().collect::<Vec<_>>();
     // Find the index of "plugins" (first match — root of the tree).
     let mut idx_plugins: Option<usize> = None;
     for (i, p) in parts.iter().enumerate() {
@@ -340,10 +347,7 @@ fn collect_project_mcps() -> Vec<(String, String, McpServerCfg)> {
     let Some(home) = dirs::home_dir() else {
         return out;
     };
-    let registry = home
-        .join(".ultron")
-        .join("cockpit")
-        .join("projects.json");
+    let registry = home.join(".ultron").join("cockpit").join("projects.json");
     let Ok(raw) = fs::read_to_string(&registry) else {
         return out;
     };
@@ -356,10 +360,7 @@ fn collect_project_mcps() -> Vec<(String, String, McpServerCfg)> {
         .cloned()
         .unwrap_or_default();
     for proj in projects.iter() {
-        let path_str = proj
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let path_str = proj.get("path").and_then(|v| v.as_str()).unwrap_or("");
         if path_str.is_empty() {
             continue;
         }
@@ -401,7 +402,14 @@ pub fn list_mcps_inner() -> Result<Vec<McpInfo>, String> {
     for (name, cfg) in settings.mcp_servers.iter() {
         let key = (name.clone(), "user".to_string());
         if seen.insert(key) {
-            out.push(build_mcp_info(name, cfg, "user".to_string(), None, &health, &fallbacks));
+            out.push(build_mcp_info(
+                name,
+                cfg,
+                "user".to_string(),
+                None,
+                &health,
+                &fallbacks,
+            ));
         }
     }
 
@@ -486,9 +494,7 @@ fn validate_mcp_name(name: &str) -> Result<(), String> {
     for &b in &bytes[1..] {
         let ok = b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-';
         if !ok {
-            return Err(
-                "name may only contain lowercase letters, digits, '_' or '-'".to_string()
-            );
+            return Err("name may only contain lowercase letters, digits, '_' or '-'".to_string());
         }
     }
     Ok(())
@@ -532,8 +538,20 @@ where
 // settings.json — which Claude Code would happily run on next session start
 // (persistent RCE, no UI feedback).
 const MCP_COMMAND_ALLOWLIST: &[&str] = &[
-    "npx", "npm", "node", "uvx", "uv", "python", "python.exe", "deno", "bun",
-    "cargo", "go", "ruby", "java", "java.exe",
+    "npx",
+    "npm",
+    "node",
+    "uvx",
+    "uv",
+    "python",
+    "python.exe",
+    "deno",
+    "bun",
+    "cargo",
+    "go",
+    "ruby",
+    "java",
+    "java.exe",
 ];
 
 const MCP_FORBIDDEN_ARG_FRAGMENTS: &[&str] = &[
@@ -623,10 +641,7 @@ fn validate_mcp_config(config: &serde_json::Value) -> Result<(), String> {
     Ok(())
 }
 
-pub fn add_mcp_inner(
-    name: String,
-    config: serde_json::Value,
-) -> Result<McpMutationResult, String> {
+pub fn add_mcp_inner(name: String, config: serde_json::Value) -> Result<McpMutationResult, String> {
     validate_mcp_config(&config)?;
     mutate_mcp_servers(&name, |servers| {
         if servers.contains_key(&name) {
@@ -753,13 +768,8 @@ pub async fn generate_mcp_from_prompt_inner(
 
     // Control Center 2.0: no internal AI router. MCP scaffold generation
     // defaults to Claude (best at JSON shape under tight constraints).
-    let inline = crate::sessions::run_inline_inner(
-        app,
-        "claude".to_string(),
-        None,
-        full_prompt,
-    )
-    .await?;
+    let inline =
+        crate::sessions::run_inline_inner(app, "claude".to_string(), None, full_prompt).await?;
 
     let raw_output = if inline.stdout.trim().is_empty() {
         inline.stderr.clone()
@@ -866,7 +876,11 @@ pub fn mcp_ping_inner(name: String) -> McpPingResult {
     // HTTP/SSE servers are best-effort: skip the JSON-RPC handshake and
     // report ok=true / latency=None to signal "no probe".
     let is_http = cfg.url.is_some()
-        || cfg.transport.as_deref().map(|t| t.eq_ignore_ascii_case("http") || t.eq_ignore_ascii_case("sse")).unwrap_or(false);
+        || cfg
+            .transport
+            .as_deref()
+            .map(|t| t.eq_ignore_ascii_case("http") || t.eq_ignore_ascii_case("sse"))
+            .unwrap_or(false);
     if is_http {
         return McpPingResult {
             name: name.clone(),

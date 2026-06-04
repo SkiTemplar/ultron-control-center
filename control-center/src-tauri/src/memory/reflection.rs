@@ -20,9 +20,9 @@
 
 use rusqlite::Connection;
 
+use super::model::Status;
 use super::model::{MemoryCandidate, MemoryItem, MemoryType, Scope};
 use super::sqlite_store as store;
-use super::model::Status;
 
 /// Minimum number of source items required before a group is worth distilling.
 /// A single item is not a "higher-order" memory -- it is just that item.
@@ -73,11 +73,7 @@ pub struct Insight {
 /// FAIL-SAFE: returns an empty `Vec` (never an error) when the store is empty,
 /// when there are too few sources, or when every LLM call fails. Never panics.
 #[must_use]
-pub fn reflect(
-    conn: &Connection,
-    scope_project: Option<&str>,
-    max_sources: usize,
-) -> Vec<Insight> {
+pub fn reflect(conn: &Connection, scope_project: Option<&str>, max_sources: usize) -> Vec<Insight> {
     reflect_with(conn, scope_project, max_sources, distill_group)
 }
 
@@ -245,7 +241,11 @@ fn build_distill_prompt(sources: &[MemoryItem]) -> String {
          below; do not invent facts. Output only the insight text.\n\nSOURCES:\n",
     );
     for item in sources {
-        let text = item.summary.clone().or_else(|| item.content.clone()).unwrap_or_default();
+        let text = item
+            .summary
+            .clone()
+            .or_else(|| item.content.clone())
+            .unwrap_or_default();
         let text = text.trim();
         if text.is_empty() {
             continue;
@@ -288,8 +288,8 @@ fn distill_group(sources: &[MemoryItem]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::model::{Source, Status};
+    use super::*;
     use rusqlite::Connection;
 
     fn mem_conn() -> Connection {
@@ -299,7 +299,12 @@ mod tests {
     }
 
     fn active_item(kind: MemoryType, summary: &str, project: Option<&str>) -> MemoryItem {
-        let mut it = MemoryItem::new(kind, Scope::Project, Source::AssistantInferred, Status::Active);
+        let mut it = MemoryItem::new(
+            kind,
+            Scope::Project,
+            Source::AssistantInferred,
+            Status::Active,
+        );
         it.summary = Some(summary.to_string());
         it.project_id = project.map(|p| p.to_string());
         it
@@ -340,8 +345,15 @@ mod tests {
         let c = &cands[0];
         assert_eq!(c.proposed_summary.as_deref(), Some("destilado"));
         assert!((c.confidence - 0.42).abs() < 1e-6, "confidence preserved");
-        assert_eq!(c.source_event_ids, vec!["src-1".to_string(), "src-2".to_string()]);
-        assert_eq!(c.proposed_type, MemoryType::Fact, "no Reflection type -> Fact");
+        assert_eq!(
+            c.source_event_ids,
+            vec!["src-1".to_string(), "src-2".to_string()]
+        );
+        assert_eq!(
+            c.proposed_type,
+            MemoryType::Fact,
+            "no Reflection type -> Fact"
+        );
     }
 
     #[test]
@@ -374,8 +386,13 @@ mod tests {
         let conn = mem_conn();
         store::insert_item(&conn, &active_item(MemoryType::Fact, "lonely fact", None)).unwrap();
         // Only one item total -> below MIN_GROUP_SOURCES.
-        let out = reflect_with(&conn, None, 10, |_| Some("should not be called".to_string()));
-        assert!(out.is_empty(), "a single source cannot form a higher-order memory");
+        let out = reflect_with(&conn, None, 10, |_| {
+            Some("should not be called".to_string())
+        });
+        assert!(
+            out.is_empty(),
+            "a single source cannot form a higher-order memory"
+        );
     }
 
     #[test]
@@ -403,12 +420,23 @@ mod tests {
     #[test]
     fn reflect_skips_group_when_distiller_fails() {
         let conn = mem_conn();
-        store::insert_item(&conn, &active_item(MemoryType::Decision, "use sqlite", None)).unwrap();
-        store::insert_item(&conn, &active_item(MemoryType::Decision, "use qdrant", None)).unwrap();
+        store::insert_item(
+            &conn,
+            &active_item(MemoryType::Decision, "use sqlite", None),
+        )
+        .unwrap();
+        store::insert_item(
+            &conn,
+            &active_item(MemoryType::Decision, "use qdrant", None),
+        )
+        .unwrap();
 
         // Distiller fails (simulating route() Err / empty) -> fail-safe empty.
         let out = reflect_with(&conn, None, 10, |_| None);
-        assert!(out.is_empty(), "a failed LLM distillation drops the group, no panic");
+        assert!(
+            out.is_empty(),
+            "a failed LLM distillation drops the group, no panic"
+        );
     }
 
     #[test]
@@ -417,7 +445,10 @@ mod tests {
         store::insert_item(&conn, &active_item(MemoryType::Task, "task one", None)).unwrap();
         store::insert_item(&conn, &active_item(MemoryType::Task, "task two", None)).unwrap();
         let out = reflect_with(&conn, None, 10, |_| Some("   ".to_string()));
-        assert!(out.is_empty(), "whitespace-only summary is treated as no insight");
+        assert!(
+            out.is_empty(),
+            "whitespace-only summary is treated as no insight"
+        );
     }
 
     #[test]
@@ -426,26 +457,52 @@ mod tests {
         // Two facts + two decisions -> two distinct groups -> two insights.
         store::insert_item(&conn, &active_item(MemoryType::Fact, "fact a", None)).unwrap();
         store::insert_item(&conn, &active_item(MemoryType::Fact, "fact b", None)).unwrap();
-        store::insert_item(&conn, &active_item(MemoryType::Decision, "decision a", None)).unwrap();
-        store::insert_item(&conn, &active_item(MemoryType::Decision, "decision b", None)).unwrap();
+        store::insert_item(
+            &conn,
+            &active_item(MemoryType::Decision, "decision a", None),
+        )
+        .unwrap();
+        store::insert_item(
+            &conn,
+            &active_item(MemoryType::Decision, "decision b", None),
+        )
+        .unwrap();
 
         let out = reflect_with(&conn, None, 50, |srcs| {
             Some(format!("insight over {} items", srcs.len()))
         });
-        assert_eq!(out.len(), 2, "facts and decisions each form their own group");
+        assert_eq!(
+            out.len(),
+            2,
+            "facts and decisions each form their own group"
+        );
     }
 
     #[test]
     fn reflect_filters_by_project() {
         let conn = mem_conn();
-        store::insert_item(&conn, &active_item(MemoryType::Fact, "ultron fact 1", Some("ultron"))).unwrap();
-        store::insert_item(&conn, &active_item(MemoryType::Fact, "ultron fact 2", Some("ultron"))).unwrap();
-        store::insert_item(&conn, &active_item(MemoryType::Fact, "bank fact", Some("bank"))).unwrap();
+        store::insert_item(
+            &conn,
+            &active_item(MemoryType::Fact, "ultron fact 1", Some("ultron")),
+        )
+        .unwrap();
+        store::insert_item(
+            &conn,
+            &active_item(MemoryType::Fact, "ultron fact 2", Some("ultron")),
+        )
+        .unwrap();
+        store::insert_item(
+            &conn,
+            &active_item(MemoryType::Fact, "bank fact", Some("bank")),
+        )
+        .unwrap();
 
         let out = reflect_with(&conn, Some("ultron"), 50, |srcs| {
             // Only the two ultron facts should reach the distiller.
             assert_eq!(srcs.len(), 2);
-            assert!(srcs.iter().all(|i| i.project_id.as_deref() == Some("ultron")));
+            assert!(srcs
+                .iter()
+                .all(|i| i.project_id.as_deref() == Some("ultron")));
             Some("ultron insight".to_string())
         });
         assert_eq!(out.len(), 1);
@@ -469,7 +526,10 @@ mod tests {
         let mut b = active_item(MemoryType::Fact, "b", None);
         b.confidence = 0.3;
         let conf = group_confidence(&[a, b]);
-        assert!((conf - 0.3).abs() < 1e-6, "weakest source bounds the insight");
+        assert!(
+            (conf - 0.3).abs() < 1e-6,
+            "weakest source bounds the insight"
+        );
     }
 
     #[test]
@@ -500,6 +560,9 @@ mod tests {
         blank.content = None;
         let prompt = build_distill_prompt(&[a.clone(), blank.clone()]);
         assert!(prompt.contains(&a.id));
-        assert!(!prompt.contains(&blank.id), "items with no text are not cited");
+        assert!(
+            !prompt.contains(&blank.id),
+            "items with no text are not cited"
+        );
     }
 }

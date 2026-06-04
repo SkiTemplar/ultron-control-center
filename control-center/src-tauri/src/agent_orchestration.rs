@@ -304,9 +304,7 @@ pub async fn delegate_task_inner(
     // We encode it as UTF-8 bytes terminated by \n (Enter).
     {
         let engine = base64::engine::general_purpose::STANDARD;
-        let mut payload = task_with_blackboard
-            .replace('\r', "")
-            .into_bytes();
+        let mut payload = task_with_blackboard.replace('\r', "").into_bytes();
         payload.push(b'\n');
         let b64 = engine.encode(&payload);
         // Best-effort: if write fails the poll loop will still time out
@@ -377,9 +375,7 @@ pub async fn delegate_task_inner(
     // Collect the full output accumulated in the buffer.
     let full_capture = crate::pty::capture_output_inner(&session_id, 0)?;
     let engine = base64::engine::general_purpose::STANDARD;
-    let raw_bytes = engine
-        .decode(&full_capture.data_b64)
-        .unwrap_or_default();
+    let raw_bytes = engine.decode(&full_capture.data_b64).unwrap_or_default();
     let output = strip_ansi(&raw_bytes);
 
     let _ = app.emit(
@@ -397,7 +393,11 @@ pub async fn delegate_task_inner(
         let summary = format!(
             "[{agent}] {status} ({duration_ms}ms): {preview}",
             agent = agent_trim,
-            status = if completed_normally { "done" } else { "timeout" },
+            status = if completed_normally {
+                "done"
+            } else {
+                "timeout"
+            },
             preview = truncate(task, 160),
         );
         if let Err(e) = crate::workdays::append_context_inner(
@@ -415,7 +415,11 @@ pub async fn delegate_task_inner(
         .duration_since(UNIX_EPOCH)
         .map(|d| d.subsec_micros() % 10_000)
         .unwrap_or(0);
-    let log_status = if completed_normally { "done" } else { "timeout" };
+    let log_status = if completed_normally {
+        "done"
+    } else {
+        "timeout"
+    };
     if let Err(e) = log_delegation(DelegationLogEntry {
         id: format!("dl-{}-{:04}", now_secs_safe(), id_nonce),
         agent: agent_trim.to_string(),
@@ -514,7 +518,11 @@ pub async fn delegate_task_fire_and_forget(
         let summary = format!(
             "[{agent}] {status}: {preview}",
             agent = agent_trim,
-            status = if result.is_ok() { "launched" } else { "spawn_failed" },
+            status = if result.is_ok() {
+                "launched"
+            } else {
+                "spawn_failed"
+            },
             preview = truncate(task, 160),
         );
         if let Err(e) = crate::workdays::append_context_inner(
@@ -637,9 +645,7 @@ impl<'a> BlackboardBuilder<'a> {
             return String::new();
         }
 
-        let project_id = Self::xml_escape(
-            wd.project_id.as_deref().unwrap_or(""),
-        );
+        let project_id = Self::xml_escape(wd.project_id.as_deref().unwrap_or(""));
         let at = crate::activity_timeline::epoch_secs_to_iso(
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -704,14 +710,8 @@ impl<'a> BlackboardBuilder<'a> {
     }
 
     fn build_recent_files(&self) -> Option<String> {
-        let entries: Vec<&crate::workdays::WorkdayContextEntry> = self
-            .wd
-            .context
-            .file_changes
-            .iter()
-            .rev()
-            .take(8)
-            .collect();
+        let entries: Vec<&crate::workdays::WorkdayContextEntry> =
+            self.wd.context.file_changes.iter().rev().take(8).collect();
         if entries.is_empty() {
             return None;
         }
@@ -719,10 +719,11 @@ impl<'a> BlackboardBuilder<'a> {
         for e in entries {
             // Convention: text is "path [kind]" or just "path"; we extract
             // the optional bracketed kind suffix if present.
-            let (path, kind) = if let Some((path_part, kind_part)) = e.text.rfind('[').and_then(|i| {
-                let tail = e.text[i..].trim_matches(|c| c == '[' || c == ']');
-                Some((e.text[..i].trim(), tail))
-            }) {
+            let (path, kind) = if let Some((path_part, kind_part)) =
+                e.text.rfind('[').and_then(|i| {
+                    let tail = e.text[i..].trim_matches(|c| c == '[' || c == ']');
+                    Some((e.text[..i].trim(), tail))
+                }) {
                 (path_part.to_string(), kind_to_attr(kind_part))
             } else {
                 (e.text.trim().to_string(), "modified")
@@ -750,10 +751,7 @@ impl<'a> BlackboardBuilder<'a> {
         }
         let mut buf = String::new();
         for step in pending {
-            buf.push_str(&format!(
-                "    <step>{}</step>\n",
-                Self::xml_escape(step),
-            ));
+            buf.push_str(&format!("    <step>{}</step>\n", Self::xml_escape(step),));
         }
         Some(buf)
     }
@@ -877,8 +875,14 @@ fn log_delegation(entry: DelegationLogEntry) -> Result<(), String> {
 /// to malformed lines — bad records are skipped silently. Returns an empty
 /// vec when the file is missing.
 pub fn list_delegations_inner(limit: usize) -> Result<Vec<DelegationLogEntry>, String> {
-    let cap = if limit == 0 || limit > 500 { 100 } else { limit };
-    let Some(path) = delegations_path() else { return Ok(Vec::new()) };
+    let cap = if limit == 0 || limit > 500 {
+        100
+    } else {
+        limit
+    };
+    let Some(path) = delegations_path() else {
+        return Ok(Vec::new());
+    };
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -1119,7 +1123,11 @@ mod tests {
         for required in [
             "quick", "feature", "debug", "security", "research", "game", "learning",
         ] {
-            assert!(ids.contains(&required), "missing workflow id '{}'", required);
+            assert!(
+                ids.contains(&required),
+                "missing workflow id '{}'",
+                required
+            );
         }
     }
 
@@ -1241,9 +1249,7 @@ mod tests {
 
     #[test]
     fn poll_detects_sentinel_with_ansi_colour() {
-        let output = format!(
-            "doing work\r\n\x1b[32m{COMPLETION_SENTINEL}\x1b[0m\r\n"
-        );
+        let output = format!("doing work\r\n\x1b[32m{COMPLETION_SENTINEL}\x1b[0m\r\n");
         assert!(poll_loop_detects(output.as_bytes()));
     }
 
@@ -1341,9 +1347,12 @@ mod tests {
     fn blackboard_builder_no_title_no_context_returns_empty_string() {
         let mut wd = make_workday("wd-test-17-bb-empty");
         wd.title = String::new(); // blank title → build_summary returns None
-        // context is already default (all vecs empty), goals is empty
+                                  // context is already default (all vecs empty), goals is empty
         let out = BlackboardBuilder::new(&wd).build();
-        assert!(out.is_empty(), "workday with no title and no context must produce empty preamble, got: {out:?}");
+        assert!(
+            out.is_empty(),
+            "workday with no title and no context must produce empty preamble, got: {out:?}"
+        );
     }
 
     /// A workday with a non-empty title but no context entries still emits
@@ -1354,9 +1363,18 @@ mod tests {
         let wd = make_workday("wd-test-17-bb-titled-only");
         // title = "Test workday", context = default empty
         let out = BlackboardBuilder::new(&wd).build();
-        assert!(out.contains("<workflow_blackboard"), "must emit opening tag");
-        assert!(out.contains("<workday_summary>"), "must emit summary for titled workday");
-        assert!(!out.contains("<next_steps>"), "no pending goals → no next_steps");
+        assert!(
+            out.contains("<workflow_blackboard"),
+            "must emit opening tag"
+        );
+        assert!(
+            out.contains("<workday_summary>"),
+            "must emit summary for titled workday"
+        );
+        assert!(
+            !out.contains("<next_steps>"),
+            "no pending goals → no next_steps"
+        );
         assert!(!out.contains("<blockers>"), "no decisions → no blockers");
     }
 
@@ -1376,14 +1394,19 @@ mod tests {
         };
         let out = BlackboardBuilder::new(&wd).build();
         assert!(out.contains("<workflow_blackboard"), "missing opening tag");
-        assert!(out.contains("</workflow_blackboard>"), "missing closing tag");
+        assert!(
+            out.contains("</workflow_blackboard>"),
+            "missing closing tag"
+        );
         assert!(out.contains("<workday_summary>"), "missing workday_summary");
         assert!(out.contains("serde_json"), "note text missing from output");
     }
 
     #[test]
     fn blackboard_builder_pending_goals_populate_next_steps() {
-        use crate::workdays::{GoalSource, GoalStatus, WorkdayContext, WorkdayContextEntry, WorkdayGoal};
+        use crate::workdays::{
+            GoalSource, GoalStatus, WorkdayContext, WorkdayContextEntry, WorkdayGoal,
+        };
         let mut wd = make_workday("wd-test-17-bb-goals");
         wd.context = WorkdayContext {
             notes: vec![WorkdayContextEntry {
@@ -1412,9 +1435,18 @@ mod tests {
             },
         ];
         let out = BlackboardBuilder::new(&wd).build();
-        assert!(out.contains("<next_steps>"), "expected <next_steps> section");
-        assert!(out.contains("Implement O(1) lookup"), "pending goal must appear");
-        assert!(!out.contains("Write tests"), "done goal must NOT appear in next_steps");
+        assert!(
+            out.contains("<next_steps>"),
+            "expected <next_steps> section"
+        );
+        assert!(
+            out.contains("Implement O(1) lookup"),
+            "pending goal must appear"
+        );
+        assert!(
+            !out.contains("Write tests"),
+            "done goal must NOT appear in next_steps"
+        );
     }
 
     #[test]
@@ -1433,7 +1465,10 @@ mod tests {
         };
         let out = BlackboardBuilder::new(&wd).build();
         assert!(out.contains("<blockers>"), "expected <blockers> section");
-        assert!(out.contains("Do not change the public API surface"), "decision text missing");
+        assert!(
+            out.contains("Do not change the public API surface"),
+            "decision text missing"
+        );
     }
 
     #[test]
@@ -1455,7 +1490,10 @@ mod tests {
         assert!(!out.contains("<foo>"), "raw angle bracket must be escaped");
         assert!(out.contains("&lt;foo&gt;"), "must become &lt;/&gt;");
         assert!(out.contains("&amp;"), "ampersand must become &amp;");
-        assert!(out.contains("&quot;bar&quot;"), "double-quote must become &quot;");
+        assert!(
+            out.contains("&quot;bar&quot;"),
+            "double-quote must become &quot;"
+        );
     }
 
     // -- build_blackboard_preamble integration (disk) -------------------------
@@ -1478,8 +1516,14 @@ mod tests {
         let result = build_blackboard_preamble("wd-test-17-preamble-exists");
         let _ = std::fs::remove_file(&path);
         let preamble = result.expect("must not error for existing workday");
-        assert!(preamble.contains("<workday_summary>"), "preamble must contain <workday_summary>");
-        assert!(preamble.contains("blackboard pattern"), "preamble must include note text");
+        assert!(
+            preamble.contains("<workday_summary>"),
+            "preamble must contain <workday_summary>"
+        );
+        assert!(
+            preamble.contains("blackboard pattern"),
+            "preamble must include note text"
+        );
     }
 
     #[test]
@@ -1494,7 +1538,10 @@ mod tests {
         } else {
             task.to_string()
         };
-        assert_eq!(task_with_blackboard, task, "task must pass through when workday_id is None");
+        assert_eq!(
+            task_with_blackboard, task,
+            "task must pass through when workday_id is None"
+        );
     }
 
     #[test]

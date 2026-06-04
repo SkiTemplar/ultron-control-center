@@ -61,11 +61,9 @@ pub async fn project_notes_list(project_id: String) -> Result<Vec<notes::NoteEnt
 
 #[tauri::command]
 pub async fn project_note_load(project_id: String, slug: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        notes::load_project_note_inner(&project_id, &slug)
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || notes::load_project_note_inner(&project_id, &slug))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
