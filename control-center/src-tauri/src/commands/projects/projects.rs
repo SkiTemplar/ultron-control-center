@@ -20,6 +20,13 @@ pub async fn scan_projects(app: tauri::AppHandle) -> Result<Vec<projects::Projec
     projects::scan_projects_inner(&app).await
 }
 
+/// Bump a project's `last_active` to now so "Most recent" ordering tracks real
+/// usage. Called by the frontend whenever the user opens or launches a project.
+#[tauri::command]
+pub async fn touch_project(id: String) -> Result<(), String> {
+    projects::touch_project_inner(&id)
+}
+
 #[tauri::command]
 pub async fn create_project(
     app: tauri::AppHandle,

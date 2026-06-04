@@ -1204,6 +1204,54 @@ fn atomic_write(registry: &PathBuf, content: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Stamp a project's `last_active` to the current instant so the "Most recent"
+/// ordering reflects real usage (opening, launching or detaching a project).
+///
+/// Uses a full ISO-8601 timestamp with time-of-day so two projects used on the
+/// same day still order by the moment they were last touched. Backwards
+/// compatible: older entries carrying a bare `yyyy-mm-dd` still compare
+/// correctly (a dated-with-time value sorts after a bare date of the same day).
+///
+/// Forgiving by design: an empty id, a missing registry, or an unknown id are
+/// all no-op successes — a stamp failure must never block the actual open/launch.
+pub fn touch_project_inner(id: &str) -> Result<(), String> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(());
+    }
+    let _guard = projects_lock()
+        .lock()
+        .map_err(|e| format!("projects write lock poisoned: {}", e))?;
+    let registry = dirs::home_dir()
+        .ok_or_else(|| "no HOME".to_string())?
+        .join(".ultron/cockpit/projects.json");
+    let raw = match std::fs::read_to_string(&registry) {
+        Ok(r) => r,
+        Err(_) => return Ok(()), // no registry yet → nothing to stamp
+    };
+    let mut root: serde_json::Value =
+        serde_json::from_str(&raw).map_err(|e| format!("parse projects.json: {}", e))?;
+    let projects = match root.get_mut("projects").and_then(|v| v.as_array_mut()) {
+        Some(p) => p,
+        None => return Ok(()),
+    };
+    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+    let mut found = false;
+    for entry in projects.iter_mut() {
+        if entry.get("id").and_then(|x| x.as_str()) == Some(id) {
+            entry["last_active"] = serde_json::Value::String(now.clone());
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        return Ok(());
+    }
+    let serialized =
+        serde_json::to_string_pretty(&root).map_err(|e| format!("serialize: {}", e))?;
+    atomic_write(&registry, &serialized)
+}
+
 /// Validate a launcher item before persisting it. Centralised so add/edit
 /// share the same security envelope.
 fn validate_launcher_item(item: &LauncherItem) -> Result<(), String> {

@@ -47,7 +47,7 @@ pub async fn kanban_move_card<R: Runtime>(
     project_id: String,
     card_id: String,
     target_column_id: String,
-    order: u32,
+    order: i32,
 ) -> Result<KanbanBoard, String> {
     // Phase 1: persist the move on a blocking thread.
     let pid_for_move = project_id.clone();

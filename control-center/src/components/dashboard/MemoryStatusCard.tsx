@@ -1,8 +1,13 @@
-// Dashboard — Memory system status card (fullize 2026-06-01).
+// Dashboard — Memory system status card.
 //
-// Replaces the old ECC PluginStatusCard on the main dashboard. Surfaces the
-// health of ULTRON's backend memory stores (Qdrant / SQLite / ECC / KG / Mem0)
-// plus the embeddings_real flag, from the memory_health() Tauri command.
+// Reflects the *current* memory system: the MemoryService (SQLite FTS5 + Qdrant
+// semantic) with the candidate inbox. The old ECC / Knowledge-Graph / Mem0
+// stores were dropped from the SoT, so they are no longer surfaced here.
+//
+// Data sources:
+//   memory_stats()  → active items + pending candidates in the inbox.
+//   memory_health() → per-store health + embeddings_real flag (we only render
+//                     qdrant + sqlite; other keys are ignored on purpose).
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -19,30 +24,44 @@ interface MemoryHealth {
   embeddings_real: boolean;
 }
 
+interface MemoryStats {
+  active: number;
+  pending: number;
+  rejected: number;
+  deprecated: number;
+  stale: number;
+  candidates_pending: number;
+}
+
+// The new memory system is SQLite (lexical) + Qdrant (semantic). Anything else
+// the health probe still reports (ecc/kg/mem0) is legacy and intentionally hidden.
 const STORE_LABELS: Record<string, string> = {
   qdrant: "Qdrant (semántico)",
   sqlite: "SQLite (FTS5)",
-  ecc: "ECC",
-  kg: "Knowledge Graph",
-  mem0: "Mem0 (cloud)",
 };
-
-const STORE_ORDER = ["qdrant", "sqlite", "ecc", "kg", "mem0"];
+const STORE_ORDER = ["sqlite", "qdrant"];
 
 interface MemoryStatusCardProps {
   onOpenSystem?: () => void;
 }
 
 export function MemoryStatusCard({ onOpenSystem }: MemoryStatusCardProps) {
-  const [data, setData] = useState<MemoryHealth | null>(null);
+  const [health, setHealth] = useState<MemoryHealth | null>(null);
+  const [stats, setStats] = useState<MemoryStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = (await invoke("memory_health")) as MemoryHealth;
-      setData(r);
+      // Both are independent — fetch in parallel. stats is the headline data;
+      // health is best-effort (a store being down must not blank the card).
+      const [h, s] = await Promise.all([
+        invoke("memory_health") as Promise<MemoryHealth>,
+        invoke("memory_stats") as Promise<MemoryStats>,
+      ]);
+      setHealth(h);
+      setStats(s);
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -57,21 +76,21 @@ export function MemoryStatusCard({ onOpenSystem }: MemoryStatusCardProps) {
     return () => clearInterval(t);
   }, [load]);
 
-  const stores = data?.stores ?? {};
-  const healthyCount = Object.values(stores).filter((s) => s.healthy).length;
-  const totalCount = Object.keys(stores).length;
+  const stores = health?.stores ?? {};
+  const relevant = STORE_ORDER.filter((id) => stores[id]);
+  const healthyCount = relevant.filter((id) => stores[id]?.healthy).length;
+  const totalCount = relevant.length;
   const allHealthy = totalCount > 0 && healthyCount === totalCount;
   const accent = error ? "danger" : allHealthy ? "ok" : healthyCount > 0 ? "warn" : "danger";
+  const pending = stats?.candidates_pending ?? 0;
 
   return (
     <Card
       title="Sistema de memoria"
       subtitle={
-        loading
+        loading || !stats
           ? undefined
-          : totalCount > 0
-            ? `${healthyCount}/${totalCount} stores activos`
-            : undefined
+          : `${stats.active.toLocaleString()} memorias activas`
       }
       accent={accent}
       loading={loading}
@@ -83,6 +102,39 @@ export function MemoryStatusCard({ onOpenSystem }: MemoryStatusCardProps) {
       }
     >
       <div className="space-y-2">
+        {/* Headline counters: active items + pending candidates in the inbox. */}
+        <div className="grid grid-cols-2 gap-2">
+          <div
+            className="rounded px-2.5 py-1.5"
+            style={{ background: "var(--color-surface-1)", border: "1px solid var(--color-border)" }}
+          >
+            <div className="text-[10px] uppercase tracking-[0.06em]" style={{ color: "var(--color-text-tertiary)" }}>
+              Memorias
+            </div>
+            <div className="tabular-nums text-[16px] font-semibold" style={{ color: "var(--color-text)" }}>
+              {stats ? stats.active.toLocaleString() : "—"}
+            </div>
+          </div>
+          <div
+            className="rounded px-2.5 py-1.5"
+            style={{
+              background: pending > 0 ? "rgba(210,153,34,0.10)" : "var(--color-surface-1)",
+              border: `1px solid ${pending > 0 ? "rgba(210,153,34,0.30)" : "var(--color-border)"}`,
+            }}
+            title="Candidatos en el inbox a la espera de aprobación"
+          >
+            <div className="text-[10px] uppercase tracking-[0.06em]" style={{ color: "var(--color-text-tertiary)" }}>
+              Inbox pendiente
+            </div>
+            <div
+              className="tabular-nums text-[16px] font-semibold"
+              style={{ color: pending > 0 ? "var(--color-warn)" : "var(--color-text)" }}
+            >
+              {stats ? pending.toLocaleString() : "—"}
+            </div>
+          </div>
+        </div>
+
         {/* Embeddings flag */}
         <div
           className="flex items-center justify-between rounded px-2.5 py-1.5 text-[12px]"
@@ -92,18 +144,18 @@ export function MemoryStatusCard({ onOpenSystem }: MemoryStatusCardProps) {
           <span
             className="rounded px-1.5 py-px text-[10.5px] font-semibold"
             style={{
-              background: data?.embeddings_real ? "rgba(63,185,80,0.12)" : "rgba(210,153,34,0.12)",
-              color: data?.embeddings_real ? "var(--color-success)" : "var(--color-warn)",
-              border: `1px solid ${data?.embeddings_real ? "rgba(63,185,80,0.3)" : "rgba(210,153,34,0.3)"}`,
+              background: health?.embeddings_real ? "rgba(63,185,80,0.12)" : "rgba(210,153,34,0.12)",
+              color: health?.embeddings_real ? "var(--color-success)" : "var(--color-warn)",
+              border: `1px solid ${health?.embeddings_real ? "rgba(63,185,80,0.3)" : "rgba(210,153,34,0.3)"}`,
             }}
           >
-            {data?.embeddings_real ? "reales (fastembed)" : "stub / cero"}
+            {health?.embeddings_real ? "reales (fastembed)" : "stub / cero"}
           </span>
         </div>
 
-        {/* Per-store dots */}
+        {/* Per-store dots — only the two stores that make up the live system. */}
         <ul className="space-y-1">
-          {STORE_ORDER.filter((id) => stores[id]).map((id) => {
+          {relevant.map((id) => {
             const s = stores[id];
             return (
               <li key={id} className="flex items-center gap-2 text-[12px]">
@@ -116,11 +168,7 @@ export function MemoryStatusCard({ onOpenSystem }: MemoryStatusCardProps) {
                   {STORE_LABELS[id] ?? id}
                 </span>
                 <span className="tabular-nums text-[10.5px]" style={{ color: "var(--color-text-faint)" }}>
-                  {s.healthy
-                    ? s.latency_ms != null
-                      ? `${s.latency_ms} ms`
-                      : "ok"
-                    : "—"}
+                  {s.healthy ? (s.latency_ms != null ? `${s.latency_ms} ms` : "ok") : "—"}
                 </span>
               </li>
             );

@@ -64,8 +64,13 @@ pub struct Card {
     pub cwd: Option<String>,
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Relative sort index within its column. Signed (`i32`) on purpose: legacy
+    /// seed scripts sometimes wrote negative orders to force a card to the top,
+    /// and a `u32` field made serde reject the *entire* board on a single
+    /// negative value ("invalid value: integer -2, expected u32"). `load()`
+    /// normalises orders to a gap-free, duplicate-free `0..n` per column.
     #[serde(default)]
-    pub order: u32,
+    pub order: i32,
     pub created_at: String,
     pub updated_at: String,
     #[serde(default)]
@@ -143,7 +148,7 @@ pub struct Column {
     pub id: String,
     pub name: String,
     #[serde(default)]
-    pub order: u32,
+    pub order: i32,
     /// Canonical role — drives automation instead of name-based matching.
     /// Defaults to `Other` on old boards so deserialisation never fails.
     #[serde(default)]
@@ -274,17 +279,80 @@ pub fn load(project_id: &str) -> Result<KanbanBoard, String> {
     let raw = fs::read_to_string(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
     let mut board: KanbanBoard =
         serde_json::from_str(&raw).map_err(|e| format!("parse kanban.json: {e}"))?;
-    // Idempotent role migration: infer roles for columns that still carry
-    // `Other` (boards written before v2.14).  Only writes when something
-    // actually changed to avoid unnecessary I/O.
-    if infer_and_migrate_roles(&mut board) {
-        // Best-effort save — a failure here must not prevent the caller from
-        // receiving the (already-corrected) board.
+    // Idempotent self-healing on load — each pass reports whether it changed
+    // anything so we persist at most once. Best-effort save: a failure must not
+    // prevent the caller from receiving the (already-corrected, in-memory)
+    // board.
+    //   1. role inference for pre-v2.14 columns,
+    //   2. re-link orphan cards whose column_id is a column *name*, not an id,
+    //   3. normalise card orders to a gap-free, unique 0..n per column.
+    let mut dirty = infer_and_migrate_roles(&mut board);
+    dirty |= relink_orphan_cards(&mut board);
+    dirty |= normalize_card_orders(&mut board);
+    if dirty {
         if let Err(e) = save(&board) {
-            eprintln!("[kanban] migration save failed: {e}");
+            eprintln!("[kanban] load-time normalization save failed: {e}");
         }
     }
     Ok(board)
+}
+
+/// Re-link cards whose `column_id` matches no column id but *does* match a
+/// column *name* (case-insensitive). Legacy seed scripts occasionally wrote the
+/// human column name (e.g. `"Done"`) into `column_id` instead of the real id,
+/// which left the card invisible — it belonged to no rendered column.
+///
+/// Returns `true` when at least one card was re-homed. Idempotent.
+pub fn relink_orphan_cards(board: &mut KanbanBoard) -> bool {
+    let valid_ids: std::collections::HashSet<String> =
+        board.columns.iter().map(|c| c.id.clone()).collect();
+    let name_to_id: std::collections::HashMap<String, String> = board
+        .columns
+        .iter()
+        .map(|c| (c.name.to_ascii_lowercase(), c.id.clone()))
+        .collect();
+    let mut changed = false;
+    for card in &mut board.cards {
+        if valid_ids.contains(&card.column_id) {
+            continue;
+        }
+        if let Some(id) = name_to_id.get(&card.column_id.to_ascii_lowercase()) {
+            card.column_id = id.clone();
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// Normalise every column's card orders to a gap-free, duplicate-free `0..n`
+/// sequence while preserving the existing relative order (ties broken by
+/// current order, then creation time, then id for determinism).
+///
+/// Returns `true` when anything changed. This self-heals legacy boards that
+/// carried negative or duplicate orders without ever rejecting the parse, and
+/// guarantees the unique orders that make drag-and-drop sorting stable.
+pub fn normalize_card_orders(board: &mut KanbanBoard) -> bool {
+    let col_ids: Vec<String> = board.columns.iter().map(|c| c.id.clone()).collect();
+    let mut changed = false;
+    for col_id in col_ids {
+        let mut pairs: Vec<(String, i32, String)> = board
+            .cards
+            .iter()
+            .filter(|c| c.column_id == col_id)
+            .map(|c| (c.id.clone(), c.order, c.created_at.clone()))
+            .collect();
+        pairs.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
+        for (i, (id, _, _)) in pairs.iter().enumerate() {
+            let want = i as i32;
+            if let Some(card) = board.cards.iter_mut().find(|c| &c.id == id) {
+                if card.order != want {
+                    card.order = want;
+                    changed = true;
+                }
+            }
+        }
+    }
+    changed
 }
 
 pub fn save(board: &KanbanBoard) -> Result<(), String> {
@@ -407,22 +475,82 @@ pub fn move_card(
     project_id: &str,
     card_id: &str,
     target_column_id: &str,
-    order: u32,
+    order: i32,
 ) -> Result<KanbanBoard, String> {
     let mut board = load(project_id)?;
+    apply_move(&mut board, card_id, target_column_id, order)?;
+    save(&board)?;
+    Ok(board)
+}
+
+/// Pure (I/O-free) core of [`move_card`]: re-home `card_id` into
+/// `target_column_id` at position `order` (a 0-based index within the
+/// destination column), then re-compact the orders of both the destination and
+/// source columns to a gap-free, duplicate-free `0..n` sequence.
+///
+/// Re-compaction is what makes drag-and-drop reliable. The frontend sends a
+/// positional index; without re-numbering the surrounding cards two cards could
+/// end up sharing the same `order`, which makes the `sort_by(order)` in the UI
+/// unstable — the card appears to "jump back" after being dropped. After this
+/// call every card in the touched columns has a unique, contiguous order.
+fn apply_move(
+    board: &mut KanbanBoard,
+    card_id: &str,
+    target_column_id: &str,
+    order: i32,
+) -> Result<(), String> {
     if !board.columns.iter().any(|c| c.id == target_column_id) {
         return Err(format!("column {target_column_id} not found"));
     }
-    let card = board
+    let source_column_id = board
         .cards
-        .iter_mut()
+        .iter()
         .find(|c| c.id == card_id)
+        .map(|c| c.column_id.clone())
         .ok_or_else(|| format!("card {card_id} not found"))?;
-    card.column_id = target_column_id.to_string();
-    card.order = order;
-    card.updated_at = now_iso();
-    save(&board)?;
-    Ok(board)
+
+    // Re-home + stamp the moved card (existence already verified above).
+    if let Some(card) = board.cards.iter_mut().find(|c| c.id == card_id) {
+        card.column_id = target_column_id.to_string();
+        card.updated_at = now_iso();
+    }
+
+    // Destination sequence: existing cards (excluding the moved one) sorted by
+    // current order, with the moved card spliced in at the requested index.
+    let mut dest_ids = sorted_card_ids(board, target_column_id, Some(card_id));
+    let pos = (order.max(0) as usize).min(dest_ids.len());
+    dest_ids.insert(pos, card_id.to_string());
+    reassign_orders(board, &dest_ids);
+
+    // Re-compact the source column too — the moved card left a gap behind.
+    if source_column_id != target_column_id {
+        let src_ids = sorted_card_ids(board, &source_column_id, None);
+        reassign_orders(board, &src_ids);
+    }
+    Ok(())
+}
+
+/// Card ids in `column_id` sorted by current order (ties by created_at then id),
+/// optionally excluding one id.
+fn sorted_card_ids(board: &KanbanBoard, column_id: &str, exclude: Option<&str>) -> Vec<String> {
+    let mut pairs: Vec<(String, i32, String)> = board
+        .cards
+        .iter()
+        .filter(|c| c.column_id == column_id && Some(c.id.as_str()) != exclude)
+        .map(|c| (c.id.clone(), c.order, c.created_at.clone()))
+        .collect();
+    pairs.sort_by(|a, b| a.1.cmp(&b.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
+    pairs.into_iter().map(|(id, _, _)| id).collect()
+}
+
+/// Assign `order = index` to each card id in `ordered_ids`. Ids not present on
+/// the board are silently skipped.
+fn reassign_orders(board: &mut KanbanBoard, ordered_ids: &[String]) {
+    for (i, id) in ordered_ids.iter().enumerate() {
+        if let Some(card) = board.cards.iter_mut().find(|c| &c.id == id) {
+            card.order = i as i32;
+        }
+    }
 }
 
 pub fn delete_card(project_id: &str, card_id: &str) -> Result<(), String> {
@@ -616,7 +744,7 @@ pub fn reorder_columns(project_id: &str, ordered_ids: &[String]) -> Result<Kanba
 
     for col in &mut board.columns {
         if let Some(pos) = ordered_ids.iter().position(|id| id == &col.id) {
-            col.order = pos as u32;
+            col.order = pos as i32;
         }
     }
     board.columns.sort_by_key(|c| c.order);
@@ -703,7 +831,7 @@ mod tests {
                 .map(|(i, name)| Column {
                     id: format!("col-{i}"),
                     name: (*name).to_string(),
-                    order: i as u32,
+                    order: i as i32,
                     role: ColumnRole::Other,
                 })
                 .collect(),
@@ -805,6 +933,145 @@ mod tests {
         }"#;
         let board: KanbanBoard = serde_json::from_str(json).unwrap();
         assert_eq!(board.columns[0].role, ColumnRole::Other);
+    }
+
+    // -----------------------------------------------------------------------
+    // Order robustness — the regression that broke `Failed to load board:
+    // invalid value: integer -2, expected u32`, plus drag-and-drop stability.
+    // -----------------------------------------------------------------------
+
+    /// Build a Card with the given column/order; other fields are filler.
+    fn card(id: &str, column_id: &str, order: i32, created_at: &str) -> Card {
+        Card {
+            id: id.into(),
+            column_id: column_id.into(),
+            title: id.to_uppercase(),
+            description: String::new(),
+            agent: None,
+            prompt_template: None,
+            cwd: None,
+            tags: vec![],
+            order,
+            created_at: created_at.into(),
+            updated_at: created_at.into(),
+            runs: vec![],
+        }
+    }
+
+    /// Regression: a single negative order used to reject the *entire* board.
+    #[test]
+    fn negative_card_orders_deserialise_without_error() {
+        let json = r#"{
+            "project_id": "p",
+            "columns": [{"id": "c1", "name": "Backlog", "order": 0}],
+            "cards": [
+                {"id":"a","column_id":"c1","title":"A","order":-2,"created_at":"epoch:1","updated_at":"epoch:1"},
+                {"id":"b","column_id":"c1","title":"B","order":-1,"created_at":"epoch:2","updated_at":"epoch:2"}
+            ],
+            "schema_version": 1
+        }"#;
+        let board: KanbanBoard = serde_json::from_str(json).expect("negatives must parse");
+        assert_eq!(board.cards.len(), 2);
+    }
+
+    #[test]
+    fn normalize_compacts_negative_and_duplicate_orders() {
+        let mut board = KanbanBoard {
+            project_id: "p".into(),
+            columns: vec![Column {
+                id: "c1".into(),
+                name: "Backlog".into(),
+                order: 0,
+                role: ColumnRole::Todo,
+            }],
+            // a:-3, then b and c both 0 (duplicate) — disambiguated by created_at.
+            cards: vec![
+                card("a", "c1", -3, "epoch:1"),
+                card("b", "c1", 0, "epoch:2"),
+                card("c", "c1", 0, "epoch:3"),
+            ],
+            default_agent: None,
+            default_prompt_template: None,
+            schema_version: SCHEMA_VERSION,
+        };
+        assert!(normalize_card_orders(&mut board));
+        let by = |id: &str| board.cards.iter().find(|c| c.id == id).unwrap().order;
+        assert_eq!((by("a"), by("b"), by("c")), (0, 1, 2), "gap-free, order preserved");
+        assert!(!normalize_card_orders(&mut board), "must be idempotent");
+    }
+
+    #[test]
+    fn relink_orphan_card_by_column_name() {
+        let mut board = KanbanBoard {
+            project_id: "p".into(),
+            columns: vec![Column {
+                id: "col-done".into(),
+                name: "Done".into(),
+                order: 0,
+                role: ColumnRole::Done,
+            }],
+            // column_id is the column NAME, not its id — the orphan bug.
+            cards: vec![card("a", "Done", 0, "epoch:1")],
+            default_agent: None,
+            default_prompt_template: None,
+            schema_version: SCHEMA_VERSION,
+        };
+        assert!(relink_orphan_cards(&mut board));
+        assert_eq!(board.cards[0].column_id, "col-done");
+        assert!(!relink_orphan_cards(&mut board), "must be idempotent");
+    }
+
+    #[test]
+    fn apply_move_recompacts_destination_and_source() {
+        let mut board = KanbanBoard {
+            project_id: "p".into(),
+            columns: vec![
+                Column { id: "c1".into(), name: "A".into(), order: 0, role: ColumnRole::Other },
+                Column { id: "c2".into(), name: "B".into(), order: 1, role: ColumnRole::Other },
+            ],
+            cards: vec![
+                card("x", "c1", 0, "epoch:1"),
+                card("y", "c1", 1, "epoch:2"),
+                card("z", "c1", 2, "epoch:3"),
+            ],
+            default_agent: None,
+            default_prompt_template: None,
+            schema_version: SCHEMA_VERSION,
+        };
+        // Move z to the top of column c2.
+        apply_move(&mut board, "z", "c2", 0).unwrap();
+        let get = |id: &str| board.cards.iter().find(|c| c.id == id).unwrap();
+        assert_eq!((get("z").column_id.as_str(), get("z").order), ("c2", 0));
+        // Source column re-compacted to 0,1 with no gap left by z.
+        assert_eq!((get("x").order, get("y").order), (0, 1));
+    }
+
+    #[test]
+    fn apply_move_within_column_dedups_orders() {
+        let mut board = KanbanBoard {
+            project_id: "p".into(),
+            columns: vec![Column {
+                id: "c1".into(),
+                name: "A".into(),
+                order: 0,
+                role: ColumnRole::Other,
+            }],
+            cards: vec![
+                card("x", "c1", 0, "epoch:1"),
+                card("y", "c1", 1, "epoch:2"),
+                card("z", "c1", 2, "epoch:3"),
+            ],
+            default_agent: None,
+            default_prompt_template: None,
+            schema_version: SCHEMA_VERSION,
+        };
+        // Move z to index 0 within the same column → z,x,y with unique 0,1,2.
+        apply_move(&mut board, "z", "c1", 0).unwrap();
+        let get = |id: &str| board.cards.iter().find(|c| c.id == id).unwrap().order;
+        assert_eq!((get("z"), get("x"), get("y")), (0, 1, 2));
+        let mut all: Vec<i32> = board.cards.iter().map(|c| c.order).collect();
+        all.sort();
+        assert_eq!(all, vec![0, 1, 2], "no duplicate orders after move");
     }
 
     /// `is_done_column` must use role when set, not name.

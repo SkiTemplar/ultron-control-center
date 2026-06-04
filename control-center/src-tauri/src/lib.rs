@@ -249,6 +249,7 @@ pub fn run() {
             commands::projects::list_projects,
             commands::projects::open_project,
             commands::projects::scan_projects,
+            commands::projects::touch_project,
             commands::projects::create_project,
             commands::projects::update_project,
             commands::projects::delete_project,

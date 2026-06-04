@@ -121,7 +121,16 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // Workspace navigation
   // ---------------------------------------------------------------------------
   const tabsCtx = useProjectsTabs();
+  // Bump last_active so "Most recent" ordering tracks real usage. Optimistic:
+  // patch local state so the project jumps to the top immediately, then persist
+  // (best-effort — the visible order is already correct without the round-trip).
+  function touchProject(id: string) {
+    const nowIso = new Date().toISOString();
+    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, last_active: nowIso } : p)));
+    void invoke("touch_project", { id }).catch(() => { /* non-fatal */ });
+  }
   function openInWorkspace(id: string, name: string) {
+    touchProject(id);
     if (onOpenProject) { onOpenProject({ id, name }); return; }
     tabsCtx.open({ id, title: name });
   }
@@ -190,6 +199,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   // Project actions
   // ---------------------------------------------------------------------------
   async function openLegacy(id: string) {
+    touchProject(id);
     if (onOpenProject) { const p = projects.find((x) => x.id === id); onOpenProject({ id, name: p?.name ?? id }); return; }
     setOpening(id);
     setLastAction(null);
@@ -211,11 +221,13 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
 
   async function cardOpenIde(p: ProjectInfo) {
     if (!p.path) return;
+    touchProject(p.id);
     try { await invoke("open_project_in_ide", { path: p.path, preferredIde: p.ide ?? null }); }
     catch (e) { setLastAction({ success: false, stdout: "", stderr: `open IDE: ${String(e)}`, exit_code: null }); }
   }
 
   async function cardOpenAi(p: ProjectInfo) {
+    touchProject(p.id);
     const provider: SessionProvider = (p.default_provider as SessionProvider | null | undefined) ?? "claude";
     try {
       // V1: launch an external CLI session (wt.exe wrapper). No embedded
@@ -232,6 +244,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   }
 
   async function launchItem(projectId: string, index: number) {
+    touchProject(projectId);
     setBusyItem((m) => ({ ...m, [projectId]: index }));
     setLastAction(null);
     try { await invoke("launch_item", { projectId, index }); }
@@ -240,6 +253,7 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
   }
 
   async function launchAll(projectId: string) {
+    touchProject(projectId);
     setLaunchingAll((m) => ({ ...m, [projectId]: true }));
     setLastAction(null);
     try {

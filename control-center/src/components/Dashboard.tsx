@@ -59,7 +59,7 @@ export function Dashboard({ globalStatus, onNavigate }: DashboardProps) {
             className="mt-1 text-[13px]"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Claude Code + ECC + Mem0 — Control Center v{APP_VERSION}
+            Claude Code · memoria SQLite + Qdrant — Control Center v{APP_VERSION}
           </p>
         </div>
         <span
