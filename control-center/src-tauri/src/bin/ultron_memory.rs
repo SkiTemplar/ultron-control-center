@@ -10,6 +10,7 @@
 //!   ultron-memory recall <query> [--project X]  # hybrid recall context pack
 //!   ultron-memory stats                         # memory health counts
 //!   ultron-memory reindex                       # rebuild the dense index
+//!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
@@ -20,7 +21,10 @@ use control_center_lib as ul;
 
 fn main() {
     match run() {
-        Ok(v) => println!("{}", serde_json::to_string(&v).unwrap_or_else(|_| "{}".to_string())),
+        Ok(v) => println!(
+            "{}",
+            serde_json::to_string(&v).unwrap_or_else(|_| "{}".to_string())
+        ),
         Err(e) => {
             eprintln!("ultron-memory: {e}");
             std::process::exit(1);
@@ -50,6 +54,12 @@ fn run() -> Result<serde_json::Value, String> {
             Ok(serde_json::json!({ "indexed": indexed, "errors": errors }))
         }
         "eval" => to_json(ul::memory::evals::run(project.as_deref(), 8)),
+        "reconcile" => {
+            // Read-only SQLite<->Qdrant drift check (--check, the default mode).
+            // --repair is intentionally not wired (it mutates the index; policy
+            // requires dry-run + confirmation). Use `reindex` to rebuild instead.
+            to_json(ul::memory::qdrant_index::reconcile_check().map_err(|e| e.to_string())?)
+        }
         "candidate" => {
             let mut buf = String::new();
             std::io::stdin()
@@ -58,7 +68,7 @@ fn run() -> Result<serde_json::Value, String> {
             let id = emit_candidate(&buf)?;
             Ok(serde_json::json!({ "candidate_id": id }))
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval|candidate> [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall|stats|reindex|eval|reconcile|candidate> [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
@@ -81,7 +91,10 @@ fn emit_candidate(json: &str) -> Result<String, String> {
     if let Some(imp) = v.get("importance").and_then(serde_json::Value::as_f64) {
         c.importance = imp as f32;
     }
-    c.source_session_id = v.get("session_id").and_then(|x| x.as_str()).map(String::from);
+    c.source_session_id = v
+        .get("session_id")
+        .and_then(|x| x.as_str())
+        .map(String::from);
     MemoryService::create_candidate(&c).map_err(|e| e.to_string())
 }
 
@@ -90,7 +103,10 @@ fn to_json<T: serde::Serialize>(v: T) -> Result<serde_json::Value, String> {
 }
 
 fn flag_value(args: &[String], flag: &str) -> Option<String> {
-    args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1)).cloned()
+    args.iter()
+        .position(|a| a == flag)
+        .and_then(|i| args.get(i + 1))
+        .cloned()
 }
 
 /// First positional arg(s) after the subcommand, excluding `--project <val>`.

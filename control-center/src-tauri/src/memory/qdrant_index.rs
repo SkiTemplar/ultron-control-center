@@ -80,6 +80,94 @@ pub fn remove_item(id: &str) -> Result<(), String> {
     crate::qdrant::delete_point(COLLECTION, id)
 }
 
+// ---------------------------------------------------------------------------
+// Reconciliation (OLA B): SQLite (SoT) vs Qdrant (derived index) drift check
+// ---------------------------------------------------------------------------
+
+/// Outcome of `reconcile_check`: which active items lack a dense point, and
+/// which points are orphaned (no active item). Read-only — never mutates.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReconcileReport {
+    pub count_sqlite_active: usize,
+    pub count_qdrant_points: usize,
+    pub missing_count: usize,
+    pub orphan_count: usize,
+    pub in_sync: bool,
+    /// Active SQLite item ids with no point in `ultron_memory` (need reindex).
+    pub missing_in_qdrant: Vec<String>,
+    /// Qdrant point ids with no matching active SQLite item (stale points).
+    pub orphan_in_qdrant: Vec<String>,
+}
+
+/// Pure set-diff of SQLite active ids vs Qdrant point ids -> `(missing, orphan)`.
+/// Extracted so the reconcile logic is unit-testable without a live Qdrant.
+fn diff_ids(
+    sqlite_active: &std::collections::HashSet<String>,
+    qdrant_points: &std::collections::HashSet<String>,
+) -> (Vec<String>, Vec<String>) {
+    let mut missing: Vec<String> = sqlite_active.difference(qdrant_points).cloned().collect();
+    let mut orphan: Vec<String> = qdrant_points.difference(sqlite_active).cloned().collect();
+    missing.sort();
+    orphan.sort();
+    (missing, orphan)
+}
+
+/// Read-only consistency check between `brain.db` (active items = source of
+/// truth) and the derived `ultron_memory` dense index (point id == item id).
+/// Detects missing points (active item never indexed) and orphan points
+/// (indexed but no longer active). Does NOT modify either store.
+///
+/// `reconcile --repair` is intentionally NOT implemented here: repairing mutates
+/// the index and the policy (08-AUDIT) requires an explicit dry-run + confirm;
+/// `reindex_all` already rebuilds the index from the SoT when that is desired.
+pub fn reconcile_check() -> Result<ReconcileReport, MemoryError> {
+    let items = MemoryService::list_by_status(Status::Active, 100_000)?;
+    let sqlite_active: std::collections::HashSet<String> =
+        items.into_iter().map(|i| i.id).collect();
+
+    let points = crate::qdrant::scroll(COLLECTION, 100_000)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("qdrant scroll: {e}")))?;
+    let qdrant_points: std::collections::HashSet<String> =
+        points.into_iter().map(|p| p.id).collect();
+
+    let (missing, orphan) = diff_ids(&sqlite_active, &qdrant_points);
+    Ok(ReconcileReport {
+        count_sqlite_active: sqlite_active.len(),
+        count_qdrant_points: qdrant_points.len(),
+        missing_count: missing.len(),
+        orphan_count: orphan.len(),
+        in_sync: missing.is_empty() && orphan.is_empty(),
+        missing_in_qdrant: missing,
+        orphan_in_qdrant: orphan,
+    })
+}
+
+#[cfg(test)]
+mod reconcile_tests {
+    use super::diff_ids;
+    use std::collections::HashSet;
+
+    fn set(items: &[&str]) -> HashSet<String> {
+        items.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    #[test]
+    fn diff_reports_missing_and_orphan() {
+        let sqlite = set(&["a", "b", "c"]);
+        let qdrant = set(&["b", "c", "z"]);
+        let (missing, orphan) = diff_ids(&sqlite, &qdrant);
+        assert_eq!(missing, vec!["a".to_string()]); // active in SQLite, not indexed
+        assert_eq!(orphan, vec!["z".to_string()]); // indexed, not an active item
+    }
+
+    #[test]
+    fn diff_empty_when_in_sync() {
+        let s = set(&["a", "b"]);
+        let (missing, orphan) = diff_ids(&s, &s.clone());
+        assert!(missing.is_empty() && orphan.is_empty());
+    }
+}
+
 /// Dense recall: embed the query (E5 `query:`), filter `status = active`
 /// (+ optional project), return canonical_ids best-first. Returns an empty vec
 /// when E5 is unavailable (zero vector) or Qdrant is offline, so the caller
