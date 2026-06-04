@@ -1,6 +1,14 @@
 # SPEC FULL — QUOTA-AWARE ROUTING (ULTRON)
 ### Autocontenido para revisión por IA externa · 2026-06-04
 
+> **ACTUALIZACION 2026-06-04: el sistema de Quota % se QUITO (commit `cbb2d5c`).**
+> La señal era binaria hardcoded (99.0/98.0, NO el rate-limit real de Max); el gauge
+> en Usage mostraba un % inventado y ponia la app en "Degraded". Hacerlo bien exige un
+> proxy Claude-first que intercepte toda la sesion (invasivo, tumba la sesion si falla).
+> Decision del dueno: quitarlo (quota_watchdog.rs borrado, UI fuera, ai_router limpio).
+> Lo de abajo queda como REFERENCIA DE DISEÑO por si algun dia se retoma con señal real;
+> HOY NO existe en el codigo.
+
 ## 1. Propósito
 Cuando el uso de Claude Max se acerca al límite de la ventana (rate-limit de la suscripción, NO coste en $), hacer FALLBACK AUTOMÁTICO a otras IAs (Codex gpt-5.5, Gemini, NIM free-tier) para no bloquear el trabajo; preservar cuota premium para tareas críticas; recuperar Claude al resetear la ventana. NOTA: el dueño paga Claude Max; el cost hook ($) es notional/informativo, NO billing real — no invertir en `cost_watchdog.rs`.
 
