@@ -30,7 +30,6 @@ mod claude_sessions;
 mod commands_registry;
 mod codex_fallback;
 mod cost_watchdog;
-mod quota_watchdog;
 mod ecc_memory;
 mod features;
 mod hooks_admin;
@@ -555,9 +554,6 @@ pub fn run() {
             ai_router::ai_router_validate_keys,
             ai_router::ai_router_disabled_providers,
             // -- quota watchdog (P0 2026-05-27 — 98% auto-fallback) --
-            quota_watchdog::quota_get_status,
-            quota_watchdog::quota_force_reset,
-            quota_watchdog::quota_simulate_critical,
             // -- proxy free-tier lifecycle (NVIDIA NIM via claude-code-proxy) --
             proxy::proxy_start,
             proxy::proxy_stop,
@@ -648,7 +644,6 @@ pub fn run() {
             // Quota watchdog — polls quota-state.json every 60 s and emits
             // quota:updated / quota:critical / quota:reset events so the
             // frontend can update the Usage quota card and Sidebar dot.
-            quota_watchdog::init(app.handle().clone());
 
             // MEMORY CORE D2 — Qdrant auto-launch.
             // Probes http://127.0.0.1:6333/healthz; if Qdrant is not running,
