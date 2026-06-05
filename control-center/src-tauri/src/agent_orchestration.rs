@@ -16,50 +16,6 @@
 // The module is intentionally small — the heavy lifting (spawn, hooks
 // listing) lives in `sessions` and `hooks_admin`. We just provide the
 // agent-centric framing the new UI needs.
-//
-// ---------------------------------------------------------------------------
-// Workflow blackboard XML schema (KIRKARDO 17 P2 — formal contract)
-// ---------------------------------------------------------------------------
-//
-// Every call to `build_blackboard_preamble` that finds context produces a
-// `<workflow_blackboard>` block injected as a preamble before the agent's
-// task.  The schema is strict so downstream agents and tests can rely on it:
-//
-// ```xml
-// <workflow_blackboard project_id="..." workday_id="..." at="epoch:N">
-//   <workday_summary>
-//     Title — status — date — N/M goals done
-//   </workday_summary>
-//   <recent_files>
-//     <file path="src/foo.rs" kind="modified"/>
-//     <file path="src/bar.rs" kind="added"/>
-//   </recent_files>
-//   <next_steps>
-//     <step>First pending goal text</step>
-//     <step>Second pending goal text</step>
-//   </next_steps>
-//   <blockers>free-form text from the most recent "decision" entry, if any</blockers>
-// </workflow_blackboard>
-// ```
-//
-// Rules:
-//   * `project_id` and `workday_id` are always present; `at` is the ISO
-//     timestamp of preamble construction (not the workday start).
-//   * `<workday_summary>` is omitted when the workday has no title (shouldn't
-//     happen in practice, but the builder guards against it).
-//   * `<recent_files>` lists the last 8 `file_change` context entries, newest
-//     first.  Omitted entirely when there are no file-change entries.
-//   * `<next_steps>` lists up to 3 pending goal texts.  Omitted when all
-//     goals are done or the workday has no goals.
-//   * `<blockers>` carries the text of the most recent `decision` context
-//     entry (decisions often record blockers or constraints the next agent
-//     must respect).  Omitted when empty.
-//   * The `notes` + `agent_messages` lanes are rendered as a flat markdown
-//     list AFTER the closing `</workflow_blackboard>` tag so agents that only
-//     care about the structured data can stop parsing at `</workflow_blackboard>`.
-//
-// The builder is `BlackboardBuilder::new(wd).build() -> String`.
-// ---------------------------------------------------------------------------
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -232,8 +188,8 @@ const POLL_INTERVAL_MS: u64 = 2_000;
 /// Outcome of a fully-resolved `delegate_task_inner` call.
 ///
 /// Unlike `SpawnResult` (which only confirms the process launched), this
-/// struct carries the captured PTY output so the orchestrator can feed it
-/// as blackboard input for the next pipeline step.
+/// struct carries the captured PTY output so the orchestrator can use it
+/// as input for the next pipeline step.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DelegateTaskResult {
     /// Plain-text output produced by the agent.  ANSI escape codes are
@@ -302,16 +258,6 @@ pub struct DelegateRequest {
     pub use_cheap_model: bool,
     #[serde(default)]
     pub cwd: Option<String>,
-    /// Workday id to use as the shared blackboard for this delegation
-    /// (KIRKARDO 7 Paso 1). When Some, we (a) read the most recent context
-    /// entries and inline them as a preamble in the prompt so the agent
-    /// sees what previous steps in the pipeline produced, and (b) append
-    /// an "agent_message" entry after spawn so subsequent agents in the
-    /// chain see this delegation. When None we no-op the blackboard —
-    /// preserves the existing one-shot behaviour for callers that don't
-    /// participate in a workflow.
-    #[serde(default)]
-    pub workday_id: Option<String>,
     /// Override the default 300-second poll timeout. `None` or `0` use
     /// `DEFAULT_DELEGATE_TIMEOUT_SECS`. Maximum clamped to 3600 s (1 hour).
     #[serde(default)]
@@ -381,21 +327,9 @@ pub async fn delegate_task_inner(
         .clone()
         .unwrap_or_else(|| "orchestrator".to_string());
 
-    // Blackboard read: prepend workday context so the agent sees prior steps.
-    let task_with_blackboard = if let Some(wid) = req.workday_id.as_deref() {
-        match build_blackboard_preamble(wid) {
-            Ok(preamble) if !preamble.is_empty() => {
-                format!("{preamble}\n\n---\n\n{task}")
-            }
-            _ => task.to_string(),
-        }
-    } else {
-        task.to_string()
-    };
-
     // Tell the agent it MUST print the sentinel when done.
     let full_prompt = format!(
-        "{task_with_blackboard}\n\n\
+        "{task}\n\n\
          ---\n\
          When you have fully completed the task above, print the following \
          token on its own line as the very last line of your response:\n\
@@ -449,7 +383,7 @@ pub async fn delegate_task_inner(
     // We encode it as UTF-8 bytes terminated by \n (Enter).
     {
         let engine = base64::engine::general_purpose::STANDARD;
-        let mut payload = task_with_blackboard.replace('\r', "").into_bytes();
+        let mut payload = task.replace('\r', "").into_bytes();
         payload.push(b'\n');
         let b64 = engine.encode(&payload);
         // Best-effort: if write fails the poll loop will still time out
@@ -533,28 +467,6 @@ pub async fn delegate_task_inner(
         }),
     );
 
-    // Blackboard write: record the delegation outcome.
-    if let Some(wid) = req.workday_id.as_deref() {
-        let summary = format!(
-            "[{agent}] {status} ({duration_ms}ms): {preview}",
-            agent = agent_trim,
-            status = if completed_normally {
-                "done"
-            } else {
-                "timeout"
-            },
-            preview = truncate(task, 160),
-        );
-        if let Err(e) = crate::workdays::append_context_inner(
-            wid.to_string(),
-            "agent_message".to_string(),
-            summary,
-            Some(agent_trim.to_string()),
-        ) {
-            eprintln!("[agent_orchestration] blackboard append failed: {e}");
-        }
-    }
-
     // Delegation log (append-only JSONL).
     let id_nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -621,15 +533,6 @@ pub async fn delegate_task_fire_and_forget(
     }
     let cwd_for_log = req.cwd.clone();
 
-    let task_with_blackboard = if let Some(wid) = req.workday_id.as_deref() {
-        match build_blackboard_preamble(wid) {
-            Ok(preamble) if !preamble.is_empty() => format!("{preamble}\n\n---\n\n{task}"),
-            _ => task.to_string(),
-        }
-    } else {
-        task.to_string()
-    };
-
     use tauri::Emitter;
     let _ = app.emit(
         "workflow:delegating",
@@ -644,7 +547,7 @@ pub async fn delegate_task_fire_and_forget(
     let result = sessions::spawn_session_inner(
         app,
         "claude".to_string(),
-        Some(task_with_blackboard),
+        Some(task.to_string()),
         req.cwd,
         Some(flags),
     )
@@ -658,27 +561,6 @@ pub async fn delegate_task_fire_and_forget(
             "task_preview": truncate(task, 160),
         }),
     );
-
-    if let Some(wid) = req.workday_id.as_deref() {
-        let summary = format!(
-            "[{agent}] {status}: {preview}",
-            agent = agent_trim,
-            status = if result.is_ok() {
-                "launched"
-            } else {
-                "spawn_failed"
-            },
-            preview = truncate(task, 160),
-        );
-        if let Err(e) = crate::workdays::append_context_inner(
-            wid.to_string(),
-            "agent_message".to_string(),
-            summary,
-            Some(agent_trim.to_string()),
-        ) {
-            eprintln!("[agent_orchestration] blackboard append failed: {e}");
-        }
-    }
 
     let status = if result.is_ok() { "launched" } else { "failed" };
     let id_nonce = SystemTime::now()
@@ -736,233 +618,6 @@ fn now_secs_safe() -> u64 {
         .unwrap_or(0)
 }
 
-// ---------------------------------------------------------------------------
-// Blackboard builder — produces the formal <workflow_blackboard> XML schema
-// ---------------------------------------------------------------------------
-
-/// Builder that renders a [`crate::workdays::Workday`] as the strict
-/// `<workflow_blackboard>` XML defined in this module's top-level doc comment.
-///
-/// Usage:
-/// ```ignore
-/// let xml = BlackboardBuilder::new(&wd).build();
-/// ```
-struct BlackboardBuilder<'a> {
-    wd: &'a crate::workdays::Workday,
-}
-
-impl<'a> BlackboardBuilder<'a> {
-    fn new(wd: &'a crate::workdays::Workday) -> Self {
-        Self { wd }
-    }
-
-    /// Escape the five XML special characters so attribute values and text
-    /// content are safe to embed verbatim.
-    fn xml_escape(s: &str) -> String {
-        s.replace('&', "&amp;")
-            .replace('<', "&lt;")
-            .replace('>', "&gt;")
-            .replace('"', "&quot;")
-            .replace('\'', "&apos;")
-    }
-
-    /// Render the complete `<workflow_blackboard>` block.  Returns an empty
-    /// string when the workday carries no context worth injecting (no notes,
-    /// no decisions, no agent messages, no file changes, no pending goals).
-    fn build(self) -> String {
-        let wd = self.wd;
-
-        // Collect sections individually so we can decide whether anything is
-        // worth emitting before building the outer tag.
-        let summary = self.build_summary();
-        let recent_files = self.build_recent_files();
-        let next_steps = self.build_next_steps();
-        let blockers = self.build_blockers();
-        let notes_md = self.build_notes_md();
-
-        let has_content = summary.is_some()
-            || recent_files.is_some()
-            || next_steps.is_some()
-            || blockers.is_some()
-            || !notes_md.is_empty();
-
-        if !has_content {
-            return String::new();
-        }
-
-        let project_id = Self::xml_escape(wd.project_id.as_deref().unwrap_or(""));
-        let at = crate::activity_timeline::epoch_secs_to_iso(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0),
-        );
-
-        let mut out = format!(
-            "<workflow_blackboard project_id=\"{project_id}\" workday_id=\"{wid}\" at=\"{at}\">\n",
-            wid = Self::xml_escape(&wd.id),
-        );
-
-        if let Some(s) = summary {
-            out.push_str("  <workday_summary>\n    ");
-            out.push_str(&s);
-            out.push_str("\n  </workday_summary>\n");
-        }
-        if let Some(rf) = recent_files {
-            out.push_str("  <recent_files>\n");
-            out.push_str(&rf);
-            out.push_str("  </recent_files>\n");
-        }
-        if let Some(ns) = next_steps {
-            out.push_str("  <next_steps>\n");
-            out.push_str(&ns);
-            out.push_str("  </next_steps>\n");
-        }
-        if let Some(b) = blockers {
-            out.push_str("  <blockers>");
-            out.push_str(&b);
-            out.push_str("</blockers>\n");
-        }
-        out.push_str("</workflow_blackboard>");
-
-        // Append the flat notes + agent_messages section after the closing tag
-        // so structured parsers can stop at `</workflow_blackboard>`.
-        if !notes_md.is_empty() {
-            out.push_str("\n\n## Shared context from previous workflow steps\n\n");
-            out.push_str(&notes_md);
-        }
-
-        out
-    }
-
-    fn build_summary(&self) -> Option<String> {
-        let wd = self.wd;
-        if wd.title.is_empty() {
-            return None;
-        }
-        let done = wd
-            .goals
-            .iter()
-            .filter(|g| g.status == crate::workdays::GoalStatus::Done)
-            .count();
-        let total = wd.goals.len();
-        Some(format!(
-            "{} — {} — {} — {done}/{total} goals done",
-            Self::xml_escape(&wd.title),
-            wd.status,
-            wd.planned_date,
-        ))
-    }
-
-    fn build_recent_files(&self) -> Option<String> {
-        let entries: Vec<&crate::workdays::WorkdayContextEntry> =
-            self.wd.context.file_changes.iter().rev().take(8).collect();
-        if entries.is_empty() {
-            return None;
-        }
-        let mut buf = String::new();
-        for e in entries {
-            // Convention: text is "path [kind]" or just "path"; we extract
-            // the optional bracketed kind suffix if present.
-            let (path, kind) = if let Some((path_part, kind_part)) =
-                e.text.rfind('[').and_then(|i| {
-                    let tail = e.text[i..].trim_matches(|c| c == '[' || c == ']');
-                    Some((e.text[..i].trim(), tail))
-                }) {
-                (path_part.to_string(), kind_to_attr(kind_part))
-            } else {
-                (e.text.trim().to_string(), "modified")
-            };
-            buf.push_str(&format!(
-                "    <file path=\"{p}\" kind=\"{k}\"/>\n",
-                p = Self::xml_escape(&path),
-                k = kind,
-            ));
-        }
-        Some(buf)
-    }
-
-    fn build_next_steps(&self) -> Option<String> {
-        let pending: Vec<&str> = self
-            .wd
-            .goals
-            .iter()
-            .filter(|g| g.status == crate::workdays::GoalStatus::Pending)
-            .map(|g| g.text.as_str())
-            .take(3)
-            .collect();
-        if pending.is_empty() {
-            return None;
-        }
-        let mut buf = String::new();
-        for step in pending {
-            buf.push_str(&format!("    <step>{}</step>\n", Self::xml_escape(step),));
-        }
-        Some(buf)
-    }
-
-    fn build_blockers(&self) -> Option<String> {
-        // Most recent decision entry = likeliest blocker/constraint.
-        self.wd
-            .context
-            .decisions
-            .last()
-            .map(|e| Self::xml_escape(&truncate(&e.text, 300)))
-    }
-
-    fn build_notes_md(&self) -> String {
-        let mut entries: Vec<(&str, &str)> = Vec::new();
-        for e in self.wd.context.notes.iter().rev().take(4) {
-            entries.push(("note", &e.text));
-        }
-        for e in self.wd.context.agent_messages.iter().rev().take(8) {
-            entries.push(("agent", &e.text));
-        }
-        entries.truncate(12);
-        if entries.is_empty() {
-            return String::new();
-        }
-        entries
-            .iter()
-            .map(|(kind, text)| format!("- **{kind}**: {}\n", truncate(text, 200)))
-            .collect()
-    }
-}
-
-/// Map a file-change kind string to one of the two allowed XML attribute
-/// values (`"modified"` | `"added"`).  Unknown values default to `"modified"`.
-fn kind_to_attr(s: &str) -> &'static str {
-    match s.to_lowercase().trim() {
-        "added" | "add" | "new" | "created" => "added",
-        _ => "modified",
-    }
-}
-
-/// Read the most recent context entries from a workday and render them as the
-/// formal `<workflow_blackboard>` XML preamble for an agent delegation.
-///
-/// Returns `""` (empty string) in all non-fatal situations:
-///   * `workday_id` does not exist on disk (`Ok(None)` from `get_workday_by_id`)
-///   * Workday exists but has no context worth injecting
-///
-/// Returns `Err` only when the file system itself fails (permission error,
-/// corrupt JSON that cannot be parsed).  The caller (`delegate_task_inner`)
-/// treats any return value as optional enrichment and proceeds regardless.
-fn build_blackboard_preamble(workday_id: &str) -> Result<String, String> {
-    // O(1) direct-path lookup — KIRKARDO 17 HIGH.
-    // get_workday_by_id returns Ok(None) for unknown ids (graceful fallback),
-    // Err only for I/O / parse failures.
-    let wd = match crate::workdays::get_workday_by_id(workday_id)? {
-        Some(w) => w,
-        None => {
-            eprintln!(
-                "[agent_orchestration] blackboard: workday '{workday_id}' not found, skipping preamble"
-            );
-            return Ok(String::new());
-        }
-    };
-    Ok(BlackboardBuilder::new(&wd).build())
-}
 
 fn truncate(s: &str, max: usize) -> String {
     // Strip control characters (incl. \r, \t, vertical-tab) — \n is already
@@ -1409,304 +1064,4 @@ mod tests {
         assert!(!poll_loop_detects(b""));
     }
 
-    // -------------------------------------------------------------------------
-    // KIRKARDO 17 P2 — blackboard contract tests
-    //
-    // Tests that require disk I/O write fixtures under the prefix
-    // "wd-test-17-" and delete them on completion.  Pure-logic tests use
-    // in-memory Workday values only.
-    // -------------------------------------------------------------------------
-
-    fn make_workday(id: &str) -> crate::workdays::Workday {
-        use crate::workdays::*;
-        Workday {
-            id: id.to_string(),
-            template_id: None,
-            workflow_template: None,
-            project_id: Some("proj-test".to_string()),
-            project_cwd: None,
-            title: "Test workday".to_string(),
-            status: WorkdayStatus::InProgress,
-            planned_date: "2026-05-27".to_string(),
-            start_ts: None,
-            end_ts: None,
-            focus_seconds: 0,
-            break_seconds: 0,
-            energy_before: None,
-            energy_after: None,
-            mood_note: None,
-            retro_good: None,
-            retro_bad: None,
-            retro_learned: None,
-            summary_md: None,
-            goals: Vec::new(),
-            linked_sessions: Vec::new(),
-            linked_tasks: Vec::new(),
-            context: WorkdayContext::default(),
-            created_at: "epoch:0".to_string(),
-            ai_summary: None,
-        }
-    }
-
-    fn write_fixture(wd: &crate::workdays::Workday) -> std::path::PathBuf {
-        let dir = crate::workdays::workdays_dir().expect("workdays dir");
-        std::fs::create_dir_all(&dir).expect("create workdays dir");
-        let path = dir.join(format!("{}.json", wd.id));
-        let json = serde_json::to_string_pretty(wd).expect("serialize workday");
-        std::fs::write(&path, json).expect("write fixture");
-        path
-    }
-
-    // -- get_workday_by_id ----------------------------------------------------
-
-    #[test]
-    fn get_workday_by_id_returns_some_for_existing() {
-        let wd = make_workday("wd-test-17-exists");
-        let path = write_fixture(&wd);
-        let result = crate::workdays::get_workday_by_id("wd-test-17-exists");
-        let _ = std::fs::remove_file(&path);
-        let found = result.expect("must not error for existing workday");
-        assert!(found.is_some(), "expected Some for id written to disk");
-        assert_eq!(found.unwrap().id, "wd-test-17-exists");
-    }
-
-    #[test]
-    fn get_workday_by_id_returns_none_for_unknown_id() {
-        let result = crate::workdays::get_workday_by_id("wd-test-17-never-written-99999");
-        assert!(
-            matches!(result, Ok(None)),
-            "expected Ok(None) for unknown id, got: {result:?}",
-        );
-    }
-
-    // -- BlackboardBuilder pure-logic (no disk) --------------------------------
-
-    /// A workday whose title is empty AND has no context entries whatsoever
-    /// must produce an empty preamble — the builder has nothing to inject.
-    ///
-    /// A workday that has a title but no context is still emitted (it shows
-    /// the `<workday_summary>` so the agent knows which day it is operating
-    /// in).  This test verifies only the fully-empty edge case: no title,
-    /// no context, no goals.
-    #[test]
-    fn blackboard_builder_no_title_no_context_returns_empty_string() {
-        let mut wd = make_workday("wd-test-17-bb-empty");
-        wd.title = String::new(); // blank title → build_summary returns None
-                                  // context is already default (all vecs empty), goals is empty
-        let out = BlackboardBuilder::new(&wd).build();
-        assert!(
-            out.is_empty(),
-            "workday with no title and no context must produce empty preamble, got: {out:?}"
-        );
-    }
-
-    /// A workday with a non-empty title but no context entries still emits
-    /// the XML block (with `<workday_summary>`) so the agent knows what
-    /// workday it is operating in.
-    #[test]
-    fn blackboard_builder_titled_workday_no_context_emits_summary_only() {
-        let wd = make_workday("wd-test-17-bb-titled-only");
-        // title = "Test workday", context = default empty
-        let out = BlackboardBuilder::new(&wd).build();
-        assert!(
-            out.contains("<workflow_blackboard"),
-            "must emit opening tag"
-        );
-        assert!(
-            out.contains("<workday_summary>"),
-            "must emit summary for titled workday"
-        );
-        assert!(
-            !out.contains("<next_steps>"),
-            "no pending goals → no next_steps"
-        );
-        assert!(!out.contains("<blockers>"), "no decisions → no blockers");
-    }
-
-    #[test]
-    fn blackboard_builder_with_note_produces_xml_block() {
-        use crate::workdays::{WorkdayContext, WorkdayContextEntry};
-        let mut wd = make_workday("wd-test-17-bb-note");
-        wd.context = WorkdayContext {
-            notes: vec![WorkdayContextEntry {
-                id: "ctx-1".to_string(),
-                kind: "note".to_string(),
-                text: "decided to use serde_json for serialization".to_string(),
-                source: None,
-                created_at: "epoch:0".to_string(),
-            }],
-            ..WorkdayContext::default()
-        };
-        let out = BlackboardBuilder::new(&wd).build();
-        assert!(out.contains("<workflow_blackboard"), "missing opening tag");
-        assert!(
-            out.contains("</workflow_blackboard>"),
-            "missing closing tag"
-        );
-        assert!(out.contains("<workday_summary>"), "missing workday_summary");
-        assert!(out.contains("serde_json"), "note text missing from output");
-    }
-
-    #[test]
-    fn blackboard_builder_pending_goals_populate_next_steps() {
-        use crate::workdays::{
-            GoalSource, GoalStatus, WorkdayContext, WorkdayContextEntry, WorkdayGoal,
-        };
-        let mut wd = make_workday("wd-test-17-bb-goals");
-        wd.context = WorkdayContext {
-            notes: vec![WorkdayContextEntry {
-                id: "ctx-seed".to_string(),
-                kind: "note".to_string(),
-                text: "seed note".to_string(),
-                source: None,
-                created_at: "epoch:0".to_string(),
-            }],
-            ..WorkdayContext::default()
-        };
-        wd.goals = vec![
-            WorkdayGoal {
-                id: "g1".to_string(),
-                text: "Implement O(1) lookup".to_string(),
-                status: GoalStatus::Pending,
-                source: GoalSource::Manual,
-                linked_card_id: None,
-            },
-            WorkdayGoal {
-                id: "g2".to_string(),
-                text: "Write tests".to_string(),
-                status: GoalStatus::Done,
-                source: GoalSource::Manual,
-                linked_card_id: None,
-            },
-        ];
-        let out = BlackboardBuilder::new(&wd).build();
-        assert!(
-            out.contains("<next_steps>"),
-            "expected <next_steps> section"
-        );
-        assert!(
-            out.contains("Implement O(1) lookup"),
-            "pending goal must appear"
-        );
-        assert!(
-            !out.contains("Write tests"),
-            "done goal must NOT appear in next_steps"
-        );
-    }
-
-    #[test]
-    fn blackboard_builder_decision_populates_blockers() {
-        use crate::workdays::{WorkdayContext, WorkdayContextEntry};
-        let mut wd = make_workday("wd-test-17-bb-decision");
-        wd.context = WorkdayContext {
-            decisions: vec![WorkdayContextEntry {
-                id: "ctx-d1".to_string(),
-                kind: "decision".to_string(),
-                text: "Do not change the public API surface".to_string(),
-                source: None,
-                created_at: "epoch:0".to_string(),
-            }],
-            ..WorkdayContext::default()
-        };
-        let out = BlackboardBuilder::new(&wd).build();
-        assert!(out.contains("<blockers>"), "expected <blockers> section");
-        assert!(
-            out.contains("Do not change the public API surface"),
-            "decision text missing"
-        );
-    }
-
-    #[test]
-    fn blackboard_builder_xml_escapes_special_chars() {
-        use crate::workdays::{WorkdayContext, WorkdayContextEntry};
-        let mut wd = make_workday("wd-test-17-bb-escape");
-        wd.title = "Feature: <foo> & \"bar\"".to_string();
-        wd.context = WorkdayContext {
-            notes: vec![WorkdayContextEntry {
-                id: "ctx-e1".to_string(),
-                kind: "note".to_string(),
-                text: "plain note".to_string(),
-                source: None,
-                created_at: "epoch:0".to_string(),
-            }],
-            ..WorkdayContext::default()
-        };
-        let out = BlackboardBuilder::new(&wd).build();
-        assert!(!out.contains("<foo>"), "raw angle bracket must be escaped");
-        assert!(out.contains("&lt;foo&gt;"), "must become &lt;/&gt;");
-        assert!(out.contains("&amp;"), "ampersand must become &amp;");
-        assert!(
-            out.contains("&quot;bar&quot;"),
-            "double-quote must become &quot;"
-        );
-    }
-
-    // -- build_blackboard_preamble integration (disk) -------------------------
-
-    #[test]
-    fn blackboard_preamble_some_existing_workday_has_summary() {
-        use crate::workdays::{WorkdayContext, WorkdayContextEntry};
-        let mut wd = make_workday("wd-test-17-preamble-exists");
-        wd.context = WorkdayContext {
-            notes: vec![WorkdayContextEntry {
-                id: "ctx-p1".to_string(),
-                kind: "note".to_string(),
-                text: "architecture decision: use blackboard pattern".to_string(),
-                source: None,
-                created_at: "epoch:0".to_string(),
-            }],
-            ..WorkdayContext::default()
-        };
-        let path = write_fixture(&wd);
-        let result = build_blackboard_preamble("wd-test-17-preamble-exists");
-        let _ = std::fs::remove_file(&path);
-        let preamble = result.expect("must not error for existing workday");
-        assert!(
-            preamble.contains("<workday_summary>"),
-            "preamble must contain <workday_summary>"
-        );
-        assert!(
-            preamble.contains("blackboard pattern"),
-            "preamble must include note text"
-        );
-    }
-
-    #[test]
-    fn blackboard_preamble_none_workday_id_passes_task_through() {
-        let task = "do something important";
-        let workday_id: Option<&str> = None;
-        let task_with_blackboard = if let Some(wid) = workday_id {
-            match build_blackboard_preamble(wid) {
-                Ok(p) if !p.is_empty() => format!("{p}\n\n---\n\n{task}"),
-                _ => task.to_string(),
-            }
-        } else {
-            task.to_string()
-        };
-        assert_eq!(
-            task_with_blackboard, task,
-            "task must pass through when workday_id is None"
-        );
-    }
-
-    #[test]
-    fn blackboard_preamble_some_nonexistent_id_returns_empty_ok() {
-        let result = build_blackboard_preamble("wd-test-17-nonexistent-99999");
-        assert!(
-            matches!(result, Ok(ref s) if s.is_empty()),
-            "expected Ok(\"\") for unknown workday_id, got: {result:?}",
-        );
-    }
-
-    // -- kind_to_attr ---------------------------------------------------------
-
-    #[test]
-    fn kind_to_attr_maps_known_variants() {
-        assert_eq!(kind_to_attr("added"), "added");
-        assert_eq!(kind_to_attr("new"), "added");
-        assert_eq!(kind_to_attr("created"), "added");
-        assert_eq!(kind_to_attr("modified"), "modified");
-        assert_eq!(kind_to_attr("unknown_kind"), "modified");
-        assert_eq!(kind_to_attr(""), "modified");
-    }
 }

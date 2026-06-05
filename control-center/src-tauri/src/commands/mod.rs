@@ -11,7 +11,6 @@
 //   projects/      — Project CRUD, launcher, CLAUDE.md, agent roster
 //   sessions_sub/  — Claude session spawn, PTY, tabs, terminal layout, timeline
 //   system_ops/    — Scheduled tasks, apps, diagnostics, event log, settings, lifecycle
-//   workdays_sub/  — Workday CRUD, goals, templates, auto-surface
 //   workflows/     — Hooks, plans, rules, maintenance,
 //                    workflow_runs (YAML composability + SQLite history, KIRKARDO 23 P2)
 //   decisions.rs   — Decision log CRUD
@@ -32,7 +31,6 @@ pub mod notes_sub;
 pub mod projects;
 pub mod sessions_sub;
 pub mod system_ops;
-pub mod workdays_sub;
 pub mod workflows;
 
 // ---------------------------------------------------------------------------
@@ -80,8 +78,6 @@ pub use system_ops::event_log;
 pub use system_ops::lifecycle;
 pub use system_ops::settings;
 pub use system_ops::system;
-
-pub use workdays_sub::workdays;
 
 pub use workflows::hooks;
 pub use workflows::maintenance;

@@ -74,8 +74,6 @@ mod toast_emit;
 mod tray;
 mod update_checker;
 mod usage;
-mod work_sessions;
-mod workdays;
 mod workflow_loader;
 mod workflow_runs;
 
@@ -337,45 +335,6 @@ pub fn run() {
             // -- session recall (per-project + global) --
             commands::recall::recall_last_session,
             commands::recall::recall_last_session_global,
-            // -- workdays (jornadas de trabajo, v2.7 completo) --
-            commands::workdays::create_workday,
-            commands::workdays::start_workday,
-            commands::workdays::pause_workday,
-            commands::workdays::resume_workday,
-            commands::workdays::complete_workday,
-            commands::workdays::archive_workday,
-            commands::workdays::list_workdays,
-            commands::workdays::get_workday_detail,
-            commands::workdays::link_session,
-            commands::workdays::link_task,
-            commands::workdays::get_workday_metrics,
-            commands::workdays::list_templates,
-            commands::workdays::save_template,
-            commands::workdays::update_goal,
-            commands::workdays::workday_list,
-            commands::workdays::workday_pending_link_record,
-            commands::workdays::workday_drain_pending_links,
-            commands::workdays::workday_auto_link_session,
-            // v2.8 -- automatic workday surface
-            commands::workdays::workday_auto_start_for_project,
-            commands::workdays::workday_auto_for_session,
-            commands::workdays::workday_append_context,
-            commands::workdays::workday_record_kanban_event,
-            commands::workdays::workday_today_timeline,
-            commands::workdays::workday_history,
-            commands::workdays::workday_active_today_for_project,
-            // H29 + H30 (2026-05-27)
-            commands::workdays::workday_wipe_all,
-            commands::workdays::workday_day_view,
-            // H31 + H32 (2026-05-27) — Goals CRUD + AI auto-fill + auto-update scheduler
-            commands::workdays::workday_goals_add,
-            commands::workdays::workday_goals_update,
-            commands::workdays::workday_goals_delete,
-            commands::workdays::workday_goals_auto_fill,
-            commands::workdays::workday_ai_summary_generate,
-            commands::workdays::workday_context_auto_append,
-            commands::workdays::workday_active_id_today,
-            commands::workdays::register_workday_autoupdate_task,
             // -- settings + backup --
             commands::settings::settings_read,
             commands::settings::settings_save,
@@ -577,11 +536,6 @@ pub fn run() {
                     }
                 }
             }
-
-            // T2 (2026-05-26): drain queued session<->workday links left by
-            // the workday-session-linker hook when the Control Center was
-            // offline. Idempotent and silent on a clean state.
-            crate::workdays::drain_pending_links_at_startup();
 
             // KIRKARDO 23 P2: initialise the workflow-runs SQLite DB (WAL +
             // indices). Idempotent — no-op when table already exists.

@@ -57,7 +57,6 @@ type DelegateRequest = {
   task: string;
   use_cheap_model: boolean;
   cwd: string | null;
-  workday_id: string | null;
   timeout_secs: number | null;
   project_id: string | null;
 };
@@ -115,7 +114,6 @@ function AssignTaskModal({ agents, preselectedAgent, onClose, onLaunched }: Assi
         task: taskTrimmed,
         use_cheap_model: useCheap,
         cwd: null,
-        workday_id: null,
         timeout_secs: null,
         project_id: null,
       };

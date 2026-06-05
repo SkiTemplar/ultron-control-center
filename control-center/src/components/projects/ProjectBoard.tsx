@@ -88,27 +88,6 @@ export default function ProjectBoard({ projectId }: Props) {
           order,
         })) as KanbanBoard;
         setBoard(next);
-        // Mirror the move into today's workday so Done moves count as
-        // completed goals and other moves leave a context note. Non-fatal:
-        // if no active workday exists, the backend returns Ok(None) and we
-        // do nothing. Errors are swallowed because the kanban move itself
-        // already succeeded — the user does not benefit from a red banner.
-        const movedCard = snapshot?.cards.find((c) => c.id === cardId);
-        const targetCol = next.columns.find((c) => c.id === targetColumnId);
-        if (movedCard && targetCol) {
-          void invoke("workday_record_kanban_event", {
-            projectId,
-            cardId,
-            cardTitle: movedCard.title,
-            targetColumn: targetCol.name,
-          }).catch((e) => {
-            // KIRKARDO 1 MED — kanban move already succeeded so we don't
-            // bubble this to the UI, but we do log it so a systemic backend
-            // failure (no active workday, perms, JSON corruption) is at
-            // least visible to anyone watching devtools.
-            console.warn("[workday sync]", e);
-          });
-        }
       } catch (e) {
         setError(String(e));
         if (snapshot) setBoard(snapshot);
