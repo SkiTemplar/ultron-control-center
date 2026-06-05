@@ -187,23 +187,55 @@ impl MemoryService {
             .with_after(serde_json::to_string(&cand).unwrap_or_default());
         let _ = store::insert_event(&conn, &ev);
 
-        // Auto-approve hook (opt-in). When the persisted `auto_approve` setting is
-        // ON and this candidate is CLEAN, promote it straight to ACTIVE — skipping
-        // the inbox — reusing the exact same `approve_candidate` path the human UI
-        // uses (so redaction/sensitivity/index-sync all still apply).
+        // Auto-validation 3-band policy (opt-in). When the persisted `auto_approve`
+        // setting is ON and this candidate is CLEAN, the confidence-driven band
+        // decides its disposition — replacing the old binary "approve all clean":
         //
-        // SECURITY SALVAGUARDA: `candidate_is_clean` is FALSE for any candidate with
-        // the secret marker or a contradiction finding, so those ALWAYS stay in the
-        // inbox for human review. FAIL-SAFE: `auto_approve_enabled` defaults to false
-        // on any read error, so a settings glitch can never silently auto-promote.
-        // Approved as Actor::System (not User): it is a policy promotion, not a human
-        // validation, so it is not marked `validated_by_user`. Errors are swallowed —
-        // the candidate is already safely in the inbox if the promotion fails.
+        //   BAND A (confidence >= threshold): promote straight to ACTIVE, reusing the
+        //     exact `approve_candidate` path the human UI uses (redaction / sensitivity
+        //     / index-sync all still apply). Approved as Actor::System (policy, not a
+        //     human validation, so NOT marked `validated_by_user`).
+        //   BAND B (mid confidence, OR kind decision/architecture): leave PENDING in
+        //     the inbox (the default — no action; it was inserted as Pending above).
+        //   BAND C (confidence < REJECT_THRESHOLD): mark `rejected` so it never enters
+        //     recall; a background purge sweeps it later. Noise auto-discard.
+        //
+        // SECURITY SALVAGUARDA (unchanged): `candidate_is_clean` is FALSE for any
+        // candidate carrying the secret marker or a contradiction finding, so those
+        // ALWAYS stay in the inbox/quarantine for human review — they never reach band
+        // classification. FAIL-SAFE: `auto_approve_threshold` reads as f32::INFINITY on
+        // any settings error, so nothing can clear BAND A on a glitch, and
+        // `auto_approve_enabled` defaults to false — both gate the promotion. All
+        // errors are swallowed: the candidate is already safely in the inbox.
         if super::auto_approve::auto_approve_enabled()
             && super::auto_approve::candidate_is_clean(&cand)
         {
-            drop(conn); // approve_candidate opens its own connection.
-            let _ = Self::approve_candidate(&cand.id, Actor::System);
+            let threshold = super::auto_approve::auto_approve_threshold();
+            match super::auto_approve::classify_band(&cand, threshold) {
+                super::auto_approve::AutoBand::Approve => {
+                    drop(conn); // approve_candidate opens its own connection.
+                    let _ = Self::approve_candidate(&cand.id, Actor::System);
+                }
+                super::auto_approve::AutoBand::Pending => {
+                    // No-op: it is already persisted Pending in the inbox.
+                }
+                super::auto_approve::AutoBand::Reject => {
+                    // Low-confidence noise: flip to `rejected` (out of recall) and
+                    // record the policy decision in the audit log. Swallow errors —
+                    // worst case it lingers as Pending, which is still safe.
+                    let _ = store::set_candidate_status(
+                        &conn,
+                        &cand.id,
+                        CandidateStatus::Rejected,
+                    );
+                    let ev = MemoryEvent::new(EventType::Rejected, None, Actor::System)
+                        .with_reason(format!(
+                            "candidate {} auto-rejected (confidence {:.2} < band-C floor)",
+                            cand.id, cand.confidence
+                        ));
+                    let _ = store::insert_event(&conn, &ev);
+                }
+            }
         }
 
         Ok(cand.id.clone())

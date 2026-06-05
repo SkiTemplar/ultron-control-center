@@ -268,6 +268,29 @@ pub struct MemoryItem {
     /// OLA B: schema generation that produced this row.
     #[serde(default = "default_schema_version")]
     pub schema_version: i64,
+
+    // -- Code-location capture (2026-06-05, ADDITIVE) --------------------------
+    // Populated only for code-derived memories (PostToolUse symbol capture). All
+    // `serde(default)` so older brain.db rows (and older JSON) deserialize as
+    // `None` — fully backward-compatible.
+    /// Identity key for a captured symbol, "file_path:symbol" (e.g.
+    /// "src/auth/jwt.rs:validate_token"). Indexed for O(1) dedupe on re-capture.
+    #[serde(default)]
+    pub symbol: Option<String>,
+    /// Repo-relative (or absolute) path of the source file the memory describes.
+    #[serde(default)]
+    pub file_path: Option<String>,
+    /// Line of the definition (single line, or the start of a range).
+    #[serde(default)]
+    pub line: Option<i64>,
+    /// First line of the definition — its signature (e.g. the `fn` header).
+    #[serde(default)]
+    pub signature: Option<String>,
+    /// Capture provenance: posttooluse_symbol | posttooluse_arch | stop_capture |
+    /// userprompt | manual. Distinct from `source` (the controlled enum) — this is
+    /// the finer-grained capture channel. `None` for rows predating capture.
+    #[serde(default, rename = "capture_source")]
+    pub capture_source: Option<String>,
 }
 
 /// Canonical schema generation for `memory_items`. Bump on backfill-relevant
@@ -329,6 +352,11 @@ impl MemoryItem {
             content_hash: None,
             normalized_text: None,
             schema_version: SCHEMA_VERSION,
+            symbol: None,
+            file_path: None,
+            line: None,
+            signature: None,
+            capture_source: None,
         }
     }
 
@@ -434,6 +462,23 @@ pub struct MemoryCandidate {
     pub recommended_action: CandidateAction,
     pub status: CandidateStatus,
     pub created_at: i64,
+
+    // -- Code-location capture (2026-06-05, ADDITIVE, all serde(default)) -------
+    /// "file_path:symbol" identity key (see `MemoryItem::symbol`).
+    #[serde(default)]
+    pub proposed_symbol: Option<String>,
+    /// Source file path the candidate describes.
+    #[serde(default)]
+    pub proposed_file_path: Option<String>,
+    /// Definition line (single, or range start).
+    #[serde(default)]
+    pub proposed_line: Option<i64>,
+    /// Signature / first line of the definition.
+    #[serde(default)]
+    pub proposed_signature: Option<String>,
+    /// Capture channel (posttooluse_symbol | posttooluse_arch | stop_capture | …).
+    #[serde(default)]
+    pub capture_source: Option<String>,
 }
 
 impl MemoryCandidate {
@@ -459,6 +504,11 @@ impl MemoryCandidate {
             recommended_action: CandidateAction::Approve,
             status: CandidateStatus::Pending,
             created_at: now_millis(),
+            proposed_symbol: None,
+            proposed_file_path: None,
+            proposed_line: None,
+            proposed_signature: None,
+            capture_source: None,
         }
     }
 
@@ -482,6 +532,12 @@ impl MemoryCandidate {
         item.confidence = self.confidence;
         item.importance = self.importance;
         item.source_session_id = self.source_session_id.clone();
+        // Carry the code-location capture fields (all ADDITIVE / nullable).
+        item.symbol = self.proposed_symbol.clone();
+        item.file_path = self.proposed_file_path.clone();
+        item.line = self.proposed_line;
+        item.signature = self.proposed_signature.clone();
+        item.capture_source = self.capture_source.clone();
         item.token_estimate = estimate_tokens(&item.searchable_text());
         item
     }

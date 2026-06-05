@@ -147,7 +147,11 @@ Features Wave 1:
 
 ### ⚠ Pendiente notable
 
-- **Rotar GitHub PAT y mem0 API key** — expuestos en plaintext en `settings.json` (reportado por G28 audit)
+> [!CAUTION]
+> **SECURITY ADVISORY (acción urgente):** GitHub PAT y mem0 API key quedaron
+> expuestos en plaintext en `~/.claude/settings.json` (reportado por G28 audit).
+> **Rotar ambas claves inmediatamente.** Mem0 fue eliminado en el fullize 2026-06-01,
+> pero las claves siguen en disco hasta que se roten/borren a mano.
 - H31+H32 (Workday Goals + auto-AI-update) y H32 hook 15min — en progreso por agente background al cierre de la sesión
 - KIRKARDO 14 paso 2 (stop hook compresor) + paso 3 (SessionStart recall inject) — `qdrant.rs` listo, falta hook JS y wire en linker
 

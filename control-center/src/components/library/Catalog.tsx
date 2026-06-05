@@ -138,6 +138,40 @@ function scoreColor(score: number): string {
   return "var(--color-text-tertiary)";
 }
 
+/**
+ * Compose the analysis + install prompt handed to the spawned Claude session.
+ * The session is asked to evaluate whether the repo is worth installing for the
+ * ECC / Claude Code environment and, if so, perform the install.
+ */
+function buildIntegratePrompt(hit: RepoHit, url: string): string {
+  const meta = [
+    `- Repositorio: ${hit.full_name}`,
+    `- URL: ${url}`,
+    hit.description ? `- Descripción: ${hit.description}` : null,
+    `- Estrellas: ${hit.stars}`,
+    hit.language ? `- Lenguaje principal: ${hit.language}` : null,
+    hit.topics.length > 0 ? `- Topics: ${hit.topics.join(", ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return [
+    `Analiza si vale la pena instalar este repositorio en mi entorno Claude Code (ECC) y, si lo vale, instálalo.`,
+    ``,
+    `Datos de la tarjeta:`,
+    meta,
+    ``,
+    `Pasos:`,
+    `1. Revisa el README y la estructura del repo (clónalo en una carpeta temporal o usa la API de GitHub).`,
+    `2. Determina qué es (skill, agent, rule, MCP server, plantilla, librería) y si es compatible con mi stack.`,
+    `3. Evalúa calidad, mantenimiento (estrellas/última actualización), seguridad y solapamiento con lo que ya tengo.`,
+    `4. Dame un veredicto claro: INSTALAR / NO INSTALAR / DUDOSO, con 2-3 razones.`,
+    `5. Si el veredicto es INSTALAR, realiza la instalación en el scope correcto (~/.claude/ para skills/agents/rules, o el comando de instalación del MCP) y verifica que quedó bien.`,
+    ``,
+    `No instales nada destructivo ni con privilegios elevados sin avisarme primero.`,
+  ].join("\n");
+}
+
 // ---------------------------------------------------------------------------
 // FilterBar (v2.9.8)
 // ---------------------------------------------------------------------------
@@ -457,11 +491,17 @@ function BulkInstallModal({
 export function Catalog() {
   // Search engine state
   const [tab, setTab] = useState<SearchTab>("trending");
+  // `query` drives the live local filter (name/description/topics, case-insensitive).
   const [query, setQuery] = useState("");
+  // `appliedQuery` is the text last sent to the GitHub API (on Enter / Search).
+  // Kept separate so typing filters instantly without re-fetching on every keystroke.
+  const [appliedQuery, setAppliedQuery] = useState("");
   const [hits, setHits] = useState<RepoHit[]>([]);
   const [hitsLoading, setHitsLoading] = useState(false);
   const [hitsError, setHitsError] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<Record<string, "copied">>({});
+  // Per-card "Integrar con IA" feedback: launching → launched (resets after 2 s).
+  const [aiState, setAiState] = useState<Record<string, "launching" | "launched">>({});
   const [refreshTick, setRefreshTick] = useState(0);
 
   // Filter state (v2.9.8)
@@ -493,7 +533,25 @@ export function Catalog() {
   const compatMap: Map<string, CompatReport> =
     compatState.phase === "done" ? compatState.reports : new Map();
 
+  // Live local text filter — applied on top of the fetched hits without
+  // re-querying GitHub. Matches name, owner, full_name, description and topics,
+  // case-insensitively. Empty query = no text filtering.
+  const textNeedle = query.trim().toLowerCase();
+
   const filteredHits = hits.filter((h) => {
+    if (textNeedle) {
+      const haystack = [
+        h.name,
+        h.owner,
+        h.full_name,
+        h.description ?? "",
+        h.language ?? "",
+        ...h.topics,
+      ]
+        .join(" ")
+        .toLowerCase();
+      if (!haystack.includes(textNeedle)) return false;
+    }
     if (filters.minStars > 0 && h.stars < filters.minStars) return false;
     if (filters.topics.length > 0 && !filters.topics.some((t) => h.topics.includes(t))) return false;
     if (filters.compatOnly) {
@@ -524,7 +582,7 @@ export function Catalog() {
         const results = (await invoke("github_search_trending", { kind: null, limit: 30 })) as RepoHit[];
         setHits(results);
       } else {
-        const composed = queryForTab(tab, query);
+        const composed = queryForTab(tab, appliedQuery);
         const results = (await invoke("github_search_repos", { query: composed, limit: 30 })) as RepoHit[];
         setHits(results);
       }
@@ -534,12 +592,19 @@ export function Catalog() {
     } finally {
       setHitsLoading(false);
     }
-  }, [tab, query]);
+  }, [tab, appliedQuery]);
+
+  // Commit the typed query to the GitHub API (Enter / Search button). The live
+  // local filter already runs off `query` on every keystroke; this only widens
+  // the result set by re-querying the remote API.
+  const submitSearch = useCallback(() => {
+    setAppliedQuery(query.trim());
+  }, [query]);
 
   useEffect(() => {
     void runSearch();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, refreshTick]);
+  }, [tab, appliedQuery, refreshTick]);
 
   // ---------------------------------------------------------------------------
   // Repo actions
@@ -568,6 +633,40 @@ export function Catalog() {
       }, 1500);
     } catch {
       /* no-op */
+    }
+  }
+
+  // "Integrar con IA" — opens a Claude session pre-loaded with an analysis +
+  // install prompt for this repo. Reuses the existing `spawn_session` command
+  // (same one the rest of the Control Center uses) so we do not need new
+  // backend plumbing. The session decides whether the repo is worth installing
+  // and performs the install if so.
+  async function integrateWithAi(hit: RepoHit) {
+    const url = repoUrl(hit);
+    const prompt = buildIntegratePrompt(hit, url);
+    setAiState((s) => ({ ...s, [hit.full_name]: "launching" }));
+    try {
+      await invoke("spawn_session", {
+        provider: "claude",
+        prompt,
+        cwd: null,
+        flags: { dangerouslySkipPermissions: false },
+      });
+      setAiState((s) => ({ ...s, [hit.full_name]: "launched" }));
+      setTimeout(() => {
+        setAiState((s) => {
+          const next = { ...s };
+          delete next[hit.full_name];
+          return next;
+        });
+      }, 2000);
+    } catch (e) {
+      setAiState((s) => {
+        const next = { ...s };
+        delete next[hit.full_name];
+        return next;
+      });
+      setHitsError(`No se pudo lanzar la sesión de IA: ${String(e)}`);
     }
   }
 
@@ -685,15 +784,27 @@ export function Catalog() {
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") void runSearch(); }}
-                placeholder="Search GitHub repos, skills, agents, rules, MCPs…"
-                className="w-full rounded-md border py-2.5 pl-9 pr-3 text-sm outline-none"
+                onKeyDown={(e) => { if (e.key === "Enter") submitSearch(); }}
+                placeholder="Filter results live, or press Enter to query GitHub…"
+                className="w-full rounded-md border py-2.5 pl-9 pr-9 text-sm outline-none"
                 style={{ background: "var(--color-surface-2)", borderColor: "var(--color-border-strong)", color: "var(--color-text)" }}
               />
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded p-0.5 hover:opacity-70"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                  title="Clear filter text"
+                  aria-label="Clear filter text"
+                >
+                  <X size={13} />
+                </button>
+              )}
             </div>
             <button
               type="button"
-              onClick={() => void runSearch()}
+              onClick={submitSearch}
               disabled={hitsLoading}
               className="inline-flex items-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium disabled:opacity-60"
               style={{ background: "var(--color-accent)", color: "var(--color-accent-text)", border: "1px solid var(--color-border-strong)" }}
@@ -836,6 +947,7 @@ export function Catalog() {
           <ul className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {filteredHits.map((hit) => {
               const copied = copyState[hit.full_name] === "copied";
+              const aiBusy = aiState[hit.full_name];
               const compatReport = compatMap.get(hit.full_name);
               return (
                 <li
@@ -913,33 +1025,61 @@ export function Catalog() {
                     </div>
                   )}
 
-                  {/* Footer row */}
-                  <div className="flex items-center justify-between text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-                    <span style={{ fontFamily: "var(--font-mono)" }}>{hit.full_name}</span>
-                    <div className="flex items-center gap-1.5">
+                  {/* Footer: full_name + action buttons (v2.9.9) */}
+                  <div className="mt-1 flex flex-col gap-1.5 text-[10.5px]" style={{ color: "var(--color-text-tertiary)" }}>
+                    <span className="truncate" style={{ fontFamily: "var(--font-mono)" }} title={hit.full_name}>
+                      {hit.full_name}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      {/* Integrar con IA — spawns an analysis + install session */}
                       <button
                         type="button"
-                        onClick={() => void openRepo(hit)}
-                        className="inline-flex items-center gap-1 rounded px-2 py-0.5"
-                        style={{ color: "var(--color-text)", background: "var(--color-surface-3)" }}
-                        title="View on GitHub"
+                        onClick={() => void integrateWithAi(hit)}
+                        disabled={!!aiBusy}
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 font-medium disabled:opacity-60"
+                        style={{
+                          color: aiBusy ? "var(--color-success)" : "var(--color-accent-text)",
+                          background: aiBusy ? "rgba(63, 185, 80, 0.12)" : "var(--color-accent)",
+                          border: aiBusy ? "1px solid rgba(63, 185, 80, 0.30)" : "1px solid var(--color-border-strong)",
+                          fontSize: "10.5px",
+                        }}
+                        title="Lanza una sesión de IA que analiza si vale la pena instalarlo y lo instala"
                       >
-                        <ExternalLink size={11} />
+                        {aiBusy === "launching" ? (
+                          <><Loader size={11} className="animate-spin" /> Lanzando…</>
+                        ) : aiBusy === "launched" ? (
+                          <><Check size={11} /> Lanzado</>
+                        ) : (
+                          <><Sparkles size={11} /> Integrar con IA</>
+                        )}
                       </button>
+
+                      {/* Copiar repo URL */}
                       <button
                         type="button"
                         onClick={() => void copyToClipboard(hit)}
-                        className="inline-flex items-center gap-1 rounded px-2 py-0.5 font-medium"
+                        className="inline-flex items-center gap-1 rounded px-2 py-1 font-medium"
                         style={{
                           color: copied ? "var(--color-success)" : "var(--color-text)",
                           background: copied ? "rgba(63, 185, 80, 0.12)" : "var(--color-surface-3)",
                           border: copied ? "1px solid rgba(63, 185, 80, 0.30)" : "1px solid var(--color-border)",
                           fontSize: "10.5px",
                         }}
-                        title="Copy repo URL to clipboard"
+                        title="Copiar la URL del repo al portapapeles"
                       >
                         {copied ? <Check size={11} /> : <Clipboard size={11} />}
-                        {copied ? "Copied!" : "Copy repo URL"}
+                        {copied ? "Copiado!" : "Copiar repo URL"}
+                      </button>
+
+                      {/* View on GitHub */}
+                      <button
+                        type="button"
+                        onClick={() => void openRepo(hit)}
+                        className="ml-auto inline-flex items-center gap-1 rounded px-2 py-1"
+                        style={{ color: "var(--color-text)", background: "var(--color-surface-3)", border: "1px solid var(--color-border)" }}
+                        title="Abrir en GitHub"
+                      >
+                        <ExternalLink size={11} />
                       </button>
                     </div>
                   </div>
@@ -949,10 +1089,12 @@ export function Catalog() {
           </ul>
         )}
 
-        {/* Empty-state when filters remove all results */}
+        {/* Empty-state when the live filter / filter bar removes all results */}
         {!hitsLoading && hits.length > 0 && filteredHits.length === 0 && (
           <p className="text-[12.5px]" style={{ color: "var(--color-text-tertiary)" }}>
-            No items match the active filters. Adjust min-stars, language, or topic, or clear filters.
+            {textNeedle
+              ? `No results contain “${query.trim()}”. Clear the filter text or press Enter to query GitHub.`
+              : "No items match the active filters. Adjust min-stars or topic, or clear filters."}
           </p>
         )}
       </div>

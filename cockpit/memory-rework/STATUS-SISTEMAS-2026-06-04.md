@@ -91,20 +91,27 @@ Trabajado esta noche: workflow de diseño (`wwoac1zg1`) con el plan world-class 
 
 ---
 
-## 4. QUOTA ROUTING  (no lo mencionaste; se trabajó)
+## 4. QUOTA ROUTING  ⚫ QUITADO
 
-### Spec
-Detectar el rate-limit de Claude Max y hacer fallback automático a otras IAs, preservando cuota premium.
+### Spec (histórica)
+La idea era detectar el rate-limit de Claude Max y hacer fallback automático a otras IAs, preservando cuota premium.
 
-### Status: 🟡 plomería existe, señal ciega
-| Aspecto | Estado | Evidencia |
-|---|---|---|
-| Watchdog + `is_critical()` consultado antes de cada provider | ✅ | `quota_watchdog.rs`, `ai_router.rs:1526` |
-| Señal de cuota | 🔴 binaria (0 o 99 hardcoded) | `ai_router.rs:1005`; no usa headers `anthropic-ratelimit-unified-*` |
-| Detector en el path correcto | 🔴 | vive en API key, no en la sesión CLI Max |
-| `quota:critical` → auto-relevo Codex | 🔴 | evento no conectado |
+### Status: ⚫ **QUITADO en `cbb2d5c`** — no aplica
+El subsistema de Quota % fue **eliminado**: `quota_watchdog.rs` borrado (−465 líneas),
+`is_critical()`/`react_to_rate_limit()` ya no existen, −82 líneas en `ai_router.rs`. La descripción
+previa de esta sección ("plomería existe, señal ciega", `is_critical()` consultado antes de cada
+provider, ~45-55% scaffolded) era **stale** y queda **anulada**. No hay tarea pendiente de Quota en
+el plan actual; si se quisiera, sería **re-implementar de cero** sobre la señal real (headers
+`anthropic-ratelimit-unified-*` en la sesión CLI Max), no continuar el scaffold borrado.
 
-Trabajado: workflow `waqq5qec7` con el plan. NO implementado. Nota: `cost_watchdog.rs` ($) es notional/irrelevante para Max — no invertir.
+**Documento canónico:** `memory-rework/04-QUOTA.md`.
+**Reconciliación / evidencia:** `STATE-RECONCILIATION-2026-06-04.md` §2 (Conflicto de Quota: RESUELTO)
+y §1 (`grep is_critical|quota_watchdog|react_to_rate_limit` en `src` = 0 matches; `git show cbb2d5c --stat`).
+
+> **Huérfanos a limpiar** (residuo de Quota, ver STATE-RECONCILIATION §2): `quota-capture.js` (hook
+> productor sin lector), `quota-state.json`, `QuotaDot`/`quota_get_status` en `Sidebar.tsx`, listeners
+> `quota:critical/reset` en `ProxyControl.tsx`. Nota: `cost_watchdog.rs` ($) es notional/irrelevante
+> para Max — no invertir.
 
 ---
 

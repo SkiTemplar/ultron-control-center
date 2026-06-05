@@ -163,6 +163,11 @@ Rust is needed for `tauri build` (step 10). On a fresh install Windows
 may print a notice that the MSVC linker needs a **reboot** to fully
 register — the installer surfaces this but does not force the reboot.
 
+> [!NOTE]
+> This reboot notice is legacy: it only fires on a truly fresh box where the
+> MSVC Build Tools were just laid down. If `rustc`/`link.exe` already work in a
+> new shell, ignore it. The app (v2.7.1+) does not require a reboot at runtime.
+
 ### 4. Qdrant (native Windows binary, no Docker)
 
 ```powershell

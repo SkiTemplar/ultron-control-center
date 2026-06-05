@@ -2,8 +2,9 @@
 ### Autocontenido para revisión por IA externa · 2026-06-04
 
 > **[RECONCILIADO 2026-06-04 — ver `../STATE-RECONCILIATION-2026-06-04.md`]**
-> La fila "Quota-guard antes de cada provider | OK | ai_router.rs:1526 is_critical()" esta STALE:
-> Quota fue **QUITADO** en `cbb2d5c`, `is_critical()` ya no existe (0 matches). El gap "quota ciega" no aplica.
+> La fila "Quota-guard antes de cada provider" fue **ELIMINADA** de la tabla §3 (orden STATE-RECON §4):
+> Quota se **QUITÓ** en `cbb2d5c`, `is_critical()` ya no existe (0 matches en `src`) y `route()` no tiene
+> guard de cuota. El gap "quota ciega" no aplica. Para el detalle del retiro y sus huérfanos, ver `04-QUOTA.md`.
 
 ## 1. Propósito
 No solo proxy para Claude Code, sino ORQUESTADOR MULTI-IA: elegir el mejor modelo por tarea/coste/capacidad, despachar subagentes a Claude/Codex/Gemini/free-tier(NIM), gobernar las tareas baratas del kernel de memoria, y resiliencia por cuota.
@@ -22,7 +23,6 @@ No solo proxy para Claude Code, sino ORQUESTADOR MULTI-IA: elegir el mejor model
 | route() gobierna tareas internas | ✅ | ~10 callers reales: cost_watchdog.rs:279, hooks_admin.rs:1490, workdays.rs:1595/1698, plugins_info.rs:1031, library.rs:1107, project_agents.rs:471/734, sessions_tags.rs:298 |
 | Comentario stale "solo botón Test" | ✅ corregido | `1a14a27`-adjacent; era falso |
 | Proxy free-tier real | ✅ | ultron-proxy.mjs (NIM qwen3-coder verificado) |
-| ~~Quota-guard antes de cada provider~~ | ⚫ QUITADO (`cbb2d5c`) | `is_critical()` ya no existe (0 matches en src); `route()` sin guard de cuota. Ver 04-QUOTA |
 | Métricas por modelo/día/free-tier gauge | ✅ | bump_metrics |
 | **Orquestador despacha multi-IA** | 🔴 | delegate_task_inner (agent_orchestration.rs:291) hardcodea "claude"; resolve_cheap_model:155 literal "claude-haiku-4-5" |
 | **Kernel de memoria consume route()** | 🟡 scaffolded | ai_tasks.rs listo (route("utility"/"summarize")), NO enganchado |

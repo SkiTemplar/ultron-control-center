@@ -1,12 +1,18 @@
 {
-  "tokens_saved_total": 566,
-  "cost_saved_usd": 0.0003735600000000001,
+  "tokens_saved_total": 1436,
+  "cost_saved_usd": 0.0005823600000000006,
   "by_class": {
+    "gemini": {
+      "count": 467,
+      "tokens": 870,
+      "latency_p95_ms": 147,
+      "success_count": 45
+    },
     "groq": {
-      "count": 25,
-      "tokens": 2414,
-      "latency_p95_ms": 350,
-      "success_count": 25
+      "count": 626,
+      "tokens": 7337,
+      "latency_p95_ms": 69,
+      "success_count": 159
     },
     "claude-haiku": {
       "count": 8,
@@ -15,18 +21,30 @@
       "success_count": 0
     }
   },
-  "fallback_rate": 0.06435884018559467,
+  "fallback_rate": 0.9349914666585502,
   "daily": {
-    "groq": {
-      "date": "2026-06-04",
-      "count": 25
+    "gemini": {
+      "date": "2026-06-05",
+      "count": 423
     },
     "claude-haiku": {
       "date": "2026-06-04",
       "count": 8
+    },
+    "groq": {
+      "date": "2026-06-05",
+      "count": 524
     }
   },
   "by_model": {
+    "gemini::gemini-2.5-flash": {
+      "provider_id": "gemini",
+      "model": "gemini-2.5-flash",
+      "count": 467,
+      "success_count": 45,
+      "output_tokens": 870,
+      "latency_ms_avg": 147
+    },
     "claude-haiku::claude-haiku-4-5-20251001": {
       "provider_id": "claude-haiku",
       "model": "claude-haiku-4-5-20251001",
@@ -38,10 +56,10 @@
     "groq::llama-3.3-70b-versatile": {
       "provider_id": "groq",
       "model": "llama-3.3-70b-versatile",
-      "count": 25,
-      "success_count": 25,
-      "output_tokens": 2414,
-      "latency_ms_avg": 350
+      "count": 626,
+      "success_count": 159,
+      "output_tokens": 7337,
+      "latency_ms_avg": 69
     }
   }
 }

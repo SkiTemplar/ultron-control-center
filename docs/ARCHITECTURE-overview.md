@@ -25,8 +25,9 @@ Flujo base: Frontend invoca `invoke("command_name", {...})` → Tauri despecha a
 - `src/components/dashboard/ResumeSessionCard.tsx` (recall workflow)
 - `src/components/dashboard/WorkdaysWeekCard.tsx` (jornadas activas hoy)
 - `src/components/dashboard/AlertsCard.tsx` (última alerta)
-- `src/components/dashboard/Mem0Card.tsx` (badge mem0 status)
-- `src/components/dashboard/PluginStatusCard.tsx` (ECC, mem0 health)
+- `src/components/dashboard/PluginStatusCard.tsx` (estado de plugins/sidecars: ECC, Qdrant)
+
+> **Nota (v2.7.1):** `Mem0Card.tsx` fue retirado. Mem0 quedó **ELIMINADO** del sistema; la fuente de verdad de memoria es ahora `brain.db` (SQLite + FTS5) con índice derivado en Qdrant nativo (`D:\Ultron`, E5-Large 1024d). El badge de estado de memoria del dashboard refleja `brain.db` + Qdrant, no Mem0.
 
 **Flujo front↔back**:
 - `invoke("list_projects")` → projects.rs:list_projects() → Vec<ProjectMetadata>
@@ -160,12 +161,14 @@ Flujo base: Frontend invoca `invoke("command_name", {...})` → Tauri despecha a
 
 ---
 
-## 4. Memoria: mem0 + Qdrant + Knowledge Graph (`mem0.rs`, `qdrant.rs`, `kg.rs`, `ecc_memory.rs`, `memory_status.rs`)
+## 4. Memoria: brain.db (SoT) + Qdrant + Knowledge Graph (`qdrant.rs`, `kg.rs`, `ecc_memory.rs`, `memory_status.rs`)
 
-**Qué hace**:
-- **mem0**: API LLM memory (recuerdos persistentes, búsqueda)
-- **Qdrant**: recall semántico (embeddings BGE 384-dim, búsqueda vectorial)
-- **Knowledge Graph**: grafo entidades + relaciones local (ECC-owned)
+> **Estado real (v2.7.1):** la **fuente de verdad** de memoria es **`brain.db`** (SQLite + FTS5) en `~/.ultron/`, escrita por un único `MemoryService`. El índice semántico vive en **Qdrant nativo** (`D:\Ultron`, E5-Large **1024d**, auto-launch) como índice **derivado reconstruible**. **Mem0 fue ELIMINADO** (no usar) y el viejo `brain_index` FTS5 también (reemplazado por `brain.db`). El grafo **ECC vía MCP** (`mcp__plugin_ecc_memory__*`) es un store **secundario/read-mostly** propio del plugin ECC: **no** es la SoT; convive con `brain.db` pero no la sustituye. El resto de esta sección conserva la descripción del módulo `mem0.rs`/BGE-384d solo como **contexto histórico** — la implementación viva es brain.db + Qdrant E5-1024d.
+
+**Qué hace (estado real)**:
+- **brain.db (SoT)**: store canónico SQLite + FTS5 (memory_items + event sourcing + candidates).
+- **Qdrant nativo**: recall semántico (embeddings E5-Large **1024d**, búsqueda vectorial), índice derivado de brain.db.
+- **Knowledge Graph**: grafo entidades + relaciones local (ECC-owned, secundario).
 
 **Backend**:
 - `mem0.rs`:
@@ -213,7 +216,9 @@ Flujo base: Frontend invoca `invoke("command_name", {...})` → Tauri despecha a
 - **Mem0**:
   - `src/components/memory/Mem0Pane.tsx` (búsqueda, nuevo recuerdo, listado)
   - `src/components/memory/Mem0Diagnostics.tsx` (health check, token estimate)
-  - Badge "Conectado"/"Desconectado" (MCP invalidado por antigüedad v15.5)
+  - Badge "Conectado"/"Desconectado"
+
+> **Nota (v2.7.1) — Mem0 ELIMINADO:** El panel/sub-tab Mem0 y su MCP quedaron **fuera del sistema**. No usar Mem0 como almacén de memoria. La **fuente de verdad (SoT)** es `brain.db` (SQLite + FTS5) en `~/.ultron/`, con el índice semántico derivado en **Qdrant nativo** (`D:\Ultron`, embeddings E5-Large 1024d, auto-launch). El antiguo `brain_index` FTS5 también fue eliminado y reemplazado por `brain.db`. Cualquier referencia abajo a `mem0.rs`/`Mem0Pane` describe la arquitectura previa, conservada solo como contexto histórico.
 - **ECC**:
   - `src/components/memory/EccGraphPane.tsx` (visualiza grafo ECC, read-only)
   - `src/components/memory/MemoryTree.tsx` (árbol nodos)

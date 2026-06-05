@@ -210,6 +210,16 @@ Because the `latest.json` URL points at
 GitHub always redirects to the most recent release. There is no manifest
 hosting service to maintain.
 
+> **Confirmado (ULTRON Control Center v2.7.1, 2026-06-05).** El auto-updater
+> sigue usando el mismo patrón `latest.json` descrito arriba; no cambió en
+> v2.7.1. La versión **v2.7.1** es la del producto Tauri (ULTRON Control
+> Center); el linaje de versiones `v15.x` que aparece en el resto de este
+> documento es el del *core* y su flujo de tags, que sigue vigente. Los
+> one-liners de bootstrap (`bootstrap.ps1` / `bootstrap.sh`) y el endpoint
+> `endpoints[0]` siguen siendo correctos; `SkiTemplar` es el placeholder de
+> owner descrito en §0.3 — sustitúyelo por el owner real del repo público
+> antes de publicar.
+
 ---
 
 ## Rollback

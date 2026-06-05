@@ -1,0 +1,2531 @@
+{
+  "summary": "Barrido EXHAUSTIVO carpeta-por-carpeta de ~/.ultron catalogando deprecados/viejos/redundantes (READ-ONLY). Un agente por carpeta. No borra nada.",
+  "agentCount": 23,
+  "logs": [
+    "Barrido granular de 23 carpetas (READ-ONLY)...",
+    "Granular: 222 candidatos en 22 carpetas; 146 seguros (~6MB); 76 a revisar (~86MB)"
+  ],
+  "result": {
+    "folders": [
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\telemetry",
+        "purpose": "Contiene archivos JSONL de telemetría utilizados por hooks de enrutamiento y analizadores (dispatcher, recall, sync). Estos archivos registran eventos de routing dispatcher-events.jsonl (invocaciones de skills/agents), recall-events.jsonl (búsquedas en MemorIA), y sync-events.jsonl (sincronización de skill_manifest). Se ignoran en .gitignore y son específicos del usuario.",
+        "n": 3,
+        "do_not_touch": [
+          "C:\\Users\\USER\\.ultron\\telemetry (directorio en sí - no borrar, es necesario para escribir nuevos eventos)",
+          "Los hooks scripts/hooks/intent-dispatcher.py, scripts/hooks/auto-recall.py que escriben a estos archivos",
+          "Scripts de análisis cockpit/dispatcher_audit.py, cockpit/hybrid_retriever.py, cockpit/registry_sync.py",
+          "brain.db, qdrant_storage, .git, .env, .venv, control-center/src, src-tauri/src - todos listados en cleanup-deprecated-2026-06-05.py PROTECTED"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "purpose": "Sistema de templates para el instalador de ULTRON (install.ps1 e install.sh). Contiene esqueletos iniciales para archivos críticos de memoria (CLAUDE.md, MEMORY.md, SYSTEM-MAP.md), configuración del usuario (profile.md, known.json), proyectos (projects.json), apps (apps.json), hooks del sistema (settings-hooks.json), y el manifest de skills (skills-manifest.example.yaml). Todos estos archivos son copiados/fusionados durante la instalación como step 4-8 del setup. Usados por install.ps1 e install.sh. NO es una carpeta de artefactos viejos, sino el FUENTE para el onboarding del sistema.\"",
+        "n": 10,
+        "do_not_touch": [
+          "templates/CLAUDE.md.example",
+          "templates/MEMORY.md.example",
+          "templates/SYSTEM-MAP.md.example",
+          "templates/VAULT-README.md",
+          "templates/apps.default.json",
+          "templates/projects.empty.json",
+          "templates/profile.template.md",
+          "templates/known.empty.json",
+          "templates/settings-hooks.json",
+          "templates/skills-manifest.example.yaml"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skills",
+        "purpose": "Almacena STUBS de skills (templates editables para el usuario). Son 12 skills básicos en versión \"esqueleto\" añadidos en v15.2.5 (Mayo 16, 2026) como parte del instalador P0 para que usuarios nuevos tengan skills funcionales disponibles. Los stubs son: business-strategist, code-reviewer, debugger, refactoring-specialist, second-opinion, senior-engineer, skill-creator, superpowers, ui-designer, ultron (master orchestrator), webapp-testing, windows-admin. El archivo registry.json (328KB, vaulted SSOT) mapea TODAS las skills del sistema: 52 activas (en ~/.claude/skills), 332 vaulted (listadas en registry pero NO físicamente en ~/. ultron, references to ~/.ultron/skill-vault/ que NO existe), 38 plugin. La carpeta skills/ en ~/.ultron se usa para almacenar las 12 plantillas base que el usuario puede personalizar. Esta es la GUÍA OFICIAL de routing de ULTRON.",
+        "n": 1,
+        "do_not_touch": [
+          "skills/business-strategist/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/code-reviewer/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/debugger/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/refactoring-specialist/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/second-opinion/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/senior-engineer/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/skill-creator/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/superpowers/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/ui-designer/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/ultron/SKILL.md — master orchestrator, cargado en SessionStart via hook",
+          "skills/webapp-testing/SKILL.md — stub activo, parte de core 12 skills",
+          "skills/windows-admin/SKILL.md — stub activo, parte de core 12 skills"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "purpose": "skill_cache stores cached metadata digests for Claude Code's skill system. It includes: (1) JSON digest files (~390 total) for ~386 active skills indexed in skill_manifest.json for fast lookup during routing and authority checks; (2) metadata files (constitution.json, route_quality.json, aggregator_watermark.json) tracking system state, routing telemetry, and skill authority; (3) temporary generated skill cache entries (skill_66dc2b17.json for unreal-engine). The folder is used by cockpit background tasks (skill-digests-build, route-quality-init, route_quality_aggregator) to seed routing edges, aggregate session telemetry, and maintain skill authority. Total size: 716 KB.",
+        "n": 9,
+        "do_not_touch": [
+          "skill_cache/*.json (all active skill digest files - 386 entries)",
+          "skill_cache/constitution.json (system authority and permissions config, actively used by brain_config.py)",
+          "skill_cache/route_quality.json (routing telemetry and edge quality metrics, actively used by route_quality.py and route_quality_aggregator.py in cockpit background_tasks)",
+          "skill_cache/aggregator_watermark.json (routing telemetry aggregation checkpoint, actively used to avoid reprocessing logs)"
+        ]
+      },
+      {
+        "folder": "sessions",
+        "purpose": "Session history archive for Claude Code. Stores per-day session logs including: replay.jsonl (session events), routing.jsonl (skill/persona routing decisions), activity.jsonl (registry sync and background automation events), on-wake.log (startup logs), game-sessions.jsonl (game dev project sessions), compaction-log.jsonl (memory compaction events), dual/triple-caps.json (mode cap tracking), and daily .md summary files (human-readable session timeline). Used by ULTRON orchestration system for: (1) session replay analysis, (2) routing quality metrics, (3) skill usage mining, (4) historical context for brain_index FTS5 queries, (5) decision audit trail. The folder is in .gitignore - sessions are local runtime artifacts, not version-controlled. Last written: 2026-05-22 (14 days ago as of 2026-06-05).",
+        "n": 42,
+        "do_not_touch": [
+          "cockpit/sessions-tags.jsonl — currently active session metadata index; used to tag and retrieve session patterns",
+          ".tmp/current-session.json — live session state file; contains current mode, session ID, memory readiness, stale notes tracking, recent highlights references, pending actions",
+          ".tmp/current-session-mode.json — runtime mode tracker for session initialization",
+          ".tmp/auto-recall-fired-sessions.json — used by post-session automation to prevent duplicate recalls",
+          ".gitignore — declares sessions/ as untracked (correct); never delete",
+          "cockpit/highlights/ — separate storage for session highlight summaries (NOT in sessions/ folder but related)",
+          "MEMORY.md — auto-generated profile and skill graph using 2026-05-22 as baseline; references these sessions as source",
+          "NEXT-SESSION-PLAN.md — uses highlights and past session data; do not delete until actively replaced",
+          "brain_index.py and brain.db — FTS5 index that may reference session replay.jsonl data; preserve integrity"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "purpose": "Scripts directory for ULTRON v15.x system. Contains: (1) cockpit/ — core system utilities (130+ Python scripts) including memory management, health checks, MCP integration, skill management, session handling; (2) hooks/ — git and event hooks (30+ Python/PowerShell scripts) for auto-changelog, security scanning, plan detection, validation; (3) backup/ — weekly backup management scripts; (4) qdrant/ — Qdrant vector DB boot/health checking; (5) alerts/ — notification system; (6) root-level utilities for Qdrant, memory, projects, releases. Used by: Control Center (UI), hooks system, scheduled tasks, shell functions, and maintenance workflows.\"",
+        "n": 24,
+        "do_not_touch": [
+          "cockpit/ultron.ps1",
+          "cockpit/doctor.py",
+          "cockpit/health.py",
+          "cockpit/brain_index.py",
+          "cockpit/skill_sync_security.py",
+          "cockpit/session_compactor.py",
+          "cockpit/skill_manifest.py",
+          "cockpit/brain_config.py",
+          "cockpit/news_html_generator.py",
+          "cockpit/mcp_installer.py",
+          "cockpit/mcp_broker.py",
+          "cockpit/pending_actions.py",
+          "cockpit/auto_updater.py",
+          "cockpit/memory_sync.py",
+          "cockpit/research.py",
+          "cockpit/launch_project.py",
+          "cockpit/install-scheduler.ps1",
+          "cockpit/scan_projects.py",
+          "cockpit/cockpit_base.py",
+          "hooks/auto-recall.py",
+          "hooks/auto-changelog.py",
+          "hooks/intent-dispatcher.py",
+          "hooks/deny-secrets.py",
+          "hooks/block-dangerous-bash.py",
+          "hooks/validate_push.py",
+          "hooks/session-init.ps1",
+          "hooks/session-cleanup.ps1",
+          "qdrant/ensure-qdrant.ps1",
+          "qdrant/install-qdrant-bootcheck.ps1",
+          "qdrant/qdrant-notify.ps1",
+          "backup/weekly-backup.ps1",
+          "consistency_check.py",
+          "setup-git-hooks.ps1",
+          "start-qdrant.ps1",
+          "install-sidecars.ps1",
+          "uninstall.ps1"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\proxy\\",
+        "purpose": "ULTRON free-tier proxy server - active production Node.js HTTP service implementing Anthropic API, translating requests to OpenAI-compatible providers (NVIDIA NIM, OpenRouter, Groq) as fallback when Claude quota exhausted. Integrated with Control Center (Rust/Tauri lifecycle management) and session routing system.",
+        "n": 0,
+        "do_not_touch": [
+          "proxy/ultron-proxy.mjs",
+          "proxy/HOWTO.md",
+          "proxy/proxy.log"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/projects",
+        "purpose": "Metadata mirrors and documentation stubs for active projects. Each subdirectory contains PROJECT.md and optional memory/documentation files that parallel the real source repositories located elsewhere (e.g., C:/Users/USER/CARRERA/PROYECTOS_PERSONALES/niajska, etc.). The folder is used by ULTRON Control Center to store project summaries, backlog, activity logs, and skill-specific notes. Active projects (niajska, orbitaldb, tortunabo) have mirrors here; some are stub-only (tio-gilito points to Bank/finanzas), some are documentation-only (rdr2 game modding notes), and one is a generic template (templates/).",
+        "n": 3,
+        "do_not_touch": [
+          "projects/niajska",
+          "projects/orbitaldb",
+          "projects/rdr2",
+          "projects/tortunabo"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "purpose": "Planning and roadmap documentation for ULTRON project. Stores strategic roadmaps (v15 evolution), specification documents (specs/ folder with v15.0-v15.7 feature plans), transition documentation (transicion-2026-05/ for project handoff), and historical archived plans (_archive/). Primary SSOT is PLANS.json (schema 7.0, updated 2026-05-23) which tracks active Control Center 2.1 backlog items. Used by: USER (maintainer), Claude Code harness (ultron plans <cmd>), and historical reference during development cycles.",
+        "n": 46,
+        "do_not_touch": [
+          "PLANS.json",
+          "2026-05-21-roadmap-ultron-1.0.md",
+          "specs/",
+          "transicion-2026-05/",
+          ".inbox-seen.json"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\config",
+        "purpose": "ULTRON configuracion central — gobernanza de MCPs, reglas de routing de intenciones, trust/seguridad, escalas de staleness, y politicas. Usada por: intent-dispatcher.py (hook ejecutado cada turn), mcp_broker.py (health checks), Control Center UI (MCP panel, agent listings), doctor.py (mantenimiento), skill_sync_security.py (auditorias). Fuente de verdad para: 63+ reglas de dispatch, politicas de MCP, excepciones de confianza por skill, umbralesdel doctor, fallback messages para MCPs degradados.",
+        "n": 2,
+        "do_not_touch": [
+          "config/intent-rules.yaml",
+          "config/mcp-fallbacks.yaml",
+          "config/mcp-policy.yaml",
+          "config/mcp-allowlist.yaml",
+          "config/skill-trust.yaml",
+          "config/doctor-rules.yaml",
+          "config/constitution.json",
+          "config/backup-exclusions.txt",
+          "config/skills-manifest-schema.json"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\git-hooks",
+        "purpose": "Canonical source for git hooks distributed to all .ultron installations. The post-commit hook maintains CHANGELOG.md automatically after every commit (Claude Code or terminal). Hooks are installed into .git/hooks/ by scripts/setup-git-hooks.ps1 during setup, allowing versioning and consistent behavior across developer machines.",
+        "n": 0,
+        "do_not_touch": [
+          "git-hooks/post-commit",
+          "scripts/setup-git-hooks.ps1",
+          "scripts/hooks/auto-changelog.py",
+          "install.ps1"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\instructions",
+        "purpose": "Carpeta de instrucciones para AI-create de nuevos elementos ULTRON. La lee control-center en runtime via Tauri commands (instruction_path, list_instruction_folders) para resolver el cwd cuando el usuario abre sesiones de creación asistida (Skills, MCPs, Plans, Memory notes, Scheduled tasks). El contenido (5 archivos GUIDE.md) proporciona convenciones, validadores y pasos post-creación para cada tipo de elemento. NO es ignorada por .gitignore (registro explícito: instructions/ en línea 173). Los GUIDE.md fueron creados en v15.1.1 (feat 2026-05-15) y permanecen sin modificación desde v15.2.1 (2026-05-16).",
+        "n": 5,
+        "do_not_touch": [
+          "instructions/mcps/GUIDE.md (Usada por control-center: MCPs.tsx → instruction_path('mcps') → spawn_session con GUIDE.md como contexto)",
+          "instructions/memory/GUIDE.md (Feature v15.1.1: AI-create para Memory notes)",
+          "instructions/plans/GUIDE.md (Feature v15.1.1: AI-create para Plans; Plans.tsx referencia explícitamente)",
+          "instructions/skills/GUIDE.md (Feature v15.1.1: aunque no hay invocación explícita visible en TypeScript, puede ser usada en runtime)",
+          "instructions/tasks/GUIDE.md (Feature v15.1.1: AI-create para Scheduled tasks)"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\integrity",
+        "purpose": "Settings integrity snapshot ledger. Stores append-only JSONL records of ~/.claude/settings.json state (MCPs, hooks, plugins count/hashes) to detect unauthorized drift. Used by doctor.py --security mode via settings_integrity.py module. Created during v14.9 structure migration (2026-05-10).",
+        "n": 1,
+        "do_not_touch": [
+          "integrity/settings.snapshots.jsonl (security audit trail — used by doctor.py --security mode, part of v14.9+ integrity checking framework)",
+          "scripts/cockpit/settings_integrity.py (active module, imported by doctor.py for DetectionO security checks)",
+          "scripts/cockpit/doctor.py lines 1069-1101 (active _check_settings_integrity function calling settings_integrity.verify())"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "purpose": "Temporary scaffolding layer for domain-specific knowledge stubs (cpp-ue5, opengl, python-modern, typescript-web, supabase, claude-platform, cpp-modern, csharp-unity). Created 2026-05-09 as empty stubs by consistency-fix automation. Originally intended to hold cached domain knowledge and track reads via track-knowledge-reads.py hook. DEPRECATED: full knowledge now lives in ~/.ultron-vault/10_KNOWLEDGE/ with real content. Local folder is now redundant orphaned scaffolding—all personas reference vault files, not local stubs. Folder contains only placeholder index.md files created 2026-05-09 saying 'Completar con conocimiento recurrente del dominio'—never filled in. Used by track-knowledge-reads.py hook (watches ~/.ultron/knowledge/**) but hook will resolve paths to vault if content migrates. Folder is gitignored (entire knowledge/ in .gitignore line 133).\"",
+        "n": 9,
+        "do_not_touch": [
+          "track-knowledge-reads.py hook (scripts/hooks/) — actively used by PostToolUse to track knowledge reads; if knowledge/ folder deleted, hook should be updated to use vault path instead"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/assets",
+        "purpose": "Almacena capturas de pantalla (hero shots) destinadas a README.md/README.es.md. La carpeta se creó en v15.2.37 para documentar la UI del Control Center con imágenes, pero la característica de incrustar estas screenshots en el README fue abandonada en v15.2.7. Actualmente no se usa en runtime; solo está versionada y documentada en assets/screenshots/README.md (catálogo self-describing).",
+        "n": 3,
+        "do_not_touch": []
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "purpose": "Audit reports and analysis snapshots from ULTRON system evaluation and v14-v15 transition. The folder is used by: (1) `scripts/cockpit/deadwood_scanner.py` — writes on-demand deadwood reports via `--report` flag; (2) `scripts/cockpit/token_baseline.py` — writes token measurement snapshots regularly (most recent 2026-05-12); (3) `scripts/cockpit/doctor.py` — references deadwood baseline for cross-checking system health; (4) `scripts/cockpit/audit_index.py` — scans audits/ to build manifest JSON. Folder is marked in DEEP-CLEANUP-2026-06-04.md as CONSERVAR (KEEP) and is gitignored per .gitignore rules, written to by active hooks/tools.",
+        "n": 19,
+        "do_not_touch": [
+          "audits/",
+          "audits/token-baseline-2026-05-12.tsv",
+          "audits/token-baseline-2026-05-08.tsv"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "purpose": "Persistent queue for failed/rejected batch commands. The batch-capture.js Stop hook auto-captures commands that Claude cannot execute (permission denied, script errors, tool unavailable) and writes them to queue-pending.jsonl + corresponding .ps1 scripts. The Tauri backend (batches_queue.rs) drains these into queue.jsonl and presents them in the Control Center UI for one-click human-gated re-runs. Also contains legacy Python helper scripts (extract-tail.py, find-topics.py) for session analysis from May 2026. This is BOTH operational (live queue) and historical (dead batches + old helpers).",
+        "n": 17,
+        "do_not_touch": [
+          "batches/queue-pending.jsonl"
+        ]
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\qdrant-native",
+        "purpose": "Fallback Qdrant v1.18.0 native binary (Windows) prepared during v15.0.2 transition from Docker to native qdrant.exe. Purpose: migrate semantic recall to standalone binary when Docker/WSL2 backend unavailable. Status: DEPRECATED - not actively used. The active Qdrant v1.13.0 runs from D:\\Ultron\\qdrant\\ (external to .ultron tree), launched by scripts/hooks/ensure-qdrant.ps1. The newer ensure-qdrant.ps1 in scripts/qdrant/ references this folder but never executes because session-init.ps1 still calls the D:\\Ultron path handler.",
+        "n": 3,
+        "do_not_touch": [
+          "C:\\Users\\USER\\.ultron\\qdrant_storage (ACTIVE: 392.14 MB shared storage, LIVE collections/aliases/snapshots used by D:\\Ultron\\qdrant\\qdrant.exe)",
+          "C:\\Users\\USER\\.ultron\\scripts\\hooks\\ensure-qdrant.ps1 (ACTIVE: called from session-init.ps1:289, launches D:\\Ultron qdrant)",
+          "C:\\Users\\USER\\.ultron\\scripts\\qdrant\\ensure-qdrant.ps1 (PREPARED but NOT ACTIVE: fallback for qdrant-native, may be wired in future)",
+          "D:\\Ultron\\qdrant\\qdrant.exe (EXTERNAL but ACTIVE: v1.13.0, running PID 12216, semantic recall in use)"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/qdrant_storage",
+        "purpose": "Active Qdrant vector database storage for ULTRON's semantic memory system. Houses two primary collections (ultron_skills: semantic index of 380+ installed skills for routing; ultron_vault: embedding index of notes/sessions for cross-project recall). Used live by embed_skills.py, embed_vault.py, embed_agents.py, context_primer.py, and hybrid_retriever.py. Qdrant server running on :6333 (PID 12216) with mcp-server-qdrant (PID 30712) actively serving memory queries.",
+        "n": 2,
+        "do_not_touch": [
+          "qdrant_storage/collections/ultron_skills",
+          "qdrant_storage/collections/ultron_vault",
+          "qdrant_storage/collections/ultron_skills/0/segments",
+          "qdrant_storage/collections/ultron_vault/0/segments",
+          "qdrant_storage/collections/ultron_skills/0/wal",
+          "qdrant_storage/collections/ultron_vault/0/wal",
+          "qdrant_storage/raft_state.json"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/personal",
+        "purpose": "Gitignored folder storing user private profile, writing style fingerprint, and ad-hoc technical notes. Used by generate_L0.py and memory_md_generator.py to read profile.md for L0 session context. Originally designed to hold auto-generated user identity (via known.json) before migration to Mem0 cloud semantic memory system (v15.2).",
+        "n": 2,
+        "do_not_touch": [
+          "C:/Users/USER/.ultron/personal/profile.md"
+        ]
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "purpose": "Almacena documentación técnica oficial del proyecto ULTRON Control Center (v2.7.1 actual): arquitectura del backend (memoria Qdrant, recall RRF), procesos de release, instalación, onboarding, y planes detallados de implementación de características. Usada por desarrolladores nuevos, documentación de auditoría de arquitectura (web/index.html) y como referencia histórica de decisiones de diseño.",
+        "n": 21,
+        "do_not_touch": [
+          "docs/ARCHITECTURE-overview.md",
+          "docs/COMMANDS.md",
+          "docs/CHANGELOG-POLICY.md",
+          "docs/INSTALL.md",
+          "docs/INSTALL-ADVANCED.md",
+          "docs/MAINTAINERS.md",
+          "docs/QUICKSTART.md",
+          "docs/RELEASE-PROCESS.md",
+          "docs/memory-layers.md",
+          "docs/skills-manifest-schema.md",
+          "docs/ONBOARDING-fullize.md",
+          "docs/MEMORIA-presentacion.md",
+          "docs/web/index.html",
+          "docs/superpowers/specs/2026-05-23-control-center-2.0-design.md"
+        ]
+      },
+      {
+        "folder": "logs",
+        "purpose": "Operational diagnostic logging for Ultron memory integration. Currently stores Mem0 (cloud memory service) API call logs in JSONL format. Used by the Control Center UI to surface API diagnostics, latency metrics, error tracking, and request/response excerpts to users for troubleshooting Mem0 connectivity and memory operations. The folder is actively maintained by mem0.rs (Rust backend) which appends a log entry on every API call (status, search, add, list operations).",
+        "n": 0,
+        "do_not_touch": [
+          "logs/mem0.jsonl"
+        ]
+      }
+    ],
+    "safe_high_conf_low_risk": [
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\telemetry",
+        "path": "telemetry/dispatcher-events.jsonl",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 2.77,
+        "evidence": "LastWriteTime: 22/05/2026 21:22:58 (13 dias), 2900KB. Este archivo es escrito por intent-dispatcher.py hook (PostToolUse) que registra eventos de routing. Según config/doctor-rules.yaml telemetry_days: 180, estos eventos deben rotarse cada 60d (retention.py línea 245). Sin embargo el código que lo hace busca la ruta antigua (cockpit/telemetry/dispatcher-events.jsonl) línea 242, NO la ruta actual ~/.ultron/telemetry/dispatcher-events.jsonl. Esto significa el rotation NO está funcionando en la ruta actual. Los datos son puros logs/telemetría que pueden regenerarse en cualquier momento. dispatcher_audit.py lo utiliza para análisis histórico pero no es crítico. No hay referencias en control-center/src-tauri/src/activity_timeline.rs (que lee de .tmp/, cockpit/, alerts.jsonl pero NO de telemetry/).",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "cockpit/__pycache__",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 1.298,
+        "evidence": "60 cpython-313 and cpython-314 .pyc files. All regenerable from corresponding .py sources. Automatic Python cache created on import. Latest timestamp 2026-06-04.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "hooks/__pycache__",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.301,
+        "evidence": "16 cpython-313 and cpython-314 .pyc files. Regenerable. Includes 3 tmp*.pyc files (tmpu9ehuw8g, tmpta64t12b, tmphutfd_sh) created 2026-05-21, likely from temporary hook execution.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/ULTRON-v14-MASTER-DEFINITIVO.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.105,
+        "evidence": "Pre-Genesis ULTRON v14 master plan (105 KB). Created 2026-05-05. Replaced by MEGA-PLAN-v15.md (2026-05-21) and 2026-05-21-roadmap-ultron-1.0.md. Last commit: c3c3d52 (2026-05-16). No current references.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\telemetry",
+        "path": "telemetry/sync-events.jsonl",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.07,
+        "evidence": "LastWriteTime: 22/05/2026 14:55:55 (13 dias), 78KB. Registra eventos de sincronización de skill_manifest y auto-discovery (skill_manifest.py, registry_sync.py). Contiene contadores de eventos 'sync' y 'auto-discover' agregados, NO datos individuales críticos. Últimas entradas muestran solo estadísticas de 392 skills sin cambios netos (added_wellknown:0, added_auto_discover:0). Regenerable en la próxima sincronización.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-09",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.061,
+        "evidence": "Session from 2026-05-09 (27 days old). Largest at 61 KB, contains dual-caps, game-sessions.jsonl, on-wake.log (13 KB), replay.jsonl (32.3 KB), routing.jsonl. Heavy session day but no current active references.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-16",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.061,
+        "evidence": "Session from 2026-05-16 (20 days old). Large (61 KB) with activity.jsonl (1.3 KB), game-sessions.jsonl (152 bytes), on-wake.log (1.1 KB), replay.jsonl (28.9 KB), routing.jsonl (16.5 KB). Heavy session but archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-17",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.058,
+        "evidence": "Session from 2026-05-17 (19 days old). Contains compaction-log.jsonl (297 bytes), game-sessions.jsonl, on-wake.log (1.7 KB), replay.jsonl (30 KB), routing.jsonl (20.2 KB). This date marks MEMORY.md generation ('auto-gen 2026-05-22' references '2026-05-17' as profile generation date), but session is still archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-08",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.053,
+        "evidence": "Session from 2026-05-08 (28 days old). Larger folder (53 KB) with activity.jsonl showing registry_sync propagation events, game-sessions, on-wake.log (11 KB), replay.jsonl (19.6 KB). Heavy ULTRON background automation day but archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/resolved-2026-05.json",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.05,
+        "evidence": "Resolved tasks JSON log (50 KB) from 2026-05-19 (last commit c3c3d52). Large resolved log, regenerable from PLANS.json. Archive only. Last modified 2026-05-19.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "MEGA-PLAN-v15.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.046,
+        "evidence": "Macro roadmap v15 (46 KB, 2026-05-21). Document header (line 3) states: 'status: SUPERSEDED by plans/2026-05-21-roadmap-ultron-1.0.md'. Contains historical context (v14→v15) but no longer the active roadmap. PLANS.json (schema 7.0) is current SSOT.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/ULTRON-v12.4-token-memory-skill-network.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.045,
+        "evidence": "ULTRON v12 pre-Genesis architecture doc (45 KB). Created 2026-05-02. Superseded by v13-v15 evolution. Listed in _archive/README.md as historical (pre-Genesis). Last commit: c3c3d52. No active references.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-06-kirkardo-genesis-14-audit.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.045,
+        "evidence": "Genesis-14 audit report from 2026-05-08 (45 KB), marked COMPLETE in _archive/README.md. Last commit: c3c3d52. Superseded by 2026-05-21 evaluation suite.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/superseded-by-PLANS-json-2026-05-09/2026-05-09-MACRO-roadmap-v14.2-to-v15.0.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.038,
+        "evidence": "Folder name explicitly says 'superseded-by-PLANS-json'. This file (38 KB) replaced by PLANS.json (schema 6.0+) as per 2026-05-09 decision. Archive README confirms: 'MASTER.md, 2026-05-09-MACRO-{INDEX,roadmap...}' replaced by PLANS.json + active specs. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-06",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.037,
+        "evidence": "Session from 2026-05-06 (30 days old). Contains game-sessions.jsonl, on-wake.log (5 KB), replay.jsonl (21.5 KB), routing.jsonl. Game dev session activity but no current references.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-10",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.036,
+        "evidence": "Session from 2026-05-10 (26 days old). Contains game-sessions.jsonl, on-wake.log (9.1 KB), replay.jsonl (14 KB), routing.jsonl. Similar to 2026-05-09 pattern.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-03",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.034,
+        "evidence": "Old session from 2026-05-03 (33 days old). Contains dual-caps.json, triple-caps.json, replay.jsonl (22.6 KB), routing.jsonl. Superseded by more recent sessions. No current references.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-04",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.034,
+        "evidence": "Session from 2026-05-04 (32 days old). Contains caps tracking (dual/triple), replay.jsonl (22.9 KB), routing.jsonl. Similar pattern to 2026-05-03. No active usage.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-05",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.033,
+        "evidence": "Session from 2026-05-05 (31 days old). Contains dual-caps.json, on-wake.log, replay.jsonl (23.5 KB), routing.jsonl. Part of early May batch before brain_index stabilized.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-04-ultron-v14-overhaul-master.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.033,
+        "evidence": "v14 overhaul draft (33 KB) from 2026-05-04. Has v3 variant in same dir (2026-05-04-ultron-v14-overhaul-master-v3.md). Both replaced by MEGA-PLAN-v15.md. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/superseded-by-PLANS-json-2026-05-09/2026-05-09-MACRO-ops-manual.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.031,
+        "evidence": "MACRO ops manual (31 KB) in superseded folder. Replaced by PLANS.json schema consolidation. Dated 2026-05-08, last commit c3c3d52. No current operational references.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "hooks/tmpu9ehuw8g.cpython-313.pyc",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.028,
+        "evidence": "Temporary Python cache file with random name prefix (tmp*). Created 2026-05-21 11:47:02. Likely artifact from temporary script execution or unit test run. No corresponding .py source file found. Safe to delete as regenerable/orphaned.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "hooks/tmpta64t12b.cpython-313.pyc",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.028,
+        "evidence": "Temporary Python cache file with random name prefix (tmp*). Created 2026-05-21 11:47:02. Orphaned artifact. No corresponding source. Safe to delete.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "hooks/tmphutfd_sh.cpython-313.pyc",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.028,
+        "evidence": "Temporary Python cache file with random name prefix (tmp*). Created 2026-05-21 11:47:02. Orphaned artifact from hook execution or test. No source file. Safe to delete.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-04-ultron-v14-overhaul-master-v3.md",
+        "category": "duplicate",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.028,
+        "evidence": "Duplicate variant of 2026-05-04-ultron-v14-overhaul-master.md (both ~28-33 KB). v3 is 2026-05-04 22:12, v1 is 2026-05-04 17:08. Both obsolete pre-Genesis versions. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-04-sprint-0-cleanup.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.028,
+        "evidence": "v14 Genesis sprint cleanup report (28 KB, 2026-05-04). Marked complete in _archive/README.md. Last commit: c3c3d52. Replaced by current PLANS.json tracking.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "__pycache__/consistency_check.cpython-313.pyc",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.027,
+        "evidence": "Python bytecode cache file. Regenerable from consistency_check.py. Last written 2026-05-20 14:37:26.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-08-hiper-plans-master.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.027,
+        "evidence": "Hiper Plans skill master (27 KB, 2026-05-08). Archive README states: 'Hiper Plans skill (BUILT v14.3.0)' — built artifact. Last commit: c3c3d52. No current plan references.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "MACRO-PLAN-FINAL-v15-publish.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.025,
+        "evidence": "Final v15 macro plan for publish (25 KB, 2026-05-21). Superseded by 2026-05-21-roadmap-ultron-1.0.md v2 (post-Codex adversarial review). Last commit: 2da76db (2026-05-16).",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-12",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.024,
+        "evidence": "Session from 2026-05-12 (24 days old). Contains replay.jsonl (14 KB) and routing.jsonl (4.2 KB). No special files or active references.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-13",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.024,
+        "evidence": "Session from 2026-05-13 (23 days old). Contains replay.jsonl (17.4 KB) and routing.jsonl (802 bytes). Standard session files, no references in current .tmp or cockpit.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-18",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.024,
+        "evidence": "Session from 2026-05-18 (18 days old). Contains replay.jsonl (11 KB) and routing.jsonl (11.5 KB). No special files. Last write 2026-05-18 21:48:54. Fully archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-02",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.022,
+        "evidence": "Session from 2026-05-02, now 34 days old. Contains dual-caps.json (41 bytes), on-wake.log, replay.jsonl, routing.jsonl. Referenced for historical pattern only. Not in current active paths.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/superseded-by-PLANS-json-2026-05-09/2026-05-09-MACRO-execution-prompts.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.022,
+        "evidence": "MACRO execution prompts (22 KB) in superseded folder. Part of pre-PLANS.json schema. Dated 2026-05-08, last commit c3c3d52. Replaced by PLANS.json (schema 7.0 as of 2026-05-23).",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/ULTRON-v11.2.0-fixes-memory.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.021,
+        "evidence": "ULTRON v11.2 fixes changelog (21 KB, 2026-04-29). Pre-Genesis legacy (v11 era). Archive README lists as historical pre-v13. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-07",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.018,
+        "evidence": "Session from 2026-05-07 (29 days old). Smaller folder (18 KB) with game-sessions.jsonl, on-wake.log, replay.jsonl (9.1 KB), routing.jsonl. Light activity day, archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/superseded-by-PLANS-json-2026-05-09/2026-05-09-MACRO-brainstorm-and-risks.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.018,
+        "evidence": "Brainstorm/risks doc (18 KB) in superseded folder. Pre-PLANS.json decision. Dated 2026-05-08, last commit c3c3d52. Replaced by structured PLANS.json spec tracking.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/ULTRON-roadmap-to-9.5-2026-05-03.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.018,
+        "evidence": "Pre-Genesis roadmap to v9.5 (18 KB, 2026-05-03). Archive README: pre-Genesis v10-v13 sprints. Last commit: c3c3d52. Completely superseded.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/code-review-genesis-14.1-2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0166,
+        "evidence": "Code review snapshot from v14.1 genesis release cycle (2026-05-08). Historical review document: 'Bottom line: ship v14.1.1'. Related to v14.1 release which has since evolved to v15.x. 27 days old. Not active evaluation, only reference value.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-04-sprint-1-silent-alerts.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.015,
+        "evidence": "v14 Genesis sprint 1 report (15 KB, 2026-05-05). Marked COMPLETE in _archive/README.md. Last commit: c3c3d52. Replaced by PLANS.json.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-01",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.013,
+        "evidence": "First session folder, dated 2026-05-01, now 35 days old. Contains only replay.jsonl (288 bytes), routing.jsonl, and a planning note (next-session-ultron-v12.4.md). No active references in current brain_index or routing. Smallest folder indicates minimal activity on that date.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-19",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.013,
+        "evidence": "Session from 2026-05-19 (17 days old). Contains compaction-log.jsonl (99 bytes) - minimal size, replay.jsonl (4.4 KB), routing.jsonl (1.5 KB). Light day, archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-20",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.013,
+        "evidence": "Session from 2026-05-20 (16 days old). Contains game-sessions.jsonl (532 bytes), on-wake.log (3.9 KB), replay.jsonl (3 KB), routing.jsonl (3.9 KB). No current references. Archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/ULTRON-v13.0-truth-boundary-blueprint.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.013,
+        "evidence": "ULTRON v13 blueprint (13 KB, 2026-05-03). Pre-Genesis v13 era. Archive README lists as historical. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-21/v15.1-control-center.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.013,
+        "evidence": "v15.1 Control Center spec (13 KB, 2026-05-13) archived in 2026-05-21 subfolder. Superseded by current PLANS.json and 2026-05-21-roadmap-ultron-1.0.md. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/v141-genesis-audit-2026-05-06.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.013,
+        "evidence": "v14.1 GENESIS complete audit (2026-05-06). Documents cleanup executed: 'LIMPIEZA EJECUTADA'. Records items deleted (bin/, news/, skill_cache, INDEX.md, cockpit/jobs, backups). This IS a historical record of what was done pre-v14.9 migration. 29 days old. Not regenerable — records past cleanup decisions. Value is archival only.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/skill-pi-audit-2026-05-07.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.013,
+        "evidence": "Skill π audit (pi-audit) from 2026-05-07 21:42. Likely persona/skill network analysis snapshot. Not referenced by active code. 28 days old. Regenerable analysis.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/research-skill-listing-2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.013,
+        "evidence": "Skill listing research with token impact analysis (2026-05-08 18:08). v14 research cycle output documenting 'truncation cost estimates' and prior audit references. Not applied/current. 27 days old.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-11",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.012,
+        "evidence": "Light session from 2026-05-11 (25 days old). Only replay.jsonl (7.7 KB) and routing.jsonl (2.5 KB), total 12 KB. Minimal activity, archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-21",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.012,
+        "evidence": "Session from 2026-05-21 (15 days old). Last write 2026-05-21 12:03:36. Contains replay.jsonl (1.6 KB) and routing.jsonl (5.3 KB). Noted in .tmp/current-session.json highlights as having a highlight file (highlight-2026-05-21-718f4c48.md) which is stored separately in highlights/ folder, not sessions/. This session folder is archived.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-09.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.011,
+        "evidence": "Session summary from 2026-05-09 (27 days old). 11.5 KB - largest session log file.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-17.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.011,
+        "evidence": "Session summary from 2026-05-17 (19 days old). 11.4 KB session log. Date when MEMORY.md auto-gen profile was created, but the log is archival.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/ULTRON-v13.0-arch-01-ssot.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.011,
+        "evidence": "ULTRON v13 architecture SSOT (11 KB, 2026-05-03). Pre-Genesis v13 era document. Archive README: historical reference only. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/research-prompt-cache-2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.011,
+        "evidence": "Research notes on Claude API prompt caching SOTA (2026-05-08 18:56). Investigation output from v14 research cycle. Archival value only — findings may be outdated (Claude API updated since May). 27 days old. Not runtime-referenced.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/ULTRON-v12.6-cron-resurrection-changelog.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.01,
+        "evidence": "ULTRON v12.6 changelog (10 KB, 2026-05-03). Pre-Genesis v12 era. Archive README lists. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-09-roadmap-v14.2-to-v15.0.md",
+        "category": "duplicate",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.01,
+        "evidence": "Duplicate of 2026-05-09-MACRO-roadmap-v14.2-to-v15.0.md (in superseded-by-PLANS-json-2026-05-09 folder). Archive README: '2026-05-09-roadmap-v14.2-to-v15.0.md — duplicate de MACRO-roadmap (replaced)'. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/INSTRUCCIONES.md",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.009,
+        "evidence": "Pre-Genesis instructions doc (9 KB, 2026-05-03). Archive README lists as Pre-Genesis era. Last commit: c3c3d52. No current operational value.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-15",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.008,
+        "evidence": "Session from 2026-05-15 (21 days old). NOTE: 2026-05-14 is missing (likely skipped/no session). This is smallest at 8 KB with replay.jsonl (3.6 KB) and routing.jsonl (1 KB). Very light activity.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-04.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.008,
+        "evidence": "Session summary from 2026-05-04 (32 days old). 8.2 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-05.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.008,
+        "evidence": "Session summary from 2026-05-05 (31 days old). 8.7 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-06.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.008,
+        "evidence": "Session summary from 2026-05-06 (30 days old). 8.9 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-16.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.008,
+        "evidence": "Session summary from 2026-05-16 (20 days old). 9 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/CONTINUACION-FINAL-2026-05-03.md",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.008,
+        "evidence": "Session continuation notes from 2026-05-03 (8 KB). Archive README lists 5 CONTINUACION-* files as session notes from 2026-05-03. No structured plan, no current references. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/research-async-embed-2026-05-09.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0079,
+        "evidence": "Research note on async embedding (2026-05-09 00:54). Research worker output for v14 design phase. Not executed/implemented, just investigated design space. 26 days old.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/doctor-warn-triage-2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0073,
+        "evidence": "Doctor tool triage report from post-genesis phase (2026-05-08 01:00). Documents two legitimate hooks flagged for re-baselining. Milestone report, not actively updated. 27 days old.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/plans-audit-2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0073,
+        "evidence": "Master plan audit from v14.1.1 era (2026-05-08). Maps v11-v14 roadmap supersession: 'v14.0.0 GENESIS shipped 2026-05-06'. Documents plan absorption/closure, not current development state. 27 days old.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.007,
+        "evidence": "Session summary from 2026-05-08 (28 days old). 7.2 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/ULTRON-v14.0-reactive-plane-outline.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.007,
+        "evidence": "ULTRON v14 architecture outline (7 KB, 2026-05-03). Pre-Genesis planning doc. Archive README lists. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-21/2026-05-13-entrega-memoria-design.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.007,
+        "evidence": "Memory design handover (7 KB, 2026-05-13) archived in 2026-05-21. Superseded by current Mem0 implementation. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/deadwood-phase2-post.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0061,
+        "evidence": "'Phase2-post' suffix indicates end-of-phase snapshot from post-cleanup analysis (2026-05-07 17:58). Likely a milestone report from v14.0 GENESIS cycle. Not regenerated or active. 28 days old, predates most v15 work.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-02.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.006,
+        "evidence": "Session summary from 2026-05-02 (34 days old). 6.2 KB session log. Not referenced in current system.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-03.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.006,
+        "evidence": "Session summary from 2026-05-03 (33 days old). 6.5 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/superseded-by-PLANS-json-2026-05-09/MASTER.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.006,
+        "evidence": "Master plan document (6 KB) in superseded folder. Dated 2026-05-09. Replaced by PLANS.json. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/superseded-by-PLANS-json-2026-05-09/2026-05-09-MACRO-INDEX.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.006,
+        "evidence": "MACRO index (6 KB) in superseded folder. Dated 2026-05-09. Archive README references it was replaced. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-21/2026-05-09-v14.9-STRUCTURE.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.006,
+        "evidence": "v14.9 structure doc (6 KB, 2026-05-09) archived in 2026-05-21. Superseded by later v15 structure. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/deadwood-2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.006,
+        "evidence": "Deadwood scan 2026-05-08 01:14, similar to baseline but generated later. Superseded by 2026-05-09 report. 27 days old. Not actively maintained, regenerable on demand.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/deadwood-2026-05-07.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0058,
+        "evidence": "First dated deadwood scan (2026-05-07 23:48). Regenerable from deadwood_scanner.py. Shows 25 findings. Superseded by 2026-05-08 and 2026-05-09 reports with fewer/different findings (25→24 items). 28 days old. Not runtime-referenced.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/deadwood-2026-05-09.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0057,
+        "evidence": "Most recent deadwood report (2026-05-09 12:08). Still 26 days old. Regenerable via `deadwood_scanner.py --report`. Not static data — tool can re-run to update. doctor.py references deadwood-baseline.md specifically, not this dated one.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/hook-cache-audit-2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0052,
+        "evidence": "Hook cache analysis for v14.4 P2 phase (2026-05-08 18:57). Strategy document: 'Refactor propuesto (v14.4 P2)'. Not current — v14.4 phase completed, system evolved to v15. 27 days old.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/CONTINUACION-4-SPRINT3-DONE-2026-05-03.md",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.005,
+        "evidence": "Session continuation note (5 KB, 2026-05-03). Part of 5-file CONTINUACION series. Archive README lists as session notes. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/CONTINUACION-3-2026-05-03.md",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.005,
+        "evidence": "Session continuation note (5 KB, 2026-05-03). Part of CONTINUACION series. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/CONTINUACION-2026-05-03.md",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.005,
+        "evidence": "Session continuation note (5 KB, 2026-05-03). First in CONTINUACION series. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/CONTINUACION-2-2026-05-03.md",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.005,
+        "evidence": "Session continuation note (5 KB, 2026-05-03). Part of CONTINUACION series. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-21/v15.0.1-dual-mode-v2.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.005,
+        "evidence": "v15.0.1 Dual Mode spec v2 (5 KB, 2026-05-12) archived in 2026-05-21. Superseded by later v15.x specs. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-09-pickup.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.005,
+        "evidence": "Last handover/pickup notes from 2026-05-08 (5 KB). Archive README notes as historic. Last commit: c3c3d52. Superseded by current PLANS.json tracking.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-21/v15.0-installer.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.005,
+        "evidence": "v15.0 installer spec (5 KB, 2026-05-16) archived in 2026-05-21. Deferred in PLANS.json (priority p3). Superseded by current development focus. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/skill-truncation-2026-05-07.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0049,
+        "evidence": "Skill truncation analysis (2026-05-07 20:59). Referenced in `research-skill-listing-2026-05-08.md` as 'Local audit' and in token_baseline.py docstring as prior analysis. Historical analysis, not current. 28 days old. Referenced for context only, not active logic.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-10.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "Session summary from 2026-05-10 (26 days old). 4.4 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-12.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "Session summary from 2026-05-12 (24 days old). 4.7 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-13.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "Session summary from 2026-05-13 (23 days old). 4.9 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-18.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "Session summary from 2026-05-18 (18 days old). 4.5 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-21/v15.4-control-center-polish.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "v15.4 Control Center polish spec (4 KB, 2026-05-17) archived in 2026-05-21. Superseded by current PLANS.json (schema 7.0, 2026-05-23). Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-21/MASTER-pendientes.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "Pending tasks list (4 KB, 2026-05-21) archived in 2026-05-21 subfolder. Superseded by PLANS.json. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/prompt-corpus-v14.5.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0037,
+        "evidence": "Prompt corpus inventory for v14.5 META-PROMPTER (2026-05-08 20:26). v14.5 is old version (current system is v2.7.1 Control Center, v15.x ULTRON). Phase 0 inventory from pre-implementation cycle. 27 days old. Not applied/current.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/plugin-audit-v14.4-p1-2026-05-08.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0034,
+        "evidence": "Plugin audit v14.4 Phase 1 (2026-05-08 18:29). Phase-specific report from v14.4 cycle, not current. 27 days old.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-07.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.003,
+        "evidence": "Session summary from 2026-05-07 (29 days old). 3.9 KB - light activity day.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-11.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.003,
+        "evidence": "Session summary from 2026-05-11 (25 days old). 3.7 KB - light day.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/qdrant-mcp-install-steps.md",
+        "category": "build-artifact",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.003,
+        "evidence": "Qdrant MCP install steps (3 KB, 2026-05-08). Artifact/procedure doc for v14.6 P0 from 2026-05-08. Archive README lists this was needed for v14.6 release. Regenerable if needed. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/cleanup-report-2026-05-02.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.003,
+        "evidence": "Pre-Genesis cockpit cleanup report (3 KB, 2026-05-02). Archive README: 'pre-Genesis cockpit cleanup'. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queue.jsonl",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.003,
+        "evidence": "Last modified 2026-06-01 18:00 (4 days old). This is the DRAINED queue file — historical archive of 5 old failed batch entries from epoch:1780329627 (April 2026). All marked 'failed' (Vercel CLI, node issues, etc.). The active queue is queue-pending.jsonl; this snapshot has been superseded. Stale copy of historical queue state.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-01.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.002,
+        "evidence": "Session summary from 2026-05-01 (35 days old). Human-readable timeline of Claude Code sessions. Superseded by more recent .md files and highlights in cockpit/highlights/. Archival only.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/resolved-2026-05-17.json",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.002,
+        "evidence": "Interim resolved tasks snapshot (2 KB, 2026-05-17). Superseded by resolved-2026-05.json. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-18/resolved-pre-ultra-sweep.json",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.002,
+        "evidence": "Pre-ultra-sweep resolved tasks (2 KB, 2026-05-18). Pre-release snapshot. Last commit: c3c3d52. Superseded.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\config",
+        "path": "config/paths.example.toml",
+        "category": "old-backup",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.002,
+        "evidence": "Archivo EXAMPLE sin uso activo en runtime. El codigo resuelve paths via dirs::home_dir() + env vars (.env.example documenta como override). Nunca cargado por harness o scripts. Creado 2026-05-10, editado 2026-06-04 (solo cambio reciente: paths.example.toml en docstring de release). Descripcion interna: 'Nothing reads this file at runtime today'. Regenerable desde comentarios en el archivo mismo.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-d3c4af3a1ed5.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.002,
+        "evidence": "Modified 2026-06-03 13:52 (8 days old). Git commit for memory system (session resume + pinning + schema). Exit code 2 with bash syntax error (quoted parenthesis in eval). Never retried. Dead batch.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/extract-tail.py",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.002,
+        "evidence": "Created 2026-05-25 23:20 (11 days old). 71-line utility script to extract last N user+assistant text turns from Claude Code .jsonl session files. Purpose: session debugging/analysis. Committed in b42837f (2026-05-26) 'helper scripts for session jsonl analysis'. Not imported/referenced anywhere in codebase. One-off tool for session post-mortem; regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/find-topics.py",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.002,
+        "evidence": "Created 2026-05-25 23:21 (11 days old). 57-line utility script to find user messages and assistant decisions about specific topics (graphify, mem0, multimodel, etc.) in session JSONL. Purpose: content extraction from archived sessions. Committed in b42837f (2026-05-26). No active code references. One-off archival tool; regenerable if topic analysis needed.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/personal",
+        "path": "/personal/last-sample.md",
+        "category": "orphan",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00185,
+        "evidence": "1.85 KB file dated 2026-05-16 (19 days old). Grep shows ZERO references in entire codebase (scripts, config, UI, tests). Not mentioned in gitignore. File contains a personal technical note about UE5 Niagara particles — appears to be ad-hoc documentation that was never integrated into any system (no imports, no references, orphaned).",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\telemetry",
+        "path": "telemetry/recall-events.jsonl",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "LastWriteTime: 10/05/2026 19:17:08 (25 dias), 1144 bytes. Archivo JSONL muy pequeño escrito por hybrid_retriever.py para registrar búsquedas MemorIA (vectorial y FTS). No ha sido modificado en 25 dias. Auto-recall.py línea 296 menciona que recall-events.jsonl fue estable pero este es log puro para debugging. No es crítico para operaciones.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-15.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Session summary from 2026-05-15 (21 days old). 946 bytes - very light (2026-05-14 skipped).",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-19.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Session summary from 2026-05-19 (17 days old). 1.9 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-20.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Session summary from 2026-05-20 (16 days old). 1.9 KB session log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/projects",
+        "path": "projects/templates",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Directory contains only a boilerplate PROJECT.md template with placeholders (YYYY-MM-DD, [Nombre del Proyecto], [Engine/Framework], etc.). This is a template artifact, not an actual project. LastWriteTime: 2026-05-16 (20 days ago) but file has never been instantiated — purely structural.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_inbox.md",
+        "category": "other",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Inbox marker file (0.861 B, 2026-05-20). Empty or minimal content. Appears to be inbox system artifact. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-324b6736659d.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 14:18 (11 days old). PowerShell script: auto-captured failed attempt to start control-center.exe. Syntax error: empty if condition 'if ()'. Failed once on 2026-06-04, never retried/fixed. Orphaned from queue-pending.jsonl entry (reason='failed'). Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-3867860951e7.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 18:41 (5 days old). Multi-line Python command to finanzas.db. Failed with UnicodeEncodeError (cp1252 emoji encoding). Exit code 1. One-time failure from external project (~/CARRERA/PROYECTOS_PERSONALES/Bank/finanzas). Orphaned batch.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-49e0771152d5.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 02:53 (7 days old). Disk usage diagnostic command (7 lines). Exit code 1. Outputs backup/log directory listing from early May 2026. Never retried. Orphaned diagnostic dump.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-8c6699cad94c.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 23:48 (2 days old). 4-line script: sleep 45 + interim build report. Hit Claude harness tool error 'Blocked: sleep 45' (sleep loops rejected). Not user-retryable; tool policy violation.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-8ccabc96fb93.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-05 00:02 (MOST RECENT, just now). Introspection script dumping Rust function source (src/memory/auto_approve.rs) + settings path queries. Exit code 1. Never succeeded. Orphaned diagnostic.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-aa918e06d7ab.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 19:45 (5 days old). Discord manage.py API call. Failed HTTP 403 Forbidden (guild members fetch). Exit code 1. From external ~/discord-setup project. Dead batch.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-abb301509a75.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 19:32 (5 days old). Discord cleanup.py script. HTTP 400 error (channel parent_id invalid). Exit code 1. From external ~/discord-setup. Orphaned batch.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-d5d90f55e72f.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 19:27 (5 days old). Discord setup_discord.py --dry-run. UnicodeEncodeError (cp1252 em-dash). Exit code 1. From ~/discord-setup. Dead batch.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-bce52c527045.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 18:41 (5 days old). Python finanzas.db query (June transactions). UnicodeEncodeError. Exit code 1. From external ~/Bank project. Orphaned.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-c999c9c6fb21.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 02:07 (7 days old). Git add for quota_watchdog.rs + other files. Failed: 'fatal: pathspec did not match any files'. Files were deleted/moved. Dead batch.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-edd0cd820273.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 02:07 (7 days old). Cargo check on memory/contradiction.rs. Compilation error: type mismatch (Option<bool> vs bool). Exit code 101. Represents resolved build error. Dead batch.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queued-f8de16fcc5f4.ps1",
+        "category": "dead-dep",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Modified 2026-06-04 02:07 (7 days old). Git add for ai_router.rs + components. Pathspec error (files don't exist). Exit code 128. Attempted to stage deleted files. Dead batch.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/qdrant_storage",
+        "path": "qdrant_storage/aliases/data.json",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Empty JSON file (contains only '{}', 2 bytes). Created 2026-05-13 09:16, modified same timestamp. No collection aliases are defined. This is boilerplate Qdrant config with no actual data.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-21.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0006,
+        "evidence": "Session summary from 2026-05-21 (15 days old). 629 bytes - minimal log.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/alfred.json",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00058,
+        "evidence": "Marked as deprecated in skill_manifest.json (status='deprecated', replaced_by='windows-admin'). No external references found outside manifest. Installed 2026-04-19, last modified 2026-05-22. Superseded by windows-admin skill which has identical functionality but is active.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/pana.json",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00054,
+        "evidence": "Marked as deprecated in skill_manifest.json (status='deprecated'). No external references. Last modified 2026-05-22. Cached digest, regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/warren.json",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00053,
+        "evidence": "Marked as deprecated in skill_manifest.json (status='deprecated'). No external references. Last modified 2026-05-22. Cached digest, regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/einstein.json",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00051,
+        "evidence": "Marked as deprecated in skill_manifest.json (status='deprecated'). No external references. Last modified 2026-05-22. Cached digest file with no live routing.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/cpp-modern/index.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0005,
+        "evidence": "Stub created 2026-05-09 via consistency-fix. Only placeholder text 'Creado auto 2026-05-09. Completar con conocimiento recurrente del dominio'. Never filled. Full knowledge layer exists in vault (cpp-modern/cpp-23-features.md). consistency_check.py EXPECTS folder to exist but doesn't require .md content. Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/cpp-ue5/index.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0005,
+        "evidence": "Stub created 2026-05-09, placeholder text only. skill_graph.json references cpp-ue5 files (gas.md, replication.md, enhanced-input.md, multiplayer.md) but all actual files exist at ~/.ultron-vault/10_KNOWLEDGE/cpp-ue5/ with full content. Local folder is empty scaffolding shell. Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/csharp-unity/index.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0005,
+        "evidence": "Stub created 2026-05-09, placeholder text only. No persona in skill_graph.json references knowledge/csharp-unity. Real knowledge exists in vault (csharp-unity/unity-fundamentals.md). Not referenced anywhere locally. Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/opengl/index.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0005,
+        "evidence": "Stub created 2026-05-09 with placeholder text. Real knowledge in vault at ~/.ultron-vault/10_KNOWLEDGE/opengl/ (pipeline.md, shaders.md with real content). skill_graph.json novalbos persona references vault files. No live references to local stubs. Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/python-modern/index.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0005,
+        "evidence": "Stub created 2026-05-09, placeholder text. Real knowledge in vault (python-modern/uv-ruff-ty.md). Not referenced by any persona. Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/supabase/index.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0005,
+        "evidence": "Stub created 2026-05-09, placeholder only. Real content in vault (supabase/auth-gotchas.md). Not referenced by personas. Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/typescript-web/index.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0005,
+        "evidence": "Stub created 2026-05-09, placeholder text. Real knowledge in vault (typescript-web/nextjs-supabase.md). Not referenced by personas. Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/don-claudio.json",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00049,
+        "evidence": "Marked as deprecated in skill_manifest.json (status='deprecated'). No external references. Last modified 2026-05-22. Standard deprecation pattern - cached digest only.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/mike-tyson.json",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00047,
+        "evidence": "Marked as deprecated in skill_manifest.json (status='deprecated'). No external references. Last modified 2026-05-22. Cached digest, regenerable from manifest.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/terry-davis.json",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00047,
+        "evidence": "Marked as deprecated in skill_manifest.json (status='deprecated'). No external references. Last modified 2026-05-22. Cached digest, regenerable from manifest.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/jordan-belfort.json",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.00044,
+        "evidence": "Marked as deprecated in skill_manifest.json (status='deprecated'). No external references. Last modified 2026-05-22. Cached digest only, regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/claude-platform/gemini-cli.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0004,
+        "evidence": "Created auto 2026-05-09 as stub (comment: 'Creado auto por consistency-fix 2026-05-09'). Only 2 lines placeholder text ('Completar con: modelos disponibles, flags clave, integracion ULTRON'). Full version exists at ~/.ultron-vault/10_KNOWLEDGE/claude-platform/gemini-cli.md with real content. Never populated locally since creation. Regenerable from vault.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/qdrant_storage",
+        "path": "qdrant_storage/snapshots/tmp",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0,
+        "evidence": "Empty temporary snapshot upload directory (snapshots/tmp/upload/ is 0 bytes). Created 2026-05-22, no actual snapshot files present. This is a staging directory for Qdrant snapshot uploads which have never been used.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/plans",
+        "category": "orphan",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0,
+        "evidence": "Directorio docs/plans/ está completamente vacío (0 bytes, ls -la muestra solo . y ..). Fue probablemente creado como placeholder pero nunca usado. Sin archivos.",
+        "safe_to_delete": true
+      }
+    ],
+    "needs_review": [
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\qdrant-native",
+        "path": "qdrant-native/qdrant.exe",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "high",
+        "size_mb": 84.04,
+        "evidence": "v1.18.0 binary (24 days old: 2026-05-11), superseded by v1.13.0 running from D:\\Ultron\\qdrant\\qdrant.exe (170+ days old). Newer version but NOT ACTIVE due to script infrastructure still pointing to D:\\Ultron path. Git history shows qdrant-native folder was added in commit 755b613 (v15.0.2, 2026-05-13) to provide native fallback when Docker unavailable. Last commit affecting qdrant-native was c3c3d52 (v15.2.0, 2026-05-16) which DELETED the folder from git (D status). Currently exists only on disk as untracked local fallback, not in repo. Last log activity: 2026-05-22 (13 days ago, stale). Process check (PID 12216) confirms D:\\Ultron binary is active, NOT qdrant-native. Two competing ensure-qdrant.ps1 scripts: (1) scripts/hooks/ensure-qdrant.ps1 references D:\\Ultron (used by session-init.ps1:289), (2) scripts/qdrant/ensure-qdrant.ps1 references qdrant-native (newer, prepared but not wired). Production.yaml points to ~/.ultron/qdrant_storage (shared with D:\\Ultron instance), indicating intent to swap binaries but transition never completed.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.5,
+        "evidence": "Carpeta completa docs/superpowers (500 KB total) contiene planes datados 2026-05-23 de fases 0b-0c y P1-P8, research, y specs. Todos fueron planes para ejecutar entre mayo-junio. Versión actual 2.7.1 ya implementó la mayoría. Los planes no tienen markers de COMPLETED ni de status. Sin referencias en código vivo.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skills",
+        "path": "skills/registry.json",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "high",
+        "size_mb": 0.32,
+        "evidence": "Archivo generado automaticamente 'SSOT go-forward (v15.0b WS6)' con timestamp 2026-05-22T21:24:12+02:00. Es la Single Source of Truth para el catalogo de skills: 52 active, 332 vaulted, 38 plugin. Regenerable via CLI command (registry_sync, skill_manifest). Referencias muertas: los 332 vaulted skills apuntan a ~/.ultron/skill-vault/* que NO existe fisicamente; son fantasmas del registro (migracion pendiente segun nota interna).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/assets",
+        "path": "assets/screenshots/skills-quarantined.png",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.29,
+        "evidence": "Última modificación: 2026-05-17 (19 días atrás). Mismo ciclo de vida que dashboard.png: creado v15.2.37, nunca efectivamente incrustado. Removed from README references en v15.2.7. No se usa en documentación activa, código, hooks o runtime. Solo existe en catálogo descriptivo (assets/screenshots/README.md). No hay búsquedas grep exitosas fuera de su propio archivo.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/assets",
+        "path": "assets/screenshots/dashboard.png",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.163,
+        "evidence": "Última modificación: 2026-05-17 (19 días atrás). Creado en v15.2.37 (feat screenshots), nunca fue efectivamente integrado en README activo. Git log muestra que fue removido de referencias README en v15.2.7 (commit b3707f6 'README bilingual ES+EN sin screenshots'). Actualmente NO referenciado en README.md, README.es.md, docs/web/index.html ni código vivo. Solo documentado en su propio catálogo (assets/screenshots/README.md). UI predates versión actual del Control Center.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-p4-projects-rearchitecture.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.128,
+        "evidence": "Plan de fase P4 ('Projects Rearchitecture'), el más voluminoso (128 KB). Datado 2026-05-23. Versión 2.7.1 ya reinventó projects con model Kanban, detach/reattach, project workspace. Sin seguimiento de ejecución.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-p5-agent-skill-library.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.061,
+        "evidence": "Plan de fase P5 ('Agent & Skill Library Packaging'). Datado 2026-05-23. Versión 2.7.1 ya tiene cockpit/curated-catalog.json con 78 agents + 119 skills (según web/index.html). Sin task tracking.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-p6-pc-diagnostic-redesign.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.051,
+        "evidence": "Plan de fase P6 ('PC Diagnostic Redesign'). Datado 2026-05-23. Versión 2.7.1 ya implementó diagnostics nativo (14 checks) según changelog fullize. Sin seguimiento de tareas.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-p2-skills-agents-rules-viewers.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.04,
+        "evidence": "Plan de fase P2 ('Skills, Agents, Rules, Viewers'). Datado 2026-05-23. Versión 2.7.1 ya ejecutó la mayoría de features (viewer tree, agent delegation, skill detection). Sin tracking de estado de tareas individuales.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-p1-memory-mem0.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.036,
+        "evidence": "Plan de fase P1 ('Memoria + Mem0'). Datado 2026-05-23. Versión actual 2.7.1 ya implementó memoria gobernada, storage brain.db + Qdrant (documentado en docs/web/index.html), y MCP integración. Sin seguimiento de qué tareas se completaron.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-p7-settings-cleanup.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.032,
+        "evidence": "Plan de fase P7 ('Settings Cleanup'). Datado 2026-05-23. Versión 2.7.1 ya ejecutó limpieza de settings + permisos. Sin task completion tracking.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-fase-0b-ai-router-removal.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.031,
+        "evidence": "Plan de fase 0b ('AI Router Removal', Strangler-style deacoplamiento) datado 2026-05-23, probablemente ejecutado ya (current version 2.7.1 con cambios muy posteriores en campaña 'fullize' 2026-05-30). El AI Router fue reescrito en fase de honestidad backend. Sin checkmarks COMPLETED ni status de ejecución. Referencia commits antiguos ('a9c48d5', '5284e47').",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/CHANGELOG-archive.md",
+        "category": "archive",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.029,
+        "evidence": "Archivo explícitamente archivado durante la campaña v2.3 (git commit 83a9493: 'release(v2.3.0)') el 2026-05-23. Contiene pre-2.0 (v15.x) history. El CHANGELOG activo en la raíz ya mantiene v2.x history. Nunca es referenciado en código vivo.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-p3-embedded-terminal.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.028,
+        "evidence": "Plan de fase P3 ('Embedded Terminal'). Datado 2026-05-23. Versión 2.7.1 ya tiene terminal integrada en UI (changelog fullize menciona PTY + terminal improvements). Sin task checklist o status final.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/SYSTEM-MAP.md.example",
+        "category": "old-version",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.024,
+        "evidence": "Template source para ~/.ultron/SYSTEM-MAP.md. 24 líneas. Referenced en install.ps1/install.sh step 4. Actual SYSTEM-MAP.md es 6054 bytes (2026-06-01), VIVO en el sistema.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-p8-kirkardo-gate-v2-tag.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.024,
+        "evidence": "Plan de fase P8 ('Kirkardo Gate + v2.0.0 Tag'). Datado 2026-05-23. Su goal fue cerrar v2.0 con gate UX >=9.5 / 10. La versión actual es 2.7.1 (hace meses que v2.0 fue tagueado). Plan ya ejecutado.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/CLAUDE.md.example",
+        "category": "old-version",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.022,
+        "evidence": "Template source para ~/.claude/CLAUDE.md. 22 líneas. Última actualización 2026-05-16 (v15.2.5 installer P0 fixes). Referenced en install.ps1 como copia obligatoria durante step 4. Es un archivo VIVO usado por el instalador. NOT deprecated.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/plans/2026-05-23-fase-0c-ultron-cleanup.md",
+        "category": "old-version",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.02,
+        "evidence": "Plan de fase 0c ('ULTRON cleanup', limpieza de módulos residuales del v1.x). Datado 2026-05-23, sin markers de COMPLETED. Versión actual 2.7.1 ya está limpia. No tiene seguimiento de ejecución.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/VAULT-README.md",
+        "category": "old-version",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.019,
+        "evidence": "Template source para ~/.ultron-vault/README.md. 19 líneas. Referenced en install.ps1 como vault README copy source. Archivo VIVO, onboarding.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/MEMORY.md.example",
+        "category": "old-version",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.018,
+        "evidence": "Template source para ~/.ultron/MEMORY.md. 18 líneas. Referenced en install.ps1/install.sh. Actual MEMORY.md en ~/.ultron es 5646 bytes (evolued since 2026-05-22). Archivo VIVO, onboarding crítico.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/batches",
+        "path": "batches/queue-pending.jsonl",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.015,
+        "evidence": "Last modified 2026-06-05 00:02 (just now, VERY RECENT). This is the ACTIVE pending batch queue file (14.8KB, 13 entries). Written by batch-capture.js Stop hook when commands fail/are rejected. Entries from 2026-06-03 to 2026-06-05 (memory settings, build errors, git commands, Discord setup failures). Control Center UI reads this to populate 'Run Batch' interface. batches_queue.rs actively consumes this. LIVE operational data.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-22",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.013,
+        "evidence": "Most recent session from 2026-05-22 (14 days old). Last write 2026-05-22 21:24:10. Contains compaction-log.jsonl (297 bytes), replay.jsonl (7.4 KB), routing.jsonl (1.1 KB). ULTRON MEMORY.md is dated 'auto-gen 2026-05-22', indicating this was last system update date. .tmp/current-session.json references 'LastCompactor: auto-2026-05-22-22b8c43a.md'. While archived, this is the most recent baseline for ULTRON system state. Can be deleted but mark as medium risk since it's the final known-good session before system went idle.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "skill-discovery.py",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.013,
+        "evidence": "Marked as deprecated in source comments ('maintainer-only'). Not referenced in any active code. Last modified 2026-05-18. Appears to be replaced by skill_discover.py and skill_finder.py in cockpit/ (newer versions present).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "backup/weekly-backup.sh",
+        "category": "duplicate",
+        "confidence": "high",
+        "risk": "high",
+        "size_mb": 0.013,
+        "evidence": "Shell version of weekly backup. Exists alongside backup/weekly-backup.ps1 (291 lines, v14.7 mirror-mode) and cockpit/auto-fixes/run-weekly-backup.ps1 (85 lines, newer). The shell variant is platform-specific (Linux/macOS) while Windows cockpit/ version is primary.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/research/2026-05-23-ecc-mem0-integration-notes.md",
+        "category": "old-backup",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.011,
+        "evidence": "Notas de research sobre integración de Mem0 en ECC. Datado 2026-05-23. Mem0 ya está integrado en v2.7.1 (memoria KG, detección de contradicciones, temporal resolution). Research es histórico, no contiene instrucciones de setup vigentes.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "persona-benchmark-runner.py",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.01,
+        "evidence": "Maintainer-only tool explicitly documented in docs/MAINTAINERS.md as needing relocation: 'scripts/persona-benchmark-runner.py → scripts/dev/persona-benchmark-runner.py'. Stage 1 only (static validation), Stage 2 (LLM-as-judge) is future work. Not called by any active code. Last modified 2026-05-18.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "routing-test-runner.py",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.01,
+        "evidence": "Maintainer-only regression harness for FAST PATH Layer 1. Documented in docs/MAINTAINERS.md as scheduled for relocation: 'scripts/routing-test-runner.py → scripts/dev/routing-test-runner.py'. Explicitly states: 'not user-facing'. Last modified 2026-05-18.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "memory-audit.py",
+        "category": "deprecated-code",
+        "confidence": "medium",
+        "risk": "medium",
+        "size_mb": 0.01,
+        "evidence": "Maintainer-only audit tool. Not referenced by active code. Last modified 2026-05-18. May be superseded by cockpit/memory_sync.py, cockpit/memory_bridge.py, or cockpit/memory_dedupe.py (newer memory management modules).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "cut-release.ps1",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.01,
+        "evidence": "Release management script. Documented in docs/MAINTAINERS.md for relocation: 'scripts/cut-release.ps1 → scripts/dev/cut-release.ps1'. Maintainer-only tool for version releases. Last modified 2026-05-18.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "register_wake_triggers.ps1",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "high",
+        "size_mb": 0.01,
+        "evidence": "Wake trigger registration script (replaced by cockpit/register_wake_triggers.ps1). Two versions exist: scripts/register_wake_triggers.ps1 (symlink/duplicate pattern) and cockpit/register_wake_triggers.ps1 (modified 2026-05-16). scripts/ version last modified 2026-05-16. Cockpit version is canonical location.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "ultron-paths.ps1",
+        "category": "duplicate",
+        "confidence": "high",
+        "risk": "high",
+        "size_mb": 0.01,
+        "evidence": "Root-level copy of cockpit/ultron_paths.py (Python) exists. This .ps1 file is likely a legacy PowerShell wrapper. Last modified 2026-05-18. Cockpit/ has the active Python implementation (ultron_paths.py, modified 2026-05-16) which is canonical.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\qdrant-native",
+        "path": "qdrant-native/config/production.yaml",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.01,
+        "evidence": "v15.0.2 configuration template for the native binary fallback (2026-05-13). Regenerable - points to ~/qdrant_storage paths which exist independently. Only referenced by the qdrant.exe fallback, not active. Config is static template, recreatable from install scripts.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/v2.0-kirkardo-rubric.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.008,
+        "evidence": "Rubrica UX de gate para v2.0.0 (mayo 2026). Versión actual es 2.7.1 (junio 2026). Su propósito era validar criterios de UX antes del tag v2.0.0 ya completado hace 1+ mes. La version 2.0.0 ya fué tagueada. No usado por versiones actuales de la app.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/CHANGELOG-fullize-2026-05-30.md",
+        "category": "other",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.008,
+        "evidence": "Changelog de la campaña 'fullize' (2026-05-30). Documenta Ola 1 (honestidad backend), Ola 2 (cockpit), Ola 3 (avanzado). Es histórico pero contiene resumen de features entregadas. Versionado en git. Puede ser referencia pero no es plan vivo.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/v2.5-EXTRA-RESEARCH.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.007,
+        "evidence": "Research adicional generado 2026-05-23 para v2.5 (rama de 8 backlog cards). Versión actual es 2.7.1. Contiene análisis de herramientas Graphify/Ralph/Obsidian/Hermes con veredictos de adopción. Nunca se referencia en código vivo ni en planes de ejecución actuales.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/settings-hooks.json",
+        "category": "old-version",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.006,
+        "evidence": "Template de hooks (189 líneas, 6117 bytes). ACTIVELY MERGED en ~/.claude/settings.json durante install (install.ps1 Update-ClaudeSettings function). Última actualización 2026-05-18 (v15.5.20 R5 fixes: leakage gate hardening, L3 scaffold). NO es un archivo deployed; es el FUENTE para merge. System-critical: define SessionStart hooks (session-init.ps1, detect_gaps.py), PreToolUse hooks (auto-approve-readonly.py, block-dangerous-bash.py, validate_push.py, mcp-resilience.py, skill_integrity_check.py), PostToolUse hooks (routing-telemetry.py, prompt-feedback-capture.py, track-knowledge-reads.py), PreCompact/PostCompact/Stop/UserPromptSubmit hooks. NOT deprecated, VIVO.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/deadwood-baseline.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0058,
+        "evidence": "Created 2026-05-07 19:20 as baseline snapshot (filename explicit). Superseded by dated reports (deadwood-2026-05-07 same day, deadwood-2026-05-08, deadwood-2026-05-09). Not actively referenced by any hook or runtime code; doctor.py references deadwood-baseline.md by name (hardcoded path) as a reference point but only for historical context. 28 days old. Same findings as subsequent reports (identical content through 2026-05-09).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/v2.3-RECOMMENDATIONS.md",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.005,
+        "evidence": "Recomendaciones de investigación generadas durante v2.3 (2026-05-23). Versión actual es 2.7.1. Contiene research sobre marketplace plugins y patrones agentic (Graphify, Ralph, Hermes) con veredictos 'apply', 'conditional', 'reference'. La investigación es histórica; no hay seguimiento de si fueron implementadas ni son links vivos.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\integrity",
+        "path": "integrity/settings.snapshots.jsonl",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.0046,
+        "evidence": "File created 2026-05-10 (pre-v14.9), last snapshot appended 2026-05-12 14:48:19 UTC (24 days stale from today 2026-06-05). 4 snapshots recorded: initial baseline, sync post-v15.0b, and final v15.2.0 release prep. No new entries since May 12. settings_integrity.py module IS actively used by doctor.py:_check_settings_integrity() for security audits (detection O), but this file hasn't been updated in 24 days despite module being functional. File is append-only ledger meant for long-term audit trail—currently 4KB of historical snapshots. Last modification date shows 2026-05-12 14:48:19, 24 days before current date (2026-06-05). Gitignore explicitly excludes it (line 48: integrity/settings.snapshots.jsonl), indicating it's config/state, not code. No regeneration script exists—only manual appends via settings_integrity.take_snapshot(). Module is actively callable via ultron.ps1 (security settings-snapshot/settings-diff/settings-verify), but no recent triggers recorded.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/skills-manifest.example.yaml",
+        "category": "old-version",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "Skills manifest (122 líneas, 4200 bytes). ACTIVELY PARSED durante install (install.ps1 Install-Skills function). Última actualización 2026-05-18 (fix R5.1: evaluators ≥9 baseline). Define core skills (ultron, senior-engineer, code-reviewer, debugger, refactoring-specialist, ui-designer, business-strategist, skill-creator, superpowers, webapp-testing, windows-admin, second-opinion, con slots vacíos para personal skills). Está VIVO, es la fuente de la skills picker interactiva. NOT deprecated.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\config",
+        "path": "config/cache-config.yaml",
+        "category": "old-backup",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.004,
+        "evidence": "REFERENCE/DOCUMENTATION, no runtime loading. Archivo autdescriptivo: 'It is REFERENCE, not active configuration'. Claude Code harness maneja cache_control, no ULTRON. Creado 2026-05-10, 0 cambios desde entonces. Contiene baseline de hit rate (96.6%) y diagrama de capas (stable/volatile). Notas internas apuntan a audits/research-prompt-cache-2026-05-08.md. Si se necesita cache info se consulta research-prompt-cache, no este archivo. Regenerable si se necesita reference volver a generar desde audits.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/superpowers/research/2026-05-23-p8-rubric-walkthrough.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "Log del walkthrough manual del Kirkardo gate durante v2.0.0 tag (2026-05-23). Contiene resultados de criterios UX individuales y paths de screenshots. El gate ya se cerró, versión 2.7.1 va muy adelante.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/RELEASE-CHECKLIST.md",
+        "category": "other",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.004,
+        "evidence": "Checklist de pasos pre-release. Último commit 2026-05-18. Referencia v15.2 (obsoleto). Pero es procedimiento interno. Podría ser genérico. Sin verificación de si sigue usado.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/docs",
+        "path": "docs/backup-strategy.md",
+        "category": "other",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.003,
+        "evidence": "Estrategia de backups para `.ultron/`. Último commit 2026-05-18 (16 días sin cambios). Versión actual 2.7.1, versión en doc v15.x. Parcialmente obsoleto pero documentación de procedimiento (podría servir de referencia histórica).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\instructions",
+        "path": "instructions/tasks/GUIDE.md",
+        "category": "obsolete-doc",
+        "confidence": "medium",
+        "risk": "high",
+        "size_mb": 0.0021,
+        "evidence": "Archivo creado 2026-05-15 (482 horas atrás). Sin cambios desde v15.2.1. Contiene guía para crear scheduled tasks Windows (TaskScheduler): convenciones de nombre ULTRON-*, PowerShell wrapper template, tareas registradas (UltronDoctor-Weekly, UltronBackup-Weekly, ULTRON-QdrantBoot), validación post-creación (Get-ScheduledTask, Start-ScheduledTask). Referencia a tareas que pueden estar desactualizadas (UltronDoctor-Weekly: doctor.py; UltronBackup-Weekly: weekly-backup.ps1) — sin verificación si estas tareas aún existen o se usan. Nunca fue modificado a pesar de 20 días. No hay invocación explícita en control-center UI para crear tasks. Riesgo ALTO: contenido potencialmente obsoleto; tareas y scripts referenciados pueden haber desaparecido o cambiado.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "sessions",
+        "path": "sessions/2026-05-22.md",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.002,
+        "evidence": "Most recent session summary from 2026-05-22 (14 days old). 2.8 KB. This is the final session log before system entered idle state. Can be deleted but represents the last known baseline of system operation.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "hooks/ensure-qdrant.ps1",
+        "category": "duplicate",
+        "confidence": "high",
+        "risk": "high",
+        "size_mb": 0.002,
+        "evidence": "Exact duplicate of qdrant/ensure-qdrant.ps1, but hooks/ version is 56 lines (simplified/older) vs qdrant/ version is 115 lines (full-featured v15.0.2+). Git history shows hooks/ version is referenced in recent commits (e57dbde, 755b613) related to Docker elimination. qdrant/ensure-qdrant.ps1 is the active version (modified 2026-05-13) with full parameters and proper exit codes.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "backup/install-backup-scheduler.ps1",
+        "category": "old-version",
+        "confidence": "medium",
+        "risk": "high",
+        "size_mb": 0.002,
+        "evidence": "Backup scheduler installer (v14.7). Last modified 2026-05-08. Superseded by cockpit/auto-fixes/run-weekly-backup.ps1 (mirror-mode, modified 2026-05-17) which is the newer implementation.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "qdrant/qdrant-bootcheck-hidden.vbs",
+        "category": "cache-temp",
+        "confidence": "medium",
+        "risk": "medium",
+        "size_mb": 0.002,
+        "evidence": "VBScript wrapper for hidden Qdrant health check execution. Last modified 2026-05-19. Used by Windows Task Scheduler to launch PowerShell scripts invisibly. Appears to be part of boot infrastructure.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/finance-tio-gilito-2026.md",
+        "category": "other",
+        "confidence": "high",
+        "risk": "high",
+        "size_mb": 0.002,
+        "evidence": "Finance/budget notes (2 KB, 2026-05-06) for Tio Gilito persona. Potentially contains personal financial data. Archive README lists as ad-hoc. Last commit: c3c3d52. CAUTION: may contain sensitive budget info.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/README.md",
+        "category": "obsolete-doc",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.002,
+        "evidence": "Archive README (2 KB, 2026-05-08). Documents what's in _archive/. If all archived files are deleted, this README becomes obsolete. Keep only if preserving history. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\instructions",
+        "path": "instructions/plans/GUIDE.md",
+        "category": "obsolete-doc",
+        "confidence": "medium",
+        "risk": "high",
+        "size_mb": 0.0019,
+        "evidence": "Archivo creado 2026-05-15 (482 horas atrás). Sin cambios desde v15.2.1. Contiene schema JSON para plans (~/.ultron/plans/PLANS.json): id, kind, title, status, priority, effort_hours, spec_path. Define comandos add_plan, update_plan, delete_plan, clean_resolved_plans. Comentario en Plans.tsx indica que cwd pasa al spawn_session ('cwd = ~/.ultron/instructions/plans/ so Claude auto-reads the GUIDE.md'). Sin embargo: (1) el contenido describe un modelo de plans antiguo (PLANS.json monolítico) que puede haber evolucionado, (2) referencias a utilidades específicas (clean_resolved_plans que archiva a plans/_archive/resolved-YYYY-MM.json), (3) nunca fue modificado a pesar de 20 días. Riesgo ALTO: contenido potencialmente desfasado del sistema de planes actual.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/assets",
+        "path": "assets/screenshots/README.md",
+        "category": "obsolete-doc",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.0018,
+        "evidence": "Catálogo de un feature abandonado. Describe 5 slots de screenshots (dashboard, skills-quarantined, memory-graph, plans-kanban, settings-lifecycle) pero solo 2 implementados en disco. Sección 'Pending' (líneas 28-32) completamente stale: documenta 'README enlaza con comentarios <!-- screenshot pending -->' pero README actual NO TIENE comentarios HTML ni referencias a estas imágenes. Última actualización en v15.2.37; nunca ejecutado. Audit report (plans/specs/repo-audit-2026-05-20.md P3 item #37) lo marcó como stale pero la tarea (actualizar sección Pending) no se completó. Documento describe feature que fue revertida en v15.2.7.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\instructions",
+        "path": "instructions/memory/GUIDE.md",
+        "category": "obsolete-doc",
+        "confidence": "medium",
+        "risk": "high",
+        "size_mb": 0.0017,
+        "evidence": "Archivo creado 2026-05-15 (482 horas atrás). Sin cambios desde v15.2.1. Contiene guía para crear notas en vault Obsidian (~/.ultron-vault/) con estructura PARA + capas (00_INDEX, 10_KNOWLEDGE, etc.), frontmatter YAML, comandos post-creación (brain_index.py, embed_vault.py). Referencia a utilidades específicas (brain_index query, embed_vault index) que pueden estar obsoletas o haber sido reemplazadas por nuevos sistemas de memoria. Nota: control-center tiene qdrant_storage activo (brain.db), sustituyendo el vault Obsidian antiguo. El archivo nunca fue modificado a pesar de existir 20 días. Riesgo ALTO: contenido potencialmente desalineado con sistema de memoria actual (Qdrant vs Obsidian).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\instructions",
+        "path": "instructions/skills/GUIDE.md",
+        "category": "obsolete-doc",
+        "confidence": "medium",
+        "risk": "high",
+        "size_mb": 0.0017,
+        "evidence": "Archivo creado 2026-05-15 (482 horas atrás). Sin cambios desde v15.2.1. Contiene guía para crear skills: slug kebab-case, frontmatter con name/description/tier/category/allowed-tools/last_verified. Define flujo: preguntar antes de escribir (slug, descripción, triggers, layer), estructura SKILL.md, validaciones (tags/category del catálogo en ~/.ultron/skills/registry.json), post-creación: embed_skills.py. Usado por: control-center pero sin invocación explícita en TypeScript (no hay invoke('instruction_path', {kind: 'skills'}) visible). Comparar con skills-catalog/ (14 MB, trackeado en git, pero control-center lee ~/.claude/skills, no ~/.ultron/instructions/skills). Nunca fue modificado a pesar de 20 días. Riesgo ALTO: posible desuso completo; if control-center crea skills, usa ~/.claude/skills, no esta GUIDE.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\instructions",
+        "path": "instructions/mcps/GUIDE.md",
+        "category": "obsolete-doc",
+        "confidence": "medium",
+        "risk": "high",
+        "size_mb": 0.0016,
+        "evidence": "Archivo creado 2026-05-15 (482 horas atrás, ~20 días). Sin cambios desde v15.2.1. Contiene guía de creación de MCP servers con instrucciones sobre validación, OAuth flow, variables de entorno. Usado por: control-center/src/components/MCPs.tsx invoca instruction_path('mcps'), cwd pasa al invoke spawn_session con GUIDE.md como contexto. Sin embargo: (1) el contenido es específico del flujo v15.1.x (referencias a mcp_health_check.py, mcp-audit.jsonl, cocxopit/mcp-audit.jsonl que pueden estar desactualizados), (2) el comentario en MCPs.tsx indica que el prompt fue movido a catálogo central (button-prompts) en v15.3.5, sugiriendo que el flow de creación AI ha evolucionado más allá de lo que esta GUIDE.md documenta, (3) nunca fue modificado pesar de existir 20 días, indicando posible desuso. Riesgo ALTO: aunque el archivo se invoca, el contenido puede estar desfasado del flujo actual.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/personal",
+        "path": "/personal/known.json",
+        "category": "old-version",
+        "confidence": "medium",
+        "risk": "medium",
+        "size_mb": 0.00142,
+        "evidence": "1.42 KB file dated 2026-05-17 (18 days old). Explicitly documented in CHANGELOG.md as deprecated: 'personal/known.json — auto-extracted user facts (style, recent topics, routines)' and 'Mem0 cloud — persistent cross-session memory with semantic search. Replaces personal/known.json + session memory cleanly.' Generated automatically on 2026-05-16 but never actively used by any running code. Exists as historical artifact from pre-Mem0 era.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "gemini-peer.ps1",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "high",
+        "size_mb": 0.001,
+        "evidence": "PowerShell script related to Gemini integration. Last modified 2026-05-12. Referenced in git history (fef405a: 'v15.1.4+v15.1.5+v15.2: massive feature drop'). No recent references in codebase. Likely superseded by gemini_cli.py in cockpit/ (newer implementation, modified 2026-05-16).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "init-memory.ps1",
+        "category": "deprecated-code",
+        "confidence": "medium",
+        "risk": "high",
+        "size_mb": 0.001,
+        "evidence": "Bootstrap script for memory initialization. Last modified 2026-05-18. No references in active code. Likely replaced by cockpit/memory_sync.py or other memory management modules. Contains logic that may be handled by Control Center now.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "new-project.ps1",
+        "category": "deprecated-code",
+        "confidence": "medium",
+        "risk": "high",
+        "size_mb": 0.001,
+        "evidence": "Project scaffolding script. Last modified 2026-05-18. Functionality likely migrated to cockpit/launch_project.py (modified 2026-05-16) or Control Center. Not referenced in recent commits.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "delete-orphan-releases.ps1",
+        "category": "deprecated-code",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Release cleanup script. Documented in docs/MAINTAINERS.md for relocation: 'scripts/delete-orphan-releases.ps1 → scripts/dev/delete-orphan-releases.ps1'. Maintainer-only. Last modified 2026-05-18.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "cockpit/auto-fixes/clear-temp-30d.ps1",
+        "category": "cache-temp",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Maintenance script for clearing temp files >30 days old. Last modified 2026-05-16. Appears to be utility script used by broader system. Not clear if actively called. May be regenerable or replaceable with system functions.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "cockpit/auto-fixes/clear-minidumps.ps1",
+        "category": "cache-temp",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "Cleanup utility for Windows minidump files. Last modified 2026-05-16. Platform-specific maintenance script. Likely called by scheduled maintenance tasks.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/projects",
+        "path": "projects/tio-gilito",
+        "category": "orphan",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.001,
+        "evidence": "Stub-only metadata folder. Real project lives at C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\Bank\\finanzas\\finanzas.db (SQLite database). This folder contains only PROJECT.md. Status in PROJECT.md explicitly states: 'Sin actividad desde 2026-04-17. Si no se trabaja antes de 2026-05-15, marcar como PAUSADO.' Today is 2026-06-05, so deadline has passed — project is PAUSED. Folder mirrors a dead project; real database is elsewhere.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/projects",
+        "path": "projects/ai-shell-propuesta",
+        "category": "dead-dep",
+        "confidence": "medium",
+        "risk": "medium",
+        "size_mb": 0.001,
+        "evidence": "Stub-only metadata folder with no source code. Real project location: C:\\Users\\USER\\CARRERA\\PROYECTOS_PERSONALES\\AI-Shell-Propuesta (separate location, not a git repo). PROJECT.md indicates 'Pendiente corregir acentos/codificacion' and 'Pendiente reescribir la propuesta' with no progress since 2026-04-22. LastWrite here: 2026-05-04 (32 days ago). This metadata mirror serves no active purpose; source of truth is elsewhere.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/plans/",
+        "path": "_archive/2026-05-21/README.md",
+        "category": "obsolete-doc",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.001,
+        "evidence": "2026-05-21 subfolder README (1 KB, 2026-05-21). Serves only as index for archived v15 specs. If folder is cleared, becomes obsolete. Last commit: c3c3d52.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/knowledge/",
+        "path": "knowledge/INDEX.md",
+        "category": "orphan",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.0007,
+        "evidence": "Created 2026-05-09. Lists 8 knowledge domains pointing to empty local stubs. Now ORPHANED because: (1) all real knowledge migrated to vault (vault has its own INDEX.md with same domains + actual content); (2) consistency_check.py checks file exists but doesn't read contents; (3) no code actively reads this local INDEX.md (grep in control-center/src-tauri, hooks, scripts shows zero references). Only consistency scaffolding check validates presence. Regenerable.",
+        "safe_to_delete": true
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\scripts",
+        "path": "cockpit/auto-fixes/empty-recycle-bin.ps1",
+        "category": "cache-temp",
+        "confidence": "medium",
+        "risk": "low",
+        "size_mb": 0.0006,
+        "evidence": "Recycle bin cleanup. Last modified 2026-05-16. Windows-specific utility. Likely called by maintenance tasks but could be replaced with native Windows commands.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\skill_cache",
+        "path": "skill_cache/skill_66dc2b17.json",
+        "category": "orphan",
+        "confidence": "medium",
+        "risk": "medium",
+        "size_mb": 0.00044,
+        "evidence": "Hash-named cache file for 'unreal-engine' skill. Has no entry in skill_manifest.json. Referenced in embed-skills-state.json (2026-05-02T01:40:34). Likely orphaned from a prior skill registration cycle or failed import. Does not match any current manifest skill. Generated timestamp is old (2026-05-02).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/profile.template.md",
+        "category": "old-version",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.00042,
+        "evidence": "Esqueleto markdown en español (15 líneas). Copied a ~/.ultron/personal/profile.md en install.ps1. El profile.md actual es manual + auto-populated desde known.json (2026-05-17, contiene datos personales de USER). Archivo VIVO, memory layer.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/projects.empty.json",
+        "category": "old-version",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.00041,
+        "evidence": "Esqueleto vacío (4 líneas, version 1.0 + projects array vacío). Copied a ~/.ultron/cockpit/projects.json en install.ps1. El projects.json actual tiene 9.5K con 9 proyectos (ultron, proggrafica, web2, fuux-web, rdr2-mods, finance, ai-shell-propuesta, sc-media, mengersponge). Archivo VIVO, core.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/apps.default.json",
+        "category": "old-version",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.0004,
+        "evidence": "Esqueleto vacío (4 líneas, {\"version\": \"1.0\", \"apps\": {}}). Copied a ~/.ultron/cockpit/apps.json en install.ps1. El apps.json actual tiene 896 bytes con apps reales (Spotify, Notion, Discord, etc). Archivo VIVO, core del cockpit.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:/Users/USER/.ultron/templates/",
+        "path": "templates/known.empty.json",
+        "category": "old-version",
+        "confidence": "low",
+        "risk": "low",
+        "size_mb": 0.00036,
+        "evidence": "Esqueleto JSON (17 líneas, style_fingerprint/writing_style/recent_topics/routines). Copied a ~/.ultron/personal/known.json en install.ps1. El known.json actual tiene 2.9K auto-populated con fingerprint, 8 recent_topics, 4 routines. Archivo VIVO, memory crítica.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/token-baseline-2026-05-08.tsv",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.000276,
+        "evidence": "Token measurement baseline from 2026-05-08 17:22. Superseded by token-baseline-2026-05-12.tsv (4 days later, same measurements structure). token_baseline.py appends dated files; this is now historical. However, docstring references research-token-measurement-* in audits/ suggesting these are kept as time-series. 27 days old. Small file (276 bytes).",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\audits",
+        "path": "audits/token-baseline-2026-05-12.tsv",
+        "category": "old-log",
+        "confidence": "high",
+        "risk": "medium",
+        "size_mb": 0.000276,
+        "evidence": "Most recent token baseline (2026-05-12 15:47). Written by active token_baseline.py script via 'ultron token-baseline' command. Only 23 days old (recent). Part of ongoing metrics tracking for system state. token_baseline.py writes dated TSV files as snapshots.",
+        "safe_to_delete": false
+      },
+      {
+        "folder": "C:\\Users\\USER\\.ultron\\qdrant-native",
+        "path": "qdrant-native/.qdrant-initialized",
+        "category": "cache-temp",
+        "confidence": "high",
+        "risk": "low",
+        "size_mb": 0,
+        "evidence": "Zero-byte sentinel file (2026-05-22) used to mark successful qdrant startup. Stale and regenerable on next fallback invocation.",
+        "safe_to_delete": false
+      }
+    ],
+    "est_safe_mb": 6,
+    "est_review_mb": 86
+  }
+}

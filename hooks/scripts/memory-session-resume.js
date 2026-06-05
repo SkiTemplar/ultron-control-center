@@ -55,7 +55,10 @@ function main() {
     /* no stdin / bad json — use process cwd */
   }
   const project = projectIdFromCwd(cwd);
-  const resume = runCli(project ? ['resume', '--project', project] : ['resume']);
+  const resume = runCli(
+    project ? ['resume', '--project', project] : ['resume'],
+    { timeoutMs: 11000 } // colchon para cold-hit E5 post-warmup; bajar a 3000 con daemon serve
+  );
   if (!resume) {
     emit('');
     return;

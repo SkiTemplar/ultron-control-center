@@ -1,5 +1,17 @@
 # ULTRON Memory System — Especificación autocontenida para revisión externa
 
+> **ESTADO (act. 2026-06-05).** Documento de **revisión externa**, snapshot a 2026-06-04
+> (rama `fullize-2026-05-30`, HEAD `f936a66`), redactado **antes** del cierre del `fullize`
+> (ejecutado 2026-06-01) y de la reconciliación posterior. Se mantiene como referencia para la
+> consulta a la IA externa de la §10. El **estado operativo actual** (post-fullize) está en
+> `STATE-RECONCILIATION-2026-06-04.md`, `CONTRACTS-2026-06-04.md`, `INFORME-CIERRE-100-2026-06-04.md`
+> y `STATUS-SISTEMAS-2026-06-04.md`. La **especificación viva** del subsistema de memoria es
+> `specs/01-MEMORIA.md` (esta es su versión autocontenida para lectores sin acceso al repo; si
+> divergen, manda `01-MEMORIA.md`). La arquitectura descrita aquí sigue vigente: `brain.db` (SoT)
+> + Qdrant nativo derivado (E5-Large 1024d) + `MemoryService` único escritor + recall híbrido RRF
+> con gates. Mem0 quedó **eliminado** (los `imported_*` de Mem0 son procedencia histórica de ETL,
+> no una fuente activa).
+
 > **Propósito de este documento.** Está escrito para una IA (o ingeniero) **externa** que
 > **no conoce el repositorio**. Es deliberadamente autocontenido: describe la arquitectura,
 > el modelo de datos, los caminos de escritura/lectura, las garantías de seguridad y

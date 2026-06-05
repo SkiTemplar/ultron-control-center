@@ -102,7 +102,9 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
             last_accessed_at INTEGER, last_injected_at INTEGER,
             validated_by_user INTEGER NOT NULL DEFAULT 0,
             validated_at    INTEGER,
-            pinned          INTEGER NOT NULL DEFAULT 0
+            pinned          INTEGER NOT NULL DEFAULT 0,
+            symbol          TEXT, file_path TEXT, line INTEGER,
+            signature       TEXT, capture_source TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_items_status_scope
             ON memory_items(status, scope, project_id);
@@ -133,7 +135,9 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
             duplicate_candidates TEXT, contradiction_candidates TEXT,
             recommended_action TEXT NOT NULL DEFAULT 'approve',
             status          TEXT NOT NULL DEFAULT 'pending',
-            created_at      INTEGER NOT NULL
+            created_at      INTEGER NOT NULL,
+            proposed_symbol TEXT, proposed_file_path TEXT, proposed_line INTEGER,
+            proposed_signature TEXT, capture_source TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_candidates_status ON memory_candidates(status, created_at);
 
@@ -181,6 +185,23 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     );
     backfill_derived_columns(conn);
 
+    // Code-location capture (2026-06-05): additive symbol/file_path/line/signature/
+    // capture_source columns on BOTH tables. Same idempotent ADD-COLUMN pattern as
+    // OLA B above; all nullable, so existing rows read back as NULL (no backfill).
+    add_column_if_missing(conn, "symbol", "TEXT");
+    add_column_if_missing(conn, "file_path", "TEXT");
+    add_column_if_missing(conn, "line", "INTEGER");
+    add_column_if_missing(conn, "signature", "TEXT");
+    add_column_if_missing(conn, "capture_source", "TEXT");
+    add_column_if_missing_on(conn, "memory_candidates", "proposed_symbol", "TEXT");
+    add_column_if_missing_on(conn, "memory_candidates", "proposed_file_path", "TEXT");
+    add_column_if_missing_on(conn, "memory_candidates", "proposed_line", "INTEGER");
+    add_column_if_missing_on(conn, "memory_candidates", "proposed_signature", "TEXT");
+    add_column_if_missing_on(conn, "memory_candidates", "capture_source", "TEXT");
+    // O(1) symbol lookup for re-capture dedupe (one row per "file_path:symbol").
+    let _ = conn
+        .execute_batch("CREATE INDEX IF NOT EXISTS idx_items_symbol ON memory_items(symbol);");
+
     if fts5_available(conn) {
         conn.execute_batch(
             "CREATE VIRTUAL TABLE IF NOT EXISTS memory_items_fts
@@ -211,12 +232,19 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     Ok(())
 }
 
-/// Idempotent `ALTER TABLE memory_items ADD COLUMN`. SQLite lacks
-/// `ADD COLUMN IF NOT EXISTS`, so probe `table_info` first. `decl` is always a
-/// constant code literal (never user input) -> no injection surface.
+/// Idempotent `ALTER TABLE memory_items ADD COLUMN` (the common case).
+/// SQLite lacks `ADD COLUMN IF NOT EXISTS`, so probe `table_info` first. `decl`
+/// is always a constant code literal (never user input) -> no injection surface.
 fn add_column_if_missing(conn: &Connection, col: &str, decl: &str) {
+    add_column_if_missing_on(conn, "memory_items", col, decl);
+}
+
+/// Table-parameterised variant of [`add_column_if_missing`]. `table`, `col` and
+/// `decl` are ALWAYS constant code literals (never user input) -> no injection
+/// surface; the `table_info` probe uses the same trusted literal.
+fn add_column_if_missing_on(conn: &Connection, table: &str, col: &str, decl: &str) {
     let present = conn
-        .prepare("PRAGMA table_info(memory_items)")
+        .prepare(&format!("PRAGMA table_info({table})"))
         .ok()
         .map(|mut s| {
             s.query_map([], |r| r.get::<_, String>(1))
@@ -225,9 +253,7 @@ fn add_column_if_missing(conn: &Connection, col: &str, decl: &str) {
         })
         .unwrap_or(true);
     if !present {
-        let _ = conn.execute_batch(&format!(
-            "ALTER TABLE memory_items ADD COLUMN {col} {decl};"
-        ));
+        let _ = conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {col} {decl};"));
     }
 }
 
@@ -341,6 +367,11 @@ fn item_from_row(row: &Row) -> rusqlite::Result<MemoryItem> {
         content_hash: row.get("content_hash")?,
         normalized_text: row.get("normalized_text")?,
         schema_version: row.get::<_, Option<i64>>("schema_version")?.unwrap_or(1),
+        symbol: row.get("symbol")?,
+        file_path: row.get("file_path")?,
+        line: row.get("line")?,
+        signature: row.get("signature")?,
+        capture_source: row.get("capture_source")?,
     })
 }
 
@@ -348,7 +379,8 @@ const ITEM_COLS: &str = "id,type,scope,project_id,repo_id,branch,workflow_id,age
 title,summary,content,content_json,tags,status,confidence,importance,stability,sensitivity,\
 source,source_session_id,created_at,updated_at,expires_at,supersedes,superseded_by,contradicts,\
 derived_from,valid_from,valid_to,qdrant_point_id,token_estimate,access_count,last_accessed_at,\
-last_injected_at,validated_by_user,validated_at,pinned,content_hash,normalized_text,schema_version";
+last_injected_at,validated_by_user,validated_at,pinned,content_hash,normalized_text,schema_version,\
+symbol,file_path,line,signature,capture_source";
 
 // ---------------------------------------------------------------------------
 // memory_items CRUD (low-level, &Connection)
@@ -368,7 +400,8 @@ pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), Me
             superseded_by,contradicts,derived_from,valid_from,valid_to,qdrant_point_id,
             token_estimate,access_count,
             last_accessed_at,last_injected_at,validated_by_user,validated_at,pinned,
-            content_hash,normalized_text,schema_version
+            content_hash,normalized_text,schema_version,
+            symbol,file_path,line,signature,capture_source
         ) VALUES (
             :id,:type,:scope,:project_id,:repo_id,:branch,:workflow_id,:agent_id,:skill_id,
             :title,:summary,:content,:content_json,:tags,:status,:confidence,:importance,:stability,
@@ -376,7 +409,8 @@ pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), Me
             :superseded_by,:contradicts,:derived_from,:valid_from,:valid_to,:qdrant_point_id,
             :token_estimate,:access_count,
             :last_accessed_at,:last_injected_at,:validated_by_user,:validated_at,:pinned,
-            :content_hash,:normalized_text,:schema_version
+            :content_hash,:normalized_text,:schema_version,
+            :symbol,:file_path,:line,:signature,:capture_source
         )",
         named_params! {
             ":id": item.id, ":type": item.kind.as_str(), ":scope": item.scope.as_str(),
@@ -401,6 +435,11 @@ pub(crate) fn insert_item(conn: &Connection, item: &MemoryItem) -> Result<(), Me
             ":content_hash": content_hash,
             ":normalized_text": normalized,
             ":schema_version": super::model::SCHEMA_VERSION,
+            ":symbol": item.symbol,
+            ":file_path": item.file_path,
+            ":line": item.line,
+            ":signature": item.signature,
+            ":capture_source": item.capture_source,
         },
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_item: {e}")))?;
@@ -733,9 +772,11 @@ pub(crate) fn insert_candidate(conn: &Connection, c: &MemoryCandidate) -> Result
             (id,proposed_type,proposed_scope,proposed_title,proposed_summary,proposed_content,
              proposed_content_json,proposed_tags,source_event_ids,source_session_id,confidence,
              importance,risk_level,duplicate_candidates,contradiction_candidates,recommended_action,
-             status,created_at)
+             status,created_at,
+             proposed_symbol,proposed_file_path,proposed_line,proposed_signature,capture_source)
          VALUES (:id,:pt,:ps,:ptitle,:psummary,:pcontent,:pcjson,:ptags,:seids,:ssid,:conf,:imp,
-             :risk,:dups,:contras,:rec,:status,:created)",
+             :risk,:dups,:contras,:rec,:status,:created,
+             :psymbol,:pfile,:pline,:psig,:csource)",
         named_params! {
             ":id": c.id, ":pt": c.proposed_type.as_str(), ":ps": c.proposed_scope.as_str(),
             ":ptitle": c.proposed_title, ":psummary": c.proposed_summary, ":pcontent": c.proposed_content,
@@ -746,6 +787,9 @@ pub(crate) fn insert_candidate(conn: &Connection, c: &MemoryCandidate) -> Result
             ":contras": vec_to_json(&c.contradiction_candidates),
             ":rec": c.recommended_action.as_str(), ":status": c.status.as_str(),
             ":created": c.created_at,
+            ":psymbol": c.proposed_symbol, ":pfile": c.proposed_file_path,
+            ":pline": c.proposed_line, ":psig": c.proposed_signature,
+            ":csource": c.capture_source,
         },
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_candidate: {e}")))?;
@@ -779,6 +823,11 @@ fn candidate_from_row(row: &Row) -> rusqlite::Result<MemoryCandidate> {
         recommended_action: CandidateAction::parse(&rec).unwrap_or(CandidateAction::Approve),
         status: CandidateStatus::parse(&st).unwrap_or(CandidateStatus::Pending),
         created_at: row.get("created_at")?,
+        proposed_symbol: row.get("proposed_symbol")?,
+        proposed_file_path: row.get("proposed_file_path")?,
+        proposed_line: row.get("proposed_line")?,
+        proposed_signature: row.get("proposed_signature")?,
+        capture_source: row.get("capture_source")?,
     })
 }
 

@@ -1456,6 +1456,19 @@ pub fn ai_router_test(zone_id: String, sample_prompt: String) -> Result<TestResu
 // The memory kernel (extraction/dedupe/contradiction) gets wired onto route()
 // in Ola 5 of cockpit/memory-rework/MASTER-PLAN-CONSOLIDADO-2026-06-03.md.
 // ---------------------------------------------------------------------------
+
+/// Public read-only accessor: the primary model id configured for a zone.
+/// `None` if the zone is unknown or zones cannot be loaded. Lets other modules
+/// (e.g. `agent_orchestration`'s cheap-model resolver) follow the same zone
+/// config instead of hardcoding model literals.
+pub fn primary_model_for_zone(zone_id: &str) -> Option<String> {
+    load_zones()
+        .ok()?
+        .into_iter()
+        .find(|z| z.id == zone_id)
+        .map(|z| z.primary.model)
+}
+
 pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     let zones = load_zones()?;
     let zone = zones
@@ -2034,6 +2047,18 @@ mod tests {
         ] {
             assert!(ids.iter().any(|id| id == expected), "missing {}", expected);
         }
+    }
+
+    #[test]
+    fn primary_model_for_known_zone_is_some() {
+        // The seed always defines a "light" zone; whatever its primary model,
+        // it must resolve to Some (proves the accessor reads the chain end-to-end).
+        assert!(primary_model_for_zone("light").is_some());
+    }
+
+    #[test]
+    fn primary_model_for_unknown_zone_is_none() {
+        assert!(primary_model_for_zone("no-such-zone-xyz").is_none());
     }
 
     #[test]

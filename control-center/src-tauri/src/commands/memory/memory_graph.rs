@@ -8,15 +8,18 @@
 //   skills  — grep on name + description from skills::list_skills_with_origin_inner
 //   agents  — grep on name + description from agents::list_agents_inner
 //   rules   — grep on name + relative path from rules::list_inner
-//   mem0    — delegate to mem0::search_inner (async, cloud)
+//   mem0    — REMOVED from the read-path (2026-06-05). Mem0 cloud is being retired
+//             in favour of the local brain.db + Qdrant SoT; the unified search no
+//             longer round-trips to api.mem0.ai. The `mem0` result field is kept
+//             (always empty) so the Memory-tab frontend payload shape is unchanged.
 //   kg      — delegate to kg::search_nodes_inner (local JSONL)
-//   qdrant  — stub, returns [] (wire in card-qdrant-wire)
+//   qdrant  — semantic hits from the local Qdrant collection
 
 use serde::Serialize;
 
 use crate::agents::{list_agents_inner, AgentInfo};
 use crate::kg::{search_nodes_inner, KgEntity};
-use crate::mem0::{search_inner as mem0_search_inner, Mem0Memory};
+use crate::mem0::Mem0Memory;
 use crate::rules::{list_inner as rules_list_inner, RuleFile};
 use crate::skills::{list_skills_with_origin_inner, SkillEntry, SkillOrigin};
 
@@ -54,6 +57,8 @@ pub struct UnifiedSearchResults {
     pub skills: Vec<SkillHit>,
     pub agents: Vec<AgentHit>,
     pub rules: Vec<RuleHit>,
+    /// Retired read-path: always empty. Mem0 cloud no longer participates in
+    /// unified search (kept for frontend payload-shape compatibility).
     pub mem0: Vec<Mem0Memory>,
     pub kg: Vec<KgEntity>,
     /// Semantic hits from Qdrant ultron_sessions collection.
@@ -178,15 +183,10 @@ pub async fn unified_search_inner(
     .await
     .map_err(|e| e.to_string())?;
 
-    // Async layers: mem0 (cloud) and kg (local JSONL).
-    let mem0_results = if needle.is_empty() {
-        // No query — skip cloud call, return empty so the tree loads fast.
-        Vec::new()
-    } else {
-        mem0_search_inner(needle.clone(), None, Some(top_k as u32))
-            .await
-            .unwrap_or_default()
-    };
+    // Mem0 cloud layer RETIRED from the read-path (2026-06-05): no api.mem0.ai
+    // round-trip. The field stays in the result for frontend compatibility but is
+    // always empty — the local brain.db + Qdrant + KG layers cover recall.
+    let mem0_results: Vec<Mem0Memory> = Vec::new();
 
     let kg_graph = search_nodes_inner(needle.clone()).unwrap_or_default();
 

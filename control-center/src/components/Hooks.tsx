@@ -228,6 +228,72 @@ function truncate(s: string, n: number): string {
   return s.slice(0, n - 1) + "...";
 }
 
+/**
+ * Derive a readable name from a hook's command when no explicit name exists.
+ *
+ * Strategy: find the script the command runs (the first path-like token whose
+ * basename has a script extension), strip directory + extension, and format the
+ * basename (kebab/snake/camel → Title Case). Falls back to the first bare verb
+ * token. Returns undefined only when nothing usable can be extracted, so the
+ * caller can still drop to the raw id.
+ */
+const SCRIPT_EXT_RE = /\.(ps1|sh|bash|zsh|py|js|mjs|cjs|ts|rb|pl|bat|cmd|exe)$/i;
+
+function deriveNameFromCommand(command: string): string | undefined {
+  const raw = command.trim();
+  if (!raw) return undefined;
+
+  // Tokenise on whitespace but keep quoted paths intact enough to grab a basename.
+  const tokens = raw.match(/[^\s"']+|"[^"]*"|'[^']*'/g) ?? [];
+
+  // 1. Prefer a token that looks like a script path with a known extension.
+  for (const tokenRaw of tokens) {
+    const token = tokenRaw.replace(/^["']|["']$/g, "");
+    // Skip flags and env assignments.
+    if (token.startsWith("-") || token.includes("=")) continue;
+    const base = token.split(/[\\/]/).pop() ?? token;
+    if (SCRIPT_EXT_RE.test(base)) {
+      const stem = base.replace(SCRIPT_EXT_RE, "");
+      const formatted = formatNameStem(stem);
+      if (formatted) return formatted;
+    }
+  }
+
+  // 2. Otherwise use the first token that is not a known shell/interpreter
+  //    wrapper, formatted as a fallback label.
+  const WRAPPERS = new Set([
+    "powershell", "pwsh", "bash", "sh", "zsh", "cmd", "node", "python",
+    "python3", "py", "npx", "deno", "bun", "uv", "ruby", "perl", "cmd.exe",
+    "powershell.exe", "&", "$env:claude_project_dir",
+  ]);
+  for (const tokenRaw of tokens) {
+    const token = tokenRaw.replace(/^["']|["']$/g, "");
+    if (token.startsWith("-") || token.includes("=")) continue;
+    const base = (token.split(/[\\/]/).pop() ?? token).toLowerCase();
+    if (WRAPPERS.has(base)) continue;
+    const formatted = formatNameStem(token.split(/[\\/]/).pop() ?? token);
+    if (formatted) return formatted;
+  }
+
+  return undefined;
+}
+
+/** Turn a kebab/snake/camel basename stem into a Title Case label. */
+function formatNameStem(stem: string): string | undefined {
+  const cleaned = stem
+    // camelCase / PascalCase → spaced
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    // separators → spaces
+    .replace(/[-_.]+/g, " ")
+    .trim();
+  if (!cleaned) return undefined;
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return undefined;
+  return words
+    .map((w) => (w.length <= 3 && w === w.toUpperCase() ? w : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(" ");
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -434,13 +500,16 @@ export function Hooks() {
    *  1. analysed title from get_hook_descriptions (readable name of what it does)
    *  2. description field from settings.json (if the group declares one)
    *  3. AI-assigned name from namesCache (kebab-case)
-   *  4. undefined (caller renders raw id in monospace)
+   *  4. name derived locally from the command/script basename (no AI, no cache)
+   *  5. undefined (caller renders raw id in monospace)
    */
   function resolveDisplayName(h: HookRecord): string | undefined {
     const title = descriptions[h.id]?.title;
     if (title) return title;
     if (h.description) return h.description;
-    return namesCache[h.id]?.name;
+    const cached = namesCache[h.id]?.name;
+    if (cached) return cached;
+    return deriveNameFromCommand(h.command);
   }
 
   const filtered = useMemo(() => {

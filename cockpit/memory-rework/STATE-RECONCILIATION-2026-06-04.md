@@ -93,14 +93,18 @@ respuesta. Lo que queda es **propagar la verdad** y **limpiar huerfanos**:
 | `STATUS-SISTEMAS-2026-06-04.md` | HEAD; Seccion 4 Quota viva (~45%) | HEAD; reescribir Seccion 4 -> QUITADO |
 | `SPECS-SISTEMA-2026-06-04.md` | Quota plomeria viva (file:line obsoletos) | banner reconciliacion Quota |
 | `MASTER-PLAN-CONSOLIDADO-2026-06-03.md` | Ola 8 edita quota_watchdog.rs inexistente | banner: Ola 8 obsoleta tras cbb2d5c |
-| `02-AI-ROUTER.md` | fila "quota-guard is_critical() vivo" | quitar fila; remitir a 04-QUOTA |
+| `02-AI-ROUTER.md` | fila "quota-guard is_critical() vivo" | ✅ HECHO: fila eliminada de §3; banner remite a 04-QUOTA |
 | `05-HOOKS.md` | quota-capture.js "fragil" (es huerfano) | nota: huerfano tras cbb2d5c |
 | `01-MEMORIA.md` | HEAD 0532dee | HEAD->823ed67 |
 | `08-AUDIT-...md` | HEAD 0532dee; "primera tarea: ver si Quota existe" | HEAD; nota: Quota ya resuelto |
 | `DIAGNOSIS.md` | locked bge-m3 | banner: descartado, se uso E5 1024d |
 | `PLAN.md` | locked bge-m3 (B1 sidecar) | banner: descartado, se uso E5 1024d |
 
-> Correctos (no tocar): `04-QUOTA.md`, `STATUS.md`.
+> Correctos pero **necesitan banner / no son prístinos** (per `INFORME-CIERRE-100-2026-06-04.md:92`):
+> `04-QUOTA.md` (header OK, pero **secciones 2-3 describían en presente código borrado** — ya reescritas a
+> pasado/tachado en esta ola) y `STATUS.md` / `STATUS-SISTEMAS-2026-06-04.md` (Sección 4 Quota contradecía
+> el header → reescribir a QUITADO o mover a historial de deprecación). El resto del corpus se reconcilia
+> contra este documento.
 
 ---
 

@@ -17,6 +17,7 @@
 //!   ultron-memory eval [--project X] [--golden] # recall@8 + (optional) golden metrics
 //!   ultron-memory eval-full [--project X]        # golden-set ranking metrics only
 //!   ultron-memory reconcile                     # read-only SQLite<->Qdrant drift check
+//!   ultron-memory warmup                        # SessionStart -> warm E5 (page cache)
 //!   ultron-memory candidate                     # Stop -> propose a candidate (stdin JSON)
 //!
 //! Build: cargo build --release --bin ultron-memory --features qdrant
@@ -148,6 +149,25 @@ fn run() -> Result<serde_json::Value, String> {
                 .map_err(|e| format!("read stdin: {e}"))?;
             to_json(ul::memory::capture::capture_session(&buf, project.as_deref()))
         }
+        "warmup" => {
+            // SessionStart warmup (cold-recall fix). Force the lazy E5 ONNX model
+            // (multilingual-e5-large, 1.3 GB) to initialise by running ONE embed,
+            // so the OS page-cache of the .onnx is hot before the first real recall.
+            // Each .exe invocation is a fresh process, so this does NOT keep E5
+            // resident in RAM for the next process — it only warms the disk cache
+            // (~80% of the cold cost). Designed to be spawned DETACHED by the hook.
+            // FAIL-SAFE: a stub/offline E5 returns a zero vector; we still report
+            // `warmed:false` instead of erroring so the hook never blocks startup.
+            let started = std::time::Instant::now();
+            let warmed = match ul::qdrant::embed_e5("warmup", true) {
+                Ok(v) => v.iter().any(|&x| x != 0.0),
+                Err(_) => false,
+            };
+            Ok(serde_json::json!({
+                "warmed": warmed,
+                "ms": started.elapsed().as_millis() as u64,
+            }))
+        }
         "doctor" => {
             // Read-only health report. Prints JSON to stdout and exits with a
             // code mirroring max_severity (0=ok, 1=warn, 2=error) for gates.
@@ -159,7 +179,7 @@ fn run() -> Result<serde_json::Value, String> {
             );
             std::process::exit(code);
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|doctor|candidate|capture> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|warmup|doctor|candidate|capture> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }

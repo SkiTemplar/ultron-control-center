@@ -32,24 +32,42 @@ use super::model::MemoryCandidate;
 /// has a single, local source of the literal it gates on.
 const SECRET_RISK_MARKER: &str = "secret";
 
-/// Persisted memory settings. One flag today; the struct leaves room for more
-/// without breaking older files (serde fills missing keys with the default).
+/// Default confidence floor for BAND A (auto-approve). A candidate must reach
+/// this confidence AND be clean to be auto-promoted. Chosen at 0.85 so only
+/// high-certainty captures (verifiable code locations 0.95, explicit "remember
+/// that…" 0.9) flow without review; inferred decisions (0.7) fall to BAND B.
+pub const DEFAULT_AUTO_APPROVE_THRESHOLD: f32 = 0.85;
+
+/// Persisted memory settings. Older files stay readable — serde fills any
+/// missing key with its default (so adding fields is backward-compatible).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemorySettings {
-    /// When true, CLEAN candidates are auto-approved on creation (see safeguard).
-    /// Default false — auto-approve is strictly opt-in.
+    /// When true, CLEAN candidates that clear `auto_approve_threshold` are
+    /// auto-approved on creation (see safeguard + 3-band policy). Default false —
+    /// auto-approve is strictly opt-in.
     #[serde(default = "default_false")]
     pub auto_approve: bool,
+    /// BAND A confidence floor. A clean candidate with `confidence >= threshold`
+    /// is auto-approved; `[reject_threshold, threshold)` (or a decision/architecture
+    /// kind) stays pending; below `reject_threshold` is auto-rejected. Defaults to
+    /// `DEFAULT_AUTO_APPROVE_THRESHOLD` (0.85) for files written before this field.
+    #[serde(default = "default_auto_approve_threshold")]
+    pub auto_approve_threshold: f32,
 }
 
 fn default_false() -> bool {
     false
 }
 
+fn default_auto_approve_threshold() -> f32 {
+    DEFAULT_AUTO_APPROVE_THRESHOLD
+}
+
 impl Default for MemorySettings {
     fn default() -> Self {
         Self {
             auto_approve: false,
+            auto_approve_threshold: DEFAULT_AUTO_APPROVE_THRESHOLD,
         }
     }
 }
@@ -90,6 +108,76 @@ pub fn write_settings(settings: MemorySettings) -> Result<MemorySettings, String
 /// Convenience: is auto-approve currently ON? Fail-safe to `false`.
 pub fn auto_approve_enabled() -> bool {
     read_settings().auto_approve
+}
+
+/// BAND C floor: a clean candidate below this confidence is pure noise and is
+/// auto-rejected (status `rejected`, never promoted, purged in background). Fixed
+/// constant (not user-tunable) so the noise gate can't be widened by a bad write.
+pub const REJECT_THRESHOLD: f32 = 0.55;
+
+/// The three-band decision for a candidate's auto-disposition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutoBand {
+    /// BAND A: clean + `confidence >= threshold` → promote to active.
+    Approve,
+    /// BAND B: clean but mid-confidence, OR a decision/architecture kind (always
+    /// needs a human eye) → leave pending in the inbox.
+    Pending,
+    /// BAND C: clean but `confidence < REJECT_THRESHOLD` → auto-reject (noise).
+    Reject,
+}
+
+/// FAIL-SAFE BAND A floor. Returns the persisted `auto_approve_threshold` when
+/// readable; on ANY settings read issue returns `f32::INFINITY`, so nothing can
+/// clear BAND A — a settings glitch can never widen auto-approval. (`read_settings`
+/// is already default-safe, but a default-filled struct would yield 0.85 here,
+/// which is still permissive; an explicit infinity makes the failure mode strict.)
+#[must_use]
+pub fn auto_approve_threshold() -> f32 {
+    let Some(path) = settings_path() else {
+        return f32::INFINITY;
+    };
+    let Ok(text) = fs::read_to_string(&path) else {
+        return f32::INFINITY;
+    };
+    match serde_json::from_str::<MemorySettings>(&text) {
+        Ok(s) => s.auto_approve_threshold,
+        Err(_) => f32::INFINITY,
+    }
+}
+
+/// Classify a CLEAN candidate into one of the three auto-disposition bands.
+///
+/// PRECONDITION: the caller has already confirmed `candidate_is_clean` — secrets
+/// and contradictions are handled BEFORE this (they go to quarantine/inbox and
+/// must never reach band classification). This function decides only the
+/// confidence-driven disposition for clean candidates:
+///
+///   * BAND A (`Approve`): `confidence >= threshold`.
+///   * BAND B (`Pending`): `REJECT_THRESHOLD <= confidence < threshold`, OR the
+///     kind is `decision`/`architecture` (interpreting intent is inference — it
+///     always gets a human eye, even at high confidence).
+///   * BAND C (`Reject`): `confidence < REJECT_THRESHOLD` (noise).
+///
+/// Pure (no I/O): the caller passes the fail-safe `threshold`, so this is unit
+/// tested without the settings file.
+#[must_use]
+pub fn classify_band(candidate: &MemoryCandidate, threshold: f32) -> AutoBand {
+    use super::model::MemoryType;
+    let needs_human_eye = matches!(
+        candidate.proposed_type,
+        MemoryType::Decision | MemoryType::Architecture
+    );
+    if candidate.confidence < REJECT_THRESHOLD {
+        AutoBand::Reject
+    } else if needs_human_eye {
+        // Mid-or-high confidence interpretation of intent → inbox, never auto.
+        AutoBand::Pending
+    } else if candidate.confidence >= threshold {
+        AutoBand::Approve
+    } else {
+        AutoBand::Pending
+    }
 }
 
 /// SECURITY SALVAGUARDA. A candidate is eligible for auto-approval ONLY when it
@@ -145,5 +233,73 @@ mod tests {
             !candidate_is_clean(&c),
             "a contradicting candidate must always require human review"
         );
+    }
+
+    #[test]
+    fn default_threshold_is_band_a_floor() {
+        assert_eq!(
+            MemorySettings::default().auto_approve_threshold,
+            DEFAULT_AUTO_APPROVE_THRESHOLD
+        );
+    }
+
+    #[test]
+    fn high_confidence_fact_lands_in_band_a() {
+        let mut c = clean_candidate();
+        c.confidence = 0.95;
+        assert_eq!(
+            classify_band(&c, DEFAULT_AUTO_APPROVE_THRESHOLD),
+            AutoBand::Approve
+        );
+    }
+
+    #[test]
+    fn mid_confidence_lands_in_band_b() {
+        let mut c = clean_candidate();
+        c.confidence = 0.70;
+        assert_eq!(
+            classify_band(&c, DEFAULT_AUTO_APPROVE_THRESHOLD),
+            AutoBand::Pending
+        );
+    }
+
+    #[test]
+    fn low_confidence_lands_in_band_c() {
+        let mut c = clean_candidate();
+        c.confidence = 0.40;
+        assert_eq!(
+            classify_band(&c, DEFAULT_AUTO_APPROVE_THRESHOLD),
+            AutoBand::Reject
+        );
+    }
+
+    #[test]
+    fn decision_kind_always_pending_even_at_high_confidence() {
+        let mut c = MemoryCandidate::new(MemoryType::Decision, Scope::Project);
+        c.confidence = 0.99;
+        assert_eq!(
+            classify_band(&c, DEFAULT_AUTO_APPROVE_THRESHOLD),
+            AutoBand::Pending,
+            "interpreting a decision is inference — it always needs a human eye"
+        );
+    }
+
+    #[test]
+    fn architecture_kind_always_pending() {
+        let mut c = MemoryCandidate::new(MemoryType::Architecture, Scope::Project);
+        c.confidence = 0.99;
+        assert_eq!(
+            classify_band(&c, DEFAULT_AUTO_APPROVE_THRESHOLD),
+            AutoBand::Pending
+        );
+    }
+
+    #[test]
+    fn infinite_threshold_keeps_everything_out_of_band_a() {
+        // FAIL-SAFE: a settings read error yields f32::INFINITY, so even a 0.99
+        // fact cannot clear BAND A — it degrades to pending, never auto-approve.
+        let mut c = clean_candidate();
+        c.confidence = 0.99;
+        assert_eq!(classify_band(&c, f32::INFINITY), AutoBand::Pending);
     }
 }

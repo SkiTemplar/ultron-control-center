@@ -668,6 +668,21 @@ pub fn run() {
                 qdrant_auto_launch();
             });
 
+            // Auto-warm the agent/skill catalog off the startup thread so skills
+            // compete in the semantic router without a manual reindex. Best-effort:
+            // errors are logged, never fatal (router falls back to whatever is
+            // already indexed). Runs once per launch; the internal probe skips the
+            // re-embed when the collection is already warm.
+            tauri::async_runtime::spawn_blocking(|| {
+                match crate::memory::catalog::maybe_warm_catalog() {
+                    Ok((n, errs)) if n > 0 => {
+                        eprintln!("[catalog] warmed {n} entities ({errs} errors)");
+                    }
+                    Ok(_) => {} // already warm — nothing to do
+                    Err(e) => eprintln!("[catalog] warm skipped: {e}"),
+                }
+            });
+
             // v15.4.2 — fire a startup update check. We spawn it on a
             // background thread + sleep 6s so the webview has time to
             // paint and the event listener is wired before we emit.

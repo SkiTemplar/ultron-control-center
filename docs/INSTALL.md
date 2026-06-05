@@ -1,4 +1,4 @@
-# Installing ULTRON v15.5
+# Installing ULTRON Control Center (app v2.7.1+ · core v15.5.x)
 
 ULTRON is a personal control center: a Tauri desktop app plus a Python toolkit
 that orchestrates Claude Code, Codex, and Gemini through their official CLIs.
@@ -59,7 +59,7 @@ optional `-NonInteractive` flag (PowerShell) / `--non-interactive` flag
 (bash) that takes all defaults, useful for CI.
 
 > [!NOTE]
-> Linux x86_64 (Debian / Ubuntu / Fedora / Arch) is supported from v15.5.
+> Linux x86_64 (Debian / Ubuntu / Fedora / Arch) is supported from core v15.5.
 > macOS is an explicit non-goal. The Windows-only maintenance commands
 > (NSIS uninstaller, CrashDumps cleanup, Recycle Bin) are hidden from the
 > UI on Linux; the rest of the system works the same.
@@ -270,7 +270,7 @@ reproducible from the public GitHub Actions workflow at
 GitHub-hosted runner from a tagged commit and signed there with the
 project's updater key.
 
-## Linux specifics (v15.5+)
+## Linux specifics (core v15.5+)
 
 A few things that differ from the Windows path. All paths assume a
 single-user install — `install.sh` never writes outside `$HOME`,
@@ -307,8 +307,9 @@ Qdrant boot and memory-sync hooks have bash siblings (`ensure-qdrant.sh`,
 
 ### Removing ULTRON on Linux
 
-There is no `uninstall.sh` for the Linux flow yet (tracked for v15.5.x).
-The manual three-liner:
+A scripted `uninstall.sh` for the Linux flow ships since v2.7.1
+(`scripts/uninstall.sh`). The manual three-liner still works if you prefer
+it hands-on:
 
 ```bash
 # Remove the desktop app (AppImage install)
@@ -340,8 +341,8 @@ before removing `~/.ultron/`. It never touches `~/.claude/`.
 ./scripts/uninstall.ps1 -Yes
 ```
 
-On Linux, follow the manual removal steps in the **Linux specifics**
-section above. A scripted `uninstall.sh` is planned for v15.5.x.
+On Linux, run `./scripts/uninstall.sh` (shipped since v2.7.1), or follow
+the manual removal steps in the **Linux specifics** section above.
 
 After uninstall, backups (if any) live at
 `$HOME/.ultron-backup-<timestamp>/`. You can delete that directory by hand

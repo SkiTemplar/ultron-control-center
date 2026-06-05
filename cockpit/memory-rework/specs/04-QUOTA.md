@@ -29,17 +29,17 @@ Cuando el uso de Claude Max se acerca al límite de la ventana (rate-limit de la
 > histórico de por qué se decidió quitar (señal ciega + path equivocado). **HOY** la columna
 > "Estado actual" manda: el subsistema **no existe**.
 
-| Aspecto (cómo estaba antes de `cbb2d5c`) | Estado entonces | Estado actual (HEAD) |
+| Aspecto (cómo estaba ANTES de `cbb2d5c`, verbos en PASADO) | Estado entonces | Estado actual (HEAD) |
 |---|---|---|
 | Watchdog + persistencia + eventos | ✅ existía | ❌ `quota_watchdog.rs` BORRADO; sin eventos `quota:*` |
-| is_critical() consultado antes de cada provider | ✅ no era placeholder | ❌ 0 referencias `quota` en `ai_router.rs` |
-| Parseo retry-after / reset (para cuota) | ✅ react_to_rate_limit | ❌ retirado con el watchdog |
-| Proxy failover free-tier | ✅ ultron-proxy.mjs | 🟢 sigue vivo, pero fuera del path de cuota (nunca llamó a Claude) |
-| **Señal de cuota** | 🔴 binaria (0 o ~99 hardcoded) — `update_from_headers(99.0)`, `quota-capture.js` fallback 98.0 | ❌ N/A (motivo principal del retiro: señal inventada) |
-| **Detector en el path correcto** | 🔴 react_to_rate_limit solo en call_anthropic (API x-api-key); la cuota Max se agota en la sesión Claude Code CLI (OAuth), que NO pasaba por ahí | ❌ N/A |
-| route() gobierna el tráfico de la sesión | 🔴 Claude Code hablaba directo con Anthropic salvo proxy ON; proxy free-tier-only | ❌ N/A |
-| **quota:critical -> auto-relevo Codex** | 🔴 evento NO conectado a acción; fallback Codex manual | ❌ evento ya no se emite |
-| Routing preventivo (cheap->free para preservar cuota) | 🔴 imposible sin % gradual | ❌ N/A |
+| `is_critical()` se consultaba antes de cada provider | ✅ no era placeholder | ❌ 0 referencias `quota` en `ai_router.rs` |
+| Parseo retry-after / reset (para cuota) | ✅ lo hacía `react_to_rate_limit` | ❌ retirado con el watchdog |
+| Proxy failover free-tier | ✅ existía `ultron-proxy.mjs` | 🟢 sigue vivo, pero fuera del path de cuota (nunca llamó a Claude) |
+| **Señal de cuota** | 🔴 era binaria (0 o ~99 hardcoded) — `update_from_headers(99.0)`, `quota-capture.js` fallback 98.0 | ❌ N/A (motivo principal del retiro: señal inventada) |
+| **Detector en el path correcto** | 🔴 `react_to_rate_limit` vivía solo en call_anthropic (API x-api-key); la cuota Max se agotaba en la sesión Claude Code CLI (OAuth), que NO pasaba por ahí | ❌ N/A |
+| route() gobernaba el tráfico de la sesión | 🔴 Claude Code hablaba directo con Anthropic salvo proxy ON; proxy free-tier-only | ❌ N/A |
+| **quota:critical -> auto-relevo Codex** | 🔴 el evento NO estaba conectado a acción; fallback Codex era manual | ❌ evento ya no se emite |
+| Routing preventivo (cheap->free para preservar cuota) | 🔴 era imposible sin % gradual | ❌ N/A |
 
 ## 4. QUÉ FALTA (priorizado, del workflow `waqq5qec7`)
 1. **Señal real**: el proxy lee headers `anthropic-ratelimit-unified-5h-utilization` / `-7d-utilization` / `-representative-claim` / `-reset` tras cada respuesta de Anthropic y escribe quota-state.json. Convierte la señal de adivinada-por-texto a medida-determinista.
@@ -64,7 +64,7 @@ Cuando el uso de Claude Max se acerca al límite de la ventana (rate-limit de la
 ## 7. Huérfanos residuales tras `cbb2d5c`
 El núcleo (`quota_watchdog.rs`, ramas `quota` de `ai_router.rs`) se borró en `cbb2d5c`, pero el retiro
 **no fue total**: quedan productores, datos y UI que apuntan a un backend inexistente. Cada uno está
-registrado en `DEPRECATION-REGISTRY-2026-06-04.md` (sección B). Estado **verificado a 2026-06-04 / HEAD `f936a66`**:
+registrado en `DEPRECATION-REGISTRY-2026-06-04.md` (sección B). Estado **verificado a 2026-06-04** (HEAD no se hardcodea — obtener con `git rev-parse --short HEAD`; línea posterior a `cbb2d5c`: `823ed67` → `f936a66` → `cda7a99` → `79a962c` → `4558554`):
 
 | DR | artefacto | ruta | estado verificado | acción de limpieza |
 |---|---|---|---|---|

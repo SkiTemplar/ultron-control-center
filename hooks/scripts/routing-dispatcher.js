@@ -383,16 +383,36 @@ function normalize(s) {
 }
 
 function hasToken(haystack, needle) {
-  // Word-boundary-ish match. Allows substrings for multi-word phrases.
+  // Word-boundary match for single-word tokens; substring only for multi-word phrases.
+  //
+  // Anchoring ALL single-word tokens (not just short ones) to word boundaries
+  // prevents false positives: "react"⊄"reaccion", "commit"⊄"commitment",
+  // "testing"⊄"attesting", "design"⊄"designado", "shader"⊄"shaderboard".
+  // Multi-word phrases ("don claudio", "design tokens") still use substring,
+  // since their internal spaces already act as boundaries.
   const n = normalize(needle);
   const h = haystack;
   if (!n || !h) return false;
-  // For single-word tokens shorter than 4 chars, require word boundary.
-  if (!n.includes(' ') && n.length < 5) {
-    const re = new RegExp('(^|[^a-z0-9])' + n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-z0-9]|$)', 'i');
+
+  // Multi-word phrase → plain substring (spaces are natural boundaries).
+  if (n.includes(' ')) {
+    return h.includes(n);
+  }
+
+  const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  // Extension tokens (".ts", ".cpp", ".rs"): the leading "." is itself the left
+  // delimiter, so a filename stem before it is fine ("main.ts" matches). Only the
+  // trailing side needs a boundary that excludes "." and alphanumerics, so ".ts"
+  // does NOT match inside ".tsx" or ".ts2".
+  if (n[0] === '.') {
+    const re = new RegExp(escaped + '([^a-z0-9.]|$)', 'i');
     return re.test(h);
   }
-  return h.includes(n);
+
+  // Plain single-word token → require alphanumeric word boundaries on both sides.
+  const re = new RegExp('(^|[^a-z0-9])' + escaped + '([^a-z0-9]|$)', 'i');
+  return re.test(h);
 }
 
 function scoreEntry(promptNorm, entry) {
@@ -536,11 +556,16 @@ function main() {
   emitContext(text);
 }
 
-try {
-  main();
-} catch (err) {
-  safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
-  emitContext('');
+// Only run the hook when executed directly (not when require()'d by tests).
+if (require.main === module) {
+  try {
+    main();
+  } catch (err) {
+    safeLog({ level: 'error', msg: 'unhandled', error: String(err && err.message) });
+    emitContext('');
+  }
+  process.exitCode = 0;
 }
 
-process.exitCode = 0;
+// Exported for unit tests (regression coverage of hasToken word boundaries).
+module.exports = { hasToken, normalize, scoreEntry, rankCandidates };

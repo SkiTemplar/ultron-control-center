@@ -300,7 +300,7 @@ export default function BatchDropdown({
           title: `Deleted: ${name}`,
           body: "Batch script removed from ~/.ultron/batches/",
         });
-        void refresh();
+        await refresh();
       } catch (e: unknown) {
         onResult?.({
           kind: "err",
@@ -311,6 +311,47 @@ export default function BatchDropdown({
     },
     [onResult, refresh],
   );
+
+  // Clear ALL batches. Fixes the broken-state bugs:
+  //   1. Reset every related piece of UI state up front so no stale row, no
+  //      orphan delete-confirmation and no lingering "¿Seguro?" prompt can
+  //      reference a batch that no longer exists.
+  //   2. Optimistically empty the list immediately, then AWAIT refresh() so the
+  //      list is reconciled with disk before we report — no `void` race.
+  const clearAll = useCallback(async () => {
+    // 1. Tear down all confirmation / pending state before the async work so a
+    //    second click or a re-render cannot act on a deleted batch.
+    setConfirmingClearAll(false);
+    setPendingDeleteName(null);
+    setLoading(true);
+    try {
+      const r = await invoke<{ deleted: string[]; kept: number }>(
+        "clear_all_batches",
+      );
+      // 2. Optimistically clear the in-memory list so the map cannot render
+      //    phantom rows while refresh() is in flight.
+      setBatches([]);
+      onResult?.({
+        kind: "ok",
+        title: `${r.deleted.length} batches eliminados`,
+        body:
+          r.deleted.length === 0
+            ? `No había batches que borrar. Kept ${r.kept}.`
+            : `Eliminados todos los batches (${r.deleted.length}). Kept ${r.kept} no-batch.`,
+      });
+      // 3. AWAIT the reconcile so the on-screen list matches disk before we
+      //    leave the handler (refresh() also re-pulls the queue).
+      await refresh();
+    } catch (err: unknown) {
+      onResult?.({
+        kind: "err",
+        title: "Clear all failed",
+        body: err instanceof Error ? err.message : String(err),
+      });
+      // Re-sync from disk so a partial failure does not leave a stale list.
+      await refresh();
+    }
+  }, [onResult, refresh]);
 
   const count = batches?.length ?? 0;
   const queueCount = queue?.length ?? 0;
@@ -472,29 +513,9 @@ export default function BatchDropdown({
                   </span>
                   <button
                     type="button"
-                    onClick={async (e) => {
+                    onClick={(e) => {
                       e.stopPropagation();
-                      setConfirmingClearAll(false);
-                      try {
-                        const r = await invoke<{ deleted: string[]; kept: number }>(
-                          "clear_all_batches",
-                        );
-                        onResult?.({
-                          kind: "ok",
-                          title: `${r.deleted.length} batches eliminados`,
-                          body:
-                            r.deleted.length === 0
-                              ? `No había batches que borrar. Kept ${r.kept}.`
-                              : `Eliminados todos los batches (${r.deleted.length}). Kept ${r.kept} no-batch.`,
-                        });
-                        void refresh();
-                      } catch (err) {
-                        onResult?.({
-                          kind: "err",
-                          title: "Clear all failed",
-                          body: err instanceof Error ? err.message : String(err),
-                        });
-                      }
+                      void clearAll();
                     }}
                     disabled={loading}
                     className="rounded px-1.5 py-0.5 text-[10.5px] font-medium transition-colors disabled:opacity-40"

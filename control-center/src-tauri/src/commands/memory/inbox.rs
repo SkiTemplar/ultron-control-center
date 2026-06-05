@@ -103,10 +103,13 @@ pub async fn memory_auto_approve_get() -> Result<bool, String> {
 #[tauri::command]
 pub async fn memory_auto_approve_set(enabled: bool) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        auto_approve::write_settings(auto_approve::MemorySettings {
+        // Preserve any user-tuned `auto_approve_threshold` — toggling the flag must
+        // not silently reset the 3-band confidence floor.
+        let settings = auto_approve::MemorySettings {
             auto_approve: enabled,
-        })
-        .map(|s| s.auto_approve)
+            ..auto_approve::read_settings()
+        };
+        auto_approve::write_settings(settings).map(|s| s.auto_approve)
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?

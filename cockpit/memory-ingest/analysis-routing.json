@@ -1,0 +1,207 @@
+{
+  "summary": "Auditoria del sistema de routing de ULTRON: AI Router (proveedores/proxy free-tier) + routing semantico de skills/agentes (ultron_catalog 197, orchestrator delegate) con scores y plan para subir la nota",
+  "agentCount": 5,
+  "logs": [
+    "Auditando 5 dimensiones del sistema de routing...",
+    "Routing: score global 5.4/10; 27 issues"
+  ],
+  "result": {
+    "overall_score": 5.4,
+    "dimensions": [
+      {
+        "key": "catalog",
+        "score": 6,
+        "summary": "El indice esta sano en construccion pero roto en uso. La coleccion Qdrant ultron_catalog (1024d, Cosine) tiene 197 puntos = 78 agentes + 119 skills, reindexados en vivo sin fallos de cobertura: el comando `ultron-memory.exe catalog` reporta indexed_agents=78, indexed_skills=120, skill_error=null, errors=1. Los 78 agentes .md reales se indexan al 100% y el unico .disabled (database-admin.md.disabled) se excluye correctamente por no ser .md. Las skills .disabled tambien se excluyen (filtro skill.enabled). La descripcion embebida (\"{name}: {description}\") da matching semantico EXCELENTE en el dominio de agentes: una query de seguridad/rust devuelve ultron-security(1.04)/code-reviewer(1.04)/security-auditor(1.01)/penetration-tester(0.99)/rust-engineer(0.83), y una de UI devuelve frontend-developer(0.985). PERO el hallazgo critico es que el unico read-path de produccion (orchestrator.rs:474) llama search_catalog(prompt, Some(\"agent\"), 12) — SIEMPRE filtra a entity=agent. Las 119 skills indexadas (incluidas las 15 personas como tio-gilito, alfred, jordan-belfort, warren y las 92 tecnicas) NUNCA compiten en el routing real. Quedan accesibles solo por un comando Tauri manual (catalog.rs:61) que la GUI no usa en el flujo prompt->workflow->delegate. Prueba viva: \"how am I doing financially, review my spending and budget\" enruta a code-reviewer(0.998)/qa-expert(0.973) — basura lexica sobre \"review\" — porque la skill financiera tio-gilito existe en el indice pero esta vetada. Esto significa que ~60% del catalogo (las skills) es peso muerto en el routing. Tambien hay una discrepancia 120 indexed vs 119 puntos en coleccion: 1 colision de deterministic_id por nombre de skill duplicado entre fuentes (p.ej. code-reviewer/debugger/git-workflow existen como skill global Y como agente/plugin), donde un upsert sobreescribe a otro silenciosamente. Sumado al indexed_vectors_count=0 (todos los vectores en segmentos no-HNSW; por debajo de vacuum_min_vector_number=1000 hace full-scan, OK funcionalmente pero no es el path indexado esperado).",
+        "metrics": [
+          "Coleccion ultron_catalog: 197 points, dim=1024, distance=Cosine, status=green",
+          "Desglose: 78 agentes + 119 skills (de 120 indexadas -> 1 colision de id)",
+          "Skills por kind: 92 technical / 15 persona / 12 meta",
+          "Cobertura agentes: 78/78 .md reales indexados (100%); 1 .disabled correctamente excluido",
+          "Cobertura skills enabled en disco ~/.claude/skills: 79 dirs enabled + plugins/proyecto = 119 en indice",
+          "catalog reindex: indexed_agents=78, indexed_skills=120, errors=1, skill_error=null, exit=0",
+          "indexed_vectors_count=0 (todos los puntos en full-scan, bajo vacuum_min_vector_number=1000)",
+          "Read-path produccion: orchestrator.rs:474 search_catalog(prompt, Some(\"agent\"), 12) -> skills excluidas",
+          "Routing security (vivo): ultron-security 1.04, code-reviewer 1.04, security-auditor 1.01 (correcto)",
+          "Routing UI (vivo): frontend-developer 0.985 (correcto entre agentes, pero sin ui-designer/mike-tyson skills)",
+          "Routing finanzas (vivo): code-reviewer 0.998 / qa-expert 0.973 (FALLO: tio-gilito indexada pero vetada)"
+        ]
+      },
+      {
+        "key": "orchestrator-routing",
+        "score": 5.5,
+        "summary": "El orchestrator de C:/Users/USER/.ultron/control-center/src-tauri/src/orchestrator.rs funciona EN VIVO (binario ultron-memory.exe, Qdrant ultron_catalog con 197 puntos = 78 agents + 119/121 skills, E5 1024d operativo). La clasificacion de intent por reglas es solida: 11/12 prompts del banco enrutaron al intent correcto (92%). PERO la seleccion de delegate_agents es desigual: en ~6 dominios es excelente (security 1.01, performance 0.99, refactor 1.05, docs 1.05, architecture 1.03, game 0.997 — el SPECIALIST_BOOST funciona y los especialistas correctos quedan top-3), mientras que en UI/diseno y testing es CATASTROFICA (0/3 aciertos: 'disena una UI' devuelve api-designer/cli-developer/devops-engineer y 'escribe tests' devuelve ultron-perf/unity-engineer/ultron-arch — los especialistas correctos NO aparecen). La nota ~58 reportada por el usuario es coherente: precision top-3 medida ~67%, pero arrastrada por dos fallos totales que un usuario nota de inmediato. La causa raiz NO es 'reglas de intent flojas' (esas van bien) ni 'scores bajos' aislados, sino un FALLO ESTRUCTURAL DE EMBUDO: rebalance_delegates solo re-rankea los 12 hits crudos de search_catalog(); si el especialista preferido no entra en ese top-12 (porque el embedding E5 de la query en espanol no lo discrimina sobre el piso de ruido ~0.78-0.81), el +0.20 de boost NO puede rescatarlo. Sumado a esto, dos referencias muertas y la ausencia de skills en el path de delegacion. Subir a 95 es factible y el camino es claro.",
+        "metrics": [
+          "Catalogo Qdrant ultron_catalog: 197 puntos vivos = 78 agents + 119 skills (reindex reporta 78 agents + 121 skills, errors=0)",
+          "Precision de intent (route correcto): 11/12 = 92% (unico miss: 'CI/CD pipeline' cayo a route=general por falta de regla devops/deploy)",
+          "Precision top-3 de delegate_agents (juicio manual sobre 12 prompts de dominios distintos): ~24/36 = 67%",
+          "Dominios EXCELENTES (especialista correcto en top-1, score >0.95): security, performance, refactor, docs, architecture, game, research, feature = 8/12",
+          "Dominios ROTOS (0/3 especialistas correctos en top-5): ui_design, testing = 2/12",
+          "Piso de ruido del embedding E5: agentes irrelevantes se agrupan en 0.78-0.81 (medido con prompt basura '--help' -> python-pro 0.81, kubernetes 0.81); senal correcta tras boost = 0.98-1.05",
+          "Ventana de retrieval: search_catalog(prompt, Some(agent), 12) -> solo 12 de 78 agents llegan a rebalance (cobertura 15%)",
+          "SPECIALIST_BOOST=+0.20 aditivo, META_PENALTY=x0.55 multiplicativo, keep=5",
+          "Referencia muerta: preferred_specialists('ui_design') incluye 'ui-designer' que NO existe como agente en ~/.claude/agents (es skill) -> boost imposible de aplicar",
+          "Skills (119 indexadas) NO compiten en delegate_agents: la llamada filtra Some('agent'), las skills nunca se delegan via orchestrator"
+        ]
+      },
+      {
+        "key": "ai-router",
+        "score": 6.5,
+        "summary": "El AI Router de ULTRON tiene DOS subsistemas reales y bien implementados, no decorativos: (1) un router por-zona en Rust (ai_router.rs, 2244 lineas) que mapea zona -> (provider, model) con cadena de fallback real, y route() esta cableado a ~14 callers internos reales (cost_watchdog, hooks_admin, workdays, project_agents, plugins_info, memory/capture, memory/ai_tasks, memory/reflection, sessions_tags); y (2) un proxy Node free-tier (ultron-proxy.mjs, 708 lineas, CERO dependencias) que traduce la API Anthropic Messages a backends OpenAI-compatibles (NVIDIA NIM, OpenRouter, Groq) con failover automatico por status 401/402/403/429. Las keys SE LEEN del entorno: verificado EN VIVO que GROQ/GEMINI/ANTHROPIC/DEEPSEEK/NVIDIA/OPENROUTER estan SET en el proceso (cargadas via dotenvy + registro HKCU User-scope inyectado al proxy). La telemetria registra uso REAL por proveedor y por modelo (by_class + by_model con count/success/tokens/latencia), no stubs; el frontend lee ai_router_metrics/ai_router_usage_summary de verdad. PERO hay un BUG CRITICO en produccion: el zones.json vivo (editado a mano 2026-06-04) PERDIO las zonas 'utility' y 'light', que son las DOS mas invocadas del codigo entero (ZONE_EXTRACT, ZONE_REWRITE, ZONE_JUDGE en memory, ademas de workdays/hooks/plugins/agents). load_zones() lee el JSON verbatim SIN auto-curar zonas faltantes del seed, asi que route('utility')/route('light') devuelven Err('zone not found') ANTES de tocar ningun proveedor: rompe en silencio extraccion de memoria, naming de sesiones, resumenes de jornada, summaries de plugins y sugerencias de agentes. Verificado en vivo: Groq responde OK, Gemini 4/5 exito, pero claude-haiku 0/8 exito porque la key de Anthropic tiene saldo 0 ('credit balance too low'). El proxy ahora mismo NO esta escuchando en :8082 (es on-demand via toggle, no defecto). La nota refleja arquitectura solida socavada por un bug de config que tumba la mitad de los consumidores internos.",
+        "metrics": [
+          "route() cableado a ~14 callers internos reales (no decorativo) — verificado por grep en cost_watchdog/hooks_admin/workdays/project_agents/plugins_info/memory(capture,ai_tasks,reflection)/sessions_tags/library",
+          "Proveedores ai_router.rs: 8 (claude-haiku, codex, gemini, groq, ollama, deepseek, codex-cli, gemini-cli)",
+          "Backends proxy free-tier: 3 (NVIDIA NIM > OpenRouter > Groq, primero-con-key gana, failover en 401/402/403/429)",
+          "Keys EN VIVO en el proceso: GROQ(56) GEMINI(39) ANTHROPIC(108) DEEPSEEK(35) NVIDIA(70) OPENROUTER(73) SET; OPENAI unset; .env solo tiene MEM0_API_KEY (resto viene de HKCU User-scope)",
+          "metrics.json: groq 60 calls (55 ok, p95 147ms), gemini 5 (4 ok, p95 4966ms), claude-haiku 8 (0 ok — key sin saldo)",
+          "fallback_rate=0.39 (EMA); tokens_saved_total=724; cost_saved=0.0004 USD",
+          "Zonas en seed: 9 (incluye utility+light); zonas en zones.json VIVO: 7 (FALTAN utility y light)",
+          "Test en vivo: Groq llama-3.3-70b -> 'OK' 200; Anthropic claude-haiku -> 'credit balance too low' (saldo 0); el modelo id es valido, falla la facturacion",
+          "Proxy NO escuchando en :8082 ahora mismo (on-demand); Qdrant SI en :6333"
+        ]
+      },
+      {
+        "key": "hook-integration",
+        "score": 3.5,
+        "summary": "El hook memory-orchestrate.js SI esta registrado en UserPromptSubmit con matcher \"*\" (cada prompt) y la cadena de clasificacion (15 reglas de intent bilingues es/en para security/bug/game/UI/test/perf/docs/refactor/feature/research/learning/arch/memory/continue), rebalanceo meta-vs-especialista, y fail-safe son correctos en codigo. PERO en vivo el hook FALLA EN CADA PROMPT REAL: la llamada al binario tarda 12-15s de forma persistente (no es cold start), mientras el timeout interno de runCli es 8000ms y el del hook en settings.json es 10s. Resultado medido: memory-orchestrate devuelve additionalContext VACIO en cada invocacion no-trivial. El delegate_to con agentes y scores que deberia inyectarse en cada prompt NUNCA llega al asistente. Esto explica directamente la nota ~58/100. Ademas el render solo muestra delegate_agents (nunca skills, pese a que el catalogo tiene 197 entradas agents+skills y search_catalog soporta filtrar skills) y el route no concuerda con el workflow mostrado (route=performance pero workflow=debug; route=docs pero workflow=quick), lo que confunde al asistente.",
+        "metrics": [
+          "Hook registrado en UserPromptSubmit, matcher '*' (cada prompt): SI (settings.json lineas 106-135)",
+          "Latencia real de orchestrate (3 corridas): 11.6s / 12.5s / 12.8s; otra 15.7s -> persistente, no cold-start",
+          "Timeout interno runCli (lib): 8000ms -> SIEMPRE excedido",
+          "Timeout hook (settings.json): 10000ms (10s) -> tambien excedido por las corridas de 12-15s",
+          "additionalContext emitido por el hook para un prompt valido (UI/test): VACIO (medido via stdin, 8915ms, fail-safe disparado)",
+          "Hooks rapidos de comparacion: routing-dispatcher 442ms, save-user-prompt 408ms (ambos OK)",
+          "Catalogo ultron_catalog en Qdrant: 197 puntos, status green, 1024d",
+          "search_catalog del orchestrator hardcodea Some('agent') -> skills indexadas pero NUNCA delegadas",
+          "Scores SI se muestran en el render cuando hay output: a.score con 2 decimales (linea 29 del hook)",
+          "Reglas de intent UI/test/perf/docs: SI existen (15 IntentRule, primer match gana, bilingue), ademas del match semantico",
+          "3 hooks en UserPromptSubmit ejecutan en serie por prompt (routing-dispatcher + save-user-prompt + memory-orchestrate)",
+          "Mismatch route/workflow verificado en vivo: route=performance->workflow=debug, route=docs->workflow=quick"
+        ]
+      },
+      {
+        "key": "routing-quality",
+        "score": 5.5,
+        "summary": "Medicion EN VIVO sobre el binario real (C:/Users/USER/.ultron/bin/ultron-memory.exe orchestrate, fechado Jun 5 00:03) y la coleccion Qdrant ultron_catalog (197 puntos: 78 agentes + 119 skills, 1024d Cosine). Disenie 10 casos prompt->especialista esperado y los corri reales. Resultado: accuracy@1 = 50% (5/10), accuracy@3 = 80% (8/10). Esto cuadra con la nota reportada ~58/100. El pipeline RULES->workflow->delegate funciona y es rapido, pero arrastra 4 fallos de raiz que tapan el techo: (1) CRITICO — el orquestador NUNCA enruta skills: orchestrate() llama search_catalog(prompt, Some(\\\"agent\\\"), 12) cableado a entidad agent, asi que las 119 skills indexadas (personas como tio-gilito/terry-davis, tecnicas como rust-patterns, ui-ux-pro-max) jamas aparecen en delegate_agents ni el hook las renderiza. Toda la infra index_skills/entity=None/classify_skill_kind esta construida pero MUERTA. (2) ALTO — degradacion cross-lingual: las descripciones de los 78 agentes estan en INGLES y los prompts de USER en ESPANOL; E5 multilingue pierde suficiente senal que el especialista correcto cae fuera del top-12 crudo. Probado: \\\"escribe tests unitarios con cobertura\\\" (es) -> test-automator AUSENTE del top5 (top5 basura: ultron-perf, prompt-engineer, unity-engineer); la MISMA query en ingles -> test-automator #1. (3) ALTO — el SPECIALIST_BOOST (+0.20) solo re-rankea dentro de los 12 hits ya recuperados; si el especialista preferido no entro en esos 12 (caso es/research), el boost no lo rescata: es decorativo en los fallos. (4) MEDIO — META_AGENTS no incluye ultron-security/ultron-arch/ultron-perf, asi que estos 3 meta-agentes NO reciben penalizacion y contaminan resultados (bug_fix es -> debugger#1 OK pero #2 ultron-security, #3 ultron-arch, #4 graphics-programmer). AI Router (parte 1): metrics.json muestra trafico real (groq 64 llamadas/55 exito, gemini 9/8) pero claude-haiku 8 llamadas / 0 exitos (100% fallo) y fallback_rate 0.438 (44%); el proxy Node (ultron-proxy.mjs, puerto 8082) no respondia /health en la medicion. Plan a 95: indexar+enrutar skills en el orquestador, traducir/aumentar descripciones de agentes a es+en (o sobre-fetch k mayor + reranker), volver el boost un floor garantizado (inyectar preferidos aunque no esten en top-k), completar META_AGENTS, y montar un golden set es/en con CI que mida accuracy@1/@3 en cada build.",
+        "metrics": [
+          "accuracy@1 = 50% (5/10 casos) — medido en vivo con orchestrate",
+          "accuracy@3 = 80% (8/10 casos) — medido en vivo",
+          "catalogo Qdrant ultron_catalog: 197 puntos (78 agentes + 119 skills), 1024d Cosine, status green",
+          "skills por kind: 92 technical / 15 persona / 12 meta — TODAS invisibles al orquestador (0 enrutadas)",
+          "Cross-lingual: query 'tests unitarios' (es) -> test-automator ausente top5; misma query (en) -> test-automator #1",
+          "AI Router claude-haiku: 8 llamadas / 0 exitos (success_count=0, 100% fallo)",
+          "AI Router fallback_rate = 0.438 (44% de las rutas caen al fallback)",
+          "AI Router groq llama-3.3-70b: 64 llamadas / 55 exito (86%), p95 301ms; gemini-2.5-flash 9/8, p95 4476ms",
+          "delegate_agents devuelve siempre entity=agent; 0% de prompts reciben una skill como candidato",
+          "tokens_saved_total=972, cost_saved_usd~0.0005 (telemetria de bajo volumen, dia 2026-06-04)"
+        ]
+      }
+    ],
+    "top_issues": [
+      {
+        "dimension": "catalog",
+        "severity": "critical",
+        "title": "Las 119 skills indexadas NUNCA compiten en el routing real (read-path filtra a entity=agent)",
+        "detail": "El unico camino de produccion es orchestrator.rs:474: catalog::search_catalog(prompt, Some(\"agent\"), 12). El segundo argumento Some(\"agent\") veta permanentemente las 119 skills del routing. index_skills() las construye y mantiene (120 upserts cada reindex), pero el orquestrador jamas las consulta — solo son alcanzables por el comando Tauri catalog_search (commands/memory/catalog.rs:61) que la GUI no invoca en el flujo prompt->workflow->delegate. Resultado: ~60% del catalogo es peso muerto. Demostrado en vivo: 'how am I doing financially, review my spending and budget' enruta a code-reviewer(0.998)/qa-expert(0.973) (match lexico sobre 'review') en lugar de la skill financiera tio-gilito, que esta indexada pero excluida. Esto es la causa raiz numero 1 de la nota ~58/100 del routing skills/agentes: las skills literalmente no participan.",
+        "recommendation": "Hacer que el orquestrador consulte AMBAS entidades. Opcion minima: en orchestrator.rs:474 llamar search_catalog(prompt, None, 12) y dividir los hits en delegate_agents + delegate_skills, exponiendo un nuevo campo delegate_skills en OrchestrationContext. Mejor: hacer dos llamadas ponderadas (agentes para 'a quien delego' + skills para 'que persona/capacidad activo') y fusionar con la senal kind (persona vs technical vs meta) ya presente en el payload. El test e2e_skills_index_and_compete (catalog.rs:429) ya prueba que entity=None devuelve skills — la infra esta lista, solo falta cablear el read-path."
+      },
+      {
+        "dimension": "orchestrator-routing",
+        "severity": "critical",
+        "title": "Fallo de embudo: rebalance solo re-rankea top-12 crudo; especialistas correctos de UI/testing nunca se recuperan",
+        "detail": "orchestrator.rs:474 hace search_catalog(prompt, Some(\"agent\"), 12) y rebalance_delegates (linea 409) opera SOLO sobre esos 12 hits. Si el especialista preferido no entra en el top-12 semantico, el SPECIALIST_BOOST de +0.20 (linea 371) no puede aplicarse porque el agente no esta en la lista. Verificado en vivo: 'disena una UI bonita para el dashboard' (route ui_design correcto) devuelve top-5 = api-designer 0.792, cli-developer 0.785, devops-engineer 0.783, graphics-programmer 0.775, ultron-docs 0.446; frontend-developer y react-specialist (que SI existen como agentes y SI estan en preferred_specialists) NO aparecen. Idem 'escribe tests unitarios para el parser' (route testing correcto) -> ultron-perf 0.806, unity-engineer 0.798, ultron-arch 0.791, ultron-security 0.790, prompt-engineer 0.788; test-automator/qa-expert/code-reviewer ausentes. El embedding E5 de la query corta en espanol no discrimina sobre el piso de ruido (~0.78-0.81), asi que el agente correcto cae fuera del top-12 y el rebalance nunca lo ve.",
+        "recommendation": "Garantizar que los preferred_specialists del intent SIEMPRE entren al pool de rebalance, independientemente del retrieval semantico. Opcion A (minima y robusta): tras obtener raw_hits, inyectar los preferred_specialists ausentes con un score base (ej. 0.80) ANTES de aplicar el boost, asi el +0.20 los lleva a ~1.00 y compiten arriba. Opcion B: subir k de 12 a 30-40 (cobertura ~40-50% de 78) para que mas candidatos lleguen al rebalance. Opcion C (mejor): hacer un segundo retrieval dirigido por los nombres de preferred_specialists (lookup directo por payload name en Qdrant) y fusionarlo con el semantico. Recomiendo A+C combinadas: inyeccion garantizada de preferidos + ampliar k a 24. Esto solo arregla los 2 dominios rotos y sube top-3 de ~67% a ~90%+."
+      },
+      {
+        "dimension": "ai-router",
+        "severity": "critical",
+        "title": "zones.json vivo perdio las zonas 'utility' y 'light' — las dos mas invocadas — y route() no auto-cura",
+        "detail": "El zones.json en cockpit/ai-router/ (editado a mano 2026-06-04) contiene solo 7 zonas; faltan 'utility' y 'light' que SI estan en seed_zones(). Pero memory/ai_tasks.rs define ZONE_EXTRACT='utility', ZONE_REWRITE='light', ZONE_JUDGE='utility', y ademas hooks_admin.rs, workdays.rs (x3), project_agents.rs (x2) y plugins_info.rs llaman route('utility')/route('light'). load_zones() (ai_router.rs:642) hace read_json del archivo VERBATIM cuando existe: NO mergea las zonas faltantes del seed. Resultado: route('utility') y route('light') devuelven Err('zone not found') ANTES de intentar ningun proveedor. Rompe en SILENCIO: extraccion de memoria, juez de candidatos, reescritura, naming de sesiones, resumenes de jornada, summaries de plugins y sugerencias de agentes. Coincide con la nota ~58/100: la mitad de los consumidores internos del router estan caidos sin error visible.",
+        "recommendation": "Arreglo inmediato: re-anadir las zonas 'utility' y 'light' a cockpit/ai-router/zones.json (primary groq llama-3.3-70b, fallback gemini-2.5-flash; copiar de seed_zones() ajustando el primario para no usar claude-haiku). Arreglo estructural: cambiar load_zones() para que MERGEE por id las zonas del seed que falten en el archivo (self-healing), o anadir un test/doctor que valide que toda zona referenciada en codigo (ZONE_* constants + literales route('...')) existe en zones.json. Esto solo deberia subir la nota notablemente."
+      },
+      {
+        "dimension": "hook-integration",
+        "severity": "critical",
+        "title": "El hook hace timeout y fail-safe a VACIO en cada prompt real: delegate_to nunca llega al asistente",
+        "detail": "Medido en vivo: orchestrate tarda 11.6-15.7s de forma persistente (carga del sidecar de embeddings E5/bge + query a Qdrant en cada spawn fresco). El timeout de runCli en lib/ultron-memory-cli.js es 8000ms y el del hook en settings.json es 10s. Invocando el hook real via stdin con un prompt valido ('fix the failing UI test...') devuelve {additionalContext:''} en 8915ms = el fail-safe se dispara SIEMPRE. Por tanto el routing semantico de agentes/skills, que es justo lo que deberia subir la nota, NO se inyecta nunca en produccion. La nota ~58/100 es coherente con un hook que en la practica es un no-op silencioso.",
+        "recommendation": "Atacar la latencia, NO solo subir el timeout. Opciones por impacto: (1) mantener un daemon/sidecar persistente de ultron-memory que tenga el modelo de embeddings precargado y atienda orchestrate por IPC/named-pipe/HTTP local, eliminando el coste de arranque por prompt (objetivo <1s). (2) Si se mantiene el spawn por prompt, separar el path rapido (classify_intent + workflow + delegate_agents, que es solo 1 embedding + 1 query a Qdrant) del path lento (build_trace de 12 memorias) y devolver primero lo barato. (3) Subir runCli timeout a >=20s Y el hook timeout en settings.json a 20-25s SOLO como parche temporal hasta tener el daemon; con eso el delegate_to ya llegaria aunque añada latencia perceptible al prompt. Verificar tras el fix que additionalContext deja de ser vacio para prompts reales."
+      },
+      {
+        "dimension": "routing-quality",
+        "severity": "critical",
+        "title": "El orquestador NO enruta skills — 119 skills indexadas estan muertas en el routing",
+        "detail": "orchestrate() (orchestrator.rs:474) llama catalog::search_catalog(prompt, Some(\"agent\"), 12) con la entidad cableada a 'agent'. Las 119 skills (92 technical, 15 persona, 12 meta) estan en ultron_catalog pero NUNCA compiten ni aparecen en delegate_agents. El struct OrchestrationContext ni siquiera tiene campo delegate_skills, y el hook memory-orchestrate.js solo renderiza delegate_agents. Toda la infra index_skills/entity=None/classify_skill_kind (catalog.rs:205-268) fue construida y verificada en tests e2e pero esta desconectada del unico consumidor. Esto es ~la mitad de la nota: 'routing de skills/agentes' enruta 0% skills.",
+        "recommendation": "Anadir delegate_skills: Vec<SkillChoice> a OrchestrationContext. En orchestrate(), hacer una segunda busqueda search_catalog(prompt, Some(\"skill\"), 8) (o una sola entity=None y separar por h.entity), aplicar un rebalanceo analogo que use h.kind (penalizar persona salvo intent 'continue'/personal, priorizar technical/meta segun intent), y renderizar 'delegate_skills:' en el hook. Anadir tests e2e que verifiquen que rust-patterns/ui-ux-pro-max/test cases devuelvan al menos 1 skill pertinente en top-3."
+      },
+      {
+        "dimension": "catalog",
+        "severity": "high",
+        "title": "Colision silenciosa de deterministic_id: 120 skills indexadas pero solo 119 puntos en la coleccion",
+        "detail": "El reindex reporta indexed_skills=120 pero la coleccion contiene 119 skills. deterministic_id usa hash(\"skill::{name}\") — si dos fuentes distintas (skill global ~/.claude/skills vs skill de plugin/proyecto) comparten el mismo name (existen homonimos: code-reviewer, debugger, git-workflow, second-opinion, skill-creator, ecc-guide aparecen como skill global Y en otras fuentes), el segundo upsert SOBREESCRIBE al primero en el mismo punto Qdrant sin warning. Una de las dos definiciones (con su descripcion/path) se pierde silenciosamente. El id solo namespacea agent:: vs skill::, no la fuente, asi que skills homonimas de distinto origen colapsan en un punto.",
+        "recommendation": "Incluir la fuente/origen en la clave del id: deterministic_id(\"skill::{origin}::{name}\") donde origin es global|project|plugin (skills::list_skills_with_origin_inner ya lo conoce). Alternativamente, deduplicar por precedencia explicita (global > plugin > project) y loguear las colisiones en vez de upsert ciego. Anadir un assert en el reindex: points_count tras index == indexed_agents + indexed_skills, y emitir warning si difieren."
+      },
+      {
+        "dimension": "orchestrator-routing",
+        "severity": "high",
+        "title": "Referencia muerta 'ui-designer' en preferred_specialists('ui_design')",
+        "detail": "orchestrator.rs:382-387 lista preferred_specialists para ui_design = [frontend-developer, react-specialist, ui-designer, accessibility-tester]. Verificado en disco (ls ~/.claude/agents) y en Qdrant (scroll filter name=ui-designer entity=agent -> 0 puntos): 'ui-designer' NO es un agente, es una skill. El boost para ui-designer es codigo muerto: aunque el prompt sea de UI, nunca puede rescatar a 'ui-designer' porque el filtro Some('agent') jamas lo retorna. Esto agrava el dominio UI ya roto.",
+        "recommendation": "Sustituir 'ui-designer' por agentes reales de UI presentes en disco. Candidatos verificados: frontend-developer (ya esta), react-specialist (ya esta), accessibility-tester (ya esta) y añadir 'nextjs-developer' o 'vue-expert' segun stack. Si se quiere enrutar a la SKILL ui-designer/ui-ux-pro-max/mike-tyson, eso requiere el fix del issue de skills (abajo), no la lista de agentes. Añadir un test que valide que cada nombre en preferred_specialists existe en known_agent_names()."
+      },
+      {
+        "dimension": "orchestrator-routing",
+        "severity": "high",
+        "title": "Las 119 skills indexadas no compiten en delegate_agents (filtro Some('agent') las excluye)",
+        "detail": "El catalogo invierte recursos en indexar 119 skills (catalog.rs index_skills, kind persona/technical/meta), pero orchestrator.rs:474 filtra Some(\"agent\"), por lo que NINGUNA skill llega nunca a delegate_agents. Para dominios donde la mejor respuesta ES una skill (ui-designer, mike-tyson, frontend-design, ui-ux-pro-max para UI; python-testing/rust-testing para tests; tio-gilito para finanzas) el router es estructuralmente incapaz de recomendarlas. Es ~60% del catalogo (119/197) inerte en el path de delegacion. El comentario del modulo dice que skills 'compiten en el router' pero el orchestrator no las consulta.",
+        "recommendation": "Hacer un retrieval mixto: ademas de search_catalog(prompt, Some('agent'), k) añadir search_catalog(prompt, Some('skill'), k_skills) y fusionar, marcando entity en AgentChoice (añadir campo entity) para que el hook muestre 'delegate_to: agent X / skill Y'. Aplicar pesos por kind (technical > persona para tareas tecnicas). Esto desbloquea los dominios UI/testing tambien por la via skill y aprovecha la mitad del catalogo que hoy esta muerta."
+      },
+      {
+        "dimension": "ai-router",
+        "severity": "high",
+        "title": "claude-haiku tiene saldo 0 en Anthropic (0/8 exito) y sigue de fallback en varias zonas seed",
+        "detail": "Prueba en vivo: la ANTHROPIC_API_KEY responde 'Your credit balance is too low to access the Anthropic API'. metrics.json lo confirma: claude-haiku count=8, success_count=0, output_tokens=0. El modelo id 'claude-haiku-4-5-20251001' es valido; el fallo es de facturacion, no de codigo. En el seed claude-haiku sigue siendo primary de 'chat'/'code-review'/'routing-decision' y fallback de 'research-web'/'utility'; aunque el zones.json vivo ya lo quito de los primarios, cualquier re-seed (p.ej. si se borra zones.json) reintroduce un proveedor muerto que quema un intento y latencia en cada ruta.",
+        "recommendation": "Opcion A: recargar saldo/activar el plan de Anthropic API (distinto de la suscripcion Claude Code). Opcion B: degradar claude-haiku a estado 'sin credito' y sacarlo de las cadenas de fallback por defecto en seed_zones(), dejando groq/gemini como workhorses (ya son free-tier reales con limites publicados). Anadir al doctor un health-probe que distinga 401/403 (key mala) de 'credit balance' para mostrar el motivo exacto en la UI."
+      },
+      {
+        "dimension": "hook-integration",
+        "severity": "high",
+        "title": "Las skills (≈119 del catalogo de 197) se indexan pero NUNCA se delegan ni se muestran",
+        "detail": "orchestrator.rs linea 474 llama catalog::search_catalog(prompt, Some('agent'), 12), filtrando solo a agentes. El render() del hook solo tiene seccion delegate_agents; no existe seccion de skills. Sin embargo el catalogo Qdrant tiene 197 puntos (agents+skills), search_catalog soporta Some('skill')/None, y hay un test que confirma que las skills compiten en busqueda multi-entidad. El objetivo declarado de 78->197 (conectar skills) queda a medias: estan en el indice pero el routing nunca las usa.",
+        "recommendation": "Anadir delegacion a skills: o bien una segunda llamada search_catalog(prompt, Some('skill'), N) o una unica con None y luego separar por entity. Anadir al render() una seccion 'suggested_skills' (con kind persona|technical|meta y score). Esto conecta las personas (terry, mike, jordan...) y skills tecnicas al routing semantico, que es exactamente lo que el usuario pidio para subir a 95. Cuidar el solape con routing-dispatcher.js (que ya sugiere personas por keyword) para no duplicar."
+      },
+      {
+        "dimension": "hook-integration",
+        "severity": "high",
+        "title": "El route detectado no coincide con el workflow mostrado: confunde al asistente",
+        "detail": "Verificado en vivo: para 'optimize slow query N+1' route='performance' pero workflow='debug/Stuck debug' con steps [debugger, error-detective, qa-expert]; para 'write documentation' route='docs' pero workflow='quick/Quick fix' [code-reviewer, qa-expert]. Esto es por diseño (varios intents mapean a 7 workflows reutilizados via workflow_id), pero el hook muestra ambos campos sin explicar la relacion, asi que el asistente ve 'route: performance' junto a 'workflow: debug — Stuck debug' y steps que no son de performance. Para docs/perf/refactor/test/arch/memory los steps del workflow no son los preferred_specialists del intent.",
+        "recommendation": "Alinear la señal: (a) mostrar en el render los preferred_specialists del intent como 'recommended_pipeline' en vez de (o ademas de) los steps del workflow generico, ya que los delegate_agents semanticos y los preferred_specialists SI son pertinentes pero los steps del workflow reutilizado no; o (b) crear workflows dedicados para docs/perf/refactor/testing/architecture (hoy solo hay 7: quick/feature/debug/security/research/game/learning) para que id y steps concuerden con el route. Minimo: documentar en el render que 'workflow' es la plantilla base y 'delegate_to' es la seleccion real."
+      },
+      {
+        "dimension": "routing-quality",
+        "severity": "high",
+        "title": "Degradacion cross-lingual: descripciones de agentes en ingles vs prompts en espanol",
+        "detail": "Los 78 agentes tienen description en ingles (ej test-automator: 'Use this agent when you need to build... automated test frameworks'). Los prompts reales de USER son en espanol. E5 es multilingue pero la similitud cross-lingual es debil: 'escribe tests unitarios con cobertura' (es) NO mete a test-automator ni qa-expert en el top-12 (top5 real: ultron-perf, prompt-engineer, unity-engineer, ultron-arch, ultron-security). La identica query en ingles si pone test-automator #1. Mismo patron en research (es). Esto explica ~3 de los 5 fallos de accuracy@1.",
+        "recommendation": "Re-indexar agentes/skills embebiendo un texto bilingue: 'name: <desc_en>. <desc_es traducida>' o anadir un campo de keywords/aliases en es. Alternativa sin tocar contenido: en index_agents/index_skills concatenar la description con sinonimos es/en por dominio. Medir delta de accuracy@1 con el golden set es antes/despues. Coste bajo: una pasada de traduccion + un catalog reindex."
+      },
+      {
+        "dimension": "routing-quality",
+        "severity": "high",
+        "title": "SPECIALIST_BOOST es decorativo cuando el especialista no entra en el top-k crudo",
+        "detail": "rebalance_delegates aplica +0.20 SOLO sobre los hits ya recuperados (raw k=12). Si el especialista preferido del intent no entro en esos 12 (lo habitual en queries es por el problema cross-lingual), el boost no lo puede subir porque no esta en la lista. En el caso testing(es) qa-expert/test-automator NUNCA reciben el boost porque no estan; en research(es) ai-engineer/llm-architect tampoco. El boost solo ayuda cuando el especialista ya iba 2o-3o, no cuando esta ausente — exactamente los casos que necesitamos arreglar.",
+        "recommendation": "Convertir el boost en un 'floor garantizado': tras el rebalanceo, para cada nombre en preferred_specialists(intent) que exista en disco y NO este ya en el top-keep, hacer un lookup directo de su punto (o forzar su inclusion con score = max(score_real, umbral_floor)) y mezclarlo en el top-5. Asi el especialista canonico del intent SIEMPRE aparece, y el semantico decide el resto del ranking. Subir tambien el over-fetch de k=12 a k=24-30 para dar mas margen al rerank."
+      },
+      {
+        "dimension": "catalog",
+        "severity": "medium",
+        "title": "errors=1 en el reindex sin diagnostico de cual entidad fallo",
+        "detail": "El comando catalog reporta errors=1 con skill_error=null. Los 78 agentes .md tienen todos frontmatter valido (verificado), asi que el error proviene de una skill cuyo SKILL.md no parsea (frontmatter sin name o description, o descripcion vacia que se descarta). El error se cuenta pero no se identifica: no hay log del nombre/path de la entidad que fallo, asi que un mantenedor no sabe que skill quedo fuera del routing ni por que. Combinado con que el dir 'learned/' (sin SKILL.md) se omite correctamente, el conteo de errores no distingue 'omitido legitimamente' de 'fallo real'.",
+        "recommendation": "En index_skills/index_agents, al incrementar err, registrar (eprintln o tracing::warn) el path y la razon (parse_frontmatter None vs embed_e5 fallo vs upsert fallo). Devolver Vec<String> de errores en lugar de solo usize, para que catalog_reindex muestre exactamente que entidad no se indexo. Asi 'errors:1' se vuelve accionable."
+      },
+      {
+        "dimension": "orchestrator-routing",
+        "severity": "medium",
+        "title": "Falta regla de intent para DevOps/infra/deploy — cae a 'general'",
+        "detail": "'configura un pipeline CI/CD en GitHub Actions' enruta a route=general / wf=quick (no hay IntentRule para ci/cd, pipeline, deploy, docker, kubernetes, terraform, infra). Por suerte el retrieval semantico salvo el resultado (devops-engineer 0.851, deployment-engineer 0.809) porque esos terminos SI embeben bien, pero al ser 'general' usa preferred_specialists por defecto = [code-reviewer, qa-expert], que no aporta boost a los de infra. Es fragil: depende solo del embedding.",
+        "recommendation": "Añadir IntentRule 'devops' (workflow deploy/quick) con patterns: ci/cd, pipeline, github actions, deploy, despliegue, docker, kubernetes, k8s, terraform, infra, helm, dockerfile; y preferred_specialists = [devops-engineer, deployment-engineer, kubernetes-specialist, docker-expert]. Tambien revisar cobertura de 'data/ML' (data-engineer, ml-engineer) y 'database/migracion' (database-administrator, postgres-pro) que hoy no tienen regla."
+      }
+    ]
+  }
+}

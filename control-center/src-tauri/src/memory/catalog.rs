@@ -276,6 +276,30 @@ pub fn index_skills() -> Result<(usize, usize), String> {
     Ok((ok, err))
 }
 
+/// Warm `ultron_catalog` once per process start: index agents + skills if the
+/// collection looks empty/stale. Idempotent (deterministic upsert). Designed to
+/// run inside `spawn_blocking` from the Tauri `setup()` so it never blocks
+/// startup, and a missing E5 model degrades to "router uses whatever is already
+/// indexed" instead of a hard failure.
+///
+/// Returns `(entities_indexed, errors)`. `(0, 0)` means "already warm — skipped".
+pub fn maybe_warm_catalog() -> Result<(usize, usize), String> {
+    // Cheap probe: if a known skill already resolves, assume the collection is
+    // warm and skip the full re-embed. Avoids paying ~93 embeddings on every
+    // launch. The query is intentionally generic so it matches across skill
+    // descriptions regardless of which skills are installed.
+    let already = search_catalog("orchestrator master router skill", Some("skill"), 1);
+    if !already.is_empty() {
+        return Ok((0, 0)); // already warm
+    }
+
+    // Agents first (so a skill-only failure still leaves agents routable), then
+    // skills. An agent index failure is non-fatal here — we still try skills.
+    let (a_ok, _a_err) = index_agents().unwrap_or((0, 0));
+    let (s_ok, s_err) = index_skills()?;
+    Ok((a_ok + s_ok, s_err))
+}
+
 /// Semantic search over the catalog. `entity = Some("agent")` filters to agents
 /// (None = any). Empty when E5/Qdrant unavailable. This is how the auto-router
 /// maps a prompt to the best specialist agent to DELEGATE to.
@@ -390,6 +414,13 @@ mod tests {
             ),
             "technical"
         );
+    }
+
+    #[test]
+    fn maybe_warm_catalog_is_public_and_returns_tuple() {
+        // Smoke: the symbol exists and has the expected shape. We do NOT call it
+        // here (it needs E5/Qdrant); the e2e tests exercise the real path.
+        let _f: fn() -> Result<(usize, usize), String> = maybe_warm_catalog;
     }
 
     // Indexes the REAL ~/.claude/agents and verifies semantic routing returns the

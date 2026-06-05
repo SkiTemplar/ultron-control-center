@@ -51,7 +51,7 @@ Memory-Orchestrated Agent Runtime LOCAL para Claude Code: que el asistente RECUP
 | Invariantes (no rejected/deprecated/secret/cross-proj) en CI | ✅ | Ola 3-D2 `0574db0` |
 | Coseno real en fusión | ✅ | Ola 1a `b916c5a` |
 | Vault off-by-default bajo proyecto | ✅ verificado e2e | Ola 1b `0d123e7` |
-| Sparse multi-término | ✅ verificado e2e (0→30) | fix `5e7b7ca` |
+| Sparse multi-término | ✅ Ola 1a (`b916c5a`) + fix (`5e7b7ca`) — estado FINAL post-fix verificado e2e | hallazgo crítico: el recall híbrido **era solo-dense en producción** (sparse token recall = 0, ausente en release-build); tras el fix devuelve 30 términos (verificado e2e). Deuda abierta: investigar por qué `fts5_available=false` en release+qdrant (ver fila siguiente y §7.3) |
 | Eval harness + baseline | ✅ recall@8=0.917 | `0532dee` (`ultron-memory eval`) |
 | content_hash / normalized_text / schema_version | ✅ OLA B1 `ba7e21b` | FNV-1a estable; migración aditiva idempotente + backfill 943/943 verificado en brain.db real; user_version=2 |
 | reconcile --check (SQLite↔Qdrant) | ✅ OLA B3 `b003a30` | `ultron-memory reconcile` → in_sync=true 943=943 (cross-check Python) |

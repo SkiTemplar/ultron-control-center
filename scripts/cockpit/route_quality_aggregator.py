@@ -28,8 +28,69 @@ SESSIONS_DIR   = Path.home() / ".ultron" / "sessions"
 CACHE_DIR      = Path.home() / ".ultron" / "skill_cache"
 QUALITY_FILE   = CACHE_DIR / "route_quality.json"
 WATERMARK_FILE = CACHE_DIR / "aggregator_watermark.json"
+TELEMETRY_FILE = Path.home() / ".ultron" / "telemetry" / "dispatcher-events.jsonl"
 
 WINDOW_SECONDS = 600  # 10-min window: if two Skills are called within this, it's a transition
+
+# A fallback is a transition A→B that walks BACK to fix something: the
+# destination is a corrective skill, or A and B live in the same domain (a
+# re-route within the same family). Corrective skills are matched by their bare
+# name (after stripping any "agent:" prefix and plugin "ns:" namespace), so
+# "superpowers:systematic-debugging", "agent:debugger" and "codex:adversarial-review"
+# all classify correctly.
+CORRECTOR_SKILLS: frozenset[str] = frozenset({
+    "debugger",
+    "focused-fix",
+    "second-opinion",
+    "repo-evaluator",
+    "systematic-debugging",   # superpowers:systematic-debugging
+    "adversarial-review",     # codex:adversarial-review
+})
+
+# Cross-referencing dispatcher suggestions against actual invocations: if the
+# hook suggested route R but a DIFFERENT skill was invoked within this window,
+# the routing decision was corrected.
+CORRECTION_WINDOW_SECONDS = 120
+
+
+def _bare_name(label: str) -> str:
+    """Strip the 'agent:' node prefix and any plugin 'ns:' namespace.
+
+    "agent:debugger"                    -> "debugger"
+    "superpowers:systematic-debugging"  -> "systematic-debugging"
+    "ultron"                            -> "ultron"
+    """
+    if label.startswith("agent:"):
+        label = label[len("agent:"):]
+    if ":" in label:
+        label = label.rsplit(":", 1)[-1]
+    return label
+
+
+def _domain_of(label: str) -> str:
+    """Return the domain/namespace of a node label for same-domain detection.
+
+    Plugin-namespaced labels share a domain when their "ns:" prefix matches
+    (e.g. "superpowers:brainstorming" and "superpowers:systematic-debugging"
+    are both in the "superpowers" domain). Un-namespaced labels are their own
+    domain.
+    """
+    core = label[len("agent:"):] if label.startswith("agent:") else label
+    if ":" in core:
+        return core.split(":", 1)[0]
+    return core
+
+
+def _is_fallback(from_label: str, to_label: str) -> bool:
+    """A→B is a fallback when B is a corrective skill, or A and B share a
+    plugin domain (a re-route inside the same family)."""
+    if _bare_name(to_label) in CORRECTOR_SKILLS:
+        return True
+    dom_from = _domain_of(from_label)
+    dom_to   = _domain_of(to_label)
+    # Same-domain only counts for genuinely namespaced families (avoid treating
+    # two unrelated bare skills as "same domain" just because they equal themselves).
+    return dom_from == dom_to and (":" in from_label or ":" in to_label)
 
 # Canonical names for Agent subagent_type values (handles plugin-namespaced variants)
 _AGENT_CANONICAL: dict[str, str] = {
@@ -207,10 +268,17 @@ def process_entries(entries: list[dict], quality: dict) -> int:
                 if key not in quality["edges"]:
                     quality["edges"][key] = _empty_edge(prev_label, label)
                 edge = quality["edges"][key]
-                edge["runs"]         = edge.get("runs", 0) + 1
-                edge["successes"]    = edge.get("successes", 0) + 1
-                edge["last_outcome"] = "success"
-                edge["last_used"]    = ts
+                edge["runs"] = edge.get("runs", 0) + 1
+                is_fallback = _is_fallback(prev_label, label)
+                if is_fallback:
+                    # Re-route / corrective hop — count as a fallback, NOT a
+                    # clean success, so route_quality reflects rework.
+                    edge["fallbacks"]    = edge.get("fallbacks", 0) + 1
+                    edge["last_outcome"] = "fallback"
+                else:
+                    edge["successes"]    = edge.get("successes", 0) + 1
+                    edge["last_outcome"] = "success"
+                edge["last_used"] = ts
                 seen_this_session.add(key)
                 updated += 1
 
@@ -218,6 +286,106 @@ def process_entries(entries: list[dict], quality: dict) -> int:
             prev_ts    = ts
 
     return updated
+
+
+# ── Corrections (dispatcher-suggested vs actually-invoked) ────────────────────
+
+def _parse_ts(raw: str) -> datetime | None:
+    """Parse a routing/telemetry timestamp. Telemetry uses a trailing 'Z'
+    (UTC); routing.jsonl is naive local time. Returned datetimes are naive so
+    they can be compared within the same source — corrections only ever compare
+    telemetry-to-telemetry-aligned windows around a single invocation, so a
+    consistent naive comparison is sufficient for proximity scoring."""
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "").strip())
+    except (ValueError, TypeError):
+        return None
+
+
+def load_dispatcher_events() -> list[tuple[datetime, str]]:
+    """Return sorted (ts, suggested_route) for dispatcher events that carry a
+    concrete suggestion. Skips null / placeholder ('—') routes."""
+    if not TELEMETRY_FILE.exists():
+        return []
+    events: list[tuple[datetime, str]] = []
+    for ev in read_jsonl(TELEMETRY_FILE):
+        route = ev.get("route")
+        if not route or route in ("—", "-"):
+            continue
+        ts = _parse_ts(ev.get("ts", ""))
+        if ts is not None:
+            events.append((ts, str(route)))
+    events.sort(key=lambda x: x[0])
+    return events
+
+
+def _suggested_near(events: list[tuple[datetime, str]], when: datetime) -> str | None:
+    """Most recent dispatcher suggestion within CORRECTION_WINDOW_SECONDS at or
+    before `when`. Linear scan is fine for the event volumes involved."""
+    best: str | None = None
+    best_dt: datetime | None = None
+    for ts, route in events:
+        if ts > when:
+            break
+        if 0 <= (when - ts).total_seconds() <= CORRECTION_WINDOW_SECONDS:
+            if best_dt is None or ts > best_dt:
+                best_dt, best = ts, route
+    return best
+
+
+def annotate_corrections(entries: list[dict], quality: dict,
+                         events: list[tuple[datetime, str]]) -> int:
+    """Cross-reference dispatcher suggestions against actual invocations.
+
+    When the hook suggested route R but a DIFFERENT skill T was invoked within
+    the correction window, the routing was corrected. We bump `corrections` on
+    the edge that LANDS on T (its predecessor → T), since that edge represents
+    the path actually taken in place of the suggestion.
+
+    No suggestion, or a suggestion that matches what was invoked, is not a
+    correction. Dedup: each edge key bumped at most once per pass.
+    """
+    if not events:
+        return 0
+
+    bumped = 0
+    seen: set[str] = set()
+
+    by_session: dict[str, list[dict]] = {}
+    for e in entries:
+        by_session.setdefault(e.get("session_id", "?"), []).append(e)
+
+    for session_entries in by_session.values():
+        calls = sorted(
+            (e for e in session_entries if e.get("tool") in ("Skill", "Agent")),
+            key=lambda x: x.get("ts", ""),
+        )
+        prev_label = ""
+        for entry in calls:
+            label = _node_label(entry)
+            if not label:
+                continue
+            when = _parse_ts(entry.get("ts", ""))
+            if when is None or not prev_label or label == prev_label:
+                prev_label = label
+                continue
+
+            suggested = _suggested_near(events, when)
+            invoked_bare = _bare_name(label)
+            # A correction = a concrete suggestion that differs from what ran.
+            if suggested and _bare_name(suggested) != invoked_bare:
+                key = f"{prev_label}→{label}"
+                if key in quality["edges"] and key not in seen:
+                    edge = quality["edges"][key]
+                    edge["corrections"] = edge.get("corrections", 0) + 1
+                    seen.add(key)
+                    bumped += 1
+
+            prev_label = label
+
+    return bumped
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
@@ -236,7 +404,9 @@ def aggregate(today_only: bool = False) -> None:
         )
     )
     quality      = load_quality()
+    dispatcher_events = load_dispatcher_events()
     total_updated = 0
+    total_corrections = 0
     newly_done: list[str] = []
     today_str = datetime.now().strftime("%Y-%m-%d")
 
@@ -264,6 +434,7 @@ def aggregate(today_only: bool = False) -> None:
             new_entries = [e for e in entries
                            if e.get("session_id", "?") not in today_processed_sids]
             n = process_entries(new_entries, quality)
+            total_corrections += annotate_corrections(new_entries, quality, dispatcher_events)
             # Record all session_ids now present in today's file
             all_today_sids = {e.get("session_id", "?") for e in entries}
             watermark.setdefault("today_sessions", {})[today_str] = sorted(
@@ -276,6 +447,7 @@ def aggregate(today_only: bool = False) -> None:
             }
         else:
             n = process_entries(entries, quality)
+            total_corrections += annotate_corrections(entries, quality, dispatcher_events)
             newly_done.append(file_key)
 
         total_updated += n
@@ -287,17 +459,23 @@ def aggregate(today_only: bool = False) -> None:
     watermark["last_run"] = datetime.now().isoformat()
     save_watermark(watermark)
 
-    if total_updated > 0:
+    # Save when either edges changed OR corrections were annotated onto
+    # existing edges (corrections can land without any new edge in this pass).
+    if total_updated > 0 or total_corrections > 0:
         save_quality(quality)
-        print(f"Total: {total_updated} edge update(s) written to route_quality.json")
+        print(f"Total: {total_updated} edge update(s), "
+              f"{total_corrections} correction(s) written to route_quality.json")
     else:
         print("No skill-transition data found yet "
               "(edges populate when Skill tool is invoked consecutively in a session)")
 
     # Show current coverage
     edges = quality.get("edges", {})
-    active = sum(1 for e in edges.values() if e.get("runs", 0) > 0)
-    print(f"Coverage: {active}/{len(edges)} edges have real data")
+    active     = sum(1 for e in edges.values() if e.get("runs", 0) > 0)
+    fallbacks  = sum(e.get("fallbacks", 0) for e in edges.values())
+    corrections = sum(e.get("corrections", 0) for e in edges.values())
+    print(f"Coverage: {active}/{len(edges)} edges have real data "
+          f"({fallbacks} fallback(s), {corrections} correction(s) recorded)")
 
 
 def status() -> None:
@@ -313,6 +491,7 @@ def status() -> None:
         top = sorted(edges.items(), key=lambda x: x[1].get("runs", 0), reverse=True)
         for key, edge in top[:10]:
             print(f"  {key}: runs={edge['runs']} success={edge.get('successes',0)} "
+                  f"fallback={edge.get('fallbacks',0)} correction={edge.get('corrections',0)} "
                   f"last={(edge.get('last_used') or 'never')[:19]}")
 
     wm = load_watermark()

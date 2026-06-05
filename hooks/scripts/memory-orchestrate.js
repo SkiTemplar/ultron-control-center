@@ -70,7 +70,7 @@ function main() {
   if (project) {
     args.push('--project', project);
   }
-  const ctx = runCli(args);
+  const ctx = runCli(args, { timeoutMs: 11000 }); // colchon cold-hit E5; bajar a 3000 con daemon serve
   if (!ctx) {
     emit('');
     return;
