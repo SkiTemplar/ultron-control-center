@@ -23,11 +23,16 @@
     "category": "code",
     "task_class": "medium",
     "primary": {
-      "provider_id": "codex",
+      "provider_id": "codex-cli",
       "model": "gpt-5",
       "max_tokens": 4096
     },
     "fallbacks": [
+      {
+        "provider_id": "codex",
+        "model": "gpt-5",
+        "max_tokens": 4096
+      },
       {
         "provider_id": "deepseek",
         "model": "deepseek-coder",
@@ -59,11 +64,16 @@
     "category": "research",
     "task_class": "medium",
     "primary": {
-      "provider_id": "gemini",
+      "provider_id": "gemini-cli",
       "model": "gemini-2.5-flash",
       "max_tokens": 4096
     },
     "fallbacks": [
+      {
+        "provider_id": "gemini",
+        "model": "gemini-2.5-flash",
+        "max_tokens": 4096
+      },
       {
         "provider_id": "groq",
         "model": "llama-3.3-70b-versatile",

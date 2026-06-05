@@ -141,7 +141,10 @@ pub struct ClassMetrics {
     /// Output tokens accumulated across all calls to this provider (antes
     /// nunca se poblaba; ahora se llena desde la respuesta del proveedor).
     pub tokens: u64,
-    pub latency_p95_ms: u64,
+    /// Running latency average in ms (EMA). Alias preserves existing
+    /// metrics.json files that used the old `latency_p95_ms` key.
+    #[serde(alias = "latency_p95_ms", default)]
+    pub latency_ms_avg: u64,
     /// Calls that succeeded (outcome.is_ok()). success_rate = success_count/count.
     #[serde(default)]
     pub success_count: u64,
@@ -438,16 +441,25 @@ fn seed_zones() -> Vec<Zone> {
             label: "Code edit (multi-file)".into(),
             category: "code".into(),
             task_class: ProviderClass::Medium,
+            // Primary: codex-cli (ChatGPT Plus OAuth — free at point of use).
+            // Falls back to codex cloud (OPENAI_API_KEY) then deepseek.
             primary: ZoneAssignment {
-                provider_id: "codex".into(),
+                provider_id: "codex-cli".into(),
                 model: "gpt-5".into(),
                 max_tokens: 4096,
             },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "deepseek".into(),
-                model: "deepseek-coder".into(),
-                max_tokens: 4096,
-            }],
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "codex".into(),
+                    model: "gpt-5".into(),
+                    max_tokens: 4096,
+                },
+                ZoneAssignment {
+                    provider_id: "deepseek".into(),
+                    model: "deepseek-coder".into(),
+                    max_tokens: 4096,
+                },
+            ],
             system_prompt: None,
         },
         Zone {
@@ -468,16 +480,25 @@ fn seed_zones() -> Vec<Zone> {
             label: "Web research with grounding".into(),
             category: "research".into(),
             task_class: ProviderClass::Medium,
+            // Primary: gemini-cli (Google One OAuth — free at point of use,
+            // no 20 req/day cap). Falls back to gemini API then groq.
             primary: ZoneAssignment {
-                provider_id: "gemini".into(),
+                provider_id: "gemini-cli".into(),
                 model: "gemini-2.5-flash".into(),
                 max_tokens: 4096,
             },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "claude-haiku".into(),
-                model: "claude-haiku-4-5-20251001".into(),
-                max_tokens: 4096,
-            }],
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "gemini".into(),
+                    model: "gemini-2.5-flash".into(),
+                    max_tokens: 4096,
+                },
+                ZoneAssignment {
+                    provider_id: "groq".into(),
+                    model: "llama-3.3-70b-versatile".into(),
+                    max_tokens: 4096,
+                },
+            ],
             system_prompt: None,
         },
         Zone {
@@ -661,6 +682,51 @@ fn load_zones() -> Result<Vec<Zone>, String> {
             if !have.contains(&z.id) {
                 zones.push(z);
             }
+        }
+        // CLI-primary migration (2026-06-05): upgrade existing zones.json
+        // entries that still point to the old cloud-only primaries so that
+        // the installed CLI providers (codex-cli / gemini-cli) are used
+        // automatically. Only rewrites the primary + fallbacks; leaves every
+        // other field (label, task_class, system_prompt) untouched. Idempotent.
+        let mut mutated = false;
+        for z in &mut zones {
+            match z.id.as_str() {
+                "code-edit" if z.primary.provider_id == "codex" => {
+                    z.primary.provider_id = "codex-cli".into();
+                    // Ensure codex cloud is present as first fallback.
+                    if !z.fallbacks.iter().any(|f| f.provider_id == "codex") {
+                        z.fallbacks.insert(
+                            0,
+                            ZoneAssignment {
+                                provider_id: "codex".into(),
+                                model: "gpt-5".into(),
+                                max_tokens: z.primary.max_tokens,
+                            },
+                        );
+                    }
+                    mutated = true;
+                }
+                "research-web" if z.primary.provider_id == "gemini" => {
+                    z.primary.provider_id = "gemini-cli".into();
+                    // Ensure gemini API is present as first fallback.
+                    if !z.fallbacks.iter().any(|f| f.provider_id == "gemini") {
+                        z.fallbacks.insert(
+                            0,
+                            ZoneAssignment {
+                                provider_id: "gemini".into(),
+                                model: "gemini-2.5-flash".into(),
+                                max_tokens: z.primary.max_tokens,
+                            },
+                        );
+                    }
+                    mutated = true;
+                }
+                _ => {}
+            }
+        }
+        if mutated {
+            // Persist so the next load is already up-to-date (best-effort).
+            let _ = write_json(&path, &zones);
         }
         Ok(zones)
     } else {
@@ -1748,9 +1814,9 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     }
     pm.tokens = pm.tokens.saturating_add(s.output_tokens);
     if pm.count <= 1 {
-        pm.latency_p95_ms = s.latency_ms;
+        pm.latency_ms_avg = s.latency_ms;
     } else {
-        pm.latency_p95_ms = (pm.latency_p95_ms + s.latency_ms) / 2;
+        pm.latency_ms_avg = (pm.latency_ms_avg + s.latency_ms) / 2;
     }
 
     // --- Per-model (by_model), key = "provider::model" ---
@@ -2098,7 +2164,7 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
             call_count: cm.count,
             success_count: cm.success_count,
             total_tokens: cm.tokens,
-            latency_ms_avg: cm.latency_p95_ms,
+            latency_ms_avg: cm.latency_ms_avg,
             primary_for_zones,
             fallback_for_zones,
             free_tier_limit,
