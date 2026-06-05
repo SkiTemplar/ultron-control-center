@@ -230,6 +230,10 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     // registry) + memory_events.trace_id. Idempotent; coordinated single bump.
     super::schema_v3::apply_schema_v3(conn)?;
 
+    // CODEGRAPH (Fase 3a, 2026-06-06): additive v4 tables (edges +
+    // unresolved_refs).  Pure DDL, no row mutations.  user_version 3→4.
+    super::schema_v4::apply_schema_v4(conn)?;
+
     // CLEANUP (2026-06-05): drop the legacy `memories` and `memories_fts`
     // tables that were created by a pre-kernel schema.  They have 0 rows and
     // are schema dead-weight that confuses audits.
@@ -944,6 +948,69 @@ pub fn import_kg_jsonl(conn: &Connection) -> Result<(), MemoryError> {
         .map_err(|e| MemoryError::RemoteUnavailable(format!("kg import relation: {e}")))?;
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Codegraph API — thin public wrappers over schema_v4 primitives
+// ---------------------------------------------------------------------------
+
+/// Insert a directed code-graph edge into `brain.db`.
+///
+/// Dedup key: `(source, target, kind, COALESCE(file, ''))` — repeated
+/// observations of the same relationship in the same file are silently
+/// ignored (idempotent).  See [`super::schema_v4::insert_edge`] for the
+/// full column semantics.
+///
+/// # Errors
+///
+/// Returns [`MemoryError::RemoteUnavailable`] on DB I/O failure.
+#[allow(clippy::too_many_arguments)]
+pub fn insert_code_edge(
+    source: &str,
+    target: &str,
+    kind: &str,
+    file: Option<&str>,
+    line_from: Option<i64>,
+    line_to: Option<i64>,
+    provenance: Option<&str>,
+    project_id: Option<&str>,
+) -> Result<(), MemoryError> {
+    let conn = open_conn()?;
+    super::schema_v4::insert_edge(
+        &conn,
+        source,
+        target,
+        kind,
+        file,
+        line_from,
+        line_to,
+        provenance,
+        project_id,
+    )
+}
+
+/// Return code-graph edges for `symbol` in the given `direction`.
+///
+/// * `"callers"` — who calls / imports `symbol`? (fan-in, impact analysis)
+/// * `"callees"` — what does `symbol` call / import? (fan-out)
+///
+/// Results are ordered newest-first, capped at `limit` (default 100).
+///
+/// # Errors
+///
+/// Returns [`MemoryError::RemoteUnavailable`] on DB I/O failure.
+pub fn query_code_edges(
+    symbol: &str,
+    direction: &str,
+    limit: usize,
+) -> Result<Vec<super::schema_v4::CodeEdge>, MemoryError> {
+    let conn = open_conn()?;
+    let dir = if direction == "callers" {
+        super::schema_v4::EdgeDirection::Callers
+    } else {
+        super::schema_v4::EdgeDirection::Callees
+    };
+    super::schema_v4::query_edges(&conn, symbol, dir, limit)
 }
 
 // ---------------------------------------------------------------------------

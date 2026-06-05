@@ -63,6 +63,69 @@ const SYMBOL_RES = {
 };
 const COMMENT_PREFIX = /^\s*(\/\/|#|\*|\/\*|--)/;
 
+// ---------------------------------------------------------------------------
+// CODEGRAPH — import/call edge extraction (heuristic regex, cheap, per-lang)
+// ---------------------------------------------------------------------------
+// Patterns extract the TARGET of each import/use/require statement.
+// Call-site extraction is intentionally omitted here: inferring the
+// *definition site* of a bare `foo(` call requires a type-checker; the
+// regex would produce too many false-positives.  Imports are a reliable
+// structural signal and are the primary edge kind captured by this hook.
+const IMPORT_RES = {
+  // `use a::b::C;`  `use a::{B, C};`  — captures the path up to the first `{` or `;`
+  rust:   /^\s*use\s+([\w:]+)/,
+  // `import ... from 'module'`  `import 'module'`
+  ts:     /^\s*import\s+(?:.*?\s+from\s+)?['"]([^'"]+)['"]/,
+  js:     /^\s*(?:import\s+(?:.*?\s+from\s+)?['"]([^'"]+)['"]|(?:const|let|var)\s+\S.*?=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\))/,
+  // `from X import Y`  `import X`
+  python: /^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))/,
+  // `#include "file.h"`  `#include <file.h>`
+  cpp:    /^\s*#\s*include\s+[<"]([^>"]+)[>"]/,
+  csharp: /^\s*using\s+([\w.]+)\s*;/,
+  go:     /^\s*"([\w./\-]+)"/,   // inside an import block
+};
+
+const EDGE_TIMEOUT_MS = 3000;
+
+/**
+ * Extract import edges from changed lines.
+ * Returns [{target, kind:'imports'}] — de-duped, at most 20 per file.
+ * Pure function; never throws.
+ */
+function extractEdges(lines, lang) {
+  const re = IMPORT_RES[lang];
+  if (!re) return [];
+  const seen = new Set();
+  const out = [];
+  for (const line of lines) {
+    if (!line.trim() || COMMENT_PREFIX.test(line)) continue;
+    const m = re.exec(line);
+    // js pattern has two capture groups (ESM and CJS); take the first non-null.
+    const target = m && (m[1] || m[2]);
+    if (!target) continue;
+    // Normalise: strip trailing ::* Rust globs, whitespace.
+    const clean = target.replace(/\s*::\s*\{.*$/, '').trim();
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    out.push({ target: clean, kind: 'imports' });
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+/**
+ * Fire-and-forget: emit one edge to the sidecar via `ultron-memory edge`.
+ * Runs in a setImmediate so it never blocks the main candidate pipeline.
+ * FAIL-SAFE: any error is silently discarded (edge capture is best-effort).
+ */
+function emitEdge(payload) {
+  setImmediate(() => {
+    try {
+      runCli(['edge'], { stdin: JSON.stringify(payload), timeoutMs: EDGE_TIMEOUT_MS });
+    } catch { /* best-effort */ }
+  });
+}
+
 function emit(c) { process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: c || '' } })); }
 function projectSlugFromPath(filePath, cwd) { try { const base = path.basename(cwd || process.cwd()); return base.replace(/^\.+/, '') || null; } catch { return null; } }
 function relPath(filePath, cwd) { try { const rel = path.relative(cwd || process.cwd(), filePath); return rel && !rel.startsWith('..') ? rel.replace(/\\/g, '/') : filePath.replace(/\\/g, '/'); } catch { return filePath; } }
@@ -136,6 +199,31 @@ function main() {
   }
   saveSeen(seen);
   logMs({ cmd: 'capture-symbols/code', file: rel, lang, symbols: symbols.length, created, skipped, ms: Date.now() - started });
+
+  // CODEGRAPH dual-emit (Fase 3a): extract import edges from ALL changed lines
+  // (not just symbol-defining lines) and send them to the sidecar asynchronously.
+  // This runs AFTER the candidate pipeline and is fully fire-and-forget so it
+  // cannot delay the hook response or break existing candidate emission.
+  try {
+    const edges = extractEdges(lines, lang);
+    if (edges.length > 0) {
+      // Use the first captured symbol as the "source" node; if no symbol was
+      // captured (e.g. only imports changed) fall back to the file path.
+      const sourceNode = symbols.length > 0 ? `${rel}:${symbols[0].name}` : rel;
+      for (const edge of edges) {
+        emitEdge({
+          source: sourceNode,
+          target: edge.target,
+          kind: edge.kind,
+          file: rel,
+          provenance: 'capture-symbols-js',
+          project: project || undefined,
+        });
+      }
+      logMs({ cmd: 'capture-symbols/edges', file: rel, lang, edges: edges.length, ms: Date.now() - started });
+    }
+  } catch { /* best-effort: edge emission never breaks candidate flow */ }
+
   emit('');
 }
 

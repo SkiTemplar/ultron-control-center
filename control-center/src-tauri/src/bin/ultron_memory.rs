@@ -139,6 +139,32 @@ fn run() -> Result<serde_json::Value, String> {
             let id = emit_candidate(&buf)?;
             Ok(serde_json::json!({ "candidate_id": id }))
         }
+        // CODEGRAPH (Fase 3a): ingest a directed code-graph edge from stdin.
+        //
+        // Reads one JSON object from stdin:
+        //   {
+        //     "source":     "mymod::foo",          // required: emitting symbol/module
+        //     "target":     "std::vec::Vec",        // required: callee/import target
+        //     "kind":       "imports",              // required: imports|calls|re-exports|…
+        //     "file":       "src/lib.rs",           // optional: relative source file
+        //     "line_from":  10,                     // optional: line of definition
+        //     "line_to":    10,                     // optional: line of reference
+        //     "provenance": "capture-symbols-js",   // optional: who produced this edge
+        //     "project":    "ultron"                // optional: project slug
+        //   }
+        //
+        // Returns: { "ok": true, "source": "...", "target": "...", "kind": "..." }
+        // or       { "ok": false, "error": "..." } on parse/db failure.
+        //
+        // Duplicate edges (same source+target+kind+file) are silently ignored
+        // (idempotent INSERT OR IGNORE).
+        "edge" => {
+            let mut buf = String::new();
+            std::io::stdin()
+                .read_to_string(&mut buf)
+                .map_err(|e| format!("read stdin: {e}"))?;
+            emit_edge(&buf)
+        }
         "capture" => {
             // Stop hook -> auto-capture: extract durable facts (via AI Router,
             // which also populates router telemetry) and propose them as inbox
@@ -179,7 +205,7 @@ fn run() -> Result<serde_json::Value, String> {
             );
             std::process::exit(code);
         }
-        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|warmup|doctor|candidate|capture> [--project X] [args]".to_string()),
+        "" => Err("usage: ultron-memory <resume|orchestrate|recall [--cross|--all-projects]|stats|reindex|catalog [--agents|--skills]|eval [--golden]|eval-full|reconcile|warmup|doctor|candidate|capture|edge> [--project X] [args]".to_string()),
         other => Err(format!("unknown subcommand '{other}'")),
     }
 }
@@ -279,6 +305,60 @@ fn emit_candidate(json: &str) -> Result<String, String> {
         .and_then(|x| x.as_str())
         .map(String::from);
     MemoryService::create_candidate(&c).map_err(|e| e.to_string())
+}
+
+/// Parse a JSON object from stdin and insert it as a code-graph edge into
+/// `brain.db` via the canonical `insert_code_edge` path.
+///
+/// Required fields: `source`, `target`, `kind`.
+/// All other fields are optional (see subcommand docs above).
+///
+/// Returns `{ "ok": true, "source": "...", "target": "...", "kind": "..." }`
+/// on success, or `{ "ok": false, "error": "..." }` on failure.  The
+/// function never propagates errors to `run()` — callers can always rely on
+/// a well-formed JSON response.
+fn emit_edge(json: &str) -> Result<serde_json::Value, String> {
+    use ul::memory::sqlite_store::insert_code_edge;
+
+    let v: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("parse edge json: {e}"))?;
+
+    let source = v
+        .get("source")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| "edge json missing 'source'".to_string())?;
+    let target = v
+        .get("target")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| "edge json missing 'target'".to_string())?;
+    let kind = v
+        .get("kind")
+        .and_then(|x| x.as_str())
+        .ok_or_else(|| "edge json missing 'kind'".to_string())?;
+
+    let file = v.get("file").and_then(|x| x.as_str());
+    let line_from = v.get("line_from").and_then(serde_json::Value::as_i64);
+    let line_to = v.get("line_to").and_then(serde_json::Value::as_i64);
+    let provenance = v.get("provenance").and_then(|x| x.as_str());
+    let project_id = v
+        .get("project")
+        .or_else(|| v.get("project_id"))
+        .and_then(|x| x.as_str());
+
+    match insert_code_edge(
+        source, target, kind, file, line_from, line_to, provenance, project_id,
+    ) {
+        Ok(()) => Ok(serde_json::json!({
+            "ok": true,
+            "source": source,
+            "target": target,
+            "kind": kind,
+        })),
+        Err(e) => Ok(serde_json::json!({
+            "ok": false,
+            "error": e.to_string(),
+        })),
+    }
 }
 
 fn to_json<T: serde::Serialize>(v: T) -> Result<serde_json::Value, String> {

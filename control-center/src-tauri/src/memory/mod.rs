@@ -153,6 +153,8 @@ pub mod model;
 pub mod qdrant_index;
 pub mod qdrant_store;
 pub mod schema_v3;
+// Codegraph (Fase 3a): edges + unresolved_refs tables (user_version 3->4).
+pub mod schema_v4;
 pub mod service;
 pub mod sqlite_store;
 // Fase D/E (Olas 5/7): cheap-brain LLM tasks, contradiction, reflection, evals.
