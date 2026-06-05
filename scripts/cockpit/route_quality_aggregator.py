@@ -28,7 +28,12 @@ SESSIONS_DIR   = Path.home() / ".ultron" / "sessions"
 CACHE_DIR      = Path.home() / ".ultron" / "skill_cache"
 QUALITY_FILE   = CACHE_DIR / "route_quality.json"
 WATERMARK_FILE = CACHE_DIR / "aggregator_watermark.json"
-TELEMETRY_FILE = Path.home() / ".ultron" / "telemetry" / "dispatcher-events.jsonl"
+# Log escrito por el hook JS vivo (routing-dispatcher.js, línea 37).
+# Formato: {"ts":"...", "level":"info", "msg":"high_confidence_routing"|"medium_confidence_routing"|"low_confidence_skip"|"no_match",
+#            "top":"persona:<id>"|"agent:<id>"|"skill:<id>", "score":<int>, "confidence":<float>,
+#            "second":"...", ...}
+# El viejo telemetry/dispatcher-events.jsonl (intent-dispatcher.py) ya no se escribe — ignorado.
+DISPATCHER_LOG = Path.home() / ".claude" / "logs" / "routing-dispatcher.jsonl"
 
 WINDOW_SECONDS = 600  # 10-min window: if two Skills are called within this, it's a transition
 
@@ -306,17 +311,29 @@ def _parse_ts(raw: str) -> datetime | None:
 
 def load_dispatcher_events() -> list[tuple[datetime, str]]:
     """Return sorted (ts, suggested_route) for dispatcher events that carry a
-    concrete suggestion. Skips null / placeholder ('—') routes."""
-    if not TELEMETRY_FILE.exists():
+    concrete suggestion, reading the LIVE JS hook log.
+
+    JS hook log format (routing-dispatcher.js @ ~/.claude/logs/routing-dispatcher.jsonl):
+        {"ts":"...", "level":"info", "msg":"high_confidence_routing"|"medium_confidence_routing",
+         "top":"persona:<id>"|"agent:<id>"|"skill:<id>", "score":<int>, "confidence":<float>}
+    Only events with msg in {high_confidence_routing, medium_confidence_routing} carry an
+    actionable suggestion — low_confidence_skip and no_match are noise for correction tracking.
+    The "top" field maps directly to the candidate label emitted by formatCandidateLabel().
+    """
+    if not DISPATCHER_LOG.exists():
         return []
     events: list[tuple[datetime, str]] = []
-    for ev in read_jsonl(TELEMETRY_FILE):
-        route = ev.get("route")
-        if not route or route in ("—", "-"):
+    for ev in read_jsonl(DISPATCHER_LOG):
+        msg = ev.get("msg", "")
+        # Only routing decisions that actually produced a hint count.
+        if msg not in ("high_confidence_routing", "medium_confidence_routing"):
+            continue
+        top = ev.get("top", "")
+        if not top:
             continue
         ts = _parse_ts(ev.get("ts", ""))
         if ts is not None:
-            events.append((ts, str(route)))
+            events.append((ts, str(top)))
     events.sort(key=lambda x: x[0])
     return events
 

@@ -7,7 +7,7 @@
 //   ARCH  (Cargo.toml/package.json/migrations/docker-compose/settings/docs ADR):
 //         resumen del cambio -> decision 0.7.
 //
-// CORRECCIONES VERIFICADAS CONTRA EL BINARIO REAL (2026-06-05):
+// ESTADO DEL BINARIO (verificado 2026-06-05, corregido 2026-06-05):
 //   * NO existe MemoryType `code_location` (se cae a Fact silenciosamente).
 //     MemoryType validos: preference|fact|decision|constraint|task|
 //     workflow_state|codebase_fact|skill|agent_note|session_summary|
@@ -15,10 +15,11 @@
 //     `codebase_fact` para simbolos y dejo `code_location` como TAG filtrable.
 //   * `recall` devuelve { entries: [...] } (NO `items`). lookupSymbol lee entries.
 //   * el subcomando `candidate` lee {type,scope,summary,title,content,project,
-//     tags,importance,session_id}. Las claves symbol/file_path/line/signature/
-//     source/confidence/recommended_action se DOBLAN en summary+tags (sobreviven
-//     hoy) y se emiten ademas como claves JSON de primera clase, IGNORADAS por el
-//     binario actual (forward-compatible para cuando la migracion Rust las anada).
+//     tags,importance,session_id,confidence,symbol,file_path,line,signature,
+//     capture_source,recommended_action}. Todas estas claves son parseadas por
+//     emit_candidate() en bin/ultron_memory.rs (fix 2026-06-05). Los candidatos
+//     de este hook llegan con confidence=0.95/0.7 y los campos de codigo-
+//     localizacion poblados; la banda-A de auto_approve los promueve directamente.
 //
 // PIPELINE (barato->caro, corta pronto):
 //   1. whitelist extensiones + blacklist paths (descarta ~90% gratis)

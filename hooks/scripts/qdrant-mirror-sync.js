@@ -87,11 +87,41 @@ function toMirrorPoint(p) {
 
 async function upsert(points) { if (!points.length) return 0; const r = await req('PUT', `/collections/${DST}/points?wait=true`, { points }); return r && r.status >= 200 && r.status < 300 ? points.length : 0; }
 
+/** Collect all point IDs currently in the mirror (any status). */
+async function scrollMirrorIds() {
+  const ids = new Set();
+  let offset = null;
+  for (let i = 0; i < 10000; i++) {
+    const body = { limit: PAGE, with_payload: false, with_vector: false };
+    if (offset) body.offset = offset;
+    const r = await req('POST', `/collections/${DST}/points/scroll`, body);
+    if (!r || r.status !== 200 || !r.json || !r.json.result) break;
+    for (const p of (r.json.result.points || [])) ids.add(String(p.id));
+    const next = r.json.result.next_page_offset;
+    if (!next) break;
+    offset = next;
+  }
+  return ids;
+}
+
+/** Delete stale mirror points whose source item is no longer active. */
+async function pruneStale(activeIds) {
+  const mirrorIds = await scrollMirrorIds();
+  const stale = [];
+  for (const id of mirrorIds) if (!activeIds.has(id)) stale.push(id);
+  if (!stale.length) return 0;
+  // Qdrant delete-by-ids: POST /collections/{name}/points/delete
+  const r = await req('POST', `/collections/${DST}/points/delete?wait=true`, { points: stale });
+  return r && r.status >= 200 && r.status < 300 ? stale.length : 0;
+}
+
 async function main() {
   const started = Date.now();
   const ok = await ensureMirror();
   if (!ok) { log({ msg: 'ensure_failed' }); process.exitCode = 0; return; }
   let offset = null, total = 0, synced = 0, skipped = 0;
+  // Collect the set of IDs that are currently active in the source collection.
+  const activeIds = new Set();
   for (let i = 0; i < 10000; i++) {
     const { points, next } = await scrollPage(offset);
     if (!points.length) break;
@@ -99,10 +129,15 @@ async function main() {
     const mirror = points.map(toMirrorPoint).filter(Boolean);
     skipped += points.length - mirror.length;
     synced += await upsert(mirror);
+    for (const p of points) activeIds.add(String(p.id));
     if (!next) break;
     offset = next;
   }
-  log({ msg: 'sync_done', total, synced, skipped, ms: Date.now() - started });
+  // PRUNE: remove mirror points whose source item is no longer active.
+  // Without this, deprecated/rejected items remain in ultron_mcp_mirror
+  // forever and can resurface in MCP recall — a correctness bug.
+  const pruned = await pruneStale(activeIds);
+  log({ msg: 'sync_done', total, synced, skipped, pruned, ms: Date.now() - started });
   process.exitCode = 0;
 }
 

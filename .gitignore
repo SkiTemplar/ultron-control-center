@@ -366,3 +366,12 @@ config/skill-trust.yaml
 
 # Cuarentena de limpieza (no versionar)
 _cleanup_quarantine_*/
+
+# === 2026-06-05: agujeros detectados por auditor Kirkardo ===
+# Datos personales-financieros (audit HIGH: repo PUBLICO, no deben entrar al historial)
+cockpit/project-cards/bank.txt
+cockpit/project-cards/
+# Kanban personal con tasks/hallazgos internos de seguridad
+cockpit/projects/*/kanban.json
+# qdrant-native: almacen local stale con binario qdrant.exe (85M, huerfano)
+qdrant-native/

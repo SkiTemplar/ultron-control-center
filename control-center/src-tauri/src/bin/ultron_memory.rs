@@ -186,8 +186,15 @@ fn run() -> Result<serde_json::Value, String> {
 
 /// Build a pending `MemoryCandidate` from a JSON object on stdin and store it
 /// (the Stop hook proposes; the human/policy approves in the inbox).
+///
+/// All fields emitted by capture-symbols.js and stop-compress-session.js are
+/// parsed here so they survive into `brain.db`.  Previously only the basic
+/// text fields were read; `confidence` (and the code-location fields) were
+/// silently dropped, causing every hook-sourced candidate to land with the
+/// default confidence=0.5, which is below REJECT_THRESHOLD=0.55 — the
+/// auto-approve band-A logic therefore auto-rejected all of them as noise.
 fn emit_candidate(json: &str) -> Result<String, String> {
-    use ul::memory::{MemoryCandidate, MemoryService, MemoryType, Scope};
+    use ul::memory::{model::CandidateAction, MemoryCandidate, MemoryService, MemoryType, Scope};
     let v: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("parse candidate json: {e}"))?;
     let kind = v.get("type").and_then(|x| x.as_str()).unwrap_or("fact");
@@ -199,6 +206,48 @@ fn emit_candidate(json: &str) -> Result<String, String> {
     c.proposed_title = v.get("title").and_then(|x| x.as_str()).map(String::from);
     c.proposed_summary = v.get("summary").and_then(|x| x.as_str()).map(String::from);
     c.proposed_content = v.get("content").and_then(|x| x.as_str()).map(String::from);
+
+    // --- confidence (BUG #1 FIX) -------------------------------------------
+    // capture-symbols.js sends confidence=0.95 (code symbols) or 0.7 (arch).
+    // Without this parse the field stayed at the default 0.5, which is below
+    // REJECT_THRESHOLD=0.55, causing auto_approve to silently discard every
+    // hook-sourced candidate as "noise" (confirmed in audit log).
+    if let Some(conf) = v.get("confidence").and_then(serde_json::Value::as_f64) {
+        c.confidence = (conf as f32).clamp(0.0, 1.0);
+    }
+
+    // --- code-location fields (HIGH FIX) ------------------------------------
+    // symbol/file_path/line/signature/capture_source exist in the DB schema
+    // (sqlite_store.rs:106-107, 139-140) and are mapped in to_item(), but were
+    // never parsed here, so 0/1413 items had them populated (confirmed by audit).
+    c.proposed_symbol =
+        v.get("symbol").and_then(|x| x.as_str()).map(String::from);
+    c.proposed_file_path =
+        v.get("file_path").and_then(|x| x.as_str()).map(String::from);
+    c.proposed_line = v.get("line").and_then(serde_json::Value::as_i64);
+    c.proposed_signature =
+        v.get("signature").and_then(|x| x.as_str()).map(String::from);
+    c.capture_source =
+        v.get("capture_source")
+            .or_else(|| v.get("source"))
+            .and_then(|x| x.as_str())
+            .map(String::from);
+
+    // --- recommended_action -------------------------------------------------
+    // Hooks may emit "approve"/"review"/"reject"; honour the hint so the
+    // auto-approve policy can use it in future band logic.
+    if let Some(action_str) = v.get("recommended_action").and_then(|x| x.as_str()) {
+        c.recommended_action = match action_str {
+            "approve" => CandidateAction::Approve,
+            "reject" => CandidateAction::Reject,
+            "quarantine" => CandidateAction::Quarantine,
+            "merge" => CandidateAction::Merge,
+            "supersede" => CandidateAction::Supersede,
+            // "edit" or any unknown string -> require human review (edit in inbox).
+            _ => CandidateAction::Edit,
+        };
+    }
+
     // Project so the promoted item is filterable per-project in recall (e.g.
     // "tortunabo", "bank"). Persisted BOTH as proposed_project_id (direct path)
     // AND as a `project:<id>` tag, because the candidate round-trips through
@@ -223,7 +272,7 @@ fn emit_candidate(json: &str) -> Result<String, String> {
     }
     c.proposed_tags = tags;
     if let Some(imp) = v.get("importance").and_then(serde_json::Value::as_f64) {
-        c.importance = imp as f32;
+        c.importance = (imp as f32).clamp(0.0, 1.0);
     }
     c.source_session_id = v
         .get("session_id")

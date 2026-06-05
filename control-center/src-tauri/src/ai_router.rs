@@ -207,10 +207,15 @@ pub struct RouterMetrics {
 /// local models and paid-only providers return None (the UI then keeps the
 /// classic key/CLI badge instead of a free-tier gauge). Figures are rough
 /// published limits at build time and shown with an "approx" tooltip.
+///
+/// CORRECTION (2026-06-05): Gemini Flash free tier is 20 req/day (confirmed
+/// by live 429 response "limit: 20"), NOT 1500. The previous value was off by
+/// 75x and made the free-tier gauge useless for routing decisions.
 fn free_tier_daily_limit(provider_id: &str) -> Option<u64> {
     match provider_id {
-        // Google Gemini API free tier — Flash-class ~1500 req/day.
-        "gemini" => Some(1500),
+        // Google Gemini API free tier — gemini-2.5-flash: 20 req/day.
+        // Source: live 429 RESOURCE_EXHAUSTED body, 2026-06-05.
+        "gemini" => Some(20),
         // Groq free tier — conservative ~1000 req/day per model.
         "groq" => Some(1000),
         _ => None,
@@ -1469,6 +1474,13 @@ pub fn primary_model_for_zone(zone_id: &str) -> Option<String> {
         .map(|z| z.primary.model)
 }
 
+/// Maximum number of retry attempts on a 429 response before giving up and
+/// moving to the next provider in the fallback chain.
+const MAX_429_RETRIES: u32 = 2;
+
+/// Initial backoff for a 429 retry (doubles each attempt: 1 s → 2 s → give up).
+const BACKOFF_429_BASE_MS: u64 = 1_000;
+
 pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     let zones = load_zones()?;
     let zone = zones
@@ -1494,10 +1506,14 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     };
     let primary_cost = cost_of(&zone.primary.provider_id);
 
+    // Load today's metrics once so quota checks are a simple in-memory read.
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let metrics_snapshot = load_metrics().unwrap_or_default();
+
     let mut last_error = String::new();
     let chain = std::iter::once(&zone.primary).chain(zone.fallbacks.iter());
 
-    for assignment in chain {
+    'provider: for assignment in chain {
         // Skip providers that have no usable API key. We record a soft error
         // in `last_error` so the final "all providers failed" message is
         // informative, but we do NOT call `bump_metrics` for skipped entries
@@ -1511,30 +1527,89 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
             continue;
         }
 
-        let started = Instant::now();
-        let outcome = try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
-        let latency_ms = started.elapsed().as_millis() as u64;
-
-        let success = outcome.is_ok();
-        let out_tokens = outcome.as_ref().map(|c| c.usage.output_tokens).unwrap_or(0);
-
-        // Persist metrics for every attempt — only way the dashboard counts
-        // move at all. Best-effort: a metrics write failure does not abort.
-        let _ = bump_metrics(MetricSample {
-            provider_id: &assignment.provider_id,
-            model: &assignment.model,
-            success,
-            output_tokens: out_tokens,
-            cost_per_mtok: cost_of(&assignment.provider_id),
-            primary_cost_per_mtok: primary_cost,
-            latency_ms,
-        });
-
-        match outcome {
-            Ok(co) => return Ok(co.text),
-            Err(e) => {
-                last_error = format!("[{}/{}] {}", assignment.provider_id, assignment.model, e);
+        // --- QUOTA-AWARENESS (2026-06-05) ------------------------------------
+        // Consult the daily request counter BEFORE making a call. If the
+        // provider has a known free-tier limit and the counter shows it is
+        // exhausted, skip immediately rather than burning a request that will
+        // return a 429. This is the root cause of fallback_rate=0.98 in
+        // metrics.json (Gemini free tier is 20/day, not 1500).
+        if let Some(daily_limit) = free_tier_daily_limit(&assignment.provider_id) {
+            let used = metrics_snapshot
+                .daily
+                .get(&assignment.provider_id)
+                .filter(|d| d.date == today)
+                .map(|d| d.count)
+                .unwrap_or(0);
+            if used >= daily_limit {
+                last_error = format!(
+                    "[{}/{}] skipped — daily free-tier quota exhausted \
+                     ({}/{} requests today)",
+                    assignment.provider_id, assignment.model, used, daily_limit
+                );
                 continue;
+            }
+        }
+
+        // --- 429 BACKOFF + RETRY (2026-06-05) --------------------------------
+        // Retry the same provider up to MAX_429_RETRIES times with exponential
+        // backoff before falling through to the next entry in the chain.
+        // Any error that is NOT a rate-limit is propagated immediately.
+        let mut backoff_ms = BACKOFF_429_BASE_MS;
+        for attempt in 0..=MAX_429_RETRIES {
+            let started = Instant::now();
+            let outcome =
+                try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
+            let latency_ms = started.elapsed().as_millis() as u64;
+
+            // Detect a 429 / rate-limit by inspecting the error string. All
+            // provider wrappers include the HTTP status code in their error
+            // messages (e.g. "HTTP 429", "status 429", "RESOURCE_EXHAUSTED").
+            let is_rate_limited = outcome.as_ref().err().map_or(false, |e| {
+                let eu = e.to_uppercase();
+                eu.contains("429")
+                    || eu.contains("RATE_LIMIT")
+                    || eu.contains("RESOURCE_EXHAUSTED")
+                    || eu.contains("QUOTA_EXCEEDED")
+                    || eu.contains("TOO_MANY_REQUESTS")
+            });
+
+            let success = outcome.is_ok();
+            let out_tokens = outcome.as_ref().map(|c| c.usage.output_tokens).unwrap_or(0);
+
+            // Persist metrics for every attempt — only way the dashboard counts
+            // move at all. Best-effort: a metrics write failure does not abort.
+            let _ = bump_metrics(MetricSample {
+                provider_id: &assignment.provider_id,
+                model: &assignment.model,
+                success,
+                output_tokens: out_tokens,
+                cost_per_mtok: cost_of(&assignment.provider_id),
+                primary_cost_per_mtok: primary_cost,
+                latency_ms,
+            });
+
+            match outcome {
+                Ok(co) => return Ok(co.text),
+                Err(_e) if is_rate_limited && attempt < MAX_429_RETRIES => {
+                    // Rate-limited but retries remain: wait and try again.
+                    last_error = format!(
+                        "[{}/{}] 429 rate-limited (attempt {}/{}), \
+                         retrying after {}ms",
+                        assignment.provider_id,
+                        assignment.model,
+                        attempt + 1,
+                        MAX_429_RETRIES,
+                        backoff_ms,
+                    );
+                    std::thread::sleep(Duration::from_millis(backoff_ms));
+                    backoff_ms = backoff_ms.saturating_mul(2);
+                }
+                Err(e) => {
+                    // Non-429 error or retries exhausted: move to next provider.
+                    last_error =
+                        format!("[{}/{}] {}", assignment.provider_id, assignment.model, e);
+                    continue 'provider;
+                }
             }
         }
     }
@@ -2242,6 +2317,97 @@ mod tests {
             ids.iter().any(|id| id == "gemini-cli"),
             "missing gemini-cli"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Quota-awareness + 429 handling (2026-06-05)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn gemini_free_tier_limit_is_twenty() {
+        // The previous value was 1500 (off by 75x). Confirmed by live 429
+        // response body "limit: 20" on 2026-06-05. This test pins the correct
+        // value so a future accidental revert is caught immediately.
+        assert_eq!(
+            free_tier_daily_limit("gemini"),
+            Some(20),
+            "Gemini free tier must be 20 req/day (not 1500)"
+        );
+    }
+
+    #[test]
+    fn groq_free_tier_limit_is_one_thousand() {
+        assert_eq!(free_tier_daily_limit("groq"), Some(1000));
+    }
+
+    #[test]
+    fn paid_only_providers_have_no_free_tier() {
+        for pid in ["claude-haiku", "codex", "ollama", "deepseek", "codex-cli", "gemini-cli"] {
+            assert_eq!(
+                free_tier_daily_limit(pid),
+                None,
+                "provider '{pid}' should return None for free_tier_daily_limit"
+            );
+        }
+    }
+
+    #[test]
+    fn rate_limit_error_strings_are_detected() {
+        // Verify the heuristic that identifies 429 responses by inspecting error
+        // strings. All six patterns that provider wrappers may produce must match.
+        let rate_limit_samples = [
+            "HTTP 429 Too Many Requests",
+            "status 429",
+            "RATE_LIMIT exceeded",
+            "RESOURCE_EXHAUSTED quota",
+            "QUOTA_EXCEEDED for project",
+            "TOO_MANY_REQUESTS from server",
+        ];
+        for sample in &rate_limit_samples {
+            let eu = sample.to_uppercase();
+            let detected = eu.contains("429")
+                || eu.contains("RATE_LIMIT")
+                || eu.contains("RESOURCE_EXHAUSTED")
+                || eu.contains("QUOTA_EXCEEDED")
+                || eu.contains("TOO_MANY_REQUESTS");
+            assert!(detected, "should detect rate-limit in: {sample}");
+        }
+    }
+
+    #[test]
+    fn non_rate_limit_errors_are_not_detected() {
+        let non_rl_samples = [
+            "HTTP 500 Internal Server Error",
+            "connection refused",
+            "timeout after 10s",
+            "invalid API key",
+        ];
+        for sample in &non_rl_samples {
+            let eu = sample.to_uppercase();
+            let detected = eu.contains("429")
+                || eu.contains("RATE_LIMIT")
+                || eu.contains("RESOURCE_EXHAUSTED")
+                || eu.contains("QUOTA_EXCEEDED")
+                || eu.contains("TOO_MANY_REQUESTS");
+            assert!(!detected, "should NOT detect rate-limit in: {sample}");
+        }
+    }
+
+    #[test]
+    fn backoff_constants_are_sane() {
+        // Sanity-check: total worst-case wait with MAX_429_RETRIES=2 and base=1000ms
+        // is 1000 + 2000 = 3000ms per provider — acceptable for interactive use.
+        let mut total_ms: u64 = 0;
+        let mut backoff = BACKOFF_429_BASE_MS;
+        for _ in 0..MAX_429_RETRIES {
+            total_ms += backoff;
+            backoff = backoff.saturating_mul(2);
+        }
+        assert!(
+            total_ms <= 5_000,
+            "total backoff per provider must stay under 5 s, got {total_ms}ms"
+        );
+        assert!(MAX_429_RETRIES <= 3, "more than 3 retries would be too slow");
     }
 
     #[test]

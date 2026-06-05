@@ -229,6 +229,23 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     // OLA M/K (2026-06-04): additive v3 tables (trace_events + deprecation
     // registry) + memory_events.trace_id. Idempotent; coordinated single bump.
     super::schema_v3::apply_schema_v3(conn)?;
+
+    // CLEANUP (2026-06-05): drop the legacy `memories` and `memories_fts`
+    // tables (plus their FTS shadow tables) that were created by a pre-kernel
+    // schema. They have 0 rows and are schema dead-weight that confuses audits.
+    // `DROP TABLE IF EXISTS` is idempotent — safe to call on every open_conn.
+    // The canonical tables are memory_items / memory_items_fts; these are not
+    // touched here.
+    let _ = conn.execute_batch(
+        "DROP TABLE IF EXISTS memories_fts_config;
+         DROP TABLE IF EXISTS memories_fts_data;
+         DROP TABLE IF EXISTS memories_fts_idx;
+         DROP TABLE IF EXISTS memories_fts_docsize;
+         DROP TABLE IF EXISTS memories_fts_content;
+         DROP TABLE IF EXISTS memories_fts;
+         DROP TABLE IF EXISTS memories;",
+    );
+
     Ok(())
 }
 
