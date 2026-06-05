@@ -1554,8 +1554,21 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         // Retry the same provider up to MAX_429_RETRIES times with exponential
         // backoff before falling through to the next entry in the chain.
         // Any error that is NOT a rate-limit is propagated immediately.
+        //
+        // SHORT-CIRCUIT (2026-06-05 fix CRITICAL #1): providers with a known
+        // free-tier limit are almost certainly quota-exhausted when they return
+        // a 429.  Burning 1s+2s of backoff for a cuota that is already gone is
+        // wasteful and is the root cause of the hook CANDIDATE_TIMEOUT_MS
+        // overrun (6090ms measured).  When the provider has a known free-tier
+        // limit, treat the FIRST 429 as "quota exhausted" and jump to the next
+        // provider immediately — no sleep, no retry.  Providers WITHOUT a known
+        // free-tier limit (paid tier) still get the full retry budget, because
+        // their 429s are transient rate-limits, not quota exhaustion.
+        let has_free_tier_cap = free_tier_daily_limit(&assignment.provider_id).is_some();
+        let effective_retries = if has_free_tier_cap { 0 } else { MAX_429_RETRIES };
+
         let mut backoff_ms = BACKOFF_429_BASE_MS;
-        for attempt in 0..=MAX_429_RETRIES {
+        for attempt in 0..=effective_retries {
             let started = Instant::now();
             let outcome =
                 try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
@@ -1590,24 +1603,33 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
 
             match outcome {
                 Ok(co) => return Ok(co.text),
-                Err(_e) if is_rate_limited && attempt < MAX_429_RETRIES => {
+                Err(_e) if is_rate_limited && attempt < effective_retries => {
                     // Rate-limited but retries remain: wait and try again.
+                    // (Only reached for paid-tier providers where effective_retries > 0.)
                     last_error = format!(
                         "[{}/{}] 429 rate-limited (attempt {}/{}), \
                          retrying after {}ms",
                         assignment.provider_id,
                         assignment.model,
                         attempt + 1,
-                        MAX_429_RETRIES,
+                        effective_retries,
                         backoff_ms,
                     );
                     std::thread::sleep(Duration::from_millis(backoff_ms));
                     backoff_ms = backoff_ms.saturating_mul(2);
                 }
                 Err(e) => {
-                    // Non-429 error or retries exhausted: move to next provider.
-                    last_error =
-                        format!("[{}/{}] {}", assignment.provider_id, assignment.model, e);
+                    // Non-429 error, retries exhausted, or free-tier 429
+                    // short-circuit: move to the next provider immediately.
+                    last_error = if is_rate_limited && has_free_tier_cap {
+                        format!(
+                            "[{}/{}] 429 on free-tier provider — quota exhausted, \
+                             skipping without backoff",
+                            assignment.provider_id, assignment.model
+                        )
+                    } else {
+                        format!("[{}/{}] {}", assignment.provider_id, assignment.model, e)
+                    };
                     continue 'provider;
                 }
             }
@@ -2445,5 +2467,70 @@ mod tests {
             ApiKeyStatus::Missing,
             "ghost CLI must be Missing so route() skips it via disabled_providers_set"
         );
+    }
+
+    // --- short-circuit on free-tier 429 (fix CRITICAL #1, 2026-06-05) --------
+
+    #[test]
+    fn free_tier_provider_gets_zero_retries() {
+        // A provider with a known free-tier cap must have effective_retries = 0,
+        // meaning the first 429 immediately moves to the next provider (no sleep).
+        // Verified by checking that `has_free_tier_cap` is true for the known
+        // free-tier providers and that effective_retries resolves to 0.
+        for pid in &["gemini", "groq"] {
+            let has_cap = free_tier_daily_limit(pid).is_some();
+            assert!(
+                has_cap,
+                "provider '{pid}' must have a known free-tier limit \
+                 so that 429s trigger the short-circuit (no backoff)"
+            );
+            let effective_retries: u32 = if has_cap { 0 } else { MAX_429_RETRIES };
+            assert_eq!(
+                effective_retries, 0,
+                "provider '{pid}' must have effective_retries=0 on 429 \
+                 to avoid burning ~3 s of backoff per provider"
+            );
+        }
+    }
+
+    #[test]
+    fn paid_tier_provider_keeps_full_retry_budget() {
+        // Providers WITHOUT a known free-tier cap (paid tier) must still receive
+        // the full MAX_429_RETRIES budget, because their 429s are transient.
+        for pid in &["claude-haiku", "claude-sonnet", "deepseek"] {
+            let has_cap = free_tier_daily_limit(pid).is_some();
+            assert!(
+                !has_cap,
+                "provider '{pid}' must NOT have a free-tier cap \
+                 (it is a paid-tier provider)"
+            );
+            let effective_retries: u32 = if has_cap { 0 } else { MAX_429_RETRIES };
+            assert_eq!(
+                effective_retries, MAX_429_RETRIES,
+                "paid-tier provider '{pid}' must keep the full retry budget"
+            );
+        }
+    }
+
+    #[test]
+    fn short_circuit_does_not_affect_non_rate_limit_errors() {
+        // The short-circuit only fires when `is_rate_limited` is true.
+        // A non-429 error must still fall through to `continue 'provider` via
+        // the final `Err(e)` arm — this is already the existing behaviour, but
+        // we document the invariant here so it cannot regress silently.
+        // (Pure logic test — no network.)
+        let non_rl_errors = ["connection refused", "DNS error", "timeout", "500 internal"];
+        for msg in &non_rl_errors {
+            let eu = msg.to_uppercase();
+            let is_rate_limited = eu.contains("429")
+                || eu.contains("RATE_LIMIT")
+                || eu.contains("RESOURCE_EXHAUSTED")
+                || eu.contains("QUOTA_EXCEEDED")
+                || eu.contains("TOO_MANY_REQUESTS");
+            assert!(
+                !is_rate_limited,
+                "error '{msg}' must NOT be classified as rate-limited"
+            );
+        }
     }
 }

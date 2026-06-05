@@ -2,11 +2,11 @@
   "tokens_saved_total": 1436,
   "cost_saved_usd": 0.0005823600000000006,
   "by_class": {
-    "gemini": {
-      "count": 579,
-      "tokens": 870,
-      "latency_p95_ms": 126,
-      "success_count": 45
+    "groq": {
+      "count": 980,
+      "tokens": 7698,
+      "latency_p95_ms": 79,
+      "success_count": 183
     },
     "claude-haiku": {
       "count": 8,
@@ -14,45 +14,29 @@
       "latency_p95_ms": 227,
       "success_count": 0
     },
-    "groq": {
-      "count": 765,
-      "tokens": 7382,
-      "latency_p95_ms": 76,
-      "success_count": 163
+    "gemini": {
+      "count": 585,
+      "tokens": 870,
+      "latency_p95_ms": 195,
+      "success_count": 45
     }
   },
-  "fallback_rate": 0.9890548218993732,
+  "fallback_rate": 0.801718318780627,
   "daily": {
+    "gemini": {
+      "date": "2026-06-05",
+      "count": 541
+    },
+    "groq": {
+      "date": "2026-06-05",
+      "count": 878
+    },
     "claude-haiku": {
       "date": "2026-06-04",
       "count": 8
-    },
-    "gemini": {
-      "date": "2026-06-05",
-      "count": 535
-    },
-    "groq": {
-      "date": "2026-06-05",
-      "count": 663
     }
   },
   "by_model": {
-    "groq::llama-3.3-70b-versatile": {
-      "provider_id": "groq",
-      "model": "llama-3.3-70b-versatile",
-      "count": 765,
-      "success_count": 163,
-      "output_tokens": 7382,
-      "latency_ms_avg": 76
-    },
-    "gemini::gemini-2.5-flash": {
-      "provider_id": "gemini",
-      "model": "gemini-2.5-flash",
-      "count": 579,
-      "success_count": 45,
-      "output_tokens": 870,
-      "latency_ms_avg": 126
-    },
     "claude-haiku::claude-haiku-4-5-20251001": {
       "provider_id": "claude-haiku",
       "model": "claude-haiku-4-5-20251001",
@@ -60,6 +44,22 @@
       "success_count": 0,
       "output_tokens": 0,
       "latency_ms_avg": 227
+    },
+    "groq::llama-3.3-70b-versatile": {
+      "provider_id": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "count": 980,
+      "success_count": 183,
+      "output_tokens": 7698,
+      "latency_ms_avg": 79
+    },
+    "gemini::gemini-2.5-flash": {
+      "provider_id": "gemini",
+      "model": "gemini-2.5-flash",
+      "count": 585,
+      "success_count": 45,
+      "output_tokens": 870,
+      "latency_ms_avg": 195
     }
   }
 }

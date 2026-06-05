@@ -231,20 +231,28 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     super::schema_v3::apply_schema_v3(conn)?;
 
     // CLEANUP (2026-06-05): drop the legacy `memories` and `memories_fts`
-    // tables (plus their FTS shadow tables) that were created by a pre-kernel
-    // schema. They have 0 rows and are schema dead-weight that confuses audits.
-    // `DROP TABLE IF EXISTS` is idempotent — safe to call on every open_conn.
-    // The canonical tables are memory_items / memory_items_fts; these are not
-    // touched here.
-    let _ = conn.execute_batch(
-        "DROP TABLE IF EXISTS memories_fts_config;
-         DROP TABLE IF EXISTS memories_fts_data;
-         DROP TABLE IF EXISTS memories_fts_idx;
-         DROP TABLE IF EXISTS memories_fts_docsize;
-         DROP TABLE IF EXISTS memories_fts_content;
-         DROP TABLE IF EXISTS memories_fts;
+    // tables that were created by a pre-kernel schema.  They have 0 rows and
+    // are schema dead-weight that confuses audits.
+    //
+    // ORDER IS CRITICAL (fix HIGH #2, 2026-06-05):
+    //   1. Drop the FTS5 virtual table FIRST.  SQLite automatically destroys
+    //      its shadow tables (_data, _idx, _docsize, _config, _content) when
+    //      the virtual table is dropped.  Dropping the shadows manually BEFORE
+    //      the virtual table makes `DROP TABLE memories_fts` fail with
+    //      "vtable constructor failed: memories_fts", which aborts the whole
+    //      execute_batch and leaves `memories` behind.
+    //   2. Drop `memories` AFTER `memories_fts`.
+    //
+    // `DROP TABLE IF EXISTS` is idempotent — safe on every open_conn.
+    // The canonical tables (memory_items / memory_items_fts) are not touched.
+    if let Err(e) = conn.execute_batch(
+        "DROP TABLE IF EXISTS memories_fts;
          DROP TABLE IF EXISTS memories;",
-    );
+    ) {
+        eprintln!(
+            "[sqlite_store] legacy-table cleanup failed (non-fatal): {e}"
+        );
+    }
 
     Ok(())
 }

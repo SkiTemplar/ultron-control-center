@@ -36,8 +36,14 @@ _SAFE_ENV_SUFFIXES = (".example", ".sample", ".template", ".dist")
 # SSH private-key basename prefixes.
 _SSH_KEY_PREFIXES = ("id_rsa", "id_ed25519", "id_dsa", "id_ecdsa")
 
-# Exact credential-file basenames.
-_CRED_BASENAMES = {"secrets.json", "credentials.json"}
+# Exact credential-file basenames. Dotfile variants (.credentials.json,
+# .secrets.json) are common too and must be blocked the same way.
+_CRED_BASENAMES = {
+    "secrets.json",
+    "credentials.json",
+    ".secrets.json",
+    ".credentials.json",
+}
 
 
 def _classify_path(path: str) -> Optional[str]:

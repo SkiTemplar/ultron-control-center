@@ -153,19 +153,75 @@ impl MemoryService {
         // inbox with false positives. Secret quarantine (above) takes precedence;
         // we do not downgrade it. Probe `project_id` keeps cross-project memories
         // (which legitimately differ) from being flagged as contradictions.
+        //
+        // FAIL-OPEN with bounded latency (fix CRITICAL #1, 2026-06-05):
+        //   The LLM judge calls `ai_router::route`, which may block up to
+        //   ~6 s when the free-tier quota is exhausted and the retry/backoff
+        //   loop fires.  The ai_router fix (short-circuit on free-tier 429)
+        //   eliminates most of that delay, but as a defence-in-depth we run
+        //   the contradiction check on a background thread with a hard wall-
+        //   clock budget.  If the budget expires before a result arrives, we
+        //   tag the candidate "unjudged" and proceed without blocking.
+        //   The candidate is still created (ACTIVE or PENDING per band policy)
+        //   — the hook never times out because of a slow LLM judge.
+        //
+        //   Budget: 2 000 ms — comfortably below CANDIDATE_TIMEOUT_MS (6 000)
+        //   even after accounting for the Qdrant dense-search step (E5 cold-
+        //   start ≤ 3 285 ms in the worst case observed).  When Gemini is
+        //   exhausted and the short-circuit fix is active, the judge returns
+        //   None in < 50 ms, so the budget is never reached in the happy path.
+        const CONTRADICTION_BUDGET_MS: u64 = 2_000;
         if !redacted {
             if let Some(summary) = cand.proposed_summary.as_deref() {
-                let findings =
-                    super::contradiction::check(&conn, summary, probe.project_id.as_deref());
-                if !findings.is_empty() {
-                    for f in &findings {
-                        if !cand.contradiction_candidates.contains(&f.conflicting_id) {
-                            cand.contradiction_candidates.push(f.conflicting_id.clone());
+                let summary_owned = summary.to_string();
+                let project_id_owned = probe.project_id.clone();
+
+                // Spawn the check onto a scoped OS thread so we can time-box it
+                // without pulling in any async runtime.
+                let (tx, rx) = std::sync::mpsc::channel();
+                // `conn` is not `Send`; the thread needs its own connection.
+                // `open_conn` is cheap (WAL mode, no schema migration on reopen).
+                std::thread::spawn(move || {
+                    let result = store::open_conn().ok().map(|c| {
+                        super::contradiction::check(
+                            &c,
+                            &summary_owned,
+                            project_id_owned.as_deref(),
+                        )
+                    });
+                    // Receiver may have dropped (timeout) — ignore send error.
+                    let _ = tx.send(result);
+                });
+
+                match rx.recv_timeout(std::time::Duration::from_millis(CONTRADICTION_BUDGET_MS)) {
+                    Ok(Some(findings)) if !findings.is_empty() => {
+                        for f in &findings {
+                            if !cand.contradiction_candidates.contains(&f.conflicting_id) {
+                                cand.contradiction_candidates.push(f.conflicting_id.clone());
+                            }
+                        }
+                        // Mark for human review; never auto-resolve. Quarantine keeps it
+                        // OUT of recall until adjudicated (takes precedence over Merge).
+                        cand.recommended_action = CandidateAction::Quarantine;
+                    }
+                    Ok(_) => {
+                        // No findings (empty vec) or open_conn failed — proceed normally.
+                    }
+                    Err(_timeout_or_disconnect) => {
+                        // Budget expired or thread panicked.  FAIL-OPEN: create the
+                        // candidate without a contradiction verdict rather than blocking
+                        // the hook.  Tag it so the dashboard can surface unjudged items
+                        // for later review.
+                        eprintln!(
+                            "[service::create_candidate] contradiction judge timed out \
+                             after {CONTRADICTION_BUDGET_MS}ms — candidate {} will be \
+                             created as unjudged",
+                            cand.id
+                        );
+                        if !cand.proposed_tags.contains(&"unjudged".to_string()) {
+                            cand.proposed_tags.push("unjudged".to_string());
                         }
                     }
-                    // Mark for human review; never auto-resolve. Quarantine keeps it
-                    // OUT of recall until adjudicated (takes precedence over Merge).
-                    cand.recommended_action = CandidateAction::Quarantine;
                 }
             }
         }
