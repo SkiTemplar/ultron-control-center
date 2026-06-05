@@ -78,6 +78,21 @@ TEST_CASES: list[tuple[str, str, str, str]] = [
     ("T-PL06", "playwright e2e test web app local con browser snapshot", "webapp-testing", "plugin"),
     ("T-PL07", "security scan con owasp sast y cve check", "security-scan", "plugin"),
     ("T-PL08", "zero-downtime migration alter table prisma migrate", "database-migrations", "plugin"),
+    # ── Layer 2: NEW plugin/skill rules (cobertura expandida 2026-06-05) ──────
+    ("T-PL09", "necesito un distributed lock con redis para rate limiting", "redis-patterns", "plugin"),
+    ("T-PL10", "refactor a hexagonal architecture con ports and adapters", "hexagonal-architecture", "plugin"),
+    ("T-PL11", "genera un word document .docx con tabla de contenidos", "docx", "plugin"),
+    ("T-PL12", "dibuja un mermaid diagram de la arquitectura", "markdown-mermaid-writing", "plugin"),
+    ("T-PL13", "winget install y windows registry para windows admin", "windows-admin", "plugin"),
+    ("T-PL14", "estrategia b2b saas go-to-market para el producto", "business-strategist", "plugin"),
+    ("T-PL15", "production readiness checklist y rollback strategy deployment patterns", "deployment-patterns", "plugin"),
+    ("T-PL16", "configura googletest y ctest para cpp testing", "cpp-testing", "plugin"),
+    ("T-PL17", "escribe un architecture decision record adr de esta decisión", "architecture-decision-records", "plugin"),
+    ("T-PL18", "implementa circuit breaker y typed errors error handling patterns", "error-handling", "plugin"),
+    # ── Layer 3: NEW agentes (cobertura expandida 2026-06-05) ────────────────
+    ("T-A11", "git-workflow-manager define una branching strategy gitflow", "git-workflow-manager", "agent"),
+    ("T-A12", "knowledge-synthesizer extract patterns across agents", "knowledge-synthesizer", "agent"),
+    ("T-A13", "dx-optimizer para mejorar build times y feedback loop", "dx-optimizer", "agent"),
     # ── Silencio: prompts ambiguos de baja confianza (<0.50) ────────────────
     ("T-S01", "hola", "", "silent"),
     ("T-S02", "ok", "", "silent"),
