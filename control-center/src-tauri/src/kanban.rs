@@ -49,6 +49,34 @@ pub struct CardRun {
     pub exit_code: Option<i32>,
 }
 
+/// Deserialize a card timestamp that may arrive as a string (the canonical
+/// `"epoch:<secs>"` form the app writes) or as a bare number. External capture
+/// scripts have occasionally written `Date.now()` millis as a plain integer;
+/// with a strict `String` field that single bad card made serde reject the
+/// *entire* board (`invalid type: integer, expected a string`), so `kanban_load`
+/// erred and the project card silently showed "—" for its pending counter.
+/// Coercing a number to `"epoch:<secs>"` keeps one malformed card from breaking
+/// the board — same defensive stance as the signed `order` field below.
+fn de_flexible_timestamp<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum StringOrNum {
+        S(String),
+        I(i64),
+        F(f64),
+    }
+    // The repo stores epoch *seconds* (see `now_iso`); coerce millis down.
+    let to_secs = |n: i64| if n >= 1_000_000_000_000 { n / 1000 } else { n };
+    Ok(match StringOrNum::deserialize(deserializer)? {
+        StringOrNum::S(s) => s,
+        StringOrNum::I(n) => format!("epoch:{}", to_secs(n)),
+        StringOrNum::F(f) => format!("epoch:{}", to_secs(f as i64)),
+    })
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Card {
     pub id: String,
@@ -71,7 +99,9 @@ pub struct Card {
     /// normalises orders to a gap-free, duplicate-free `0..n` per column.
     #[serde(default)]
     pub order: i32,
+    #[serde(default, deserialize_with = "de_flexible_timestamp")]
     pub created_at: String,
+    #[serde(default, deserialize_with = "de_flexible_timestamp")]
     pub updated_at: String,
     #[serde(default)]
     pub runs: Vec<CardRun>,
@@ -782,6 +812,31 @@ mod tests {
                 .any(|c| c.tags.contains(&"rust".to_string())),
             "card-2 carries tags"
         );
+    }
+
+    // regression (project card showed "— pending"): a card written by an
+    // external capture script with a *numeric* epoch-millis timestamp must not
+    // break the whole board parse. Before the tolerant deserializer this errored
+    // ("invalid type: integer, expected a string"), `kanban_load` returned Err,
+    // and `refreshStats` swallowed it — leaving the card's pending counter "—".
+    #[test]
+    fn load_tolerates_numeric_card_timestamps() {
+        let json = r#"{
+            "project_id": "t",
+            "columns": [{ "id": "c1", "name": "Backlog" }],
+            "cards": [{
+                "id": "k1",
+                "column_id": "c1",
+                "title": "x",
+                "created_at": 1780611795150,
+                "updated_at": 1780611795150
+            }]
+        }"#;
+        let board: KanbanBoard = serde_json::from_str(json)
+            .expect("a numeric card timestamp must not break the board parse");
+        assert_eq!(board.cards.len(), 1);
+        assert_eq!(board.cards[0].created_at, "epoch:1780611795");
+        assert_eq!(board.cards[0].updated_at, "epoch:1780611795");
     }
 
     #[test]
