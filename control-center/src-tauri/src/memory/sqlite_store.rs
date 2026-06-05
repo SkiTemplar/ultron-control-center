@@ -20,7 +20,7 @@ use std::sync::OnceLock;
 use rusqlite::{named_params, params, Connection, Row};
 
 use super::model::{
-    estimate_tokens, now_millis, Actor, CandidateAction, CandidateStatus, EventType,
+    estimate_tokens, Actor, CandidateAction, CandidateStatus, EventType,
     MemoryCandidate, MemoryEvent, MemoryItem, MemoryType, Scope, Sensitivity, Source, Stability,
     Status,
 };

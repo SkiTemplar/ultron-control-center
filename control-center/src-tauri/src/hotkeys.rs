@@ -213,14 +213,6 @@ pub fn inbox_shortcut() -> Shortcut {
     Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyI)
 }
 
-/// Returns true if the pressed `Shortcut` matches the inbox combo.
-/// Compares modifiers + key code via the upstream `matches()` helper so
-/// it stays stable across re-registrations.
-pub fn is_inbox_shortcut(s: &Shortcut) -> bool {
-    let target = inbox_shortcut();
-    s.matches(target.mods, target.key)
-}
-
 /// Registers Ctrl+Alt+I with the global-shortcut plugin. The actual
 /// "emit open-inbox" wiring lives in lib.rs's existing
 /// with_handler closure (see LIB_RS_WIRING above) — we only register

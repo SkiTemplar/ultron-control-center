@@ -97,33 +97,6 @@ pub use workflows::rules;
 // Shared command-level helpers
 // ---------------------------------------------------------------------------
 
-/// Reads the last `limit` non-empty lines of a JSONL file, parsed as `T`, in
-/// newest-first order. Malformed lines are silently skipped — `alerts.jsonl`
-/// historically had broken entries and a single bad line shouldn't poison
-/// the whole list.
-pub(crate) fn read_jsonl_tail<T>(path: std::path::PathBuf, limit: usize) -> Result<Vec<T>, String>
-where
-    T: serde::de::DeserializeOwned,
-{
-    use std::fs::File;
-    use std::io::{BufRead, BufReader};
-
-    let file = File::open(&path).map_err(|e| format!("open {:?}: {}", path, e))?;
-    let reader = BufReader::new(file);
-    let mut lines: Vec<String> = Vec::new();
-    for line in reader.lines() {
-        let l = line.map_err(|e| format!("read line: {}", e))?;
-        if !l.trim().is_empty() {
-            lines.push(l);
-        }
-    }
-    let n = lines.len();
-    let start = n.saturating_sub(limit);
-    let mut out: Vec<T> = Vec::with_capacity(n - start);
-    for l in lines[start..].iter().rev() {
-        if let Ok(parsed) = serde_json::from_str::<T>(l) {
-            out.push(parsed);
-        }
-    }
-    Ok(out)
-}
+// read_jsonl_tail lived here as a duplicate of the live one in
+// commands/misc_sub/mod.rs (the one actually used by alerts.rs). Removed
+// 2026-06-06 — was never called from this path.

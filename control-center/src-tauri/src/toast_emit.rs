@@ -88,18 +88,6 @@ pub fn read_toast_enabled() -> bool {
     }
 }
 
-/// Persist the toast toggle. Returns Err with a human string on IO
-/// failure so the Tauri command can bubble it up to the UI.
-pub fn write_toast_enabled(enabled: bool) -> Result<(), String> {
-    let path = toast_flag_path().ok_or_else(|| "no HOME".to_string())?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("create_dir_all: {}", e))?;
-    }
-    std::fs::write(&path, if enabled { "1" } else { "0" })
-        .map_err(|e| format!("write flag: {}", e))?;
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
 // alerts.jsonl append
 // ---------------------------------------------------------------------------
@@ -276,24 +264,4 @@ pub fn record_alert_and_maybe_toast<R: tauri::Runtime>(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tauri commands (toggle get/set)
-// ---------------------------------------------------------------------------
-
-#[tauri::command]
-pub fn get_toast_enabled() -> bool {
-    read_toast_enabled()
-}
-
-#[tauri::command]
-pub fn set_toast_enabled(enabled: bool) -> Result<(), String> {
-    write_toast_enabled(enabled)
-}
-
-// LIB_RS_WIRING:
-//   mod toast_emit;
-//   // inside .invoke_handler(tauri::generate_handler![...]):
-//   toast_emit::get_toast_enabled,
-//   toast_emit::set_toast_enabled,
-//
-//   // Add `once_cell = "1"` to control-center/src-tauri/Cargo.toml deps.
+// (toast toggle get/set commands removed 2026-06-06 — never wired into lib.rs)

@@ -34,20 +34,8 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use thiserror::Error;
 
 use crate::claude_sessions::{cwd_from_jsonl, list_workspaces_inner};
-
-/// Typed error for recall operations — KIRKARDO 16.
-#[derive(Debug, Error)]
-pub enum RecallError {
-    #[error("no session found: {0}")]
-    NotFound(String),
-    #[error("I/O error: {0}")]
-    IoError(#[from] std::io::Error),
-    #[error("parse error: {0}")]
-    ParseError(String),
-}
 
 const MAX_MESSAGES: usize = 50;
 const MAX_TOPICS: usize = 8;
@@ -773,19 +761,6 @@ mod tests {
         let d = digest_jsonl(&fixture("session_decisions.jsonl"));
         assert!(!d.decisions.is_empty());
         assert!(d.files.iter().any(|f| f.contains("webhook")));
-    }
-
-    #[test]
-    fn recall_error_not_found_message() {
-        let e = RecallError::NotFound("mi-proyecto".into());
-        assert!(e.to_string().contains("mi-proyecto"));
-    }
-
-    #[test]
-    fn recall_error_parse_error_message() {
-        let e = RecallError::ParseError("bad token at line 3".into());
-        assert!(e.to_string().contains("parse error"));
-        assert!(e.to_string().contains("line 3"));
     }
 
     fn make_jsonl() -> String {
