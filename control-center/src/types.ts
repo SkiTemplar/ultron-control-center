@@ -33,24 +33,6 @@ export type GlobalStatus = "ok" | "warn" | "down" | "loading";
 
 export type McpStatus = "ok" | "degraded" | "missing" | "unknown" | string;
 
-// Mem0 (Memory panel — v2.0)
-
-export type Mem0Status = {
-  connected: boolean;
-  api_key_masked: string | null;
-  latency_ms: number | null;
-  error: string | null;
-};
-
-export type Mem0Memory = {
-  id: string;
-  memory: string;
-  user_id: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-  metadata: Record<string, unknown> | null;
-};
-
 // Usage (Claude Code stats-cache.json)
 
 export type WindowStats = {

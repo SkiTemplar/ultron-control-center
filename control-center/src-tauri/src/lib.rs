@@ -33,7 +33,6 @@ mod cost_watchdog;
 mod decisions;
 mod detach;
 mod diagnostics_native;
-mod ecc_memory;
 mod env_keys;
 mod features;
 mod finance;
@@ -48,9 +47,7 @@ mod library;
 mod logs;
 mod maintenance;
 mod mcps;
-mod mem0;
 pub mod memory; // MemoryStore trait + adapters (KIRKARDO 21)
-mod memory_status;
 mod migration;
 mod notes;
 pub mod orchestrator; // Auto-routing #7 — intent -> workflow -> agent -> memory
@@ -324,35 +321,10 @@ pub fn run() {
             commands::notes::notes_load_global,
             commands::notes::notes_save_global,
             commands::notes::notes_delete_global,
-            // -- ECC local knowledge graph (read-only display) --
-            commands::ecc_memory::ecc_memory_read,
-            commands::ecc_memory::bootstrap_ecc_memory,
             // -- local Knowledge Graph editor (Control Center-owned, v2.6 fb-047) --
-            commands::kg::kg_read_graph,
-            commands::kg::kg_create_entities,
-            commands::kg::kg_delete_entity,
-            commands::kg::kg_add_observations,
-            commands::kg::kg_create_relations,
-            commands::kg::kg_delete_relation,
-            commands::kg::kg_search_nodes,
-            // -- mem0 --
-            commands::mem0::mem0_status,
-            commands::mem0::mem0_search,
-            commands::mem0::mem0_add,
-            commands::mem0::mem0_delete,
-            commands::mem0::mem0_diagnostics,
-            commands::mem0::mem0_test_connection,
-            commands::mem0::mem0_list_all,
-            // -- memory status (Memory tab redesign) --
-            commands::memory_status::memory_status_mem0,
-            commands::memory_status::memory_status_ecc,
-            commands::memory_status::memory_status_graphify,
-            commands::memory_status::memory_status_files,
-            commands::memory_status::memory_sync_mem0_manual,
-            commands::memory_status::memory_graphify_index,
+            // kg commands des-registrados (Fase 3 pendiente): lógica conservada en commands/memory/memory_graph.rs y src/kg.rs
             // -- memory graph (unified search + tree snapshot) --
-            commands::memory_graph::memory_unified_search,
-            commands::memory_graph::memory_tree_snapshot,
+            // memory_graph commands des-registrados (Fase 3 pendiente): lógica conservada en commands/memory/memory_graph.rs
             // -- sessions --
             commands::sessions::spawn_session,
             commands::sessions::run_inline,

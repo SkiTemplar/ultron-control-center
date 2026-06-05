@@ -52,11 +52,7 @@ pub use kanban_sub::kanban;
 pub use library::plugins_info;
 pub use library::skills;
 
-pub use memory::ecc_memory;
-pub use memory::kg;
-pub use memory::mem0;
 pub use memory::memory_graph;
-pub use memory::memory_status;
 pub use memory::recall;
 
 pub use misc_sub::alerts;

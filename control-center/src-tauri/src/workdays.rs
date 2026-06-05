@@ -510,13 +510,7 @@ pub fn complete_workday_inner(
     let s = gen_summary(&wd);
     wd.summary_md = Some(s.clone());
     persist_workday(&wd)?;
-    let wid = wd.id.clone();
-    let wt = wd.title.clone();
-    let wdt = wd.planned_date.clone();
-    tauri::async_runtime::spawn(async move {
-        let md = serde_json::json!({"source":"workday","workday_id":wid,"title":wt,"date":wdt});
-        let _ = crate::mem0::add_inner(s, "workdays".to_string(), Some(md)).await;
-    });
+    // mem0 sync retired (wave2-mem0-ecc, 2026-06-06).
     Ok(wd)
 }
 pub fn archive_workday_inner(id: String) -> Result<Workday, String> {

@@ -19,7 +19,6 @@ use serde::Serialize;
 
 use crate::agents::{list_agents_inner, AgentInfo};
 use crate::kg::{search_nodes_inner, KgEntity};
-use crate::mem0::Mem0Memory;
 use crate::rules::{list_inner as rules_list_inner, RuleFile};
 use crate::skills::{list_skills_with_origin_inner, SkillEntry, SkillOrigin};
 
@@ -57,9 +56,9 @@ pub struct UnifiedSearchResults {
     pub skills: Vec<SkillHit>,
     pub agents: Vec<AgentHit>,
     pub rules: Vec<RuleHit>,
-    /// Retired read-path: always empty. Mem0 cloud no longer participates in
-    /// unified search (kept for frontend payload-shape compatibility).
-    pub mem0: Vec<Mem0Memory>,
+    /// Retired read-path: always empty. Mem0 cloud removed (wave2-mem0-ecc, 2026-06-06).
+    /// Kept as empty Vec<serde_json::Value> for frontend payload-shape compatibility.
+    pub mem0: Vec<serde_json::Value>,
     pub kg: Vec<KgEntity>,
     /// Semantic hits from Qdrant ultron_sessions collection.
     pub qdrant: Vec<crate::qdrant::QdrantHit>,
@@ -183,10 +182,8 @@ pub async fn unified_search_inner(
     .await
     .map_err(|e| e.to_string())?;
 
-    // Mem0 cloud layer RETIRED from the read-path (2026-06-05): no api.mem0.ai
-    // round-trip. The field stays in the result for frontend compatibility but is
-    // always empty — the local brain.db + Qdrant + KG layers cover recall.
-    let mem0_results: Vec<Mem0Memory> = Vec::new();
+    // Mem0 cloud layer retired (wave2-mem0-ecc, 2026-06-06): field stays empty for frontend compat.
+    let mem0_results: Vec<serde_json::Value> = Vec::new();
 
     let kg_graph = search_nodes_inner(needle.clone()).unwrap_or_default();
 
@@ -246,12 +243,13 @@ pub fn tree_snapshot_inner() -> Result<MemoryTreeSnapshot, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Tauri command wrappers
+// Command wrappers — kept for Fase 3 codegraph; des-registrados del handler.
 // ---------------------------------------------------------------------------
 
-/// Unified search across skills, agents, rules, mem0 and the local KG.
+/// Unified search across skills, agents, rules and the local KG.
 /// `top_k` caps results per layer (default 50, max 200).
-#[tauri::command]
+// kept for Fase 3 codegraph
+#[allow(dead_code)]
 pub async fn memory_unified_search(
     query: String,
     top_k: Option<usize>,
@@ -260,8 +258,8 @@ pub async fn memory_unified_search(
 }
 
 /// Returns the full tree snapshot for the initial Memory tab load.
-/// Skips mem0 (no cloud round-trip) so the tree renders instantly.
-#[tauri::command]
+// kept for Fase 3 codegraph
+#[allow(dead_code)]
 pub async fn memory_tree_snapshot() -> Result<MemoryTreeSnapshot, String> {
     tauri::async_runtime::spawn_blocking(tree_snapshot_inner)
         .await

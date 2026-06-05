@@ -232,6 +232,8 @@ pub fn delete_entity_inner(name: String) -> Result<KgGraph, String> {
     Ok(graph)
 }
 
+// kept for Fase 3 codegraph
+#[allow(dead_code)]
 pub fn add_observations_inner(name: String, observations: Vec<String>) -> Result<KgGraph, String> {
     let _guard = kg_write_lock()
         .lock()
@@ -253,6 +255,8 @@ pub fn add_observations_inner(name: String, observations: Vec<String>) -> Result
     Ok(graph)
 }
 
+// kept for Fase 3 codegraph
+#[allow(dead_code)]
 pub fn create_relations_inner(relations: Vec<KgRelation>) -> Result<KgGraph, String> {
     let _guard = kg_write_lock()
         .lock()
@@ -293,6 +297,8 @@ pub fn create_relations_inner(relations: Vec<KgRelation>) -> Result<KgGraph, Str
     Ok(graph)
 }
 
+// kept for Fase 3 codegraph
+#[allow(dead_code)]
 pub fn delete_relation_inner(
     from: String,
     to: String,

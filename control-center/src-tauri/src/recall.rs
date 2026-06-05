@@ -557,30 +557,6 @@ fn render_suggested_prompt(cwd_hint: Option<&str>, digest: &SessionDigest) -> St
 }
 
 // ---------------------------------------------------------------------------
-// mem0 fallback (optional)
-// ---------------------------------------------------------------------------
-
-async fn mem0_fallback(query: &str) -> Option<String> {
-    let memories = crate::mem0::search_inner(query.to_string(), None, Some(8))
-        .await
-        .ok()?;
-    if memories.is_empty() {
-        return None;
-    }
-    let mut out = String::from("## Última sesión (vía mem0)\n\n");
-    out.push_str("No encontramos JSONL local — esto es lo que mem0 recuerda:\n\n");
-    for m in memories.iter().take(8) {
-        let text = if m.memory.is_empty() {
-            "(sin texto)".to_string()
-        } else {
-            m.memory.clone()
-        };
-        out.push_str(&format!("- {}\n", trim(&text, 200)));
-    }
-    Some(out)
-}
-
-// ---------------------------------------------------------------------------
 // Public entrypoints
 // ---------------------------------------------------------------------------
 
@@ -624,24 +600,6 @@ pub async fn recall_last_session_inner(
             suggested_prompt,
             source: "jsonl".to_string(),
         });
-    }
-
-    // mem0 fallback when we have at least a cwd hint to search by.
-    if let Some(h) = &hint {
-        if let Some(md) = mem0_fallback(h).await {
-            let prompt = format!(
-                "Continuamos con el proyecto en {}. mem0 trae estas memorias recientes; revisemos cuál era el siguiente paso pendiente.",
-                h
-            );
-            return Ok(RecallResult {
-                found: true,
-                session_id: None,
-                last_active_iso: None,
-                summary_md: md,
-                suggested_prompt: prompt,
-                source: "mem0".to_string(),
-            });
-        }
     }
 
     Ok(RecallResult {

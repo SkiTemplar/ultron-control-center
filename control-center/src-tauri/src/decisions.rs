@@ -890,24 +890,7 @@ fn fire_auto_sync(rec: &DecisionRecord) {
     // build a second Tokio runtime (which would panic inside an existing one).
     // The call is fire-and-forget: the decisions write lock has already been
     // released before this function is called, so there is no deadlock risk.
-    let rec_clone = rec.clone();
-    tauri::async_runtime::spawn(async move {
-        let text = format!(
-            "Decision accepted in project `{}`: {}. Rationale: {}",
-            rec_clone.project_id, rec_clone.decision, rec_clone.rationale
-        );
-        let metadata = serde_json::json!({
-            "decision_id": rec_clone.id,
-            "project_id": rec_clone.project_id,
-            "status": rec_clone.status.to_string(),
-            "tags": rec_clone.tags,
-        });
-        if let Err(e) =
-            crate::mem0::add_inner(text, rec_clone.project_id.clone(), Some(metadata)).await
-        {
-            eprintln!("[decisions] mem0 sync warning for {}: {e}", rec_clone.id);
-        }
-    });
+    // mem0 sync retired (wave2-mem0-ecc, 2026-06-06): decisions now live in brain.db only.
 }
 
 // ---------------------------------------------------------------------------

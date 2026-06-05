@@ -289,43 +289,7 @@ fn load_decisions(project_id: &str) -> Vec<DecisionRecordSnap> {
         .collect()
 }
 
-// ---------------------------------------------------------------------------
-// Mem0 — search by project name
-// ---------------------------------------------------------------------------
-
-async fn load_mem0_entries(
-    project_name: &str,
-    project_id: &str,
-) -> (Vec<Mem0Entry>, Option<String>) {
-    // Try search by project name first (most relevant), fall back to list_all by project_id.
-    // Both operations are best-effort — a missing API key returns empty + error message.
-    let search_result = crate::mem0::search_inner(
-        project_name.to_string(),
-        Some(project_id.to_string()),
-        Some(20),
-    )
-    .await;
-
-    match search_result {
-        Ok(memories) => {
-            let entries: Vec<Mem0Entry> = memories
-                .into_iter()
-                .filter(|m| !m.memory.is_empty())
-                .take(5)
-                .map(|m| Mem0Entry {
-                    id: m.id,
-                    memory: m.memory,
-                    created_at: m.created_at,
-                })
-                .collect();
-            (entries, None)
-        }
-        Err(e) => {
-            // Surface the error but don't fail the whole command
-            (vec![], Some(e))
-        }
-    }
-}
+// mem0 search retired (wave2-mem0-ecc, 2026-06-06). mem0_entries is always empty.
 
 // ---------------------------------------------------------------------------
 // Main aggregator entry point
@@ -336,9 +300,7 @@ pub async fn load_inner(
     project_name: String,
     project_path: String,
 ) -> Result<ProjectContextPayload, String> {
-    // All sections run concurrently where possible. Mem0 is async;
-    // the rest are sync blocking calls wrapped to not block the executor.
-
+    // All sections run concurrently. mem0 retired (wave2-mem0-ecc, 2026-06-06).
     let path_clone = project_path.clone();
     let id_clone = project_id.clone();
     let name_clone = project_name.clone();
@@ -361,42 +323,17 @@ pub async fn load_inner(
         )
     });
 
-    // Await both: sync first (cheap, local FS), then Mem0 (network, may be slow)
     let (
         claude_md,
         claude_md_path,
         git_summary,
         kg_entities,
         recent_bugs,
-        mut next_steps,
+        next_steps,
         recent_decisions,
     ) = sync_handle
         .await
         .map_err(|e| format!("blocking task panicked: {e}"))?;
-
-    let (mem0_entries, mem0_error) = load_mem0_entries(&project_name, &project_id).await;
-
-    // Append Mem0 next_steps suggestions (search "next_steps" on global user)
-    // — done lazily here from the already-fetched mem0_entries to avoid an extra
-    // network call. If a memory contains "next step" keywords, surface it.
-    let mem0_next: Vec<String> = mem0_entries
-        .iter()
-        .filter(|m| {
-            let lc = m.memory.to_lowercase();
-            lc.contains("next step") || lc.contains("próximo") || lc.contains("pendiente")
-        })
-        .map(|m| {
-            // Truncate long memories to 80 chars for the next-steps strip
-            if m.memory.len() > 80 {
-                format!("{}…", &m.memory[..80])
-            } else {
-                m.memory.clone()
-            }
-        })
-        .take(3)
-        .collect();
-
-    next_steps.extend(mem0_next);
 
     // Normalise project path for display (strip Windows \\?\ prefix)
     let claude_md_path_display =
@@ -405,13 +342,13 @@ pub async fn load_inner(
     Ok(ProjectContextPayload {
         claude_md,
         claude_md_path: claude_md_path_display,
-        mem0_entries,
+        mem0_entries: Vec::new(),
         kg_entities,
         recent_bugs,
         recent_decisions,
         git_summary,
         next_steps,
-        mem0_error,
+        mem0_error: None,
     })
 }
 
