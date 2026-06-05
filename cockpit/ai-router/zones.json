@@ -119,5 +119,41 @@
       "max_tokens": 2048
     },
     "fallbacks": []
+  },
+  {
+    "id": "utility",
+    "label": "Utility (internal automation tasks)",
+    "category": "system",
+    "task_class": "trivial",
+    "primary": {
+      "provider_id": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "max_tokens": 512
+    },
+    "fallbacks": [
+      {
+        "provider_id": "gemini",
+        "model": "gemini-2.5-flash",
+        "max_tokens": 512
+      }
+    ]
+  },
+  {
+    "id": "light",
+    "label": "Light (fast single-turn completions)",
+    "category": "chat",
+    "task_class": "light",
+    "primary": {
+      "provider_id": "groq",
+      "model": "llama-3.3-70b-versatile",
+      "max_tokens": 1024
+    },
+    "fallbacks": [
+      {
+        "provider_id": "gemini",
+        "model": "gemini-2.5-flash",
+        "max_tokens": 1024
+      }
+    ]
   }
 ]

@@ -642,7 +642,22 @@ fn looks_like_placeholder(v: &str) -> bool {
 fn load_zones() -> Result<Vec<Zone>, String> {
     let path = zones_path()?;
     if path.exists() {
-        read_json(&path)
+        // Auto-cure: a hand-edit of zones.json on 2026-06-04 dropped the
+        // 'utility' and 'light' zones — the two MOST invoked from code
+        // (ZONE_EXTRACT/REWRITE/JUDGE in memory, workdays, hooks, plugins) —
+        // so route('utility')/route('light') returned Err('zone not found') and
+        // silently broke memory extraction, session naming and summaries. We now
+        // merge back any seed zone missing by id so a partial file can never
+        // disable a code-referenced zone again. User-edited zones are preserved.
+        let mut zones: Vec<Zone> = read_json(&path)?;
+        let have: std::collections::HashSet<String> =
+            zones.iter().map(|z| z.id.clone()).collect();
+        for z in seed_zones() {
+            if !have.contains(&z.id) {
+                zones.push(z);
+            }
+        }
+        Ok(zones)
     } else {
         let seeded = seed_zones();
         write_json(&path, &seeded)?;

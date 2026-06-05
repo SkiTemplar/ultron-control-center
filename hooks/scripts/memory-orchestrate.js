@@ -29,6 +29,13 @@ function render(ctx) {
       out.push(`  - ${a.name} (${Number(a.score || 0).toFixed(2)})`);
     }
   }
+  if (Array.isArray(ctx.delegate_skills) && ctx.delegate_skills.length) {
+    out.push('consider_skills (by similarity):');
+    for (const s of ctx.delegate_skills.slice(0, 4)) {
+      const k = s.kind ? `, ${s.kind}` : '';
+      out.push(`  - ${s.name} (${Number(s.score || 0).toFixed(2)}${k})`);
+    }
+  }
   if (Array.isArray(ctx.memories) && ctx.memories.length) {
     out.push('relevant_memories:');
     for (const m of ctx.memories.slice(0, 12)) out.push(`  - [${m.scope || ''}] ${m.summary || ''}`);

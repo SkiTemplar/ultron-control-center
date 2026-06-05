@@ -96,6 +96,15 @@ pub fn known_agent_names() -> std::collections::HashSet<String> {
     set
 }
 
+/// Read an agent's description from its frontmatter. Used by the orchestrator to
+/// floor-inject preferred specialists that E5 retrieval (cross-lingual noise)
+/// failed to surface in the raw top-k. None if the file is absent/malformed.
+pub fn agent_description(name: &str) -> Option<String> {
+    let dir = agents_dir()?;
+    let content = std::fs::read_to_string(dir.join(format!("{name}.md"))).ok()?;
+    parse_frontmatter(&content).map(|(_, d)| d)
+}
+
 /// Index `~/.claude/agents/*.md` into `ultron_catalog`. Idempotent (id =
 /// hash(name)). Warms up E5 first so a missing model surfaces as one clear error.
 /// Returns `(indexed, errors)`.
