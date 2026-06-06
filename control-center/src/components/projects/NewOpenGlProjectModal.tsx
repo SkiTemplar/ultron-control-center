@@ -74,6 +74,25 @@ export default function NewOpenGlProjectModal({ open, onClose, onCreated }: Prop
     }
   }, [open]);
 
+  // First-run default for the parent folder. If nothing is persisted yet,
+  // resolve a portable default under the user's home dir. This runs in an
+  // effect (not the useState initialiser) because it's async, and only fills
+  // when the field is still empty so it never clobbers a user-picked value.
+  useEffect(() => {
+    if (!open || parentDir) return;
+    let cancelled = false;
+    resolveDefaultParent()
+      .then((p) => {
+        if (!cancelled) setParentDir((cur) => (cur ? cur : p));
+      })
+      .catch(() => {
+        /* leave empty — the Browse dialog still works */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, parentDir]);
+
   // Close on Escape — small ergonomic detail that the rest of the app
   // honours, so we match it here too.
   useEffect(() => {

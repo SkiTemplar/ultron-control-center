@@ -245,6 +245,9 @@ control-center/.fastembed_cache/
 
 # Secrets — local env (nunca commitear). Anadido 2026-05-30.
 .env
+.env.local
+.env.*.local
+control-center/.env.local
 !.env.example
 
 # === 2026-05-30: runtime per-maquina + sidecar + telemetria personal ===

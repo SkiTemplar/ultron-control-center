@@ -10,6 +10,7 @@
     "tauri": "tauri",
     "kill-app": "node scripts/kill-running-app.mjs",
     "build:app": "npm run kill-app && tauri build",
+    "build:local": "node scripts/build-local.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test"
