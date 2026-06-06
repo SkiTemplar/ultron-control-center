@@ -18,7 +18,9 @@
 
 use std::collections::BTreeMap;
 
-use crate::commands::memory::recall_unified::recall_pack;
+use crate::commands::memory::recall_unified::{
+    recall_pack, resolve_session_id, session_budget_reset,
+};
 use crate::memory::eval_metrics::{EvalMetrics, GoldenSet};
 
 /// A single golden query: a search string plus the substrings that SHOULD show
@@ -217,6 +219,14 @@ fn score_query(
     project_id: Option<&str>,
     k: usize,
 ) -> (EvalResult, Vec<String>) {
+    // Each golden query simulates an INDEPENDENT recall. In production every
+    // recall runs in a fresh short-lived process holding the full per-session
+    // token budget; running all goldens in ONE eval process would otherwise
+    // share — and exhaust — a single `proc-<pid>` budget, starving every query
+    // after the first ~3 (a false `hits=0` that looks like a recall failure but
+    // is pure harness starvation). Reset the budget before each query so the
+    // eval measures per-query recall quality exactly as production sees it.
+    session_budget_reset(&resolve_session_id(None));
     let (hits, matched, ids) = match recall_pack(&golden.query, k, project_id, false, None) {
         Ok(pack) => {
             let summaries: Vec<String> = pack
@@ -438,6 +448,10 @@ pub fn run_golden_metrics(project_override: Option<&str>, k: usize) -> GoldenMet
         // SAME recall path as the `eval`/`recall` subcommands. FAIL-SAFE: an error
         // (Qdrant/E5 offline) degrades this query to an empty ranking — every
         // metric then scores 0 for it, which is the correct "recovered nothing".
+        // Reset the per-session token budget before each golden query so the
+        // shared `proc-<pid>` budget cannot starve later queries (see the same
+        // note in `score_query`). Each positive is an independent recall.
+        session_budget_reset(&resolve_session_id(None));
         let retrieved: Vec<String> = match recall_pack(&pos.query, k, project, false, None) {
             Ok(pack) => {
                 returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
