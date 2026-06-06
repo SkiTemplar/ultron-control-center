@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type {
   InstalledApp,
@@ -19,7 +19,7 @@ import { CodeGraph } from "./system/CodeGraph";
 //     with bigger type + horizontal cards. Each app exposes Folder + Uninstall.
 //   - Hooks sub-tab REMOVED from System: Hooks now lives exclusively in
 //     Library (Library > Hooks). Keeping it in two places caused confusion.
-type SystemSubTab = "apps" | "diagnostics" | "codegraph";
+type SystemSubTab = "diagnostics" | "apps" | "codegraph";
 
 // ---------------------------------------------------------------------------
 // App categorisation heuristic
@@ -836,6 +836,7 @@ function AppsPanel() {
   const [pendingUninstall, setPendingUninstall] = useState<InstalledApp | null>(null);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<CategoryOverrides>(() => loadOverrides());
+  const [categorizing, setCategorizing] = useState(false);
 
   // Persist overrides on every change.
   useEffect(() => {
@@ -855,29 +856,50 @@ function AppsPanel() {
     });
   }
 
-  function autoCategorize(apps: InstalledApp[]) {
+  const autoCategorize = useCallback(async (apps: InstalledApp[]) => {
+    if (apps.length === 0) return;
+    setCategorizing(true);
+    setActionMsg("Auto-categorize: calling AI Router…");
+
+    // Build the items list for the backend.
+    const items = apps.map((a) => ({ name: a.name, publisher: a.publisher ?? null }));
+
+    let aiMap: Record<string, string> = {};
+    try {
+      aiMap = (await invoke("categorize_apps_with_ai", { items })) as Record<string, string>;
+    } catch (e) {
+      // AI Router unavailable — fall through to heuristic fallback below.
+      console.warn("[auto-categorize] AI call failed, using heuristic:", e);
+    }
+
     let changed = 0;
     setOverrides((prev) => {
       const out = { ...prev };
       for (const a of apps) {
-        const auto = classifyApp(a);
-        const enhanced = enhancedClassifyApp(a);
         const id = appId(a);
-        // Only record an override when the enhanced classifier disagrees
-        // with the cheap one — otherwise the entry is redundant.
-        if (enhanced !== auto) {
-          if (out[id] !== enhanced) changed += 1;
-          out[id] = enhanced;
+        // AI result takes priority; fall back to the enhanced heuristic.
+        const aiCat = aiMap[a.name] as AppCategory | undefined;
+        const heuristicCat = enhancedClassifyApp(a);
+        const chosen = aiCat ?? heuristicCat;
+        const cheapCat = classifyApp(a);
+        // Only write an override when the chosen category differs from the
+        // cheap baseline (avoids polluting the overrides map with no-ops).
+        if (chosen !== cheapCat || out[id]) {
+          if (out[id] !== chosen) changed += 1;
+          out[id] = chosen;
         }
       }
       return out;
     });
+
+    const src = Object.keys(aiMap).length > 0 ? "AI Router" : "heuristic fallback";
     setActionMsg(
       changed === 0
-        ? "Auto-categorize: no changes — the heuristic already agreed with the publisher DB."
-        : `Auto-categorize: updated ${changed} app${changed === 1 ? "" : "s"}.`,
+        ? `Auto-categorize (${src}): no changes — categories already correct.`
+        : `Auto-categorize (${src}): updated ${changed} app${changed === 1 ? "" : "s"}.`,
     );
-  }
+    setCategorizing(false);
+  }, []);
 
   function clearOverrides() {
     setOverrides({});
@@ -1037,17 +1059,17 @@ function AppsPanel() {
         </button>
         <button
           type="button"
-          onClick={() => autoCategorize(filtered)}
-          disabled={loading || filtered.length === 0}
+          onClick={() => { void autoCategorize(filtered); }}
+          disabled={loading || filtered.length === 0 || categorizing}
           className="rounded px-3 py-2 text-[12.5px] font-medium transition-colors disabled:opacity-50"
           style={{
             background: "var(--color-surface-3)",
             color: "var(--color-text)",
             border: "1px solid var(--color-border-strong)",
           }}
-          title="Re-classify the currently visible apps using an expanded publisher/name database."
+          title="Re-classify the currently visible apps using AI (falls back to heuristic if AI Router is unavailable)."
         >
-          Auto-categorize
+          {categorizing ? "Categorizing…" : "Auto-categorize"}
         </button>
         <button
           type="button"
@@ -1171,7 +1193,7 @@ function AppsPanel() {
 // ---------------------------------------------------------------------------
 
 export function System() {
-  const [subTab, setSubTab] = useState<SystemSubTab>("apps");
+  const [subTab, setSubTab] = useState<SystemSubTab>("diagnostics");
 
   return (
     <div className="pb-8">
@@ -1202,8 +1224,8 @@ function SystemHeader({
   setSubTab: (t: SystemSubTab) => void;
 }) {
   const TABS: { id: SystemSubTab; label: string }[] = [
-    { id: "apps", label: "Apps" },
     { id: "diagnostics", label: "Diagnostics & Fixes" },
+    { id: "apps", label: "Apps" },
     { id: "codegraph", label: "Code Graph" },
   ];
   return (

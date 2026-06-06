@@ -73,7 +73,7 @@ pub struct AppHealth {
     pub claude_in_path: bool,
     pub codex_in_path: bool,
     pub gemini_in_path: bool,
-    pub mem0_configured: bool,
+    pub qdrant_running: bool,
     pub severity: Severity,
 }
 
@@ -305,11 +305,14 @@ pub fn check_app_specific() -> AppHealth {
     let claude_in_path = which::which("claude").is_ok();
     let codex_in_path = which::which("codex").is_ok();
     let gemini_in_path = which::which("gemini").is_ok();
-    let mem0_configured = mem0_configured();
+    // Real memory stack: SQLite (brain.db) + Qdrant. Check if qdrant binary
+    // or the running service is present. We try a TCP connect on 6333 (default
+    // Qdrant HTTP port) — fast and doesn't require spawning a subprocess.
+    let qdrant_running = check_qdrant_reachable();
 
     let severity = if !claude_in_path {
         Severity::Error
-    } else if !projects_json_ok || !mem0_configured {
+    } else if !projects_json_ok {
         Severity::Warn
     } else {
         Severity::Ok
@@ -319,7 +322,7 @@ pub fn check_app_specific() -> AppHealth {
         claude_in_path,
         codex_in_path,
         gemini_in_path,
-        mem0_configured,
+        qdrant_running,
         severity,
     }
 }
@@ -329,18 +332,15 @@ fn projects_json_path() -> Option<PathBuf> {
     Some(home.join(".ultron").join("cockpit").join("projects.json"))
 }
 
-fn mem0_configured() -> bool {
-    let Some(home) = dirs::home_dir() else {
-        return false;
+/// Check if the local Qdrant instance is reachable on 127.0.0.1:6333.
+/// Non-blocking: 300ms timeout so the diagnostic report stays fast.
+fn check_qdrant_reachable() -> bool {
+    use std::net::{SocketAddr, TcpStream};
+    let addr: SocketAddr = match "127.0.0.1:6333".parse() {
+        Ok(a) => a,
+        Err(_) => return false,
     };
-    let p = home.join(".claude").join("settings.json");
-    let Ok(txt) = std::fs::read_to_string(&p) else {
-        return false;
-    };
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&txt) else {
-        return false;
-    };
-    json.get("mcpServers").and_then(|m| m.get("mem0")).is_some() || json.get("mem0").is_some()
+    TcpStream::connect_timeout(&addr, Duration::from_millis(300)).is_ok()
 }
 
 pub fn run_full_diagnostic_native() -> DiagnosticReport {

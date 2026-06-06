@@ -15,15 +15,14 @@
 //   - Modal con selector de agente + textarea de instrucción + checkbox modelo económico.
 //   - Strip de runs recientes conectado a list_delegations (polling 30s + evento workflow:delegated).
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openPath } from "@tauri-apps/plugin-opener";
 import type { AgentEntry, RemoteItem, SkillOrigin } from "../types";
-import { SearchGitHubModal } from "./library/SearchGitHubModal";
 import { InstallConfirmModal } from "./library/InstallConfirmModal";
 import { CreateAgentModal } from "./library/CreateAgentModal";
-import { Bot, Github, Plus } from "./library/icons";
+import { Bot, Plus } from "./library/icons";
 import { TreeView, type TreeOrigin } from "./library/TreeView";
 import { BlocksView, type BlocksItem } from "./library/BlocksView";
 import { ViewToggle, useLibraryViewMode } from "./library/ViewToggle";
@@ -50,236 +49,6 @@ type DelegationLogEntry = {
   status: string;
   session_id: string | null;
 };
-
-// Shape de DelegateRequest que espera el backend (delegate_task_launch).
-type DelegateRequest = {
-  agent: string;
-  task: string;
-  use_cheap_model: boolean;
-  cwd: string | null;
-  timeout_secs: number | null;
-  project_id: string | null;
-};
-
-// ---------------------------------------------------------------------------
-// Subcomponente: Modal "Asignar tarea a agente"
-// ---------------------------------------------------------------------------
-
-interface AssignTaskModalProps {
-  agents: AgentEntry[];
-  preselectedAgent: string | null;
-  onClose: () => void;
-  onLaunched: () => void;
-}
-
-function AssignTaskModal({ agents, preselectedAgent, onClose, onLaunched }: AssignTaskModalProps) {
-  const [selectedAgent, setSelectedAgent] = useState<string>(preselectedAgent ?? "");
-  const [task, setTask] = useState("");
-  const [useCheap, setUseCheap] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
-
-  // Autofocus en textarea al montar.
-  useEffect(() => {
-    const t = setTimeout(() => textareaRef.current?.focus(), 30);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Esc cierra.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") { e.preventDefault(); onClose(); }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const activeAgents = agents.filter((a) => a.enabled && a.origin === "global");
-  const allAgents = agents.filter((a) => a.origin === "global");
-  const agentOptions = activeAgents.length > 0 ? activeAgents : allAgents;
-
-  async function handleSubmit() {
-    if (busy) return;
-    const agentTrimmed = selectedAgent.trim();
-    const taskTrimmed = task.trim();
-    if (!agentTrimmed) { setLocalError("Selecciona un agente."); return; }
-    if (!taskTrimmed) { setLocalError("La instrucción no puede estar vacía."); return; }
-    if (taskTrimmed.length > 16_000) { setLocalError("La instrucción supera 16 000 caracteres."); return; }
-    setBusy(true);
-    setLocalError(null);
-    try {
-      const req: DelegateRequest = {
-        agent: agentTrimmed,
-        task: taskTrimmed,
-        use_cheap_model: useCheap,
-        cwd: null,
-        timeout_secs: null,
-        project_id: null,
-      };
-      await invoke("delegate_task_launch", { request: req });
-      onLaunched();
-      onClose();
-    } catch (e) {
-      setLocalError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Asignar tarea a agente"
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(0,0,0,0.55)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        zIndex: 9999,
-      }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div
-        style={{
-          width: "min(36rem, 94vw)",
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-border-strong)",
-          borderRadius: 8,
-          boxShadow: "0 12px 40px rgba(0,0,0,0.65)",
-          padding: 20,
-          color: "var(--color-text)",
-          fontFamily: "var(--font-sans)",
-        }}
-      >
-        {/* Cabecera */}
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 16 }}>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>Asignar tarea a agente</span>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              fontSize: 16, lineHeight: 1, background: "transparent",
-              border: "none", color: "var(--color-text-tertiary)", cursor: "pointer", padding: "0 2px",
-            }}
-            aria-label="Cerrar"
-          >
-            ×
-          </button>
-        </div>
-
-        {/* Selector de agente */}
-        <label style={{ display: "block", marginBottom: 12 }}>
-          <span style={{ display: "block", fontSize: 11.5, color: "var(--color-text-secondary)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Agente
-          </span>
-          <select
-            value={selectedAgent}
-            onChange={(e) => setSelectedAgent(e.target.value)}
-            disabled={busy}
-            style={{
-              width: "100%", padding: "6px 8px", fontSize: 13,
-              background: "var(--color-surface-1)", color: "var(--color-text)",
-              border: "1px solid var(--color-border-strong)", borderRadius: 4, outline: "none",
-            }}
-          >
-            <option value="">-- Elige un agente --</option>
-            {agentOptions.map((a) => (
-              <option key={a.path} value={a.name}>{a.name}</option>
-            ))}
-          </select>
-        </label>
-
-        {/* Instrucción */}
-        <label style={{ display: "block", marginBottom: 12 }}>
-          <span style={{ display: "block", fontSize: 11.5, color: "var(--color-text-secondary)", marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            Instrucción
-          </span>
-          <textarea
-            ref={textareaRef}
-            value={task}
-            onChange={(e) => setTask(e.target.value)}
-            disabled={busy}
-            rows={6}
-            placeholder="Describe la tarea que debe ejecutar el agente…"
-            style={{
-              width: "100%", resize: "vertical",
-              background: "var(--color-surface-1)", color: "var(--color-text)",
-              border: "1px solid var(--color-border)", borderRadius: 4,
-              padding: 8, fontSize: 12.5, fontFamily: "var(--font-mono)",
-              lineHeight: 1.5, outline: "none", boxSizing: "border-box",
-            }}
-          />
-          <div style={{ fontSize: 10.5, color: task.length > 15_000 ? "var(--color-danger)" : "var(--color-text-faint)", marginTop: 3, fontVariantNumeric: "tabular-nums" }}>
-            {task.length} / 16 000
-          </div>
-        </label>
-
-        {/* Modelo económico */}
-        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, cursor: "pointer", fontSize: 12.5 }}>
-          <input
-            type="checkbox"
-            checked={useCheap}
-            onChange={(e) => setUseCheap(e.target.checked)}
-            disabled={busy}
-            style={{ accentColor: "var(--color-accent)", width: 14, height: 14 }}
-          />
-          <span style={{ color: "var(--color-text-secondary)" }}>
-            Usar modelo económico (Haiku 4.5 — 3× más rápido, menor costo)
-          </span>
-        </label>
-
-        {/* Error */}
-        {localError && (
-          <div style={{
-            marginBottom: 12, padding: "7px 10px", fontSize: 11.5,
-            background: "rgba(248,81,73,0.08)", border: "1px solid rgba(248,81,73,0.30)",
-            color: "var(--color-danger)", borderRadius: 4,
-          }}>
-            {localError}
-          </div>
-        )}
-
-        {/* Acciones */}
-        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={busy}
-            style={{
-              fontSize: 12, padding: "5px 14px",
-              background: "var(--color-surface-3)", color: "var(--color-text-secondary)",
-              border: "1px solid var(--color-border-strong)", borderRadius: 4, cursor: "pointer",
-            }}
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={busy || !selectedAgent || !task.trim()}
-            style={{
-              fontSize: 12, padding: "5px 14px", fontWeight: 500,
-              background: "var(--color-accent)", color: "var(--color-accent-text)",
-              border: "1px solid var(--color-accent)", borderRadius: 4,
-              cursor: busy || !selectedAgent || !task.trim() ? "default" : "pointer",
-              opacity: busy || !selectedAgent || !task.trim() ? 0.55 : 1,
-            }}
-          >
-            {busy ? "Lanzando…" : "Asignar tarea"}
-          </button>
-        </div>
-
-        <div style={{ marginTop: 10, fontSize: 10.5, color: "var(--color-text-faint)" }}>
-          La sesión se abre en una ventana de terminal separada. Esc para cancelar.
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -386,7 +155,6 @@ export function Agents() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [searchOpen, setSearchOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [installItem, setInstallItem] = useState<RemoteItem | null>(null);
   const [projects, setProjects] = useState<ProjectLite[]>([]);
@@ -406,10 +174,6 @@ export function Agents() {
   // Recent delegations.
   const [delegations, setDelegations] = useState<DelegationLogEntry[]>([]);
   const [showAllRuns, setShowAllRuns] = useState(false);
-
-  // Modal "Asignar tarea".
-  const [assignOpen, setAssignOpen] = useState(false);
-  const [assignPreselected, setAssignPreselected] = useState<string | null>(null);
 
   // -------------------------------------------------------------------------
   // Data loading
@@ -775,28 +539,6 @@ export function Agents() {
         </div>
         <div className="flex items-center gap-2">
           <ViewToggle mode={view} onChange={setView} />
-          <button
-            onClick={() => setSearchOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs"
-            style={{
-              borderColor: "var(--color-border-strong)",
-              background: "var(--color-surface-2)",
-              color: "var(--color-text)",
-            }}
-          >
-            <Github size={12} /> Search GitHub
-          </button>
-          <button
-            onClick={() => { setAssignPreselected(selected?.name ?? null); setAssignOpen(true); }}
-            className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-xs font-medium"
-            style={{
-              borderColor: "rgba(167, 139, 250, 0.55)",
-              background: "rgba(167, 139, 250, 0.12)",
-              color: "#c4b5fd",
-            }}
-          >
-            <Bot size={12} /> Asignar tarea
-          </button>
           <button
             onClick={() => setCreateOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium"
@@ -1246,19 +988,6 @@ export function Agents() {
                           : "Enable agent"}
                     </button>
                   )}
-                  {/* Botón "Asignar tarea" siempre visible en el panel de detalle */}
-                  <button
-                    type="button"
-                    onClick={() => { setAssignPreselected(selected.name); setAssignOpen(true); }}
-                    className="rounded-md border px-3 py-1.5 text-[11.5px] font-medium"
-                    style={{
-                      borderColor: "rgba(167, 139, 250, 0.55)",
-                      background: "rgba(167, 139, 250, 0.12)",
-                      color: "#c4b5fd",
-                    }}
-                  >
-                    Asignar tarea a este agente
-                  </button>
                   {/* Open in editor fallback for non-global agents */}
                   {selected.origin !== "global" && (
                     <button
@@ -1282,16 +1011,6 @@ export function Agents() {
       </div>
 
       {/* Modals */}
-      {searchOpen && (
-        <SearchGitHubModal
-          kind="agent"
-          onClose={() => setSearchOpen(false)}
-          onInstall={(it) => {
-            setSearchOpen(false);
-            setInstallItem(it);
-          }}
-        />
-      )}
       {installItem && (
         <InstallConfirmModal
           item={installItem}
@@ -1310,19 +1029,6 @@ export function Agents() {
           onCreated={() => {
             setCreateOpen(false);
             void reload();
-          }}
-        />
-      )}
-      {assignOpen && (
-        <AssignTaskModal
-          agents={agents}
-          preselectedAgent={assignPreselected}
-          onClose={() => { setAssignOpen(false); setAssignPreselected(null); }}
-          onLaunched={() => {
-            // Refrescar delegaciones tras lanzar.
-            invoke<DelegationLogEntry[]>("list_delegations", { limit: 50 })
-              .then((list) => setDelegations(list))
-              .catch(() => {});
           }}
         />
       )}

@@ -25,16 +25,23 @@ import { Plans } from "./components/Plans";
 // the env var VITE_FINANCE=1. When the flag is absent the lazy import is
 // never attempted and the Finance tab is hidden in the Sidebar.
 const FINANCE_ENABLED = import.meta.env.VITE_FINANCE === "1";
-// Path en variable + @vite-ignore: evita que Rollup/Vite resuelva el modulo en
-// build-time cuando Finance.tsx esta ausente del repo publico (local-only feature).
-const FINANCE_MODULE_PATH = "./components/Finance";
-const FinanceLazy = FINANCE_ENABLED
-  ? React.lazy(() =>
-      import(/* @vite-ignore */ FINANCE_MODULE_PATH).then(
-        (m: { Finance: React.ComponentType }) => ({ default: m.Finance }),
-      ),
-    )
-  : null;
+// import.meta.glob (build-time): Vite empaqueta Finance.tsx en su propio chunk
+// CUANDO el archivo esta presente (build local). Cuando Finance.tsx esta ausente
+// (repo publico) el glob resuelve a un mapa vacio -> sin error de build y sin
+// fetch en runtime de un modulo inexistente. Esto sustituye el anterior
+// @vite-ignore + ruta-en-variable, que le decia a Vite que NO empaquetara el
+// chunk y provocaba un 404 en runtime ("Failed to fetch dynamically imported
+// module .../assets/components/Finance") al abrir la pestana Finance.
+const financeLoaders = import.meta.glob("./components/Finance.tsx");
+const financeLoader = financeLoaders["./components/Finance.tsx"];
+const FinanceLazy =
+  FINANCE_ENABLED && financeLoader
+    ? React.lazy(() =>
+        financeLoader().then((m) => ({
+          default: (m as { Finance: React.ComponentType }).Finance,
+        })),
+      )
+    : null;
 import { MemoryInbox } from "./components/MemoryInbox";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";

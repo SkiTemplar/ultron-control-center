@@ -1,24 +1,20 @@
-// Control Center — Dashboard (fullize 2026-06-01: side-panel layout).
+// Control Center — Dashboard (redesign 2026-06-07).
 //
-// Layout: a main column + a right side panel for the To-Do (visual-only).
+// Layout: main column + right To-Do side panel.
 //   Side panel : TodoCard (dark checkboxes, manage in Notes)
 //   Main column:
-//     Row hero : RecentSessionsCard
-//     Row 0    : ResumeSessionCard (self-hides when none) — "continuar donde lo dejaste"
-//     Bento    : Pending · Backup · RecentProjects · CrashEvents(span-2) · MemoryStatus
+//     Row top  : MemoryStatusCard · CrashEventsCard (span-2 at >=1024px)
+//     Row bot  : PendingKanbanCard · BackupCard · RecentProjectsCard
 //
-// Removed per user (2026-06-01): ActiveProjectCard (project cartilla) and the
-// ECC PluginStatusCard. Added: MemoryStatusCard (backend memory health).
+// Removed per user feedback: RecentSessionsCard, ResumeSessionCard.
 
 import type { GlobalStatus } from "../types";
 import packageJson from "../../package.json";
 
-import { ResumeSessionCard } from "./dashboard/ResumeSessionCard";
 import { RecentProjectsCard } from "./dashboard/RecentProjectsCard";
 import { PendingKanbanCard } from "./dashboard/PendingKanbanCard";
 import { BackupCard } from "./dashboard/BackupCard";
 import { CrashEventsCard } from "./dashboard/CrashEventsCard";
-import { RecentSessionsCard } from "./dashboard/RecentSessionsCard";
 import { MemoryStatusCard } from "./dashboard/MemoryStatusCard";
 import { TodoCard } from "./dashboard/TodoCard";
 
@@ -79,14 +75,20 @@ export function Dashboard({ globalStatus, onNavigate }: DashboardProps) {
         className="grid gap-4"
         style={{ gridTemplateColumns: "minmax(0, 1fr) minmax(300px, 340px)" }}
       >
-        {/* Main column */}
+        {/* Main column — two bento rows */}
         <div className="flex flex-col gap-4">
-          <RecentSessionsCard onOpenSessions={() => onNavigate?.("sessions")} />
+          {/* Top row: Memory (narrower) + Crash Events (wider, spans 2 cols at ≥1024px) */}
+          <div
+            className="grid gap-4"
+            style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
+          >
+            <MemoryStatusCard onOpenSystem={() => onNavigate?.("system")} />
+            <div className="dashboard-span-2">
+              <CrashEventsCard />
+            </div>
+          </div>
 
-          {/* Continuar donde lo dejaste (se oculta solo si no hay nada) */}
-          <ResumeSessionCard onOpenSessions={() => onNavigate?.("sessions")} />
-
-          {/* Bento grid fluido */}
+          {/* Bottom row: Pending · Backup · Recent Projects */}
           <div
             className="grid gap-4"
             style={{ gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))" }}
@@ -94,10 +96,6 @@ export function Dashboard({ globalStatus, onNavigate }: DashboardProps) {
             <PendingKanbanCard onOpenProjects={() => onNavigate?.("projects")} />
             <BackupCard />
             <RecentProjectsCard onOpenProjects={() => onNavigate?.("projects")} />
-            <div className="dashboard-span-2">
-              <CrashEventsCard />
-            </div>
-            <MemoryStatusCard onOpenSystem={() => onNavigate?.("system")} />
           </div>
         </div>
 

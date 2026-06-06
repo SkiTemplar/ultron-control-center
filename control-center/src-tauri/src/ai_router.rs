@@ -1969,9 +1969,21 @@ pub fn ai_router_health(provider_id: String) -> Result<bool, String> {
     // PATH is the correct availability signal (same logic as compute_key_status
     // and the zone test path). Attempting an HTTP probe would always return
     // false/offline because health_endpoint is None for these providers.
+    //
+    // IMPORTANT: this command is triggered by the "Check" button in the UI.
+    // We must evict the CLI_CACHE entry before probing so that a freshly
+    // installed `codex` / `gemini` CLI is detected correctly. The cache exists
+    // for the hot path in route() — not for interactive health checks.
     if provider.kind == ProviderKind::Cli {
         let cmd = provider.cli_command.as_deref().unwrap_or("");
-        return Ok(!cmd.is_empty() && detect_cli(cmd));
+        if cmd.is_empty() {
+            return Ok(false);
+        }
+        // Evict stale cache entry so detect_cli re-runs `where`/`which`.
+        if let Ok(mut cache) = CLI_CACHE.lock() {
+            cache.remove(cmd);
+        }
+        return Ok(detect_cli(cmd));
     }
 
     Ok(provider_health(provider))

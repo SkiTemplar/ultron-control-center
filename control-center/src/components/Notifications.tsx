@@ -210,6 +210,10 @@ function buildFixAlertBlock(g: Grouped): string {
 // Only Claude is wired now — the redundant Codex Fix variants were removed.
 type FixProvider = "claude";
 
+// Callback type for the per-row dismiss action (lifted to parent so the
+// dismissed set lives in one place and filters visibleGroups consistently).
+type OnDismissRow = (fp: string) => void;
+
 // Bulk version of buildFixAlertBlock: consolidates every actionable group
 // (critical+warn) into a single mega-prompt. Pure function so it can be
 // unit-tested without React. Truncation policy: if the rendered prompt
@@ -292,7 +296,7 @@ export function buildBulkAlertsBlock(groups: Grouped[]): string {
   return out;
 }
 
-function Row({ g }: { g: Grouped }) {
+function Row({ g, onDismiss }: { g: Grouped; onDismiss: OnDismissRow }) {
   const s = severityStyle(g.severity);
   const subtle = s.weight === 0;
   // The Fix button is only meaningful for severity buckets that severityStyle
@@ -353,9 +357,11 @@ function Row({ g }: { g: Grouped }) {
     }
   }
 
+  const rowFp = `${g.source}::${(g.message ?? "").trim().replace(/\s+/g, " ").slice(0, 80)}`;
+
   return (
     <div
-      className="flex items-start gap-3 rounded p-3"
+      className="group/row flex items-start gap-3 rounded p-3"
       style={{
         background: s.bg,
         border: `1px solid ${s.ring}`,
@@ -398,6 +404,29 @@ function Row({ g }: { g: Grouped }) {
               {g.last_ts.slice(0, 16).replace("T", " ")}
             </span>
           )}
+          {/* Per-row dismiss — always visible, hides only this notification */}
+          <button
+            type="button"
+            onClick={() => onDismiss(rowFp)}
+            title="Ocultar esta notificacion"
+            className="ml-1 shrink-0 opacity-0 transition-opacity group-hover/row:opacity-100"
+            style={{ color: "var(--color-text-tertiary)", lineHeight: 1 }}
+            aria-label="Descartar"
+          >
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              aria-hidden
+            >
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
         </div>
         <div
           className="mt-1 text-[12.5px] leading-snug"
@@ -841,7 +870,15 @@ export function Notifications({ alerts: alertsProp, onDeleted }: Props) {
 
       <div className="space-y-2">
         {visibleGroups.map((g, i) => (
-          <Row key={`${g.source}-${i}`} g={g} />
+          <Row
+            key={`${g.source}-${i}`}
+            g={g}
+            onDismiss={(fp) => {
+              const next = new Set(dismissed);
+              next.add(fp);
+              setDismissed(next);
+            }}
+          />
         ))}
       </div>
     </div>

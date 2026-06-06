@@ -377,6 +377,7 @@ pub fn run() {
             commands::apps::uninstall_app,
             commands::apps::appx_query,
             commands::apps::uninstall_bloatware_app,
+            commands::apps::categorize_apps_with_ai,
             // -- auth + lifecycle --
             commands::lifecycle::auth_status,
             commands::lifecycle::close_control_center,

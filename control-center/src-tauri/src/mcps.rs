@@ -49,6 +49,11 @@ pub struct McpInfo {
     /// so the UI doesn't have to split the origin string.
     #[serde(default)]
     pub plugin: Option<String>,
+    /// Human-readable description of what this MCP server does.
+    /// Sourced from a well-known catalog keyed by server name, with a
+    /// generic fallback derived from the command/url when unknown.
+    #[serde(default)]
+    pub description: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +192,137 @@ fn parse_fallbacks() -> BTreeMap<String, FallbackEntry> {
 // Public command
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Well-known MCP description catalog.
+// Keyed by the canonical mcpServers entry name (lowercase). Entries for
+// common MCPs that users encounter but may not recognise (discord, exa, etc.)
+// are included so the panel can show a tooltip/description without any
+// network round-trip.
+// ---------------------------------------------------------------------------
+
+fn well_known_description(name: &str) -> Option<&'static str> {
+    // Normalise: strip common prefixes (server-, mcp-) and lowercase.
+    let n = name.to_lowercase();
+    let key = n
+        .strip_prefix("mcp-")
+        .or_else(|| n.strip_prefix("server-"))
+        .unwrap_or(&n);
+
+    match key {
+        // Anthropic / Claude ecosystem
+        "sequential-thinking" | "sequentialthinking" =>
+            Some("Enables multi-step reasoning by breaking problems into sequential thoughts before answering."),
+        "context7" | "context-7" =>
+            Some("Fetches up-to-date library documentation and code examples from the web (Context7 service)."),
+        "github" =>
+            Some("Reads and writes GitHub repos, issues, PRs, and actions via the GitHub API."),
+        "gitlab" =>
+            Some("Reads and writes GitLab repos, issues, and MRs via the GitLab API."),
+        "filesystem" =>
+            Some("Exposes read/write access to local files and directories inside a configurable root path."),
+        "postgres" =>
+            Some("Connects to a PostgreSQL database and lets the model query, inspect schema, and run SQL."),
+        "sqlite" =>
+            Some("Connects to a local SQLite database for schema inspection and SQL queries."),
+        "puppeteer" =>
+            Some("Controls a headless Chromium browser for web scraping, screenshots, and automation."),
+        "playwright" =>
+            Some("Cross-browser automation via Playwright: click, fill forms, screenshot, PDF."),
+        "fetch" =>
+            Some("Fetches arbitrary HTTP URLs and returns the response body as text or JSON."),
+        "brave-search" | "brave_search" | "bravesearch" =>
+            Some("Runs web searches via the Brave Search API and returns ranked results."),
+        "exa" =>
+            Some("Performs neural web search and content extraction via the Exa API (formerly Metaphor)."),
+        "discord" =>
+            Some("Reads and sends messages in Discord servers/channels via the Discord API."),
+        "slack" =>
+            Some("Reads and posts messages to Slack workspaces and channels."),
+        "imessage" | "i-message" =>
+            Some("Reads iMessage conversations from a local macOS Messages database (read-only)."),
+        "fakechat" | "fake-chat" =>
+            Some("Generates synthetic chat conversation data for testing and prototyping."),
+        "memory" =>
+            Some("Persistent key-value memory store that survives across Claude Code sessions."),
+        "qdrant" =>
+            Some("Stores and queries vector embeddings in a local or remote Qdrant collection."),
+        "linear" =>
+            Some("Reads and creates Linear issues, projects, and cycles via the Linear API."),
+        "jira" =>
+            Some("Reads and creates Jira issues and projects via the Atlassian API."),
+        "notion" =>
+            Some("Reads and writes Notion pages and databases via the Notion API."),
+        "gdrive" | "google-drive" | "googledrive" =>
+            Some("Lists, reads, and uploads files in Google Drive."),
+        "gmail" =>
+            Some("Reads and sends Gmail messages via the Google API."),
+        "google-maps" | "googlemaps" =>
+            Some("Geocodes addresses and searches for places via the Google Maps API."),
+        "aws-kb-retrieval" | "aws_kb_retrieval" =>
+            Some("Queries AWS Bedrock Knowledge Bases for document retrieval."),
+        "everything" =>
+            Some("Demonstration MCP that exposes all protocol features (prompts, resources, tools, sampling)."),
+        "time" =>
+            Some("Returns the current UTC time and converts between time zones."),
+        "sentry" =>
+            Some("Queries Sentry for error events, issues, and stack traces."),
+        "datadog" =>
+            Some("Queries Datadog metrics, logs, and monitors."),
+        "redis" =>
+            Some("Reads and writes keys in a Redis instance."),
+        "mongodb" =>
+            Some("Queries and updates a MongoDB collection."),
+        "figma" =>
+            Some("Inspects Figma files, frames, and components via the Figma API."),
+        "openapi" | "swagger" =>
+            Some("Loads an OpenAPI/Swagger spec and exposes each endpoint as a tool."),
+        "stripe" =>
+            Some("Creates and retrieves Stripe customers, charges, and subscriptions."),
+        "shopify" =>
+            Some("Reads and updates Shopify products, orders, and customers."),
+        "hubspot" =>
+            Some("Reads and creates HubSpot contacts, deals, and companies."),
+        "supabase" =>
+            Some("Queries Supabase tables and runs SQL via the Supabase REST API."),
+        "vercel" =>
+            Some("Lists and deploys Vercel projects, reads deployment logs."),
+        "cloudflare" =>
+            Some("Manages Cloudflare zones, DNS records, and Workers via the API."),
+        "docker" =>
+            Some("Lists, starts, stops, and inspects Docker containers and images."),
+        "kubernetes" | "k8s" =>
+            Some("Inspects and manages Kubernetes pods, deployments, and services."),
+        "terraform" =>
+            Some("Plans and applies Terraform configurations."),
+        _ => None,
+    }
+}
+
+/// Derive a generic description from a server config when the name is not in
+/// the well-known catalog.
+fn generic_description(name: &str, cfg: &McpServerCfg) -> String {
+    if let Some(url) = &cfg.url {
+        return format!("Remote MCP server at {}.", url);
+    }
+    if let Some(cmd) = &cfg.command {
+        if cfg.args.is_empty() {
+            return format!("Local stdio server started with `{}`.", cmd);
+        }
+        // Show first meaningful arg (skip flags like -y).
+        let first_pkg = cfg
+            .args
+            .iter()
+            .find(|a| !a.starts_with('-'))
+            .map(|s| s.as_str())
+            .unwrap_or("");
+        if first_pkg.is_empty() {
+            return format!("Local stdio server started with `{}`.", cmd);
+        }
+        return format!("Local stdio server — `{} {}`.", cmd, first_pkg);
+    }
+    format!("MCP server '{}'.", name)
+}
+
 /// Build an `McpInfo` for a single (name, cfg, origin) tuple, joining in
 /// the global health + fallback metadata. Shared by all sources so the
 /// frontend gets consistent shapes regardless of provenance.
@@ -217,6 +353,10 @@ fn build_mcp_info(
         .unwrap_or_else(|| "unknown".to_string());
     let fb = fallbacks.get(name).cloned().unwrap_or_default();
 
+    let description = well_known_description(name)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| generic_description(name, cfg));
+
     McpInfo {
         name: name.to_string(),
         transport,
@@ -230,6 +370,7 @@ fn build_mcp_info(
         expected_offline: fb.expected_offline,
         origin,
         plugin,
+        description,
     }
 }
 

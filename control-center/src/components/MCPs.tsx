@@ -105,10 +105,9 @@ function originBadgeColor(kind: McpOriginKind): { bg: string; fg: string } {
   }
 }
 
-// Extended view of McpInfo that includes the v2.0 origin/plugin fields.
-// types.ts is shared with other components; once it's updated the cast
-// here can go away.
-type McpInfoExt = McpInfo & { origin?: string; plugin?: string | null };
+// Extended view of McpInfo that includes the v2.0 origin/plugin fields
+// and the v2.7 description field.
+type McpInfoExt = McpInfo & { origin?: string; plugin?: string | null; description?: string };
 
 function statusLabel(s: McpStatus, expectedOffline: boolean, stale: boolean): string {
   if (stale) return "desconocido";
@@ -563,6 +562,16 @@ function Card({
             )}
           </div>
 
+          {/* Description — always shown so users know what unfamiliar MCPs do */}
+          {mcp.description && (
+            <p
+              className="mt-1.5 text-[12px] leading-snug"
+              style={{ color: "var(--color-text-secondary)" }}
+            >
+              {mcp.description}
+            </p>
+          )}
+
           <div
             className="mt-2 flex items-center gap-3 text-[11.5px]"
             style={{ color: "var(--color-text-tertiary)" }}
@@ -613,7 +622,11 @@ function Card({
             </p>
           )}
 
-          {/* Per-card enable/disable toggle */}
+          {/* Per-card enable/disable toggle.
+              Only user-scope entries can be toggled here because the
+              disabled flag lives in ~/.claude/settings.json mcpServers.
+              Plugin/project MCPs are declared outside that file — to
+              disable them, remove or disable the plugin that provides them. */}
           <div className="mt-3 flex items-center gap-2">
             <button
               type="button"
@@ -627,7 +640,11 @@ function Card({
               }}
               title={
                 readOnly
-                  ? `Origin '${origin.kind}' cannot be toggled from here`
+                  ? origin.kind === "plugin"
+                    ? `Provided by plugin '${origin.label}'. To disable, remove or disable that plugin.`
+                    : origin.kind === "project"
+                      ? `Declared in project '${origin.label}' .mcp.json. Edit that file to remove it.`
+                      : "Cannot be toggled — unknown origin."
                   : enabled
                     ? "Disable this MCP (writes disabled:true to settings.json)"
                     : "Enable this MCP (removes disabled flag from settings.json)"
@@ -645,7 +662,17 @@ function Card({
               className="text-[11.5px]"
               style={{ color: "var(--color-text-tertiary)" }}
             >
-              {toggleBusy ? "Saving…" : enabled ? "Enabled" : "Disabled"}
+              {toggleBusy
+                ? "Saving…"
+                : readOnly
+                  ? origin.kind === "plugin"
+                    ? `plugin: ${origin.label}`
+                    : origin.kind === "project"
+                      ? `project: ${origin.label}`
+                      : "read-only"
+                  : enabled
+                    ? "Enabled"
+                    : "Disabled"}
             </span>
           </div>
         </div>

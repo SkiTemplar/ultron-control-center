@@ -50,10 +50,17 @@ function formatRelativeIso(iso: string | null): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-export function AuthStatus() {
+type AuthStatusProps = {
+  /** Called after a successful reauth spawn so the parent can refresh its own
+   *  state (e.g. the Settings component re-checks whether auth is fresh). */
+  onRecheck?: () => void;
+};
+
+export function AuthStatus({ onRecheck }: AuthStatusProps = {}) {
   const [report, setReport] = useState<AuthReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [recheckCountdown, setRecheckCountdown] = useState<number | null>(null);
 
   // audit verify-audit-2 rank8: useCallback con deps [] para que el effect
   // de abajo tenga referencia estable y el linter no pida suprimir la dep.
@@ -78,16 +85,32 @@ export function AuthStatus() {
   //   claude → abre `claude` con `/login` en el portapapeles (pégalo y envía).
   //   codex / gemini → abre el CLI, que dispara su propio flujo de login (OAuth)
   //     cuando no hay credenciales válidas. El comando manual está en el hint.
+  //
+  // After spawning, we schedule an automatic re-check after 5 s so the status
+  // badge updates once the CLI has had time to write its credential file.
+  // The countdown label keeps the user informed instead of showing a stale state.
   const reauth = useCallback(async (provider: string) => {
     try {
       const prompt = provider === "claude" ? "/login" : null;
       const flags = provider === "claude" ? { paste_only: true } : undefined;
       await invoke("spawn_session", { provider, prompt, cwd: null, flags });
       setError(null);
+      // Show countdown, then re-check auth state.
+      setRecheckCountdown(5);
+      const tick = setInterval(() => {
+        setRecheckCountdown((prev) => {
+          if (prev === null || prev <= 1) {
+            clearInterval(tick);
+            void load().then(() => { onRecheck?.(); });
+            return null;
+          }
+          return prev - 1;
+        });
+      }, 1000);
     } catch (e) {
       setError(String(e));
     }
-  }, []);
+  }, [load, onRecheck]);
 
   return (
     <div className="space-y-2">
@@ -97,12 +120,16 @@ export function AuthStatus() {
         </h3>
         <button
           type="button"
-          onClick={load}
+          onClick={() => void load()}
           disabled={refreshing}
           className="text-[11.5px] transition-colors disabled:opacity-50"
           style={{ color: "var(--color-text-tertiary)" }}
         >
-          {refreshing ? "Checking…" : "Recheck"}
+          {recheckCountdown !== null
+            ? `Re-checking in ${recheckCountdown}s…`
+            : refreshing
+              ? "Checking…"
+              : "Recheck"}
         </button>
       </div>
       <p

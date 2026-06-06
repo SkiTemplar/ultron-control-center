@@ -1,23 +1,21 @@
 // ULTRON Control Center — AI Router (top-level page)
 //
-// Unified home for everything AI-routing related. Previously this was split
-// between Settings (AI Router + API Keys) and Usage (proxy + metrics); as of
-// 2026-06-01 it's a single top-level sidebar tab with five sub-tabs:
+// Two sub-tabs as of 2026-06-07:
 //
-//   Dashboard  — savings + per-model usage at a glance (RouterDashboard)
-//   Modelos    — zone -> model + fallback assignments (AIRouterIndex)
+//   Dashboard  — savings + per-model usage + proxy toggle (RouterDashboard)
 //   Providers  — provider catalog: health + key state + cost (ProviderCatalog)
-//   Keys       — manage provider API keys from the env (ApiKeysSection)
-//   Proxy      — free-tier proxy toggle + status (ProxyControl)
+//
+// Removed tabs:
+//   Zones  — "no aportan nada, fatal" (2026-06-06). Backend logic untouched.
+//   Keys   — moved to Settings (handled by the Settings agent).
+//   Proxy  — folded into Dashboard as an inline card.
 //
 // Tauri commands consumed live inside the sub-components; see each file.
 
 import { useState } from "react";
 import { ProviderCatalog } from "./ProviderCatalog";
 import { RouterDashboard } from "./RouterDashboard";
-import { ProxyControl } from "./ProxyControl";
 import { AIRouterErrorBoundary } from "./AIRouterErrorBoundary";
-import { ApiKeysSection } from "../Settings/ApiKeysSection";
 
 // Re-export shared types so callers can import from the barrel.
 export type {
@@ -29,16 +27,11 @@ export type {
   TestResult,
 } from "./types";
 
-// NOTE: "models" sub-tab (Zonas de routing) intentionally excluded from the UI
-// per user decision 2026-06-06 — "no aportan, fatal". Backend zones.json and
-// all zone logic remain intact; only the tab is hidden.
-type RouterSubTab = "dashboard" | "providers" | "keys" | "proxy";
+type RouterSubTab = "dashboard" | "providers";
 
 const SUB_TABS: { id: RouterSubTab; label: string; hint: string }[] = [
-  { id: "dashboard", label: "Dashboard", hint: "Ahorro y uso por modelo" },
+  { id: "dashboard", label: "Dashboard", hint: "Ahorro, uso por modelo y proxy" },
   { id: "providers", label: "Providers", hint: "Salud, coste y estado de keys" },
-  { id: "keys", label: "Keys", hint: "Gestiona las API keys del entorno" },
-  { id: "proxy", label: "Proxy", hint: "Activación free-tier" },
 ];
 
 export function AIRouterPage() {
@@ -88,12 +81,6 @@ export function AIRouterPage() {
         <AIRouterErrorBoundary>
           {subTab === "dashboard" && <RouterDashboard />}
           {subTab === "providers" && <ProviderCatalog />}
-          {subTab === "keys" && (
-            <div className="p-6">
-              <ApiKeysSection />
-            </div>
-          )}
-          {subTab === "proxy" && <ProxyControl />}
         </AIRouterErrorBoundary>
       </div>
     </div>

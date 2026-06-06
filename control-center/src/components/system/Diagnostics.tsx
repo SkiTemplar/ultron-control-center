@@ -88,17 +88,6 @@ interface CommonError {
 
 const COMMON_ERRORS: CommonError[] = [
   {
-    id: "mem0-unreachable",
-    category: "AI / Claude",
-    severity: "critical",
-    title: "Mem0 unreachable",
-    symptom: "Memory panel shows 'disconnected' or API calls fail with 401/403.",
-    checkId: "mem0-unreachable",
-    primaryFixKind: null,
-    primaryFixLabel: "Open Settings > API Keys",
-    extraFixes: [],
-  },
-  {
     id: "claude-login-expired",
     category: "AI / Claude",
     severity: "critical",
@@ -1180,7 +1169,7 @@ function AppHealthCard({ report }: { report: DiagnosticReport }) {
         <HealthRow k="claude" v={report.app.claude_in_path ? "in PATH" : "missing"} ok={report.app.claude_in_path} />
         <HealthRow k="codex" v={report.app.codex_in_path ? "in PATH" : "missing"} ok={report.app.codex_in_path} />
         <HealthRow k="gemini" v={report.app.gemini_in_path ? "in PATH" : "missing"} ok={report.app.gemini_in_path} />
-        <HealthRow k="mem0" v={report.app.mem0_configured ? "configured" : "not configured"} ok={report.app.mem0_configured} />
+        <HealthRow k="qdrant" v={report.app.qdrant_running ? "running (:6333)" : "not reachable"} ok={report.app.qdrant_running} />
         <HealthRow k="projects.json" v={report.app.projects_json_ok ? "ok" : "missing/corrupt"} ok={report.app.projects_json_ok} />
       </div>
     </div>
@@ -1523,7 +1512,7 @@ function buildSolvePrompt(problem: string, report: DiagnosticReport | null, even
     : recent.map((e) => `- [${e.level}] id=${e.event_id} src=${e.source} at=${e.time_created}\n  ${(e.message || "").replace(/\s+/g, " ").trim().slice(0, 240)}`).join("\n");
 
   const healthBlock = report
-    ? [`projects.json: ${report.app.projects_json_ok ? "ok" : "MISSING/CORRUPT"}`, `claude in PATH: ${report.app.claude_in_path ? "yes" : "no"}`, `codex in PATH: ${report.app.codex_in_path ? "yes" : "no"}`, `gemini in PATH: ${report.app.gemini_in_path ? "yes" : "no"}`, `mem0 configured: ${report.app.mem0_configured ? "yes" : "no"}`].join("\n")
+    ? [`projects.json: ${report.app.projects_json_ok ? "ok" : "MISSING/CORRUPT"}`, `claude in PATH: ${report.app.claude_in_path ? "yes" : "no"}`, `codex in PATH: ${report.app.codex_in_path ? "yes" : "no"}`, `gemini in PATH: ${report.app.gemini_in_path ? "yes" : "no"}`, `qdrant running: ${report.app.qdrant_running ? "yes" : "no"}`].join("\n")
     : "(no app health snapshot loaded)";
 
   const fixBlock = Object.values(FIX_CATALOG).map((f) => `- ${f.kind} (${CATEGORY_LABELS[f.category]}) — ${f.label}: ${f.detail}`).join("\n");

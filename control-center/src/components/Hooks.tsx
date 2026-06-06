@@ -800,21 +800,17 @@ export function Hooks() {
         </div>
       )}
 
-      {/* No-instrumentation banner */}
+      {/* No-instrumentation notice — shown only when the log file is absent */}
       {!loading && fires && !fires.instrumented && (
         <div
-          className="border-b px-4 py-1.5 text-[12px] leading-relaxed"
+          className="border-b px-4 py-1.5 text-[11.5px]"
           style={{
             borderColor: "var(--color-border)",
             background: "var(--color-surface-2)",
-            color: "var(--color-text-secondary)",
+            color: "var(--color-text-tertiary)",
           }}
         >
-          No instrumentation set up yet. To track fires, append JSON lines to{" "}
-          <code style={{ fontFamily: "var(--font-mono)" }}>
-            ~/.ultron/.tmp/hook-fires.jsonl
-          </code>{" "}
-          (keys: timestamp, event, hook_id, matcher, exit_code).
+          Fire history not available — no hook-fires log found.
         </div>
       )}
 
@@ -1192,11 +1188,7 @@ function HookDetailPane({
                 color: "var(--color-text-tertiary)",
               }}
             >
-              No instrumentation set up yet. Append JSON lines to{" "}
-              <code style={{ fontFamily: "var(--font-mono)" }}>
-                ~/.ultron/.tmp/hook-fires.jsonl
-              </code>
-              .
+              No fire history available.
             </div>
           )}
           {firesInstrumented && fires.length === 0 && (

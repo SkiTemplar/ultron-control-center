@@ -440,12 +440,47 @@ export function Notes() {
                     key={t.id}
                     className="group flex items-center gap-2 rounded px-1 py-1 text-[12.5px]"
                   >
-                    <input
-                      type="checkbox"
-                      checked={t.done}
-                      onChange={() => setTodos(toggleTodo(t.id))}
-                      className="h-3.5 w-3.5 shrink-0 cursor-pointer"
-                    />
+                    {/* Custom styled checkbox — the native input is visually
+                        hidden but stays in the DOM for accessibility. The
+                        visible box uses theme tokens so it reads clearly on
+                        dark and light surfaces (no raw white fill). */}
+                    <span
+                      className="relative inline-flex h-3.5 w-3.5 shrink-0 cursor-pointer items-center justify-center"
+                      onClick={() => setTodos(toggleTodo(t.id))}
+                      role="checkbox"
+                      aria-checked={t.done}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === " " || e.key === "Enter") {
+                          e.preventDefault();
+                          setTodos(toggleTodo(t.id));
+                        }
+                      }}
+                      style={{
+                        background: t.done
+                          ? "var(--color-accent)"
+                          : "var(--color-surface-3, var(--color-surface-2))",
+                        border: `1px solid ${t.done ? "var(--color-accent)" : "var(--color-border-strong)"}`,
+                        borderRadius: 2,
+                        transition: "background 0.12s, border-color 0.12s",
+                      }}
+                    >
+                      {t.done && (
+                        <svg
+                          width="8"
+                          height="8"
+                          viewBox="0 0 10 10"
+                          fill="none"
+                          stroke="var(--color-bg, #000)"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden
+                        >
+                          <polyline points="1.5,5 4,7.5 8.5,2.5" />
+                        </svg>
+                      )}
+                    </span>
                     <span
                       className="min-w-0 flex-1 truncate"
                       title={t.text}

@@ -179,7 +179,7 @@ export function ProxyControl() {
       : null;
 
   return (
-    <div className="p-6">
+    <div>
       <div
         className="rounded-lg border p-5"
         style={{
@@ -268,7 +268,8 @@ export function ProxyControl() {
             }}
           >
             El proxy está vivo pero no hay ninguna key de backend configurada. Añade
-            NVIDIA_NIM_API_KEY, OPENROUTER_API_KEY o GROQ_API_KEY en la pestaña <b>Keys</b>.
+            NVIDIA_NIM_API_KEY, OPENROUTER_API_KEY o GROQ_API_KEY en{" "}
+            <b>Settings &gt; API Keys</b>.
           </div>
         )}
 
@@ -290,10 +291,10 @@ export function ProxyControl() {
         )}
       </div>
 
-      <p className="mt-4 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
-        El estado se persiste en <code className="font-mono">~/.ultron/cockpit/proxy-state.json</code>.
-        Las sesiones nuevas leen el flag y aplican <code className="font-mono">ANTHROPIC_BASE_URL</code>.
-        Logs del proxy en <code className="font-mono">~/.ultron/proxy/proxy.log</code>.
+      <p className="mt-3 text-[11px]" style={{ color: "var(--color-text-faint)" }}>
+        Estado en <code className="font-mono">~/.ultron/cockpit/proxy-state.json</code>.
+        Sesiones nuevas aplican <code className="font-mono">ANTHROPIC_BASE_URL</code>.
+        Logs en <code className="font-mono">~/.ultron/proxy/proxy.log</code>.
       </p>
     </div>
   );

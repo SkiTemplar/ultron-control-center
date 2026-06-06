@@ -657,6 +657,8 @@ export type McpInfo = {
   origin?: string;
   /** v2.2 — plugin or project slug when origin starts with plugin:/project:. */
   plugin?: string | null;
+  /** Human-readable description of what this MCP server does. */
+  description?: string;
 };
 
 export type McpMutationResult = {
@@ -950,7 +952,7 @@ export type DiagAppHealth = {
   claude_in_path: boolean;
   codex_in_path: boolean;
   gemini_in_path: boolean;
-  mem0_configured: boolean;
+  qdrant_running: boolean;
   severity: DiagSeverity;
 };
 

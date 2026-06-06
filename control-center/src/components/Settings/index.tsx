@@ -6,23 +6,21 @@ import { JsonEditor } from "./EditorSection";
 import { BackupsPanel } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
 import { ButtonPromptsSection } from "./ButtonPromptsSection";
+import { ApiKeysSection } from "./ApiKeysSection";
 
-// v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
-// top-level tab now. P7 (2.0): "raw" (settings.json) is the default tab and
-// the Section union is reordered so the JSON editor leads.
+// Tab order: General > Auth > API Keys > Backups > Button prompts > settings.json (raw)
 // v2.5.2 (wave 2): "general" (legacy) and "plugins" sub-tabs removed.
 // "lifecycle" relabeled to "General" — it now hosts autostart, rebuild,
 // close, and the single global hotkey. Plugins lives in the Library tab.
-// v2.8 (fullize 2026-06-01): "ai-router" and "api-keys" sub-tabs removed —
-// both moved to the dedicated top-level "AI Router" sidebar tab (which now
-// owns Dashboard / Modelos / Providers / Keys / Proxy). Settings keeps only
-// the host-config surfaces.
+// v2.8 (fullize 2026-06-01): "api-keys" moved back to Settings from AI Router
+// so the user can manage all keys in one place.
 type Section =
-  | "raw"
   | "general"
   | "auth"
+  | "api-keys"
   | "backups"
-  | "button-prompts";
+  | "button-prompts"
+  | "raw";
 
 type SettingsProps = {
   onNavigate?: (tab: string) => void;
@@ -35,7 +33,7 @@ export function Settings(_props: SettingsProps = {}) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [section, setSection] = useState<Section>("raw");
+  const [section, setSection] = useState<Section>("general");
   const [dirty, setDirty] = useState(false);
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [saving, setSaving] = useState(false);
@@ -153,11 +151,12 @@ export function Settings(_props: SettingsProps = {}) {
         }}
       >
         {[
-          { id: "raw" as Section, label: "settings.json" },
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
+          { id: "api-keys" as Section, label: "API Keys" },
           { id: "backups" as Section, label: "Backups" },
           { id: "button-prompts" as Section, label: "Button prompts" },
+          { id: "raw" as Section, label: "settings.json" },
         ].map((t) => (
           <button
             key={t.id}
@@ -204,11 +203,10 @@ export function Settings(_props: SettingsProps = {}) {
       )}
 
       <div className="mt-5">
-        {/* v2.5.2 wave 2: "General" now points to the merged LifecyclePanel
-            (autostart + rebuild + close + global hotkey). The old
-            GeneralSection placeholder is no longer imported. */}
+        {/* Tab panels */}
         {section === "general" && <LifecyclePanel />}
-        {section === "auth" && <AuthStatus />}
+        {section === "auth" && <AuthStatus onRecheck={load} />}
+        {section === "api-keys" && <ApiKeysSection />}
 
         {section === "raw" && draft && (
           <JsonEditor
@@ -223,13 +221,6 @@ export function Settings(_props: SettingsProps = {}) {
         {section === "backups" && snapshot && (
           <div>
             <BackupsPanel />
-            <p
-              className="mb-3 mt-6 text-[12px]"
-              style={{ color: "var(--color-text-tertiary)" }}
-            >
-              Each Save creates a timestamped backup of the previous
-              settings.json. Last 8 shown.
-            </p>
             <div
               className="mb-3 truncate text-[11.5px]"
               style={{

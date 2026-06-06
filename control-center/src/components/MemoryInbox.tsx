@@ -173,20 +173,37 @@ function AutoApproveControl({
       style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)" }}
     >
       <ToggleSwitch on={on} disabled={busy} onClick={onToggle} label="Auto-aprobar candidatos" />
-      <div className="min-w-0">
-        <div
-          className="text-[12px] font-medium leading-tight"
-          style={{ color: "var(--color-text)" }}
-        >
-          Auto-aprobar candidatos
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <div
+            className="text-[12px] font-medium leading-tight"
+            style={{ color: "var(--color-text)" }}
+          >
+            Auto-aprobar candidatos
+          </div>
+          {/* Live status badge so it's obvious whether the policy is active */}
+          <span
+            className="rounded px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide"
+            style={{
+              background: on
+                ? "rgba(88,166,255,0.12)"
+                : "var(--color-surface-3, var(--color-surface-1))",
+              color: on ? "var(--color-accent, #58a6ff)" : "var(--color-text-tertiary)",
+              border: `1px solid ${on ? "rgba(88,166,255,0.35)" : "var(--color-border-strong)"}`,
+            }}
+          >
+            {busy ? "aplicando…" : on ? "activo" : "inactivo"}
+          </span>
         </div>
         <div
-          className="text-[10.5px] leading-tight"
+          className="mt-0.5 text-[10.5px] leading-snug"
           style={{ color: "var(--color-text-tertiary)" }}
         >
           {busy
-            ? "Aplicando..."
-            : "Los limpios entran solos. Secretos y contradicciones siguen requiriendo tu OK."}
+            ? "Aplicando cambio y aprobando candidatos limpios existentes…"
+            : on
+              ? "Confianza >= 85%: aprobacion automatica. Secretos y contradicciones siempre requieren tu OK."
+              : "Todos los candidatos pasan por la bandeja. Activa para aprobar automaticamente los limpios de alta confianza."}
         </div>
       </div>
     </div>

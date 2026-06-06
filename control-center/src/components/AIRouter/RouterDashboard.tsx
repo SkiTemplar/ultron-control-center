@@ -1,8 +1,10 @@
 // ULTRON Control Center — AI Router: Dashboard sub-tab
 //
-// Simple overview the user asked for: savings + model routing at a glance.
-//   - A compact summary strip (zones, providers-with-key, fallback rate).
+// Overview: savings + model routing at a glance + inline proxy card.
+//   - A compact summary strip (providers-with-key, real fallback rate,
+//     attempt failure rate).
 //   - The RouterMetrics dashboard (tokens/cost saved + per-model table).
+//   - ProxyControl inline card (folded in from the old Proxy sub-tab).
 //
 // Data: ai_router_usage_summary() for the strip, ai_router_metrics() inside
 // RouterMetrics. Both fall back gracefully when the backend isn't wired.
@@ -10,6 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { RouterMetrics } from "./RouterMetrics";
+import { ProxyControl } from "./ProxyControl";
 
 interface ProviderUsageRow {
   provider_id: string;
@@ -24,9 +27,8 @@ interface RouterUsageSummary {
   real_fallback_rate: number;
   /** Contador absoluto de rutas con fallback ganador. */
   real_fallback_count: number;
-  /** Total de invocaciones de route() completadas. */
-  routes_total: number;
-  zone_chains: Record<string, unknown>;
+  /** Total de invocaciones de route() completadas. Optional for old backend compat. */
+  routes_total?: number;
   /** Campo legacy — puede estar ausente en versiones nuevas. */
   fallback_rate?: number;
 }
@@ -68,13 +70,13 @@ export function RouterDashboard() {
     return () => clearInterval(t);
   }, [load]);
 
-  const zoneCount = summary ? Object.keys(summary.zone_chains).length : 0;
   const providerCount = summary ? summary.providers.length : 0;
   const keyedCount = summary ? summary.providers.filter((p) => p.key_present).length : 0;
+  const routesTotal = summary ? (summary.routes_total ?? 0) : 0;
 
-  // FIX 2: usar los campos correctos del contrato del backend.
-  // real_fallback_rate = fracción de rutas que cayeron a secundario (métrica honesta).
-  // attempt_failure_rate = EMA de fallo por intento (puede inflar el número).
+  // real_fallback_rate = fraction of routes that fell to a secondary provider
+  // (the honest metric). attempt_failure_rate = EMA of per-attempt failures
+  // (can inflate the number; shown separately as context, not as the headline).
   const realFallbackPct = summary ? Math.round(summary.real_fallback_rate * 100) : 0;
   const attemptFailurePct = summary ? Math.round(summary.attempt_failure_rate * 100) : 0;
   const realFallbackColor =
@@ -92,23 +94,37 @@ export function RouterDashboard() {
 
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-2 gap-3 px-6 pt-6 sm:grid-cols-4">
-        <SummaryStat label="Zonas" value={String(zoneCount)} />
-        <SummaryStat label="Providers con key" value={`${keyedCount}/${providerCount}`} />
+      {/* Summary strip — 3 stats: providers keyed, real fallback (headline), attempt failure */}
+      <div className="grid grid-cols-2 gap-3 px-6 pt-6 sm:grid-cols-3">
         <SummaryStat
-          label="Fallback real (cae a secundario)"
-          value={`${realFallbackPct}%`}
-          color={realFallbackColor}
+          label="Providers con key"
+          value={`${keyedCount}/${providerCount}`}
         />
         <SummaryStat
-          label="Tasa de fallo de intentos"
-          value={`${attemptFailurePct}%`}
-          color={attemptColor}
+          label="Fallback real (cae a secundario)"
+          value={routesTotal === 0 ? "—" : `${realFallbackPct}%`}
+          color={routesTotal === 0 ? undefined : realFallbackColor}
+        />
+        <SummaryStat
+          label="Fallo por intento (EMA)"
+          value={routesTotal === 0 ? "—" : `${attemptFailurePct}%`}
+          color={routesTotal === 0 ? undefined : attemptColor}
         />
       </div>
 
       {/* Savings + per-model breakdown. */}
       <RouterMetrics />
+
+      {/* Proxy inline card — folded in from the retired Proxy sub-tab. */}
+      <div className="px-6 pb-6">
+        <h2
+          className="mb-3 text-[13px] font-semibold"
+          style={{ color: "var(--color-text-secondary)" }}
+        >
+          Proxy free-tier
+        </h2>
+        <ProxyControl />
+      </div>
     </div>
   );
 }

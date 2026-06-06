@@ -342,6 +342,65 @@ function PromptRow({ entry, onUpdated }: PromptRowProps) {
 }
 
 // ---------------------------------------------------------------------------
+// Category helpers — derive display name from key prefix (e.g. "plans" → "Plans")
+// ---------------------------------------------------------------------------
+
+const CATEGORY_ORDER: string[] = [
+  "dashboard",
+  "plans",
+  "projects",
+  "sessions",
+  "memory",
+  "agents",
+  "skills",
+  "notif",
+  "mcps",
+  "system",
+  "usage",
+];
+
+const CATEGORY_LABELS: Record<string, string> = {
+  dashboard: "Dashboard",
+  plans: "Plans",
+  projects: "Projects",
+  sessions: "Sessions",
+  memory: "Memory",
+  agents: "Agents",
+  skills: "Skills",
+  notif: "Notifications",
+  mcps: "MCPs",
+  system: "System",
+  usage: "Usage",
+};
+
+function categoryOf(key: string): string {
+  return key.split(".")[0] ?? "other";
+}
+
+function categoryLabel(cat: string): string {
+  return CATEGORY_LABELS[cat] ?? cat.charAt(0).toUpperCase() + cat.slice(1);
+}
+
+/** Group buttons by category while preserving CATEGORY_ORDER for known ones,
+ *  then append any unknown categories alphabetically at the end. */
+function groupByCategory(buttons: ButtonPrompt[]): Array<{ cat: string; entries: ButtonPrompt[] }> {
+  const map = new Map<string, ButtonPrompt[]>();
+  for (const b of buttons) {
+    const cat = categoryOf(b.key);
+    const arr = map.get(cat) ?? [];
+    arr.push(b);
+    map.set(cat, arr);
+  }
+
+  const ordered: string[] = [
+    ...CATEGORY_ORDER.filter((c) => map.has(c)),
+    ...[...map.keys()].filter((c) => !CATEGORY_ORDER.includes(c)).sort(),
+  ];
+
+  return ordered.map((cat) => ({ cat, entries: map.get(cat) ?? [] }));
+}
+
+// ---------------------------------------------------------------------------
 // ButtonPromptsSection — top-level panel exported for Settings integration
 // ---------------------------------------------------------------------------
 
@@ -381,6 +440,7 @@ export function ButtonPromptsSection() {
     });
   }
 
+  // Only show buttons that actually exist in the catalog (no empty placeholders).
   const buttons = catalog?.buttons ?? [];
   const overriddenCount = buttons.filter((b) => b.overridden).length;
 
@@ -395,6 +455,8 @@ export function ButtonPromptsSection() {
       b.key.toLowerCase().includes(q)
     );
   });
+
+  const groups = groupByCategory(visible);
 
   return (
     <div>
@@ -411,13 +473,12 @@ export function ButtonPromptsSection() {
             className="mt-1 text-[12px] leading-relaxed"
             style={{ color: "var(--color-text-secondary)" }}
           >
-            Every AI button in the Control Center reads its prompt from this
-            catalog. Edits are persisted to{" "}
+            AI button prompts for the Control Center. Only overrides are
+            persisted to{" "}
             <code style={{ fontFamily: "var(--font-mono)" }}>
               ~/.claude/projects/control-center/button-prompts.json
-            </code>{" "}
-            — only your overrides are saved; built-in defaults apply automatically
-            for entries you have not changed.
+            </code>
+            ; defaults apply automatically for entries you have not changed.
           </p>
           {overriddenCount > 0 && (
             <p
@@ -444,8 +505,7 @@ export function ButtonPromptsSection() {
       </div>
 
       {/* Toolbar */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {/* Search */}
+      <div className="mb-5 flex flex-wrap items-center gap-2">
         <input
           type="text"
           value={search}
@@ -460,8 +520,6 @@ export function ButtonPromptsSection() {
             minWidth: 220,
           }}
         />
-
-        {/* Filter tabs */}
         <div
           className="inline-flex rounded p-0.5"
           style={{
@@ -532,11 +590,42 @@ export function ButtonPromptsSection() {
         </div>
       )}
 
-      {/* Prompt list */}
-      {!loading && visible.length > 0 && (
-        <div className="space-y-3">
-          {visible.map((entry) => (
-            <PromptRow key={entry.key} entry={entry} onUpdated={handleUpdated} />
+      {/* Categorized prompt list */}
+      {!loading && groups.length > 0 && (
+        <div className="space-y-6">
+          {groups.map(({ cat, entries }) => (
+            <section key={cat}>
+              {/* Category heading */}
+              <div
+                className="mb-3 flex items-center gap-2"
+              >
+                <span
+                  className="text-[11px] font-semibold uppercase tracking-wider"
+                  style={{ color: "var(--color-text-tertiary)" }}
+                >
+                  {categoryLabel(cat)}
+                </span>
+                <span
+                  className="rounded px-1.5 py-px text-[10px] tabular-nums"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    border: "1px solid var(--color-border)",
+                    color: "var(--color-text-faint)",
+                  }}
+                >
+                  {entries.length}
+                </span>
+                <div
+                  className="flex-1 border-t"
+                  style={{ borderColor: "var(--color-border)" }}
+                />
+              </div>
+              <div className="space-y-3">
+                {entries.map((entry) => (
+                  <PromptRow key={entry.key} entry={entry} onUpdated={handleUpdated} />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
