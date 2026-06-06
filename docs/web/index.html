@@ -3,13 +3,14 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>ULTRON — Backend</title>
-<meta name="description" content="Anatomía del backend de ULTRON Control Center: memoria gobernada, recall híbrido, enrutador de IA y orquestación por intención. Extraído del código Rust real." />
+<title>ULTRON — Cómo funciona</title>
+<meta name="description" content="ULTRON Control Center explicado en dos partes claras: el funcionamiento técnico por dentro (arquitectura: memoria, recall, AI Router, routing de skills, GUI) y la guía de uso paso a paso a nivel usuario." />
 <style>
   /* ───────────────────────────────────────────────────────────────
-     ULTRON Backend — documento técnico. Negro puro, monocromo,
+     ULTRON — documento explicativo. Negro puro, monocromo,
      hairlines de 1px, sans + mono. Sin gradientes, sin radios gordos,
      sin sombras de color, sin emojis. Jerarquía por tamaño y peso.
+     Dos partes: A (técnica) y B (uso). Mismo tema, navegación clara.
      ─────────────────────────────────────────────────────────────── */
   :root{
     --bg:#000000;
@@ -69,19 +70,21 @@
   .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:52px;}
   .brand{font-family:var(--mono);font-size:12.5px;letter-spacing:0.04em;color:var(--ink);border:none;}
   .brand .dim{color:var(--ink-3);}
-  .topbar nav{display:flex;gap:2px;}
+  .topbar nav{display:flex;gap:2px;align-items:center;}
   .topbar nav a{
     font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
     padding:6px 9px;border:none;letter-spacing:0.02em;transition:color .15s ease;
   }
   .topbar nav a:hover{color:var(--ink);}
-  /* tablet: se descarta la zona menos crítica para evitar el wrap a dos líneas */
-  @media (max-width:860px){.topbar nav a[href="#capture"],.topbar nav a[href="#doctor"]{display:none;}}
-  @media (max-width:780px){.topbar nav a[href="#router"]{display:none;}}
-  @media (max-width:680px){.topbar nav{display:none;}}
+  .topbar nav a.part{color:var(--ink);}
+  .topbar nav .sep{width:1px;height:16px;background:var(--line-2);margin:0 8px;}
+  /* responsive: descartar primero la navegación secundaria */
+  @media (max-width:820px){.topbar nav a.lvl2{display:none;}}
+  @media (max-width:560px){.topbar nav .sep{display:none;}}
+  @media (max-width:480px){.topbar nav a.partlabel{display:none;}}
 
   /* ── Hero ───────────────────────────────────────────────── */
-  .hero{border-bottom:1px solid var(--line);padding:96px 0 72px;position:relative;}
+  .hero{border-bottom:1px solid var(--line);padding:92px 0 64px;position:relative;}
   .hero::before{
     /* retícula sutilísima, no gradiente de color */
     content:"";position:absolute;inset:0;pointer-events:none;
@@ -98,14 +101,32 @@
   }
   .eyebrow .tick{width:6px;height:6px;background:var(--ink);display:inline-block;}
   h1{
-    font-size:clamp(33px,7.2vw,46px);line-height:1.05;margin:0 0 22px;
-    font-weight:580;letter-spacing:-0.035em;max-width:16ch;
+    font-size:clamp(32px,7vw,46px);line-height:1.05;margin:0 0 22px;
+    font-weight:580;letter-spacing:-0.035em;max-width:18ch;
   }
-  .lede{font-size:17px;line-height:1.62;color:var(--ink-2);max-width:62ch;margin:0;font-weight:400;}
+  .lede{font-size:17px;line-height:1.62;color:var(--ink-2);max-width:64ch;margin:0;font-weight:400;}
   .lede b{color:var(--ink);font-weight:520;}
 
+  /* ── Selector de dos partes (en el hero) ───────────────── */
+  .parts{display:flex;gap:0;margin-top:44px;border:1px solid var(--line);}
+  .parts a{
+    flex:1 1 0;min-width:0;padding:20px 22px;border:none;border-right:1px solid var(--line);
+    display:block;transition:background .15s ease;
+  }
+  .parts a:last-child{border-right:none;}
+  .parts a:hover{background:var(--bg-1);}
+  .parts .pn{font-family:var(--mono);font-size:10.5px;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink-4);margin-bottom:9px;}
+  .parts .pt{font-size:17px;color:var(--ink);font-weight:560;letter-spacing:-0.02em;line-height:1.25;margin-bottom:7px;}
+  .parts .pd{font-size:13px;color:var(--ink-3);line-height:1.5;}
+  .parts .go{font-family:var(--mono);font-size:11px;color:var(--ink-3);margin-top:12px;}
+  @media (max-width:600px){
+    .parts{flex-direction:column;}
+    .parts a{border-right:none;border-bottom:1px solid var(--line);}
+    .parts a:last-child{border-bottom:none;}
+  }
+
   .specbar{
-    display:flex;flex-wrap:wrap;gap:0;margin-top:48px;
+    display:flex;flex-wrap:wrap;gap:0;margin-top:18px;
     border:1px solid var(--line);
   }
   .specbar .cell{
@@ -118,7 +139,6 @@
   @media (max-width:720px){
     .specbar .cell{flex-basis:50%;border-bottom:1px solid var(--line);}
     .specbar .cell:nth-child(2n){border-right:none;}
-    /* fila inferior (3ª y 4ª celda): sin borde abajo, lo cierra el borde del contenedor */
     .specbar .cell:nth-last-child(-n+2){border-bottom:none;}
   }
   @media (max-width:420px){
@@ -127,8 +147,26 @@
     .specbar .cell:last-child{border-bottom:none;}
   }
 
+  /* ── Separador de PARTE (banda a todo ancho) ───────────── */
+  .partband{border-bottom:1px solid var(--line);background:var(--bg-1);padding:64px 0 60px;position:relative;}
+  .partband.b{background:var(--bg-2);}
+  .partband .pk{
+    font-family:var(--mono);font-size:11.5px;letter-spacing:0.22em;text-transform:uppercase;
+    color:var(--ink-3);margin:0 0 18px;display:flex;align-items:center;gap:10px;
+  }
+  .partband .pk .tick{width:6px;height:6px;background:var(--ink);display:inline-block;}
+  .partband h2{font-size:clamp(26px,5vw,36px);line-height:1.08;margin:0 0 18px;font-weight:580;letter-spacing:-0.035em;max-width:20ch;}
+  .partband p{font-size:16.5px;color:var(--ink-2);max-width:66ch;margin:0;line-height:1.62;}
+  .partband p b{color:var(--ink);font-weight:520;}
+  .partband .jump{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px;}
+  .partband .jump a{
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-3);
+    border:1px solid var(--line);padding:7px 12px;letter-spacing:0.02em;transition:border-color .15s ease,color .15s ease;
+  }
+  .partband .jump a:hover{border-color:var(--ink-2);color:var(--ink);}
+
   /* ── Sections ───────────────────────────────────────────── */
-  section{border-bottom:1px solid var(--line);padding:84px 0;}
+  section{border-bottom:1px solid var(--line);padding:80px 0;}
   .sec-head{margin-bottom:40px;}
   .sec-kicker{
     font-family:var(--mono);font-size:11.5px;letter-spacing:0.04em;color:var(--ink-3);
@@ -141,7 +179,6 @@
   .sec-sub b{color:var(--ink);font-weight:520;}
 
   h3{font-size:18px;margin:52px 0 14px;font-weight:560;letter-spacing:-0.02em;}
-  /* el primero tras el encabezado no necesita el respiro completo (el sec-head ya lo da) */
   .sec-head + h3{margin-top:8px;}
   h4{
     font-family:var(--mono);font-size:12px;letter-spacing:0.08em;text-transform:uppercase;
@@ -169,6 +206,27 @@
   ul.list li b{color:var(--ink);font-weight:520;}
   ul.list li .mono{color:var(--ink);font-size:12.5px;}
 
+  /* ── Pasos numerados (Parte B) ──────────────────────────── */
+  ol.steps{list-style:none;counter-reset:step;padding:0;margin:26px 0;}
+  ol.steps > li{
+    counter-increment:step;position:relative;padding:0 0 26px 56px;
+    border-left:1px solid var(--line);margin-left:16px;
+  }
+  ol.steps > li:last-child{border-left:1px solid transparent;padding-bottom:0;}
+  ol.steps > li::before{
+    content:counter(step);position:absolute;left:-16px;top:0;
+    width:32px;height:32px;border:1px solid var(--line-2);background:var(--bg-2);
+    font-family:var(--mono);font-size:13px;color:var(--ink);
+    display:flex;align-items:center;justify-content:center;letter-spacing:0;
+  }
+  ol.steps > li .st{font-size:16px;color:var(--ink);font-weight:560;letter-spacing:-0.02em;margin:3px 0 8px;}
+  ol.steps > li p{margin:8px 0;font-size:14.5px;}
+  ol.steps > li p:first-of-type{margin-top:0;}
+  ol.steps code{font-family:var(--mono);font-size:12.5px;color:var(--ink);background:var(--bg-2);border:1px solid var(--line);padding:1px 5px;}
+  @media (max-width:480px){
+    ol.steps > li{padding-left:46px;}
+  }
+
   /* ── Diagram primitives ─────────────────────────────────── */
   .fig{
     border:1px solid var(--line);background:var(--bg-1);margin:28px 0;
@@ -176,7 +234,7 @@
   .fig-cap{
     font-family:var(--mono);font-size:10.5px;letter-spacing:0.14em;text-transform:uppercase;
     color:var(--ink-4);padding:13px 18px;border-bottom:1px solid var(--line);
-    display:flex;justify-content:space-between;align-items:center;
+    display:flex;justify-content:space-between;align-items:center;gap:12px;
   }
   .fig-cap .id{color:var(--ink-3);}
   .fig-body{padding:26px 22px;overflow-x:auto;}
@@ -220,8 +278,6 @@
   /* ── Code blocks ────────────────────────────────────────── */
   pre{
     background:var(--bg-1);border:1px solid var(--line);margin:22px 0;padding:0;overflow-x:auto;
-    /* el pre solo es el contenedor: colapsa la indentación HTML entre .head y code.
-       el code reactiva white-space:pre para conservar el formato real del código. */
     white-space:normal;
   }
   pre .head{
@@ -238,7 +294,6 @@
 
   /* ── Tables ─────────────────────────────────────────────── */
   table{width:100%;border-collapse:collapse;margin:22px 0;font-size:13.5px;max-width:100%;}
-  /* prose cells pueden romper palabras largas; los code-tokens no fuerzan overflow de página */
   tbody td{overflow-wrap:anywhere;}
   thead th{
     font-family:var(--mono);font-size:10px;letter-spacing:0.1em;text-transform:uppercase;
@@ -247,16 +302,14 @@
   tbody td{padding:12px 14px;border-bottom:1px solid var(--line);color:var(--ink-2);vertical-align:top;}
   tbody tr:last-child td{border-bottom:none;}
   td .mono,td code{font-family:var(--mono);font-size:12px;color:var(--ink);}
-  td .dim{color:var(--ink-3);}  /* patrones/clases: contenido legible, no decoración */
-  /* tablas anchas (router, intención): scroll horizontal contenido, sin romper el layout */
+  td .dim{color:var(--ink-3);}
   .scroll-x{overflow-x:auto;margin:22px 0;}
   .scroll-x table{margin:0;min-width:480px;}
 
-  /* ── Tabla comparativa (vs) — columna ULTRON resaltada SOLO con tinta + hairline ── */
+  /* ── Tabla comparativa (vs) ─────────────────────────────── */
   table.vs{min-width:560px;}
   table.vs thead th,table.vs tbody td{vertical-align:top;}
   table.vs td.dim{color:var(--ink-3);font-family:var(--mono);font-size:11.5px;letter-spacing:0.02em;white-space:nowrap;}
-  /* la columna de ULTRON gana jerarquía con borde lateral y tinta más viva, sin color */
   table.vs th.hot{color:var(--ink);border-left:1px solid var(--line-2);border-right:1px solid var(--line-2);}
   table.vs td.hot{
     color:var(--ink-2);background:var(--bg-2);
@@ -282,9 +335,10 @@
 
   @media (max-width:640px){
     :root{--pad:20px;}
-    section{padding:60px 0;}
-    .hero{padding:68px 0 52px;}
-    .specbar{margin-top:40px;}
+    section{padding:56px 0;}
+    .hero{padding:64px 0 48px;}
+    .partband{padding:52px 0 48px;}
+    .specbar{margin-top:16px;}
     h3{margin-top:44px;}
     .fig-body{padding:22px 18px;}
   }
@@ -297,36 +351,52 @@
 
 <header class="topbar">
   <div class="wrap">
-    <span class="brand">ULTRON<span class="dim"> / backend</span></span>
+    <span class="brand">ULTRON<span class="dim"> / cómo funciona</span></span>
     <nav>
-      <a href="#memory">Memoria</a>
-      <a href="#recall">Recall</a>
-      <a href="#security">Seguridad</a>
-      <a href="#capture">Captura</a>
-      <a href="#router">Router</a>
-      <a href="#orchestrator">Orquestador</a>
-      <a href="#doctor">Doctor</a>
-      <a href="#compare">Comparativa</a>
+      <a href="#parte-a" class="part partlabel">A · Técnico</a>
+      <a href="#memory" class="lvl2">Memoria</a>
+      <a href="#router" class="lvl2">Router</a>
+      <a href="#routing" class="lvl2">Skills</a>
+      <span class="sep"></span>
+      <a href="#parte-b" class="part partlabel">B · Uso</a>
+      <a href="#instalar" class="lvl2">Instalar</a>
+      <a href="#pestanas" class="lvl2">Pestañas</a>
+      <a href="#sesion" class="lvl2">Sesión</a>
     </nav>
   </div>
 </header>
 
 <section class="hero">
   <div class="wrap">
-    <p class="eyebrow"><span class="tick"></span>Referencia de arquitectura · backend Tauri / Rust</p>
-    <h1>El cerebro de ULTRON, por dentro.</h1>
+    <p class="eyebrow"><span class="tick"></span>Guía de ULTRON Control Center · Tauri 2 + React 19 + Rust</p>
+    <h1>ULTRON, explicado en dos partes.</h1>
     <p class="lede">
-      ULTRON Control Center separa lo que la mayoría de sistemas mezcla: <b>dónde vive la verdad</b>
-      y <b>cómo se encuentra rápido</b>. Una memoria gobernada con un único escritor, un índice
-      vectorial reconstruible, recuperación híbrida fusionada por rango, un enrutador de modelos con
-      conmutación por fallo y un orquestador que delega en agentes reales. Todo lo que sigue está
-      leído del código, línea por línea — no inferido.
+      ULTRON Control Center es un <b>cockpit de escritorio</b> que envuelve a Claude Code y le
+      añade tres cosas: una <b>memoria que recuerda de verdad</b>, un <b>enrutador que elige el
+      modelo de IA</b> por cada tarea, y un <b>orquestador que detecta qué especialista (skill o
+      agente) conviene</b> para lo que escribes. Esta página lo cuenta en dos niveles: cómo funciona
+      por dentro, y cómo se usa paso a paso.
     </p>
+
+    <div class="parts">
+      <a href="#parte-a">
+        <div class="pn">Parte A</div>
+        <div class="pt">Funcionamiento técnico</div>
+        <div class="pd">La arquitectura por capas: memoria gobernada, recall híbrido, AI Router, routing de skills, la GUI y la integración. Para entender el motor.</div>
+        <div class="go">Ir a la arquitectura →</div>
+      </a>
+      <a href="#parte-b">
+        <div class="pn">Parte B</div>
+        <div class="pt">Cómo se usa, paso a paso</div>
+        <div class="pd">Guía práctica: instalar y abrir la app, qué hace cada pestaña, cómo usar memoria y routing en una sesión, cómo lanzar sesiones y proyectos.</div>
+        <div class="go">Ir a la guía de uso →</div>
+      </a>
+    </div>
 
     <div class="specbar">
       <div class="cell">
         <div class="k">Fuente de verdad</div>
-        <div class="v">brain.db <span class="u">· SQLite WAL</span></div>
+        <div class="v">brain.db <span class="u">· SQLite + FTS5</span></div>
       </div>
       <div class="cell">
         <div class="k">Índice denso</div>
@@ -337,8 +407,8 @@
         <div class="v">RRF <span class="u">· k=60</span></div>
       </div>
       <div class="cell">
-        <div class="k">Catálogo</div>
-        <div class="v">197 <span class="u">· 78 agentes + 119 skills</span></div>
+        <div class="k">App</div>
+        <div class="v">Tauri 2 <span class="u">· ~17 pestañas</span></div>
       </div>
     </div>
   </div>
@@ -346,16 +416,46 @@
 
 <main>
 
+<!-- ════════════════════════════════════════════════════════════════
+     PARTE A · FUNCIONAMIENTO TÉCNICO
+     ════════════════════════════════════════════════════════════════ -->
+<div class="partband" id="parte-a">
+  <div class="wrap">
+    <p class="pk"><span class="tick"></span>Parte A · Funcionamiento técnico</p>
+    <h2>Cómo funciona el sistema por dentro.</h2>
+    <p>
+      ULTRON se organiza en <b>cinco capas</b>. La <b>memoria</b> guarda la verdad y la protege. El
+      <b>recall</b> la encuentra rápido. El <b>AI Router</b> reparte cada tarea entre proveedores de
+      IA. El <b>routing de skills</b> inyecta el especialista justo cuando hace falta. Y la <b>GUI</b>
+      (Tauri 2) es la sala de control donde tú gobiernas todo. Lo que sigue está leído del código
+      real, no inferido.
+    </p>
+    <div class="jump">
+      <a href="#memory">01 · Memoria</a>
+      <a href="#recall">02 · Recall híbrido</a>
+      <a href="#security">03 · Seguridad</a>
+      <a href="#capture">04 · Captura</a>
+      <a href="#router">05 · AI Router</a>
+      <a href="#routing">06 · Routing de skills</a>
+      <a href="#orchestrator">07 · Orquestador</a>
+      <a href="#gui">08 · GUI</a>
+      <a href="#integration">09 · Integración</a>
+      <a href="#doctor">10 · Doctor</a>
+    </div>
+  </div>
+</div>
+
 <!-- ════════════════ 01 · MEMORIA ════════════════ -->
 <section id="memory">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-kicker"><span class="num">01</span><span>Memoria gobernada</span><span class="rule"></span></div>
+      <div class="sec-kicker"><span class="num">01</span><span>Capa de memoria gobernada</span><span class="rule"></span></div>
       <h2>Un solo lugar para la verdad. Un solo escritor.</h2>
       <p class="sec-sub">
-        La verdad vive en <code class="t">~/.ultron/brain.db</code>, una base SQLite en modo WAL.
-        El índice semántico vive aparte, en Qdrant, y es <b>derivado</b>: se puede borrar y
-        reconstruir en cualquier momento sin perder un solo dato.
+        La verdad vive en <code class="t">~/.ultron/brain.db</code>, una base SQLite en modo WAL con
+        índice léxico FTS5. El índice semántico vive aparte, en Qdrant, y es <b>derivado</b>: se
+        puede borrar y reconstruir en cualquier momento sin perder un solo dato. El binario nativo
+        <code class="t">ultron-memory</code> (sidecar Rust) encapsula toda la lógica canónica.
       </p>
     </div>
 
@@ -367,13 +467,6 @@
       directamente: <b>proponen candidatos</b> a una <b>bandeja de entrada</b>, y un humano los
       promociona desde la UI. <b>Nada entra en la memoria activa sin aprobación.</b> Un candidato
       rechazado nunca se convierte en memoria.
-    </p>
-    <p>
-      La bandeja ofrece cuatro acciones por candidato —<b>Aprobar</b>, <b>Rechazar</b>,
-      <b>Editar</b> (corregir resumen, importancia o confianza antes de aceptar) y <b>Merge</b>
-      cuando el dedupe lo sugiere— más un <b>Aceptar todos</b> con confirmación en dos fases.
-      Aprobar como usuario marca el ítem <code class="t">validated_by_user</code>; la decisión, sea
-      cual sea, queda registrada como evento.
     </p>
 
     <div class="fig">
@@ -457,8 +550,8 @@
         </div>
         <div class="ld">
           Misma infraestructura E5 1024-d, pero indexa las fichas de
-          <code>~/.claude/agents/*.md</code>. Es lo que el orquestador consulta para escoger
-          especialista por similitud (sección 05).
+          <code>~/.claude/agents/*.md</code> y las skills habilitadas. Es lo que el orquestador
+          consulta para escoger especialista por similitud (sección 07).
         </div>
       </div>
     </div>
@@ -495,12 +588,10 @@
 
     <h3>importance y confidence dinámicos</h3>
     <p>
-      Antes, cada candidato llegaba al inbox con un <code class="t">importance = 0.55</code> y un
-      <code class="t">confidence = 0.50</code> idénticos: la bandeja mostraba el mismo 55 % / 50 %
-      para todo y los dos números no decían nada. Ahora ambos se <b>derivan</b> de señales reales —y
-      son funciones puras, testeadas sin router ni base de datos—. Importancia (cuánto <em>importa</em>)
-      y confianza (cómo de seguro es que el hecho es <em>cierto</em>) se mueven por separado, así que
-      las dos columnas no van en bloque.
+      Cada candidato llega al inbox con una <b>importancia</b> (cuánto <em>importa</em>) y una
+      <b>confianza</b> (cómo de seguro es que el hecho es <em>cierto</em>) que se <b>derivan</b> de
+      señales reales —son funciones puras, testeadas sin router ni base de datos—. Las dos se mueven
+      por separado, así que no van en bloque.
     </p>
 
     <div class="scroll-x">
@@ -519,37 +610,22 @@
       Ambos quedan acotados a <code class="t">[0.05, 0.95]</code> — nunca un 0 ni un 100 % falsos.
     </p>
 
-    <h3>Detección de contradicciones</h3>
+    <h3>Contradicciones y caducidad</h3>
     <p>
       Cuando un candidato propone algo, un detector busca los ítems ACTIVE semánticamente más
       cercanos (mismo scope y proyecto) y le pregunta a un juez LLM si alguno <b>choca</b> con la
       propuesta. Si lo hay, el candidato no se rechaza ni se auto-resuelve: pasa a
       <b>cuarentena</b> con los ids en conflicto adjuntos, fuera del recall, esperando que
-      <b>decidas tú</b> cuál vale. Es <em>advisory</em> puro — la decisión de cuarentena se testea
-      sin red, base de datos ni LLM.
+      <b>decidas tú</b>. Es <em>advisory</em> puro y <b>fail-safe</b>: con la IA caída reporta «sin
+      contradicción», nunca pone una memoria en cuarentena por error.
     </p>
-    <div class="call key">
-      <div class="cl">Nunca auto-resuelve</div>
-      <p>
-        El detector es <b>fail-safe por construcción</b>: con Qdrant/E5 apagado el paso semántico
-        devuelve vacío y la tubería del candidato no se bloquea; y el juez LLM es tolerante —ante
-        cualquier fallo de parseo o ruta reporta «sin contradicción»—, de modo que un modelo
-        degradado <b>jamás</b> pone una memoria en cuarentena por error. Solo un <code class="t">Some(true)</code>
-        seguro marca conflicto.
-      </p>
-    </div>
-
-    <h3>Resolutor temporal</h3>
     <p>
-      Cada ítem lleva una ventana de vigencia <code class="t">valid_from</code> /
+      Además, cada ítem lleva una ventana de vigencia <code class="t">valid_from</code> /
       <code class="t">valid_to</code>. Cuando una afirmación se reemplaza vía
-      <code class="t">supersede</code>, la nueva pasa a vigente <em>ahora</em>
-      (<code class="t">valid_from = now</code>, <code class="t">valid_to = NULL</code>) y la vieja
-      recibe un <code class="t">valid_to</code> en el instante del relevo. El recall (sección 02)
-      prefiere lo vigente: un ítem cuya validez <b>terminó en el pasado</b> se excluye del context
-      pack con motivo trazado, mientras que <code class="t">valid_to</code> nulo o futuro se inyecta.
-      Lo viejo y superado deja de aparecer — sin perder la fila histórica, que sigue siendo
-      consultable y auditable.
+      <code class="t">supersede</code>, la nueva pasa a vigente <em>ahora</em> y la vieja recibe un
+      <code class="t">valid_to</code> en el instante del relevo. El recall prefiere lo vigente: lo
+      viejo y superado deja de aparecer, sin perder la fila histórica, que sigue siendo consultable
+      y auditable.
     </p>
   </div>
 </section>
@@ -640,42 +716,19 @@
       El mismo núcleo expone <code class="t">recall_inspect</code>, que devuelve el trace completo y
       auditable de cada turno: el orden de cada fuente, los scores RRF, lo inyectado <em>con su
       razón</em> —<code class="t">"dense#2 + sparse#5"</code>— y lo descartado <em>con el
-      motivo exacto</em>.
+      motivo exacto</em> (límite, fuera de proyecto, vault, secreto, presupuesto).
     </p>
-
-    <table>
-      <thead><tr><th>Campo del trace</th><th>Qué cuenta</th></tr></thead>
-      <tbody>
-        <tr><td><code>dense_ids</code></td><td>Orden devuelto por E5/Qdrant.</td></tr>
-        <tr><td><code>sparse_ids</code></td><td>Orden devuelto por FTS5/bm25.</td></tr>
-        <tr><td><code>fused</code></td><td>Tras RRF: score, rango denso, rango sparse, coseno real.</td></tr>
-        <tr><td><code>injected</code></td><td>Lo que entró al context pack, con su razón.</td></tr>
-        <tr><td><code>discarded</code></td><td>Lo retirado y el motivo: límite, fuera de proyecto, vault, secreto, presupuesto.</td></tr>
-        <tr><td><code>warnings</code></td><td>p. ej. «dense recall empty — sparse-only», o candidatos pendientes en el inbox.</td></tr>
-      </tbody>
-    </table>
 
     <h4>Recall cross-project — buscar en todo el cerebro</h4>
     <p>
       Por defecto el recall se ciñe al proyecto actual. Pero puedes pedirle que busque en
       <b>todos</b> los proyectos a la vez —«¿te acuerdas de aquel otro proyecto?»—. En modo
-      <code class="t">cross_project</code> se relaja <b>únicamente</b> el filtro de proyecto: el k-NN
-      denso deja de filtrar por proyecto y <code class="t">assemble_pack</code> admite ítems
-      <code class="t">scope=project</code> de cualquier origen. Todo lo demás sigue intacto —
-      <code class="t">status=active</code>, gate temporal y, sobre todo, <b>el gate de secreto</b>:
-      un ítem Secret de otro proyecto <b>nunca</b> entra. Se activa por bandera explícita o por una
-      <b>detección conservadora</b> de frases como «en todos mis proyectos» / «across projects»,
-      siempre que exista un proyecto actual. Cuando se relaja, queda un warning en el trace.
+      <code class="t">cross_project</code> se relaja <b>únicamente</b> el filtro de proyecto: todo lo
+      demás sigue intacto, sobre todo <b>el gate de secreto</b> — un ítem Secret de otro proyecto
+      <b>nunca</b> entra. Se activa por bandera explícita o por una detección conservadora de frases
+      como «en todos mis proyectos». La invariante <b>«cross relaja el proyecto, no la seguridad»</b>
+      está cubierta por un test que corre sin Qdrant.
     </p>
-    <div class="call">
-      <div class="cl">Relaja el proyecto, no la seguridad</div>
-      <p>
-        El control de ruido del vault se ancla sobre <code class="t">project_id.is_some()</code>, no
-        sobre el filtro de proyecto, así que un recall cross-project lanzado desde dentro de un
-        proyecto sigue dejando el vault apagado por defecto. La invariante <b>«cross relaja el
-        proyecto, no la seguridad»</b> está cubierta por un test unitario que corre sin Qdrant/E5.
-      </p>
-    </div>
   </div>
 </section>
 
@@ -723,23 +776,18 @@
       palabras y reconoce formas de credencial por prefijo —anthropic, openai, github, google,
       aws, slack, gitlab, mem0—, además de asignaciones <code class="t">key=value</code>, cabeceras
       <code class="t">Bearer</code> y bloques PEM de clave privada. Sesga a <b>no</b> marcar texto
-      ambiguo: el prefijo debe ir seguido de una cola suficientemente larga, para mantener bajo el
-      falso positivo. Si detecta algo, redacta el texto, sube la sensibilidad a
-      <code class="t">Secret</code> y pone el candidato en <b>cuarentena</b> — nunca se auto-aprueba.
-    </p>
-    <p>
-      Y no se aplica en un solo sitio. Cada ruta de escritura corre el mismo guardia:
+      ambiguo para mantener bajo el falso positivo. Si detecta algo, redacta el texto, sube la
+      sensibilidad a <code class="t">Secret</code> y pone el candidato en <b>cuarentena</b> — nunca
+      se auto-aprueba. Cada ruta de escritura corre el mismo guardia:
       <code class="t">create_candidate</code>, <code class="t">add_imported</code>,
-      <code class="t">edit</code> y <code class="t">supersede</code>. Un edit que introduce un token
-      escala la sensibilidad antes de re-indexar.
+      <code class="t">edit</code> y <code class="t">supersede</code>.
     </p>
 
     <h4>Lectura · la sensibilidad es monótona</h4>
     <p>
       En el ensamblado del pack, cualquier ítem con <code class="t">sensitivity == Secret</code> se
       descarta siempre, con el motivo registrado. La elevación de sensibilidad nunca baja: una vez
-      Secret, Secret para siempre. Es un riesgo de auditoría de primer nivel, y por eso está
-      cubierto por un test unitario que corre sin Qdrant.
+      Secret, Secret para siempre.
     </p>
 
     <pre>
@@ -792,7 +840,7 @@
           <div class="node lead">
             <div class="nb"><span>extracción</span></div>
             <div class="nt">AI Router · zona chat</div>
-            <div class="nd">Pide máx. 5 hechos durables en formato <code>TIPO | título | resumen</code>. Ignora lo efímero. Alimenta de paso la telemetría real del router.</div>
+            <div class="nd">Pide máx. 5 hechos durables en formato <code>TIPO | título | resumen</code>. Ignora lo efímero. Alimenta de paso la telemetría del router.</div>
           </div>
           <div class="arrow"><span>por hecho →</span></div>
           <div class="node">
@@ -814,17 +862,6 @@
         <code class="t">MemoryService</code>.
       </p>
     </div>
-
-    <pre>
-      <span class="head">memory/capture.rs — la zona del router y el fallback local</span>
-      <code><span class="k">const</span> <span class="n">CAPTURE_ZONE</span>: &amp;<span class="k">str</span> = <span class="s">"chat"</span>; <span class="c">// claude-haiku primario, groq fallback</span>
-<span class="k">const</span> <span class="n">MAX_FACTS</span>: usize = <span class="n">5</span>;          <span class="c">// mantiene el inbox denso en señal</span>
-
-<span class="k">match</span> ai_router::route(CAPTURE_ZONE, &amp;extraction_prompt(transcript)) {
-    Ok(resp) =&gt; { <span class="c">// parsea "TIPO | título | resumen", una línea por hecho</span> }
-    Err(_)   =&gt; { <span class="c">// heurística local: un SessionSummary desde la cola</span> }
-}</code>
-    </pre>
   </div>
 </section>
 
@@ -836,8 +873,9 @@
       <h2>Zonas, providers, fallback y telemetría real.</h2>
       <p class="sec-sub">
         El router decide a qué <code class="t">(provider, modelo)</code> va cada tarea según su
-        <b>zona</b>. Deliberadamente simple: sin sidecar LiteLLM. Tres ficheros JSON bajo
-        <code class="t">~/.ultron/cockpit/ai-router/</code> guardan providers, zonas y métricas.
+        <b>zona</b>. Deliberadamente simple: sin sidecar LiteLLM, routing directo en Rust. Tres
+        ficheros JSON bajo <code class="t">~/.ultron/cockpit/ai-router/</code> guardan providers,
+        zonas y métricas.
       </p>
     </div>
 
@@ -852,7 +890,7 @@
       </div>
       <div class="layer">
         <div><div class="ln">metrics.json</div><div class="lr">telemetría</div></div>
-        <div class="ld">contadores por provider y por modelo · tokens · latencia · fallback_rate (EMA) · gauge diario de free-tier · ahorro estimado.</div>
+        <div class="ld">contadores por provider y por modelo · tokens · latencia · <code>real_fallback_rate</code> · gauge diario de free-tier · ahorro estimado.</div>
       </div>
     </div>
 
@@ -869,15 +907,14 @@
         <tr><td><code>routing-decision</code></td><td><span class="dim">trivial</span></td><td><code>claude-haiku</code></td><td><code>groq · llama-3.3-70b</code></td></tr>
         <tr><td><code>code-fast-local</code></td><td><span class="dim">light</span></td><td><code>ollama · qwen2.5-coder</code></td><td><span class="dim">—</span></td></tr>
         <tr><td><code>utility</code></td><td><span class="dim">trivial</span></td><td><code>groq · llama-3.3-70b</code></td><td><code>claude-haiku</code></td></tr>
-        <tr><td><code>light</code></td><td><span class="dim">light</span></td><td><code>groq · llama-3.3-70b</code></td><td><code>ollama · qwen2.5-coder</code></td></tr>
       </tbody>
     </table>
     </div>
     <p>
-      Ocho providers en el catálogo: <b>anthropic</b> (claude-haiku) · <b>codex</b> / <b>groq</b> /
-      <b>deepseek</b> (OpenAI-compat) · <b>gemini</b> (generativelanguage v1beta) · <b>ollama</b>
-      (local, sin key) · más dos CLI por suscripción OAuth (<b>codex-cli</b>, <b>gemini-cli</b>) que
-      se marcan «configurados» solo si el binario está en el PATH.
+      El catálogo combina proveedores por <b>API</b> —<b>anthropic</b> (claude-haiku) · <b>codex</b> /
+      <b>groq</b> / <b>deepseek</b> (OpenAI-compat) · <b>gemini</b> · <b>ollama</b> (local, sin
+      key)— con dos por <b>CLI</b> de suscripción OAuth (<b>codex-cli</b>, <b>gemini-cli</b>) que se
+      marcan «configurados» solo si el binario está en el PATH.
     </p>
 
     <h3>La cadena de fallback</h3>
@@ -906,7 +943,7 @@
           <div class="node lead">
             <div class="nb"><span>telemetría</span></div>
             <div class="nt">bump_metrics()</div>
-            <div class="nd">Cuenta TODO intento, éxito y fallo: count, success, tokens, latencia, fallback_rate, ahorro, gauge diario.</div>
+            <div class="nd">Cuenta TODO intento, éxito y fallo: count, success, tokens, latencia, real_fallback_rate, ahorro, gauge diario.</div>
           </div>
         </div>
       </div>
@@ -916,21 +953,8 @@
       <code class="t">route()</code> solo devuelve <code class="t">Err</code> cuando TODOS los
       providers de la cadena fallaron. Las claves se leen del entorno en el momento de la llamada,
       así que una key añadida tras el arranque se recoge de inmediato. El ahorro se contabiliza
-      cuando una ruta cae a un provider más barato que el primario: se mide lo «descargado» de
-      Claude y la diferencia de tarifa.
+      cuando una ruta cae a un provider más barato que el primario.
     </p>
-
-    <pre>
-      <span class="head">ai_router.rs — el corazón de la conmutación por fallo</span>
-      <code><span class="k">let</span> chain = std::iter::once(&amp;zone.primary).chain(zone.fallbacks.iter());
-<span class="k">for</span> assignment <span class="k">in</span> chain {
-    <span class="k">if</span> disabled.contains(&amp;assignment.provider_id) { <span class="k">continue</span>; } <span class="c">// sin key → saltar</span>
-    <span class="k">let</span> outcome = try_assignment_call(assignment, prompt, zone.system_prompt);
-    bump_metrics(...);                  <span class="c">// cuenta éxito Y fallo</span>
-    <span class="k">if let</span> Ok(co) = outcome { <span class="k">return</span> Ok(co.text); } <span class="c">// primera respuesta válida gana</span>
-}
-Err(<span class="s">"all providers failed for zone ..."</span>)</code>
-    </pre>
 
     <div class="call">
       <div class="cl">No es decorativo</div>
@@ -944,17 +968,84 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
   </div>
 </section>
 
-<!-- ════════════════ 06 · ORQUESTADOR ════════════════ -->
+<!-- ════════════════ 06 · ROUTING DE SKILLS ════════════════ -->
+<section id="routing">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">06</span><span>Routing de skills / agentes</span><span class="rule"></span></div>
+      <h2>El especialista se inyecta solo cuando hace falta.</h2>
+      <p class="sec-sub">
+        Las skills están <b>desactivadas por defecto</b> para no inflar cada sesión. Un dispatcher
+        determinista las puntúa contra tu prompt y, cuando una destaca, <b>inyecta su contenido
+        sobre la marcha</b> (lazy injection). Pagas su coste de tokens solo cuando la usas.
+      </p>
+    </div>
+
+    <h3>Por qué lazy: el coste de cargar todo</h3>
+    <p>
+      Claude Code carga los metadatos (SKILL.md) de <b>todas</b> las skills activas en
+      <code class="t">SessionStart</code>. Con ~80 skills activas eso costaba decenas de miles de
+      tokens por sesión, los uses o no. La solución tiene dos niveles complementarios.
+    </p>
+
+    <div class="scroll-x">
+    <table>
+      <thead><tr><th>Nivel</th><th>Qué hace</th><th>Efecto</th></tr></thead>
+      <tbody>
+        <tr><td><span class="dim">Nivel 1 · físico</span></td><td>Renombra a <code>.disabled</code> las skills marcadas <code>keep_active: false</code>. Claude Code ignora las carpetas <code>.disabled</code> en SessionStart.</td><td>Solo cargan las ~10 skills complejas de base. El resto desaparece del coste fijo.</td></tr>
+        <tr><td><span class="dim">Nivel 2 · dinámico</span></td><td>El dispatcher (hook <code>routing-dispatcher</code>) puntúa cada skill <code>lazy_loadable</code> contra el prompt; si supera el umbral, lee su SKILL.md de disco e inyecta el contenido en <code>additionalContext</code>.</td><td>Coste por-prompt proporcional al SKILL.md inyectado (~500-6000 tokens), solo cuando la skill puntúa alto.</td></tr>
+      </tbody>
+    </table>
+    </div>
+
+    <div class="fig">
+      <div class="fig-cap"><span>UserPromptSubmit · scoring determinista → inyección bajo demanda</span><span class="id">routing-dispatcher.js</span></div>
+      <div class="fig-body">
+        <div class="flow">
+          <div class="node">
+            <div class="nb"><span>entrada</span></div>
+            <div class="nt">Tu prompt</div>
+            <div class="nd">El hook <code>routing-dispatcher</code> se dispara en <code>UserPromptSubmit</code>.</div>
+          </div>
+          <div class="arrow"><span>scoring →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>determinista</span></div>
+            <div class="nt">score por intención</div>
+            <div class="nd">Sin LLM: dominios y frases (es/en). La skill mejor puntuada gana; cooldown para no re-inyectar en prompts seguidos.</div>
+          </div>
+          <div class="arrow"><span>si ≥ umbral →</span></div>
+          <div class="node lead">
+            <div class="nb"><span>lazy injection</span></div>
+            <div class="nt">lee SKILL.md</div>
+            <div class="nd">Inyecta el contenido entre marcas <code>[skill-inyectada: NOMBRE]</code>. Si el disco falla, sugiere sin contenido — nunca bloquea.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="call">
+      <div class="cl">Fail-safe y reversible</div>
+      <p>
+        Si el registry no existe o falla la lectura, el dispatcher se comporta exactamente como su
+        versión base (sugerencia sin inyección). El Nivel 1 es reversible con un flag
+        <code class="t">-Undo</code>, y las skills <code class="t">.disabled</code> nunca se enrutan:
+        no se inyecta una capacidad apagada.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ 07 · ORQUESTADOR ════════════════ -->
 <section id="orchestrator">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-kicker"><span class="num">06</span><span>Detector de intención</span><span class="rule"></span></div>
+      <div class="sec-kicker"><span class="num">07</span><span>Detector de intención</span><span class="rule"></span></div>
       <h2>Escribes algo vago. Sale un plan con especialistas.</h2>
       <p class="sec-sub">
         El orquestador «Ultron» toma un prompt —posiblemente impreciso— y construye un
         <em>contexto de orquestación</em>: intención → workflow → agentes a delegar → memorias
         relevantes → restricciones. No reinventa capacidades: <b>delega</b> en los especialistas
-        reales del catálogo, que esta sesión <b>pasó de 78 a 197</b> al conectar también las skills.
+        reales del catálogo (agentes + skills).
       </p>
     </div>
 
@@ -977,7 +1068,7 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
             <div class="node">
               <div class="nb"><span>paso 2 · semántico</span></div>
               <div class="nt">search_catalog()</div>
-              <div class="nd">Búsqueda E5 sobre <code>ultron_catalog</code> (78 agentes + 119 skills). Top-5 especialistas reales por similitud, rebalanceados por intención.</div>
+              <div class="nd">Búsqueda E5 sobre <code>ultron_catalog</code> (agentes + skills). Top-5 especialistas reales por similitud, rebalanceados por intención.</div>
             </div>
             <div class="node">
               <div class="nb"><span>paso 3 · contexto</span></div>
@@ -998,11 +1089,11 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
     <h3>Dos detecciones complementarias</h3>
     <p>
       La <b>intención gruesa</b> es determinista: una tabla de reglas mapea patrones de texto a una
-      intención y un workflow; lo específico va antes que lo general y el primer match gana. Es
-      rápido y no consume tokens. La <b>elección del especialista</b> es semántica: se embebe el
-      prompt con E5 y se busca en el catálogo indexado, de modo que «revisa seguridad» trae al
-      agente de security/review aunque el prompt no nombre a ninguno. Las reglas cubren ahora también
-      <b>UI/diseño, testing, performance, docs y refactor</b>, no solo seguridad y bugs.
+      intención y un workflow; lo específico va antes que lo general y el primer match gana. La
+      <b>elección del especialista</b> es semántica: se embebe el prompt con E5 y se busca en el
+      catálogo indexado, de modo que «revisa seguridad» trae al agente de security/review aunque el
+      prompt no nombre a ninguno. Las reglas cubren seguridad, bugs, UI/diseño, testing,
+      performance, docs, refactor, juegos y features.
     </p>
 
     <div class="scroll-x">
@@ -1016,60 +1107,10 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
         <tr><td><code>performance</code></td><td><code>debug</code></td><td><span class="dim">performance-engineer · ultron-perf · debugger</span></td></tr>
         <tr><td><code>docs</code></td><td><code>quick</code></td><td><span class="dim">documentation-engineer · ultron-docs</span></td></tr>
         <tr><td><code>refactor</code></td><td><code>quick</code></td><td><span class="dim">refactoring-specialist · ultron-refactor · code-reviewer</span></td></tr>
-        <tr><td><code>game</code></td><td><code>game</code></td><td><span class="dim">unreal-engine-engineer · cpp-pro · architect-reviewer</span></td></tr>
-        <tr><td><code>feature</code></td><td><code>feature</code></td><td><span class="dim">architect-reviewer · fullstack-developer · code-reviewer</span></td></tr>
         <tr><td><span class="dim">— sin match —</span></td><td><code>quick</code></td><td><span class="dim">code-reviewer · qa-expert (default)</span></td></tr>
       </tbody>
     </table>
     </div>
-
-    <pre>
-      <span class="head">orchestrator.rs — reglas de intención (extracto), primer match gana</span>
-      <code><span class="k">const</span> <span class="n">RULES</span>: &amp;[IntentRule] = &amp;[
-    IntentRule { intent: <span class="s">"security"</span>, workflow_id: <span class="s">"security"</span>,
-        patterns: &amp;[<span class="s">"seguridad"</span>, <span class="s">"security"</span>, <span class="s">"vulnerab"</span>, <span class="s">"owasp"</span>, <span class="s">"pentest"</span>, <span class="s">"cve"</span>] },
-    IntentRule { intent: <span class="s">"bug_fix"</span>, workflow_id: <span class="s">"debug"</span>,
-        patterns: &amp;[<span class="s">"bug"</span>, <span class="s">"arregla"</span>, <span class="s">"fix"</span>, <span class="s">"error"</span>, <span class="s">"crash"</span>, <span class="s">"no funciona"</span>] },
-    <span class="c">// … game, feature, research, learning, architecture_review, memory, continue</span>
-];
-
-<span class="k">pub fn</span> <span class="f">classify_intent</span>(prompt: &amp;<span class="k">str</span>) -&gt; (&amp;<span class="k">'static str</span>, &amp;<span class="k">'static str</span>) {
-    <span class="k">let</span> p = prompt.to_lowercase();
-    <span class="k">for</span> r <span class="k">in</span> RULES {
-        <span class="k">if</span> r.patterns.iter().any(|pat| p.contains(pat)) { <span class="k">return</span> (r.intent, r.workflow_id); }
-    }
-    (<span class="s">"general"</span>, <span class="s">"quick"</span>) <span class="c">// default</span>
-}</code>
-    </pre>
-
-    <h3>Las skills, conectadas — el catálogo pasa de 78 a 197</h3>
-    <p>
-      Hasta ahora el catálogo solo indexaba los <b>78 agentes</b> de
-      <code class="t">~/.claude/agents/</code>. Esta sesión conectó también las <b>skills
-      habilitadas</b> —119— al mismo índice E5, así que ahora <b>197</b> capacidades compiten por el
-      prompt. Agente y skill viven en una sola colección, con el id namespaced
-      (<code class="t">agent::{name}</code> vs <code class="t">skill::{name}</code>) y un campo
-      <code class="t">entity</code> en el payload, de modo que una búsqueda puede filtrar a agentes,
-      a skills, o dejar que compitan ambos. Las skills <code class="t">.disabled</code> se excluyen:
-      nunca se enruta a una capacidad apagada.
-    </p>
-    <p>
-      Cada skill se clasifica en un <code class="t">kind</code> grueso —<b>persona</b>
-      (alfred, terry-davis…), <b>technical</b> (rust-patterns, docker-patterns…) o <b>meta</b>
-      (council, superpowers, skill-creator…)— para que el orquestador pueda pesar una persona
-      distinto de una capacidad técnica sin un segundo lookup.
-    </p>
-
-    <h4>Rebalanceo: especialistas por encima de los meta</h4>
-    <p>
-      Sobre los <em>hits</em> semánticos crudos, <code class="t">rebalance_delegates</code> re-ordena:
-      penaliza a los agentes meta internos de ULTRON cuando no vienen a cuento del intent, y aplica un
-      <b>boost aditivo</b> a los especialistas que la intención prefiere — salvo que un agente meta
-      sea él mismo el pertinente (p. ej. <code class="t">ultron-docs</code> para el intent
-      <code class="t">docs</code>), en cuyo caso se le perdona la penalización. Así un «diseña una
-      pantalla bonita» sube a <code class="t">frontend-developer</code> y
-      <code class="t">ui-designer</code> por delante del genérico.
-    </p>
 
     <div class="call">
       <div class="cl">Agentes fantasma saneados</div>
@@ -1078,17 +1119,98 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
         (planner, architect, tdd-guide…). El orquestador cruza cada paso contra
         <code class="t">known_agent_names()</code> —los <code class="t">.md</code> reales— y descarta
         los fantasma con un warning, en vez de fallar en silencio. Es de <b>solo lectura</b>: jamás
-        escribe memoria persistente; eso solo lo hace el Memory Agent.
+        escribe memoria persistente.
       </p>
     </div>
   </div>
 </section>
 
-<!-- ════════════════ 07 · DOCTOR ════════════════ -->
+<!-- ════════════════ 08 · GUI ════════════════ -->
+<section id="gui">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">08</span><span>La GUI · Control Center</span><span class="rule"></span></div>
+      <h2>Una sala de control para todo el motor.</h2>
+      <p class="sec-sub">
+        El Control Center es una app de escritorio <b>Tauri 2 + React 19</b> con backend Rust. Es la
+        cara visible de las capas anteriores: una barra lateral con ~17 pestañas, cada una conectada
+        a comandos reales del backend. Todo el estado vive en ficheros locales (SQLite + JSON +
+        markdown) que puedes inspeccionar, versionar y editar a mano.
+      </p>
+    </div>
+
+    <p>
+      No reemplaza a Claude Code: lo <b>envuelve</b> con estado persistente, inspeccionable y
+      versionable. La capa técnica (memoria, router, orquestador) es backend; la GUI es donde tú
+      <b>gobiernas</b> ese backend — sobre todo la bandeja de memoria, que es human-in-the-loop.
+      El detalle pestaña a pestaña está en la <a href="#pestanas">Parte B</a>.
+    </p>
+
+    <h4>Stack de la app</h4>
+    <div class="scroll-x">
+    <table>
+      <thead><tr><th>Capa</th><th>Tecnología</th></tr></thead>
+      <tbody>
+        <tr><td>Frontend</td><td><span class="dim">Tauri 2 + React 19 + TypeScript</span> (<code>control-center/src/</code>)</td></tr>
+        <tr><td>Backend</td><td><span class="dim">Rust estable</span> (<code>control-center/src-tauri/src/</code>)</td></tr>
+        <tr><td>Memoria (SoT)</td><td><span class="dim">SQLite + FTS5</span> en <code>~/.ultron/brain.db</code></td></tr>
+        <tr><td>Índice denso</td><td><span class="dim">Qdrant nativo</span>, colección <code>ultron_memory</code>, E5 1024d</td></tr>
+        <tr><td>Sidecars</td><td><span class="dim">ultron-memory</span> (lógica canónica) · <span class="dim">ultron-embed</span> (embeddings para hooks)</td></tr>
+        <tr><td>Runtimes LLM</td><td><span class="dim">Claude Code</span> (principal) · Codex CLI y Gemini CLI opcionales</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ 09 · INTEGRACIÓN ════════════════ -->
+<section id="integration">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">09</span><span>Integración</span><span class="rule"></span></div>
+      <h2>Un solo repo. Piezas que encajan.</h2>
+      <p class="sec-sub">
+        ULTRON es un <b>único monorepo</b> en <code class="t">~/.ultron/</code> con un solo
+        <code class="t">.git</code> y sin submódulos. Dentro conviven el runtime operativo (cockpit
+        Python + hooks) y la GUI (Control Center). Encima se apoyan piezas complementarias.
+      </p>
+    </div>
+
+    <div class="layers">
+      <div class="layer">
+        <div><div class="ln">ECC</div><div class="lr">plugin complementario</div></div>
+        <div class="ld">Plugin de Claude Code (skills/comandos) que coexiste con ULTRON, no lo reemplaza. ULTRON sigue siendo la GUI y el orquestador/memoria principales.</div>
+      </div>
+      <div class="layer">
+        <div><div class="ln">superpowers</div><div class="lr">fuente de skills/planes</div></div>
+        <div class="ld">Conjunto de skills y patrones de planificación (brainstorm, writing-plans, executing-plans…) que el routing puede inyectar bajo demanda como cualquier otra capacidad.</div>
+      </div>
+      <div class="layer">
+        <div><div class="ln">codegraph</div><div class="lr">grafo de código (interno)</div></div>
+        <div class="ld">Capa ligera sobre <code>brain.db</code> (migración <code>schema_v4.rs</code>: tablas <code>edges</code> / <code>unresolved_refs</code>) con análisis de impacto caller/callee. Panel read-only dentro de la pestaña System.</div>
+      </div>
+      <div class="layer">
+        <div><div class="ln">catálogo de agentes</div><div class="lr">comunidad embebida</div></div>
+        <div class="ld">Agentes de base (ULTRON first-party) más una copia embebida de catálogos de comunidad (VoltAgent, wshobson, hesreallyhim) instalables desde la pestaña Library / Agents.</div>
+      </div>
+    </div>
+
+    <div class="call">
+      <div class="cl">Mem0 fuera</div>
+      <p>
+        El plan de migración a ECC+Mem0 (2026-05-22) se <b>descartó</b>. La memoria la gestiona el
+        sistema propio (SQLite + Qdrant + sidecar <code class="t">ultron-memory</code>); <b>Mem0 no
+        se usa</b> y no se reintroduce.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ 10 · DOCTOR ════════════════ -->
 <section id="doctor">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-kicker"><span class="num">07</span><span>Control plane</span><span class="rule"></span></div>
+      <div class="sec-kicker"><span class="num">10</span><span>Control plane</span><span class="rule"></span></div>
       <h2>Operar sin adivinar: doctor, solo lectura.</h2>
       <p class="sec-sub">
         <code class="t">ultron-memory doctor</code> es un comando de salud. Cada chequeo es una
@@ -1111,7 +1233,7 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
         <tr><td><code>qdrant_*</code></td><td>una sonda por colección: status, dim, points</td><td><span class="dim">green · dim correcta</span></td></tr>
         <tr><td><code>reconcile</code></td><td>drift SQLite ↔ Qdrant (missing / orphan)</td><td><span class="dim">in_sync · counts iguales</span></td></tr>
         <tr><td><code>evals</code></td><td>recall@8 + gate de seguridad</td><td><span class="dim">recall@8 ≥ 0.90 · leaks = 0</span></td></tr>
-        <tr><td><code>sidecars</code></td><td>ultron-memory.exe + ultron-embed.exe presentes</td><td><span class="dim">ambos no vacíos</span></td></tr>
+        <tr><td><code>sidecars</code></td><td>ultron-memory + ultron-embed presentes</td><td><span class="dim">ambos no vacíos</span></td></tr>
         <tr><td><code>versions</code></td><td>anti stale-binary: ¿corre el binario desplegado?</td><td><span class="dim">en uso = desplegado</span></td></tr>
         <tr><td><code>disk</code></td><td>espacio libre en el volumen de ~/.ultron</td><td><span class="dim">≥ 5 GB</span></td></tr>
         <tr><td><code>deprecation_deadlines</code></td><td>entradas del registro de deprecación vencidas</td><td><span class="dim">sin deadlines vencidos</span></td></tr>
@@ -1119,35 +1241,256 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
     </table>
 
     <p>
-      Dos detalles delatan que esto se diseñó operando un sistema real, no en abstracto. El chequeo
+      Dos detalles delatan que esto se diseñó operando un sistema real. El chequeo
       <code class="t">versions</code> avisa cuando el binario desplegado es más nuevo que el que
       corre —el clásico «no se ha aplicado» que en realidad es un <em>.exe</em> viejo—. Y el de
       <code class="t">evals</code> trata cualquier fuga de secreto o de ítem stale como
-      <code class="t">Error</code> duro, no como nota: la recuperación se audita en cada
-      <em>health-check</em>.
+      <code class="t">Error</code> duro: la recuperación se audita en cada <em>health-check</em>.
     </p>
-
-    <pre>
-      <span class="head">memory/doctor.rs — severidad agregada → código de salida</span>
-      <code><span class="k">pub fn</span> <span class="f">exit_code</span>(&amp;self) -&gt; i32 {
-    <span class="k">match</span> self.max_severity {
-        Severity::Ok =&gt; <span class="n">0</span>,
-        Severity::Warn =&gt; <span class="n">1</span>,
-        Severity::Error =&gt; <span class="n">2</span>,
-    }
-}</code>
-    </pre>
   </div>
 </section>
 
-<!-- ════════════════ 08 · COMPARATIVA ════════════════ -->
+<!-- ════════════════════════════════════════════════════════════════
+     PARTE B · CÓMO FUNCIONA A NIVEL USUARIO, PASO A PASO
+     ════════════════════════════════════════════════════════════════ -->
+<div class="partband b" id="parte-b">
+  <div class="wrap">
+    <p class="pk"><span class="tick"></span>Parte B · A nivel usuario, paso a paso</p>
+    <h2>Cómo se usa, sin tecnicismos.</h2>
+    <p>
+      Si la Parte A es el motor, esta es la <b>guía de conducir</b>. Aquí no hace falta saber Rust
+      ni qué es un vector: solo qué botón tocar y qué esperar. Cubrimos cómo instalar y abrir la
+      app, qué hace cada pestaña principal, cómo funciona la memoria y el routing en una sesión
+      normal, y cómo lanzar sesiones y proyectos.
+    </p>
+    <div class="jump">
+      <a href="#instalar">Instalar y abrir</a>
+      <a href="#pestanas">Qué hace cada pestaña</a>
+      <a href="#sesion">Una sesión típica</a>
+      <a href="#proyectos">Sesiones y proyectos</a>
+      <a href="#compare">¿Por qué es distinto?</a>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════ B1 · INSTALAR ════════════════ -->
+<section id="instalar">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">B1</span><span>Instalar y abrir la app</span><span class="rule"></span></div>
+      <h2>De cero a la ventana abierta.</h2>
+      <p class="sec-sub">
+        ULTRON es una app de escritorio. Se construye una vez y luego se abre como cualquier
+        programa. El objetivo principal es Windows 11; Linux compila pero no está verificado de
+        punta a punta.
+      </p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <div class="st">Clona el repositorio en tu carpeta de usuario</div>
+        <p>Todo vive bajo <code>~/.ultron/</code>. En una terminal:</p>
+        <pre><code><span class="c"># clona y entra a la carpeta de la app</span>
+git clone &lt;repo-url&gt; ~/.ultron
+cd ~/.ultron/control-center</code></pre>
+      </li>
+      <li>
+        <div class="st">Instala dependencias y construye la app</div>
+        <p>
+          Esto genera el ejecutable de escritorio. Tarda unos minutos la primera vez. Las claves de
+          proveedores de IA son <b>opcionales</b> y vienen vacías por defecto.
+        </p>
+        <pre><code>npm install
+npm run build:app   <span class="c"># cierra cualquier instancia + compila el .exe</span></code></pre>
+      </li>
+      <li>
+        <div class="st">Abre el Control Center</div>
+        <p>
+          Lanza el ejecutable recién construido (en Windows queda en la carpeta de
+          <code>bundle/</code>). Se abre una ventana con una <b>barra lateral de pestañas</b> a la
+          izquierda. Ya está: esa ventana es tu sala de control.
+        </p>
+      </li>
+      <li>
+        <div class="st">Comprueba que todo está sano</div>
+        <p>
+          Ve a la pestaña <b>Dashboard</b> y pulsa <b>Run full diagnostic</b>. Se iluminan varios
+          subsistemas (Qdrant, memoria, hooks, disco…). Lo que salga en rojo o naranja te dice qué
+          arreglar; suele haber un botón de auto-arreglo al lado.
+        </p>
+      </li>
+    </ol>
+
+    <div class="call">
+      <div class="cl">¿«No se ha aplicado el cambio»?</div>
+      <p>
+        Casi siempre es un binario viejo. <code class="t">build:app</code> primero cierra la app en
+        marcha y luego recompila. Si tocaste el backend (Rust) y no ves el cambio, vuelve a hacer
+        <code class="t">build:app</code> y reabre. Qdrant es opcional: sin él, la memoria sigue
+        funcionando en modo solo-texto.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ B2 · PESTAÑAS ════════════════ -->
+<section id="pestanas">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">B2</span><span>Qué hace cada pestaña</span><span class="rule"></span></div>
+      <h2>El mapa de la barra lateral.</h2>
+      <p class="sec-sub">
+        La barra de la izquierda tiene ~17 pestañas. No necesitas todas el primer día. Estas son las
+        que importan, de más usada a más ocasional.
+      </p>
+    </div>
+
+    <div class="scroll-x">
+    <table>
+      <thead><tr><th>Pestaña</th><th>Para qué sirve</th></tr></thead>
+      <tbody>
+        <tr><td><b>Dashboard</b></td><td>La portada. Diagnóstico de salud del sistema y lista de «pendientes» (planes parados, alertas sin leer). Empieza siempre aquí.</td></tr>
+        <tr><td><b>Memory</b></td><td>La bandeja de la memoria. Revisas los hechos que el sistema capturó y decides: <b>Aprobar</b>, <b>Rechazar</b> o <b>Editar</b>. Nada entra en la memoria sin tu OK.</td></tr>
+        <tr><td><b>AI Router</b></td><td>Qué modelo de IA atiende cada tipo de tarea, con estadísticas reales de uso, fallback y ahorro. Aquí también pones tus claves si quieres usar proveedores extra.</td></tr>
+        <tr><td><b>Library</b></td><td>El catálogo de capacidades: sub-pestañas <b>Skills</b>, <b>Agents</b>, <b>Rules</b> y <b>Updates</b>. Instalas, revisas y actualizas especialistas; los sospechosos quedan en cuarentena.</td></tr>
+        <tr><td><b>Projects</b></td><td>Tus proyectos en formato kanban. Desde aquí lanzas una sesión de Claude Code apuntando a la carpeta del proyecto.</td></tr>
+        <tr><td><b>Sessions</b></td><td>Historial de sesiones de trabajo y su telemetría (qué se enrutó, a dónde).</td></tr>
+        <tr><td><b>System</b></td><td>Tripas operativas: hooks, tareas programadas y el panel <b>CodeGraph</b> (grafo de código, solo lectura).</td></tr>
+        <tr><td><b>Usage</b></td><td>Consumo y coste estimado a lo largo del tiempo.</td></tr>
+        <tr><td><b>MCPs</b></td><td>Servidores MCP conectados (herramientas externas que la IA puede usar).</td></tr>
+        <tr><td><b>Notes</b> · <b>Finance</b></td><td>Notas rápidas y un panel financiero de solo lectura.</td></tr>
+        <tr><td><b>Notifications</b></td><td>El flujo de alertas (icono de campana). «Clear all» las borra; el borrado es definitivo.</td></tr>
+        <tr><td><b>Settings</b></td><td>Configuración general y el <b>ciclo de vida de la app</b> (Rebuild para reconstruir, Uninstall para desinstalar — con confirmación).</td></tr>
+      </tbody>
+    </table>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ B3 · SESIÓN ════════════════ -->
+<section id="sesion">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">B3</span><span>Una sesión típica</span><span class="rule"></span></div>
+      <h2>Cómo te ayudan la memoria y el routing, sin que hagas nada raro.</h2>
+      <p class="sec-sub">
+        Lo bueno es que casi todo pasa solo. Tú trabajas con Claude Code como siempre; ULTRON añade
+        contexto al empezar, elige especialistas según escribes, y toma acta al terminar para que tú
+        la apruebes. Así es el ciclo completo.
+      </p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <div class="st">Arrancas una sesión: ULTRON te pone al día</div>
+        <p>
+          Al empezar (<code>SessionStart</code>), ULTRON inyecta automáticamente un <b>resumen</b> de
+          dónde lo dejasteis: workflows activos, tareas abiertas, decisiones recientes y la próxima
+          acción. No tienes que volver a contarle el contexto del proyecto.
+        </p>
+      </li>
+      <li>
+        <div class="st">Escribes tu petición: se elige el especialista</div>
+        <p>
+          Cada vez que mandas un prompt (<code>UserPromptSubmit</code>), el dispatcher lo lee y, si
+          encaja una skill o un agente concreto, <b>inyecta ese especialista al vuelo</b>. Escribes
+          «revisa esto por seguridad» y, sin nombrar a nadie, entra el experto de seguridad. Si tu
+          mensaje habla de varios proyectos, el recall busca también en los demás.
+        </p>
+      </li>
+      <li>
+        <div class="st">Trabajas: el AI Router reparte el coste</div>
+        <p>
+          Las tareas internas (resúmenes, decisiones rápidas, naming) se enrutan al modelo más
+          adecuado y barato, con un plan B si el primero falla. Tú no gestionas esto; lo ves luego
+          en la pestaña <b>AI Router</b> como estadísticas.
+        </p>
+      </li>
+      <li>
+        <div class="st">Cierras la sesión: ULTRON toma acta</div>
+        <p>
+          Al terminar (<code>Stop</code>), el sistema extrae unos pocos hechos durables de la
+          conversación (decisiones, preferencias, dónde está algo) y los deja como <b>candidatos</b>.
+          Los secretos se tachan automáticamente antes de guardar nada.
+        </p>
+      </li>
+      <li>
+        <div class="st">Apruebas lo que merece la pena</div>
+        <p>
+          Abres la pestaña <b>Memory</b>, miras la bandeja y decides: <b>Aprobar</b> lo que sí,
+          <b>Rechazar</b> el ruido, <b>Editar</b> lo que esté casi bien. Lo aprobado pasa a la
+          memoria permanente y aparecerá en futuras sesiones. Lo rechazado, desaparece.
+        </p>
+      </li>
+    </ol>
+
+    <div class="call key">
+      <div class="cl">La idea en una frase</div>
+      <p>
+        Tú decides qué recuerda el sistema. ULTRON <b>propone</b>; tú <b>apruebas</b>. Cuanto más
+        trabajáis juntos, más sabe de ti y de tus proyectos — sin repetirte y sin que tus datos
+        salgan de tu ordenador.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ════════════════ B4 · PROYECTOS ════════════════ -->
+<section id="proyectos">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-kicker"><span class="num">B4</span><span>Lanzar sesiones y proyectos</span><span class="rule"></span></div>
+      <h2>De un proyecto en el kanban a una sesión en marcha.</h2>
+      <p class="sec-sub">
+        Los proyectos se organizan en un tablero. Lanzar trabajo sobre uno es cuestión de un par de
+        clics, y la memoria se separa por proyecto para que no se mezcle.
+      </p>
+    </div>
+
+    <ol class="steps">
+      <li>
+        <div class="st">Organiza tus proyectos en el kanban</div>
+        <p>
+          En la pestaña <b>Projects</b> verás columnas (backlog, en progreso, bloqueado, hecho).
+          Arrastra una tarjeta entre columnas para cambiar su estado. El Dashboard te avisa si algo
+          lleva demasiados días parado.
+        </p>
+      </li>
+      <li>
+        <div class="st">Lanza una sesión sobre un proyecto</div>
+        <p>
+          Desde una tarjeta de proyecto puedes <b>abrir una sesión de Claude Code</b> apuntando a su
+          carpeta. ULTRON arranca la sesión en el directorio correcto, así que la memoria y el
+          contexto que se recuperan son los de <b>ese</b> proyecto.
+        </p>
+      </li>
+      <li>
+        <div class="st">Deja tareas en cola (Run Batch)</div>
+        <p>
+          Si una orden no se pudo ejecutar o quieres encolar trabajo, va a una <b>cola de lote</b>
+          que puedes lanzar después. Útil para dejar tareas preparadas y ejecutarlas de una tanda.
+        </p>
+      </li>
+      <li>
+        <div class="st">Actualiza o desinstala cuando toque</div>
+        <p>
+          En <b>Settings → App lifecycle</b> tienes <b>Rebuild</b> (reconstruye la app tras cambios)
+          y <b>Uninstall</b> (te pide confirmación; tus skills de Claude Code sobreviven, solo se
+          borran los datos de ULTRON).
+        </p>
+      </li>
+    </ol>
+  </div>
+</section>
+
+<!-- ════════════════ B5 · COMPARATIVA ════════════════ -->
 <section id="compare">
   <div class="wrap">
     <div class="sec-head">
-      <div class="sec-kicker"><span class="num">08</span><span>Para presentar</span><span class="rule"></span></div>
+      <div class="sec-kicker"><span class="num">B5</span><span>¿Por qué es distinto?</span><span class="rule"></span></div>
       <h2>Memoria «normal» vs. la memoria de ULTRON.</h2>
       <p class="sec-sub">
-        Sin tecnicismos, para enseñar la diferencia. La mayoría de asistentes «recuerdan» pegando
+        Sin tecnicismos, para verlo de un vistazo. La mayoría de asistentes «recuerdan» pegando
         notas sueltas en su servidor cuando les apetece. ULTRON <b>toma acta de cada sesión, te la
         pasa para que tú la apruebes</b>, y la guarda en <b>tu propio ordenador</b> — organizada,
         buscable por significado y para siempre, sin que se le escape un secreto.
@@ -1224,8 +1567,7 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
         Un chatbot normal es como un becario brillante <b>con amnesia</b>: cada día empieza de cero y
         vuelves a contarle todo. ULTRON es como un asistente que <b>toma actas, te las hace firmar y
         las archiva en tu despacho</b>: al día siguiente ya sabe qué decidisteis, qué prefieres y qué
-        toca — y nunca deja una contraseña a la vista. Cuanto más trabajáis juntos, <b>más sabe de ti
-        y de tus proyectos</b>, sin que te repitas y sin que tus datos salgan de tu ordenador.
+        toca — y nunca deja una contraseña a la vista.
       </p>
     </div>
     <p style="font-size:15px;color:var(--ink);max-width:62ch;">
@@ -1239,16 +1581,17 @@ Err(<span class="s">"all providers failed for zone ..."</span>)</code>
 
 <footer>
   <div class="wrap">
-    <div class="ftitle">Procedencia · backend Tauri / Rust</div>
+    <div class="ftitle">Procedencia · leído del repo, no inferido</div>
     <div class="files">
       <code><b>memory/</b>{service, sqlite_store, qdrant_index, redaction, capture, catalog, contradiction, doctor}.rs</code>
-      <code><b>commands/memory/</b>{recall_unified, inbox}.rs</code>
-      <code><b>src/</b>ai_router.rs</code>
-      <code><b>src/</b>orchestrator.rs</code>
+      <code><b>commands/memory/</b>{recall_unified, inbox, codegraph}.rs</code>
+      <code><b>src/</b>ai_router.rs · <b>src/</b>orchestrator.rs</code>
+      <code><b>cockpit/skill-lazy/</b>{routing-dispatcher, README}  ·  <b>hooks/</b>{manifest.json, README}</code>
+      <code><b>docs/</b>{README, QUICKSTART, INTEGRATION}.md</code>
     </div>
     <div class="meta">
       Página estática autocontenida · CSS inline · sin dependencias de red · sin JavaScript.<br/>
-      Contenido fiel al código fuente, verificado constante a constante. No generado por inferencia libre.
+      Dos partes: A (funcionamiento técnico) y B (uso paso a paso). Contenido fiel al código y a los docs del repositorio.
     </div>
   </div>
 </footer>
