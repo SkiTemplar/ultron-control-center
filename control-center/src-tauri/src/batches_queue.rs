@@ -81,16 +81,56 @@ impl BatchQueueReason {
     }
 }
 
+/// Whether a queue entry is automatically runnable by clicking "Run" or
+/// requires a human to perform an out-of-band action first.
+///
+/// `"auto"` — standard script that USER can execute with one click.
+/// `"manual"` — the AI left this as a reminder of an action it CANNOT perform
+///              (e.g. rebuild, token rotation, GUI login). The Run Batch UI
+///              renders these with a distinct badge and no "Run" button.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum BatchKind {
+    #[default]
+    Auto,
+    Manual,
+}
+
+impl BatchKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BatchKind::Auto => "auto",
+            BatchKind::Manual => "manual",
+        }
+    }
+
+    pub fn parse_lenient(s: &str) -> Self {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "manual" | "human" | "requires_human" | "requires-human" => BatchKind::Manual,
+            _ => BatchKind::Auto,
+        }
+    }
+}
+
 /// One queued batch. Serialised one-per-line into `queue.jsonl`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchQueueEntry {
     /// `bq-<microtime>-<counter>` — stable identity for requeue/dismiss.
     pub id: String,
     /// Bare filename of the script in `~/.ultron/batches/` (no path separators).
+    /// For `kind = manual` entries this may be empty — there is no script to run.
     pub name: String,
     /// Absolute path to the script on disk (best-effort; may not exist yet).
     pub path: String,
     pub reason: BatchQueueReason,
+    /// Whether this entry can be executed with the Run button (`auto`) or
+    /// requires a human out-of-band action (`manual`).
+    #[serde(default)]
+    pub kind: BatchKind,
+    /// Human-readable description of the action needed. Especially useful for
+    /// `manual` entries where there is no script body to inspect.
+    #[serde(default)]
+    pub description: Option<String>,
     /// "epoch:<secs>" — when this entry was first enqueued.
     pub created_at: String,
     /// Last error / stderr captured for this entry (truncated). `None` when the
@@ -215,6 +255,20 @@ fn upsert(
     reason: BatchQueueReason,
     last_error: Option<String>,
 ) -> BatchQueueEntry {
+    upsert_full(entries, name, path, reason, BatchKind::Auto, None, last_error)
+}
+
+/// Full upsert with explicit `kind` and `description` — used by
+/// `enqueue_command_inner` and `enqueue_manual_inner`.
+fn upsert_full(
+    entries: &mut Vec<BatchQueueEntry>,
+    name: &str,
+    path: &str,
+    reason: BatchQueueReason,
+    kind: BatchKind,
+    description: Option<String>,
+    last_error: Option<String>,
+) -> BatchQueueEntry {
     let key = dedup_key(name, reason);
     if let Some(existing) = entries
         .iter_mut()
@@ -224,9 +278,12 @@ fn upsert(
         if let Some(err) = last_error.and_then(|e| clip_error(&e)) {
             existing.last_error = Some(err);
         }
-        // Keep path fresh in case the script was rewritten.
+        // Keep path and description fresh if a caller refreshes the entry.
         if !path.is_empty() {
             existing.path = path.to_string();
+        }
+        if description.is_some() {
+            existing.description = description;
         }
         return existing.clone();
     }
@@ -236,6 +293,8 @@ fn upsert(
         name: name.to_string(),
         path: path.to_string(),
         reason,
+        kind,
+        description,
         created_at: now_iso(),
         last_error: last_error.and_then(|e| clip_error(&e)),
         attempts: 1,
@@ -405,11 +464,50 @@ pub fn enqueue_command_inner(
     fs::rename(&tmp, &target).map_err(|e| format!("rename script: {e}"))?;
 
     let mut entries = read_all()?;
-    let entry = upsert(
+    let entry = upsert_full(
         &mut entries,
         &filename,
         &target.to_string_lossy(),
         BatchQueueReason::parse_lenient(reason),
+        BatchKind::Auto,
+        None,
+        None,
+    );
+    let path_buf = queue_path()?;
+    write_atomic(&path_buf, &entries)?;
+    Ok(entry)
+}
+
+/// Enqueue a **manual** action — one that the AI cannot perform automatically
+/// (e.g. "rebuild the app", "rotate the GitHub token", "log in to X"). No
+/// script is written to disk; this is purely a reminder in the Run Batch UI.
+///
+/// `name`        — short identifier for the action (used as the entry title).
+/// `description` — human-readable instructions for USER.
+/// `reason`      — parsed leniently; usually "ai_cannot_execute".
+///
+/// Returns the created (or bumped) queue entry.
+pub fn enqueue_manual_inner(
+    name: &str,
+    description: &str,
+    reason: &str,
+) -> Result<BatchQueueEntry, String> {
+    let _g = queue_lock()
+        .lock()
+        .map_err(|_| "batches queue lock poisoned")?;
+
+    let mut entries = read_all()?;
+    let entry = upsert_full(
+        &mut entries,
+        name.trim(),
+        "", // no script path — manual action
+        BatchQueueReason::parse_lenient(reason),
+        BatchKind::Manual,
+        if description.trim().is_empty() {
+            None
+        } else {
+            Some(description.trim().to_string())
+        },
         None,
     );
     let path_buf = queue_path()?;
@@ -431,6 +529,10 @@ struct PendingQueueLine {
     path: Option<String>,
     #[serde(default)]
     reason: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default)]
     last_error: Option<String>,
 }
@@ -467,11 +569,14 @@ fn parse_pending_lines(text: &str, existing_keys: &HashSet<String>) -> Vec<Batch
         }
         seen.insert(key);
 
+        let kind = BatchKind::parse_lenient(p.kind.as_deref().unwrap_or("auto"));
         added.push(BatchQueueEntry {
             id: new_queue_id(),
             name: name.clone(),
             path: p.path.unwrap_or_default(),
             reason,
+            kind,
+            description: p.description,
             created_at: now_iso(),
             last_error: p.last_error.and_then(|e| clip_error(&e)),
             attempts: 1,
@@ -712,6 +817,8 @@ mod tests {
             name: "x.ps1".into(),
             path: "/p/x.ps1".into(),
             reason: BatchQueueReason::Rejected,
+            kind: BatchKind::Auto,
+            description: None,
             created_at: "epoch:0".into(),
             last_error: Some("denied".into()),
             attempts: 3,

@@ -82,3 +82,19 @@ pub async fn get_env_keys_status() -> Result<Vec<env_keys::EnvKeyStatus>, String
         .await
         .map_err(|e| e.to_string())?
 }
+
+/// Persiste un nuevo GitHub token en `~/.ultron/.env` (línea GITHUB_TOKEN=<token>).
+/// Usa el patrón dotenvy: el archivo .env es la fuente de verdad; la variable
+/// también se aplica al proceso actual para que surta efecto sin reiniciar.
+///
+/// Seguridad:
+///   - El token NUNCA se logea. Se valida que no esté vacío y que empiece
+///     con "ghp_", "gho_", "github_pat_" o "ghs_" (prefijos oficiales GitHub).
+///   - Sólo escribe la clave GITHUB_TOKEN — nada más.
+///   - La escritura es atómica: tmp + rename para no dejar el .env truncado.
+#[tauri::command]
+pub async fn set_github_token(token: String) -> Result<env_keys::GithubTokenResult, String> {
+    tauri::async_runtime::spawn_blocking(move || env_keys::set_github_token_inner(token))
+        .await
+        .map_err(|e| e.to_string())?
+}

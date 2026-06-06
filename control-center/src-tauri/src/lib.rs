@@ -317,6 +317,7 @@ pub fn run() {
             commands::batches::batches_requeue,
             commands::batches::batches_dismiss_queue,
             commands::batches::batches_enqueue_command,
+            commands::batches::batches_enqueue_manual,
             // -- project detach / reattach (ventanas independientes) --
             commands::detach::detach_project_window,
             commands::detach::reattach_project_window,
@@ -358,6 +359,8 @@ pub fn run() {
             // -- API keys (Windows setx, User scope) --
             commands::settings::set_env_vars_keys,
             commands::settings::get_env_keys_status,
+            // -- GitHub token (persiste en ~/.ultron/.env via dotenvy) --
+            commands::settings::set_github_token,
             // -- system / scheduled tasks --
             commands::system::list_scheduled_tasks,
             commands::system::run_scheduled_task,

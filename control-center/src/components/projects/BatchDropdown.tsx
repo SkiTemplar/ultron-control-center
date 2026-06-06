@@ -1,14 +1,17 @@
 // ULTRON Control Center - BatchDropdown
 //
-// Botón "Run batch" para el header del tab Projects. Lista los .bat / .cmd /
+// Boton "Run batch" para el header del tab Projects. Lista los .bat / .cmd /
 // .ps1 que la AI (o el usuario) deja en `~/.ultron/batches/` cuando hay un
 // comando que el sandbox no puede ejecutar (instalaciones interactivas,
-// elevación, etc.). Un click en un item invoca `execute_batch` en el backend
+// elevacion, etc.). Un click en un item invoca `execute_batch` en el backend
 // y muestra el stdout/stderr resultante como toast inline.
 //
 // Backend: src-tauri/src/commands/batches.rs
-//   list_batches() -> Vec<BatchEntry>
-//   execute_batch(name: String) -> BatchRunResult
+//   list_batches()              -> Vec<BatchEntry>
+//   execute_batch(name)         -> BatchRunResult
+//   clear_all_batches()         -> BatchCleanupReport
+//   batches_enqueue_manual(...) -> BatchQueueEntry   (para la IA)
+//   set_github_token(token)     -> GithubTokenResult
 
 import {
   useCallback,
@@ -19,6 +22,10 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { invoke } from "@tauri-apps/api/core";
+
+// ---------------------------------------------------------------------------
+// Domain types (mirrors Rust structs)
+// ---------------------------------------------------------------------------
 
 type BatchEntry = {
   name: string;
@@ -36,20 +43,35 @@ type BatchRunResult = {
 
 type BatchQueueReason = "rejected" | "ai_cannot_execute" | "failed";
 
+/** "auto" = runnable with one click; "manual" = human out-of-band action. */
+type BatchKind = "auto" | "manual";
+
 type BatchQueueEntry = {
   id: string;
   name: string;
   path: string;
   reason: BatchQueueReason;
+  kind: BatchKind;
+  description: string | null;
   created_at: string;
   last_error: string | null;
   attempts: number;
 };
 
+type GithubTokenResult = {
+  ok: boolean;
+  masked: string;
+  message: string;
+};
+
+// ---------------------------------------------------------------------------
+// Display helpers
+// ---------------------------------------------------------------------------
+
 const REASON_LABEL: Record<BatchQueueReason, string> = {
   rejected: "rechazado",
   ai_cannot_execute: "IA no pudo ejecutar",
-  failed: "falló",
+  failed: "fallo",
 };
 
 const REASON_COLOR: Record<BatchQueueReason, string> = {
@@ -65,16 +87,8 @@ export type BatchToast = {
 };
 
 type BatchDropdownProps = {
-  /** Callback fired with a toast payload after a batch finishes (success or
-   *  failure). The host renders this in its own surface so the dropdown stays
-   *  visually consistent with the rest of the toolbar. */
   onResult?: (toast: BatchToast) => void;
-  /** When true, the trigger button adopts the project-header visual style:
-   *  transparent bg, rgba border, same size as the other header buttons.
-   *  When false (default), uses the original toolbar style. */
   headerStyle?: boolean;
-  /** When true, renders the trigger as a dashboard action card (icon pill +
-   *  label + subtitle). Overrides headerStyle. Used in ProjectWorkspace V2. */
   cardStyle?: boolean;
 };
 
@@ -85,7 +99,7 @@ function formatBytes(n: number): string {
 }
 
 function formatAge(epoch: number): string {
-  if (!epoch) return "—";
+  if (!epoch) return "-";
   const now = Math.floor(Date.now() / 1000);
   const diff = Math.max(0, now - epoch);
   if (diff < 60) return `${diff}s ago`;
@@ -94,12 +108,15 @@ function formatAge(epoch: number): string {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-/** Trim a long stdout/stderr blob so the toast stays readable. */
 function clip(s: string, max = 320): string {
   const trimmed = s.trim();
   if (trimmed.length <= max) return trimmed;
-  return `${trimmed.slice(0, max)}… (+${trimmed.length - max} chars)`;
+  return `${trimmed.slice(0, max)}... (+${trimmed.length - max} chars)`;
 }
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 export default function BatchDropdown({
   onResult,
@@ -111,23 +128,36 @@ export default function BatchDropdown({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runningName, setRunningName] = useState<string | null>(null);
-  /** Name of the batch currently pending delete confirmation (inline). */
+
+  // Single-item delete confirmation (inline bar replaces the row).
   const [pendingDeleteName, setPendingDeleteName] = useState<string | null>(null);
-  /** Two-phase confirmation for "Clear all" — avoids window.confirm (blocked by Tauri ACL). */
+
+  // Two-phase confirmation for "Clear all".
+  // BUG FIX #2: kept as a simple boolean — no complex object that can diverge
+  // from the list state. Resetting it always happens BEFORE any async work so
+  // a re-render mid-flight cannot observe an inconsistent combination.
   const [confirmingClearAll, setConfirmingClearAll] = useState(false);
-  /** Persistent queue of rejected / unrunnable / failed batches. */
+
+  // Persistent queue (rejected / unrunnable / failed / manual).
   const [queue, setQueue] = useState<BatchQueueEntry[] | null>(null);
-  /** Id of the queue entry whose action (requeue/dismiss) is in flight. */
   const [queueBusyId, setQueueBusyId] = useState<string | null>(null);
+
+  // GitHub Token section.
+  const [showTokenSection, setShowTokenSection] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [tokenSaving, setTokenSaving] = useState(false);
+
   const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // Data fetching
+  // ---------------------------------------------------------------------------
 
   const refreshQueue = useCallback(async () => {
     try {
       const q = await invoke<BatchQueueEntry[]>("batches_list_queue");
       setQueue(q);
     } catch {
-      // Queue is best-effort UI sugar — a failure here must not break the
-      // main batches list. Leave whatever we had (or empty) and move on.
       setQueue((prev) => prev ?? []);
     }
   }, []);
@@ -142,16 +172,56 @@ export default function BatchDropdown({
       setError(e instanceof Error ? e.message : String(e));
       setBatches([]);
     } finally {
+      // BUG FIX #1: always reset loading in finally so the spinner never hangs.
       setLoading(false);
     }
-    // Pull the queue alongside the file list so the badge stays in sync.
     void refreshQueue();
   }, [refreshQueue]);
 
-  // Load on first open so we don't hit disk until the user actually wants it.
   useEffect(() => {
     if (open && batches === null) void refresh();
   }, [open, batches, refresh]);
+
+  // ---------------------------------------------------------------------------
+  // Click-outside / ESC to close
+  // BUG FIX #2: do not close while a destructive confirmation is active —
+  // closing mid-confirmation leaves confirmingClearAll = true orphaned state.
+  // ---------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!rootRef.current) return;
+      if (rootRef.current.contains(e.target as Node)) return;
+      // Do not close while a destructive confirmation is waiting for the user.
+      if (confirmingClearAll || pendingDeleteName !== null) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // ESC cancels any pending confirmation first; a second ESC closes.
+        if (confirmingClearAll) {
+          setConfirmingClearAll(false);
+          return;
+        }
+        if (pendingDeleteName !== null) {
+          setPendingDeleteName(null);
+          return;
+        }
+        setOpen(false);
+      }
+    };
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, confirmingClearAll, pendingDeleteName]);
+
+  // ---------------------------------------------------------------------------
+  // Queue operations
+  // ---------------------------------------------------------------------------
 
   const requeue = useCallback(
     async (entry: BatchQueueEntry) => {
@@ -167,7 +237,7 @@ export default function BatchDropdown({
       } catch (e: unknown) {
         onResult?.({
           kind: "err",
-          title: `Reencolar falló: ${entry.name}`,
+          title: `Reencolar fallo: ${entry.name}`,
           body: e instanceof Error ? e.message : String(e),
         });
       } finally {
@@ -186,7 +256,7 @@ export default function BatchDropdown({
       } catch (e: unknown) {
         onResult?.({
           kind: "err",
-          title: `Descartar falló: ${entry.name}`,
+          title: `Descartar fallo: ${entry.name}`,
           body: e instanceof Error ? e.message : String(e),
         });
       } finally {
@@ -196,23 +266,9 @@ export default function BatchDropdown({
     [onResult, refreshQueue],
   );
 
-  // Close on click-outside / ESC.
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!rootRef.current) return;
-      if (!rootRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", onDown);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  // ---------------------------------------------------------------------------
+  // Run / delete individual batch files
+  // ---------------------------------------------------------------------------
 
   const run = useCallback(
     async (name: string) => {
@@ -228,14 +284,12 @@ export default function BatchDropdown({
             : `Batch failed: ${name} (exit ${r.exit_code ?? "?"})`,
           body,
         });
-        // Refresh the modified-epoch column so "just ran" feels obvious.
         void refresh();
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
         onResult?.({
           kind: "err",
           title: `Batch error: ${name}`,
-          body: msg,
+          body: e instanceof Error ? e.message : String(e),
         });
       } finally {
         setRunningName(null);
@@ -245,9 +299,6 @@ export default function BatchDropdown({
     [onResult, refresh],
   );
 
-  // Run a queued entry, then dismiss it from the queue on success. This is the
-  // one-click escape hatch for a rejected/failed item — but it is ALWAYS a
-  // human click, never automatic, by design (see the "requiere tu click" label).
   const runFromQueue = useCallback(
     async (entry: BatchQueueEntry) => {
       setRunningName(entry.name);
@@ -265,13 +316,11 @@ export default function BatchDropdown({
             : `Batch failed: ${entry.name} (exit ${r.exit_code ?? "?"})`,
           body,
         });
-        // On success drop it from the queue; on failure execute_batch_inner has
-        // already re-recorded it (reason="failed") with the fresh error.
         if (r.success) {
           try {
             await invoke<void>("batches_dismiss_queue", { id: entry.id });
           } catch {
-            /* dismiss is best-effort; queue refresh below reconciles */
+            /* dismiss is best-effort */
           }
         }
         void refresh();
@@ -292,6 +341,7 @@ export default function BatchDropdown({
 
   const deleteSingle = useCallback(
     async (name: string) => {
+      // Reset confirmation state before async work.
       setPendingDeleteName(null);
       try {
         await invoke<void>("delete_batch_single", { name });
@@ -312,15 +362,18 @@ export default function BatchDropdown({
     [onResult, refresh],
   );
 
-  // Clear ALL batches. Fixes the broken-state bugs:
-  //   1. Reset every related piece of UI state up front so no stale row, no
-  //      orphan delete-confirmation and no lingering "¿Seguro?" prompt can
-  //      reference a batch that no longer exists.
-  //   2. Optimistically empty the list immediately, then AWAIT refresh() so the
-  //      list is reconciled with disk before we report — no `void` race.
+  // ---------------------------------------------------------------------------
+  // Clear All
+  // BUG FIX #1 + #2:
+  //   - All confirmation / pending state reset BEFORE async work (no orphans).
+  //   - loading reset in finally (no stuck spinner).
+  //   - Optimistic setBatches([]) before await refresh().
+  // ---------------------------------------------------------------------------
+
   const clearAll = useCallback(async () => {
-    // 1. Tear down all confirmation / pending state before the async work so a
-    //    second click or a re-render cannot act on a deleted batch.
+    // Reset ALL confirmation and pending state synchronously before any await.
+    // This prevents any stale confirmation UI from rendering after the batches
+    // are gone.
     setConfirmingClearAll(false);
     setPendingDeleteName(null);
     setLoading(true);
@@ -328,19 +381,17 @@ export default function BatchDropdown({
       const r = await invoke<{ deleted: string[]; kept: number }>(
         "clear_all_batches",
       );
-      // 2. Optimistically clear the in-memory list so the map cannot render
-      //    phantom rows while refresh() is in flight.
+      // Optimistically empty the list so no phantom rows render while refresh
+      // is in flight.
       setBatches([]);
       onResult?.({
         kind: "ok",
         title: `${r.deleted.length} batches eliminados`,
         body:
           r.deleted.length === 0
-            ? `No había batches que borrar. Kept ${r.kept}.`
+            ? `No habia batches que borrar. Kept ${r.kept}.`
             : `Eliminados todos los batches (${r.deleted.length}). Kept ${r.kept} no-batch.`,
       });
-      // 3. AWAIT the reconcile so the on-screen list matches disk before we
-      //    leave the handler (refresh() also re-pulls the queue).
       await refresh();
     } catch (err: unknown) {
       onResult?.({
@@ -348,17 +399,57 @@ export default function BatchDropdown({
         title: "Clear all failed",
         body: err instanceof Error ? err.message : String(err),
       });
-      // Re-sync from disk so a partial failure does not leave a stale list.
       await refresh();
+    } finally {
+      // BUG FIX #1: refresh() sets loading=false internally, but if it throws
+      // before its own finally, we must guarantee loading is reset here too.
+      setLoading(false);
     }
   }, [onResult, refresh]);
+
+  // ---------------------------------------------------------------------------
+  // GitHub Token save (Feature 3)
+  // ---------------------------------------------------------------------------
+
+  const saveGithubToken = useCallback(async () => {
+    const trimmed = tokenInput.trim();
+    if (!trimmed) return;
+    setTokenSaving(true);
+    try {
+      const r = await invoke<GithubTokenResult>("set_github_token", {
+        token: trimmed,
+      });
+      onResult?.({
+        kind: r.ok ? "ok" : "err",
+        title: r.ok ? "GitHub Token guardado" : "GitHub Token: error",
+        body: r.message,
+      });
+      if (r.ok) {
+        setTokenInput("");
+        setShowTokenSection(false);
+      }
+    } catch (e: unknown) {
+      onResult?.({
+        kind: "err",
+        title: "GitHub Token: error inesperado",
+        body: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      setTokenSaving(false);
+    }
+  }, [tokenInput, onResult]);
+
+  // ---------------------------------------------------------------------------
+  // Derived counts
+  // ---------------------------------------------------------------------------
 
   const count = batches?.length ?? 0;
   const queueCount = queue?.length ?? 0;
 
-  // Trigger button styles: header mode matches the other workspace header
-  // buttons (transparent bg, rgba border, 11px font); default mode keeps the
-  // original toolbar appearance.
+  // ---------------------------------------------------------------------------
+  // Trigger button styles
+  // ---------------------------------------------------------------------------
+
   const triggerClassName = headerStyle
     ? "flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
     : "flex items-center gap-1.5 rounded px-3 py-1.5 text-[12px] transition-colors disabled:opacity-50";
@@ -391,6 +482,10 @@ export default function BatchDropdown({
       }
     : undefined;
 
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
+
   return (
     <div
       ref={rootRef}
@@ -398,12 +493,15 @@ export default function BatchDropdown({
       style={cardStyle ? { minWidth: 140 } : undefined}
     >
       {cardStyle ? (
-        /* Card-style trigger — same visual as PrimaryCard in ProjectWorkspace */
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
           className="flex w-full flex-col gap-3 rounded-lg p-4 text-left transition-colors"
-          style={{ background: "var(--color-surface-2)", border: "1px solid var(--color-border)", minHeight: 88 }}
+          style={{
+            background: "var(--color-surface-2)",
+            border: "1px solid var(--color-border)",
+            minHeight: 88,
+          }}
           onMouseEnter={(e) => {
             e.currentTarget.style.background = "var(--color-surface-3)";
             e.currentTarget.style.borderColor = "var(--color-border-strong)";
@@ -418,30 +516,59 @@ export default function BatchDropdown({
         >
           <div
             className="flex h-8 w-8 items-center justify-center rounded-md"
-            style={{ background: "var(--color-surface-1)", border: "1px solid var(--color-border)", color: "var(--color-text-secondary)" }}
+            style={{
+              background: "var(--color-surface-1)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text-secondary)",
+            }}
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-              <polyline points="4 17 10 11 4 5" /><line x1="12" y1="19" x2="20" y2="19" />
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <polyline points="4 17 10 11 4 5" />
+              <line x1="12" y1="19" x2="20" y2="19" />
             </svg>
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="text-[13px] font-semibold" style={{ color: "var(--color-text)" }}>
+              <span
+                className="text-[13px] font-semibold"
+                style={{ color: "var(--color-text)" }}
+              >
                 {runningName ? `Ejecutando: ${runningName}` : "Run Batch"}
               </span>
               {queueCount > 0 && (
-                <span className="rounded px-1 text-[10px] font-semibold tabular-nums" style={{ background: "rgba(248,81,73,0.14)", color: "var(--color-danger)", border: "1px solid rgba(248,81,73,0.35)" }}>
+                <span
+                  className="rounded px-1 text-[10px] font-semibold tabular-nums"
+                  style={{
+                    background: "rgba(248,81,73,0.14)",
+                    color: "var(--color-danger)",
+                    border: "1px solid rgba(248,81,73,0.35)",
+                  }}
+                >
                   {queueCount}
                 </span>
               )}
             </div>
-            <div className="mt-0.5 text-[11px] leading-snug" style={{ color: "var(--color-text-tertiary)" }}>
-              {count > 0 ? `${count} script${count === 1 ? "" : "s"} disponible${count === 1 ? "" : "s"}` : "Sin scripts en cola"}
+            <div
+              className="mt-0.5 text-[11px] leading-snug"
+              style={{ color: "var(--color-text-tertiary)" }}
+            >
+              {count > 0
+                ? `${count} script${count === 1 ? "" : "s"} disponible${count === 1 ? "" : "s"}`
+                : "Sin scripts en cola"}
             </div>
           </div>
         </button>
       ) : (
-        /* Original toolbar-style trigger */
         <button
           type="button"
           onClick={() => setOpen((v) => !v)}
@@ -449,33 +576,70 @@ export default function BatchDropdown({
           style={triggerStyle}
           onMouseEnter={handleTriggerEnter}
           onMouseLeave={handleTriggerLeave}
-          title="Execute a pre-approved script from ~/.ultron/batches/ (handy when an AI session left a .bat for you to run)"
+          title="Execute a pre-approved script from ~/.ultron/batches/"
           aria-expanded={open}
           aria-haspopup="menu"
         >
           <span aria-hidden style={{ fontSize: 11, lineHeight: 1 }}>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <polyline points="4 17 10 11 4 5" />
               <line x1="12" y1="19" x2="20" y2="19" />
             </svg>
           </span>
           <span>{runningName ? `Running: ${runningName}` : "Run batch"}</span>
           {runningName && (
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" className="animate-spin" aria-hidden>
+            <svg
+              width="11"
+              height="11"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              className="animate-spin"
+              aria-hidden
+            >
               <path d="M21 12a9 9 0 1 1-6.219-8.56" />
             </svg>
           )}
           {count > 0 && (
-            <span className="rounded px-1 text-[10px] tabular-nums" style={{ background: "var(--color-surface-1)", color: "var(--color-text-secondary)", border: "1px solid var(--color-border)" }} title={`${count} batch script${count === 1 ? "" : "s"} available`}>
+            <span
+              className="rounded px-1 text-[10px] tabular-nums"
+              style={{
+                background: "var(--color-surface-1)",
+                color: "var(--color-text-secondary)",
+                border: "1px solid var(--color-border)",
+              }}
+              title={`${count} batch script${count === 1 ? "" : "s"} available`}
+            >
               {count}
             </span>
           )}
           {queueCount > 0 && (
-            <span className="rounded px-1 text-[10px] font-semibold tabular-nums" style={{ background: "rgba(248, 81, 73, 0.14)", color: "var(--color-danger)", border: "1px solid rgba(248, 81, 73, 0.35)" }} title={`${queueCount} en cola (rechazados / fallidos) — requieren tu click`}>
-              ⚠ {queueCount}
+            <span
+              className="rounded px-1 text-[10px] font-semibold tabular-nums"
+              style={{
+                background: "rgba(248, 81, 73, 0.14)",
+                color: "var(--color-danger)",
+                border: "1px solid rgba(248, 81, 73, 0.35)",
+              }}
+              title={`${queueCount} en cola -- requieren tu click`}
+            >
+              {queueCount}
             </span>
           )}
-          <span aria-hidden style={{ fontSize: 9, opacity: 0.7 }}>▾</span>
+          <span aria-hidden style={{ fontSize: 9, opacity: 0.7 }}>
+            v
+          </span>
         </button>
       )}
 
@@ -483,18 +647,18 @@ export default function BatchDropdown({
         <div
           role="menu"
           aria-label="Available batch scripts"
-          className="absolute right-0 z-40 mt-1.5 w-[360px] rounded-lg p-1 shadow-xl"
+          className="absolute right-0 z-40 mt-1.5 w-[380px] rounded-lg p-1 shadow-xl"
           style={{
             background: "var(--color-surface-2)",
             border: "1px solid var(--color-border-strong)",
           }}
         >
-          {/* Header */}
+          {/* ----------------------------------------------------------------
+              Header row: title + action buttons
+          ---------------------------------------------------------------- */}
           <div
             className="flex items-center justify-between gap-2 px-2 py-1.5"
-            style={{
-              borderBottom: "1px solid var(--color-border)",
-            }}
+            style={{ borderBottom: "1px solid var(--color-border)" }}
           >
             <div
               className="text-[10px] font-medium uppercase tracking-[0.06em]"
@@ -503,13 +667,14 @@ export default function BatchDropdown({
               ~/.ultron/batches
             </div>
             <div className="flex items-center gap-1">
+              {/* -- Clear All with two-phase confirmation -- */}
               {confirmingClearAll ? (
                 <div className="flex items-center gap-1">
                   <span
                     className="text-[10.5px] font-medium"
                     style={{ color: "var(--color-danger)" }}
                   >
-                    ¿Seguro?
+                    Seguro?
                   </span>
                   <button
                     type="button"
@@ -525,7 +690,7 @@ export default function BatchDropdown({
                       border: "1px solid rgba(248,81,73,0.40)",
                     }}
                   >
-                    Sí, borrar todo
+                    Si, borrar todo
                   </button>
                   <button
                     type="button"
@@ -533,8 +698,7 @@ export default function BatchDropdown({
                       e.stopPropagation();
                       setConfirmingClearAll(false);
                     }}
-                    disabled={loading}
-                    className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                    className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors"
                     style={{
                       background: "transparent",
                       color: "var(--color-text-secondary)",
@@ -558,20 +722,22 @@ export default function BatchDropdown({
                     color: "var(--color-danger)",
                     border: "1px solid var(--color-border)",
                   }}
-                  title="Eliminar TODOS los batches (con confirmación)"
+                  title="Eliminar TODOS los batches (con confirmacion)"
                 >
                   Clear all
                 </button>
               )}
+
+              {/* -- Clean old (>30 days) -- */}
               <button
                 type="button"
                 onClick={async (e) => {
                   e.stopPropagation();
                   try {
-                    const r = await invoke<{ deleted: string[]; kept: number }>(
-                      "cleanup_old_batches",
-                      { olderThanDays: 30 },
-                    );
+                    const r = await invoke<{
+                      deleted: string[];
+                      kept: number;
+                    }>("cleanup_old_batches", { olderThanDays: 30 });
                     onResult?.({
                       kind: "ok",
                       title: `Cleanup: ${r.deleted.length} removed`,
@@ -600,6 +766,8 @@ export default function BatchDropdown({
               >
                 Clean old
               </button>
+
+              {/* -- Refresh -- */}
               <button
                 type="button"
                 onClick={(e) => {
@@ -615,15 +783,119 @@ export default function BatchDropdown({
                 }}
                 title="Re-scan the batches folder"
               >
-                {loading ? "…" : "Refresh"}
+                {loading ? "..." : "Refresh"}
+              </button>
+
+              {/* -- GitHub Token toggle -- */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTokenSection((v) => !v);
+                }}
+                className="rounded px-1.5 py-0.5 text-[10.5px] transition-colors"
+                style={{
+                  background: showTokenSection
+                    ? "rgba(88,166,255,0.12)"
+                    : "transparent",
+                  color: showTokenSection
+                    ? "var(--color-accent, #58a6ff)"
+                    : "var(--color-text-secondary)",
+                  border: `1px solid ${showTokenSection ? "rgba(88,166,255,0.35)" : "var(--color-border)"}`,
+                }}
+                title="Cambiar GitHub Token en ~/.ultron/.env"
+              >
+                GH Token
               </button>
             </div>
           </div>
 
-          {/* Cola — rejected / unrunnable / failed batches that were never
-              silently dropped. A rejected command becoming runnable is a
-              security consideration: it is labelled "requiere tu click" and is
-              NEVER auto-executed. */}
+          {/* ----------------------------------------------------------------
+              GitHub Token section (Feature 3)
+          ---------------------------------------------------------------- */}
+          {showTokenSection && (
+            <div
+              className="m-1 rounded p-2"
+              style={{
+                background: "rgba(88,166,255,0.05)",
+                border: "1px solid rgba(88,166,255,0.18)",
+              }}
+            >
+              <div
+                className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.06em]"
+                style={{ color: "var(--color-accent, #58a6ff)" }}
+              >
+                GitHub Token
+              </div>
+              <div
+                className="mb-1 text-[10.5px] leading-snug"
+                style={{ color: "var(--color-text-secondary)" }}
+              >
+                Pega un token nuevo (ghp_..., gho_..., github_pat_...). Se
+                persiste en{" "}
+                <span style={{ fontFamily: "var(--font-mono)" }}>
+                  ~/.ultron/.env
+                </span>{" "}
+                y se aplica al proceso actual.
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="password"
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void saveGithubToken();
+                    if (e.key === "Escape") {
+                      setTokenInput("");
+                      setShowTokenSection(false);
+                    }
+                  }}
+                  placeholder="ghp_..."
+                  className="min-w-0 flex-1 rounded px-2 py-1 text-[11.5px] outline-none"
+                  style={{
+                    background: "var(--color-surface-1)",
+                    border: "1px solid var(--color-border-strong)",
+                    color: "var(--color-text)",
+                    fontFamily: "var(--font-mono)",
+                  }}
+                  autoComplete="off"
+                  spellCheck={false}
+                />
+                <button
+                  type="button"
+                  onClick={() => void saveGithubToken()}
+                  disabled={tokenSaving || tokenInput.trim().length === 0}
+                  className="rounded px-2 py-1 text-[11px] font-medium transition-colors disabled:opacity-40"
+                  style={{
+                    background: "rgba(88,166,255,0.15)",
+                    color: "var(--color-accent, #58a6ff)",
+                    border: "1px solid rgba(88,166,255,0.40)",
+                  }}
+                >
+                  {tokenSaving ? "Guardando..." : "Guardar"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTokenInput("");
+                    setShowTokenSection(false);
+                  }}
+                  className="rounded px-2 py-1 text-[11px] transition-colors"
+                  style={{
+                    background: "transparent",
+                    color: "var(--color-text-tertiary)",
+                    border: "1px solid var(--color-border)",
+                  }}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ----------------------------------------------------------------
+              Cola — rejected / unrunnable / failed / manual entries
+          ---------------------------------------------------------------- */}
           {queue && queue.length > 0 && (
             <div
               className="m-1 rounded"
@@ -640,23 +912,32 @@ export default function BatchDropdown({
                   className="text-[10px] font-semibold uppercase tracking-[0.06em]"
                   style={{ color: "var(--color-danger)" }}
                 >
-                  ⚠ Cola ({queue.length})
+                  Cola ({queue.length})
                 </span>
                 <span
                   className="text-[9.5px]"
                   style={{ color: "var(--color-text-tertiary)" }}
                 >
-                  encolado — requiere tu click
+                  encolado -- requiere tu click
                 </span>
               </div>
               <ul className="flex flex-col gap-0.5 p-1">
                 {queue.map((q) => {
-                  const busy = queueBusyId === q.id || runningName === q.name;
+                  const isManual = q.kind === "manual";
+                  const busy =
+                    queueBusyId === q.id || runningName === q.name;
                   return (
                     <li
                       key={q.id}
                       className="rounded px-2 py-1.5"
-                      style={{ background: "var(--color-surface-2)" }}
+                      style={{
+                        background: isManual
+                          ? "rgba(210,153,34,0.06)"
+                          : "var(--color-surface-2)",
+                        border: isManual
+                          ? "1px solid rgba(210,153,34,0.22)"
+                          : "none",
+                      }}
                     >
                       <div className="flex items-center gap-2">
                         <span
@@ -669,6 +950,20 @@ export default function BatchDropdown({
                         >
                           {q.name}
                         </span>
+                        {/* kind badge — only shown for manual entries */}
+                        {isManual && (
+                          <span
+                            className="shrink-0 rounded px-1.5 py-px text-[9.5px] font-semibold uppercase tracking-wide"
+                            style={{
+                              background: "rgba(210,153,34,0.15)",
+                              color: "var(--color-warning, #d29922)",
+                              border: "1px solid rgba(210,153,34,0.40)",
+                            }}
+                            title="Accion manual requerida — la IA no puede ejecutar esto"
+                          >
+                            accion manual
+                          </span>
+                        )}
                         <span
                           className="shrink-0 rounded px-1.5 py-px text-[9.5px] font-medium uppercase tracking-wide"
                           style={{
@@ -686,10 +981,25 @@ export default function BatchDropdown({
                             style={{ color: "var(--color-text-tertiary)" }}
                             title={`${q.attempts} intentos`}
                           >
-                            ×{q.attempts}
+                            x{q.attempts}
                           </span>
                         )}
                       </div>
+
+                      {/* Description (especially useful for manual entries) */}
+                      {q.description && (
+                        <div
+                          className="mt-1 rounded px-1.5 py-1 text-[10.5px] leading-snug"
+                          style={{
+                            background: "var(--color-surface-1)",
+                            color: "var(--color-text-secondary)",
+                            whiteSpace: "pre-wrap",
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {q.description}
+                        </div>
+                      )}
 
                       {q.last_error && (
                         <div
@@ -708,34 +1018,39 @@ export default function BatchDropdown({
                       )}
 
                       <div className="mt-1.5 flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          disabled={busy || runningName !== null}
-                          onClick={() => void runFromQueue(q)}
-                          className="rounded px-2 py-0.5 text-[10.5px] font-medium transition-colors disabled:opacity-40"
-                          style={{
-                            background: "rgba(248,81,73,0.12)",
-                            color: "var(--color-danger)",
-                            border: "1px solid rgba(248,81,73,0.40)",
-                          }}
-                          title="Ejecutar ahora (requiere tu click — nunca se ejecuta solo)"
-                        >
-                          {busy ? "Running…" : "Run"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={busy}
-                          onClick={() => void requeue(q)}
-                          className="rounded px-2 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
-                          style={{
-                            background: "transparent",
-                            color: "var(--color-text-secondary)",
-                            border: "1px solid var(--color-border)",
-                          }}
-                          title="Reencolar (marcar pendiente de reintento, sin ejecutar)"
-                        >
-                          Requeue
-                        </button>
+                        {/* Manual entries have no Run button — only Dismiss */}
+                        {!isManual && (
+                          <button
+                            type="button"
+                            disabled={busy || runningName !== null}
+                            onClick={() => void runFromQueue(q)}
+                            className="rounded px-2 py-0.5 text-[10.5px] font-medium transition-colors disabled:opacity-40"
+                            style={{
+                              background: "rgba(248,81,73,0.12)",
+                              color: "var(--color-danger)",
+                              border: "1px solid rgba(248,81,73,0.40)",
+                            }}
+                            title="Ejecutar ahora (requiere tu click -- nunca se ejecuta solo)"
+                          >
+                            {busy ? "Running..." : "Run"}
+                          </button>
+                        )}
+                        {!isManual && (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => void requeue(q)}
+                            className="rounded px-2 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
+                            style={{
+                              background: "transparent",
+                              color: "var(--color-text-secondary)",
+                              border: "1px solid var(--color-border)",
+                            }}
+                            title="Reencolar (marcar pendiente de reintento, sin ejecutar)"
+                          >
+                            Requeue
+                          </button>
+                        )}
                         <button
                           type="button"
                           disabled={busy}
@@ -743,12 +1058,18 @@ export default function BatchDropdown({
                           className="rounded px-2 py-0.5 text-[10.5px] transition-colors disabled:opacity-40"
                           style={{
                             background: "transparent",
-                            color: "var(--color-text-tertiary)",
+                            color: isManual
+                              ? "var(--color-text-secondary)"
+                              : "var(--color-text-tertiary)",
                             border: "1px solid var(--color-border)",
                           }}
-                          title="Descartar de la cola"
+                          title={
+                            isManual
+                              ? "Marcar como hecho y descartar"
+                              : "Descartar de la cola"
+                          }
                         >
-                          Dismiss
+                          {isManual ? "Hecho" : "Dismiss"}
                         </button>
                       </div>
                     </li>
@@ -758,14 +1079,16 @@ export default function BatchDropdown({
             </div>
           )}
 
-          {/* Body */}
+          {/* ----------------------------------------------------------------
+              Body — batch file list
+          ---------------------------------------------------------------- */}
           <div className="max-h-[320px] overflow-y-auto py-1">
             {loading && batches === null && (
               <div
                 className="px-3 py-3 text-center text-[12px]"
                 style={{ color: "var(--color-text-tertiary)" }}
               >
-                Loading batches…
+                Loading batches...
               </div>
             )}
 
@@ -807,8 +1130,6 @@ export default function BatchDropdown({
                   const pendingDelete = pendingDeleteName === b.name;
                   return (
                     <li key={b.path} className="group/item">
-                      {/* Confirm-delete inline bar — shown instead of the run
-                          row when the user clicks X on this item. */}
                       {pendingDelete ? (
                         <div
                           className="flex items-center gap-2 rounded px-2 py-1.5"
@@ -853,7 +1174,6 @@ export default function BatchDropdown({
                         </div>
                       ) : (
                         <div className="flex items-center gap-1">
-                          {/* Run button — takes all available width */}
                           <button
                             type="button"
                             role="menuitem"
@@ -875,7 +1195,7 @@ export default function BatchDropdown({
                               e.currentTarget.style.background = "transparent";
                               e.currentTarget.style.borderColor = "transparent";
                             }}
-                            title={`${b.path}\n${formatBytes(b.size_bytes)} · modified ${formatAge(b.modified_epoch)}`}
+                            title={`${b.path}\n${formatBytes(b.size_bytes)} modified ${formatAge(b.modified_epoch)}`}
                           >
                             <div className="min-w-0 flex-1">
                               <div
@@ -937,7 +1257,7 @@ export default function BatchDropdown({
                             </span>
                           </button>
 
-                          {/* Delete (X) button — only visible on hover */}
+                          {/* Delete (X) button — visible on hover */}
                           <button
                             type="button"
                             disabled={busy || runningName !== null}
@@ -968,7 +1288,6 @@ export default function BatchDropdown({
                             }}
                             aria-label={`Eliminar ${b.name}`}
                           >
-                            {/* X icon inline */}
                             <svg
                               width="11"
                               height="11"

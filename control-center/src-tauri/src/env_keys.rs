@@ -203,6 +203,126 @@ pub fn set_env_vars_keys_inner(keys: HashMap<String, String>) -> Result<EnvKeysS
     })
 }
 
+// ---------------------------------------------------------------------------
+// GitHub Token — persist to ~/.ultron/.env
+// ---------------------------------------------------------------------------
+
+/// Result returned to the frontend after a set_github_token call.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct GithubTokenResult {
+    /// Whether the write succeeded.
+    pub ok: bool,
+    /// Masked preview of the token that was saved (first 6 + … + last 4 chars).
+    pub masked: String,
+    /// Human-readable status message suitable for display in a toast.
+    pub message: String,
+}
+
+/// Valid GitHub token prefixes (as of 2022 fine-grained PATs + classic).
+const GITHUB_TOKEN_PREFIXES: &[&str] = &["ghp_", "gho_", "ghs_", "ghu_", "github_pat_"];
+
+fn mask_github_token(token: &str) -> String {
+    if token.len() <= 10 {
+        return "*".repeat(token.len());
+    }
+    format!("{}…{}", &token[..6], &token[token.len() - 4..])
+}
+
+/// Write `GITHUB_TOKEN=<token>` to `~/.ultron/.env`.
+///
+/// Strategy:
+///   1. Read the existing .env (if present).
+///   2. Replace an existing GITHUB_TOKEN line, or append one.
+///   3. Write atomically via tmp + rename.
+///   4. Apply to the current process with `std::env::set_var`.
+pub fn set_github_token_inner(token: String) -> Result<GithubTokenResult, String> {
+    let token = token.trim().to_string();
+
+    // --- Validation ---
+    if token.is_empty() {
+        return Ok(GithubTokenResult {
+            ok: false,
+            masked: String::new(),
+            message: "El token no puede estar vacío.".to_string(),
+        });
+    }
+    let known_prefix = GITHUB_TOKEN_PREFIXES
+        .iter()
+        .any(|p| token.starts_with(p));
+    if !known_prefix {
+        return Ok(GithubTokenResult {
+            ok: false,
+            masked: mask_github_token(&token),
+            message: format!(
+                "Prefijo desconocido. Los tokens GitHub válidos empiezan con: {}",
+                GITHUB_TOKEN_PREFIXES.join(", ")
+            ),
+        });
+    }
+
+    // --- Locate ~/.ultron/.env ---
+    let env_path = dirs::home_dir()
+        .ok_or_else(|| "No se pudo determinar el directorio home.".to_string())?
+        .join(".ultron")
+        .join(".env");
+
+    // Ensure the parent directory exists.
+    if let Some(parent) = env_path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("No se pudo crear ~/.ultron/: {e}"))?;
+    }
+
+    // Read existing content (tolerate missing file).
+    let existing = if env_path.exists() {
+        std::fs::read_to_string(&env_path)
+            .map_err(|e| format!("No se pudo leer ~/.ultron/.env: {e}"))?
+    } else {
+        String::new()
+    };
+
+    // Rebuild lines: replace any existing GITHUB_TOKEN= line, preserving order.
+    let new_line = format!("GITHUB_TOKEN={token}");
+    let mut replaced = false;
+    let mut lines: Vec<String> = existing
+        .lines()
+        .map(|l| {
+            if l.trim_start().starts_with("GITHUB_TOKEN=") {
+                replaced = true;
+                new_line.clone()
+            } else {
+                l.to_string()
+            }
+        })
+        .collect();
+
+    if !replaced {
+        // Ensure a trailing newline before appending.
+        if !lines.is_empty() && !existing.ends_with('\n') {
+            // The last stored line had no newline — writeln will add it.
+        }
+        lines.push(new_line);
+    }
+
+    // Atomic write: tmp + rename.
+    let tmp = env_path.with_extension("env.tmp");
+    let content = lines.join("\n") + "\n";
+    std::fs::write(&tmp, content.as_bytes())
+        .map_err(|e| format!("No se pudo escribir el tmp de .env: {e}"))?;
+    std::fs::rename(&tmp, &env_path)
+        .map_err(|e| format!("No se pudo renombrar .env.tmp -> .env: {e}"))?;
+
+    // Apply to the current process so the change takes effect without restart.
+    // SAFETY: single-threaded at this point (spawn_blocking context); no FFI.
+    std::env::set_var("GITHUB_TOKEN", &token);
+
+    let masked = mask_github_token(&token);
+    Ok(GithubTokenResult {
+        ok: true,
+        masked: masked.clone(),
+        message: format!("GITHUB_TOKEN guardado en ~/.ultron/.env ({masked}). Activo en el proceso actual."),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
