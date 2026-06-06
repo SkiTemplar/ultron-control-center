@@ -13,10 +13,13 @@
  *
  * INTEGRATION WITH embed_skills.py
  * ----------------------------------
- * embed_skills.py exposes a CLI sub-command:
- *   uv run python ~/.ultron/scripts/cockpit/embed_skills.py query "<text>" --top 3 --json
+ * embed_skills.py exposes a CLI sub-command that always outputs JSON by default:
+ *   uv run python ~/.ultron/scripts/cockpit/embed_skills.py query "<text>" --top 3
  *
- * v3 spawns this as a child process with a hard 4-second timeout.  If the
+ * NOTE: do NOT pass --json — that flag does not exist; the script exits with
+ * code 2 on unrecognized arguments, causing querySemanticSkills to return null.
+ *
+ * v3 spawns this as a child process bounded by the shared deadline.  If the
  * process times out, returns a non-zero exit code, or produces unparseable
  * output the semantic hint is silently omitted — the deterministic routing
  * hint from v2 is always emitted regardless.
@@ -28,16 +31,24 @@
  * either a heavy native addon or an HTTP call.  The subprocess approach:
  *   - Reuses the already-cached Python model (paraphrase-multilingual-mpnet-base-v2).
  *   - Keeps the Node hook dependency-free (no npm install required).
- *   - Adds ~200-800 ms latency on a warm Python + model cache, well under the 4s budget.
+ *   - Adds ~200-800 ms latency on a warm Python + model cache (OS disk cache hot).
  *   - Degrades gracefully: any failure is swallowed in a try/catch.
  *
- * TIMEOUT BUDGET
- * --------------
+ * COLD-START WARNING
+ * ------------------
+ * The first subprocess call after a system reboot can take 9-12 s because
+ * sentence-transformers loads a ~400 MB model from disk.  The shared deadline
+ * fires, the semantic hint is silently skipped, and the hook still emits the
+ * deterministic result within 5 s.  Subsequent calls within the same OS
+ * session hit the disk page cache and complete in < 1 s.
+ *
+ * TIMEOUT BUDGET — SHARED DEADLINE
+ * ----------------------------------
+ * See WARNING comment near HOOK_DEADLINE_MS below for the full invariant.
  *   Total hook budget  : 5 000 ms (Claude Code hard limit)
+ *   All async I/O      : <= 4 500 ms (HOOK_DEADLINE_MS, shared across branches)
  *   v2 deterministic   : < 50 ms
- *   Semantic subprocess: 4 000 ms (SEMANTIC_TIMEOUT_MS)
- *   Lazy SKILL.md read : runs concurrently, capped at 5 000 ms each
- *   Safety margin      : ~950 ms
+ *   Safety margin      : ~450 ms
  *
  * OUTPUT FORMAT
  * -------------
@@ -93,9 +104,39 @@ Object.assign(module.exports, v2);
 const SEMANTIC_FALLBACK_THRESHOLD = 0.80;
 
 /**
- * Maximum milliseconds to wait for the embed_skills.py subprocess.
- * Claude Code's UserPromptSubmit hook has a hard 5-second timeout; leaving
- * ~1 second of margin for v2 scoring and lazy reads.
+ * Hard deadline for ALL async I/O in this hook (ms from the moment mainV3 starts).
+ *
+ * WARNING — TIMING INVARIANT:
+ *   Claude Code's UserPromptSubmit hook has a hard 5 000 ms wall-clock limit.
+ *   v3 has TWO potentially expensive async branches:
+ *     A) Lazy skill injection  (runs when topConfidence >= SEMANTIC_FALLBACK_THRESHOLD)
+ *     B) Semantic Qdrant query (runs when topConfidence <  SEMANTIC_FALLBACK_THRESHOLD)
+ *
+ *   Today both thresholds equal 0.80, so A and B are mutually exclusive.
+ *   BUT if either threshold is changed they could BOTH execute sequentially,
+ *   potentially spending up to (lazy timeout + semantic timeout) ≈ 9 s — far
+ *   exceeding the 5 s budget and causing the hook to be killed mid-flight.
+ *
+ *   FIX: a single shared deadline of HOOK_DEADLINE_MS is established once at
+ *   the start of mainV3().  Each async branch receives only its remaining time
+ *   slice (remainingMs = deadline - Date.now()).  If remaining time <= 0 the
+ *   branch is skipped entirely.  This guarantees the total wall-clock cost of
+ *   all I/O can never exceed HOOK_DEADLINE_MS, regardless of threshold values.
+ *
+ *   Budget breakdown (worst case — both branches run):
+ *     v2 deterministic scoring : <  50 ms
+ *     Lazy inject (branch A)   : <= remainingMs (capped, typically ~500 ms warm)
+ *     Semantic query (branch B): <= remainingMs (capped, typically ~800 ms warm)
+ *     Output serialisation     : <  10 ms
+ *     Safety margin            : ~440 ms
+ *   Total guaranteed max       : 4 500 ms  (HOOK_DEADLINE_MS)
+ */
+const HOOK_DEADLINE_MS = 4500;
+
+/**
+ * Default maximum milliseconds to wait for the embed_skills.py subprocess.
+ * Overridden at runtime by the shared deadline — this value is only used as
+ * an absolute upper bound when no deadline context is available.
  */
 const SEMANTIC_TIMEOUT_MS = 4000;
 
@@ -123,40 +164,54 @@ const UV_BIN = 'uv';
 /**
  * Query ultron_skills Qdrant collection for top-N semantically similar skills.
  *
- * Spawns: uv run python <embed_skills.py> query "<text>" --top N --json
+ * Spawns: uv run python <embed_skills.py> query "<text>" --top N
+ * (No --json flag — the script outputs a JSON array to stdout by default.)
  *
  * Returns an array of result objects on success, or null on any failure
  * (timeout, non-zero exit, parse error, Qdrant unreachable).
  *
- * @param {string} promptText  - The user prompt (truncated to 500 chars for speed).
- * @param {number} topN        - Number of results to request.
+ * @param {string} promptText        - The user prompt (truncated to 500 chars for speed).
+ * @param {number} topN              - Number of results to request.
+ * @param {number} [timeoutMs]       - Hard timeout in ms; defaults to SEMANTIC_TIMEOUT_MS.
+ *                                     Pass the shared-deadline remainder so the call never
+ *                                     exceeds the hook's total budget.
  * @returns {Promise<Array<{name:string, score:number, description:string}>|null>}
  */
-function querySemanticSkills(promptText, topN) {
+function querySemanticSkills(promptText, topN, timeoutMs) {
+  const effectiveTimeout = (typeof timeoutMs === 'number' && timeoutMs > 0)
+    ? timeoutMs
+    : SEMANTIC_TIMEOUT_MS;
+
   return new Promise(function (resolve) {
     const queryText = promptText.slice(0, 500);
+    // NOTE: embed_skills.py query always outputs JSON to stdout by default.
+    // Do NOT pass --json (unrecognized flag → exit code 2 → null result).
     const args = [
       'run', 'python', EMBED_SKILLS_PY,
       'query', queryText,
       '--top', String(topN),
-      '--json',
     ];
 
     let settled = false;
-    let stdout = '';
-    let stderr = '';
 
     const timer = setTimeout(function () {
       if (!settled) {
         settled = true;
-        child.kill('SIGTERM');
+        // On Windows, child.kill() only signals the immediate `uv` process,
+        // not the Python grandchild it spawned.  The grandchild keeps running
+        // and Node's event loop stays alive waiting for the child stdio streams
+        // to close — delaying process.exit well past the hook deadline.
+        // Fix: destroy the stdio streams and call child.unref() so Node stops
+        // waiting for the orphaned Python process and can exit on its own.
+        try { child.kill(); } catch (_) {}
+        try { if (child.stdout) child.stdout.destroy(); } catch (_) {}
+        try { if (child.stderr) child.stderr.destroy(); } catch (_) {}
+        child.unref();
         resolve(null);
       }
-    }, SEMANTIC_TIMEOUT_MS);
+    }, effectiveTimeout);
 
-    const child = execFile(UV_BIN, args, { encoding: 'utf8' }, function (err, out, serr) {
-      stdout = out || '';
-      stderr = serr || '';
+    const child = execFile(UV_BIN, args, { encoding: 'utf8', windowsHide: true }, function (err, out) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
@@ -166,7 +221,7 @@ function querySemanticSkills(promptText, topN) {
         return;
       }
       try {
-        const parsed = JSON.parse(stdout.trim());
+        const parsed = JSON.parse((out || '').trim());
         if (!Array.isArray(parsed)) { resolve(null); return; }
         resolve(parsed);
       } catch (_) {
@@ -245,6 +300,31 @@ function safeLogV3(entry) {
  * it directly in the hook file.
  */
 async function mainV3() {
+  // Shared deadline: ALL async I/O in this function must finish before this
+  // timestamp.  Each branch receives only the remaining slice so the combined
+  // wall-clock cost is bounded to HOOK_DEADLINE_MS regardless of how many
+  // branches execute (see WARNING comment near HOOK_DEADLINE_MS above).
+  const hookStart = Date.now();
+  const deadlineAt = hookStart + HOOK_DEADLINE_MS;
+
+  // Advance v2's process-wide invocation counter. v3 reuses v2's lazy-injection
+  // machinery (fetchLazySkillContent -> isCoolingDown / recordInjection) but
+  // does NOT call v2.main(), which is the only place v2 normally bumps the
+  // counter. Without this bump the counter stays at 0 across every mainV3 call
+  // and the cooldown window collapses to a no-op. Harmless in production (the
+  // hook is an ephemeral one-process-per-prompt invocation, so the counter and
+  // _injectionHistory always start fresh) but correct for any host that reuses
+  // the process. The guard keeps v3 forward/backward compatible with v2 builds
+  // that predate this export.
+  if (typeof v2._incrementInvocationCounter === 'function') {
+    v2._incrementInvocationCounter();
+  }
+
+  /** Returns ms remaining before the shared deadline (minimum 0). */
+  function remainingMs() {
+    return Math.max(0, deadlineAt - Date.now());
+  }
+
   // Replicate v2's stdin reading + payload parsing
   let stdinRaw = '';
   try {
@@ -267,17 +347,20 @@ async function mainV3() {
     return;
   }
 
-  // --- Step 1: Run v2 deterministic ranking ---
+  // --- Step 1: Run v2 deterministic ranking (synchronous, < 50 ms) ---
   const ranked = v2.rankCandidates(prompt);
   const top = ranked[0] || null;
   const second = ranked[1] || null;
 
-  // Determine whether the deterministic result is good enough on its own
-  const HIGH_THRESHOLD = 0.80;
+  // HIGH_THRESHOLD is intentionally bound to SEMANTIC_FALLBACK_THRESHOLD so the
+  // two cannot drift apart: branch A (lazy inject) runs when confidence >= T and
+  // branch B (semantic fallback) runs when confidence < T. Sharing a single T
+  // keeps A and B mutually exclusive (see the HOOK_DEADLINE_MS WARNING above).
+  const HIGH_THRESHOLD = SEMANTIC_FALLBACK_THRESHOLD;
   const MED_THRESHOLD = 0.50;
 
   let deterministicText = '';
-  let topConfidence = top ? top.confidence : 0;
+  const topConfidence = top ? top.confidence : 0;
 
   if (top && topConfidence >= HIGH_THRESHOLD) {
     deterministicText = buildHighContextV3(top);
@@ -302,49 +385,93 @@ async function mainV3() {
     } else {
       safeLogV3({ level: 'info', msg: 'no_match', prompt_chars: prompt.length });
     }
-    // Below medium threshold: try semantic fallback before giving up
   }
 
-  // --- Step 2: Lazy skill injection (same as v2) ---
+  // --- Step 2: Lazy skill injection (branch A — only when high confidence) ---
+  // WARNING: branch A and branch B both consume from the shared deadline.
+  // If both thresholds are changed so that A and B can run sequentially, the
+  // deadline still caps total I/O to HOOK_DEADLINE_MS.  If remainingMs() is
+  // already 0 when a branch is reached, it is skipped entirely.
   let lazyBlock = '';
   if (topConfidence >= HIGH_THRESHOLD) {
-    try {
-      const injected = await v2.fetchLazySkillContent(ranked);
-      if (injected.size > 0) {
-        lazyBlock = v2.buildInjectionBlock(injected);
-        safeLogV3({
-          level: 'info', msg: 'lazy_skill_injected',
-          skills: Array.from(injected.keys()),
+    const lazyBudget = remainingMs();
+    if (lazyBudget > 50) {  // skip if < 50 ms left — not worth the syscall
+      try {
+        // v2.fetchLazySkillContent uses its own internal LAZY_READ_TIMEOUT_MS
+        // (5 000 ms).  Wrap with Promise.race so it cannot exceed our budget.
+        const lazyRaceTimeout = new Promise(function (resolve) {
+          setTimeout(function () { resolve(new Map()); }, lazyBudget);
         });
+        const injected = await Promise.race([
+          v2.fetchLazySkillContent(ranked),
+          lazyRaceTimeout,
+        ]);
+        if (injected.size > 0) {
+          lazyBlock = v2.buildInjectionBlock(injected);
+          safeLogV3({
+            level: 'info', msg: 'lazy_skill_injected',
+            skills: Array.from(injected.keys()),
+            elapsed_ms: Date.now() - hookStart,
+          });
+        }
+      } catch (_err) {
+        safeLogV3({ level: 'warn', msg: 'lazy_injection_failed', error: String(_err && _err.message) });
       }
-    } catch (_err) {
-      safeLogV3({ level: 'warn', msg: 'lazy_injection_failed', error: String(_err && _err.message) });
+    } else {
+      safeLogV3({ level: 'warn', msg: 'lazy_injection_skipped_deadline', remaining_ms: lazyBudget });
     }
   }
 
-  // --- Step 3: Semantic fallback when deterministic confidence < threshold ---
+  // --- Step 3: Semantic fallback (branch B — only when low confidence) ---
   let semanticBlock = '';
   if (topConfidence < SEMANTIC_FALLBACK_THRESHOLD) {
-    try {
-      const semResults = await querySemanticSkills(prompt, SEMANTIC_TOP_N);
-      if (semResults && semResults.length > 0) {
-        semanticBlock = buildSemanticHint(semResults);
-        safeLogV3({
-          level: 'info', msg: 'semantic_fallback_triggered',
-          deterministic_confidence: topConfidence,
-          semantic_top: semResults[0] ? semResults[0].name : null,
-          semantic_count: semResults.length,
-        });
-      } else {
-        safeLogV3({
-          level: 'info', msg: 'semantic_fallback_empty',
-          deterministic_confidence: topConfidence,
-        });
+    const semBudget = remainingMs();
+    if (semBudget > 50) {  // skip if < 50 ms left
+      try {
+        const semResults = await querySemanticSkills(prompt, SEMANTIC_TOP_N, semBudget);
+        if (semResults && semResults.length > 0) {
+          semanticBlock = buildSemanticHint(semResults);
+          safeLogV3({
+            level: 'info',
+            msg: 'semantic_fallback_triggered',
+            // Deterministic context: what the rule-based router found (or didn't)
+            deterministic_top_id: top ? top.id : null,
+            deterministic_top_kind: top ? top.kind : null,
+            deterministic_confidence: topConfidence,
+            // Top-3 semantic candidates for diagnostic of semantic_fallback_rate
+            semantic_top3: semResults.slice(0, 3).map(function (r) {
+              return {
+                name: r.name || '?',
+                score: typeof r.score === 'number' ? parseFloat(r.score.toFixed(4)) : null,
+                rerank_score: typeof r.rerank_score === 'number'
+                  ? parseFloat(r.rerank_score.toFixed(4))
+                  : undefined,
+              };
+            }),
+            semantic_count: semResults.length,
+            elapsed_ms: Date.now() - hookStart,
+          });
+        } else {
+          safeLogV3({
+            level: 'info', msg: 'semantic_fallback_empty',
+            deterministic_confidence: topConfidence,
+            elapsed_ms: Date.now() - hookStart,
+          });
+        }
+      } catch (_err) {
+        safeLogV3({ level: 'warn', msg: 'semantic_fallback_error', error: String(_err && _err.message) });
       }
-    } catch (_err) {
-      safeLogV3({ level: 'warn', msg: 'semantic_fallback_error', error: String(_err && _err.message) });
+    } else {
+      safeLogV3({ level: 'warn', msg: 'semantic_fallback_skipped_deadline', remaining_ms: semBudget });
     }
   }
+
+  safeLogV3({
+    level: 'debug', msg: 'v3_hook_complete',
+    total_elapsed_ms: Date.now() - hookStart,
+    had_lazy: lazyBlock.length > 0,
+    had_semantic: semanticBlock.length > 0,
+  });
 
   // --- Assemble final output ---
   const fullText = (deterministicText + lazyBlock + semanticBlock).trim();
@@ -419,3 +546,4 @@ module.exports.querySemanticSkills = querySemanticSkills;
 module.exports.buildSemanticHint = buildSemanticHint;
 module.exports.SEMANTIC_FALLBACK_THRESHOLD = SEMANTIC_FALLBACK_THRESHOLD;
 module.exports.SEMANTIC_TIMEOUT_MS = SEMANTIC_TIMEOUT_MS;
+module.exports.HOOK_DEADLINE_MS = HOOK_DEADLINE_MS;

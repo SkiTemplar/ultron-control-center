@@ -843,4 +843,9 @@ module.exports = {
   // expose internals for test isolation
   _injectionHistory,
   _resetInvocationCounter: function () { _invocationCounter = 0; },
+  // Advance the process-wide invocation counter. Callers that reuse v2's
+  // lazy-injection machinery WITHOUT going through v2.main() (e.g. v3.mainV3)
+  // must call this once per logical invocation so the cooldown window
+  // (isCoolingDown / recordInjection) sees a monotonically increasing counter.
+  _incrementInvocationCounter: function () { return ++_invocationCounter; },
 };
