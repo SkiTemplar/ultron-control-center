@@ -395,8 +395,10 @@ cockpit/projects/*/notes.md
 cockpit/projects/*/decisions.jsonl
 cockpit/projects/*/pinned-agents.json
 cockpit/projects/*/agent-roster.json
-# Script maintainer-only que enumera las personas personales
-scripts/cockpit/audit_personal_data.py
+# NOTE: scripts/cockpit/audit_personal_data.py is intentionally TRACKED — the CI
+# `personal-info-leak` gate runs it on every push, so it must ship in the repo.
+# It carries no real PII: the personal email/handle are loaded at runtime from
+# the ULTRON_PII_EXTRA env var, never hardcoded. The detector allow-lists itself.
 
 # === Internal process artifacts (diagnostics, rework specs, evals) ===
 # Working notes / session audits / design specs — NOT part of the installable
