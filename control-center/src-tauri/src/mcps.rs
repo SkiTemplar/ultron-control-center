@@ -691,6 +691,7 @@ pub struct McpGenerationResult {
 /// of an LLM response. Tries, in order:
 ///   1. ```json ... ``` fenced block
 ///   2. first '{' to last '}' substring
+///
 /// Returns the raw substring without parsing.
 fn extract_json_blob(text: &str) -> Option<String> {
     // 1. Fenced

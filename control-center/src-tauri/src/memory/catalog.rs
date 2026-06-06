@@ -219,8 +219,8 @@ fn classify_skill_kind(name: &str, description: &str) -> &'static str {
 ///   - `entity = "skill"` (so `search_catalog(.., Some("skill"), ..)` can filter)
 ///   - `kind`  = persona | technical | meta (coarse weight signal)
 ///   - id      = deterministic_id("skill::{name}")  ← distinct namespace from
-///               "agent::{name}" so a skill and an agent of the same name never
-///               collide on the same Qdrant point.
+///     "agent::{name}" so a skill and an agent of the same name never
+///     collide on the same Qdrant point.
 ///
 /// `.disabled` skills are excluded: `list_skills_with_origin_inner` marks them
 /// `enabled = false`, and we skip any skill that is not enabled or whose

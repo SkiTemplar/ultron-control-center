@@ -255,7 +255,15 @@ fn upsert(
     reason: BatchQueueReason,
     last_error: Option<String>,
 ) -> BatchQueueEntry {
-    upsert_full(entries, name, path, reason, BatchKind::Auto, None, last_error)
+    upsert_full(
+        entries,
+        name,
+        path,
+        reason,
+        BatchKind::Auto,
+        None,
+        last_error,
+    )
 }
 
 /// Full upsert with explicit `kind` and `description` — used by

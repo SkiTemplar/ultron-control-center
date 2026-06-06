@@ -268,12 +268,24 @@ const RULES: &[IntentRule] = &[
     IntentRule {
         intent: "mobile",
         workflow_id: "feature",
-        patterns: &["react native", "react-native", "mobile app", "app movil", "aplicacion movil"],
+        patterns: &[
+            "react native",
+            "react-native",
+            "mobile app",
+            "app movil",
+            "aplicacion movil",
+        ],
     },
     IntentRule {
         intent: "ios",
         workflow_id: "feature",
-        patterns: &["swiftui", "swift ", "ios app", "iphone", "observation framework"],
+        patterns: &[
+            "swiftui",
+            "swift ",
+            "ios app",
+            "iphone",
+            "observation framework",
+        ],
     },
     IntentRule {
         intent: "android",
@@ -284,8 +296,15 @@ const RULES: &[IntentRule] = &[
         intent: "nextjs",
         workflow_id: "feature",
         patterns: &[
-            "next.js", "nextjs", "app router", "react ", "react.", "core web vitals",
-            "bundle size", "renders", "app de react",
+            "next.js",
+            "nextjs",
+            "app router",
+            "react ",
+            "react.",
+            "core web vitals",
+            "bundle size",
+            "renders",
+            "app de react",
         ],
     },
     IntentRule {
@@ -297,42 +316,92 @@ const RULES: &[IntentRule] = &[
         intent: "websocket",
         workflow_id: "feature",
         patterns: &[
-            "websocket", "real-time collaborative", "broadcasting",
-            "tiempo real colaborativo", "colaborativo en tiempo", "editor colaborativo",
+            "websocket",
+            "real-time collaborative",
+            "broadcasting",
+            "tiempo real colaborativo",
+            "colaborativo en tiempo",
+            "editor colaborativo",
         ],
     },
     IntentRule {
         intent: "ml",
         workflow_id: "feature",
         patterns: &[
-            "pytorch", "tensorflow", "deep learning", "machine learning", "neural network",
-            "training loop", "hyperparameter", "computer vision", "fine-tun", "qlora", "peft",
-            "ml pipeline", "ml model", " ml ", "mlops", "modelo de ml", "fraud detection",
-            "recommendation engine", "nearest neighbor", "faiss",
-            "vector quantization", "vector search", "recommendation system",
+            "pytorch",
+            "tensorflow",
+            "deep learning",
+            "machine learning",
+            "neural network",
+            "training loop",
+            "hyperparameter",
+            "computer vision",
+            "fine-tun",
+            "qlora",
+            "peft",
+            "ml pipeline",
+            "ml model",
+            " ml ",
+            "mlops",
+            "modelo de ml",
+            "fraud detection",
+            "recommendation engine",
+            "nearest neighbor",
+            "faiss",
+            "vector quantization",
+            "vector search",
+            "recommendation system",
         ],
     },
     IntentRule {
         intent: "data_eng",
         workflow_id: "feature",
-        patterns: &["etl", "apache spark", "data warehouse", "data pipeline", "ingesta de datos"],
+        patterns: &[
+            "etl",
+            "apache spark",
+            "data warehouse",
+            "data pipeline",
+            "ingesta de datos",
+        ],
     },
     IntentRule {
         intent: "cloud_infra",
         workflow_id: "quick",
         patterns: &[
-            "terraform", "aws vpc", "auto-scaling", "load balancer", "provision cloud",
-            "infraestructura cloud", "kubernetes", "k8s", "helm chart", "despliegue en", "service mesh",
+            "terraform",
+            "aws vpc",
+            "auto-scaling",
+            "load balancer",
+            "provision cloud",
+            "infraestructura cloud",
+            "kubernetes",
+            "k8s",
+            "helm chart",
+            "despliegue en",
+            "service mesh",
         ],
     },
     IntentRule {
         intent: "database",
         workflow_id: "quick",
         patterns: &[
-            "postgresql", "postgres", "sql query", "window function", "consultas sql",
-            "consulta sql", "base de datos relacional", "indices y", "mysql",
-            "time-series database", "time series database", "database schema",
-            "esquema de base", "time-series", "time series", "sql optimization", " sql ",
+            "postgresql",
+            "postgres",
+            "sql query",
+            "window function",
+            "consultas sql",
+            "consulta sql",
+            "base de datos relacional",
+            "indices y",
+            "mysql",
+            "time-series database",
+            "time series database",
+            "database schema",
+            "esquema de base",
+            "time-series",
+            "time series",
+            "sql optimization",
+            " sql ",
         ],
     },
     IntentRule {
@@ -354,29 +423,59 @@ const RULES: &[IntentRule] = &[
         intent: "python",
         workflow_id: "feature",
         patterns: &[
-            "python", "numba", "numpy", "pandas", "asyncio", "django", "fastapi",
-            "pydantic", "codigo python", "jit para",
+            "python",
+            "numba",
+            "numpy",
+            "pandas",
+            "asyncio",
+            "django",
+            "fastapi",
+            "pydantic",
+            "codigo python",
+            "jit para",
         ],
     },
     IntentRule {
         intent: "typescript",
         workflow_id: "feature",
         patterns: &[
-            "typescript", "tipos complejos", "genericos avanzados", "generic types",
-            "type-safe", "proyecto typescript", "tsconfig",
+            "typescript",
+            "tipos complejos",
+            "genericos avanzados",
+            "generic types",
+            "type-safe",
+            "proyecto typescript",
+            "tsconfig",
         ],
     },
     IntentRule {
         intent: "api_design",
         workflow_id: "feature",
-        patterns: &["graphql", "apollo server", "rest api", "openapi", "diseña una api", "diseño de api"],
+        patterns: &[
+            "graphql",
+            "apollo server",
+            "rest api",
+            "openapi",
+            "diseña una api",
+            "diseño de api",
+        ],
     },
     IntentRule {
         intent: "llm",
         workflow_id: "feature",
         patterns: &[
-            "claude api", "anthropic", "prompt caching", "multi-agent", "rag pipeline", " llm ",
-            "speculative decoding", "kv cache", "llama 3", "quantization", "vllm", "inference server",
+            "claude api",
+            "anthropic",
+            "prompt caching",
+            "multi-agent",
+            "rag pipeline",
+            " llm ",
+            "speculative decoding",
+            "kv cache",
+            "llama 3",
+            "quantization",
+            "vllm",
+            "inference server",
             "draft model",
         ],
     },
@@ -384,24 +483,53 @@ const RULES: &[IntentRule] = &[
         intent: "accessibility",
         workflow_id: "quick",
         patterns: &[
-            "wcag", "aria", "screen reader", "lector de pantalla", "keyboard navigation",
-            "navegacion por teclado", "accesibilidad", "accessibility", "a11y", "color contrast",
+            "wcag",
+            "aria",
+            "screen reader",
+            "lector de pantalla",
+            "keyboard navigation",
+            "navegacion por teclado",
+            "accesibilidad",
+            "accessibility",
+            "a11y",
+            "color contrast",
         ],
     },
     IntentRule {
         intent: "docker",
         workflow_id: "quick",
-        patterns: &["docker", "container", "contenedor", "dockerfile", "docker-compose"],
+        patterns: &[
+            "docker",
+            "container",
+            "contenedor",
+            "dockerfile",
+            "docker-compose",
+        ],
     },
     IntentRule {
         // Finance domain -> tio-gilito / warren personas (via preferred_skills).
         intent: "finance",
         workflow_id: "quick",
         patterns: &[
-            "financial advice", "portfolio", "investing", "inversion", "finanzas",
-            "mis gastos", "ahorro", "retirement", "jubilacion", "stocks", "bonds", "reits",
-            "npv", "capital investment", "valoracion financiera", "hedging", "arbitrage",
-            "options spread", "delta hedging",
+            "financial advice",
+            "portfolio",
+            "investing",
+            "inversion",
+            "finanzas",
+            "mis gastos",
+            "ahorro",
+            "retirement",
+            "jubilacion",
+            "stocks",
+            "bonds",
+            "reits",
+            "npv",
+            "capital investment",
+            "valoracion financiera",
+            "hedging",
+            "arbitrage",
+            "options spread",
+            "delta hedging",
         ],
     },
     IntentRule {
@@ -409,11 +537,30 @@ const RULES: &[IntentRule] = &[
         intent: "business",
         workflow_id: "quick",
         patterns: &[
-            "marketing strategy", "business strategy", "estrategia de negocio", "startup",
-            "go-to-market", "go to market", "competitors", "competidores", "posicionar",
-            "modelo de negocio", "pricing", "punch above", "negotiation", "negociacion",
-            "enterprise deal", "saas company", "revenue model", " arr", "sales playbook",
-            "pitch deck", "investor pitch", "investor", "b2b saas", "growth strategy",
+            "marketing strategy",
+            "business strategy",
+            "estrategia de negocio",
+            "startup",
+            "go-to-market",
+            "go to market",
+            "competitors",
+            "competidores",
+            "posicionar",
+            "modelo de negocio",
+            "pricing",
+            "punch above",
+            "negotiation",
+            "negociacion",
+            "enterprise deal",
+            "saas company",
+            "revenue model",
+            " arr",
+            "sales playbook",
+            "pitch deck",
+            "investor pitch",
+            "investor",
+            "b2b saas",
+            "growth strategy",
         ],
     },
     IntentRule {
@@ -421,9 +568,21 @@ const RULES: &[IntentRule] = &[
         intent: "writing",
         workflow_id: "quick",
         patterns: &[
-            "narrative", "narrativa", "fantasy trilogy", "fantasy novel", "epic novel",
-            "character arc", "arco de personaje", "novela", "novel ", "escribir un libro",
-            "guion", "worldbuilding", "world-building", "world building", "plot",
+            "narrative",
+            "narrativa",
+            "fantasy trilogy",
+            "fantasy novel",
+            "epic novel",
+            "character arc",
+            "arco de personaje",
+            "novela",
+            "novel ",
+            "escribir un libro",
+            "guion",
+            "worldbuilding",
+            "world-building",
+            "world building",
+            "plot",
         ],
     },
     IntentRule {
@@ -514,10 +673,30 @@ const RULES: &[IntentRule] = &[
 /// agent (performance-engineer/devops-engineer). classify_intent checks these
 /// FIRST so "pipeline"/"optimize"/"error" no longer hijack a domain prompt.
 const DOMAIN_INTENTS: &[&str] = &[
-    "game", "mobile", "ios", "android", "nextjs", "electron", "websocket", "ml",
-    "data_eng", "cloud_infra", "database", "golang", "csharp", "rust",
-    "api_design", "llm", "accessibility", "docker", "finance", "business", "writing",
-    "python", "typescript", "architecture_review",
+    "game",
+    "mobile",
+    "ios",
+    "android",
+    "nextjs",
+    "electron",
+    "websocket",
+    "ml",
+    "data_eng",
+    "cloud_infra",
+    "database",
+    "golang",
+    "csharp",
+    "rust",
+    "api_design",
+    "llm",
+    "accessibility",
+    "docker",
+    "finance",
+    "business",
+    "writing",
+    "python",
+    "typescript",
+    "architecture_review",
 ];
 
 /// Skills (personas / domain skills) the detected intent should surface in the
@@ -544,17 +723,13 @@ pub fn classify_intent(prompt: &str) -> (&'static str, &'static str) {
     let p = prompt.to_lowercase();
     // Pass 1 — domain-specific intents win over action verbs.
     for r in RULES {
-        if DOMAIN_INTENTS.contains(&r.intent)
-            && r.patterns.iter().any(|pat| p.contains(pat))
-        {
+        if DOMAIN_INTENTS.contains(&r.intent) && r.patterns.iter().any(|pat| p.contains(pat)) {
             return (r.intent, r.workflow_id);
         }
     }
     // Pass 2 — action / general intents (security, bug_fix, ui_design, ...).
     for r in RULES {
-        if !DOMAIN_INTENTS.contains(&r.intent)
-            && r.patterns.iter().any(|pat| p.contains(pat))
-        {
+        if !DOMAIN_INTENTS.contains(&r.intent) && r.patterns.iter().any(|pat| p.contains(pat)) {
             return (r.intent, r.workflow_id);
         }
     }
@@ -651,7 +826,12 @@ const PREFERRED_FLOOR: f32 = 0.80;
 /// meta agents when the prompt clearly belongs to their domain.
 fn preferred_specialists(intent: &str) -> &'static [&'static str] {
     match intent {
-        "security" => &["security-auditor", "penetration-tester", "ultron-security", "code-reviewer"],
+        "security" => &[
+            "security-auditor",
+            "penetration-tester",
+            "ultron-security",
+            "code-reviewer",
+        ],
         "bug_fix" => &["debugger", "error-detective", "qa-expert"],
         "performance" => &["performance-engineer", "ultron-perf", "debugger"],
         "testing" => &["test-automator", "qa-expert", "code-reviewer"],
@@ -672,7 +852,12 @@ fn preferred_specialists(intent: &str) -> &'static [&'static str] {
         ],
         "docs" => &["documentation-engineer", "ultron-docs"],
         "refactor" => &["refactoring-specialist", "ultron-refactor", "code-reviewer"],
-        "architecture_review" => &["architect-reviewer", "microservices-architect", "cloud-architect", "ultron-arch"],
+        "architecture_review" => &[
+            "architect-reviewer",
+            "microservices-architect",
+            "cloud-architect",
+            "ultron-arch",
+        ],
         "feature" => &["architect-reviewer", "fullstack-developer", "code-reviewer"],
         "research" => &["ai-engineer", "llm-architect", "architect-reviewer"],
         "game" => &["unreal-engine-engineer", "cpp-pro", "architect-reviewer"],
@@ -687,13 +872,21 @@ fn preferred_specialists(intent: &str) -> &'static [&'static str] {
         "rust" => &["rust-engineer", "cpp-pro"],
         "python" => &["python-pro", "backend-developer"],
         "typescript" => &["typescript-pro", "javascript-pro", "frontend-developer"],
-        "cloud_infra" => &["terraform-engineer", "cloud-architect", "kubernetes-specialist"],
+        "cloud_infra" => &[
+            "terraform-engineer",
+            "cloud-architect",
+            "kubernetes-specialist",
+        ],
         "ml" => &["ml-engineer", "mlops-engineer", "ai-engineer"],
         "data_eng" => &["data-engineer", "database-administrator"],
         "websocket" => &["websocket-engineer", "backend-developer"],
         "electron" => &["electron-pro", "frontend-developer"],
         "nextjs" => &["nextjs-developer", "react-specialist"],
-        "api_design" => &["api-designer", "backend-developer", "microservices-architect"],
+        "api_design" => &[
+            "api-designer",
+            "backend-developer",
+            "microservices-architect",
+        ],
         "llm" => &["llm-architect", "ai-engineer", "prompt-engineer"],
         "accessibility" => &["accessibility-tester", "frontend-developer"],
         "docker" => &["docker-expert", "devops-engineer", "kubernetes-specialist"],
@@ -714,6 +907,7 @@ fn preferred_specialists(intent: &str) -> &'static [&'static str] {
 ///     `ultron-docs` for the `docs` intent), in which case the penalty is
 ///     waived and they get the boost like any other preferred specialist.
 ///   - Any preferred specialist gets an additive `SPECIALIST_BOOST`.
+///
 /// Then sort by adjusted score (desc) and keep the top `keep`.
 fn rebalance_delegates(
     hits: Vec<catalog::CatalogHit>,
@@ -748,7 +942,11 @@ fn rebalance_delegates(
             }
         })
         .collect();
-    scored.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    scored.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     scored.truncate(keep);
     scored
 }
@@ -799,12 +997,18 @@ fn rank_skills(hits: Vec<catalog::CatalogHit>, intent: &str, keep: usize) -> Vec
             if preferred.contains(&h.name.as_str()) {
                 score += SPECIALIST_BOOST;
             }
-            SkillChoice { name: h.name, description: h.description, kind: h.kind, score }
+            SkillChoice {
+                name: h.name,
+                description: h.description,
+                kind: h.kind,
+                score,
+            }
         })
         .collect();
     // Floor-inject the intent's preferred persona/domain skills the retrieval
     // missed, so e.g. tio-gilito wins a finance prompt even if E5 buried it.
-    let present: std::collections::HashSet<String> = skills.iter().map(|s| s.name.clone()).collect();
+    let present: std::collections::HashSet<String> =
+        skills.iter().map(|s| s.name.clone()).collect();
     for name in preferred {
         if !present.contains(*name) {
             skills.push(SkillChoice {
@@ -815,7 +1019,11 @@ fn rank_skills(hits: Vec<catalog::CatalogHit>, intent: &str, keep: usize) -> Vec
             });
         }
     }
-    skills.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    skills.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     skills.truncate(keep);
     skills
 }
@@ -874,7 +1082,8 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
     let cross_project = project_id.is_some() && detect_cross_project(prompt);
     if cross_project {
         warnings.push(
-            "cross-project recall — searching the whole brain (other projects included)".to_string(),
+            "cross-project recall — searching the whole brain (other projects included)"
+                .to_string(),
         );
     }
 
@@ -953,12 +1162,18 @@ mod tests {
     #[test]
     fn detect_cross_project_fires_only_on_other_project_phrases() {
         // Positive — bilingual phrases referencing another / all projects.
-        assert!(detect_cross_project("¿te acuerdas de aquel proyecto del banco?"));
+        assert!(detect_cross_project(
+            "¿te acuerdas de aquel proyecto del banco?"
+        ));
         assert!(detect_cross_project("busca en otro proyecto"));
         assert!(detect_cross_project("mira en todos mis proyectos"));
-        assert!(detect_cross_project("what did we decide in the other project?"));
+        assert!(detect_cross_project(
+            "what did we decide in the other project?"
+        ));
         assert!(detect_cross_project("search across projects please"));
-        assert!(detect_cross_project("anything in any project about finanzas"));
+        assert!(detect_cross_project(
+            "anything in any project about finanzas"
+        ));
         // Negative — in-project work must NOT trigger whole-brain recall.
         assert!(!detect_cross_project("arregla el bug de este proyecto"));
         assert!(!detect_cross_project("sigue con la feature de export"));

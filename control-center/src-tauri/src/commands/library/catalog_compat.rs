@@ -14,7 +14,7 @@
 //! from the input slice (so adding/removing items invalidates it correctly).
 
 use std::collections::HashSet;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -63,7 +63,7 @@ pub struct DetectedStack {
 }
 
 /// Detect the stack from CLAUDE.md + common manifest files.
-pub fn detect_stack(cwd: &PathBuf) -> DetectedStack {
+pub fn detect_stack(cwd: &Path) -> DetectedStack {
     let mut stack = DetectedStack::default();
 
     // --- CLAUDE.md (home dir) ---
@@ -247,7 +247,7 @@ fn parse_pyproject_toml(body: &str, stack: &mut DetectedStack) {
             // Dep lines look like `"fastapi>=0.95"` or `fastapi`.
             let cleaned = trimmed.trim_matches(|c: char| c == '"' || c == '\'' || c == ',');
             if let Some(name) = cleaned
-                .split(|c: char| c == '>' || c == '<' || c == '=' || c == '[')
+                .split(['>', '<', '=', '['])
                 .next()
             {
                 let dep = name.trim().to_ascii_lowercase();

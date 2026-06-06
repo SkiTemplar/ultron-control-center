@@ -197,8 +197,8 @@ fn iso_diff_days(a: &str, b: &str) -> Option<i64> {
             30,
             31,
         ];
-        for mm in 0..(m as usize - 1) {
-            total += mdays[mm];
+        for d in mdays.iter().take(m as usize - 1) {
+            total += d;
         }
         total += d as i64 - 1;
         Some(total)
@@ -267,7 +267,7 @@ fn compute_live_usage() -> Option<StatsCache> {
                 Err(_) => continue,
             };
             let buf = BufReader::new(file);
-            for line in buf.lines().flatten() {
+            for line in buf.lines().map_while(Result::ok) {
                 let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
                     continue;
                 };
@@ -545,7 +545,7 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
             total,
         });
     }
-    report.model_totals.sort_by(|a, b| b.total.cmp(&a.total));
+    report.model_totals.sort_by_key(|b| std::cmp::Reverse(b.total));
 
     // Hour counts: keys are strings "0".."23"; some may be missing for hours
     // never used. We materialize a dense 24-slot vec.

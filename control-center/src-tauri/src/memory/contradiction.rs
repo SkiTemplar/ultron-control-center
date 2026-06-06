@@ -58,7 +58,7 @@ impl ContradictionFinding {
 ///   - Qdrant/E5 unavailable             -> `search_dense` empties -> empty vec.
 ///   - A neighbour id no longer in SQLite -> skipped (never errors).
 ///   - The LLM judge unavailable          -> `judge_contradiction` returns
-///                                           false -> no finding.
+///     false -> no finding.
 ///
 /// This function performs the network/DB/LLM work and is therefore NOT unit
 /// tested here; `recommended_action` (the pure decision) is.

@@ -12,7 +12,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,7 +40,7 @@ pub fn batches_dir() -> Result<PathBuf, String> {
     Ok(d)
 }
 
-fn is_allowed_ext(p: &PathBuf) -> bool {
+fn is_allowed_ext(p: &Path) -> bool {
     matches!(
         p.extension()
             .and_then(|e| e.to_str())
@@ -93,7 +93,7 @@ pub fn list_batches_inner() -> Result<Vec<BatchEntry>, String> {
             modified_epoch,
         });
     }
-    out.sort_by(|a, b| b.modified_epoch.cmp(&a.modified_epoch));
+    out.sort_by_key(|b| std::cmp::Reverse(b.modified_epoch));
     Ok(out)
 }
 
@@ -253,10 +253,7 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
         match std::fs::remove_file(&path) {
             Ok(()) => deleted.push(name),
             Err(e) => {
-                eprintln!(
-                    "[batches] could not delete '{}': {e}",
-                    path.display()
-                );
+                eprintln!("[batches] could not delete '{}': {e}", path.display());
                 kept += 1;
             }
         }

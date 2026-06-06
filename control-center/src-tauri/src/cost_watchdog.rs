@@ -168,8 +168,8 @@ fn parse_iso_to_epoch(ts: &str) -> Option<i64> {
         30,
         31,
     ];
-    for m in 0..(month as usize - 1) {
-        days += mdays[m];
+    for d in mdays.iter().take(month as usize - 1) {
+        days += d;
     }
     days += day - 1;
     Some(days * 86_400 + hour * 3600 + minute * 60 + second)
@@ -199,7 +199,7 @@ fn read_tail_rows(path: PathBuf, max_lines: usize) -> Result<Vec<Row>, String> {
     };
     let reader = BufReader::new(file);
     let mut lines: Vec<String> = Vec::new();
-    for line in reader.lines().flatten() {
+    for line in reader.lines().map_while(Result::ok) {
         if !line.trim().is_empty() {
             lines.push(line);
         }
@@ -267,7 +267,7 @@ pub fn compute_cost_inner(window_hours: u32) -> Result<CostSnapshot, String> {
 
     // Top 5 buckets, sorted by tokens desc
     let mut top: Vec<(String, u64)> = by_bucket.into_iter().collect();
-    top.sort_by(|a, b| b.1.cmp(&a.1));
+    top.sort_by_key(|b| std::cmp::Reverse(b.1));
     top.truncate(5);
 
     let alert = if usd_high > 20.0 {

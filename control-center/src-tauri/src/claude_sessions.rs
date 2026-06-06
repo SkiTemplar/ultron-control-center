@@ -474,6 +474,7 @@ pub fn list_workspaces_inner() -> Result<Vec<WorkspaceSummary>, String> {
 
 // ---- P4: per-project sessions listing ----
 
+#[allow(dead_code)] // return type of project_sessions_list (tauri command not yet registered)
 #[derive(Debug, Serialize, Clone)]
 pub struct ClaudeSessionSummary {
     pub session_id: String,
@@ -482,6 +483,7 @@ pub struct ClaudeSessionSummary {
     pub first_user_message: Option<String>,
 }
 
+#[allow(dead_code)] // recall.rs inlines its own copy; keep here for future re-unification
 pub(crate) fn project_slug_for(path: &str) -> String {
     // Claude Code mangles project paths into directory names by replacing
     // ANY non-alphanumeric character with `-`. This means `:`, `\`, `/`, and
@@ -511,6 +513,7 @@ pub(crate) fn project_slug_for(path: &str) -> String {
     out.trim_matches('-').to_string()
 }
 
+#[allow(dead_code)] // tauri command prepared but not yet wired into generate_handler!
 #[tauri::command]
 pub async fn project_sessions_list(
     project_path: String,

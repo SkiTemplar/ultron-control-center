@@ -333,7 +333,7 @@ fn find_latest_transcript() -> Option<PathBuf> {
         let mtime = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
         candidates.push((path, mtime));
     }
-    candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    candidates.sort_by_key(|b| std::cmp::Reverse(b.1));
     candidates.into_iter().next().map(|(p, _)| p)
 }
 

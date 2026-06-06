@@ -20,9 +20,8 @@ use std::sync::OnceLock;
 use rusqlite::{named_params, params, Connection, Row};
 
 use super::model::{
-    estimate_tokens, Actor, CandidateAction, CandidateStatus, EventType,
-    MemoryCandidate, MemoryEvent, MemoryItem, MemoryType, Scope, Sensitivity, Source, Stability,
-    Status,
+    estimate_tokens, Actor, CandidateAction, CandidateStatus, EventType, MemoryCandidate,
+    MemoryEvent, MemoryItem, MemoryType, Scope, Sensitivity, Source, Stability, Status,
 };
 use super::{
     Capabilities, MemoryDoc, MemoryError, MemoryHit, MemoryStore, Query, StoreHealth, StoreKind,
@@ -199,8 +198,8 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
     add_column_if_missing_on(conn, "memory_candidates", "proposed_signature", "TEXT");
     add_column_if_missing_on(conn, "memory_candidates", "capture_source", "TEXT");
     // O(1) symbol lookup for re-capture dedupe (one row per "file_path:symbol").
-    let _ = conn
-        .execute_batch("CREATE INDEX IF NOT EXISTS idx_items_symbol ON memory_items(symbol);");
+    let _ =
+        conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_items_symbol ON memory_items(symbol);");
 
     if fts5_available(conn) {
         conn.execute_batch(
@@ -253,9 +252,7 @@ pub(crate) fn apply_schema(conn: &Connection) -> Result<(), MemoryError> {
         "DROP TABLE IF EXISTS memories_fts;
          DROP TABLE IF EXISTS memories;",
     ) {
-        eprintln!(
-            "[sqlite_store] legacy-table cleanup failed (non-fatal): {e}"
-        );
+        eprintln!("[sqlite_store] legacy-table cleanup failed (non-fatal): {e}");
     }
 
     Ok(())
@@ -984,15 +981,7 @@ pub fn insert_code_edge(
 ) -> Result<(), MemoryError> {
     let conn = open_conn()?;
     super::schema_v4::insert_edge(
-        &conn,
-        source,
-        target,
-        kind,
-        file,
-        line_from,
-        line_to,
-        provenance,
-        project_id,
+        &conn, source, target, kind, file, line_from, line_to, provenance, project_id,
     )
 }
 

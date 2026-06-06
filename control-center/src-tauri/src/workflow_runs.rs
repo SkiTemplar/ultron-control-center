@@ -203,7 +203,7 @@ pub fn list_runs_inner(
     limit: u32,
 ) -> Result<Vec<WorkflowRun>, String> {
     let conn = open_conn()?;
-    let cap = limit.min(500).max(1);
+    let cap = limit.clamp(1, 500);
 
     // Build the WHERE clause dynamically to avoid shipping dead predicates.
     let mut conditions: Vec<&str> = Vec::new();

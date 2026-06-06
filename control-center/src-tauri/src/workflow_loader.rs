@@ -83,12 +83,14 @@ pub enum LoaderError {
     NoHome,
     #[error("workflow directory I/O: {0}")]
     Io(#[from] std::io::Error),
+    #[allow(dead_code)] // planned for strict-mode loader; currently only Io is returned
     #[error("YAML parse error in {file}: {source}")]
     Yaml {
         file: String,
         #[source]
         source: serde_yaml::Error,
     },
+    #[allow(dead_code)] // planned for strict-mode loader; currently only Io is returned
     #[error("workflow validation error in {file}: {message}")]
     Validation { file: String, message: String },
 }

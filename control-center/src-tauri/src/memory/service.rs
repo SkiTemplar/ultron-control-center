@@ -183,11 +183,7 @@ impl MemoryService {
                 // `open_conn` is cheap (WAL mode, no schema migration on reopen).
                 std::thread::spawn(move || {
                     let result = store::open_conn().ok().map(|c| {
-                        super::contradiction::check(
-                            &c,
-                            &summary_owned,
-                            project_id_owned.as_deref(),
-                        )
+                        super::contradiction::check(&c, &summary_owned, project_id_owned.as_deref())
                     });
                     // Receiver may have dropped (timeout) — ignore send error.
                     let _ = tx.send(result);
@@ -279,11 +275,7 @@ impl MemoryService {
                     // Low-confidence noise: flip to `rejected` (out of recall) and
                     // record the policy decision in the audit log. Swallow errors —
                     // worst case it lingers as Pending, which is still safe.
-                    let _ = store::set_candidate_status(
-                        &conn,
-                        &cand.id,
-                        CandidateStatus::Rejected,
-                    );
+                    let _ = store::set_candidate_status(&conn, &cand.id, CandidateStatus::Rejected);
                     let ev = MemoryEvent::new(EventType::Rejected, None, Actor::System)
                         .with_reason(format!(
                             "candidate {} auto-rejected (confidence {:.2} < band-C floor)",

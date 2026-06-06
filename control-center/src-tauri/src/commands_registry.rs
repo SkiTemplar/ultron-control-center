@@ -167,9 +167,9 @@ fn parse_metadata(body: &str) -> (String, Option<String>, Option<String>) {
 
     let mut prose_start = body;
     let trimmed = body.trim_start();
-    if trimmed.starts_with("---") {
-        if let Some(end) = trimmed[3..].find("\n---") {
-            let fm = &trimmed[3..3 + end];
+    if let Some(after_fence) = trimmed.strip_prefix("---") {
+        if let Some(end) = after_fence.find("\n---") {
+            let fm = &after_fence[..end];
             for line in fm.lines() {
                 let line = line.trim();
                 if let Some(rest) = line.strip_prefix("description:") {
@@ -184,7 +184,7 @@ fn parse_metadata(body: &str) -> (String, Option<String>, Option<String>) {
                 }
             }
             // Body after `---\n...\n---\n`.
-            prose_start = &trimmed[3 + end + 4..];
+            prose_start = &after_fence[end + 4..];
         }
     }
 

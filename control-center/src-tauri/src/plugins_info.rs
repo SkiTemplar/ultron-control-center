@@ -96,7 +96,7 @@ pub fn read_plugin_info_inner() -> Result<PluginInfo, String> {
             Some((p, m))
         })
         .collect();
-    versions.sort_by(|a, b| b.1.cmp(&a.1));
+    versions.sort_by_key(|b| std::cmp::Reverse(b.1));
     let Some((root, mtime)) = versions.into_iter().next() else {
         return Ok(PluginInfo {
             installed: false,
@@ -185,7 +185,7 @@ pub fn list_all_plugins_inner() -> Result<Vec<PluginEntry>, String> {
                     .collect(),
                 Err(_) => continue,
             };
-            versions.sort_by(|a, b| b.1.cmp(&a.1));
+            versions.sort_by_key(|b| std::cmp::Reverse(b.1));
             let Some((root, mtime)) = versions.into_iter().next() else {
                 continue;
             };
@@ -880,8 +880,7 @@ fn invalidate_update_cache() {
 /// 2. Load `installed_plugins.json` for SHAs and `known_marketplaces.json`
 ///    for repo slugs.
 /// 3. For each installed plugin:
-///    a. If `gitCommitSha` present: fetch HEAD commit of the plugin's subpath
-///       and compare SHAs.
+///    a. If `gitCommitSha` present: fetch HEAD commit of the plugin's subpath and compare SHAs.
 ///    b. If no SHA: compare `lastUpdated` (ISO) against the latest commit date.
 /// 4. Write cache; return results.
 pub fn plugin_check_updates_bulk_inner(force: bool) -> Result<Vec<PluginBulkUpdate>, String> {

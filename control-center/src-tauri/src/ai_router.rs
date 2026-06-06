@@ -60,7 +60,10 @@ pub enum FailReason {
 impl FailReason {
     /// Returns true when it is safe to retry this kind of failure.
     pub fn is_transient(self) -> bool {
-        matches!(self, FailReason::RateLimit | FailReason::Overloaded | FailReason::Timeout)
+        matches!(
+            self,
+            FailReason::RateLimit | FailReason::Overloaded | FailReason::Timeout
+        )
     }
 
     /// Classify an HTTP status code returned by a cloud provider.
@@ -152,10 +155,7 @@ fn retry_delay_ms(attempt: u32) -> u64 {
 /// that succeeded on the second attempt leaves no trace of the first failure.
 /// `retry_count` fills that gap without biasing `fail_reasons` upward
 /// (KIRKARDO P2 fix).
-fn with_retry<F>(
-    max_retries: u32,
-    mut f: F,
-) -> Result<(CallOutcome, u32), (String, FailReason)>
+fn with_retry<F>(max_retries: u32, mut f: F) -> Result<(CallOutcome, u32), (String, FailReason)>
 where
     F: FnMut() -> Result<CallOutcome, (String, FailReason)>,
 {
@@ -383,21 +383,24 @@ impl LatencyHistogram {
 
     /// Running average in ms, or 0 when no observations have been recorded.
     pub fn avg_ms(&self) -> u64 {
-        if self.total == 0 { 0 } else { self.sum_ms / self.total }
+        self.sum_ms.checked_div(self.total).unwrap_or(0)
     }
 
     /// p50 (median) latency in ms.  Returns the upper bound of the bucket
     /// that contains the 50th-percentile observation.  Returns 0 when empty.
+    #[allow(dead_code)] // exposed for future dashboard telemetry
     pub fn p50_ms(&self) -> u64 {
         self.percentile(50)
     }
 
     /// p95 latency in ms.  Returns 0 when empty.
+    #[allow(dead_code)] // exposed for future dashboard telemetry
     pub fn p95_ms(&self) -> u64 {
         self.percentile(95)
     }
 
     /// Generic percentile: `pct` in 0..=100.
+    #[allow(dead_code)] // called by p50_ms / p95_ms above
     pub fn percentile(&self, pct: u8) -> u64 {
         if self.total == 0 {
             return 0;
@@ -1004,8 +1007,7 @@ fn load_zones() -> Result<Vec<Zone>, String> {
         // merge back any seed zone missing by id so a partial file can never
         // disable a code-referenced zone again. User-edited zones are preserved.
         let mut zones: Vec<Zone> = read_json(&path)?;
-        let have: std::collections::HashSet<String> =
-            zones.iter().map(|z| z.id.clone()).collect();
+        let have: std::collections::HashSet<String> = zones.iter().map(|z| z.id.clone()).collect();
         for z in seed_zones() {
             if !have.contains(&z.id) {
                 zones.push(z);
@@ -1306,42 +1308,48 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ).map_err(|(msg, _)| msg),
+            )
+            .map_err(|(msg, _)| msg),
             "codex" => call_openai_compat(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ).map_err(|(msg, _)| msg),
+            )
+            .map_err(|(msg, _)| msg),
             "groq" => call_openai_compat(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ).map_err(|(msg, _)| msg),
+            )
+            .map_err(|(msg, _)| msg),
             "deepseek" => call_openai_compat(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ).map_err(|(msg, _)| msg),
+            )
+            .map_err(|(msg, _)| msg),
             "gemini" => call_gemini(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ).map_err(|(msg, _)| msg),
+            )
+            .map_err(|(msg, _)| msg),
             "ollama" => call_ollama(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ).map_err(|(msg, _)| msg),
+            )
+            .map_err(|(msg, _)| msg),
             other => Err(format!("no wrapper implemented for provider '{}'", other)),
         },
     };
@@ -1426,8 +1434,12 @@ fn call_anthropic(
     max_tokens: u32,
 ) -> Result<CallOutcome, (String, FailReason)> {
     let client = http_client().map_err(|e| (e, FailReason::Error))?;
-    let key = std::env::var(&provider.key_env_var)
-        .map_err(|_| (format!("missing {} env var", provider.key_env_var), FailReason::Error))?;
+    let key = std::env::var(&provider.key_env_var).map_err(|_| {
+        (
+            format!("missing {} env var", provider.key_env_var),
+            FailReason::Error,
+        )
+    })?;
     let url = format!("{}/v1/messages", provider.base_url.trim_end_matches('/'));
     // KIRKARDO R11.3 FIX-4: wrap the system prompt in an ephemeral cache
     // breakpoint so Anthropic deduplicates the (usually stable) system text
@@ -1460,17 +1472,28 @@ fn call_anthropic(
         .json(&body)
         .send()
         .map_err(|e| {
-            let reason = if e.is_timeout() { FailReason::Timeout } else { FailReason::Error };
+            let reason = if e.is_timeout() {
+                FailReason::Timeout
+            } else {
+                FailReason::Error
+            };
             (format!("anthropic request failed: {}", e), reason)
         })?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
         let reason = FailReason::from_http_status(status.as_u16());
-        return Err((format!("anthropic {}: {}", status, truncate(&text, 200)), reason));
+        return Err((
+            format!("anthropic {}: {}", status, truncate(&text, 200)),
+            reason,
+        ));
     }
-    let v: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| (format!("parse anthropic response: {}", e), FailReason::Error))?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        (
+            format!("parse anthropic response: {}", e),
+            FailReason::Error,
+        )
+    })?;
     let out = v
         .get("content")
         .and_then(|c| c.get(0))
@@ -1499,8 +1522,12 @@ fn call_openai_compat(
     max_tokens: u32,
 ) -> Result<CallOutcome, (String, FailReason)> {
     let client = http_client().map_err(|e| (e, FailReason::Error))?;
-    let key = std::env::var(&provider.key_env_var)
-        .map_err(|_| (format!("missing {} env var", provider.key_env_var), FailReason::Error))?;
+    let key = std::env::var(&provider.key_env_var).map_err(|_| {
+        (
+            format!("missing {} env var", provider.key_env_var),
+            FailReason::Error,
+        )
+    })?;
     let url = format!(
         "{}/v1/chat/completions",
         provider.base_url.trim_end_matches('/')
@@ -1524,7 +1551,11 @@ fn call_openai_compat(
         .json(&body)
         .send()
         .map_err(|e| {
-            let reason = if e.is_timeout() { FailReason::Timeout } else { FailReason::Error };
+            let reason = if e.is_timeout() {
+                FailReason::Timeout
+            } else {
+                FailReason::Error
+            };
             (format!("{} request failed: {}", provider.id, e), reason)
         })?;
     let status = resp.status();
@@ -1536,8 +1567,12 @@ fn call_openai_compat(
             reason,
         ));
     }
-    let v: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| (format!("parse {} response: {}", provider.id, e), FailReason::Error))?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        (
+            format!("parse {} response: {}", provider.id, e),
+            FailReason::Error,
+        )
+    })?;
     let out = v
         .get("choices")
         .and_then(|c| c.get(0))
@@ -1567,8 +1602,12 @@ fn call_gemini(
     max_tokens: u32,
 ) -> Result<CallOutcome, (String, FailReason)> {
     let client = http_client().map_err(|e| (e, FailReason::Error))?;
-    let key = std::env::var(&provider.key_env_var)
-        .map_err(|_| (format!("missing {} env var", provider.key_env_var), FailReason::Error))?;
+    let key = std::env::var(&provider.key_env_var).map_err(|_| {
+        (
+            format!("missing {} env var", provider.key_env_var),
+            FailReason::Error,
+        )
+    })?;
     let url = format!(
         "{}/v1beta/models/{}:generateContent",
         provider.base_url.trim_end_matches('/'),
@@ -1590,14 +1629,21 @@ fn call_gemini(
         .json(&body)
         .send()
         .map_err(|e| {
-            let reason = if e.is_timeout() { FailReason::Timeout } else { FailReason::Error };
+            let reason = if e.is_timeout() {
+                FailReason::Timeout
+            } else {
+                FailReason::Error
+            };
             (format!("gemini request failed: {}", e), reason)
         })?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
         let reason = FailReason::from_http_status(status.as_u16());
-        return Err((format!("gemini {}: {}", status, truncate(&text, 200)), reason));
+        return Err((
+            format!("gemini {}: {}", status, truncate(&text, 200)),
+            reason,
+        ));
     }
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| (format!("parse gemini response: {}", e), FailReason::Error))?;
@@ -1659,14 +1705,21 @@ fn call_ollama(
         .json(&body)
         .send()
         .map_err(|e| {
-            let reason = if e.is_timeout() { FailReason::Timeout } else { FailReason::Error };
+            let reason = if e.is_timeout() {
+                FailReason::Timeout
+            } else {
+                FailReason::Error
+            };
             (format!("ollama request failed: {}", e), reason)
         })?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
         let reason = FailReason::from_http_status(status.as_u16());
-        return Err((format!("ollama {}: {}", status, truncate(&text, 200)), reason));
+        return Err((
+            format!("ollama {}: {}", status, truncate(&text, 200)),
+            reason,
+        ));
     }
     let v: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| (format!("parse ollama response: {}", e), FailReason::Error))?;
@@ -1717,15 +1770,12 @@ fn clamp_max_tokens(requested: u32, default: u32) -> u32 {
 /// for the `codex-cli` provider (id == "codex-cli" or cli_command == "codex").
 /// Gemini CLI does not support that flag and is left unchanged.
 fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, FailReason)> {
-    let cmd = provider
-        .cli_command
-        .as_deref()
-        .ok_or_else(|| {
-            (
-                format!("provider '{}' has no cli_command configured", provider.id),
-                FailReason::Error,
-            )
-        })?;
+    let cmd = provider.cli_command.as_deref().ok_or_else(|| {
+        (
+            format!("provider '{}' has no cli_command configured", provider.id),
+            FailReason::Error,
+        )
+    })?;
 
     let model = provider.default_model.as_str();
 
@@ -1734,8 +1784,7 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, F
     // support that flag, so we only append it when the provider is codex-cli.
     let prompt_flag = "-p";
     let model_flag = "--model";
-    let is_codex = provider.id == "codex-cli"
-        || provider.cli_command.as_deref() == Some("codex");
+    let is_codex = provider.id == "codex-cli" || provider.cli_command.as_deref() == Some("codex");
 
     // SAFETY: all strings are owned by the caller; no raw pointers.
     #[cfg(target_os = "windows")]
@@ -1796,7 +1845,11 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, F
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err((
-            format!("{cmd} exited {}: {}", output.status, truncate(stderr.trim(), 300)),
+            format!(
+                "{cmd} exited {}: {}",
+                output.status,
+                truncate(stderr.trim(), 300)
+            ),
             FailReason::Error,
         ));
     }
@@ -1928,9 +1981,11 @@ pub fn primary_model_for_zone(zone_id: &str) -> Option<String> {
 
 /// Maximum number of retry attempts on a 429 response before giving up and
 /// moving to the next provider in the fallback chain.
+#[allow(dead_code)] // wired into retry logic planned for R5
 const MAX_429_RETRIES: u32 = 2;
 
 /// Initial backoff for a 429 retry (doubles each attempt: 1 s → 2 s → give up).
+#[allow(dead_code)] // wired into retry logic planned for R5
 const BACKOFF_429_BASE_MS: u64 = 1_000;
 
 pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
@@ -2031,12 +2086,15 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         // Detect a 429 / rate-limit. try_assignment_call now classifies via
         // FailReason, but the legacy string-heuristic is kept for the
         // quota short-circuit path below (free-tier detection).
-        let is_rate_limited = outcome.as_ref().err().map_or(false, |(_, reason)| {
+        let is_rate_limited = outcome.as_ref().err().is_some_and(|(_, reason)| {
             matches!(reason, FailReason::RateLimit | FailReason::Overloaded)
         });
 
         let success = outcome.is_ok();
-        let out_tokens = outcome.as_ref().map(|(c, _)| c.usage.output_tokens).unwrap_or(0);
+        let out_tokens = outcome
+            .as_ref()
+            .map(|(c, _)| c.usage.output_tokens)
+            .unwrap_or(0);
         // KIRKARDO P2: retry_count = retries consumed inside with_retry (0 on
         // 1-shot success or CLI call).  fail_reason is ONLY set on terminal
         // failure — never on a per-attempt basis — so fail_reasons in
@@ -2108,12 +2166,16 @@ fn try_assignment_call(
     prompt: &str,
     system_prompt: Option<&str>,
 ) -> Result<(CallOutcome, u32), (String, FailReason)> {
-    let providers = load_providers()
-        .map_err(|e| (e, FailReason::Error))?;
+    let providers = load_providers().map_err(|e| (e, FailReason::Error))?;
     let provider = providers
         .iter()
         .find(|p| p.id == assignment.provider_id)
-        .ok_or_else(|| (format!("unknown provider '{}'", assignment.provider_id), FailReason::Error))?
+        .ok_or_else(|| {
+            (
+                format!("unknown provider '{}'", assignment.provider_id),
+                FailReason::Error,
+            )
+        })?
         .clone();
 
     match provider.kind {
@@ -2162,18 +2224,45 @@ fn try_assignment_call(
     const MAX_RETRIES: u32 = 3;
     match provider.id.as_str() {
         "claude-haiku" => with_retry(MAX_RETRIES, || {
-            call_anthropic(&provider, &assignment.model, prompt, system_prompt, assignment.max_tokens)
+            call_anthropic(
+                &provider,
+                &assignment.model,
+                prompt,
+                system_prompt,
+                assignment.max_tokens,
+            )
         }),
         "codex" | "groq" | "deepseek" => with_retry(MAX_RETRIES, || {
-            call_openai_compat(&provider, &assignment.model, prompt, system_prompt, assignment.max_tokens)
+            call_openai_compat(
+                &provider,
+                &assignment.model,
+                prompt,
+                system_prompt,
+                assignment.max_tokens,
+            )
         }),
         "gemini" => with_retry(MAX_RETRIES, || {
-            call_gemini(&provider, &assignment.model, prompt, system_prompt, assignment.max_tokens)
+            call_gemini(
+                &provider,
+                &assignment.model,
+                prompt,
+                system_prompt,
+                assignment.max_tokens,
+            )
         }),
         "ollama" => with_retry(MAX_RETRIES, || {
-            call_ollama(&provider, &assignment.model, prompt, system_prompt, assignment.max_tokens)
+            call_ollama(
+                &provider,
+                &assignment.model,
+                prompt,
+                system_prompt,
+                assignment.max_tokens,
+            )
         }),
-        other => Err((format!("no wrapper implemented for provider '{}'", other), FailReason::Error)),
+        other => Err((
+            format!("no wrapper implemented for provider '{}'", other),
+            FailReason::Error,
+        )),
     }
 }
 
@@ -2312,10 +2401,7 @@ fn apply_metric_sample(metrics: &mut RouterMetrics, s: &MetricSample<'_>, today:
 
     // --- Fail-reason tally (informational, never gating) ---
     if let Some(reason) = &s.fail_reason {
-        let rc = metrics
-            .fail_reasons
-            .entry(reason.to_string())
-            .or_insert(0);
+        let rc = metrics.fail_reasons.entry(reason.to_string()).or_insert(0);
         *rc = rc.saturating_add(1);
     }
 }
@@ -2933,7 +3019,14 @@ mod tests {
 
     #[test]
     fn paid_only_providers_have_no_free_tier() {
-        for pid in ["claude-haiku", "codex", "ollama", "deepseek", "codex-cli", "gemini-cli"] {
+        for pid in [
+            "claude-haiku",
+            "codex",
+            "ollama",
+            "deepseek",
+            "codex-cli",
+            "gemini-cli",
+        ] {
             assert_eq!(
                 free_tier_daily_limit(pid),
                 None,
@@ -2998,7 +3091,10 @@ mod tests {
             total_ms <= 5_000,
             "total backoff per provider must stay under 5 s, got {total_ms}ms"
         );
-        assert!(MAX_429_RETRIES <= 3, "more than 3 retries would be too slow");
+        assert!(
+            MAX_429_RETRIES <= 3,
+            "more than 3 retries would be too slow"
+        );
     }
 
     #[test]
@@ -3122,7 +3218,10 @@ mod tests {
         });
         assert!(result.is_ok(), "must succeed");
         let (_, retry_count) = result.unwrap();
-        assert_eq!(retry_count, 0, "no retries consumed on first-attempt success");
+        assert_eq!(
+            retry_count, 0,
+            "no retries consumed on first-attempt success"
+        );
         assert_eq!(call_count, 1, "closure called exactly once");
     }
 
@@ -3209,20 +3308,13 @@ mod tests {
 
         // Write a tiny echo-args script.
         #[cfg(target_os = "windows")]
-        let (script_name, script_body) = (
-            "codex.bat",
-            "@echo off\r\necho %*\r\n",
-        );
+        let (script_name, script_body) = ("codex.bat", "@echo off\r\necho %*\r\n");
         #[cfg(not(target_os = "windows"))]
-        let (script_name, script_body) = (
-            "codex",
-            "#!/bin/sh\necho \"$@\"\n",
-        );
+        let (script_name, script_body) = ("codex", "#!/bin/sh\necho \"$@\"\n");
 
         let script_path = tmp.join(script_name);
         {
-            let mut f = std::fs::File::create(&script_path)
-                .expect("create echo script");
+            let mut f = std::fs::File::create(&script_path).expect("create echo script");
             f.write_all(script_body.as_bytes()).expect("write script");
         }
 
@@ -3238,7 +3330,11 @@ mod tests {
         // Temporarily prepend our tmp dir to PATH so `detect_cli` finds the script.
         // Holding `_guard` ensures no other test mutates PATH concurrently.
         let original_path = std::env::var("PATH").unwrap_or_default();
-        let sep = if cfg!(target_os = "windows") { ";" } else { ":" };
+        let sep = if cfg!(target_os = "windows") {
+            ";"
+        } else {
+            ":"
+        };
         let new_path = format!("{}{sep}{}", tmp.display(), original_path);
 
         // Flush the CLI cache entry for "codex" so this test sees the new PATH.
@@ -3292,7 +3388,8 @@ mod tests {
             Err((msg, _)) => {
                 // On CI without a writable PATH mutation, the script may not be
                 // found.  Fail only when the error is NOT a "not found" variant.
-                if !msg.contains("not found") && !msg.contains("cannot find")
+                if !msg.contains("not found")
+                    && !msg.contains("cannot find")
                     && !msg.contains("No such file")
                 {
                     panic!("call_cli failed unexpectedly: {msg}");
@@ -3344,7 +3441,10 @@ mod tests {
     fn env_override_gemini_tier_limit() {
         use std::sync::Mutex;
         static ENV_MUTEX: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
-        let _g = ENV_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+        let _g = ENV_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         // Set a custom override.
         // SAFETY: serialised by ENV_MUTEX.
@@ -3352,7 +3452,11 @@ mod tests {
         let limit = free_tier_daily_limit("gemini");
         unsafe { std::env::remove_var("ULTRON_GEMINI_TIER_LIMIT") };
 
-        assert_eq!(limit, Some(50), "env override ULTRON_GEMINI_TIER_LIMIT=50 must take effect");
+        assert_eq!(
+            limit,
+            Some(50),
+            "env override ULTRON_GEMINI_TIER_LIMIT=50 must take effect"
+        );
     }
 
     /// Gap #4 — env-override for groq tier limit is respected.
@@ -3360,13 +3464,20 @@ mod tests {
     fn env_override_groq_tier_limit() {
         use std::sync::Mutex;
         static ENV_MUTEX: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
-        let _g = ENV_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+        let _g = ENV_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         unsafe { std::env::set_var("ULTRON_GROQ_TIER_LIMIT", "200") };
         let limit = free_tier_daily_limit("groq");
         unsafe { std::env::remove_var("ULTRON_GROQ_TIER_LIMIT") };
 
-        assert_eq!(limit, Some(200), "env override ULTRON_GROQ_TIER_LIMIT=200 must take effect");
+        assert_eq!(
+            limit,
+            Some(200),
+            "env override ULTRON_GROQ_TIER_LIMIT=200 must take effect"
+        );
     }
 
     /// Gap #4 — invalid (non-numeric) env-override falls back to hardcoded default.
@@ -3374,13 +3485,20 @@ mod tests {
     fn env_override_invalid_value_uses_hardcoded_default() {
         use std::sync::Mutex;
         static ENV_MUTEX: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
-        let _g = ENV_MUTEX.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+        let _g = ENV_MUTEX
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         unsafe { std::env::set_var("ULTRON_GEMINI_TIER_LIMIT", "not-a-number") };
         let limit = free_tier_daily_limit("gemini");
         unsafe { std::env::remove_var("ULTRON_GEMINI_TIER_LIMIT") };
 
-        assert_eq!(limit, Some(20), "invalid env override must fall back to hardcoded default (20)");
+        assert_eq!(
+            limit,
+            Some(20),
+            "invalid env override must fall back to hardcoded default (20)"
+        );
     }
 
     /// Gap #3 — LatencyHistogram.record() emits a warning when counts is
@@ -3398,8 +3516,15 @@ mod tests {
         // We cannot capture stderr in a unit test without additional infrastructure,
         // but we verify the heal succeeds and the observation is recorded correctly.
         h.record(300);
-        assert_eq!(h.counts.len(), h.bounds.len(), "counts must be extended to match bounds after auto-heal");
-        assert_eq!(h.total, 1, "total must be 1 after recording one observation");
+        assert_eq!(
+            h.counts.len(),
+            h.bounds.len(),
+            "counts must be extended to match bounds after auto-heal"
+        );
+        assert_eq!(
+            h.total, 1,
+            "total must be 1 after recording one observation"
+        );
         assert!(h.sum_ms > 0, "sum_ms must be non-zero after recording");
     }
 
@@ -3560,13 +3685,19 @@ mod tests {
         // Day 1, calls 2 and 3: SAME day → accumulate, never wipe.
         apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-05");
         apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-05");
-        assert_eq!(m.by_model[key].count, 3, "same-day calls must accumulate to 3");
+        assert_eq!(
+            m.by_model[key].count, 3,
+            "same-day calls must accumulate to 3"
+        );
 
         // Day 2, call 1: NEW day → entry resets to a clean slate (count → 1).
         // The OLD code never fired here (it saw yesterday's date) so the
         // histogram/count carried over — this assertion is the boundary fix.
         apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-06");
-        assert_eq!(m.by_model[key].count, 1, "day2 call1: resets at the boundary");
+        assert_eq!(
+            m.by_model[key].count, 1,
+            "day2 call1: resets at the boundary"
+        );
         assert_eq!(m.by_model[key].date, "2026-06-06");
 
         // Day 2, call 2: SAME (new) day → accumulate to 2. The OLD code wiped

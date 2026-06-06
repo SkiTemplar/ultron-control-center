@@ -187,7 +187,9 @@ pub fn classify_band(candidate: &MemoryCandidate, threshold: f32) -> AutoBand {
 /// is unit-tested without the DB or the settings file.
 #[must_use]
 pub fn candidate_is_clean(candidate: &MemoryCandidate) -> bool {
-    let is_secret = candidate.risk_level.eq_ignore_ascii_case(SECRET_RISK_MARKER);
+    let is_secret = candidate
+        .risk_level
+        .eq_ignore_ascii_case(SECRET_RISK_MARKER);
     let has_contradiction = !candidate.contradiction_candidates.is_empty();
     !is_secret && !has_contradiction
 }

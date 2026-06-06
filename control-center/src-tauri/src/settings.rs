@@ -151,7 +151,7 @@ fn list_recent_backups(dir: &PathBuf) -> Vec<String> {
             entries.push((mt, name.to_string()));
         }
     }
-    entries.sort_by(|a, b| b.0.cmp(&a.0));
+    entries.sort_by_key(|b| std::cmp::Reverse(b.0));
     entries.into_iter().take(8).map(|(_, n)| n).collect()
 }
 

@@ -5,7 +5,7 @@ use crate::alerts_admin;
 #[tauri::command]
 pub async fn read_alerts(limit: Option<usize>) -> Result<Vec<serde_json::Value>, String> {
     let path = crate::ultron_root()?.join("alerts.jsonl");
-    let lim = limit.unwrap_or(100).max(1).min(2000);
+    let lim = limit.unwrap_or(100).clamp(1, 2000);
     let raw = read_jsonl_tail::<serde_json::Value>(path, lim)?;
     // Drop ack-only tombstones: rows that carry no source/message/severity
     // and only exist to flag a prior alert as acknowledged. They are pure
@@ -43,7 +43,7 @@ pub async fn delete_alert_entries(fingerprints: Vec<String>) -> Result<usize, St
 #[tauri::command]
 pub async fn read_changelog(limit: Option<usize>) -> Result<Vec<serde_json::Value>, String> {
     let path = crate::ultron_root()?.join("cockpit/changelog.ndjson");
-    let lim = limit.unwrap_or(100).max(1).min(2000);
+    let lim = limit.unwrap_or(100).clamp(1, 2000);
     read_jsonl_tail::<serde_json::Value>(path, lim)
 }
 

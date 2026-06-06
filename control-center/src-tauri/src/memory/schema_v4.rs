@@ -116,9 +116,7 @@ pub(crate) fn apply_schema_v4(conn: &Connection) -> Result<(), MemoryError> {
     //      pre-existing rows (NULL = "project unknown"), which is safe because
     //      `drain_unresolved_refs` treats NULL project_id as a wildcard match
     //      (see its WHERE clause comment).
-    let _ = conn.execute_batch(
-        "ALTER TABLE unresolved_refs ADD COLUMN project_id TEXT;",
-    );
+    let _ = conn.execute_batch("ALTER TABLE unresolved_refs ADD COLUMN project_id TEXT;");
 
     // The project_id index MUST be created AFTER the ALTER above. On databases
     // created before unresolved_refs had a project_id column, the column only
@@ -200,7 +198,9 @@ pub(crate) fn insert_edge(
     provenance: Option<&str>,
     project_id: Option<&str>,
 ) -> Result<(), MemoryError> {
-    insert_edge_versioned(conn, source, target, kind, file, line_from, line_to, provenance, project_id, None, None)
+    insert_edge_versioned(
+        conn, source, target, kind, file, line_from, line_to, provenance, project_id, None, None,
+    )
 }
 
 /// Like [`insert_edge`] but also records `version` and `edge_hash` columns
@@ -246,17 +246,8 @@ pub(crate) fn insert_edge_versioned(
              version, edge_hash, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
-            source,
-            target,
-            kind,
-            file,
-            line_from,
-            line_to,
-            provenance,
-            project_id,
-            version,
-            hash_val,
-            now_ms,
+            source, target, kind, file, line_from, line_to, provenance, project_id, version,
+            hash_val, now_ms,
         ],
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_edge: {e}")))?;
@@ -286,9 +277,9 @@ pub fn compute_edge_hash(source: &str, target: &str, kind: &str, file: Option<&s
 
     let mut hash: u64 = FNV_OFFSET;
     let feed = |h: u64, bytes: &[u8]| -> u64 {
-        bytes.iter().fold(h, |acc, &b| {
-            acc.wrapping_mul(FNV_PRIME) ^ (b as u64)
-        })
+        bytes
+            .iter()
+            .fold(h, |acc, &b| acc.wrapping_mul(FNV_PRIME) ^ (b as u64))
     };
     // Mix each field with a NUL separator to prevent cross-boundary collisions.
     hash = feed(hash, source.as_bytes());
@@ -332,9 +323,9 @@ pub struct ClosureNode {
 /// * `conn`      — open connection with v4 schema applied.
 /// * `start`     — the root symbol (must match `edges.source` exactly).
 /// * `direction` — `Callees` = forward (what does `start` call?);
-///                 `Callers` = backward (who calls `start`?).
+///   `Callers` = backward (who calls `start`?).
 /// * `max_hops`  — maximum traversal depth (≥ 1).  Pass `usize::MAX` for
-///                 unbounded (the cycle guard still terminates traversal).
+///   unbounded (the cycle guard still terminates traversal).
 ///
 /// # Returns
 ///
@@ -409,14 +400,12 @@ pub fn compute_transitive_closure(
     let rows = stmt
         .query_map(params![start, max_hops_i64], |row| {
             let symbol: String = row.get(0)?;
-            let depth: i64     = row.get(1)?;
-            let path: String   = row.get(2)?;
+            let depth: i64 = row.get(1)?;
+            let path: String = row.get(2)?;
             // Convert the internal pipe-delimited path to a dot-separated
             // human-readable form: strip outer `|` delimiters, replace inner
             // `|` with `.`.
-            let readable_path = path
-                .trim_matches('|')
-                .replace('|', ".");
+            let readable_path = path.trim_matches('|').replace('|', ".");
             Ok(ClosureNode {
                 symbol,
                 depth: depth as usize,
@@ -545,7 +534,9 @@ pub(crate) fn graph_metrics(conn: &Connection) -> Result<GraphMetricsRow, Memory
         })?;
 
     let edges_by_kind: Vec<(String, i64)> = stmt
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
         .map_err(|e| {
             MemoryError::RemoteUnavailable(format!("graph_metrics edges_by_kind query: {e}"))
         })?
@@ -635,9 +626,7 @@ pub(crate) fn drain_unresolved_refs(conn: &Connection) -> Result<DrainStats, Mem
                 project_id: row.get(5)?,
             })
         })
-        .map_err(|e| {
-            MemoryError::RemoteUnavailable(format!("drain_unresolved_refs query: {e}"))
-        })?
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("drain_unresolved_refs query: {e}")))?
         .flatten()
         .collect();
 
@@ -673,24 +662,30 @@ pub(crate) fn drain_unresolved_refs(conn: &Connection) -> Result<DrainStats, Mem
             "INSERT OR IGNORE INTO edges
                 (source, target, kind, file, line_from, line_to, provenance, project_id, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'drain-unresolved', ?6, ?7)",
-            params![ur.symbol, ur.symbol, kind, ur.file, ur.line, ur.project_id, now_ms],
+            params![
+                ur.symbol,
+                ur.symbol,
+                kind,
+                ur.file,
+                ur.line,
+                ur.project_id,
+                now_ms
+            ],
         )
         .map_err(|e| {
             MemoryError::RemoteUnavailable(format!("drain_unresolved_refs insert: {e}"))
         })?;
 
         // Remove the promoted ref.
-        tx.execute(
-            "DELETE FROM unresolved_refs WHERE id = ?1",
-            params![ur.id],
-        )
-        .map_err(|e| {
-            MemoryError::RemoteUnavailable(format!("drain_unresolved_refs delete: {e}"))
-        })?;
+        tx.execute("DELETE FROM unresolved_refs WHERE id = ?1", params![ur.id])
+            .map_err(|e| {
+                MemoryError::RemoteUnavailable(format!("drain_unresolved_refs delete: {e}"))
+            })?;
     }
 
-    tx.commit()
-        .map_err(|e| MemoryError::RemoteUnavailable(format!("drain_unresolved_refs commit: {e}")))?;
+    tx.commit().map_err(|e| {
+        MemoryError::RemoteUnavailable(format!("drain_unresolved_refs commit: {e}"))
+    })?;
 
     let remaining: i64 = conn
         .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
@@ -871,7 +866,10 @@ mod tests {
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count, 2, "same edge in different files must be stored separately");
+        assert_eq!(
+            count, 2,
+            "same edge in different files must be stored separately"
+        );
     }
 
     #[test]
@@ -907,10 +905,43 @@ mod tests {
     #[test]
     fn query_edges_callers_returns_incoming() {
         let conn = v4_conn();
-        insert_edge(&conn, "a", "target_fn", "calls", None, None, None, None, None).unwrap();
-        insert_edge(&conn, "b", "target_fn", "calls", None, None, None, None, None).unwrap();
+        insert_edge(
+            &conn,
+            "a",
+            "target_fn",
+            "calls",
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        insert_edge(
+            &conn,
+            "b",
+            "target_fn",
+            "calls",
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         // Outgoing from target_fn — must NOT appear in Callers query.
-        insert_edge(&conn, "target_fn", "c", "calls", None, None, None, None, None).unwrap();
+        insert_edge(
+            &conn,
+            "target_fn",
+            "c",
+            "calls",
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
 
         let edges = query_edges(&conn, "target_fn", EdgeDirection::Callers, 100).unwrap();
         assert_eq!(edges.len(), 2, "two callers of 'target_fn'");
@@ -1001,7 +1032,10 @@ mod tests {
         apply_schema_v4(&conn).expect("v4 migration must succeed");
 
         // 4. Tables created.
-        assert!(table_exists(&conn, "edges"), "edges table must exist post-migration");
+        assert!(
+            table_exists(&conn, "edges"),
+            "edges table must exist post-migration"
+        );
         assert!(
             table_exists(&conn, "unresolved_refs"),
             "unresolved_refs table must exist post-migration"
@@ -1047,7 +1081,10 @@ mod tests {
         let count_idempotent: i64 = conn
             .query_row("SELECT COUNT(*) FROM memory_items", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(count_idempotent, count_before, "idempotent re-apply must not lose rows");
+        assert_eq!(
+            count_idempotent, count_before,
+            "idempotent re-apply must not lose rows"
+        );
 
         // Clean up test copy.
         let _ = std::fs::remove_file(&test_copy);
@@ -1062,7 +1099,10 @@ mod tests {
     #[test]
     fn existing_rows_survive_re_apply() {
         let conn = v4_conn();
-        insert_edge(&conn, "survive", "this", "calls", None, None, None, None, None).unwrap();
+        insert_edge(
+            &conn, "survive", "this", "calls", None, None, None, None, None,
+        )
+        .unwrap();
 
         apply_schema_v4(&conn).expect("re-apply must succeed");
 
@@ -1089,8 +1129,30 @@ mod tests {
     fn graph_metrics_counts_edges_and_kinds() {
         let conn = v4_conn();
         // 2 calls edges in different files (so no dedup).
-        insert_edge(&conn, "a", "b", "calls", Some("f1.rs"), None, None, None, None).unwrap();
-        insert_edge(&conn, "c", "d", "calls", Some("f2.rs"), None, None, None, None).unwrap();
+        insert_edge(
+            &conn,
+            "a",
+            "b",
+            "calls",
+            Some("f1.rs"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        insert_edge(
+            &conn,
+            "c",
+            "d",
+            "calls",
+            Some("f2.rs"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         // 1 imports edge.
         insert_edge(&conn, "e", "f", "imports", None, None, None, None, None).unwrap();
 
@@ -1216,7 +1278,11 @@ mod tests {
 
         // The promoted row must now be in edges.
         let edge_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM edges WHERE provenance='drain-unresolved'", [], |r| r.get(0))
+            .query_row(
+                "SELECT COUNT(*) FROM edges WHERE provenance='drain-unresolved'",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert_eq!(edge_count, 1, "promoted edge must exist in edges table");
 
@@ -1224,7 +1290,10 @@ mod tests {
         let unresolved_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(unresolved_count, 0, "unresolved_refs must be empty after drain");
+        assert_eq!(
+            unresolved_count, 0,
+            "unresolved_refs must be empty after drain"
+        );
     }
 
     #[test]
@@ -1423,8 +1492,18 @@ mod tests {
     fn insert_edge_backward_compat_still_works() {
         // The old insert_edge (no version/hash args) must still produce a row.
         let conn = v4_conn();
-        insert_edge(&conn, "legacy_src", "legacy_dst", "calls", None, None, None, None, None)
-            .unwrap();
+        insert_edge(
+            &conn,
+            "legacy_src",
+            "legacy_dst",
+            "calls",
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
         let count: i64 = conn
             .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))
             .unwrap();
@@ -1485,7 +1564,10 @@ mod tests {
         let symbols: Vec<&str> = nodes.iter().map(|n| n.symbol.as_str()).collect();
         assert!(symbols.contains(&"B"));
         assert!(symbols.contains(&"C"));
-        assert!(!symbols.contains(&"D"), "D is 3 hops away — must not appear with max_hops=2");
+        assert!(
+            !symbols.contains(&"D"),
+            "D is 3 hops away — must not appear with max_hops=2"
+        );
     }
 
     #[test]
@@ -1504,11 +1586,18 @@ mod tests {
         // `e.{next_col} <> ?1` in the CTE seed and recursive step).
         assert!(symbols.contains(&"B"), "B must be reachable");
         assert!(symbols.contains(&"C"), "C must be reachable");
-        assert!(!symbols.contains(&"A"), "start node A must NOT appear (cycle guard)");
+        assert!(
+            !symbols.contains(&"A"),
+            "start node A must NOT appear (cycle guard)"
+        );
 
         // Crucially: the function must not loop forever or return duplicates.
         let unique: std::collections::HashSet<&str> = symbols.iter().copied().collect();
-        assert_eq!(unique.len(), nodes.len(), "no duplicates — cycle guard must fire");
+        assert_eq!(
+            unique.len(),
+            nodes.len(),
+            "no duplicates — cycle guard must fire"
+        );
     }
 
     #[test]
@@ -1524,7 +1613,11 @@ mod tests {
 
         let nodes = compute_transitive_closure(&conn, "A", EdgeDirection::Callees, 10).unwrap();
         let d_nodes: Vec<&ClosureNode> = nodes.iter().filter(|n| n.symbol == "D").collect();
-        assert_eq!(d_nodes.len(), 1, "D must appear exactly once despite two paths");
+        assert_eq!(
+            d_nodes.len(),
+            1,
+            "D must appear exactly once despite two paths"
+        );
         assert_eq!(d_nodes[0].depth, 2, "D is at depth 2 via either path");
     }
 
@@ -1540,7 +1633,10 @@ mod tests {
         let symbols: Vec<&str> = nodes.iter().map(|n| n.symbol.as_str()).collect();
         assert!(symbols.contains(&"A"), "A calls C — must appear as caller");
         assert!(symbols.contains(&"B"), "B calls C — must appear as caller");
-        assert!(!symbols.contains(&"D"), "D is a callee of C — must NOT appear in Callers");
+        assert!(
+            !symbols.contains(&"D"),
+            "D is a callee of C — must NOT appear in Callers"
+        );
     }
 
     #[test]
@@ -1559,7 +1655,10 @@ mod tests {
         edge(&conn, "B", "C");
 
         let nodes = compute_transitive_closure(&conn, "A", EdgeDirection::Callees, 10).unwrap();
-        let c_node = nodes.iter().find(|n| n.symbol == "C").expect("C must be present");
+        let c_node = nodes
+            .iter()
+            .find(|n| n.symbol == "C")
+            .expect("C must be present");
         assert!(
             c_node.path.contains('A') && c_node.path.contains('B') && c_node.path.contains('C'),
             "path must contain all hops: got '{}'",

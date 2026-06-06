@@ -162,8 +162,8 @@ pub fn detect_secrets(text: &str) -> Vec<SecretHit> {
             let end = match text[begin..].find("-----END ") {
                 Some(rel) => {
                     let after = begin + rel;
-                    let line_end = text[after..].find('\n').map_or(text.len(), |nl| after + nl);
-                    line_end
+                    
+                    text[after..].find('\n').map_or(text.len(), |nl| after + nl)
                 }
                 None => text.len(),
             };

@@ -61,9 +61,8 @@ pub(crate) fn impact_analysis_inner(
     limit: usize,
     project: Option<&str>,
 ) -> Result<Vec<CodeEdge>, String> {
-    let fetch = |dir: &str| {
-        sqlite_store::query_code_edges(symbol, dir, limit).map_err(|e| e.to_string())
-    };
+    let fetch =
+        |dir: &str| sqlite_store::query_code_edges(symbol, dir, limit).map_err(|e| e.to_string());
 
     let mut edges: Vec<CodeEdge> = match direction {
         "callers" => fetch("callers")?,
@@ -94,11 +93,7 @@ pub(crate) fn impact_analysis_inner(
     // project OR cross-project (project_id IS NULL) so synthetic edges
     // are not silently hidden.
     if let Some(proj) = project {
-        edges.retain(|e| {
-            e.project_id
-                .as_deref()
-                .map_or(true, |pid| pid == proj)
-        });
+        edges.retain(|e| e.project_id.as_deref().is_none_or(|pid| pid == proj));
     }
 
     Ok(edges)

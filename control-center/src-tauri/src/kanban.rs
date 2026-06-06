@@ -1051,7 +1051,11 @@ mod tests {
         };
         assert!(normalize_card_orders(&mut board));
         let by = |id: &str| board.cards.iter().find(|c| c.id == id).unwrap().order;
-        assert_eq!((by("a"), by("b"), by("c")), (0, 1, 2), "gap-free, order preserved");
+        assert_eq!(
+            (by("a"), by("b"), by("c")),
+            (0, 1, 2),
+            "gap-free, order preserved"
+        );
         assert!(!normalize_card_orders(&mut board), "must be idempotent");
     }
 
@@ -1081,8 +1085,18 @@ mod tests {
         let mut board = KanbanBoard {
             project_id: "p".into(),
             columns: vec![
-                Column { id: "c1".into(), name: "A".into(), order: 0, role: ColumnRole::Other },
-                Column { id: "c2".into(), name: "B".into(), order: 1, role: ColumnRole::Other },
+                Column {
+                    id: "c1".into(),
+                    name: "A".into(),
+                    order: 0,
+                    role: ColumnRole::Other,
+                },
+                Column {
+                    id: "c2".into(),
+                    name: "B".into(),
+                    order: 1,
+                    role: ColumnRole::Other,
+                },
             ],
             cards: vec![
                 card("x", "c1", 0, "epoch:1"),

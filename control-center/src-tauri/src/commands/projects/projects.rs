@@ -27,6 +27,7 @@ pub async fn touch_project(id: String) -> Result<(), String> {
     projects::touch_project_inner(&id)
 }
 
+#[allow(clippy::too_many_arguments)] // tauri command — args driven by frontend contract
 #[tauri::command]
 pub async fn create_project(
     app: tauri::AppHandle,
@@ -60,6 +61,7 @@ pub async fn create_project(
     )
 }
 
+#[allow(clippy::too_many_arguments)] // tauri command — args driven by frontend contract
 #[tauri::command]
 pub async fn update_project(
     id: String,

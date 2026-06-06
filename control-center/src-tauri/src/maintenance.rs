@@ -9,7 +9,7 @@
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde::Serialize;
@@ -296,12 +296,12 @@ pub fn list_maintenance_commands_inner() -> Vec<MaintenanceCommand> {
     ]
 }
 
-fn cockpit(home: &PathBuf) -> PathBuf {
+fn cockpit(home: &Path) -> PathBuf {
     home.join(".ultron").join("scripts").join("cockpit")
 }
 
 #[cfg(target_os = "windows")]
-fn backup_script(home: &PathBuf) -> PathBuf {
+fn backup_script(home: &Path) -> PathBuf {
     home.join(".ultron")
         .join("scripts")
         .join("backup")
@@ -309,14 +309,14 @@ fn backup_script(home: &PathBuf) -> PathBuf {
 }
 
 #[cfg(not(target_os = "windows"))]
-fn backup_script(home: &PathBuf) -> PathBuf {
+fn backup_script(home: &Path) -> PathBuf {
     home.join(".ultron")
         .join("scripts")
         .join("backup")
         .join("weekly-backup.sh")
 }
 
-fn build_cmd(kind: &str, home: &PathBuf) -> Result<(String, Vec<String>), String> {
+fn build_cmd(kind: &str, home: &Path) -> Result<(String, Vec<String>), String> {
     let cock = cockpit(home);
     Ok(match kind {
         "skill-security-audit" => (

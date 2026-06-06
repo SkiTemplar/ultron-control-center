@@ -183,12 +183,9 @@ pub fn list_skills_inner() -> Result<Vec<SkillInfo>, String> {
 ///   1. registry-recorded path (if present and points to a dir)
 ///   2. ~/.claude/skills/<name>/SKILL.md  (active layer)
 ///   3. ~/.ultron/skill-vault/<name>/SKILL.md  (vault layer)
-/// Same Latin-only sanitization for SKILL.md preview content.
-//
-// v15.3.6 cleanup: read_skill_md_inner_raw() removed (no callers — every
-// public entry sanitises Latin chars via read_skill_md_inner). Restore
-// from git history if a raw bytestring variant is ever needed.
-
+///
+/// Output is sanitized to Latin-only chars (strip_non_latin).
+/// Note: read_skill_md_inner_raw() was removed in v15.3.6 (no callers).
 pub fn read_skill_md_inner(name: &str) -> Result<String, String> {
     read_skill_md_internal(name).map(|c| strip_non_latin(&c))
 }
@@ -536,6 +533,7 @@ impl Sha1Engine {
         let mut c = self.state[2];
         let mut d = self.state[3];
         let mut e = self.state[4];
+        #[allow(clippy::needless_range_loop)] // i used both in match and w[i]
         for i in 0..80 {
             let (f, k) = match i {
                 0..=19 => ((b & c) | (!b & d), 0x5A827999),
@@ -741,9 +739,9 @@ fn read_skill_meta(dir: &Path) -> (String, String, bool, bool) {
     let trimmed = contents.trim_start();
     let mut has_name = false;
     let mut description = String::new();
-    if trimmed.starts_with("---") {
-        if let Some(end) = trimmed[3..].find("\n---") {
-            let block = &trimmed[3..3 + end];
+    if let Some(after_fence) = trimmed.strip_prefix("---") {
+        if let Some(end) = after_fence.find("\n---") {
+            let block = &after_fence[..end];
             let lines: Vec<&str> = block.lines().collect();
             for (i, raw) in lines.iter().enumerate() {
                 let t = raw.trim();

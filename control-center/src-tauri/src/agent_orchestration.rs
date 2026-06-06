@@ -370,7 +370,7 @@ pub async fn delegate_task_inner(
     let session_id = crate::pty::spawn_inner(
         app.clone(),
         project_id.clone(),
-        None, // card_id
+        None,                 // card_id
         provider.to_string(), // was hardcoded "claude"
         Some(agent_trim.to_string()),
         req.cwd.clone().unwrap_or_default(),
@@ -526,8 +526,10 @@ pub async fn delegate_task_fire_and_forget(
         return Err("task description exceeds 16KB ceiling".to_string());
     }
 
-    let mut flags = SpawnFlags::default();
-    flags.agent = Some(agent_trim.to_string());
+    let mut flags = SpawnFlags {
+        agent: Some(agent_trim.to_string()),
+        ..Default::default()
+    };
     if req.use_cheap_model {
         flags.model = Some(resolve_cheap_model());
     }
@@ -618,7 +620,6 @@ fn now_secs_safe() -> u64 {
         .unwrap_or(0)
 }
 
-
 fn truncate(s: &str, max: usize) -> String {
     // Strip control characters (incl. \r, \t, vertical-tab) — \n is already
     // collapsed below — so the JSONL line stays grep/jq-friendly even when
@@ -633,16 +634,14 @@ fn truncate(s: &str, max: usize) -> String {
     // Single pass: bound iteration to `max` chars instead of allocating
     // Vec<char> (KIRKARDO 2 MED). The truncated marker '…' only appears
     // when we actually had to cut.
-    let mut count = 0usize;
     let mut head = String::with_capacity(max.min(cleaned.len()) + 3);
     let mut truncated = false;
-    for ch in cleaned.chars() {
+    for (count, ch) in cleaned.chars().enumerate() {
         if count >= max {
             truncated = true;
             break;
         }
         head.push(ch);
-        count += 1;
     }
     if truncated {
         head.push('…');
@@ -1063,5 +1062,4 @@ mod tests {
     fn poll_does_not_false_positive_on_empty_output() {
         assert!(!poll_loop_detects(b""));
     }
-
 }

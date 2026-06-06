@@ -61,7 +61,7 @@ fn prune_history(dir: &Path, keep: usize) -> std::io::Result<()> {
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("json"))
         .collect();
-    entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    entries.sort_by_key(|b| std::cmp::Reverse(b.file_name()));
     for stale in entries.into_iter().skip(keep) {
         let _ = std::fs::remove_file(stale.path());
     }

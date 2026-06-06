@@ -171,7 +171,7 @@ fn cap_prompt(p: &str) -> String {
 /// caller (typically the AI Router) wants a specific subagent to handle
 /// the session. We keep the format conservative: a single bracketed line
 /// + blank separator, so the body of the prompt stays readable and the
-/// directive parses cleanly in Claude's subagent invocation grammar.
+///   directive parses cleanly in Claude's subagent invocation grammar.
 ///
 /// Sanity rules (mirror `ai_router::validate_agent`):
 ///   * empty / None  → no prefix.

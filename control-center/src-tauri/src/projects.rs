@@ -35,11 +35,12 @@ fn projects_lock() -> &'static Mutex<()> {
 /// One thing to launch as part of a project. `kind` discriminates the
 /// payload:
 ///   - "exe"    → `path` (absolute), optional `args[]`. Spawned with
-///                Start-Process so the parent doesn't wait.
+///     Start-Process so the parent doesn't wait.
 ///   - "folder" → `path` (absolute directory). Revealed in Explorer.
 ///   - "claude" → `cwd` (absolute directory). Forwarded to
-///                `sessions::spawn_session_inner`.
+///     `sessions::spawn_session_inner`.
 ///   - "codex"  → `cwd` (absolute directory). Same as claude but for codex.
+///
 /// `label` is optional UI text; when absent the UI derives one from the path.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LauncherItem {

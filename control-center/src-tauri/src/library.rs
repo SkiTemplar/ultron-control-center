@@ -282,6 +282,7 @@ pub async fn search_github_inner(
 // Install from GitHub
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)] // fixed tauri command signature — refactor to builder tracked separately
 pub async fn install_from_github_inner(
     owner: String,
     repo: String,

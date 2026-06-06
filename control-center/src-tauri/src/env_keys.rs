@@ -246,9 +246,7 @@ pub fn set_github_token_inner(token: String) -> Result<GithubTokenResult, String
             message: "El token no puede estar vacío.".to_string(),
         });
     }
-    let known_prefix = GITHUB_TOKEN_PREFIXES
-        .iter()
-        .any(|p| token.starts_with(p));
+    let known_prefix = GITHUB_TOKEN_PREFIXES.iter().any(|p| token.starts_with(p));
     if !known_prefix {
         return Ok(GithubTokenResult {
             ok: false,
@@ -268,8 +266,7 @@ pub fn set_github_token_inner(token: String) -> Result<GithubTokenResult, String
 
     // Ensure the parent directory exists.
     if let Some(parent) = env_path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| format!("No se pudo crear ~/.ultron/: {e}"))?;
+        std::fs::create_dir_all(parent).map_err(|e| format!("No se pudo crear ~/.ultron/: {e}"))?;
     }
 
     // Read existing content (tolerate missing file).
@@ -319,7 +316,9 @@ pub fn set_github_token_inner(token: String) -> Result<GithubTokenResult, String
     Ok(GithubTokenResult {
         ok: true,
         masked: masked.clone(),
-        message: format!("GITHUB_TOKEN guardado en ~/.ultron/.env ({masked}). Activo en el proceso actual."),
+        message: format!(
+            "GITHUB_TOKEN guardado en ~/.ultron/.env ({masked}). Activo en el proceso actual."
+        ),
     })
 }
 

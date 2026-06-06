@@ -1359,7 +1359,7 @@ fn heuristic_name(command: &str) -> String {
         .take(2)
         .map(|w| {
             // Strip .exe, .py, .ps1 etc. and take only the basename
-            let base = w.split(|c: char| c == '\\' || c == '/').last().unwrap_or(w);
+            let base = w.split(['\\', '/']).next_back().unwrap_or(w);
             let stem = base.split('.').next().unwrap_or(base);
             stem.to_lowercase().replace('_', "-")
         })
@@ -1731,7 +1731,7 @@ fn humanize_basename(basename: &str) -> String {
         .map(|(s, _)| s)
         .unwrap_or(basename);
     let words: Vec<String> = stem
-        .split(|c| c == '-' || c == '_')
+        .split(['-', '_'])
         .filter(|w| !w.is_empty())
         .map(|w| w.to_string())
         .collect();

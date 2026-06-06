@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -60,7 +60,7 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
-fn read_tail_lines(path: &PathBuf, max_lines: usize) -> Vec<String> {
+fn read_tail_lines(path: &Path, max_lines: usize) -> Vec<String> {
     let Ok(raw) = fs::read_to_string(path) else {
         return Vec::new();
     };
@@ -166,7 +166,7 @@ fn ts_to_day(ts: &str) -> Option<String> {
 // align with what the user already sees in the table view.
 // ---------------------------------------------------------------------------
 
-fn ingest_hyper_plans(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+fn ingest_hyper_plans(root: &Path, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join(".tmp/hiper-plans-signals.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
@@ -198,7 +198,7 @@ fn ingest_hyper_plans(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     }
 }
 
-fn ingest_doctor(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+fn ingest_doctor(root: &Path, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join(".tmp/doctor-fix-log.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
@@ -223,7 +223,7 @@ fn ingest_doctor(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     }
 }
 
-fn ingest_prompt_feedback(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+fn ingest_prompt_feedback(root: &Path, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join(".tmp/prompt-feedback.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
@@ -248,7 +248,7 @@ fn ingest_prompt_feedback(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     }
 }
 
-fn ingest_token_usage(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+fn ingest_token_usage(root: &Path, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join(".tmp/token-usage.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
@@ -277,7 +277,7 @@ fn ingest_token_usage(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     }
 }
 
-fn ingest_auto_updater(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+fn ingest_auto_updater(root: &Path, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join("cockpit/auto_updater.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
@@ -307,7 +307,7 @@ fn ingest_auto_updater(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     }
 }
 
-fn ingest_mcp_audit(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+fn ingest_mcp_audit(root: &Path, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join("cockpit/mcp-audit.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
@@ -397,7 +397,7 @@ pub(crate) fn epoch_secs_to_iso(secs: u64) -> String {
 ///   - 1 event per workday "created" (kind = "created:<status>")
 ///   - 1 event per workday "completed" (when end_ts is set)
 ///   - 1 event per kanban_move context entry (source = "kanban")
-fn ingest_workdays(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+fn ingest_workdays(root: &Path, out: &mut Vec<TimelineEvent>) {
     let dir = root.join("cockpit").join("workdays");
     let Ok(entries) = fs::read_dir(&dir) else {
         return;
@@ -491,7 +491,7 @@ fn ingest_workdays(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
     }
 }
 
-fn ingest_alerts(root: &PathBuf, out: &mut Vec<TimelineEvent>) {
+fn ingest_alerts(root: &Path, out: &mut Vec<TimelineEvent>) {
     for line in read_tail_lines(&root.join("alerts.jsonl"), 500) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;

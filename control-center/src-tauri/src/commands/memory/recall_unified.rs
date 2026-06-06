@@ -292,7 +292,9 @@ pub(crate) fn assemble_pack(
             // project — UNLESS cross_project is set, which relaxes ONLY this
             // project-equality gate (every security/quality gate below still
             // applies, so items from other projects flow in but Secret never does).
-            if !cross_project && item.scope != Scope::Global && item.project_id.as_deref() != Some(pid)
+            if !cross_project
+                && item.scope != Scope::Global
+                && item.project_id.as_deref() != Some(pid)
             {
                 discarded.push(discard(&format!("project filter ({pid})")));
                 continue;
@@ -505,7 +507,14 @@ pub(crate) fn build_trace(
     // The first item is still always admitted (assemble_pack truncates it to
     // fit the budget), but only if remaining_before > 0.
     let (injected, discarded, total_tokens) = if remaining_before > 0 {
-        assemble_pack(&conn, &fused, limit, project_id, cross_project, remaining_before)
+        assemble_pack(
+            &conn,
+            &fused,
+            limit,
+            project_id,
+            cross_project,
+            remaining_before,
+        )
     } else {
         // Budget fully exhausted: admit nothing, mark all fused hits as discarded.
         let disc: Vec<DiscardedHit> = fused
@@ -625,7 +634,13 @@ pub async fn recall(
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
     let cross = cross_project.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        recall_pack(&query, final_limit, project_id.as_deref(), cross, session_id.as_deref())
+        recall_pack(
+            &query,
+            final_limit,
+            project_id.as_deref(),
+            cross,
+            session_id.as_deref(),
+        )
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -645,7 +660,13 @@ pub async fn recall_inspect(
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
     let cross = cross_project.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        build_trace(&query, final_limit, project_id.as_deref(), cross, session_id.as_deref())
+        build_trace(
+            &query,
+            final_limit,
+            project_id.as_deref(),
+            cross,
+            session_id.as_deref(),
+        )
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -795,7 +816,8 @@ mod tests {
             })
             .collect();
 
-        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false, TOKEN_BUDGET);
+        let (injected, discarded, _t) =
+            assemble_pack(&conn, &fused, 8, Some("ultron"), false, TOKEN_BUDGET);
         let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
         assert!(inj.contains(&&ok), "active in-project item must inject");
@@ -838,7 +860,12 @@ mod tests {
         apply_schema(&conn).expect("schema");
 
         let mk = |scope: Scope, sens: Sensitivity, project: Option<&str>, sm: &str| {
-            let mut it = MemoryItem::new(MemoryType::Fact, scope, Source::ToolObserved, Status::Active);
+            let mut it = MemoryItem::new(
+                MemoryType::Fact,
+                scope,
+                Source::ToolObserved,
+                Status::Active,
+            );
             it.summary = Some(sm.to_string());
             it.sensitivity = sens;
             it.project_id = project.map(str::to_string);
@@ -847,9 +874,24 @@ mod tests {
             it.id
         };
 
-        let in_project = mk(Scope::Project, Sensitivity::Internal, Some("ultron"), "ultron item");
-        let other_project = mk(Scope::Project, Sensitivity::Internal, Some("otro"), "bank item");
-        let other_secret = mk(Scope::Project, Sensitivity::Secret, Some("otro"), "bank api key");
+        let in_project = mk(
+            Scope::Project,
+            Sensitivity::Internal,
+            Some("ultron"),
+            "ultron item",
+        );
+        let other_project = mk(
+            Scope::Project,
+            Sensitivity::Internal,
+            Some("otro"),
+            "bank item",
+        );
+        let other_secret = mk(
+            Scope::Project,
+            Sensitivity::Secret,
+            Some("otro"),
+            "bank api key",
+        );
         let global = mk(Scope::Global, Sensitivity::Internal, None, "global pref");
 
         let ids = [&in_project, &other_project, &other_secret, &global];
@@ -866,20 +908,34 @@ mod tests {
             .collect();
 
         // cross_project = FALSE: other-project item is filtered out.
-        let (inj_off, _d, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false, TOKEN_BUDGET);
+        let (inj_off, _d, _t) =
+            assemble_pack(&conn, &fused, 8, Some("ultron"), false, TOKEN_BUDGET);
         let off: Vec<&String> = inj_off.iter().map(|e| &e.canonical_id).collect();
-        assert!(off.contains(&&in_project), "in-project item must inject (cross=off)");
-        assert!(off.contains(&&global), "global item must inject (cross=off)");
+        assert!(
+            off.contains(&&in_project),
+            "in-project item must inject (cross=off)"
+        );
+        assert!(
+            off.contains(&&global),
+            "global item must inject (cross=off)"
+        );
         assert!(
             !off.contains(&&other_project),
             "other-project item must NOT inject when cross=off"
         );
 
         // cross_project = TRUE: other-project item is admitted; Secret stays out.
-        let (inj_on, disc_on, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), true, TOKEN_BUDGET);
+        let (inj_on, disc_on, _t) =
+            assemble_pack(&conn, &fused, 8, Some("ultron"), true, TOKEN_BUDGET);
         let on: Vec<&String> = inj_on.iter().map(|e| &e.canonical_id).collect();
-        assert!(on.contains(&&in_project), "in-project item must still inject (cross=on)");
-        assert!(on.contains(&&global), "global item must still inject (cross=on)");
+        assert!(
+            on.contains(&&in_project),
+            "in-project item must still inject (cross=on)"
+        );
+        assert!(
+            on.contains(&&global),
+            "global item must still inject (cross=on)"
+        );
         assert!(
             on.contains(&&other_project),
             "other-project item MUST inject when cross=on (project filter relaxed)"
@@ -1047,17 +1103,26 @@ mod tests {
     fn resolve_session_id_uses_claude_session_id_env() {
         // Supplied non-empty value always wins — ensure that still holds.
         let explicit = resolve_session_id(Some("explicit-session-42"));
-        assert_eq!(explicit, "explicit-session-42", "explicit value must always win");
+        assert_eq!(
+            explicit, "explicit-session-42",
+            "explicit value must always win"
+        );
 
         // Verify the proc-<pid> fallback produces a non-empty string even
         // when both env vars are absent (the common test environment case).
         let proc_sid = resolve_session_id(Some(""));
-        assert!(!proc_sid.is_empty(), "proc-<pid> fallback must be non-empty");
+        assert!(
+            !proc_sid.is_empty(),
+            "proc-<pid> fallback must be non-empty"
+        );
         // The fallback must either be env-based or start with "proc-".
         // We cannot reliably unset env vars in parallel tests, so just assert
         // it is non-empty and well-formed.
         let looks_valid = proc_sid.starts_with("proc-") || !proc_sid.contains(' ');
-        assert!(looks_valid, "session id must be a single token, got: {proc_sid}");
+        assert!(
+            looks_valid,
+            "session id must be a single token, got: {proc_sid}"
+        );
     }
 
     #[test]
@@ -1084,13 +1149,25 @@ mod tests {
             it.id
         };
 
-        let small = mk("tiny", 25);  // fits in 30-token budget
-        let big   = mk("large item", 200); // does NOT fit (would be first-admit truncated)
+        let small = mk("tiny", 25); // fits in 30-token budget
+        let big = mk("large item", 200); // does NOT fit (would be first-admit truncated)
 
         // Place big first so it gets the first-admit truncation treatment.
         let fused: Vec<FusedHit> = vec![
-            FusedHit { canonical_id: big.clone(),   rrf_score: 0.9, dense_rank: Some(0), sparse_rank: None, dense_score: None },
-            FusedHit { canonical_id: small.clone(), rrf_score: 0.8, dense_rank: Some(1), sparse_rank: None, dense_score: None },
+            FusedHit {
+                canonical_id: big.clone(),
+                rrf_score: 0.9,
+                dense_rank: Some(0),
+                sparse_rank: None,
+                dense_score: None,
+            },
+            FusedHit {
+                canonical_id: small.clone(),
+                rrf_score: 0.8,
+                dense_rank: Some(1),
+                sparse_rank: None,
+                dense_score: None,
+            },
         ];
 
         // Only 30 tokens remain in the budget.
@@ -1098,7 +1175,10 @@ mod tests {
 
         // The first item is always admitted (truncated to fit 30 tokens).
         assert_eq!(injected.len(), 1, "only one item fits in 30-token budget");
-        assert_eq!(injected[0].canonical_id, big, "first item always admitted (truncated)");
+        assert_eq!(
+            injected[0].canonical_id, big,
+            "first item always admitted (truncated)"
+        );
         assert!(
             total <= 30,
             "total_tokens ({total}) must not exceed the reduced budget (30)"

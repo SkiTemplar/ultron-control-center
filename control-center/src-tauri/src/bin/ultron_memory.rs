@@ -247,18 +247,21 @@ fn emit_candidate(json: &str) -> Result<String, String> {
     // symbol/file_path/line/signature/capture_source exist in the DB schema
     // (sqlite_store.rs:106-107, 139-140) and are mapped in to_item(), but were
     // never parsed here, so 0/1413 items had them populated (confirmed by audit).
-    c.proposed_symbol =
-        v.get("symbol").and_then(|x| x.as_str()).map(String::from);
-    c.proposed_file_path =
-        v.get("file_path").and_then(|x| x.as_str()).map(String::from);
+    c.proposed_symbol = v.get("symbol").and_then(|x| x.as_str()).map(String::from);
+    c.proposed_file_path = v
+        .get("file_path")
+        .and_then(|x| x.as_str())
+        .map(String::from);
     c.proposed_line = v.get("line").and_then(serde_json::Value::as_i64);
-    c.proposed_signature =
-        v.get("signature").and_then(|x| x.as_str()).map(String::from);
-    c.capture_source =
-        v.get("capture_source")
-            .or_else(|| v.get("source"))
-            .and_then(|x| x.as_str())
-            .map(String::from);
+    c.proposed_signature = v
+        .get("signature")
+        .and_then(|x| x.as_str())
+        .map(String::from);
+    c.capture_source = v
+        .get("capture_source")
+        .or_else(|| v.get("source"))
+        .and_then(|x| x.as_str())
+        .map(String::from);
 
     // --- recommended_action -------------------------------------------------
     // Hooks may emit "approve"/"review"/"reject"; honour the hint so the
@@ -381,7 +384,13 @@ fn has_flag(args: &[String], flag: &str) -> bool {
 /// First positional arg(s) after the subcommand, excluding `--project <val>` and
 /// the recognised boolean flags (so e.g. `--cross` is not folded into the query).
 fn positional(args: &[String]) -> Result<String, String> {
-    const BOOL_FLAGS: &[&str] = &["--cross", "--all-projects", "--golden", "--agents", "--skills"];
+    const BOOL_FLAGS: &[&str] = &[
+        "--cross",
+        "--all-projects",
+        "--golden",
+        "--agents",
+        "--skills",
+    ];
     let mut out: Vec<String> = Vec::new();
     let mut i = 2;
     while i < args.len() {
