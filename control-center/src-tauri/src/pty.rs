@@ -342,7 +342,9 @@ fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, 
             cmd.arg("-NoProfile");
             cmd.arg("-NoExit");
             cmd.arg("-Command");
-            cmd.arg("[Console]::OutputEncoding=[Console]::InputEncoding=[System.Text.Encoding]::UTF8");
+            cmd.arg(
+                "[Console]::OutputEncoding=[Console]::InputEncoding=[System.Text.Encoding]::UTF8",
+            );
             cmd.env("PYTHONUTF8", "1");
             Ok(cmd)
         }
