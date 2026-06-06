@@ -447,6 +447,14 @@ pub struct ModelMetrics {
     /// Calls that required at least one retry (retry_count > 0).
     #[serde(default)]
     pub retried_calls: u64,
+    /// ISO date (YYYY-MM-DD, UTC) these per-model counters belong to. When a
+    /// call arrives on a different UTC day the entry auto-resets to a clean
+    /// slate before accumulating — the same date-sentinel pattern used by
+    /// `ModeCounters::date` and `DailyUsage::date`. `#[serde(default)]` keeps
+    /// old metrics.json files (which lack this field) deserialising to ""
+    /// so the first call of the day resets them cleanly.
+    #[serde(default)]
+    pub date: String,
 }
 
 /// Per-provider request counter for the CURRENT day. Used to compute the
@@ -2170,10 +2178,18 @@ struct MetricSample<'a> {
 /// la ruta cae a un proveedor más barato que el primario.
 fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     let mut metrics = load_metrics().unwrap_or_default();
-
     // Determine today's UTC date ONCE so all daily resets use the same boundary.
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    apply_metric_sample(&mut metrics, &s, &today);
+    write_json(&metrics_path()?, &metrics)
+}
 
+/// Pure mutation core of [`bump_metrics`], split out so the per-day reset logic
+/// can be unit-tested with a controlled `today` (the I/O — load/persist — stays
+/// in `bump_metrics`). Applies one [`MetricSample`] to `metrics` for the UTC day
+/// `today`. Every per-day counter (each `by_model` entry, `daily`, `by_mode`)
+/// resets independently by comparing its stored date against `today`.
+fn apply_metric_sample(metrics: &mut RouterMetrics, s: &MetricSample<'_>, today: &str) {
     // --- Per-provider (by_class) ---
     let pm = metrics
         .by_class
@@ -2191,30 +2207,22 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     }
 
     // --- Per-model (by_model), key = "provider::model" ---
-    // Daily reset coordinated with by_class/by_mode: use the SAME `today`
-    // derived at the top of this function so all three counters cross the
-    // midnight boundary in the same bump_metrics call (Kirkardo gap #2 —
-    // by_model previously accumulated forever with no daily reset).
-    // ModelMetrics does not carry a `date` field of its own; instead we
-    // piggyback on the by_class ClassMetrics date sentinel by checking
-    // whether the daily entry for this provider was just reset above (i.e.
-    // its date is now `today` and its count is 1 after the increment above).
-    // Because by_class and by_model share the same provider key, the daily
-    // DailyUsage reset (du.count = 0 → 1 after saturating_add) is a reliable
-    // proxy: when count == 1 after today's first request we know it's a new
-    // day, so we wipe the model entry and start fresh.
-    let is_new_day_for_provider = metrics
-        .daily
-        .get(s.provider_id)
-        .map(|du| du.date == today && du.count == 1)
-        .unwrap_or(false);
-
+    // Per-day reset by ENTRY: each ModelMetrics carries its own `date`. On the
+    // first call of a new UTC day (or a freshly-created entry, whose date is "")
+    // the entry resets to a clean slate before accumulating. This is correct
+    // regardless of call ordering or how many models a provider has — every
+    // "provider::model" key resets on its own first call of the day.
+    //
+    // (Previous implementation read `daily` BEFORE incrementing it further down
+    //  and used `count == 1` as a new-day proxy. That never fired on the real
+    //  day boundary — the first call still saw yesterday's date — and wiped the
+    //  entry on the SECOND call of each day. Kirkardo R4 P2.)
     let key = format!("{}::{}", s.provider_id, s.model);
-    if is_new_day_for_provider {
-        // Remove stale entry so the or_default() below produces a clean slate.
-        metrics.by_model.remove(&key);
-    }
     let mm = metrics.by_model.entry(key).or_default();
+    if mm.date != today {
+        *mm = ModelMetrics::default();
+        mm.date = today.to_string();
+    }
     mm.provider_id = s.provider_id.to_string();
     mm.model = s.model.to_string();
     mm.count = mm.count.saturating_add(1);
@@ -2251,7 +2259,7 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     // --- Daily counter (free-tier gauge), reset on UTC date change ---
     let du = metrics.daily.entry(s.provider_id.to_string()).or_default();
     if du.date != today {
-        du.date = today.clone();
+        du.date = today.to_string();
         du.count = 0;
     }
     du.count = du.count.saturating_add(1);
@@ -2262,7 +2270,7 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     if let Some(mode) = s.mode {
         if metrics.by_mode.date != today {
             // New UTC day — reset all mode counters atomically with by_class.
-            metrics.by_mode.date = today.clone();
+            metrics.by_mode.date = today.to_string();
             metrics.by_mode.counts.clear();
         }
         let mc = metrics.by_mode.counts.entry(mode.to_string()).or_insert(0);
@@ -2270,15 +2278,13 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     }
 
     // --- Fail-reason tally (informational, never gating) ---
-    if let Some(reason) = s.fail_reason {
+    if let Some(reason) = &s.fail_reason {
         let rc = metrics
             .fail_reasons
             .entry(reason.to_string())
             .or_insert(0);
         *rc = rc.saturating_add(1);
     }
-
-    write_json(&metrics_path()?, &metrics)
 }
 
 /// Public Tauri command surface so the frontend (or a future summariser)
@@ -3439,6 +3445,81 @@ mod tests {
         assert_eq!(
             du.date, mode_counters.date,
             "by_mode.date and daily.date must be identical (coordinated reset)"
+        );
+    }
+
+    /// Helper: a minimal successful MetricSample for the by_model reset tests.
+    fn metric_sample<'a>(provider: &'a str, model: &'a str) -> MetricSample<'a> {
+        MetricSample {
+            provider_id: provider,
+            model,
+            success: true,
+            output_tokens: 100,
+            cost_per_mtok: 0.0,
+            primary_cost_per_mtok: 0.0,
+            latency_ms: 50,
+            mode: None,
+            retry_count: 0,
+            fail_reason: None,
+        }
+    }
+
+    /// KIRKARDO R4 P2 FIX — by_model resets on the UTC day boundary AND does NOT
+    /// wipe data on the second call of the same day. Drives the REAL pure core
+    /// `apply_metric_sample` (not an inline reimplementation) with controlled
+    /// dates, so it actually reproduces the ordering bug the old proxy had.
+    #[test]
+    fn apply_metric_sample_by_model_resets_only_on_day_boundary() {
+        let mut m = RouterMetrics::default();
+        let key = "groq::llama";
+
+        // Day 1, call 1: creates the entry, stamped with day 1.
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-05");
+        assert_eq!(m.by_model[key].count, 1, "day1 call1: count starts at 1");
+        assert_eq!(m.by_model[key].date, "2026-06-05");
+
+        // Day 1, calls 2 and 3: SAME day → accumulate, never wipe.
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-05");
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-05");
+        assert_eq!(m.by_model[key].count, 3, "same-day calls must accumulate to 3");
+
+        // Day 2, call 1: NEW day → entry resets to a clean slate (count → 1).
+        // The OLD code never fired here (it saw yesterday's date) so the
+        // histogram/count carried over — this assertion is the boundary fix.
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-06");
+        assert_eq!(m.by_model[key].count, 1, "day2 call1: resets at the boundary");
+        assert_eq!(m.by_model[key].date, "2026-06-06");
+
+        // Day 2, call 2: SAME (new) day → accumulate to 2. The OLD code wiped
+        // the entry here (daily.count was still 1), destroying day-2 data.
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-06");
+        assert_eq!(
+            m.by_model[key].count, 2,
+            "day2 call2 must accumulate, NOT wipe (the old second-call bug)"
+        );
+    }
+
+    /// A provider with two models must reset each model entry INDEPENDENTLY on
+    /// its own first call of the day. The old per-provider proxy could only
+    /// clear the model of the day's first call, leaving sibling models stale.
+    #[test]
+    fn apply_metric_sample_resets_each_model_independently() {
+        let mut m = RouterMetrics::default();
+
+        // Day 1: provider "groq" exercised with two distinct models.
+        apply_metric_sample(&mut m, &metric_sample("groq", "a"), "2026-06-05");
+        apply_metric_sample(&mut m, &metric_sample("groq", "b"), "2026-06-05");
+        assert_eq!(m.by_model["groq::a"].count, 1);
+        assert_eq!(m.by_model["groq::b"].count, 1);
+
+        // Day 2: model "a" is called first, then "b". Both must reset on their
+        // own first day-2 call — independently, regardless of ordering.
+        apply_metric_sample(&mut m, &metric_sample("groq", "a"), "2026-06-06");
+        apply_metric_sample(&mut m, &metric_sample("groq", "b"), "2026-06-06");
+        assert_eq!(m.by_model["groq::a"].count, 1, "model a resets on day 2");
+        assert_eq!(
+            m.by_model["groq::b"].count, 1,
+            "model b ALSO resets independently on day 2"
         );
     }
 }
