@@ -1499,8 +1499,16 @@ fn call_anthropic(
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("text"))
         .and_then(|t| t.as_str())
-        .unwrap_or("(no text in response)")
-        .to_string();
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    // Empty content block = no usable output; treat as explicit failure so the
+    // router records a loss and can trigger fallback to the next provider.
+    let out = out.ok_or_else(|| {
+        (
+            "anthropic returned no text in content block".to_string(),
+            FailReason::Error,
+        )
+    })?;
     let usage = TokenUsage {
         input_tokens: v
             .pointer("/usage/input_tokens")
@@ -1511,7 +1519,7 @@ fn call_anthropic(
             .and_then(|x| x.as_u64())
             .unwrap_or(0),
     };
-    Ok(CallOutcome { text: out, usage })
+    Ok(CallOutcome { text: out.to_string(), usage })
 }
 
 fn call_openai_compat(
@@ -1579,8 +1587,16 @@ fn call_openai_compat(
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
         .and_then(|c| c.as_str())
-        .unwrap_or("(no text in response)")
-        .to_string();
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    // Empty or absent content = no usable output; treat as explicit failure so
+    // the router records a loss and triggers fallback.
+    let out = out.ok_or_else(|| {
+        (
+            format!("{} returned no text in choices[0].message.content", provider.id),
+            FailReason::Error,
+        )
+    })?;
     let usage = TokenUsage {
         input_tokens: v
             .pointer("/usage/prompt_tokens")
@@ -1591,7 +1607,7 @@ fn call_openai_compat(
             .and_then(|x| x.as_u64())
             .unwrap_or(0),
     };
-    Ok(CallOutcome { text: out, usage })
+    Ok(CallOutcome { text: out.to_string(), usage })
 }
 
 fn call_gemini(
@@ -1615,7 +1631,13 @@ fn call_gemini(
     );
     let mut body = serde_json::json!({
         "contents": [{ "role": "user", "parts": [{ "text": prompt }] }],
-        "generationConfig": { "maxOutputTokens": clamp_max_tokens(max_tokens, 1024) },
+        // thinkingBudget:0 disables the "thinking" phase on gemini-2.5-flash so
+        // the model actually writes output tokens instead of burning the entire
+        // budget on hidden reasoning and returning an empty candidates[].content.
+        "generationConfig": {
+            "maxOutputTokens": clamp_max_tokens(max_tokens, 1024),
+            "thinkingConfig": { "thinkingBudget": 0 }
+        },
     });
     if let Some(sys) = system {
         if !sys.is_empty() {
@@ -1655,8 +1677,17 @@ fn call_gemini(
         .and_then(|p| p.get(0))
         .and_then(|p| p.get("text"))
         .and_then(|t| t.as_str())
-        .unwrap_or("(no text in response)")
-        .to_string();
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    // An absent or empty text block means the model produced no usable output
+    // (e.g. thinking consumed the entire budget). Treat this as an explicit
+    // failure so the router counts it as a loss and triggers fallback.
+    let out = out.ok_or_else(|| {
+        (
+            "gemini returned no text (thinking may have consumed the output budget)".to_string(),
+            FailReason::Error,
+        )
+    })?;
     let usage = TokenUsage {
         input_tokens: v
             .pointer("/usageMetadata/promptTokenCount")
@@ -1667,7 +1698,7 @@ fn call_gemini(
             .and_then(|x| x.as_u64())
             .unwrap_or(0),
     };
-    Ok(CallOutcome { text: out, usage })
+    Ok(CallOutcome { text: out.to_string(), usage })
 }
 
 fn call_ollama(

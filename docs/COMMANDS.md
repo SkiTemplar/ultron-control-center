@@ -87,11 +87,15 @@ Scripts under `scripts/cockpit/*.py`. Always run them with `uv run python <scrip
 | `persona_audit.py` | Stats per persona (last used, drift, redundancy). |
 | `deadwood_scanner.py` | Find orphan files in the cockpit tree. |
 
-> **Removed:** `version_propagate.py` no longer exists. Version bumping was
-> moved to the Rust-side `version_drift` module in v15.4 and the helper
-> `scripts/cut-release.ps1` (see `docs/RELEASE-PROCESS.md §1.2`); this remains
-> true in the current build (ULTRON Control Center v2.7.1 / core v15.5+). Do
-> not call `version_propagate.py`.
+> **Status:** `version_propagate.py` is a **CI-only gate** (not user-facing).
+> It exists at `scripts/cockpit/version_propagate.py` and runs in
+> `.github/workflows/ci.yml` as the `version-drift` job to verify that all
+> version files (Cargo.toml, package.json, pyproject.toml, README badges, etc.)
+> stay synchronized with the canonical version in `pyproject.toml`. Users do
+> **not** call this directly — the Rust `version_drift` module and the release
+> helper `scripts/cut-release.ps1` are the maintainer-facing tools (see
+> `docs/RELEASE-PROCESS.md`). For end-users, version bumps happen transparently
+> via the auto-updater.
 
 The full Python toolkit is ~90 scripts; the ones above are the ones the UI surfaces directly.
 

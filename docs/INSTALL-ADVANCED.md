@@ -282,14 +282,14 @@ Skip skills you don't want — Claude Code only loads what's in
 `install.ps1` mirrors the skills flow for autonomous subagents under
 `~/.claude/agents/`. It always copies the **12 ULTRON first-party agents**
 (`ultron-arch`, `ultron-changelog`, `ultron-context`, `ultron-docs`,
-`ultron-metadata`, `ultron-news`, `ultron-perf`, `ultron-refactor`,
-`ultron-security`, `ultron-self-improve`, `ultron-skill-editor`,
+`ultron-metadata`, `ultron-perf`, `ultron-refactor`, `ultron-security`,
 `ultron-test`) plus the **7 stack-aligned community agents** in `agents/`
 (`cpp-pro`, `graphics-programmer`, `unreal-engine-engineer`,
-`unity-engineer`, `devops-engineer`, `database-admin`,
-`fullstack-developer`). The `cockpit/agent-catalog.json` lists **69 more**
-that you can install on demand from the Agents tab in the Control
-Center (88 total available).
+`unity-engineer`, `devops-engineer`, `database-administrator`,
+`fullstack-developer`). The `cockpit/agent-catalog.json` lists **81 additional**
+agents (from VoltAgent, wshobson, and hesreallyhim community sources)
+that you can install on demand from the Agents tab in the Control Center
+(~100+ total available, most require manual installation).
 
 To install an agent by hand:
 

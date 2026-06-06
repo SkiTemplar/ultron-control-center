@@ -53,14 +53,15 @@ orange **Quarantined** filter.
 The Agents tab mirrors the Skills flow but for autonomous subagents
 under `~/.claude/agents/`. Fresh installs ship **19 agents** — 12 ULTRON
 first-party (`ultron-arch`, `ultron-changelog`, `ultron-context`,
-`ultron-docs`, `ultron-metadata`, `ultron-news`, `ultron-perf`,
-`ultron-refactor`, `ultron-security`, `ultron-self-improve`,
-`ultron-skill-editor`, `ultron-test`) + 7 stack-aligned community
-(`cpp-pro`, `graphics-programmer`, `unreal-engine-engineer`,
-`unity-engineer`, `devops-engineer`, `database-admin`,
-`fullstack-developer`). The catalog at the bottom of the tab exposes
-**69 more** from `cockpit/agent-catalog.json`, taking the total to **88
-available**.
+`ultron-docs`, `ultron-metadata`, `ultron-perf`, `ultron-refactor`,
+`ultron-security`, `ultron-test`) plus 7 stack-aligned community agents
+from the embedded copy of the VoltAgent catalog (`cpp-pro`,
+`graphics-programmer`, `unreal-engine-engineer`, `unity-engineer`,
+`devops-engineer`, `database-administrator`, `fullstack-developer`).
+The catalog sidebar exposes **81 additional** agents from `cockpit/agent-catalog.json`
+(mix of VoltAgent, wshobson, and hesreallyhim community sources),
+taking the **total available to ~100+**. Most require manual install via
+the **Install from catalog** button.
 
 - The same security scanner used on Skills runs on every agent
   manifest. Failing agents land under the orange **Quarantined**
@@ -95,19 +96,25 @@ toolbar to see what's already done.
 
 ---
 
-## 5. Memory — "what do I know?"
+## 5. Memory — "what did the system learn?"
 
-Two things to try:
+The Memory tab surfaces the **candidate inbox**: all facts captured automatically
+by the Stop hook (via the LLM extraction engine) before they make it into the
+persistent `brain.db`. Two workflows:
 
-- **Search box (top)** → BM25 over your vault's FTS5 index. Returns
-  ranked snippets with the file path. Click to open.
-- **Force graph** → nodes are notes, edges are wikilinks. Drag to nudge,
-  scroll to zoom (0.4×–10×), click a node to open the side panel and
-  jump to the source file.
+- **Approve or Reject** → Click into any candidate. The content (with redaction
+  of secrets/PII already applied) appears on the right. Click **Approve** to
+  promote it to active memory; click **Reject** to discard it. Approved items
+  are written to `~/.ultron/brain.db` with an audit trail.
+- **Memory Trace** → The backend memory kernel is SQLite + Qdrant. The UI does
+  not expose a force graph (that was an earlier experiment that proved less
+  useful than expected). Memory inspection happens via search and via commands,
+  not via visual graph navigation.
 
-**Stuck?** Graph empty? Make sure `~/.ultron-vault/` actually has
-markdown files in it. The graph reads the same corpus the brain index
-does — run **Maintenance → Vault sync** if your notes feel stale.
+**Stuck?** No candidates showing? The Stop hook only fires at end-of-session.
+Run a Claude Code session (with `~/.claude/settings.json` wired to your
+ULTRON hooks), end it cleanly (type `exit` or close the window), and new
+captures should appear within 10 seconds.
 
 ---
 
