@@ -325,10 +325,25 @@ fn build_command(provider: &str, agent: Option<&str>) -> Result<CommandBuilder, 
             //   3. If neither shim is on PATH, fall back to the absolute
             //      System32 path so a corrupted PATH does not break the
             //      terminal entirely.
+            //
+            // F7-B encoding fix: Windows PowerShell starts with the OEM code
+            // page (CP850 on Spanish systems, CP437 on English). Bytes from
+            // the PTY reach the frontend correctly via base64, but the shell
+            // itself emits accented characters as OEM bytes instead of UTF-8,
+            // so tildes/enyes appear as mojibake in the viewer. We force both
+            // Console.OutputEncoding and Console.InputEncoding to UTF-8 via
+            // -NoExit -Command before the interactive prompt appears. Using
+            // -NoExit keeps the shell alive (same as a plain -NoProfile call);
+            // the user lands at an interactive prompt with UTF-8 already set.
+            // PYTHONUTF8=1 covers any Python subprocess spawned from the shell.
             let exe = resolve_powershell_exe();
             let mut cmd = CommandBuilder::new(&exe);
             cmd.arg("-NoLogo");
             cmd.arg("-NoProfile");
+            cmd.arg("-NoExit");
+            cmd.arg("-Command");
+            cmd.arg("[Console]::OutputEncoding=[Console]::InputEncoding=[System.Text.Encoding]::UTF8");
+            cmd.env("PYTHONUTF8", "1");
             Ok(cmd)
         }
         "powershell-admin" => {

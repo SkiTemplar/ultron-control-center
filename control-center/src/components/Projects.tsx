@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath } from "@tauri-apps/plugin-opener";
+import BatchDropdown from "./projects/BatchDropdown";
 import type {
   CreateProjectResult,
   LauncherItem,
@@ -488,6 +489,8 @@ export function Projects({ onOpenProject }: ProjectsProps = {}) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* Run Batch — siempre visible en el header de la lista de proyectos */}
+          <BatchDropdown headerStyle />
           <button type="button" onClick={() => setOpenglModalOpen(true)}
             className="rounded px-3 py-1.5 text-[12px] font-medium transition-colors"
             style={{ background: "var(--color-surface-3)", color: "var(--color-text)", border: "1px solid var(--color-border-strong)" }}

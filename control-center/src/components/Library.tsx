@@ -11,15 +11,17 @@ import { Agents } from "./Agents";
 import { Rules } from "./Rules";
 import { Catalog } from "./library/Catalog";
 import { Commands } from "./library/Commands";
+import { PluginUpdates } from "./library/PluginUpdates";
 import { PluginsSection } from "./Settings/PluginsSection";
 import { Hooks } from "./Hooks";
-import { Sparkle, Bot, BookOpen, Compass, Terminal, Folder } from "./library/icons";
+import { Sparkle, Bot, BookOpen, Compass, Terminal, Folder, Download } from "./library/icons";
 
 export type LibrarySubTab =
   | "skills"
   | "agents"
   | "rules"
   | "plugins"
+  | "updates"
   | "hooks"
   | "catalog"
   | "commands";
@@ -62,6 +64,12 @@ const SUB_TABS: SubTabSpec[] = [
     label: "Plugins",
     Icon: Folder,
     hint: "Installed plugin bundles (skills + agents + hooks + MCPs).",
+  },
+  {
+    id: "updates",
+    label: "Updates",
+    Icon: Download,
+    hint: "Check for available updates across all installed plugins.",
   },
   {
     // v2.6: Hooks moved from System tab → Library — it's a Claude-side
@@ -174,6 +182,11 @@ export function Library({ initial }: { initial?: LibrarySubTab } = {}) {
         {sub === "plugins" && (
           <div className="h-full overflow-auto px-6 py-4">
             <PluginsSection />
+          </div>
+        )}
+        {sub === "updates" && (
+          <div className="h-full overflow-auto">
+            <PluginUpdates />
           </div>
         )}
         {sub === "hooks" && <Hooks />}
