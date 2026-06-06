@@ -83,12 +83,16 @@ pub(crate) fn apply_schema_v4(conn: &Connection) -> Result<(), MemoryError> {
 
     // (b) Unresolved references — forward declarations whose target symbol
     //     has not yet been captured in `memory_items`.  A separate drain pass
-    //     (future work) promotes rows here to `edges` once the target appears.
+    //     promotes rows here to `edges` once the target appears.
     //
-    //   symbol  — the unresolved target name (as written in the source file).
-    //   file    — source file where the reference was observed.
-    //   line    — line number of the reference.
-    //   kind    — same vocabulary as `edges.kind`.
+    //   symbol     — the unresolved target name (as written in the source file).
+    //   file       — source file where the reference was observed.
+    //   line       — line number of the reference.
+    //   kind       — same vocabulary as `edges.kind`.
+    //   project_id — project slug of the referring file; used by
+    //                `drain_unresolved_refs` to match against `memory_items`
+    //                rows from the SAME project only, preventing cross-project
+    //                symbol conflation (KIRKARDO P1 fix).
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS unresolved_refs (
             id          INTEGER PRIMARY KEY,
@@ -96,12 +100,27 @@ pub(crate) fn apply_schema_v4(conn: &Connection) -> Result<(), MemoryError> {
             file        TEXT,
             line        INTEGER,
             kind        TEXT,
+            project_id  TEXT,
             created_at  INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_unresolved_symbol
-            ON unresolved_refs(symbol);",
+            ON unresolved_refs(symbol);
+        CREATE INDEX IF NOT EXISTS idx_unresolved_project
+            ON unresolved_refs(project_id);",
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("schema v4 unresolved_refs: {e}")))?;
+
+    // (b2) Additive migration: existing databases created before KIRKARDO P1
+    //      fix do not have the `project_id` column on `unresolved_refs`.
+    //      `ALTER TABLE ADD COLUMN` is idempotent-safe when wrapped in a
+    //      try-ignore: SQLite returns an error if the column already exists,
+    //      which we silently discard.  The new column defaults to NULL for all
+    //      pre-existing rows (NULL = "project unknown"), which is safe because
+    //      `drain_unresolved_refs` treats NULL project_id as a wildcard match
+    //      (see its WHERE clause comment).
+    let _ = conn.execute_batch(
+        "ALTER TABLE unresolved_refs ADD COLUMN project_id TEXT;",
+    );
 
     // (c) Monotonic version bump — only when we are actually upgrading.
     let uv: i64 = conn
@@ -350,13 +369,22 @@ pub(crate) fn drain_unresolved_refs(conn: &Connection) -> Result<DrainStats, Mem
     use rusqlite::params;
 
     // Collect unresolved_refs whose symbol is now in memory_items.title.
+    //
+    // KIRKARDO P1 fix: the JOIN is scoped to the same project_id so that two
+    // different projects that happen to define a symbol with the same name are
+    // never conflated.  When ur.project_id IS NULL (rows inserted before the
+    // P1 migration), we fall back to the legacy title-only match so that old
+    // data is still drained rather than stranded forever.
+    //
     // Note: `stmt` must outlive the `MappedRows` iterator, so we collect
     // into a Vec before letting `stmt` drop at the end of the scope.
     let mut stmt = conn
         .prepare(
-            "SELECT ur.id, ur.symbol, ur.file, ur.line, ur.kind
+            "SELECT ur.id, ur.symbol, ur.file, ur.line, ur.kind, ur.project_id
              FROM unresolved_refs ur
-             INNER JOIN memory_items mi ON mi.title = ur.symbol",
+             INNER JOIN memory_items mi
+                ON mi.title = ur.symbol
+               AND (ur.project_id IS NULL OR mi.project_id = ur.project_id)",
         )
         .map_err(|e| {
             MemoryError::RemoteUnavailable(format!("drain_unresolved_refs prepare: {e}"))
@@ -370,6 +398,7 @@ pub(crate) fn drain_unresolved_refs(conn: &Connection) -> Result<DrainStats, Mem
                 file: row.get(2)?,
                 line: row.get(3)?,
                 kind: row.get(4)?,
+                project_id: row.get(5)?,
             })
         })
         .map_err(|e| {
@@ -404,11 +433,13 @@ pub(crate) fn drain_unresolved_refs(conn: &Connection) -> Result<DrainStats, Mem
         let kind = ur.kind.as_deref().unwrap_or("imports");
         // Insert the edge (source == target == symbol, records that the
         // symbol was seen referenced and is now resolvable).
+        // project_id is propagated from the unresolved_ref so the edge is
+        // properly scoped to the originating project (KIRKARDO P1 fix).
         tx.execute(
             "INSERT OR IGNORE INTO edges
                 (source, target, kind, file, line_from, line_to, provenance, project_id, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'drain-unresolved', NULL, ?6)",
-            params![ur.symbol, ur.symbol, kind, ur.file, ur.line, now_ms],
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'drain-unresolved', ?6, ?7)",
+            params![ur.symbol, ur.symbol, kind, ur.file, ur.line, ur.project_id, now_ms],
         )
         .map_err(|e| {
             MemoryError::RemoteUnavailable(format!("drain_unresolved_refs insert: {e}"))
@@ -457,6 +488,10 @@ struct UnresolvedRef {
     file: Option<String>,
     line: Option<i64>,
     kind: Option<String>,
+    /// Project slug from which this reference was captured.  `None` for rows
+    /// inserted before the KIRKARDO P1 migration (treated as wildcard by the
+    /// drain JOIN).
+    project_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -850,11 +885,17 @@ mod tests {
 
     /// Create a minimal `memory_items` table (subset of real schema) so that
     /// the drain's INNER JOIN can find matching titles.
+    ///
+    /// Includes `project_id` to match the KIRKARDO P1 drain JOIN which
+    /// references `mi.project_id`.  Rows inserted via `insert_memory_item`
+    /// leave `project_id` as NULL (legacy / unknown project), which causes the
+    /// drain to match them via the `ur.project_id IS NULL` fallback arm.
     fn ensure_memory_items_table(conn: &Connection) {
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS memory_items (
-                id TEXT PRIMARY KEY,
-                title TEXT
+                id         TEXT PRIMARY KEY,
+                title      TEXT,
+                project_id TEXT
             );",
         )
         .expect("create memory_items stub");
@@ -869,11 +910,43 @@ mod tests {
     }
 
     fn insert_unresolved(conn: &Connection, symbol: &str, kind: &str) {
+        insert_unresolved_with_project(conn, symbol, kind, None);
+    }
+
+    fn insert_unresolved_with_project(
+        conn: &Connection,
+        symbol: &str,
+        kind: &str,
+        project_id: Option<&str>,
+    ) {
         conn.execute(
-            "INSERT INTO unresolved_refs (symbol, file, line, kind, created_at) VALUES (?1, NULL, NULL, ?2, 0)",
-            rusqlite::params![symbol, kind],
+            "INSERT INTO unresolved_refs (symbol, file, line, kind, project_id, created_at) \
+             VALUES (?1, NULL, NULL, ?2, ?3, 0)",
+            rusqlite::params![symbol, kind, project_id],
         )
         .expect("insert unresolved_ref");
+    }
+
+    /// Minimal `memory_items` row with a `project_id` column.  The stub
+    /// used by drain tests only has `id` and `title`; this variant adds
+    /// `project_id` so that the P1 cross-project scoping logic can be tested.
+    fn ensure_memory_items_table_with_project(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_items (
+                id         TEXT PRIMARY KEY,
+                title      TEXT,
+                project_id TEXT
+            );",
+        )
+        .expect("create memory_items stub with project_id");
+    }
+
+    fn insert_memory_item_with_project(conn: &Connection, id: &str, title: &str, project: &str) {
+        conn.execute(
+            "INSERT OR IGNORE INTO memory_items (id, title, project_id) VALUES (?1, ?2, ?3)",
+            rusqlite::params![id, title, project],
+        )
+        .expect("insert memory_item with project");
     }
 
     #[test]
@@ -955,5 +1028,94 @@ mod tests {
         let stats = drain_unresolved_refs(&conn).expect("drain must succeed");
         assert_eq!(stats.promoted, 1, "one symbol promoted");
         assert_eq!(stats.remaining, 1, "one symbol still unresolved");
+    }
+
+    // -----------------------------------------------------------------------
+    // KIRKARDO P1 — cross-project symbol isolation
+    //
+    // Two distinct projects (proj-alpha, proj-beta) each define a symbol
+    // named "shared_fn".  An unresolved_ref scoped to proj-alpha must only
+    // be promoted when memory_items contains "shared_fn" WITH project_id =
+    // "proj-alpha".  The proj-beta entry must NOT trigger promotion of the
+    // proj-alpha ref, and vice versa.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn drain_does_not_conflate_same_symbol_across_projects() {
+        let conn = v4_conn();
+        ensure_memory_items_table_with_project(&conn);
+
+        // Both projects define a symbol with the identical name.
+        insert_memory_item_with_project(&conn, "alpha-id", "shared_fn", "proj-alpha");
+        insert_memory_item_with_project(&conn, "beta-id", "shared_fn", "proj-beta");
+
+        // Only proj-alpha has an unresolved_ref for "shared_fn".
+        insert_unresolved_with_project(&conn, "shared_fn", "calls", Some("proj-alpha"));
+
+        let stats = drain_unresolved_refs(&conn).expect("drain must succeed");
+
+        // Exactly one row promoted — the proj-alpha ref.
+        assert_eq!(
+            stats.promoted, 1,
+            "only the proj-alpha unresolved_ref should be promoted"
+        );
+        assert_eq!(stats.remaining, 0, "no rows should remain");
+
+        // The promoted edge must carry project_id = "proj-alpha", NOT "proj-beta".
+        let edge_project: String = conn
+            .query_row(
+                "SELECT project_id FROM edges WHERE provenance = 'drain-unresolved'",
+                [],
+                |r| r.get(0),
+            )
+            .expect("promoted edge must exist");
+        assert_eq!(
+            edge_project, "proj-alpha",
+            "promoted edge must be scoped to proj-alpha, not proj-beta"
+        );
+    }
+
+    #[test]
+    fn drain_scoped_ref_not_promoted_by_wrong_project_memory_item() {
+        let conn = v4_conn();
+        ensure_memory_items_table_with_project(&conn);
+
+        // Only proj-beta's memory_items contains "exclusive_fn".
+        insert_memory_item_with_project(&conn, "beta-id", "exclusive_fn", "proj-beta");
+
+        // But the unresolved_ref belongs to proj-alpha.
+        insert_unresolved_with_project(&conn, "exclusive_fn", "imports", Some("proj-alpha"));
+
+        let stats = drain_unresolved_refs(&conn).expect("drain must succeed");
+
+        // The ref must NOT be promoted — the symbol exists only in another project.
+        assert_eq!(
+            stats.promoted, 0,
+            "cross-project symbol must NOT trigger promotion"
+        );
+        assert_eq!(
+            stats.remaining, 1,
+            "proj-alpha ref must remain unresolved because proj-beta's entry does not count"
+        );
+    }
+
+    #[test]
+    fn drain_legacy_null_project_id_still_promotes() {
+        // Rows inserted before the P1 migration have project_id = NULL.
+        // The drain must still promote them (NULL is treated as wildcard) so
+        // that pre-migration data is not stranded forever.
+        let conn = v4_conn();
+        // Use the simple stub (no project_id column) for the legacy path.
+        ensure_memory_items_table(&conn);
+        insert_memory_item(&conn, "id-1", "legacy_sym");
+
+        // Insert with NULL project_id (legacy row, no project scope).
+        insert_unresolved(&conn, "legacy_sym", "calls"); // project_id = None
+
+        let stats = drain_unresolved_refs(&conn).expect("drain must succeed");
+        assert_eq!(
+            stats.promoted, 1,
+            "legacy NULL-project_id rows must still be promoted"
+        );
     }
 }

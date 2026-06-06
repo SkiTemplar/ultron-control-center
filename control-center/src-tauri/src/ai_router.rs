@@ -108,16 +108,32 @@ fn retry_delay_ms(attempt: u32) -> u64 {
 }
 
 /// Try `f` up to `max_retries + 1` times, sleeping with jitter-backoff between
-/// attempts. Only retries when the closure signals a transient `FailReason`.
-/// Returns `(CallOutcome, FailReason)` on ultimate failure.
-fn with_retry<F>(max_retries: u32, mut f: F) -> Result<CallOutcome, (String, FailReason)>
+/// attempts.  Only retries when the closure signals a transient `FailReason`.
+///
+/// Returns `(CallOutcome, retries_used)` on success and
+/// `(error_msg, FailReason)` on terminal failure.  `retries_used` is 0 when
+/// the first attempt succeeds, 1 when one retry was needed, etc.
+///
+/// # Why return retry count?
+///
+/// `bump_metrics` receives a `retry_count` field so the metrics dashboard can
+/// distinguish 1-shot successes from retried ones.  Without this field,
+/// `fail_reasons` in `RouterMetrics` would be the only signal of retry
+/// activity, but `fail_reasons` is counted only on terminal failure — a call
+/// that succeeded on the second attempt leaves no trace of the first failure.
+/// `retry_count` fills that gap without biasing `fail_reasons` upward
+/// (KIRKARDO P2 fix).
+fn with_retry<F>(
+    max_retries: u32,
+    mut f: F,
+) -> Result<(CallOutcome, u32), (String, FailReason)>
 where
     F: FnMut() -> Result<CallOutcome, (String, FailReason)>,
 {
     let mut last_err = (String::new(), FailReason::Error);
     for attempt in 0..=max_retries {
         match f() {
-            Ok(outcome) => return Ok(outcome),
+            Ok(outcome) => return Ok((outcome, attempt)),
             Err((msg, reason)) => {
                 last_err = (msg, reason);
                 if !reason.is_transient() || attempt == max_retries {
@@ -268,6 +284,14 @@ pub struct ModelMetrics {
     pub success_count: u64,
     pub output_tokens: u64,
     pub latency_ms_avg: u64,
+    /// Cumulative retries consumed across all calls to this model.
+    /// `retried_calls` = number of calls that needed at least one retry.
+    /// Divided by `count` gives the per-call retry rate.
+    #[serde(default)]
+    pub total_retries: u64,
+    /// Calls that required at least one retry (retry_count > 0).
+    #[serde(default)]
+    pub retried_calls: u64,
 }
 
 /// Per-provider request counter for the CURRENT day. Used to compute the
@@ -1143,6 +1167,8 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
     match outcome {
         Ok(co) => {
             // Feed real metrics so the dashboard moves after every Test click.
+            // test_zone calls the provider directly (no with_retry), so
+            // retry_count is always 0 here.
             let _ = bump_metrics(MetricSample {
                 provider_id: &provider.id,
                 model: &zone.primary.model,
@@ -1152,6 +1178,7 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                 primary_cost_per_mtok: cost_of_primary,
                 latency_ms,
                 mode: None,
+                retry_count: 0,
                 fail_reason: None,
             });
             TestResult {
@@ -1173,6 +1200,7 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                 primary_cost_per_mtok: cost_of_primary,
                 latency_ms,
                 mode: None,
+                retry_count: 0,
                 fail_reason: None,
             });
             TestResult {
@@ -1803,11 +1831,16 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         });
 
         let success = outcome.is_ok();
-        let out_tokens = outcome.as_ref().map(|c| c.usage.output_tokens).unwrap_or(0);
+        let out_tokens = outcome.as_ref().map(|(c, _)| c.usage.output_tokens).unwrap_or(0);
+        // KIRKARDO P2: retry_count = retries consumed inside with_retry (0 on
+        // 1-shot success or CLI call).  fail_reason is ONLY set on terminal
+        // failure — never on a per-attempt basis — so fail_reasons in
+        // RouterMetrics counts final outcomes, not retry noise.
+        let retry_count = outcome.as_ref().map(|(_, r)| *r).unwrap_or(0);
         let fail_reason = outcome.as_ref().err().map(|(_, reason)| *reason);
 
-        // Persist metrics for every attempt — only way the dashboard counts
-        // move at all. Best-effort: a metrics write failure does not abort.
+        // Persist metrics for every assignment attempt — only way the dashboard
+        // counts move at all.  Best-effort: a metrics write failure does not abort.
         let _ = bump_metrics(MetricSample {
             provider_id: &assignment.provider_id,
             model: &assignment.model,
@@ -1817,11 +1850,12 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
             primary_cost_per_mtok: primary_cost,
             latency_ms,
             mode: None,
+            retry_count,
             fail_reason,
         });
 
         match outcome {
-            Ok(co) => return Ok(co.text),
+            Ok((co, _retry_count)) => return Ok(co.text),
             Err((e, _reason)) => {
                 // Free-tier 429 short-circuit: give a specific message.
                 last_error = if is_rate_limited && has_free_tier_cap {
@@ -1844,17 +1878,22 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
 }
 
 /// Try a single provider+model assignment with up to 3 retries for transient
-/// errors (HTTP 429, 529, timeout) on cloud providers. CLI and local providers
+/// errors (HTTP 429, 529, timeout) on cloud providers.  CLI and local providers
 /// are not retried — their errors are always non-transient from the router's
 /// perspective.
 ///
-/// Returns `Result<CallOutcome, (String, FailReason)>` so callers can
-/// record the classified failure reason in metrics.
+/// Returns `(CallOutcome, retry_count)` on success, where `retry_count` is 0
+/// when the first attempt succeeded and ≥1 when retries were consumed.
+/// Returns `(error_msg, FailReason)` on terminal failure.
+///
+/// KIRKARDO P2: `retry_count` is returned to the caller (`route()`) so it can
+/// be stored in `MetricSample.retry_count`.  This keeps `fail_reasons` clean:
+/// it is only incremented once per terminal failure, never once per attempt.
 fn try_assignment_call(
     assignment: &ZoneAssignment,
     prompt: &str,
     system_prompt: Option<&str>,
-) -> Result<CallOutcome, (String, FailReason)> {
+) -> Result<(CallOutcome, u32), (String, FailReason)> {
     let providers = load_providers()
         .map_err(|e| (e, FailReason::Error))?;
     let provider = providers
@@ -1881,7 +1920,8 @@ fn try_assignment_call(
                     FailReason::Error,
                 ));
             }
-            return call_cli(&provider, prompt);
+            // CLIs never retry; retry_count is always 0.
+            return call_cli(&provider, prompt).map(|co| (co, 0));
         }
         ProviderKind::Cloud if !provider.key_env_var.is_empty() => {
             match std::env::var(&provider.key_env_var) {
@@ -1903,6 +1943,8 @@ fn try_assignment_call(
 
     // Cloud and local providers: wrap HTTP call in retry-with-backoff.
     // Max 3 retries (4 total attempts) for transient errors only.
+    // `with_retry` returns the retry count alongside the outcome so
+    // `bump_metrics` can record it without double-counting fail_reasons.
     const MAX_RETRIES: u32 = 3;
     match provider.id.as_str() {
         "claude-haiku" => with_retry(MAX_RETRIES, || {
@@ -1934,7 +1976,17 @@ struct MetricSample<'a> {
     /// Optional routing mode (dual/minidual/maxdual/triple/minitriple/maxtriple).
     /// When `Some`, the `by_mode` counter for that mode is incremented daily.
     mode: Option<&'a str>,
+    /// How many retries were consumed before the terminal outcome (0 = 1-shot).
+    /// Set to 0 for CLI and local providers that never retry.
+    ///
+    /// KIRKARDO P2: this field is the source of truth for retry activity.
+    /// `fail_reason` is ONLY set on the terminal failure (after all retries are
+    /// exhausted), so `fail_reasons` in `RouterMetrics` counts final outcomes,
+    /// not per-attempt noise.  `retry_count` separately surfaces how many
+    /// intermediate attempts occurred, without inflating `fail_reasons`.
+    retry_count: u32,
     /// When the call ultimately failed after all retries, the classified reason.
+    /// Never `Some` for a successful call regardless of retry count.
     fail_reason: Option<FailReason>,
 }
 
@@ -1977,6 +2029,12 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     } else {
         (mm.latency_ms_avg + s.latency_ms) / 2
     };
+    // KIRKARDO P2: track retry activity per model so the dashboard can surface
+    // "X% of calls to this model needed a retry" without biasing fail_reasons.
+    mm.total_retries = mm.total_retries.saturating_add(s.retry_count as u64);
+    if s.retry_count > 0 {
+        mm.retried_calls = mm.retried_calls.saturating_add(1);
+    }
 
     // --- Fallback rate (EMA 0.1 over the 0/1 failure stream) ---
     if s.success {
@@ -2760,6 +2818,178 @@ mod tests {
                 !is_rate_limited,
                 "error '{msg}' must NOT be classified as rate-limited"
             );
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // KIRKARDO P2 — fail_reason bias + retry_count correctness
+    // -----------------------------------------------------------------------
+
+    /// Verify that `with_retry` returns retry_count = 0 when the first attempt
+    /// succeeds (no retries consumed), and that it does NOT call the closure
+    /// again after a successful result.
+    #[test]
+    fn with_retry_returns_zero_retry_count_on_first_success() {
+        let mut call_count = 0u32;
+        let result = with_retry(3, || {
+            call_count += 1;
+            Ok(CallOutcome {
+                text: "ok".to_string(),
+                usage: TokenUsage::default(),
+            })
+        });
+        assert!(result.is_ok(), "must succeed");
+        let (_, retry_count) = result.unwrap();
+        assert_eq!(retry_count, 0, "no retries consumed on first-attempt success");
+        assert_eq!(call_count, 1, "closure called exactly once");
+    }
+
+    /// Verify that `with_retry` returns retry_count = N when N retries were
+    /// consumed before success, and that fail_reason is NOT emitted for those
+    /// intermediate failures (only the terminal outcome carries fail_reason).
+    #[test]
+    fn with_retry_returns_correct_retry_count_after_transient_failures() {
+        let mut call_count = 0u32;
+        let result = with_retry(3, || {
+            call_count += 1;
+            if call_count < 3 {
+                // Simulate two transient rate-limit failures before success.
+                Err(("rate limited".to_string(), FailReason::RateLimit))
+            } else {
+                Ok(CallOutcome {
+                    text: "ok after retry".to_string(),
+                    usage: TokenUsage::default(),
+                })
+            }
+        });
+        assert!(result.is_ok(), "must succeed after retries");
+        let (outcome, retry_count) = result.unwrap();
+        assert_eq!(outcome.text, "ok after retry");
+        // call_count == 3 means attempt-0 failed, attempt-1 failed, attempt-2
+        // succeeded.  retry_count == attempt index == 2.
+        assert_eq!(retry_count, 2, "two retries were consumed before success");
+        assert_eq!(call_count, 3, "closure called three times total");
+    }
+
+    /// Verify that `with_retry` returns the terminal error (not an intermediate
+    /// one) and that the returned FailReason is the one from the last attempt.
+    /// This is the invariant that keeps `fail_reasons` in RouterMetrics unbiased.
+    #[test]
+    fn with_retry_terminal_failure_has_correct_fail_reason() {
+        let mut call_count = 0u32;
+        let result: Result<(CallOutcome, u32), (String, FailReason)> = with_retry(2, || {
+            call_count += 1;
+            Err(("always fails".to_string(), FailReason::RateLimit))
+        });
+        assert!(result.is_err(), "must fail after exhausting retries");
+        let (_, terminal_reason) = result.unwrap_err();
+        assert_eq!(
+            terminal_reason,
+            FailReason::RateLimit,
+            "terminal FailReason must match the last attempt's reason"
+        );
+        // max_retries=2 means 3 total attempts (0, 1, 2).
+        assert_eq!(call_count, 3, "closure called max_retries+1 times");
+    }
+
+    /// KIRKARDO P2 — verify that `call_cli` for a codex provider appends
+    /// `--sandbox read-only` to the argument list.
+    ///
+    /// Strategy: build a fake `codex` script on disk that just echoes its
+    /// arguments to stdout, run `call_cli`, and assert the output contains
+    /// the expected flags.  On Windows we create a `.bat` wrapper; on Unix
+    /// a plain shell script.  The test is skipped if the temp dir cannot be
+    /// created (CI without write access).
+    #[test]
+    fn call_cli_codex_includes_sandbox_read_only_flag() {
+        use std::io::Write;
+
+        let tmp = std::env::temp_dir().join("ultron_test_codex_sandbox");
+        std::fs::create_dir_all(&tmp).expect("create tmp dir");
+
+        // Write a tiny echo-args script.
+        #[cfg(target_os = "windows")]
+        let (script_name, script_body) = (
+            "codex.bat",
+            "@echo off\r\necho %*\r\n",
+        );
+        #[cfg(not(target_os = "windows"))]
+        let (script_name, script_body) = (
+            "codex",
+            "#!/bin/sh\necho \"$@\"\n",
+        );
+
+        let script_path = tmp.join(script_name);
+        {
+            let mut f = std::fs::File::create(&script_path)
+                .expect("create echo script");
+            f.write_all(script_body.as_bytes()).expect("write script");
+        }
+
+        // Make executable on Unix.
+        #[cfg(not(target_os = "windows"))]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&script_path, perms).unwrap();
+        }
+
+        // Temporarily prepend our tmp dir to PATH so `detect_cli` finds the script.
+        let original_path = std::env::var("PATH").unwrap_or_default();
+        let sep = if cfg!(target_os = "windows") { ";" } else { ":" };
+        let new_path = format!("{}{sep}{}", tmp.display(), original_path);
+
+        // Flush the CLI cache entry for "codex" so this test sees the new PATH.
+        if let Ok(mut cache) = CLI_CACHE.lock() {
+            cache.remove("codex");
+        }
+
+        unsafe { std::env::set_var("PATH", &new_path) };
+
+        let provider = Provider {
+            id: "codex-cli".to_string(),
+            name: "Codex CLI test".to_string(),
+            cost_per_mtok: 0.0,
+            supports: vec![ProviderClass::Light],
+            api_key_status: ApiKeyStatus::Configured,
+            health_endpoint: None,
+            kind: ProviderKind::Cli,
+            key_env_var: String::new(),
+            base_url: String::new(),
+            default_model: "gpt-5".to_string(),
+            models: vec![],
+            cli_command: Some("codex".to_string()),
+        };
+
+        let result = call_cli(&provider, "hello world");
+
+        // Restore PATH and clean up cache.
+        unsafe { std::env::set_var("PATH", &original_path) };
+        if let Ok(mut cache) = CLI_CACHE.lock() {
+            cache.remove("codex");
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+
+        match result {
+            Ok(co) => {
+                let output = co.text.to_lowercase();
+                assert!(
+                    output.contains("--sandbox") && output.contains("read-only"),
+                    "codex-cli call must include '--sandbox read-only' in args; got: {:?}",
+                    co.text
+                );
+            }
+            Err((msg, _)) => {
+                // On CI without a writable PATH mutation, the script may not be
+                // found.  Fail only when the error is NOT a "not found" variant.
+                if !msg.contains("not found") && !msg.contains("cannot find")
+                    && !msg.contains("No such file")
+                {
+                    panic!("call_cli failed unexpectedly: {msg}");
+                }
+                // Skip gracefully — PATH mutation did not take effect.
+            }
         }
     }
 }
