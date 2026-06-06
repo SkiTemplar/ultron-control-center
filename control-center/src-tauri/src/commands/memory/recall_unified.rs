@@ -114,12 +114,17 @@ pub fn rrf_fuse(lists: &[Vec<String>], k: f32) -> Vec<(String, f32)> {
 /// noise gate is keyed on `project_id.is_some()`, NOT on the project filter, so a
 /// cross-project recall launched from inside a project still keeps vault off by
 /// default (cross relaxes the project filter, not the noise control).
+/// `limit_tokens` caps the total token count of the assembled pack. Pass
+/// `TOKEN_BUDGET` for the default, or a custom value from the caller. Items are
+/// admitted best-rank-first; the first item is always admitted (with truncation)
+/// even if its token estimate exceeds the budget.
 pub(crate) fn assemble_pack(
     conn: &rusqlite::Connection,
     fused: &[FusedHit],
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
+    limit_tokens: i64,
 ) -> (Vec<RecallEntry>, Vec<DiscardedHit>, i64) {
     let mut injected: Vec<RecallEntry> = Vec::new();
     let mut discarded: Vec<DiscardedHit> = Vec::new();
@@ -182,20 +187,20 @@ pub(crate) fn assemble_pack(
             discarded.push(discard("sensitivity=secret (excluded from context pack)"));
             continue;
         }
-        if total_tokens + item.token_estimate > TOKEN_BUDGET && !injected.is_empty() {
+        if total_tokens + item.token_estimate > limit_tokens && !injected.is_empty() {
             discarded.push(discard("token budget exceeded"));
             continue;
         }
-        // B4: the FIRST item is allowed even if oversized, but its summary is
-        // truncated to the budget so a single huge memory can't blow the pack.
-        let (summary, entry_tokens) = if injected.is_empty() && item.token_estimate > TOKEN_BUDGET {
-            let max_chars = (TOKEN_BUDGET * 4) as usize; // ~4 chars/token; chars() is UTF-8 safe
+        // B4: the FIRST item is always admitted even if oversized, but its summary is
+        // truncated to limit_tokens so a single huge memory can't blow the pack.
+        let (summary, entry_tokens) = if injected.is_empty() && item.token_estimate > limit_tokens {
+            let max_chars = (limit_tokens * 4) as usize; // ~4 chars/token; chars() is UTF-8 safe
             let truncated = item.summary.as_ref().map(|s| {
                 let mut t: String = s.chars().take(max_chars).collect();
                 t.push_str(" …[truncated to budget]");
                 t
             });
-            (truncated, TOKEN_BUDGET)
+            (truncated, limit_tokens)
         } else {
             (item.summary.clone(), item.token_estimate)
         };
@@ -303,7 +308,7 @@ pub(crate) fn build_trace(
     //   - confidence = 1.0  → ×1.60  (validated knowledge)
     //   - confidence = 0.8  → ×1.48  (good codebase_fact)
     //   - confidence = 0.6  → ×1.36  (typical real capture)
-    //   - confidence = 0.5  → ×1.30  (imported_vault default — no penalty, just no boost)
+    //   - confidence = 0.5  → ×1.17  (imported_vault default — soft penalty ×0.9 active)
     //
     // A soft penalty for confidence < 0.6 (×0.9 factor) discourages generic imports
     // without hard-filtering them (vault gate in assemble_pack handles the bulk case).
@@ -313,17 +318,20 @@ pub(crate) fn build_trace(
     //
     // The RRF K-damping (60) already keeps differences modest when relevance scores
     // differ a lot; this multiplier only reorders near-ties and equal-relevance bands.
+    //
+    // Single connection reuse: the same `conn` opened here feeds both the quality
+    // re-ranker loop and assemble_pack below, avoiding a second open_conn call.
+    let conn = store::open_conn().map_err(|e| format!("open brain.db: {e}"))?;
     {
-        let conn_q = store::open_conn().ok();
         let now_ms = crate::memory::model::now_millis();
         const SEVEN_DAYS_MS: i64 = 7 * 24 * 60 * 60 * 1000;
         for hit in &mut fused {
-            let (confidence, updated_at) = conn_q
-                .as_ref()
-                .and_then(|c| store::get_item(c, &hit.canonical_id).ok().flatten())
+            let (confidence, updated_at) = store::get_item(&conn, &hit.canonical_id)
+                .ok()
+                .flatten()
                 .map(|it| (it.confidence, it.updated_at))
                 .unwrap_or((0.5, 0)); // unknown → treat as vault-level confidence
-            let quality_factor = if confidence >= 0.6 {
+            let quality_factor: f32 = if confidence >= 0.6 {
                 1.0 + 0.6 * confidence
             } else {
                 // Soft penalty for low-confidence items (generic imports).
@@ -352,10 +360,10 @@ pub(crate) fn build_trace(
     }
 
     // (4)+(5) load items + apply governance + budget via the pure assemble_pack
-    // (unit-tested without Qdrant — see tests::assemble_pack_enforces_governance_invariants).
-    let conn = store::open_conn().map_err(|e| format!("open brain.db: {e}"))?;
+    // (unit-tested without Qdrant/E5 — see tests::assemble_pack_enforces_governance_invariants).
+    // Reuses `conn` opened above (quality re-ranker already holds it open).
     let (injected, discarded, total_tokens) =
-        assemble_pack(&conn, &fused, limit, project_id, cross_project);
+        assemble_pack(&conn, &fused, limit, project_id, cross_project, TOKEN_BUDGET);
 
     let mut warnings: Vec<String> = Vec::new();
     if cross_project && project_id.is_some() {
@@ -609,7 +617,7 @@ mod tests {
             })
             .collect();
 
-        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false);
+        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false, TOKEN_BUDGET);
         let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
         assert!(inj.contains(&&ok), "active in-project item must inject");
@@ -680,7 +688,7 @@ mod tests {
             .collect();
 
         // cross_project = FALSE: other-project item is filtered out.
-        let (inj_off, _d, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false);
+        let (inj_off, _d, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), false, TOKEN_BUDGET);
         let off: Vec<&String> = inj_off.iter().map(|e| &e.canonical_id).collect();
         assert!(off.contains(&&in_project), "in-project item must inject (cross=off)");
         assert!(off.contains(&&global), "global item must inject (cross=off)");
@@ -690,7 +698,7 @@ mod tests {
         );
 
         // cross_project = TRUE: other-project item is admitted; Secret stays out.
-        let (inj_on, disc_on, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), true);
+        let (inj_on, disc_on, _t) = assemble_pack(&conn, &fused, 8, Some("ultron"), true, TOKEN_BUDGET);
         let on: Vec<&String> = inj_on.iter().map(|e| &e.canonical_id).collect();
         assert!(on.contains(&&in_project), "in-project item must still inject (cross=on)");
         assert!(on.contains(&&global), "global item must still inject (cross=on)");
@@ -754,7 +762,7 @@ mod tests {
             })
             .collect();
 
-        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, None, false);
+        let (injected, discarded, _t) = assemble_pack(&conn, &fused, 8, None, false, TOKEN_BUDGET);
         let inj: Vec<&String> = injected.iter().map(|e| &e.canonical_id).collect();
 
         assert!(

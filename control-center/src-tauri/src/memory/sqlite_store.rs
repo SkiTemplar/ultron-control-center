@@ -572,6 +572,13 @@ pub(crate) fn search_items(
     let mut out: Vec<MemoryItem> = Vec::new();
 
     if fts5_available(conn) && !query.trim().is_empty() {
+        // BM25 ordering (headroom): SQLite FTS5 bm25() returns a NEGATIVE value —
+        // more relevant = more negative — so ASC puts the best match first. The
+        // row order produced here IS the sparse BM25 rank consumed by build_trace:
+        // `sparse_ids = search_active(query, FANOUT_K).map(|it| it.id)` preserves
+        // this order, so the sparse_rank HashMap in build_trace reflects true BM25
+        // rank. The quality re-ranker multiplier is applied AFTER RRF fusion, not
+        // here, so BM25 order feeds into the sparse rank input cleanly.
         let sql = format!(
             "SELECT {ITEM_COLS} FROM memory_items_fts f
              JOIN memory_items m ON m.rowid = f.rowid
