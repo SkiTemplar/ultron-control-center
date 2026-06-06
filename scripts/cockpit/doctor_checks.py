@@ -71,8 +71,6 @@ def _get_memory_md() -> Path:
     """Derive the project-specific MEMORY.md path (lazy, computed once)."""
     global _MEMORY_MD
     if _MEMORY_MD is None:
-        from doctor_models import _now_utc_iso as _unused  # noqa: F401 — just ensure import works
-
         home = Path(os.environ.get("USERPROFILE", os.path.expanduser("~")))
         slug = str(home).replace("\\", "/").rstrip("/").replace(":", "-").replace("/", "-")
         _MEMORY_MD = CLAUDE_HOME / "projects" / slug / "memory" / "MEMORY.md"

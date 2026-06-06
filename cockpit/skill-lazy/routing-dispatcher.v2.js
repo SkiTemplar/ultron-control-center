@@ -564,11 +564,13 @@ function recordInjection(skillId) {
  */
 function resolveSkillMdPath(skillId) {
   // Namespaced: "superpowers:brainstorming" -> use the namespace folder
-  if (skillId.includes(':')) {
-    const namespace = skillId.split(':')[0];
-    return path.join(SKILLS_DIR, namespace, 'SKILL.md');
-  }
-  return path.join(SKILLS_DIR, skillId, 'SKILL.md');
+  const base = skillId.includes(':') ? skillId.split(':')[0] : skillId;
+  // Las skills lazy_loadable se DESACTIVAN renombrando su carpeta a <id>.disabled
+  // (apply-lazy-skills.ps1). Probar esa ruta primero para que el lazy-inject las
+  // encuentre tras la desactivacion; fallback a la carpeta activa.
+  const disabled = path.join(SKILLS_DIR, base + '.disabled', 'SKILL.md');
+  if (fs.existsSync(disabled)) return disabled;
+  return path.join(SKILLS_DIR, base, 'SKILL.md');
 }
 
 /**

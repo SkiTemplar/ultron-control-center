@@ -7,8 +7,8 @@ $port = 6333
 $listening = (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Measure-Object).Count
 
 if ($listening -eq 0) {
-    $exe = "C:\Users\USER\.ultron\qdrant-native\qdrant.exe"
-    $wd  = "C:\Users\USER\.ultron\qdrant-native"
+    $exe = "$env:USERPROFILE\.ultron\qdrant-native\qdrant.exe"
+    $wd  = "$env:USERPROFILE\.ultron\qdrant-native"
     if (Test-Path $exe) {
         Start-Process -FilePath $exe -WorkingDirectory $wd -WindowStyle Hidden
         # Espera breve a que abra el puerto (max ~6s) para no devolver antes de tiempo.
