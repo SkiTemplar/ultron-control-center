@@ -267,6 +267,16 @@ pub(crate) fn assemble_pack(
             discarded.push(discard(&format!("status={}", item.status.as_str())));
             continue;
         }
+        // Codegraph separation (Kirkardo R5): per-symbol code locations
+        // (codebase_fact) are STRUCTURAL data for impact-analysis, not
+        // conversational memory. At ~478 items they were crowding out real
+        // knowledge in the recall pack. Exclude them from the conversational
+        // pack; the codegraph is consumed through its own surface
+        // (memory_impact_analysis / the dedicated UI), not the recall stream.
+        if item.kind == crate::memory::model::MemoryType::CodebaseFact {
+            discarded.push(discard("codebase_fact excluded from conversational recall"));
+            continue;
+        }
         // Temporal resolver: prefer items still VIGENTE. `valid_to == None` means
         // "no end" (the common case — every legacy row and every non-superseded
         // item). Only a row whose validity END is in the PAST is filtered, so

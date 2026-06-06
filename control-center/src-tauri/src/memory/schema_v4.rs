@@ -104,9 +104,7 @@ pub(crate) fn apply_schema_v4(conn: &Connection) -> Result<(), MemoryError> {
             created_at  INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_unresolved_symbol
-            ON unresolved_refs(symbol);
-        CREATE INDEX IF NOT EXISTS idx_unresolved_project
-            ON unresolved_refs(project_id);",
+            ON unresolved_refs(symbol);",
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("schema v4 unresolved_refs: {e}")))?;
 
@@ -121,6 +119,18 @@ pub(crate) fn apply_schema_v4(conn: &Connection) -> Result<(), MemoryError> {
     let _ = conn.execute_batch(
         "ALTER TABLE unresolved_refs ADD COLUMN project_id TEXT;",
     );
+
+    // The project_id index MUST be created AFTER the ALTER above. On databases
+    // created before unresolved_refs had a project_id column, the column only
+    // exists once the ALTER has run; creating the index inside the CREATE TABLE
+    // batch (as before) failed with "no such column: project_id" on every
+    // pre-existing brain.db and broke sparse recall. Creating it here covers
+    // both fresh databases (column from CREATE TABLE) and migrated ones.
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_unresolved_project
+            ON unresolved_refs(project_id);",
+    )
+    .map_err(|e| MemoryError::RemoteUnavailable(format!("schema v4 unresolved_idx: {e}")))?;
 
     // (b3) Additive migration — versioning columns on `edges` (Pilar 1 ·
     //      Kirkardo gap).
