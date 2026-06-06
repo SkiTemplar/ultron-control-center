@@ -100,6 +100,9 @@ cockpit/pending_actions.json
 cockpit/backup-config.json
 # AI Router runtime telemetry (per-install counters; mutates on every run).
 cockpit/ai-router/metrics.json
+# Runtime/per-machine state (mutates at runtime; not part of the product).
+cockpit/hooks/breaker-state.json
+cockpit/sessions-tags.jsonl
 cockpit/news/
 cockpit/audits/
 plans/PLANS.json
