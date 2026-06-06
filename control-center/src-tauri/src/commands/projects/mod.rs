@@ -5,7 +5,8 @@
 //   agents   — Agent CRUD, delegations, per-project AI roster, session invocation
 
 pub mod agents;
-#[allow(clippy::module_inception)] // commands/projects/projects.rs mirrors parent — intentional grouping
+#[allow(clippy::module_inception)]
+// commands/projects/projects.rs mirrors parent — intentional grouping
 pub mod projects;
 
 pub use agents::*;

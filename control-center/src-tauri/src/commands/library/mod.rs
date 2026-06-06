@@ -7,7 +7,8 @@
 //   skills         — Skill CRUD, toggle, read/write markdown
 
 pub mod catalog_compat;
-#[allow(clippy::module_inception)] // commands/library/library.rs mirrors parent — intentional grouping
+#[allow(clippy::module_inception)]
+// commands/library/library.rs mirrors parent — intentional grouping
 pub mod library;
 pub mod plugins_info;
 pub mod skills;

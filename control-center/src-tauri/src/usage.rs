@@ -545,7 +545,9 @@ pub fn claude_usage_inner() -> Result<UsageReport, String> {
             total,
         });
     }
-    report.model_totals.sort_by_key(|b| std::cmp::Reverse(b.total));
+    report
+        .model_totals
+        .sort_by_key(|b| std::cmp::Reverse(b.total));
 
     // Hour counts: keys are strings "0".."23"; some may be missing for hours
     // never used. We materialize a dense 24-slot vec.

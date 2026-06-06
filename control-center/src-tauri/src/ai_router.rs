@@ -1519,7 +1519,10 @@ fn call_anthropic(
             .and_then(|x| x.as_u64())
             .unwrap_or(0),
     };
-    Ok(CallOutcome { text: out.to_string(), usage })
+    Ok(CallOutcome {
+        text: out.to_string(),
+        usage,
+    })
 }
 
 fn call_openai_compat(
@@ -1593,7 +1596,10 @@ fn call_openai_compat(
     // the router records a loss and triggers fallback.
     let out = out.ok_or_else(|| {
         (
-            format!("{} returned no text in choices[0].message.content", provider.id),
+            format!(
+                "{} returned no text in choices[0].message.content",
+                provider.id
+            ),
             FailReason::Error,
         )
     })?;
@@ -1607,7 +1613,10 @@ fn call_openai_compat(
             .and_then(|x| x.as_u64())
             .unwrap_or(0),
     };
-    Ok(CallOutcome { text: out.to_string(), usage })
+    Ok(CallOutcome {
+        text: out.to_string(),
+        usage,
+    })
 }
 
 fn call_gemini(
@@ -1698,7 +1707,10 @@ fn call_gemini(
             .and_then(|x| x.as_u64())
             .unwrap_or(0),
     };
-    Ok(CallOutcome { text: out.to_string(), usage })
+    Ok(CallOutcome {
+        text: out.to_string(),
+        usage,
+    })
 }
 
 fn call_ollama(

@@ -246,10 +246,7 @@ fn parse_pyproject_toml(body: &str, stack: &mut DetectedStack) {
         if in_deps && !trimmed.is_empty() && !trimmed.starts_with('#') {
             // Dep lines look like `"fastapi>=0.95"` or `fastapi`.
             let cleaned = trimmed.trim_matches(|c: char| c == '"' || c == '\'' || c == ',');
-            if let Some(name) = cleaned
-                .split(['>', '<', '=', '['])
-                .next()
-            {
+            if let Some(name) = cleaned.split(['>', '<', '=', '[']).next() {
                 let dep = name.trim().to_ascii_lowercase();
                 if !dep.is_empty() {
                     stack.deps.insert(dep.clone());
