@@ -157,6 +157,9 @@ export default function BatchDropdown({
     try {
       const q = await invoke<BatchQueueEntry[]>("batches_list_queue");
       setQueue(q);
+      // Bug fix #4: if the busy entry disappeared from the backend, release the
+      // lock so buttons are no longer disabled for ever.
+      setQueueBusyId((prev) => (prev !== null && !q.some((e) => e.id === prev) ? null : prev));
     } catch {
       setQueue((prev) => prev ?? []);
     }
@@ -227,7 +230,13 @@ export default function BatchDropdown({
     async (entry: BatchQueueEntry) => {
       setQueueBusyId(entry.id);
       try {
-        await invoke<BatchQueueEntry>("batches_requeue", { id: entry.id });
+        const updated = await invoke<BatchQueueEntry>("batches_requeue", { id: entry.id });
+        // Bug fix #2: apply the authoritative backend state immediately (immutable
+        // map — no mutation) so the row reflects reality without waiting for the
+        // async refreshQueue round-trip.
+        setQueue((prev) =>
+          prev === null ? prev : prev.map((e) => (e.id === updated.id ? updated : e)),
+        );
         onResult?.({
           kind: "ok",
           title: `Reencolado: ${entry.name}`,
@@ -322,6 +331,9 @@ export default function BatchDropdown({
           } catch {
             /* dismiss is best-effort */
           }
+          // Bug fix #3: always refresh the queue after the dismiss attempt so a
+          // failed dismiss does not leave the entry visible indefinitely.
+          void refreshQueue();
         }
         void refresh();
       } catch (e: unknown) {
@@ -330,7 +342,9 @@ export default function BatchDropdown({
           title: `Batch error: ${entry.name}`,
           body: e instanceof Error ? e.message : String(e),
         });
-        void refreshQueue();
+        // Bug fix #1: sync both batches list AND queue on failure so spinners
+        // and local state match the real backend state (mirrors what run() does).
+        void refresh();
       } finally {
         setRunningName(null);
         setQueueBusyId(null);
