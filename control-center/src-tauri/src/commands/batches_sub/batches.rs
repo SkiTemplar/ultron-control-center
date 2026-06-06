@@ -9,11 +9,44 @@ pub async fn list_batches() -> Result<Vec<BatchEntry>, String> {
         .map_err(|e| e.to_string())?
 }
 
+/// Execute a batch script by name.
+///
+/// The execution is bounded by a **5-minute timeout**. If the script has not
+/// exited within that window (e.g. an infinite PowerShell loop, a blocking
+/// `Read-Host`, or a hung child process) the future is cancelled, an error is
+/// returned to the UI, and the failure is recorded in the batch queue so it is
+/// never silently dropped.
 #[tauri::command]
 pub async fn execute_batch(name: String) -> Result<BatchRunResult, String> {
-    tauri::async_runtime::spawn_blocking(move || batches::execute_batch_inner(name))
-        .await
-        .map_err(|e| e.to_string())?
+    const TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+    let task = tauri::async_runtime::spawn_blocking({
+        let name = name.clone();
+        move || batches::execute_batch_inner(name)
+    });
+
+    match tokio::time::timeout(TIMEOUT, task).await {
+        Ok(join_result) => join_result.map_err(|e| e.to_string())?,
+        Err(_elapsed) => {
+            // The blocking thread is detached (spawn_blocking cannot be
+            // cancelled), but from the UI perspective the command timed out.
+            // Record the failure in the queue so it is never silently lost.
+            let msg = "batch execution timed out after 5 minutes".to_string();
+            let path_hint = {
+                let dir = batches::batches_dir().unwrap_or_default();
+                dir.join(&name).to_string_lossy().to_string()
+            };
+            if let Err(qe) = crate::batches_queue::record_inner(
+                &name,
+                &path_hint,
+                crate::batches_queue::BatchQueueReason::Failed,
+                Some(msg.clone()),
+            ) {
+                eprintln!("[batches] CRITICAL: could not enqueue timed-out batch '{name}': {qe}");
+            }
+            Err(msg)
+        }
+    }
 }
 
 /// Delete a single batch script by name (user-initiated, no age filter).

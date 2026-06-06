@@ -58,6 +58,10 @@ zip = { version = "2", features = ["deflate"] }
 # Load .env files at startup so users can store provider API keys in
 # ~/.ultron/.env or ~/.ultron/control-center/.env without exporting to shell.
 dotenvy = "0.15"
+# Explicit tokio dependency so commands can use tokio::time::timeout directly.
+# The `time` feature is already enabled transitively (via reqwest/tauri) but
+# rustc requires a direct declaration to reference `tokio::` in crate code.
+tokio = { version = "1", features = ["time"] }
 # Qdrant semantic recall (optional — enable with --features qdrant).
 # fastembed provides ONNX-based BGE-small-EN-v1.5 (384-d) locally, no API key.
 fastembed = { version = "4", optional = true }

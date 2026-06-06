@@ -138,12 +138,14 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
         Ok(o) => o,
         Err(e) => {
             let msg = format!("spawn: {e}");
-            let _ = crate::batches_queue::record_inner(
+            if let Err(qe) = crate::batches_queue::record_inner(
                 &name,
                 &path_str,
                 crate::batches_queue::BatchQueueReason::Failed,
                 Some(msg.clone()),
-            );
+            ) {
+                eprintln!("[batches] CRITICAL: could not enqueue failed batch '{name}': {qe}");
+            }
             return Err(msg);
         }
     };
@@ -167,12 +169,14 @@ pub fn execute_batch_inner(name: String) -> Result<BatchRunResult, String> {
         } else {
             stderr.clone()
         };
-        let _ = crate::batches_queue::record_inner(
+        if let Err(qe) = crate::batches_queue::record_inner(
             &name,
             &path_str,
             crate::batches_queue::BatchQueueReason::Failed,
             Some(last_error),
-        );
+        ) {
+            eprintln!("[batches] CRITICAL: could not enqueue failed batch '{name}': {qe}");
+        }
     }
 
     Ok(BatchRunResult {
@@ -246,10 +250,15 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
-        if std::fs::remove_file(&path).is_ok() {
-            deleted.push(name);
-        } else {
-            kept += 1;
+        match std::fs::remove_file(&path) {
+            Ok(()) => deleted.push(name),
+            Err(e) => {
+                eprintln!(
+                    "[batches] could not delete '{}': {e}",
+                    path.display()
+                );
+                kept += 1;
+            }
         }
     }
     Ok(BatchCleanupReport { deleted, kept })
@@ -259,6 +268,14 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
 /// list of file names removed plus how many remain. Lets the user keep the
 /// batches folder from growing without bound (USER: "Run Batch con
 /// eliminacion de .bats para que no se queden ilimitados").
+///
+/// # `older_than_days = 0` is an intentional NO-OP
+///
+/// When `older_than_days` is `0` the computed `cutoff_secs` is also `0`, and the
+/// guard `age >= cutoff_secs && cutoff_secs > 0` is always `false`, so nothing is
+/// deleted. This is deliberate: zero means "no age limit configured", not "delete
+/// everything". Use [`clear_all_batches_inner`] when you need to wipe all scripts
+/// regardless of age.
 pub fn cleanup_old_batches_inner(older_than_days: u32) -> Result<BatchCleanupReport, String> {
     let dir = batches_dir()?;
     if !dir.exists() {
