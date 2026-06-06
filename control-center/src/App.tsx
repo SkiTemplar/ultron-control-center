@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { confirmDialog } from "./lib/dialog";
@@ -20,7 +20,21 @@ import TabsBar from "./components/projects/TabsBar";
 import ProjectWorkspace from "./components/projects/ProjectWorkspace";
 import { System } from "./components/System";
 import { Plans } from "./components/Plans";
-import { Finance } from "./components/Finance";
+// Finance is a local-only feature (personal KutxaBank data; Finance.tsx is
+// excluded from the public repo via .gitignore). Enable at build time with
+// the env var VITE_FINANCE=1. When the flag is absent the lazy import is
+// never attempted and the Finance tab is hidden in the Sidebar.
+const FINANCE_ENABLED = import.meta.env.VITE_FINANCE === "1";
+// Path en variable + @vite-ignore: evita que Rollup/Vite resuelva el modulo en
+// build-time cuando Finance.tsx esta ausente del repo publico (local-only feature).
+const FINANCE_MODULE_PATH = "./components/Finance";
+const FinanceLazy = FINANCE_ENABLED
+  ? React.lazy(() =>
+      import(/* @vite-ignore */ FINANCE_MODULE_PATH).then(
+        (m: { Finance: React.ComponentType }) => ({ default: m.Finance }),
+      ),
+    )
+  : null;
 import { MemoryInbox } from "./components/MemoryInbox";
 import { PopupHost } from "./components/PopupHost";
 import { Onboarding } from "./components/Onboarding";
@@ -563,9 +577,15 @@ function AppInner() {
         <TabErrorBoundary tab="projects">
           {tab === "projects" && <ProjectsPane />}
         </TabErrorBoundary>
-        <TabErrorBoundary tab="finance">
-          {tab === "finance" && <Finance />}
-        </TabErrorBoundary>
+        {FINANCE_ENABLED && FinanceLazy && (
+          <TabErrorBoundary tab="finance">
+            {tab === "finance" && (
+              <React.Suspense fallback={null}>
+                <FinanceLazy />
+              </React.Suspense>
+            )}
+          </TabErrorBoundary>
+        )}
         <TabErrorBoundary tab="memory">
           {tab === "memory" && <MemoryInbox />}
         </TabErrorBoundary>

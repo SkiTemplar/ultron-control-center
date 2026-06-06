@@ -98,7 +98,9 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       // Finance: native read-only dashboard of the Bank/finanzas project
       // (Tío Gilito). Surfaces saldo/fondos/movimientos without launching the
       // separate Streamlit app; the buttons spawn a Tío Gilito CLI session.
-      { id: "finance", label: "Finance", available: true },
+      // Finance is a local-only feature (KutxaBank data). Visible only when
+      // built with VITE_FINANCE=1; Finance.tsx is excluded from the public repo.
+      { id: "finance", label: "Finance", available: import.meta.env.VITE_FINANCE === "1" },
       // v2.5: Plans tab removed from sidebar (per user). Per-project kanban
       // lives inside Projects -> Board. Workdays removed (fullize 2026-06-01).
     ],

@@ -76,6 +76,10 @@ hybrid_recall = []
 # Enable local Qdrant semantic recall. Pulls in fastembed (ONNX runtime +
 # BGE-small-EN-v1.5, ~22 MB download on first use).
 qdrant = ["dep:fastembed"]
+# Enable the Finance tab (reads the local KutxaBank finanzas.db).
+# finance.rs is excluded from the public repo via .gitignore; this feature
+# flag keeps the binary buildable without that file present.
+finance = []
 
 [target."cfg(windows)".dependencies]
 wmi = "0.13"

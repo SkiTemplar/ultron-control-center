@@ -35,6 +35,7 @@ mod detach;
 mod diagnostics_native;
 mod env_keys;
 mod features;
+#[cfg(feature = "finance")]
 mod finance;
 mod hooks_admin;
 mod hotkeys;
@@ -258,8 +259,12 @@ pub fn run() {
             qdrant::qdrant_status,
             qdrant::qdrant_embed_query,
             // -- FINANCE: native read-only dashboard of the Bank/finanzas project --
+            // Requires --features finance (local-only; finance.rs excluded from public repo).
+            #[cfg(feature = "finance")]
             finance::finance_overview,
+            #[cfg(feature = "finance")]
             finance::finance_sync,
+            #[cfg(feature = "finance")]
             finance::finance_open_setup,
             // -- MEMORY CORE: health only (recall_hybrid retired Ola 0; memory_health still used by MemoryStatusCard) --
             commands::memory::memory_health,
