@@ -1137,7 +1137,7 @@ pub fn list_projects_inner() -> Result<Vec<ProjectInfo>, String> {
         });
     }
     // v2.x: synthesise a "Home" entry pointing at the user's home directory
-    // if the registry doesn't already cover it. USER uses ~/ as a frequent
+    // if the registry doesn't already cover it. the user uses ~/ as a frequent
     // base for ad-hoc work; the synthetic entry has a stable id ("__home")
     // and shows up alongside scanned projects so the AI/Terminal launch path
     // is one click away. We do NOT persist it to projects.json — it's purely

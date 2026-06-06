@@ -487,12 +487,12 @@ pub(crate) fn project_slug_for(path: &str) -> String {
     // ANY non-alphanumeric character with `-`. This means `:`, `\`, `/`, and
     // `.` all become `-`, so consecutive non-alnum runs collapse to multiple
     // dashes:
-    //   "C:\Users\USER\.ultron" -> "C--Users-USER--ultron"
-    //                                  ^^         ^^
-    //                                  ":\\"      "\\."
+    //   "C:\Users\User\.ultron" -> "C--Users-User--ultron"
+    //                               ^^       ^^
+    //                               ":\\"    "\\."
     //
     // v2.5.2 (fb-046 fix): previous implementation only replaced `\` and `/`,
-    // producing `C:-Users-USER-.ultron` which did NOT match Claude's
+    // producing `C:-Users-User-.ultron` which did NOT match Claude's
     // folder name, so the Sessions sub-tab found zero sessions for the
     // active project. Now we mirror Claude's own rule: every non-alnum
     // char becomes `-`. Trailing/leading dashes are trimmed to be safe.

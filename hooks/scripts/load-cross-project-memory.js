@@ -3,7 +3,7 @@
  * Cross-project memory loader — SessionStart hook.
  *
  * Problem: Claude Code carga MEMORY.md SOLO del proyecto activo (cwd).
- * USER tiene memorias en >15 proyectos distintos; al abrir una sesión
+ * The user has memories across >15 distinct projects; al abrir una sesión
  * desde un directorio cualquiera (System32, ultron, otro), pierde todo
  * el conocimiento acumulado en los otros proyectos.
  *
@@ -122,13 +122,13 @@ function readSafe(p, maxBytes) {
 }
 
 function projectLabel(slug) {
-  // Slugs look like "C--Users-USER--ultron" — convert to human-readable.
+  // Slugs look like "C--Users-<user>--ultron" — convert to human-readable.
   return slug.replace(/^C--/, '').replace(/--/g, '/').replace(/-/g, ' ');
 }
 
 /**
- * Convert a real cwd ("C:\\Users\\USER\\.ultron") into the slug format Claude
- * Code uses for project directories ("C--Users-USER--ultron"). Empty/unknown
+ * Convert a real cwd ("C:\\Users\\<user>\\.ultron") into the slug format Claude
+ * Code uses for project directories ("C--Users-<user>--ultron"). Empty/unknown
  * cwd returns "".
  */
 function cwdToSlug(cwd) {
@@ -143,9 +143,16 @@ function cwdToSlug(cwd) {
 /**
  * Count shared path segments between a project slug and the current cwd slug.
  * Higher = more topically relevant. Excludes the empty segment + common stems
- * ("C", "Users", "USER") so the score reflects project-specific overlap.
+ * (drive letters, "Users", the current username) so the score reflects
+ * project-specific overlap.
  */
-const COMMON_STEMS = new Set(['C', 'D', 'Users', 'USER', '']);
+let CURRENT_USER = '';
+try {
+  CURRENT_USER = os.userInfo().username || '';
+} catch (_) {
+  CURRENT_USER = path.basename(HOME) || '';
+}
+const COMMON_STEMS = new Set(['C', 'D', 'Users', CURRENT_USER, '']);
 function similarityScore(projectSlug, cwdSlug) {
   if (!projectSlug || !cwdSlug) return 0;
   const a = new Set(projectSlug.split('-').filter((s) => !COMMON_STEMS.has(s)));
@@ -236,7 +243,7 @@ function main() {
   }
 
   const source = String(stdinPayload.source || '').trim().toLowerCase();
-  // Run on startup AND resume — USER wants memory recall on every session.
+  // Run on startup AND resume — the user wants memory recall on every session.
   if (source && source !== 'startup' && source !== 'resume') {
     safeLog({ level: 'info', msg: 'skip_source', source });
     return emitPayload('');

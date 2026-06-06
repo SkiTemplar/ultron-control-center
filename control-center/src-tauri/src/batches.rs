@@ -266,7 +266,7 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
 
 /// Delete batch scripts older than `older_than_days` (mtime). Returns the
 /// list of file names removed plus how many remain. Lets the user keep the
-/// batches folder from growing without bound (USER: "Run Batch con
+/// batches folder from growing without bound (the user: "Run Batch con
 /// eliminacion de .bats para que no se queden ilimitados").
 ///
 /// # `older_than_days = 0` is an intentional NO-OP

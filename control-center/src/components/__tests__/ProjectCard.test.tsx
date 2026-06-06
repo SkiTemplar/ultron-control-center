@@ -9,7 +9,7 @@ import type { ProjectInfo } from "../../types";
 const BASE_PROJECT: ProjectInfo = {
   id: "my-proj",
   name: "My Project",
-  path: "C:\\Users\\USER\\projects\\my-proj",
+  path: "C:\\Users\\user\\projects\\my-proj",
   status: "active",
   language: "TypeScript",
   tags: ["work", "react"],
@@ -49,7 +49,7 @@ describe("ProjectCard", () => {
 
   it("renders project path", () => {
     renderCard();
-    expect(screen.getByTitle("C:\\Users\\USER\\projects\\my-proj")).toBeTruthy();
+    expect(screen.getByTitle("C:\\Users\\user\\projects\\my-proj")).toBeTruthy();
   });
 
   it("renders status badge", () => {

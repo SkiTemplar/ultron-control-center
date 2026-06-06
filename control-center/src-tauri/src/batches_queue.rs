@@ -84,7 +84,7 @@ impl BatchQueueReason {
 /// Whether a queue entry is automatically runnable by clicking "Run" or
 /// requires a human to perform an out-of-band action first.
 ///
-/// `"auto"` — standard script that USER can execute with one click.
+/// `"auto"` — standard script that the user can execute with one click.
 /// `"manual"` — the AI left this as a reminder of an action it CANNOT perform
 ///              (e.g. rebuild, token rotation, GUI login). The Run Batch UI
 ///              renders these with a distinct badge and no "Run" button.
@@ -483,7 +483,7 @@ pub fn enqueue_command_inner(
 /// script is written to disk; this is purely a reminder in the Run Batch UI.
 ///
 /// `name`        — short identifier for the action (used as the entry title).
-/// `description` — human-readable instructions for USER.
+/// `description` — human-readable instructions for the user.
 /// `reason`      — parsed leniently; usually "ai_cannot_execute".
 ///
 /// Returns the created (or bumped) queue entry.

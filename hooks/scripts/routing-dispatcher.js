@@ -64,7 +64,7 @@ const PERSONAS = [
     persona: 'don-claudio',
     triggers: ['don claudio', 'don', 'activa al don', 'modo don'],
     strong: ['ue5', 'unreal', 'unreal engine', 'blueprint', 'gas', 'enhanced input', 'netcode', 'rollback', 'lag compensation', 'metasounds', 'nanite', 'lumen', 'chaos physics', 'ecs', 'dots'],
-    context: ['unity', 'shader', 'game', 'multijugador', 'matchmaking', 'PROGRAM_A', 'PROGRAM_B', 'gameplay'],
+    context: ['unity', 'shader', 'game', 'multijugador', 'matchmaking', 'graphics', 'gamedev', 'gameplay'],
   },
   {
     id: 'mike-tyson',

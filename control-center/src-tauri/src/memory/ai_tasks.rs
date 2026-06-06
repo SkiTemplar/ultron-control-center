@@ -504,12 +504,12 @@ mod tests {
     #[test]
     fn normalize_trims_and_lowercases_enums() {
         let raw = RawFact {
-            summary: "  USER prefers UV  ".to_string(),
+            summary: "  the user prefers UV  ".to_string(),
             kind: "  Preference ".to_string(),
             scope: "  USER ".to_string(),
         };
         let fact = normalize_fact(raw).expect("valid fact");
-        assert_eq!(fact.summary, "USER prefers UV");
+        assert_eq!(fact.summary, "the user prefers UV");
         assert_eq!(fact.kind, "preference");
         assert_eq!(fact.scope, "user");
     }
@@ -551,7 +551,7 @@ mod tests {
     #[test]
     fn extract_candidates_returns_empty_when_router_unavailable() {
         // Non-blank transcript but no reachable router -> empty (never panics).
-        let out = extract_candidates("USER decided to use bge-m3.", Some("ultron"));
+        let out = extract_candidates("the user decided to use bge-m3.", Some("ultron"));
         assert!(out.is_empty());
     }
 

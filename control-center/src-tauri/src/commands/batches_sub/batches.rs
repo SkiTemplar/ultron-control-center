@@ -133,7 +133,7 @@ pub async fn batches_enqueue_command(
 /// UI rendered with `kind = "manual"` and no Run button.
 ///
 /// `name`        — short label shown in the UI (e.g. "Rotar GitHub Token").
-/// `description` — step-by-step instructions for USER.
+/// `description` — step-by-step instructions for the user.
 /// `reason`      — parsed leniently; "ai_cannot_execute" is the typical value.
 ///
 /// **How the AI leaves a manual reminder:**

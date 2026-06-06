@@ -1,5 +1,5 @@
 {
-  "_comment": "Curated catalog of skills + agents recommended for USER's typical work: graphics programming, Unreal Engine 5, AI/ML, MCP development. Each item points at a public GitHub source — the Library -> Catalog tab installs via library_install_from_github. Add/edit freely; the GUI re-reads this file on every Catalog mount.\n\nv2 (2026-05-24): wshobson/agents repo reshuffled into a plugin marketplace layout (plugins/<plugin>/agents/<name>.md). Anthropic skills moved under skills/<name>/SKILL.md. Old paths now 404 — they are kept here with `dead: true` so the GUI can hide or warn rather than silently linking to a broken URL.",
+  "_comment": "Curated catalog of skills + agents recommended for the user's typical work: graphics programming, Unreal Engine 5, AI/ML, MCP development. Each item points at a public GitHub source — the Library -> Catalog tab installs via library_install_from_github. Add/edit freely; the GUI re-reads this file on every Catalog mount.\n\nv2 (2026-05-24): wshobson/agents repo reshuffled into a plugin marketplace layout (plugins/<plugin>/agents/<name>.md). Anthropic skills moved under skills/<name>/SKILL.md. Old paths now 404 — they are kept here with `dead: true` so the GUI can hide or warn rather than silently linking to a broken URL.",
   "schema_version": 2,
   "updated_at": "2026-05-24",
   "verified_at": "2026-05-24",
@@ -29,7 +29,7 @@
           "path": "shader-fundamentals/SKILL.md",
           "summary": "Conceptual shader breakdowns and modern GPU programming patterns.",
           "dead": true,
-          "dead_reason": "Not present in anthropics/skills (canonical Anthropic catalogue). Likely lives only in USER's local ecc plugin."
+          "dead_reason": "Not present in anthropics/skills (canonical Anthropic catalogue). Likely lives only in the user's local ecc plugin."
         }
       ]
     },
@@ -58,7 +58,7 @@
           "path": "ue5-dev/SKILL.md",
           "summary": "End-to-end Unreal Engine project assistance with deep API + asset discovery.",
           "dead": true,
-          "dead_reason": "Not present in anthropics/skills upstream — only available via USER's local ecc plugin."
+          "dead_reason": "Not present in anthropics/skills upstream — only available via the user's local ecc plugin."
         }
       ]
     },

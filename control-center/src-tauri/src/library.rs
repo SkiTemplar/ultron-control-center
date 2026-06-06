@@ -53,7 +53,7 @@ pub struct PinnedAgents {
 // ---------------------------------------------------------------------------
 //
 // Plain `std::process::Command::new("gh")` on Windows flashes a console
-// window for the lifetime of the subprocess, which USER flagged as
+// window for the lifetime of the subprocess, which the user flagged as
 // annoying in v2.5.1 ("se lanza una terminal que no se quita"). Setting
 // `CREATE_NO_WINDOW` (0x0800_0000) keeps the spawn fully invisible.
 

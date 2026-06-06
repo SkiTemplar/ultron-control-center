@@ -1,8 +1,8 @@
 // Control Center 2.9.5 — Diagnostics & Fixes (rediseño P2 2026-05-27)
 //
-// USER: "Diagnostics y Fixes está muy caótico, no llego a entender a que
-// botón le tengo que dar, vendría bien una serie de errores comunes o algo y
-// luego los botones para posiblemente solucionarlo."
+// User feedback: "Diagnostics y Fixes está muy caótico, no llego a entender a
+// qué botón le tengo que dar, vendría bien una serie de errores comunes o algo
+// y luego los botones para posiblemente solucionarlo."
 //
 // Estructura nueva:
 //   1. Header: buscador "Search common errors..." + filtro por categoría
@@ -498,8 +498,8 @@ export function Diagnostics() {
   // Fix history
   const [fixHistory, setFixHistory] = useState<FixHistoryEntry[]>(() => loadFixHistory());
 
-  // Toolbox panel — "todos los comandos posibles". USER lo usa más que los
-  // errores comunes, así que arranca ABIERTO y se muestra arriba del todo.
+  // Toolbox panel — "todos los comandos posibles". The user relies on it more
+  // than the common errors, so it starts OPEN and is shown at the very top.
   const [toolboxOpen, setToolboxOpen] = useState(true);
   const [toolboxFilter, setToolboxFilter] = useState("");
 

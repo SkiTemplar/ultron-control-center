@@ -1,7 +1,7 @@
 // Creator templates for the in-app Skill / Agent / MCP authoring modals.
 //
 // Each template seeds the body editor with a battle-tested scaffold so
-// USER never starts from a blank textarea. Bodies follow the same
+// the user never starts from a blank textarea. Bodies follow the same
 // conventions used across `~/.claude/skills/` and `~/.claude/agents/`:
 //   - first line is a `#` H1 with the human name
 //   - prose paragraph explaining purpose / trigger conditions

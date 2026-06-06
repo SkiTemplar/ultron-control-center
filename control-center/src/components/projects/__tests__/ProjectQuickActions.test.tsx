@@ -23,7 +23,7 @@ import type { ProjectInfo } from "../../../types";
 const BASE_PROJECT: ProjectInfo = {
   id: "proj-001",
   name: "Alpha",
-  path: "C:\\Users\\USER\\projects\\alpha",
+  path: "C:\\Users\\dev\\projects\\alpha",
   ide: "cursor",
   language: "TypeScript",
   type_: null,

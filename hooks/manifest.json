@@ -4,7 +4,7 @@
   "generated_at": "2026-06-04",
   "head": "f936a66",
   "ola": "I",
-  "source_of_truth": "C:/Users/USER/.ultron/hooks/scripts",
+  "source_of_truth": "~/.ultron/hooks/scripts",
   "notes": [
     "SoT unica de hooks versionados: ~/.ultron/hooks/scripts (este repo).",
     "Los hooks PROPONEN candidates; NUNCA escriben memoria directa. El unico escritor del SoT (brain.db) es MemoryService (Rust sidecar ultron-memory).",

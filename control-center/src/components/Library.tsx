@@ -34,7 +34,7 @@ type SubTabSpec = {
 // v2.6.1: ordered so the "installed" inventory comes first
 // (skills/agents/rules/plugins/hooks), then the live introspection
 // tab (commands), and finally the outward-facing discovery tab (catalog).
-// Catalog moved to the very end per USER's request — it's the entry
+// Catalog moved to the very end per the user's request — it's the entry
 // point for "find me something new", not the daily-driver view.
 const SUB_TABS: SubTabSpec[] = [
   {

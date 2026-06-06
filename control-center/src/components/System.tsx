@@ -7,7 +7,7 @@ import type {
 } from "../types";
 import { Diagnostics } from "./system/Diagnostics";
 
-// v2.7 cleanup (USER audit 2026-05-24):
+// v2.7 cleanup (internal audit 2026-05-24):
 //   - Bloatware sub-tab DROPPED: most catalog entries weren't present on his
 //     box. He wants the same card-driven layout applied to his REAL apps so
 //     he can spot abandoned installs instead.

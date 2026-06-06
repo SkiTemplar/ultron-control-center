@@ -10,7 +10,7 @@ def _force_rm(func, path, exc):
     except Exception:
         pass
 
-ROOT = r"C:\Users\USER\.ultron"
+ROOT = os.path.expanduser(r"~\.ultron")
 DRY = "--apply" not in sys.argv  # por defecto dry-run; --apply borra de verdad
 
 # --- PROTEGIDOS: nunca borrar aunque aparezcan en la lista (substring match, normalizado) ---

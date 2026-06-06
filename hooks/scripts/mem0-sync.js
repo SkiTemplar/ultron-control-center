@@ -408,7 +408,7 @@ async function main() {
   if (!token) {
     // KIRKARDO R11.2 FIX-8: degradar a silent-skip cuando Mem0 nunca se ha
     // configurado. Antes spameaba "mem0_token_missing" en cada Stop hook,
-    // ensuciando logs y dando la impresión de un error real. Si USER
+    // ensuciando logs y dando la impresión de un error real. Si el usuario
     // decide activar Mem0 en el futuro: setear MEM0_API_KEY en
     // ~/.ultron/.env (loaded por dotenvy) o exportarlo al shell. Logueo
     // info-level una vez por proceso para que el opt-in quede trazable.
@@ -461,7 +461,7 @@ async function main() {
       name: 'add_memory',
       arguments: {
         text,
-        user_id: 'USER',
+        user_id: 'default',
         metadata: {
           session_id: payload.session_id || 'unknown',
           project,

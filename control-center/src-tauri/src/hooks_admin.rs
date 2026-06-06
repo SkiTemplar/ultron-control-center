@@ -1559,7 +1559,7 @@ pub fn get_hook_names_cache_inner() -> serde_json::Map<String, serde_json::Value
 // ---------------------------------------------------------------------------
 // Hook descriptions — readable name + one-line summary per hook.
 //
-// USER's brief: the cards must show "el nombre de lo que hace cada una,
+// the user's brief: the cards must show "el nombre de lo que hace cada una,
 // no el código raro". This analyses every hook WITHOUT any AI call:
 //   1. A curated catalog of the well-known ULTRON hooks (polished titles).
 //   2. Fallback: parse the referenced script's leading header comment

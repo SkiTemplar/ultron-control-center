@@ -1,8 +1,8 @@
 // v2.6 — Spotify-style 3-level "Blocks" navigator for Skills / Agents / Rules.
 //
-// USER's quote: "tener categorías, y al hacer clic en las categorías,
-// salían todas las skills, como en el explore de Spotify, donde Doy clic en
-// una categoría y salen como más playlist y salen ya las canciones".
+// The user's request: top-level categories that, when clicked, reveal the
+// skills underneath — much like Spotify's "explore" view, where clicking a
+// category surfaces playlists and then the individual tracks.
 //
 // Levels:
 //   0  →  big tiles per top-level group (origin: Global / Project / plugin
@@ -14,8 +14,9 @@
 //
 // The component is generic over the leaf type T and stays purely presentational
 // — the parent passes already-filtered items + group functions and gets
-// onSelect callbacks back. Drill state lives in component state (USER:
-// "no localStorage, feels cleaner") so a tab switch resets to level 0.
+// onSelect callbacks back. Drill state lives in component state (per the
+// user's preference: "no localStorage, feels cleaner") so a tab switch
+// resets to level 0.
 
 import { useMemo, useState, type ReactNode } from "react";
 import { ArrowLeft, Folder, Sparkle } from "./icons";

@@ -1,5 +1,5 @@
 // v2.6 — Shared right-side detail pane for Library cards (Skills / Agents /
-// Rules). USER's redesign brief:
+// Rules). The user's redesign brief:
 //
 //   "al hacer click sale al lado la información y los botones, las tarjetas
 //    son iguales … con los botones de: Edit, Edit with AI, Open Externally

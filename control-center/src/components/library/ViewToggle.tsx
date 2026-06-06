@@ -1,7 +1,7 @@
 // v2.6 — 3-way "Grid / Tree / Blocks" view-mode toggle used by the Library
 // sub-tabs (Skills, Agents, Rules). Persists to localStorage under a
 // per-tab key so each sub-tab remembers its own preference. Default is
-// "blocks" — USER asked for a Spotify-style hub on first paint.
+// "blocks" — the user asked for a Spotify-style hub on first paint.
 
 import { useEffect, useState } from "react";
 import { Boxes, Grid, ListTree } from "./icons";

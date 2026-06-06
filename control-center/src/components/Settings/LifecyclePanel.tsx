@@ -5,7 +5,7 @@ import { confirmDialog } from "../../lib/dialog";
 
 // ---------------------------------------------------------------------------
 // LifecyclePanel — autostart toggle + Rebuild + Close + global hotkey.
-// "Check for updates" removed (USER owns the binary).
+// "Check for updates" removed (the user owns the binary).
 // "Uninstall" removed (deprecated).
 // v2.5.2 (wave 2): merged the "Show/hide Control Center" global hotkey
 // editor from the old GeneralSection — it was the only hotkey worth

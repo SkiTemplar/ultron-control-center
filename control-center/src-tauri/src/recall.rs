@@ -132,7 +132,7 @@ fn find_session_jsonl(cwd_hint: &str) -> Option<(PathBuf, String)> {
     // Sessions tab relies on; matching against it gives us the exact
     // workspace the user sees in the UI instead of re-rolling that logic.
     // Comparison normalises slashes + case so Windows hint
-    // `C:\Users\USER\.ultron\control-center` matches a recovered cwd
+    // `C:\Users\<user>\.ultron\control-center` matches a recovered cwd
     // written with forward slashes / different casing.
     let normalised_hint = normalise_path_for_cmp(cwd_hint);
     if let Ok(workspaces) = list_workspaces_inner() {
@@ -764,8 +764,8 @@ mod tests {
     #[test]
     fn slug_for_matches_claude_convention() {
         assert_eq!(
-            slug_for("C:\\Users\\USER\\.ultron"),
-            "C--Users-USER--ultron"
+            slug_for("C:\\Users\\user\\.ultron"),
+            "C--Users-user--ultron"
         );
         assert_eq!(slug_for("/home/foo/bar"), "home-foo-bar");
     }

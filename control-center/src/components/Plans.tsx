@@ -481,7 +481,7 @@ function PlanModal({
 }
 
 // v2.x slim: per-tab stats strip removed. The Plans tab is intentionally
-// minimal — USER asked for the kanban board only, no rolled-up counts.
+// minimal — the user asked for the kanban board only, no rolled-up counts.
 // The per-status counts that the UI still needs (resolvedCount for the
 // archive button) are computed inline in <Plans />.
 
@@ -1018,7 +1018,7 @@ export function Plans() {
       </header>
 
       {/* v2.x slim: the rolled-up stats strip (total + priority counts +
-          archived) has been removed at USER's request. The Plans tab is
+          archived) has been removed at the user's request. The Plans tab is
           now intentionally focused on the kanban board itself. The archived
           drawer is still reachable via the "Show archived" button in the
           header. Per-column counts live in the column headers below. */}

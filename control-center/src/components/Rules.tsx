@@ -44,7 +44,7 @@ function deriveSubGroup(r: RuleFile): string | null {
 
 /// Compute the workspace folder for a rule. ~/.claude/rules/<top>/<file>.md
 /// → opening the <top> folder in VS Code shows sibling rules at the same
-/// time, which mirrors the "open whole skill workspace" behaviour USER
+/// time, which mirrors the "open whole skill workspace" behaviour the user
 /// asked for.
 function ruleWorkspace(r: RuleFile): { folder: string; file: string } {
   const file = r.path;

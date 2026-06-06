@@ -1,8 +1,7 @@
 // Tauri command for scaffolding new OpenGL projects (vcpkg + GLFW + GLAD + GLM).
 //
-// Mirrors the legacy `crear_proyecto.bat` script at
-// `C:\Users\USER\CARRERA\ASIGNATURAS\PROGRAM_B — Prog Gráfica\codigo\OpenGL\crear_proyecto.bat`
-// but executes it natively from the Tauri backend so the user can scaffold a
+// Mirrors the legacy `crear_proyecto.bat` script from a graphics course
+// project, but executes it natively from the Tauri backend so the user can scaffold a
 // new project from the Projects tab without dropping into a console.
 //
 // Generated layout:
@@ -169,7 +168,7 @@ fn write_file(path: &Path, contents: &str, files_created: &mut Vec<String>) -> R
 
 fn cmake_presets_json() -> String {
     // Mirrors the preset emitted by the .bat. The `CMAKE_TOOLCHAIN_FILE` path
-    // is hardcoded to `C:/vcpkg/...` because that is where USER's vcpkg
+    // is hardcoded to `C:/vcpkg/...` because that is where the user's vcpkg
     // install lives — same as the original script. If we ever need to make
     // this portable we can read `VCPKG_ROOT` from the env on the backend.
     r#"{

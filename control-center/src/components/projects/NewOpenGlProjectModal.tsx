@@ -7,8 +7,8 @@
 //
 // UX choices:
 //   - Parent folder defaults to the last value the user picked (persisted in
-//     localStorage under "ultron.opengl.last_parent"), or a sensible CARRERA
-//     fallback on first use.
+//     localStorage under "ultron.opengl.last_parent"), or a sensible
+//     home-directory fallback on first use.
 //   - Kind is a 2-way segmented selector so the visual weight matches the
 //     primary decision; the difference is described inline.
 //   - On success we toast via console + return the project path so the
@@ -17,13 +17,18 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { getHomeDir, joinPath } from "../../lib/paths";
 
 const STORAGE_KEY = "ultron.opengl.last_parent";
-// First-run fallback — USER's main "personal projects" tree. The user can
-// pick anything else through the Browse dialog; this is purely a UX nudge so
-// the input isn't empty on first paint.
-const DEFAULT_PARENT =
-  "C:\\Users\\USER\\CARRERA\\ASIGNATURAS\\PROGRAM_B — Prog Gráfica\\codigo\\OpenGL";
+// First-run fallback — a sensible projects tree under the user's home
+// directory. Resolved dynamically (never hardcoded) so the app stays portable
+// across user accounts and OSes. The user can pick anything else through the
+// Browse dialog; this is purely a UX nudge so the input isn't empty on first
+// paint.
+async function resolveDefaultParent(): Promise<string> {
+  const home = await getHomeDir();
+  return joinPath(home, "projects", "OpenGL");
+}
 
 type OpenGlKind = "simple" | "context";
 
@@ -46,9 +51,9 @@ type Props = {
 export default function NewOpenGlProjectModal({ open, onClose, onCreated }: Props) {
   const [parentDir, setParentDir] = useState<string>(() => {
     try {
-      return localStorage.getItem(STORAGE_KEY) ?? DEFAULT_PARENT;
+      return localStorage.getItem(STORAGE_KEY) ?? "";
     } catch {
-      return DEFAULT_PARENT;
+      return "";
     }
   });
   const [projectName, setProjectName] = useState("");

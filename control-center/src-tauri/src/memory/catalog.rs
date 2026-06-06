@@ -393,7 +393,7 @@ mod tests {
         assert_eq!(
             classify_skill_kind(
                 "alfred",
-                "Activa a ALFRED — el mayordomo digital de USER."
+                "Activa a ALFRED — el mayordomo digital del usuario."
             ),
             "persona"
         );

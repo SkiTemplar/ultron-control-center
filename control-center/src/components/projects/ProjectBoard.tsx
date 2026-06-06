@@ -17,8 +17,8 @@ import CardEditorModal from "./CardEditorModal";
 type Props = { projectId: string };
 
 // v2.6.2 — column name matchers for the "Investigar fused into Backlog" feature.
-// USER's quote: "Investigar prefiero que este en la misma columna que backlog
-// (dividida en 2)." The Backlog column hosts two visually-separated sub-sections:
+// Per the user's request, the Investigar column lives inside the Backlog column,
+// split into two sub-sections. The Backlog column hosts two visually-separated sub-sections:
 // the regular Backlog cards, and an Investigar sub-section. We support two data
 // shapes:
 //   1. A dedicated "Investigar"/"Research" column exists — we hide it from the
@@ -461,10 +461,10 @@ export default function ProjectBoard({ projectId }: Props) {
               Clear
             </button>
           )}
-          {/* v2.6.2 — Archive Done + Show Archived toolbar buttons. USER's
-              quote: "me falta un botón para eliminar todos los Done y
-              archivarlos en grupos que yo puedo poner nombres". Archives live
-              under ~/.ultron/cockpit/projects/<id>/archives/<name>.json. */}
+          {/* v2.6.2 — Archive Done + Show Archived toolbar buttons. Per the
+              user's request, a button bulk-removes all Done cards and archives
+              them into named groups. Archives live under
+              ~/.ultron/cockpit/projects/<id>/archives/<name>.json. */}
           {(() => {
             const doneCount = board.cards.filter((c) => {
               const col = board.columns.find((x) => x.id === c.column_id);

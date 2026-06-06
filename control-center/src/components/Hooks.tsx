@@ -1,6 +1,6 @@
 // ULTRON Control Center — Hooks viewer (v2.9 REDESIGN).
 //
-// USER's brief (v2.9 sprint):
+// the user's brief (v2.9 sprint):
 //   1. Mismas categorías colapsables que Skills / Agents / Rules — sidebar
 //      izquierdo con grupos por evento (PreToolUse, PostToolUse, Stop, …).
 //   2. Quitar el color amarillo global. Cada categoría usa su propio color de

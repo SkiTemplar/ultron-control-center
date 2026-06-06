@@ -394,7 +394,7 @@ mod tests {
 
     #[test]
     fn leaves_normal_text_alone() {
-        let t = "USER prefiere respuestas en espanol y commits sin atribucion.";
+        let t = "El usuario prefiere respuestas en espanol y commits sin atribucion.";
         assert!(!contains_secret(t));
         assert_eq!(redact(t), t);
     }

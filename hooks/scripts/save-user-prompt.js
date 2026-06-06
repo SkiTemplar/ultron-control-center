@@ -2,10 +2,10 @@
 /**
  * User prompt auto-saver — UserPromptSubmit hook.
  *
- * Problem: USER dice algo importante en una sesión y se pierde.
+ * Problem: the user dice algo importante en una sesión y se pierde.
  * MEMORY.md solo se actualiza si Claude la guarda explícitamente,
  * pero muchas veces el knowledge crítico está SOLO en el mensaje
- * que USER escribió.
+ * que the user escribió.
  *
  * Fix: este hook escribe cada UserPromptSubmit a un inbox markdown
  * agrupado por día. Skip mensajes triviales (< 30 chars). Marca

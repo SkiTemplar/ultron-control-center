@@ -884,7 +884,7 @@ function EnableDisableSection({ onChanged }: { onChanged: () => void }) {
 // v2.5.2 (wave 2): EnableDisableSection is intentionally retained but no
 // longer rendered. The per-card toggle in <Card> replaces it. Keep this
 // reference so TS6133 (unused) doesn't fire and we can resurrect the
-// section quickly if USER changes his mind.
+// section quickly if the user changes their mind.
 /* eslint-disable @typescript-eslint/no-unused-vars */
 const _keepEnableDisableSection = EnableDisableSection;
 void _keepEnableDisableSection;
@@ -1222,7 +1222,7 @@ export function MCPs() {
             {mcps.length} servers · {okCount} connected · {issueCount} need attention
             {(() => {
               // Surface origin breakdown so the user can sanity-check that
-              // plugin- and project-scope MCPs are showing up (USER
+              // plugin- and project-scope MCPs are showing up (the user
               // reported that Claudia surfaced many more than CC did).
               const buckets = mcps.reduce<Record<string, number>>((acc, m) => {
                 const k = parseOrigin(m.origin).kind;

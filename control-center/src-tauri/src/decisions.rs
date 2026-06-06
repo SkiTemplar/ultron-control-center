@@ -1071,7 +1071,7 @@ mod tests {
             status: DecisionStatus::Accepted,
             supersedes_id: None,
             context_urls: vec![],
-            author: Some("USER".into()),
+            author: Some("the-user".into()),
             tags: vec!["backend".into()],
         }];
         write_atomic(&path, &records).unwrap();
@@ -1230,7 +1230,7 @@ mod tests {
         let rec = make_record(
             "id-manual",
             "abc",
-            Some("USER"),
+            Some("the-user"),
             DecisionStatus::Proposed,
         );
 
