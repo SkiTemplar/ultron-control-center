@@ -626,7 +626,7 @@ async function fetchLazySkillContent(candidates) {
   // Filter to skills that qualify for lazy injection
   const eligible = candidates.filter(function (c) {
     if (c.confidence < LAZY_SCORE_THRESHOLD) return false;
-    if (c.kind !== 'plugin') return false; // only plugin skills have SKILL.md in skills/
+    if (c.kind !== 'plugin' && c.kind !== 'persona') return false; // personas y plugins tienen SKILL.md en skills/; los agents viven en agents/ (excluidos via isLazyLoadable)
     if (!isLazyLoadable(c.id)) return false;
     if (isCoolingDown(c.id)) return false;
     return true;
