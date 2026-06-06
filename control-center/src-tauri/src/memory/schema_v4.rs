@@ -122,6 +122,26 @@ pub(crate) fn apply_schema_v4(conn: &Connection) -> Result<(), MemoryError> {
         "ALTER TABLE unresolved_refs ADD COLUMN project_id TEXT;",
     );
 
+    // (b3) Additive migration — versioning columns on `edges` (Pilar 1 ·
+    //      Kirkardo gap).
+    //
+    //   version    TEXT  — schema/capture-tool version tag that produced this
+    //                      edge (e.g. "capture-symbols-js@1.2").  NULL for
+    //                      edges inserted before this migration.  Used for
+    //                      provenance auditing and incremental re-extraction.
+    //   edge_hash  TEXT  — deterministic content hash of
+    //                      `source||target||kind||COALESCE(file,'')` (FNV-1a
+    //                      64-bit, 16 hex chars).  Allows external callers to
+    //                      check whether a logical edge already exists without
+    //                      querying by the composite UNIQUE index.  NULL for
+    //                      pre-migration rows (backfill on demand).
+    //
+    //   Both columns are nullable so the migration is fully additive and
+    //   reversible.  `INSERT OR IGNORE` in insert_edge is keyed on the UNIQUE
+    //   index, not on edge_hash, so dedup is unaffected.
+    let _ = conn.execute_batch("ALTER TABLE edges ADD COLUMN version TEXT;");
+    let _ = conn.execute_batch("ALTER TABLE edges ADD COLUMN edge_hash TEXT;");
+
     // (c) Monotonic version bump — only when we are actually upgrading.
     let uv: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -148,6 +168,12 @@ pub(crate) fn apply_schema_v4(conn: &Connection) -> Result<(), MemoryError> {
 /// moves between lines should not create a duplicate edge — the existing row
 /// is left as-is (use `update_edge_lines` if tracking line drift matters).
 ///
+/// `version` identifies the capture-tool version that produced this edge
+/// (e.g. `"capture-symbols-js@1.2"`).  Pass `None` when not applicable.
+///
+/// `edge_hash` is the deterministic content hash of the logical edge.  Pass
+/// `None` to use the auto-computed value (`compute_edge_hash`).
+///
 /// # Errors
 ///
 /// Returns `MemoryError::RemoteUnavailable` on DB errors other than
@@ -164,6 +190,28 @@ pub(crate) fn insert_edge(
     provenance: Option<&str>,
     project_id: Option<&str>,
 ) -> Result<(), MemoryError> {
+    insert_edge_versioned(conn, source, target, kind, file, line_from, line_to, provenance, project_id, None, None)
+}
+
+/// Like [`insert_edge`] but also records `version` and `edge_hash` columns
+/// introduced by the Pilar-1 additive migration (b3).
+///
+/// When `edge_hash` is `None` it is computed automatically via
+/// [`compute_edge_hash`].
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn insert_edge_versioned(
+    conn: &Connection,
+    source: &str,
+    target: &str,
+    kind: &str,
+    file: Option<&str>,
+    line_from: Option<i64>,
+    line_to: Option<i64>,
+    provenance: Option<&str>,
+    project_id: Option<&str>,
+    version: Option<&str>,
+    edge_hash: Option<&str>,
+) -> Result<(), MemoryError> {
     use rusqlite::params;
 
     let now_ms = std::time::SystemTime::now()
@@ -171,12 +219,22 @@ pub(crate) fn insert_edge(
         .unwrap_or_default()
         .as_millis() as i64;
 
+    let computed_hash;
+    let hash_val: &str = match edge_hash {
+        Some(h) => h,
+        None => {
+            computed_hash = compute_edge_hash(source, target, kind, file);
+            &computed_hash
+        }
+    };
+
     // INSERT OR IGNORE implements the dedup semantics declared by the UNIQUE
     // index on (source, target, kind, COALESCE(file, '')).
     conn.execute(
         "INSERT OR IGNORE INTO edges
-            (source, target, kind, file, line_from, line_to, provenance, project_id, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            (source, target, kind, file, line_from, line_to, provenance, project_id,
+             version, edge_hash, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         params![
             source,
             target,
@@ -186,12 +244,178 @@ pub(crate) fn insert_edge(
             line_to,
             provenance,
             project_id,
+            version,
+            hash_val,
             now_ms,
         ],
     )
     .map_err(|e| MemoryError::RemoteUnavailable(format!("insert_edge: {e}")))?;
 
     Ok(())
+}
+
+/// Compute the deterministic content hash for a logical edge.
+///
+/// Formula: first 16 hex chars of FNV-1a 64-bit of `"source\0target\0kind\0file"`.
+/// Using a NUL separator avoids collisions across field boundaries.
+/// The 16-char prefix gives 64 bits of collision resistance — sufficient for
+/// a dev-tool dedup key and cheap to store / compare.
+///
+/// # Pure function
+///
+/// No I/O; suitable for use in property tests and const contexts (well,
+/// `const` fn is blocked by `sha2`, but the function has no side effects).
+pub fn compute_edge_hash(source: &str, target: &str, kind: &str, file: Option<&str>) -> String {
+    // Use a portable 64-bit FNV-1a hash (no external crate needed) as a
+    // fast, dependency-free alternative to SHA-256.  The output is formatted
+    // as 16 lowercase hex chars to match the documented interface.
+    //
+    // FNV-1a 64-bit: offset_basis = 14695981039346656037, prime = 1099511628211.
+    const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;
+    const FNV_PRIME: u64 = 1_099_511_628_211;
+
+    let mut hash: u64 = FNV_OFFSET;
+    let feed = |h: u64, bytes: &[u8]| -> u64 {
+        bytes.iter().fold(h, |acc, &b| {
+            acc.wrapping_mul(FNV_PRIME) ^ (b as u64)
+        })
+    };
+    // Mix each field with a NUL separator to prevent cross-boundary collisions.
+    hash = feed(hash, source.as_bytes());
+    hash = feed(hash, b"\0");
+    hash = feed(hash, target.as_bytes());
+    hash = feed(hash, b"\0");
+    hash = feed(hash, kind.as_bytes());
+    hash = feed(hash, b"\0");
+    hash = feed(hash, file.unwrap_or("").as_bytes());
+    format!("{hash:016x}")
+}
+
+// ---------------------------------------------------------------------------
+// compute_transitive_closure — CTE-based multi-hop reachability
+// ---------------------------------------------------------------------------
+
+/// A node in the transitive closure result.
+///
+/// Each row represents one symbol reachable from `start` via directed edges,
+/// together with the shortest hop count and the path taken.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct ClosureNode {
+    /// The reachable symbol.
+    pub symbol: String,
+    /// Shortest number of hops from `start` to `symbol`.
+    pub depth: usize,
+    /// Dot-separated path: `"start.intermediate.symbol"`.  Useful for
+    /// rendering call chains in the UI.
+    pub path: String,
+}
+
+/// Compute the transitive closure of `start` in the `edges` call-graph up to
+/// `max_hops` directed hops.
+///
+/// Uses a SQLite **recursive CTE** with explicit cycle detection: a visited
+/// set (stored as the accumulated path string) prevents any symbol from being
+/// visited twice, so even graphs with cycles converge.
+///
+/// # Parameters
+///
+/// * `conn`      — open connection with v4 schema applied.
+/// * `start`     — the root symbol (must match `edges.source` exactly).
+/// * `direction` — `Callees` = forward (what does `start` call?);
+///                 `Callers` = backward (who calls `start`?).
+/// * `max_hops`  — maximum traversal depth (≥ 1).  Pass `usize::MAX` for
+///                 unbounded (the cycle guard still terminates traversal).
+///
+/// # Returns
+///
+/// `Vec<ClosureNode>` sorted by (depth ASC, symbol ASC).  The start node
+/// itself is **not** included in the result.
+///
+/// # Errors
+///
+/// Returns `MemoryError::RemoteUnavailable` on DB errors.
+pub fn compute_transitive_closure(
+    conn: &Connection,
+    start: &str,
+    direction: EdgeDirection,
+    max_hops: usize,
+) -> Result<Vec<ClosureNode>, MemoryError> {
+    use rusqlite::params;
+
+    // The recursive CTE carries:
+    //   symbol  — current node
+    //   depth   — hops from start
+    //   path    — pipe-delimited visited set used for cycle detection
+    //
+    // Cycle guard: `path NOT LIKE '%|' || next || '|%'` rejects any node
+    // already present in the path string.  The leading/trailing `|` delimiters
+    // ensure substring matches don't fire across node-name boundaries
+    // (e.g. "foo" and "foobar" won't collide because the pattern is `|foo|`).
+    //
+    // The `?3` parameter is `max_hops`; the CTE stops recursing when
+    // `depth >= max_hops`.
+
+    let (join_col, next_col) = match direction {
+        EdgeDirection::Callees => ("source", "target"),
+        EdgeDirection::Callers => ("target", "source"),
+    };
+
+    let sql = format!(
+        "WITH RECURSIVE closure(symbol, depth, path) AS (
+            -- Seed: direct neighbours of start.
+            SELECT e.{next_col}, 1, '|' || ?1 || '|' || e.{next_col} || '|'
+            FROM edges e
+            WHERE e.{join_col} = ?1
+              AND e.{next_col} <> ?1
+
+            UNION ALL
+
+            -- Recurse: one more hop, skipping already-visited nodes.
+            SELECT e.{next_col},
+                   c.depth + 1,
+                   c.path || e.{next_col} || '|'
+            FROM edges e
+            JOIN closure c ON e.{join_col} = c.symbol
+            WHERE c.depth < ?2
+              AND e.{next_col} <> ?1
+              AND c.path NOT LIKE '%|' || e.{next_col} || '|%'
+        )
+        SELECT symbol, MIN(depth) AS min_depth, path
+        FROM closure
+        GROUP BY symbol
+        ORDER BY min_depth ASC, symbol ASC"
+    );
+
+    let max_hops_i64 = if max_hops >= i64::MAX as usize {
+        i64::MAX
+    } else {
+        max_hops as i64
+    };
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("transitive_closure prepare: {e}")))?;
+
+    let rows = stmt
+        .query_map(params![start, max_hops_i64], |row| {
+            let symbol: String = row.get(0)?;
+            let depth: i64     = row.get(1)?;
+            let path: String   = row.get(2)?;
+            // Convert the internal pipe-delimited path to a dot-separated
+            // human-readable form: strip outer `|` delimiters, replace inner
+            // `|` with `.`.
+            let readable_path = path
+                .trim_matches('|')
+                .replace('|', ".");
+            Ok(ClosureNode {
+                symbol,
+                depth: depth as usize,
+                path: readable_path,
+            })
+        })
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("transitive_closure query: {e}")))?;
+
+    Ok(rows.flatten().collect())
 }
 
 // ---------------------------------------------------------------------------
@@ -1116,6 +1340,220 @@ mod tests {
         assert_eq!(
             stats.promoted, 1,
             "legacy NULL-project_id rows must still be promoted"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // edge versioning (Pilar 1 · Kirkardo gap — migration b3)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn insert_edge_versioned_stores_version_and_hash() {
+        let conn = v4_conn();
+        insert_edge_versioned(
+            &conn,
+            "mod_a::foo",
+            "mod_b::bar",
+            "calls",
+            Some("src/a.rs"),
+            Some(10),
+            Some(10),
+            Some("test-tool"),
+            Some("proj"),
+            Some("capture-symbols-js@1.2"),
+            None, // auto-compute hash
+        )
+        .unwrap();
+
+        let (version, edge_hash): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT version, edge_hash FROM edges WHERE source = 'mod_a::foo'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .expect("row must exist");
+
+        assert_eq!(
+            version.as_deref(),
+            Some("capture-symbols-js@1.2"),
+            "version must be stored"
+        );
+        assert!(
+            edge_hash.is_some(),
+            "edge_hash must be auto-computed and stored"
+        );
+        let h = edge_hash.unwrap();
+        assert_eq!(h.len(), 16, "edge_hash must be 16 hex chars");
+        assert!(
+            h.chars().all(|c| c.is_ascii_hexdigit()),
+            "edge_hash must be lowercase hex"
+        );
+    }
+
+    #[test]
+    fn compute_edge_hash_is_deterministic() {
+        let h1 = compute_edge_hash("A", "B", "calls", Some("f.rs"));
+        let h2 = compute_edge_hash("A", "B", "calls", Some("f.rs"));
+        assert_eq!(h1, h2, "same inputs must produce the same hash");
+    }
+
+    #[test]
+    fn compute_edge_hash_differs_on_different_inputs() {
+        let h_ab = compute_edge_hash("A", "B", "calls", None);
+        let h_ac = compute_edge_hash("A", "C", "calls", None);
+        let h_file = compute_edge_hash("A", "B", "calls", Some("x.rs"));
+        let h_kind = compute_edge_hash("A", "B", "imports", None);
+
+        assert_ne!(h_ab, h_ac, "different target must differ");
+        assert_ne!(h_ab, h_file, "different file must differ");
+        assert_ne!(h_ab, h_kind, "different kind must differ");
+    }
+
+    #[test]
+    fn insert_edge_backward_compat_still_works() {
+        // The old insert_edge (no version/hash args) must still produce a row.
+        let conn = v4_conn();
+        insert_edge(&conn, "legacy_src", "legacy_dst", "calls", None, None, None, None, None)
+            .unwrap();
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1, "backward-compat insert_edge must work");
+    }
+
+    // -----------------------------------------------------------------------
+    // compute_transitive_closure — multi-hop + cycle detection
+    // -----------------------------------------------------------------------
+
+    // Helper: insert a directed calls edge (no file, no project).
+    fn edge(conn: &Connection, src: &str, dst: &str) {
+        insert_edge(conn, src, dst, "calls", None, None, None, None, None).unwrap();
+    }
+
+    #[test]
+    fn transitive_closure_direct_callees() {
+        // A -> B, A -> C  (depth 1 only)
+        let conn = v4_conn();
+        edge(&conn, "A", "B");
+        edge(&conn, "A", "C");
+
+        let nodes = compute_transitive_closure(&conn, "A", EdgeDirection::Callees, 1).unwrap();
+        let symbols: Vec<&str> = nodes.iter().map(|n| n.symbol.as_str()).collect();
+        assert!(symbols.contains(&"B"), "B must be reachable from A");
+        assert!(symbols.contains(&"C"), "C must be reachable from A");
+        assert_eq!(nodes.len(), 2, "exactly two direct callees");
+        assert!(nodes.iter().all(|n| n.depth == 1));
+    }
+
+    #[test]
+    fn transitive_closure_multi_hop() {
+        // A -> B -> C -> D  (chain of 3 hops)
+        let conn = v4_conn();
+        edge(&conn, "A", "B");
+        edge(&conn, "B", "C");
+        edge(&conn, "C", "D");
+
+        let nodes = compute_transitive_closure(&conn, "A", EdgeDirection::Callees, 10).unwrap();
+        let by_sym: std::collections::HashMap<&str, usize> =
+            nodes.iter().map(|n| (n.symbol.as_str(), n.depth)).collect();
+
+        assert_eq!(by_sym.get("B"), Some(&1), "B at depth 1");
+        assert_eq!(by_sym.get("C"), Some(&2), "C at depth 2");
+        assert_eq!(by_sym.get("D"), Some(&3), "D at depth 3");
+        assert_eq!(nodes.len(), 3);
+    }
+
+    #[test]
+    fn transitive_closure_respects_max_hops() {
+        // A -> B -> C -> D  — only ask for 2 hops
+        let conn = v4_conn();
+        edge(&conn, "A", "B");
+        edge(&conn, "B", "C");
+        edge(&conn, "C", "D");
+
+        let nodes = compute_transitive_closure(&conn, "A", EdgeDirection::Callees, 2).unwrap();
+        let symbols: Vec<&str> = nodes.iter().map(|n| n.symbol.as_str()).collect();
+        assert!(symbols.contains(&"B"));
+        assert!(symbols.contains(&"C"));
+        assert!(!symbols.contains(&"D"), "D is 3 hops away — must not appear with max_hops=2");
+    }
+
+    #[test]
+    fn transitive_closure_detects_cycle() {
+        // A -> B -> C -> A  (cycle)
+        // Must terminate and not return A as a reachable node (it's the start).
+        let conn = v4_conn();
+        edge(&conn, "A", "B");
+        edge(&conn, "B", "C");
+        edge(&conn, "C", "A"); // cycle back to start
+
+        let nodes = compute_transitive_closure(&conn, "A", EdgeDirection::Callees, 100).unwrap();
+        let symbols: Vec<&str> = nodes.iter().map(|n| n.symbol.as_str()).collect();
+
+        // Must have B and C; A is excluded (it's the start node, excluded by
+        // `e.{next_col} <> ?1` in the CTE seed and recursive step).
+        assert!(symbols.contains(&"B"), "B must be reachable");
+        assert!(symbols.contains(&"C"), "C must be reachable");
+        assert!(!symbols.contains(&"A"), "start node A must NOT appear (cycle guard)");
+
+        // Crucially: the function must not loop forever or return duplicates.
+        let unique: std::collections::HashSet<&str> = symbols.iter().copied().collect();
+        assert_eq!(unique.len(), nodes.len(), "no duplicates — cycle guard must fire");
+    }
+
+    #[test]
+    fn transitive_closure_diamond_deduplicates() {
+        // A -> B -> D
+        // A -> C -> D
+        // D is reachable via two paths; must appear exactly once at depth 2.
+        let conn = v4_conn();
+        edge(&conn, "A", "B");
+        edge(&conn, "A", "C");
+        edge(&conn, "B", "D");
+        edge(&conn, "C", "D");
+
+        let nodes = compute_transitive_closure(&conn, "A", EdgeDirection::Callees, 10).unwrap();
+        let d_nodes: Vec<&ClosureNode> = nodes.iter().filter(|n| n.symbol == "D").collect();
+        assert_eq!(d_nodes.len(), 1, "D must appear exactly once despite two paths");
+        assert_eq!(d_nodes[0].depth, 2, "D is at depth 2 via either path");
+    }
+
+    #[test]
+    fn transitive_closure_callers_direction() {
+        // A -> C, B -> C  — asking for CALLERS of C must return A and B.
+        let conn = v4_conn();
+        edge(&conn, "A", "C");
+        edge(&conn, "B", "C");
+        edge(&conn, "C", "D"); // outgoing from C — must NOT appear
+
+        let nodes = compute_transitive_closure(&conn, "C", EdgeDirection::Callers, 10).unwrap();
+        let symbols: Vec<&str> = nodes.iter().map(|n| n.symbol.as_str()).collect();
+        assert!(symbols.contains(&"A"), "A calls C — must appear as caller");
+        assert!(symbols.contains(&"B"), "B calls C — must appear as caller");
+        assert!(!symbols.contains(&"D"), "D is a callee of C — must NOT appear in Callers");
+    }
+
+    #[test]
+    fn transitive_closure_empty_when_no_edges() {
+        let conn = v4_conn();
+        let nodes =
+            compute_transitive_closure(&conn, "lonely", EdgeDirection::Callees, 10).unwrap();
+        assert!(nodes.is_empty(), "no edges => empty closure");
+    }
+
+    #[test]
+    fn transitive_closure_path_field_is_readable() {
+        // A -> B -> C: path for C should be "A.B.C"
+        let conn = v4_conn();
+        edge(&conn, "A", "B");
+        edge(&conn, "B", "C");
+
+        let nodes = compute_transitive_closure(&conn, "A", EdgeDirection::Callees, 10).unwrap();
+        let c_node = nodes.iter().find(|n| n.symbol == "C").expect("C must be present");
+        assert!(
+            c_node.path.contains('A') && c_node.path.contains('B') && c_node.path.contains('C'),
+            "path must contain all hops: got '{}'",
+            c_node.path
         );
     }
 }

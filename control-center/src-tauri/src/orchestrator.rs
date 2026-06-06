@@ -879,7 +879,7 @@ pub fn orchestrate(prompt: &str, project_id: Option<&str>) -> OrchestrationConte
     }
 
     // Relevant memories via hybrid recall (already token-budgeted).
-    let memories = match build_trace(prompt, 12, project_id, cross_project) {
+    let memories = match build_trace(prompt, 12, project_id, cross_project, None) {
         Ok(t) => {
             warnings.extend(t.warnings.clone());
             t.injected

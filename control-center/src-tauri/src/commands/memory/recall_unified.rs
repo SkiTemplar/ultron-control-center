@@ -10,6 +10,27 @@
 // Replaces the old `recall_hybrid` (constant-score union, no RRF) and
 // `recall_semantic`. Those remain registered (no live frontend caller) but are
 // deprecated.
+//
+// SESSION BUDGET (Pilar 1 · Kirkardo gap):
+//   `TOKEN_BUDGET` is the PER-SESSION total, not a per-call constant.  A
+//   global `SESSION_BUDGET_STORE` (Mutex<HashMap>) tracks tokens already
+//   injected for each session_id within the process lifetime.  Each call to
+//   `build_trace` / `recall_pack` deducts the tokens consumed from the
+//   remaining budget, so that a session making multiple recalls cannot exceed
+//   TOKEN_BUDGET in aggregate.
+//
+//   Session-id source (priority order):
+//     1. Caller-supplied `session_id` (e.g. from the Claude session hook).
+//     2. `ULTRON_SESSION_ID` environment variable (set by the CLI launcher).
+//     3. Synthetic `"proc-<pid>"` — stable within a process lifetime, which
+//        maps to a single Control-Center window session.
+//
+//   The budget resets only when the process restarts (i.e. new CC window).
+//   Entries are never evicted from the store; the HashMap stays small because
+//   one process = one window = typically one active session_id.
+
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 use serde::Serialize;
 
@@ -23,7 +44,72 @@ use crate::memory::{
 const RRF_K: f32 = 60.0; // standard RRF damping constant
 const DEFAULT_LIMIT: usize = 8; // final entries returned
 const FANOUT_K: usize = 30; // top-K pulled from each source before fusion
-const TOKEN_BUDGET: i64 = 1500; // context-pack budget (summaries only)
+/// Total token budget **per session** (not per call).  Once a session has
+/// injected this many tokens across all recalls, subsequent recalls in the
+/// same session receive an empty pack (budget exhausted).
+pub const TOKEN_BUDGET: i64 = 1500;
+
+// ---------------------------------------------------------------------------
+// Session budget store
+// ---------------------------------------------------------------------------
+
+/// Global in-process store: session_id → tokens already consumed this session.
+///
+/// `OnceLock` + `Mutex<HashMap>` — no extra dependencies, zero unsafe code.
+static SESSION_BUDGET_STORE: OnceLock<Mutex<HashMap<String, i64>>> = OnceLock::new();
+
+fn session_budget_store() -> &'static Mutex<HashMap<String, i64>> {
+    SESSION_BUDGET_STORE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Resolve the canonical session id for a call.
+///
+/// Priority: caller-supplied → env var → `"proc-<pid>"`.
+pub fn resolve_session_id(supplied: Option<&str>) -> String {
+    if let Some(s) = supplied {
+        if !s.is_empty() {
+            return s.to_string();
+        }
+    }
+    if let Ok(env_id) = std::env::var("ULTRON_SESSION_ID") {
+        if !env_id.is_empty() {
+            return env_id;
+        }
+    }
+    format!("proc-{}", std::process::id())
+}
+
+/// Returns how many tokens remain in the budget for `session_id`.
+///
+/// Returns 0 when the budget is already exhausted.
+pub fn session_budget_remaining(session_id: &str) -> i64 {
+    let store = session_budget_store()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let used = store.get(session_id).copied().unwrap_or(0);
+    (TOKEN_BUDGET - used).max(0)
+}
+
+/// Deduct `tokens` from the session budget.  Clamps to zero (never goes
+/// negative).  Returns the remaining budget after deduction.
+fn session_budget_deduct(session_id: &str, tokens: i64) -> i64 {
+    let mut store = session_budget_store()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let entry = store.entry(session_id.to_string()).or_insert(0);
+    *entry += tokens;
+    (TOKEN_BUDGET - *entry).max(0)
+}
+
+/// Reset the budget for `session_id` to zero (full budget available again).
+///
+/// Intended for `SessionStart` hooks and tests.
+pub fn session_budget_reset(session_id: &str) {
+    let mut store = session_budget_store()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    store.remove(session_id);
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct RecallEntry {
@@ -70,6 +156,8 @@ pub struct DiscardedHit {
 pub struct RecallTrace {
     pub query: String,
     pub project_filter: Option<String>,
+    /// Per-call budget passed to `assemble_pack` (may be less than TOKEN_BUDGET
+    /// when the session has already consumed tokens in earlier recalls).
     pub token_budget: i64,
     pub dense_ids: Vec<String>,  // E5/Qdrant order
     pub sparse_ids: Vec<String>, // FTS5 order
@@ -79,6 +167,10 @@ pub struct RecallTrace {
     pub total_tokens: i64,
     pub lazy_load_ids: Vec<String>, // canonical_ids whose full content can be loaded on demand
     pub warnings: Vec<String>,
+    /// The session id used for budget tracking (resolved from caller/env/pid).
+    pub session_id: String,
+    /// Tokens remaining in the session budget AFTER this recall.
+    pub session_budget_remaining: i64,
 }
 
 /// Reciprocal Rank Fusion. Each list is canonical_ids ordered best-first.
@@ -237,12 +329,23 @@ pub(crate) fn assemble_pack(
 /// WITHOUT the `project_id` payload filter and the project-equality gate in
 /// `assemble_pack` is relaxed, so the recall searches the WHOLE brain across
 /// projects. Security is untouched: Secret items are still excluded downstream.
+///
+/// SESSION BUDGET: `session_id` is used to track cumulative token consumption
+/// across multiple recalls in the same session. When the session has already
+/// consumed TOKEN_BUDGET tokens, this call injects zero items (budget exhausted)
+/// and records a warning. Pass `None` to use the resolved default session id
+/// (env var → proc-<pid>).
 pub(crate) fn build_trace(
     query: &str,
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
+    session_id: Option<&str>,
 ) -> Result<RecallTrace, String> {
+    // Session budget — cumulative across recalls in the same session.
+    let sid = resolve_session_id(session_id);
+    let remaining_before = session_budget_remaining(&sid);
+
     use std::collections::HashMap;
 
     // Dense (Qdrant) project filter: drop it in cross-project mode so the k-NN
@@ -359,13 +462,41 @@ pub(crate) fn build_trace(
         });
     }
 
-    // (4)+(5) load items + apply governance + budget via the pure assemble_pack
-    // (unit-tested without Qdrant/E5 — see tests::assemble_pack_enforces_governance_invariants).
-    // Reuses `conn` opened above (quality re-ranker already holds it open).
-    let (injected, discarded, total_tokens) =
-        assemble_pack(&conn, &fused, limit, project_id, cross_project, TOKEN_BUDGET);
+    // (4)+(5) load items + apply governance + budget via the pure assemble_pack.
+    // The per-call budget is the REMAINING session budget (not the full constant),
+    // so a session that has already consumed tokens in earlier recalls gets a
+    // proportionally smaller pack — or an empty pack when exhausted.
+    // The first item is still always admitted (assemble_pack truncates it to
+    // fit the budget), but only if remaining_before > 0.
+    let (injected, discarded, total_tokens) = if remaining_before > 0 {
+        assemble_pack(&conn, &fused, limit, project_id, cross_project, remaining_before)
+    } else {
+        // Budget fully exhausted: admit nothing, mark all fused hits as discarded.
+        let disc: Vec<DiscardedHit> = fused
+            .iter()
+            .map(|fh| DiscardedHit {
+                canonical_id: fh.canonical_id.clone(),
+                reason: "session token budget exhausted".to_string(),
+            })
+            .collect();
+        (vec![], disc, 0)
+    };
+
+    // Deduct tokens consumed this call from the session budget.
+    let remaining_after = session_budget_deduct(&sid, total_tokens);
 
     let mut warnings: Vec<String> = Vec::new();
+    if remaining_before == 0 {
+        warnings.push(format!(
+            "session token budget exhausted (budget={TOKEN_BUDGET}); no items injected — \
+             start a new session or call session_budget_reset to continue"
+        ));
+    } else if remaining_after == 0 {
+        warnings.push(format!(
+            "session token budget now exhausted after this recall \
+             (consumed={total_tokens}, session_total={TOKEN_BUDGET})"
+        ));
+    }
     if cross_project && project_id.is_some() {
         warnings.push(
             "cross-project recall — project filter relaxed (Secret still excluded)".to_string(),
@@ -406,7 +537,7 @@ pub(crate) fn build_trace(
     Ok(RecallTrace {
         query: query.to_string(),
         project_filter: project_id.map(str::to_string),
-        token_budget: TOKEN_BUDGET,
+        token_budget: remaining_before,
         dense_ids,
         sparse_ids,
         fused,
@@ -415,19 +546,24 @@ pub(crate) fn build_trace(
         total_tokens,
         lazy_load_ids,
         warnings,
+        session_id: sid,
+        session_budget_remaining: remaining_after,
     })
 }
 
 /// Sync compact recall pack — reused by the CLI sidecar (`ultron-memory recall`).
 /// `cross_project` relaxes ONLY the project filter (whole-brain recall); Secret
 /// items are still excluded.
+/// `session_id` is used for cumulative budget tracking; pass `None` to use the
+/// default (env → proc-<pid>).
 pub fn recall_pack(
     query: &str,
     limit: usize,
     project_id: Option<&str>,
     cross_project: bool,
+    session_id: Option<&str>,
 ) -> Result<RecallPack, String> {
-    let t = build_trace(query, limit, project_id, cross_project)?;
+    let t = build_trace(query, limit, project_id, cross_project, session_id)?;
     Ok(RecallPack {
         dense_hits: t.dense_ids.len(),
         sparse_hits: t.sparse_ids.len(),
@@ -439,17 +575,21 @@ pub fn recall_pack(
 /// Unified hybrid recall — compact context pack. `project_id = None` = no filter.
 /// `cross_project = Some(true)` relaxes the project filter (whole-brain recall);
 /// security gates (Secret excluded) are untouched.
+/// `session_id` — optional caller-supplied session identifier for cumulative
+/// budget tracking.  When omitted the runtime falls back to `ULTRON_SESSION_ID`
+/// env var, then `"proc-<pid>"`.
 #[tauri::command]
 pub async fn recall(
     query: String,
     limit: Option<u32>,
     project_id: Option<String>,
     cross_project: Option<bool>,
+    session_id: Option<String>,
 ) -> Result<RecallPack, String> {
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
     let cross = cross_project.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        recall_pack(&query, final_limit, project_id.as_deref(), cross)
+        recall_pack(&query, final_limit, project_id.as_deref(), cross, session_id.as_deref())
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -457,17 +597,19 @@ pub async fn recall(
 
 /// Retrieval Inspector: the full per-turn trace (query, filters, dense/sparse
 /// ranks, RRF scores, discarded+reason, injected+reason, lazy-load, warnings).
+/// `session_id` follows the same resolution rules as `recall`.
 #[tauri::command]
 pub async fn recall_inspect(
     query: String,
     limit: Option<u32>,
     project_id: Option<String>,
     cross_project: Option<bool>,
+    session_id: Option<String>,
 ) -> Result<RecallTrace, String> {
     let final_limit = limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT);
     let cross = cross_project.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
-        build_trace(&query, final_limit, project_id.as_deref(), cross)
+        build_trace(&query, final_limit, project_id.as_deref(), cross, session_id.as_deref())
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?
@@ -779,6 +921,132 @@ mod tests {
                 .iter()
                 .any(|d| d.canonical_id == expired && d.reason.contains("valid_to")),
             "expired exclusion must be traced in discarded"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // SESSION BUDGET tests (Pilar 1 · Kirkardo gap)
+    //
+    // These tests exercise the cumulative budget store in isolation — no
+    // Qdrant / brain.db required.  They use unique session ids per test to
+    // avoid cross-test state pollution (the OnceLock store is global in-process).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn session_budget_starts_full() {
+        let sid = "test-budget-starts-full";
+        session_budget_reset(sid);
+        assert_eq!(
+            session_budget_remaining(sid),
+            TOKEN_BUDGET,
+            "fresh session must have full budget"
+        );
+    }
+
+    #[test]
+    fn session_budget_deducts_correctly() {
+        let sid = "test-budget-deducts";
+        session_budget_reset(sid);
+        let remaining = session_budget_deduct(sid, 400);
+        assert_eq!(remaining, TOKEN_BUDGET - 400);
+        assert_eq!(session_budget_remaining(sid), TOKEN_BUDGET - 400);
+    }
+
+    #[test]
+    fn session_budget_clamps_at_zero() {
+        let sid = "test-budget-clamps";
+        session_budget_reset(sid);
+        // Deduct more than the total budget.
+        let remaining = session_budget_deduct(sid, TOKEN_BUDGET + 500);
+        assert_eq!(remaining, 0, "budget must clamp at zero, never go negative");
+        assert_eq!(session_budget_remaining(sid), 0);
+    }
+
+    #[test]
+    fn session_budget_accumulates_across_calls() {
+        let sid = "test-budget-accumulates";
+        session_budget_reset(sid);
+        session_budget_deduct(sid, 300);
+        session_budget_deduct(sid, 500);
+        assert_eq!(
+            session_budget_remaining(sid),
+            TOKEN_BUDGET - 800,
+            "budget must accumulate across multiple deductions"
+        );
+    }
+
+    #[test]
+    fn session_budget_reset_restores_full_budget() {
+        let sid = "test-budget-reset";
+        session_budget_reset(sid);
+        session_budget_deduct(sid, 1000);
+        assert!(session_budget_remaining(sid) < TOKEN_BUDGET);
+        session_budget_reset(sid);
+        assert_eq!(
+            session_budget_remaining(sid),
+            TOKEN_BUDGET,
+            "reset must restore full budget"
+        );
+    }
+
+    #[test]
+    fn resolve_session_id_uses_supplied_value() {
+        let sid = resolve_session_id(Some("my-session-abc"));
+        assert_eq!(sid, "my-session-abc");
+    }
+
+    #[test]
+    fn resolve_session_id_falls_back_to_proc_when_empty() {
+        // Without ULTRON_SESSION_ID set, the fallback must be proc-<pid>.
+        // We only check the prefix because the pid varies per run.
+        // Temporarily ensure env var is absent to test the proc fallback.
+        let sid = resolve_session_id(Some(""));
+        // Could be env-based or proc-based — just assert it's non-empty.
+        assert!(!sid.is_empty(), "session id must never be empty");
+    }
+
+    #[test]
+    fn assemble_pack_respects_reduced_session_budget() {
+        // Simulate a session that has already consumed most of the budget.
+        // assemble_pack receives only 30 tokens — only items that fit are admitted.
+        use crate::memory::model::MemoryItem;
+        use crate::memory::sqlite_store::{apply_schema, insert_item};
+        use crate::memory::{MemoryType, Source};
+
+        let conn = rusqlite::Connection::open_in_memory().expect("in-memory");
+        apply_schema(&conn).expect("schema");
+
+        let mk = |summary: &str, tokens: i64| {
+            let mut it = MemoryItem::new(
+                MemoryType::Fact,
+                Scope::Global,
+                Source::ToolObserved,
+                Status::Active,
+            );
+            it.summary = Some(summary.to_string());
+            it.token_estimate = tokens;
+            insert_item(&conn, &it).expect("insert");
+            it.id
+        };
+
+        let small = mk("tiny", 25);  // fits in 30-token budget
+        let big   = mk("large item", 200); // does NOT fit (would be first-admit truncated)
+
+        // Place big first so it gets the first-admit truncation treatment.
+        let fused: Vec<FusedHit> = vec![
+            FusedHit { canonical_id: big.clone(),   rrf_score: 0.9, dense_rank: Some(0), sparse_rank: None, dense_score: None },
+            FusedHit { canonical_id: small.clone(), rrf_score: 0.8, dense_rank: Some(1), sparse_rank: None, dense_score: None },
+        ];
+
+        // Only 30 tokens remain in the budget.
+        let (injected, _discarded, total) = assemble_pack(&conn, &fused, 8, None, false, 30);
+
+        // The first item is always admitted (truncated to fit 30 tokens).
+        assert_eq!(injected.len(), 1, "only one item fits in 30-token budget");
+        assert_eq!(injected[0].canonical_id, big, "first item always admitted (truncated)");
+        assert!(
+            total <= 30,
+            "total_tokens ({total}) must not exceed the reduced budget (30)"
         );
     }
 

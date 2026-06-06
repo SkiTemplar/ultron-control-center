@@ -217,7 +217,7 @@ fn score_query(
     project_id: Option<&str>,
     k: usize,
 ) -> (EvalResult, Vec<String>) {
-    let (hits, matched, ids) = match recall_pack(&golden.query, k, project_id, false) {
+    let (hits, matched, ids) = match recall_pack(&golden.query, k, project_id, false, None) {
         Ok(pack) => {
             let summaries: Vec<String> = pack
                 .entries
@@ -438,7 +438,7 @@ pub fn run_golden_metrics(project_override: Option<&str>, k: usize) -> GoldenMet
         // SAME recall path as the `eval`/`recall` subcommands. FAIL-SAFE: an error
         // (Qdrant/E5 offline) degrades this query to an empty ranking — every
         // metric then scores 0 for it, which is the correct "recovered nothing".
-        let retrieved: Vec<String> = match recall_pack(&pos.query, k, project, false) {
+        let retrieved: Vec<String> = match recall_pack(&pos.query, k, project, false, None) {
             Ok(pack) => {
                 returned_ids.extend(pack.entries.iter().map(|e| e.canonical_id.clone()));
                 pack.entries.into_iter().map(|e| e.canonical_id).collect()
