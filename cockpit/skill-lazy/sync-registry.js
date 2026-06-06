@@ -1,29 +1,47 @@
 #!/usr/bin/env node
 /**
- * sync-registry.js — Generate/update skills-registry.json from routing-dispatcher.v2.js.
+ * sync-registry.js — Generate/update skills-registry.json from routing-dispatcher.v2.js
+ *                    + filesystem discovery of unregistered skills and agents.
  *
- * Reads the PERSONAS, PLUGINS, and AGENTS arrays declared in the dispatcher and
- * produces a complete registry entry for every id that appears there, including
- * all namespaced plugin ids (superpowers:*, ecc:*, codex:*, agent-skills:*, etc.).
+ * TWO sources of truth are merged in order:
+ *
+ *   1. Dispatcher (routing-dispatcher.v2.js)
+ *      The existing PERSONAS/PLUGINS/AGENTS arrays.  Same logic as before:
+ *      every id found there is ensured to exist in the registry.
+ *
+ *   2. Filesystem scan (NEW)
+ *      Walks THREE directories for assets that exist on disk but are absent
+ *      from the registry:
+ *
+ *        ~/.claude/skills/<name>/SKILL.md          (active skill)
+ *        ~/.claude/skills/<name>.disabled/SKILL.md (disabled skill)
+ *        ~/.claude/agents/<name>.md                (active agent)
+ *        ~/.claude/agents/<name>.md.disabled       (disabled agent)
+ *        ~/.ultron/skills/<name>/SKILL.md          (ultron workspace skill)
+ *
+ *      Newly discovered assets are registered with lazy_loadable=true,
+ *      keep_active=false, and a "detected_from_fs" marker so the UI can
+ *      distinguish auto-detected entries from dispatcher-declared ones.
  *
  * Classification rules
  * --------------------
- * keep_active = true  : entry already existed in the registry with keep_active=true
- *                       (the 10 complex skills loaded at every SessionStart).
+ * keep_active = true  : entry was already in the registry with keep_active=true
+ *                       OR it is in FORCE_KEEP_ACTIVE.
  * lazy_loadable = true: all other entries — injected on-demand when confidence >= 0.80.
- * lazy_loadable = false: entries explicitly forced false in the FORCE_INACTIVE list below.
  *
  * The script is ADDITIVE + PRESERVING:
- *   - Existing registry entries are preserved (their token_estimate, keep_active, etc.).
+ *   - Existing registry entries are preserved (token_estimate, keep_active, etc.).
  *   - Entries absent from the registry are added with sensible defaults.
- *   - Entries that exist in the registry but are NOT in the dispatcher are left untouched
- *     (they may come from manual additions or future catalogs).
+ *   - Entries that exist in the registry but are not in the dispatcher or on disk
+ *     are left untouched (they may come from manual additions or future catalogs).
  *
  * Usage:
- *   node sync-registry.js [--dry-run]
+ *   node sync-registry.js [--dry-run] [--detect-only]
  *
  * Options:
- *   --dry-run   Print the would-be registry to stdout instead of writing to disk.
+ *   --dry-run      Print the would-be registry to stdout instead of writing to disk.
+ *   --detect-only  Print a JSON list of newly-detected assets to stdout, then exit.
+ *                  Does NOT modify the registry file.
  */
 
 'use strict';
@@ -36,17 +54,19 @@ const HOME = os.homedir();
 const REGISTRY_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', 'skills-registry.json');
 const DISPATCHER_PATH = path.join(HOME, '.ultron', 'cockpit', 'skill-lazy', 'routing-dispatcher.v2.js');
 const SKILLS_DIR = path.join(HOME, '.claude', 'skills');
+const AGENTS_DIR = path.join(HOME, '.claude', 'agents');
+const ULTRON_SKILLS_DIR = path.join(HOME, '.ultron', 'skills');
 const PLUGINS_CACHE = path.join(HOME, '.claude', 'plugins', 'cache');
 
 const DRY_RUN = process.argv.includes('--dry-run');
+const DETECT_ONLY = process.argv.includes('--detect-only');
 
 // ---------------------------------------------------------------------------
-// Skills that should never be lazy-loaded (always keep_active=false AND
-// lazy_loadable=false). These are already present as keep_active entries in
-// the existing registry; listing them here ensures sync never flips them.
+// Skills that should always be keep_active (loaded at every SessionStart).
+// Listing them here prevents sync from ever flipping their flag to false.
 // ---------------------------------------------------------------------------
 const FORCE_KEEP_ACTIVE = new Set([
-  'ultron', 'docx', 'pdf', 'ui-ux-pro-max', 'senior-engineer',
+  'ultron', 'skill-creator', 'docx', 'pdf', 'ui-ux-pro-max', 'senior-engineer',
   'continuous-learning-v2', 'gamedev-engineer', 'business-strategist',
   'ui-designer', 'hiper-plans',
 ]);
@@ -69,24 +89,27 @@ function loadExistingRegistry() {
 }
 
 // ---------------------------------------------------------------------------
-// Extract PERSONAS / PLUGINS / AGENTS from the dispatcher source.
+// Extract PERSONAS / PLUGINS / AGENTS ids from the dispatcher source.
 // Uses a simple regex to avoid a full AST parse.
 // ---------------------------------------------------------------------------
 function extractIdsFromDispatcher() {
-  const src = fs.readFileSync(DISPATCHER_PATH, 'utf8');
-
-  // Match all id: '...' values inside the three arrays.
-  const idRe = /\bid:\s*['"]([^'"]+)['"]/g;
+  let src;
+  try {
+    src = fs.readFileSync(DISPATCHER_PATH, 'utf8');
+  } catch (_) {
+    return [];
+  }
   const ids = [];
   let m;
-  while ((m = idRe.exec(src)) !== null) {
-    ids.push(m[1]);
-  }
+  const reSingle = /\bid:\s*'([^']+)'/g;
+  const reDouble = /\bid:\s*"([^"]+)"/g;
+  while ((m = reSingle.exec(src)) !== null) ids.push(m[1]);
+  while ((m = reDouble.exec(src)) !== null) ids.push(m[1]);
   return [...new Set(ids)];
 }
 
 // ---------------------------------------------------------------------------
-// Estimate token count from SKILL.md file size (bytes / 4 ≈ tokens).
+// Estimate token count from SKILL.md file size (bytes / 4 approx tokens).
 // Returns 0 when the file cannot be found.
 // ---------------------------------------------------------------------------
 function estimateTokens(skillId) {
@@ -94,37 +117,49 @@ function estimateTokens(skillId) {
 
   if (hasColon) {
     const [nsPrefix, baseName] = skillId.split(':', 2);
-    // Try namespace sub-skill paths first, then namespace-level SKILL.md
     const candidates = [
       path.join(SKILLS_DIR, nsPrefix, baseName, 'SKILL.md'),
       path.join(SKILLS_DIR, nsPrefix, baseName + '.disabled', 'SKILL.md'),
       path.join(SKILLS_DIR, nsPrefix, 'SKILL.md'),
       path.join(SKILLS_DIR, nsPrefix + '.disabled', 'SKILL.md'),
     ];
-    // Also check plugin cache paths
-    for (const pluginDir of fs.readdirSync(PLUGINS_CACHE).map(d => path.join(PLUGINS_CACHE, d))) {
-      try {
-        for (const pkgDir of fs.readdirSync(pluginDir)) {
-          for (const ver of fs.readdirSync(path.join(pluginDir, pkgDir))) {
-            const sp = path.join(pluginDir, pkgDir, ver, 'skills', baseName, 'SKILL.md');
-            const spDisabled = path.join(pluginDir, pkgDir, ver, 'skills', baseName + '.disabled', 'SKILL.md');
-            candidates.push(sp, spDisabled);
+    try {
+      for (const pluginDir of fs.readdirSync(PLUGINS_CACHE).map(d => path.join(PLUGINS_CACHE, d))) {
+        try {
+          for (const pkgDir of fs.readdirSync(pluginDir)) {
+            for (const ver of fs.readdirSync(path.join(pluginDir, pkgDir))) {
+              const sp = path.join(pluginDir, pkgDir, ver, 'skills', baseName, 'SKILL.md');
+              const spD = path.join(pluginDir, pkgDir, ver, 'skills', baseName + '.disabled', 'SKILL.md');
+              candidates.push(sp, spD);
+            }
           }
-        }
-      } catch (_) {
-        // ignore unreadable dirs
+        } catch (_) {}
       }
-    }
+    } catch (_) {}
     for (const c of candidates) {
       try { return Math.round(fs.statSync(c).size / 4); } catch (_) {}
     }
     return 0;
   }
 
-  // Non-namespaced
   const candidates = [
     path.join(SKILLS_DIR, skillId, 'SKILL.md'),
     path.join(SKILLS_DIR, skillId + '.disabled', 'SKILL.md'),
+    path.join(ULTRON_SKILLS_DIR, skillId, 'SKILL.md'),
+  ];
+  for (const c of candidates) {
+    try { return Math.round(fs.statSync(c).size / 4); } catch (_) {}
+  }
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Estimate token count for an agent .md file.
+// ---------------------------------------------------------------------------
+function estimateAgentTokens(agentId) {
+  const candidates = [
+    path.join(AGENTS_DIR, agentId + '.md'),
+    path.join(AGENTS_DIR, agentId + '.md.disabled'),
   ];
   for (const c of candidates) {
     try { return Math.round(fs.statSync(c).size / 4); } catch (_) {}
@@ -134,7 +169,6 @@ function estimateTokens(skillId) {
 
 // ---------------------------------------------------------------------------
 // Resolve the canonical path string stored in the registry.
-// Uses ~/.claude/skills/<namespace>/<base> for namespaced, else skills/<id>.
 // ---------------------------------------------------------------------------
 function resolveRegistryPath(skillId) {
   if (skillId.includes(':')) {
@@ -142,6 +176,82 @@ function resolveRegistryPath(skillId) {
     return `~/.claude/skills/${nsPrefix}/${baseName}`;
   }
   return `~/.claude/skills/${skillId}`;
+}
+
+// ---------------------------------------------------------------------------
+// Filesystem discovery — walk the three skill/agent directories and return
+// every asset that is not yet present in the registry.
+//
+// Each result: { id, registryPath, tokenEstimate, source, disabled }
+//   source: 'claude-skill' | 'claude-agent' | 'ultron-skill'
+// ---------------------------------------------------------------------------
+function scanFilesystemAssets(existingRegistry) {
+  const detected = [];
+
+  // --- ~/.claude/skills/<name>[.disabled]/SKILL.md ---
+  try {
+    for (const entry of fs.readdirSync(SKILLS_DIR)) {
+      const fullPath = path.join(SKILLS_DIR, entry);
+      if (!fs.statSync(fullPath).isDirectory()) continue;
+      const isDisabled = entry.endsWith('.disabled');
+      const id = isDisabled ? entry.slice(0, -9) : entry;
+      if (existingRegistry.has(id)) continue;
+      const skillMd = path.join(fullPath, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      detected.push({
+        id,
+        registryPath: `~/.claude/skills/${id}`,
+        tokenEstimate: Math.round(fs.statSync(skillMd).size / 4),
+        source: 'claude-skill',
+        disabled: isDisabled,
+      });
+    }
+  } catch (_) {}
+
+  // --- ~/.claude/agents/<name>.md[.disabled] ---
+  try {
+    for (const entry of fs.readdirSync(AGENTS_DIR)) {
+      const fullPath = path.join(AGENTS_DIR, entry);
+      if (!fs.statSync(fullPath).isFile()) continue;
+      let id = null;
+      let disabled = false;
+      if (entry.endsWith('.md.disabled')) {
+        id = entry.slice(0, -12);
+        disabled = true;
+      } else if (entry.endsWith('.md')) {
+        id = entry.slice(0, -3);
+      }
+      if (!id || id.toLowerCase() === 'readme') continue;
+      if (existingRegistry.has(id)) continue;
+      detected.push({
+        id,
+        registryPath: `~/.claude/agents/${id}.md`,
+        tokenEstimate: Math.round(fs.statSync(fullPath).size / 4),
+        source: 'claude-agent',
+        disabled,
+      });
+    }
+  } catch (_) {}
+
+  // --- ~/.ultron/skills/<name>/SKILL.md ---
+  try {
+    for (const entry of fs.readdirSync(ULTRON_SKILLS_DIR)) {
+      const fullPath = path.join(ULTRON_SKILLS_DIR, entry);
+      if (!fs.statSync(fullPath).isDirectory()) continue;
+      if (existingRegistry.has(entry)) continue;
+      const skillMd = path.join(fullPath, 'SKILL.md');
+      if (!fs.existsSync(skillMd)) continue;
+      detected.push({
+        id: entry,
+        registryPath: `~/.ultron/skills/${entry}`,
+        tokenEstimate: Math.round(fs.statSync(skillMd).size / 4),
+        source: 'ultron-skill',
+        disabled: false,
+      });
+    }
+  } catch (_) {}
+
+  return detected;
 }
 
 // ---------------------------------------------------------------------------
@@ -157,27 +267,30 @@ function buildRegistry() {
   let added = 0;
   let updated = 0;
 
+  // Pass 1 — dispatcher-declared ids
   for (const id of dispatcherIds) {
     const isKeepActive = FORCE_KEEP_ACTIVE.has(id);
     const tokenEstimate = estimateTokens(id);
     const regPath = resolveRegistryPath(id);
 
     if (merged.has(id)) {
-      // Entry exists — update path/token_estimate if stale, but never flip keep_active
       const prev = merged.get(id);
       const next = Object.assign({}, prev);
+      let changed = false;
       if (tokenEstimate > 0 && next.token_estimate !== tokenEstimate) {
         next.token_estimate = tokenEstimate;
-        updated++;
+        changed = true;
       }
       if (next.path !== regPath) {
         next.path = regPath;
+        changed = true;
+      }
+      if (changed) {
+        merged.set(id, next);
         updated++;
       }
-      merged.set(id, next);
     } else {
-      // New entry — add with defaults
-      const entry = {
+      merged.set(id, {
         id,
         name: id,
         path: regPath,
@@ -185,20 +298,52 @@ function buildRegistry() {
         requires_skill_tool: false,
         lazy_loadable: !isKeepActive,
         keep_active: isKeepActive,
-      };
-      merged.set(id, entry);
+      });
       added++;
     }
   }
 
-  return { entries: [...merged.values()], added, updated, total: merged.size };
+  // Pass 2 — filesystem scan for assets absent from the registry
+  const detected = scanFilesystemAssets(merged);
+  for (const asset of detected) {
+    const isKeepActive = FORCE_KEEP_ACTIVE.has(asset.id);
+    merged.set(asset.id, {
+      id: asset.id,
+      name: asset.id,
+      path: asset.registryPath,
+      token_estimate: asset.tokenEstimate,
+      requires_skill_tool: false,
+      lazy_loadable: !isKeepActive,
+      keep_active: isKeepActive,
+      detected_from_fs: asset.source,
+      fs_disabled: asset.disabled,
+    });
+    added++;
+  }
+
+  return {
+    entries: [...merged.values()],
+    added,
+    updated,
+    detected: detected.length,
+    detectedIds: detected.map(a => a.id),
+    total: merged.size,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 function main() {
-  const { entries, added, updated, total } = buildRegistry();
+  // --detect-only: just print what would be discovered, no writes
+  if (DETECT_ONLY) {
+    const existing = loadExistingRegistry();
+    const detected = scanFilesystemAssets(existing);
+    process.stdout.write(JSON.stringify(detected, null, 2) + '\n');
+    return;
+  }
+
+  const { entries, added, updated, detected, detectedIds, total } = buildRegistry();
 
   // Sort: keep_active first, then alphabetical by id
   entries.sort(function (a, b) {
@@ -212,14 +357,17 @@ function main() {
   if (DRY_RUN) {
     process.stdout.write(json);
     process.stderr.write(
-      `\n[dry-run] total=${total} added=${added} updated=${updated}\n`
+      `\n[dry-run] total=${total} added=${added} updated=${updated} detected_from_fs=${detected}\n`
     );
+    if (detected > 0) {
+      process.stderr.write(`[dry-run] newly detected: ${detectedIds.join(', ')}\n`);
+    }
     return;
   }
 
   fs.writeFileSync(REGISTRY_PATH, json, 'utf8');
   process.stdout.write(
-    JSON.stringify({ ok: true, total, added, updated, path: REGISTRY_PATH }) + '\n'
+    JSON.stringify({ ok: true, total, added, updated, detected, path: REGISTRY_PATH }) + '\n'
   );
 }
 

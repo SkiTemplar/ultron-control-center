@@ -31,9 +31,13 @@ use crate::ultron_root;
 pub struct PostInstallReport {
     /// True when `sync-registry.js` ran and exited 0.
     pub registry_synced: bool,
-    /// Stdout line from sync-registry (its `{ok,total,added,updated}` JSON) when
-    /// available — handy for the UI log.
+    /// Stdout line from sync-registry (its `{ok,total,added,updated,detected}` JSON)
+    /// when available — handy for the UI log.
     pub registry_summary: Option<String>,
+    /// How many new skills/agents were discovered from the filesystem scan and
+    /// added to the registry (assets that existed on disk but were not registered).
+    /// 0 when sync-registry did not run or reported no new detections.
+    pub newly_detected: u32,
     /// Candidate id created in the memory inbox (awaiting approval), if any.
     pub memory_candidate_id: Option<String>,
     /// Non-fatal notes (a missing `node`, dispatcher error, DB closed, …).
@@ -56,10 +60,18 @@ fn sync_registry_script() -> Result<PathBuf, String> {
     Ok(p)
 }
 
+/// Result of running `node sync-registry.js`.
+struct SyncRegistryResult {
+    /// The raw stdout line (JSON summary) for the UI log.
+    summary: String,
+    /// Number of new assets discovered from the filesystem scan.
+    newly_detected: u32,
+}
+
 /// Spawn `node sync-registry.js`. Windows-only `CREATE_NO_WINDOW` (0x0800_0000)
 /// keeps the subprocess from flashing a console window (same discipline as the
 /// `gh` spawns in `library.rs`). Returns the trimmed stdout summary on success.
-fn run_sync_registry() -> Result<String, String> {
+fn run_sync_registry() -> Result<SyncRegistryResult, String> {
     let script = sync_registry_script()?;
     // Resolve `node` explicitly so a clearer error surfaces when Node is absent
     // (instead of an opaque "program not found" from Command::spawn).
@@ -84,7 +96,21 @@ fn run_sync_registry() -> Result<String, String> {
             stderr.trim()
         ));
     }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let summary = raw.trim().to_string();
+
+    // Parse `detected` from the JSON summary line, e.g.
+    // {"ok":true,"total":179,"added":3,"updated":0,"detected":25,"path":"..."}
+    let newly_detected = summary
+        .as_str()
+        .parse::<serde_json::Value>()
+        .ok()
+        .and_then(|v| v.get("detected").and_then(|d| d.as_u64()))
+        .map(|n| n as u32)
+        .unwrap_or(0);
+
+    Ok(SyncRegistryResult { summary, newly_detected })
 }
 
 // ---------------------------------------------------------------------------
@@ -156,10 +182,11 @@ pub fn post_install_integrate(
     let mut report = PostInstallReport::default();
 
     match run_sync_registry() {
-        Ok(summary) => {
+        Ok(result) => {
             report.registry_synced = true;
-            if !summary.is_empty() {
-                report.registry_summary = Some(summary);
+            report.newly_detected = result.newly_detected;
+            if !result.summary.is_empty() {
+                report.registry_summary = Some(result.summary);
             }
         }
         Err(e) => report.warnings.push(format!("sync-registry skipped: {e}")),
