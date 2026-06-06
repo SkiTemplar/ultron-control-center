@@ -40,6 +40,98 @@ use serde::{Deserialize, Serialize};
 use crate::ultron_root;
 
 // ---------------------------------------------------------------------------
+// Retry / backoff helpers
+// ---------------------------------------------------------------------------
+
+/// Reason a provider call failed — used in metrics and retry decisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailReason {
+    /// HTTP 429 Too Many Requests — rate-limited.
+    RateLimit,
+    /// HTTP 529 or upstream overload signal.
+    Overloaded,
+    /// Network or connect timeout elapsed.
+    Timeout,
+    /// Any other non-transient error.
+    Error,
+}
+
+impl FailReason {
+    /// Returns true when it is safe to retry this kind of failure.
+    pub fn is_transient(self) -> bool {
+        matches!(self, FailReason::RateLimit | FailReason::Overloaded | FailReason::Timeout)
+    }
+
+    /// Classify an HTTP status code returned by a cloud provider.
+    pub fn from_http_status(status: u16) -> Self {
+        match status {
+            429 => FailReason::RateLimit,
+            529 => FailReason::Overloaded,
+            _ => FailReason::Error,
+        }
+    }
+}
+
+impl std::fmt::Display for FailReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            FailReason::RateLimit => "rate_limit",
+            FailReason::Overloaded => "overloaded",
+            FailReason::Timeout => "timeout",
+            FailReason::Error => "error",
+        };
+        f.write_str(s)
+    }
+}
+
+/// Jitter-enhanced backoff delays for retry attempts (0-indexed attempt number).
+/// Attempt 0 → ~500 ms, 1 → ~1000 ms, 2 → ~2000 ms, then capped at 4000 ms.
+/// Jitter is ±20 % of the base delay, derived from a simple linear-congruential
+/// mix of the attempt index and current nanos — no rand crate dependency.
+fn retry_delay_ms(attempt: u32) -> u64 {
+    let base: u64 = match attempt {
+        0 => 500,
+        1 => 1000,
+        2 => 2000,
+        _ => 4000,
+    };
+    // Simple deterministic jitter: ±20 % of base.
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos())
+        .unwrap_or(12345);
+    // Map nanos into [-0.2, +0.2] range relative to base.
+    let jitter_ratio = ((nanos % 1000) as f64 / 1000.0) * 0.4 - 0.2; // -0.2..+0.2
+    let jitter_ms = (base as f64 * jitter_ratio) as i64;
+    ((base as i64) + jitter_ms).max(100) as u64
+}
+
+/// Try `f` up to `max_retries + 1` times, sleeping with jitter-backoff between
+/// attempts. Only retries when the closure signals a transient `FailReason`.
+/// Returns `(CallOutcome, FailReason)` on ultimate failure.
+fn with_retry<F>(max_retries: u32, mut f: F) -> Result<CallOutcome, (String, FailReason)>
+where
+    F: FnMut() -> Result<CallOutcome, (String, FailReason)>,
+{
+    let mut last_err = (String::new(), FailReason::Error);
+    for attempt in 0..=max_retries {
+        match f() {
+            Ok(outcome) => return Ok(outcome),
+            Err((msg, reason)) => {
+                last_err = (msg, reason);
+                if !reason.is_transient() || attempt == max_retries {
+                    break;
+                }
+                let delay = retry_delay_ms(attempt);
+                std::thread::sleep(Duration::from_millis(delay));
+            }
+        }
+    }
+    Err(last_err)
+}
+
+// ---------------------------------------------------------------------------
 // Domain types
 // ---------------------------------------------------------------------------
 
@@ -189,6 +281,19 @@ pub struct DailyUsage {
     pub count: u64,
 }
 
+/// Per-routing-mode counters, reset daily. Keys are the mode strings used by
+/// the protocol commands: "dual", "minidual", "maxdual", "triple",
+/// "minitriple", "maxtriple". Incremented by `bump_metrics` when a `mode`
+/// is provided in `MetricSample`. Drives the soft-cap gauges for those modes.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ModeCounters {
+    /// Day (UTC, YYYY-MM-DD) this counter set belongs to. Auto-resets on change.
+    pub date: String,
+    /// counts[mode] = number of requests in this mode today.
+    #[serde(default)]
+    pub counts: HashMap<String, u64>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouterMetrics {
     pub tokens_saved_total: u64,
@@ -203,6 +308,15 @@ pub struct RouterMetrics {
     /// provider/modelo del rediseno del AI Router.
     #[serde(default)]
     pub by_model: HashMap<String, ModelMetrics>,
+    /// Per-routing-mode counters (dual/minidual/maxdual/triple/minitriple/maxtriple).
+    /// Reset daily. Drives soft-caps in the protocol commands.
+    #[serde(default)]
+    pub by_mode: ModeCounters,
+    /// Tally of last-failure reasons (rate_limit/overloaded/timeout/error).
+    /// Informational — never gating. Incremented whenever a provider call
+    /// exhausts all retries and ultimately fails.
+    #[serde(default)]
+    pub fail_reasons: HashMap<String, u64>,
 }
 
 /// Approximate published free-tier DAILY request limit (RPD) per provider.
@@ -967,8 +1081,10 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
     }
 
     let started = Instant::now();
-    let outcome = match provider.kind {
-        ProviderKind::Cli => call_cli(&provider, sample_prompt),
+    // test_zone uses the provider wrappers directly; map (String, FailReason)
+    // back to String for the TestResult surface.
+    let outcome: Result<CallOutcome, String> = match provider.kind {
+        ProviderKind::Cli => call_cli(&provider, sample_prompt).map_err(|(msg, _)| msg),
         _ => match provider.id.as_str() {
             "claude-haiku" => call_anthropic(
                 &provider,
@@ -976,42 +1092,42 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ),
+            ).map_err(|(msg, _)| msg),
             "codex" => call_openai_compat(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ),
+            ).map_err(|(msg, _)| msg),
             "groq" => call_openai_compat(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ),
+            ).map_err(|(msg, _)| msg),
             "deepseek" => call_openai_compat(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ),
+            ).map_err(|(msg, _)| msg),
             "gemini" => call_gemini(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ),
+            ).map_err(|(msg, _)| msg),
             "ollama" => call_ollama(
                 &provider,
                 &zone.primary.model,
                 sample_prompt,
                 zone.system_prompt.as_deref(),
                 zone.primary.max_tokens,
-            ),
+            ).map_err(|(msg, _)| msg),
             other => Err(format!("no wrapper implemented for provider '{}'", other)),
         },
     };
@@ -1035,6 +1151,8 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                 cost_per_mtok: cost_of_primary,
                 primary_cost_per_mtok: cost_of_primary,
                 latency_ms,
+                mode: None,
+                fail_reason: None,
             });
             TestResult {
                 ok: true,
@@ -1054,6 +1172,8 @@ fn test_zone(zone: &Zone, sample_prompt: &str) -> TestResult {
                 cost_per_mtok: cost_of_primary,
                 primary_cost_per_mtok: cost_of_primary,
                 latency_ms,
+                mode: None,
+                fail_reason: None,
             });
             TestResult {
                 ok: false,
@@ -1086,10 +1206,10 @@ fn call_anthropic(
     prompt: &str,
     system: Option<&str>,
     max_tokens: u32,
-) -> Result<CallOutcome, String> {
-    let client = http_client()?;
+) -> Result<CallOutcome, (String, FailReason)> {
+    let client = http_client().map_err(|e| (e, FailReason::Error))?;
     let key = std::env::var(&provider.key_env_var)
-        .map_err(|_| format!("missing {} env var", provider.key_env_var))?;
+        .map_err(|_| (format!("missing {} env var", provider.key_env_var), FailReason::Error))?;
     let url = format!("{}/v1/messages", provider.base_url.trim_end_matches('/'));
     // KIRKARDO R11.3 FIX-4: wrap the system prompt in an ephemeral cache
     // breakpoint so Anthropic deduplicates the (usually stable) system text
@@ -1121,14 +1241,18 @@ fn call_anthropic(
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("anthropic request failed: {}", e))?;
+        .map_err(|e| {
+            let reason = if e.is_timeout() { FailReason::Timeout } else { FailReason::Error };
+            (format!("anthropic request failed: {}", e), reason)
+        })?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("anthropic {}: {}", status, truncate(&text, 200)));
+        let reason = FailReason::from_http_status(status.as_u16());
+        return Err((format!("anthropic {}: {}", status, truncate(&text, 200)), reason));
     }
-    let v: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("parse anthropic response: {}", e))?;
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| (format!("parse anthropic response: {}", e), FailReason::Error))?;
     let out = v
         .get("content")
         .and_then(|c| c.get(0))
@@ -1155,10 +1279,10 @@ fn call_openai_compat(
     prompt: &str,
     system: Option<&str>,
     max_tokens: u32,
-) -> Result<CallOutcome, String> {
-    let client = http_client()?;
+) -> Result<CallOutcome, (String, FailReason)> {
+    let client = http_client().map_err(|e| (e, FailReason::Error))?;
     let key = std::env::var(&provider.key_env_var)
-        .map_err(|_| format!("missing {} env var", provider.key_env_var))?;
+        .map_err(|_| (format!("missing {} env var", provider.key_env_var), FailReason::Error))?;
     let url = format!(
         "{}/v1/chat/completions",
         provider.base_url.trim_end_matches('/')
@@ -1181,19 +1305,21 @@ fn call_openai_compat(
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("{} request failed: {}", provider.id, e))?;
+        .map_err(|e| {
+            let reason = if e.is_timeout() { FailReason::Timeout } else { FailReason::Error };
+            (format!("{} request failed: {}", provider.id, e), reason)
+        })?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
-        return Err(format!(
-            "{} {}: {}",
-            provider.id,
-            status,
-            truncate(&text, 200)
+        let reason = FailReason::from_http_status(status.as_u16());
+        return Err((
+            format!("{} {}: {}", provider.id, status, truncate(&text, 200)),
+            reason,
         ));
     }
     let v: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("parse {} response: {}", provider.id, e))?;
+        .map_err(|e| (format!("parse {} response: {}", provider.id, e), FailReason::Error))?;
     let out = v
         .get("choices")
         .and_then(|c| c.get(0))
@@ -1221,10 +1347,10 @@ fn call_gemini(
     prompt: &str,
     system: Option<&str>,
     max_tokens: u32,
-) -> Result<CallOutcome, String> {
-    let client = http_client()?;
+) -> Result<CallOutcome, (String, FailReason)> {
+    let client = http_client().map_err(|e| (e, FailReason::Error))?;
     let key = std::env::var(&provider.key_env_var)
-        .map_err(|_| format!("missing {} env var", provider.key_env_var))?;
+        .map_err(|_| (format!("missing {} env var", provider.key_env_var), FailReason::Error))?;
     let url = format!(
         "{}/v1beta/models/{}:generateContent",
         provider.base_url.trim_end_matches('/'),
@@ -1245,14 +1371,18 @@ fn call_gemini(
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("gemini request failed: {}", e))?;
+        .map_err(|e| {
+            let reason = if e.is_timeout() { FailReason::Timeout } else { FailReason::Error };
+            (format!("gemini request failed: {}", e), reason)
+        })?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("gemini {}: {}", status, truncate(&text, 200)));
+        let reason = FailReason::from_http_status(status.as_u16());
+        return Err((format!("gemini {}: {}", status, truncate(&text, 200)), reason));
     }
-    let v: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("parse gemini response: {}", e))?;
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| (format!("parse gemini response: {}", e), FailReason::Error))?;
     let out = v
         .get("candidates")
         .and_then(|c| c.get(0))
@@ -1282,16 +1412,17 @@ fn call_ollama(
     prompt: &str,
     system: Option<&str>,
     _max_tokens: u32,
-) -> Result<CallOutcome, String> {
-    let client = http_client()?;
+) -> Result<CallOutcome, (String, FailReason)> {
+    let client = http_client().map_err(|e| (e, FailReason::Error))?;
     // Pre-flight: ollama must actually be running locally.
     let tags_url = format!("{}/api/tags", provider.base_url.trim_end_matches('/'));
     if client.get(&tags_url).send().is_err() {
-        return Err(
+        return Err((
             "Ollama is not running. Start it with `ollama serve` or install it from \
              https://ollama.com/."
                 .into(),
-        );
+            FailReason::Error,
+        ));
     }
     let url = format!("{}/api/generate", provider.base_url.trim_end_matches('/'));
     let mut body = serde_json::json!({
@@ -1309,14 +1440,18 @@ fn call_ollama(
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("ollama request failed: {}", e))?;
+        .map_err(|e| {
+            let reason = if e.is_timeout() { FailReason::Timeout } else { FailReason::Error };
+            (format!("ollama request failed: {}", e), reason)
+        })?;
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     if !status.is_success() {
-        return Err(format!("ollama {}: {}", status, truncate(&text, 200)));
+        let reason = FailReason::from_http_status(status.as_u16());
+        return Err((format!("ollama {}: {}", status, truncate(&text, 200)), reason));
     }
-    let v: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| format!("parse ollama response: {}", e))?;
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| (format!("parse ollama response: {}", e), FailReason::Error))?;
     let out = v
         .get("response")
         .and_then(|r| r.as_str())
@@ -1358,18 +1493,31 @@ fn clamp_max_tokens(requested: u32, default: u32) -> u32 {
 // ---------------------------------------------------------------------------
 
 /// Invoke a CLI provider synchronously and return its stdout on success.
-/// CLI providers no exponen contadores de tokens, asi que usage queda en 0.
-fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, String> {
+/// CLI providers do not expose token counters, so usage stays at zero.
+///
+/// Codex-cli protocol requirement: `--sandbox read-only` is always appended
+/// for the `codex-cli` provider (id == "codex-cli" or cli_command == "codex").
+/// Gemini CLI does not support that flag and is left unchanged.
+fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, FailReason)> {
     let cmd = provider
         .cli_command
         .as_deref()
-        .ok_or_else(|| format!("provider '{}' has no cli_command configured", provider.id))?;
+        .ok_or_else(|| {
+            (
+                format!("provider '{}' has no cli_command configured", provider.id),
+                FailReason::Error,
+            )
+        })?;
 
     let model = provider.default_model.as_str();
 
-    // Build the argument list.  Both supported CLIs share the same flags.
+    // Build the argument list. Both CLIs share -p / --model flags.
+    // Codex requires --sandbox read-only (protocol mandate); gemini does not
+    // support that flag, so we only append it when the provider is codex-cli.
     let prompt_flag = "-p";
     let model_flag = "--model";
+    let is_codex = provider.id == "codex-cli"
+        || provider.cli_command.as_deref() == Some("codex");
 
     // SAFETY: all strings are owned by the caller; no raw pointers.
     #[cfg(target_os = "windows")]
@@ -1397,38 +1545,47 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, String> {
         let safe_prompt = sanitize_for_cmd(prompt);
         let safe_cmd = sanitize_for_cmd(cmd);
         let safe_model = sanitize_for_cmd(model);
-        let shell_arg =
-            format!("{safe_cmd} {prompt_flag} \"{safe_prompt}\" {model_flag} {safe_model}");
+        // Append --sandbox read-only for codex-cli only.
+        let sandbox_flags = if is_codex { " --sandbox read-only" } else { "" };
+        let shell_arg = format!(
+            "{safe_cmd} {prompt_flag} \"{safe_prompt}\" {model_flag} {safe_model}{sandbox_flags}"
+        );
         std::process::Command::new("cmd")
             .args(["/C", &shell_arg])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .output()
-            .map_err(|e| format!("spawn cmd /C {cmd}: {e}"))?
+            .map_err(|e| (format!("spawn cmd /C {cmd}: {e}"), FailReason::Error))?
     };
 
     #[cfg(not(target_os = "windows"))]
-    let output = std::process::Command::new(cmd)
-        .args([prompt_flag, prompt, model_flag, model])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|e| format!("spawn {cmd}: {e}"))?;
+    let output = {
+        let mut args = vec![prompt_flag, prompt, model_flag, model];
+        // Append --sandbox read-only for codex-cli only.
+        if is_codex {
+            args.extend_from_slice(&["--sandbox", "read-only"]);
+        }
+        std::process::Command::new(cmd)
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|e| (format!("spawn {cmd}: {e}"), FailReason::Error))?
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "{cmd} exited {}: {}",
-            output.status,
-            truncate(stderr.trim(), 300)
+        return Err((
+            format!("{cmd} exited {}: {}", output.status, truncate(stderr.trim(), 300)),
+            FailReason::Error,
         ));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     if stdout.trim().is_empty() {
-        return Err(format!("{cmd} produced no output"));
+        return Err((format!("{cmd} produced no output"), FailReason::Error));
     }
     Ok(CallOutcome {
         text: stdout,
@@ -1630,74 +1787,53 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         // provider immediately — no sleep, no retry.  Providers WITHOUT a known
         // free-tier limit (paid tier) still get the full retry budget, because
         // their 429s are transient rate-limits, not quota exhaustion.
+        // Free-tier providers: on a 429 we skip immediately (no retry budget).
+        // Paid-tier providers: retried inside try_assignment_call via with_retry.
         let has_free_tier_cap = free_tier_daily_limit(&assignment.provider_id).is_some();
-        let effective_retries = if has_free_tier_cap { 0 } else { MAX_429_RETRIES };
 
-        let mut backoff_ms = BACKOFF_429_BASE_MS;
-        for attempt in 0..=effective_retries {
-            let started = Instant::now();
-            let outcome =
-                try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
-            let latency_ms = started.elapsed().as_millis() as u64;
+        let started = Instant::now();
+        let outcome = try_assignment_call(assignment, prompt, zone.system_prompt.as_deref());
+        let latency_ms = started.elapsed().as_millis() as u64;
 
-            // Detect a 429 / rate-limit by inspecting the error string. All
-            // provider wrappers include the HTTP status code in their error
-            // messages (e.g. "HTTP 429", "status 429", "RESOURCE_EXHAUSTED").
-            let is_rate_limited = outcome.as_ref().err().map_or(false, |e| {
-                let eu = e.to_uppercase();
-                eu.contains("429")
-                    || eu.contains("RATE_LIMIT")
-                    || eu.contains("RESOURCE_EXHAUSTED")
-                    || eu.contains("QUOTA_EXCEEDED")
-                    || eu.contains("TOO_MANY_REQUESTS")
-            });
+        // Detect a 429 / rate-limit. try_assignment_call now classifies via
+        // FailReason, but the legacy string-heuristic is kept for the
+        // quota short-circuit path below (free-tier detection).
+        let is_rate_limited = outcome.as_ref().err().map_or(false, |(_, reason)| {
+            matches!(reason, FailReason::RateLimit | FailReason::Overloaded)
+        });
 
-            let success = outcome.is_ok();
-            let out_tokens = outcome.as_ref().map(|c| c.usage.output_tokens).unwrap_or(0);
+        let success = outcome.is_ok();
+        let out_tokens = outcome.as_ref().map(|c| c.usage.output_tokens).unwrap_or(0);
+        let fail_reason = outcome.as_ref().err().map(|(_, reason)| *reason);
 
-            // Persist metrics for every attempt — only way the dashboard counts
-            // move at all. Best-effort: a metrics write failure does not abort.
-            let _ = bump_metrics(MetricSample {
-                provider_id: &assignment.provider_id,
-                model: &assignment.model,
-                success,
-                output_tokens: out_tokens,
-                cost_per_mtok: cost_of(&assignment.provider_id),
-                primary_cost_per_mtok: primary_cost,
-                latency_ms,
-            });
+        // Persist metrics for every attempt — only way the dashboard counts
+        // move at all. Best-effort: a metrics write failure does not abort.
+        let _ = bump_metrics(MetricSample {
+            provider_id: &assignment.provider_id,
+            model: &assignment.model,
+            success,
+            output_tokens: out_tokens,
+            cost_per_mtok: cost_of(&assignment.provider_id),
+            primary_cost_per_mtok: primary_cost,
+            latency_ms,
+            mode: None,
+            fail_reason,
+        });
 
-            match outcome {
-                Ok(co) => return Ok(co.text),
-                Err(_e) if is_rate_limited && attempt < effective_retries => {
-                    // Rate-limited but retries remain: wait and try again.
-                    // (Only reached for paid-tier providers where effective_retries > 0.)
-                    last_error = format!(
-                        "[{}/{}] 429 rate-limited (attempt {}/{}), \
-                         retrying after {}ms",
-                        assignment.provider_id,
-                        assignment.model,
-                        attempt + 1,
-                        effective_retries,
-                        backoff_ms,
-                    );
-                    std::thread::sleep(Duration::from_millis(backoff_ms));
-                    backoff_ms = backoff_ms.saturating_mul(2);
-                }
-                Err(e) => {
-                    // Non-429 error, retries exhausted, or free-tier 429
-                    // short-circuit: move to the next provider immediately.
-                    last_error = if is_rate_limited && has_free_tier_cap {
-                        format!(
-                            "[{}/{}] 429 on free-tier provider — quota exhausted, \
-                             skipping without backoff",
-                            assignment.provider_id, assignment.model
-                        )
-                    } else {
-                        format!("[{}/{}] {}", assignment.provider_id, assignment.model, e)
-                    };
-                    continue 'provider;
-                }
+        match outcome {
+            Ok(co) => return Ok(co.text),
+            Err((e, _reason)) => {
+                // Free-tier 429 short-circuit: give a specific message.
+                last_error = if is_rate_limited && has_free_tier_cap {
+                    format!(
+                        "[{}/{}] 429 on free-tier provider — quota exhausted, \
+                         skipping without backoff",
+                        assignment.provider_id, assignment.model
+                    )
+                } else {
+                    format!("[{}/{}] {}", assignment.provider_id, assignment.model, e)
+                };
+                continue 'provider;
             }
         }
     }
@@ -1707,23 +1843,32 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     ))
 }
 
-/// Try a single provider+model assignment. Shared with `route()` and
-/// (eventually) `test_zone` once we refactor that call site.
+/// Try a single provider+model assignment with up to 3 retries for transient
+/// errors (HTTP 429, 529, timeout) on cloud providers. CLI and local providers
+/// are not retried — their errors are always non-transient from the router's
+/// perspective.
+///
+/// Returns `Result<CallOutcome, (String, FailReason)>` so callers can
+/// record the classified failure reason in metrics.
 fn try_assignment_call(
     assignment: &ZoneAssignment,
     prompt: &str,
     system_prompt: Option<&str>,
-) -> Result<CallOutcome, String> {
-    let providers = load_providers()?;
+) -> Result<CallOutcome, (String, FailReason)> {
+    let providers = load_providers()
+        .map_err(|e| (e, FailReason::Error))?;
     let provider = providers
         .iter()
         .find(|p| p.id == assignment.provider_id)
-        .ok_or_else(|| format!("unknown provider '{}'", assignment.provider_id))?;
+        .ok_or_else(|| (format!("unknown provider '{}'", assignment.provider_id), FailReason::Error))?
+        .clone();
 
     match provider.kind {
         ProviderKind::Cli => {
             // CLI providers authenticate via OAuth subscription — no API key.
             // Skip if the binary is not installed on PATH.
+            // CLIs are not retried: transient auth/process failures require
+            // human intervention, not automatic back-off.
             let cmd = provider.cli_command.as_deref().unwrap_or("");
             if cmd.is_empty() || !detect_cli(cmd) {
                 let install_hint = match cmd {
@@ -1731,18 +1876,24 @@ fn try_assignment_call(
                     "gemini" => "Install with: npm install -g @google/gemini-cli",
                     _ => "Install the CLI and ensure it is on PATH",
                 };
-                return Err(format!("CLI '{}' not found on PATH. {}", cmd, install_hint));
+                return Err((
+                    format!("CLI '{}' not found on PATH. {}", cmd, install_hint),
+                    FailReason::Error,
+                ));
             }
-            return call_cli(provider, prompt);
+            return call_cli(&provider, prompt);
         }
         ProviderKind::Cloud if !provider.key_env_var.is_empty() => {
             match std::env::var(&provider.key_env_var) {
                 Ok(v) if !v.trim().is_empty() && !looks_like_placeholder(&v) => {}
                 _ => {
-                    return Err(format!(
-                        "Provider '{}' has no API key. \
-                         Set {} or configure it in Settings > AI Router.",
-                        assignment.provider_id, provider.key_env_var
+                    return Err((
+                        format!(
+                            "Provider '{}' has no API key. \
+                             Set {} or configure it in Settings > AI Router.",
+                            assignment.provider_id, provider.key_env_var
+                        ),
+                        FailReason::Error,
                     ));
                 }
             }
@@ -1750,41 +1901,28 @@ fn try_assignment_call(
         _ => {}
     }
 
+    // Cloud and local providers: wrap HTTP call in retry-with-backoff.
+    // Max 3 retries (4 total attempts) for transient errors only.
+    const MAX_RETRIES: u32 = 3;
     match provider.id.as_str() {
-        "claude-haiku" => call_anthropic(
-            provider,
-            &assignment.model,
-            prompt,
-            system_prompt,
-            assignment.max_tokens,
-        ),
-        "codex" | "groq" | "deepseek" => call_openai_compat(
-            provider,
-            &assignment.model,
-            prompt,
-            system_prompt,
-            assignment.max_tokens,
-        ),
-        "gemini" => call_gemini(
-            provider,
-            &assignment.model,
-            prompt,
-            system_prompt,
-            assignment.max_tokens,
-        ),
-        "ollama" => call_ollama(
-            provider,
-            &assignment.model,
-            prompt,
-            system_prompt,
-            assignment.max_tokens,
-        ),
-        other => Err(format!("no wrapper implemented for provider '{}'", other)),
+        "claude-haiku" => with_retry(MAX_RETRIES, || {
+            call_anthropic(&provider, &assignment.model, prompt, system_prompt, assignment.max_tokens)
+        }),
+        "codex" | "groq" | "deepseek" => with_retry(MAX_RETRIES, || {
+            call_openai_compat(&provider, &assignment.model, prompt, system_prompt, assignment.max_tokens)
+        }),
+        "gemini" => with_retry(MAX_RETRIES, || {
+            call_gemini(&provider, &assignment.model, prompt, system_prompt, assignment.max_tokens)
+        }),
+        "ollama" => with_retry(MAX_RETRIES, || {
+            call_ollama(&provider, &assignment.model, prompt, system_prompt, assignment.max_tokens)
+        }),
+        other => Err((format!("no wrapper implemented for provider '{}'", other), FailReason::Error)),
     }
 }
 
 /// Una muestra de métricas tras un intento de ruta. Agrupa los parámetros
-/// para evitar una firma con 7 argumentos posicionales.
+/// para evitar una firma con 7+ argumentos posicionales.
 struct MetricSample<'a> {
     provider_id: &'a str,
     model: &'a str,
@@ -1793,6 +1931,11 @@ struct MetricSample<'a> {
     cost_per_mtok: f64,
     primary_cost_per_mtok: f64,
     latency_ms: u64,
+    /// Optional routing mode (dual/minidual/maxdual/triple/minitriple/maxtriple).
+    /// When `Some`, the `by_mode` counter for that mode is incremented daily.
+    mode: Option<&'a str>,
+    /// When the call ultimately failed after all retries, the classified reason.
+    fail_reason: Option<FailReason>,
 }
 
 /// Mutate the persisted metrics so the dashboard moves. Best-effort (un fallo
@@ -1855,10 +1998,30 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
     let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
     let du = metrics.daily.entry(s.provider_id.to_string()).or_default();
     if du.date != today {
-        du.date = today;
+        du.date = today.clone();
         du.count = 0;
     }
     du.count = du.count.saturating_add(1);
+
+    // --- Per-mode daily counters (dual/minidual/maxdual/triple/…) ---
+    if let Some(mode) = s.mode {
+        if metrics.by_mode.date != today {
+            // New UTC day — reset all mode counters.
+            metrics.by_mode.date = today;
+            metrics.by_mode.counts.clear();
+        }
+        let mc = metrics.by_mode.counts.entry(mode.to_string()).or_insert(0);
+        *mc = mc.saturating_add(1);
+    }
+
+    // --- Fail-reason tally (informational, never gating) ---
+    if let Some(reason) = s.fail_reason {
+        let rc = metrics
+            .fail_reasons
+            .entry(reason.to_string())
+            .or_insert(0);
+        *rc = rc.saturating_add(1);
+    }
 
     write_json(&metrics_path()?, &metrics)
 }
