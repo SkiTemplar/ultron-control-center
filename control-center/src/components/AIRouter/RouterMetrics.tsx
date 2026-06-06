@@ -17,7 +17,8 @@ const PLACEHOLDER_METRICS: RouterMetricsType = {
   tokens_saved_total: 0,
   cost_saved_usd: 0,
   by_class: {},
-  fallback_rate: 0,
+  real_fallback_rate: 0,
+  attempt_failure_rate: 0,
   by_model: {},
 };
 
@@ -116,7 +117,11 @@ export function RouterMetrics() {
       setMetrics({
         tokens_saved_total: result?.tokens_saved_total ?? 0,
         cost_saved_usd: result?.cost_saved_usd ?? 0,
-        fallback_rate: result?.fallback_rate ?? 0,
+        // Prefer the new contract fields; fall back to legacy fallback_rate if absent.
+        real_fallback_rate: result?.real_fallback_rate ?? result?.fallback_rate ?? 0,
+        attempt_failure_rate: result?.attempt_failure_rate ?? result?.fallback_rate ?? 0,
+        real_fallback_count: result?.real_fallback_count ?? 0,
+        routes_total: result?.routes_total ?? 0,
         by_class: result?.by_class ?? {},
         by_model: result?.by_model ?? {},
       });
@@ -194,7 +199,7 @@ export function RouterMetrics() {
             <StatCard
               label="Invocaciones"
               value={formatNum(totalCalls)}
-              sub={`${formatNum(totalTokens)} tokens · fallback ${((metrics.fallback_rate ?? 0) * 100).toFixed(0)}%`}
+              sub={`${formatNum(totalTokens)} tokens · fallback real ${((metrics.real_fallback_rate ?? 0) * 100).toFixed(0)}%`}
             />
             <StatCard
               label="Success rate"

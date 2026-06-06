@@ -18,8 +18,17 @@ interface ProviderUsageRow {
 
 interface RouterUsageSummary {
   providers: ProviderUsageRow[];
-  fallback_rate: number;
+  /** EMA de fallo por intento (ex-fallback_rate). */
+  attempt_failure_rate: number;
+  /** Fracción de rutas que cayeron a secundario (0.0..=1.0). */
+  real_fallback_rate: number;
+  /** Contador absoluto de rutas con fallback ganador. */
+  real_fallback_count: number;
+  /** Total de invocaciones de route() completadas. */
+  routes_total: number;
   zone_chains: Record<string, unknown>;
+  /** Campo legacy — puede estar ausente en versiones nuevas. */
+  fallback_rate?: number;
 }
 
 function SummaryStat({ label, value, color }: { label: string; value: string; color?: string }) {
@@ -62,17 +71,40 @@ export function RouterDashboard() {
   const zoneCount = summary ? Object.keys(summary.zone_chains).length : 0;
   const providerCount = summary ? summary.providers.length : 0;
   const keyedCount = summary ? summary.providers.filter((p) => p.key_present).length : 0;
-  const fallbackPct = summary ? Math.round(summary.fallback_rate * 100) : 0;
-  const fallbackColor =
-    fallbackPct > 50 ? "var(--color-danger)" : fallbackPct > 20 ? "var(--color-warn)" : "var(--color-success)";
+
+  // FIX 2: usar los campos correctos del contrato del backend.
+  // real_fallback_rate = fracción de rutas que cayeron a secundario (métrica honesta).
+  // attempt_failure_rate = EMA de fallo por intento (puede inflar el número).
+  const realFallbackPct = summary ? Math.round(summary.real_fallback_rate * 100) : 0;
+  const attemptFailurePct = summary ? Math.round(summary.attempt_failure_rate * 100) : 0;
+  const realFallbackColor =
+    realFallbackPct > 50
+      ? "var(--color-danger)"
+      : realFallbackPct > 20
+        ? "var(--color-warn)"
+        : "var(--color-success)";
+  const attemptColor =
+    attemptFailurePct > 50
+      ? "var(--color-danger)"
+      : attemptFailurePct > 20
+        ? "var(--color-warn)"
+        : "var(--color-success)";
 
   return (
     <div className="space-y-2">
       <div className="grid grid-cols-2 gap-3 px-6 pt-6 sm:grid-cols-4">
         <SummaryStat label="Zonas" value={String(zoneCount)} />
         <SummaryStat label="Providers con key" value={`${keyedCount}/${providerCount}`} />
-        <SummaryStat label="Fallback rate" value={`${fallbackPct}%`} color={fallbackColor} />
-        <SummaryStat label="Free-tier" value={keyedCount > 0 ? "Listo" : "Sin keys"} color={keyedCount > 0 ? "var(--color-success)" : "var(--color-text-faint)"} />
+        <SummaryStat
+          label="Fallback real (cae a secundario)"
+          value={`${realFallbackPct}%`}
+          color={realFallbackColor}
+        />
+        <SummaryStat
+          label="Tasa de fallo de intentos"
+          value={`${attemptFailurePct}%`}
+          color={attemptColor}
+        />
       </div>
 
       {/* Savings + per-model breakdown. */}

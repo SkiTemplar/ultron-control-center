@@ -238,13 +238,17 @@ export function ProviderCatalog() {
   const checkProvider = useCallback(async (id: string) => {
     setChecking((prev) => new Set([...prev, id]));
     try {
+      // FIX 3: invoke the real Tauri command (ai_router_health) with the
+      // provider id. The backend handles both HTTP providers and CLI providers
+      // (codex/gemini) via detect_cli — no HTTP call needed for those.
       const online = (await invoke("ai_router_health", {
         providerId: id,
       })) as boolean;
       setHealth((prev) => ({ ...prev, [id]: online }));
     } catch {
-      // Command unavailable — assume online so the table isn't all red.
-      setHealth((prev) => ({ ...prev, [id]: true }));
+      // Command genuinely failed (backend unavailable) — mark offline rather
+      // than lying as online. This surfaces real connectivity problems.
+      setHealth((prev) => ({ ...prev, [id]: false }));
     } finally {
       setChecking((prev) => {
         const next = new Set(prev);

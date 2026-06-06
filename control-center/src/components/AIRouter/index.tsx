@@ -13,7 +13,6 @@
 // Tauri commands consumed live inside the sub-components; see each file.
 
 import { useState } from "react";
-import { AIRouterIndex } from "./AIRouterIndex";
 import { ProviderCatalog } from "./ProviderCatalog";
 import { RouterDashboard } from "./RouterDashboard";
 import { ProxyControl } from "./ProxyControl";
@@ -30,11 +29,13 @@ export type {
   TestResult,
 } from "./types";
 
-type RouterSubTab = "dashboard" | "models" | "providers" | "keys" | "proxy";
+// NOTE: "models" sub-tab (Zonas de routing) intentionally excluded from the UI
+// per user decision 2026-06-06 — "no aportan, fatal". Backend zones.json and
+// all zone logic remain intact; only the tab is hidden.
+type RouterSubTab = "dashboard" | "providers" | "keys" | "proxy";
 
 const SUB_TABS: { id: RouterSubTab; label: string; hint: string }[] = [
   { id: "dashboard", label: "Dashboard", hint: "Ahorro y uso por modelo" },
-  { id: "models", label: "Modelos", hint: "Qué modelo para cada tarea" },
   { id: "providers", label: "Providers", hint: "Salud, coste y estado de keys" },
   { id: "keys", label: "Keys", hint: "Gestiona las API keys del entorno" },
   { id: "proxy", label: "Proxy", hint: "Activación free-tier" },
@@ -86,7 +87,6 @@ export function AIRouterPage() {
       <div className="flex-1 overflow-auto">
         <AIRouterErrorBoundary>
           {subTab === "dashboard" && <RouterDashboard />}
-          {subTab === "models" && <AIRouterIndex />}
           {subTab === "providers" && <ProviderCatalog />}
           {subTab === "keys" && (
             <div className="p-6">

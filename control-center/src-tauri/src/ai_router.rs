@@ -504,6 +504,15 @@ pub struct RouterMetrics {
     /// exhausts all retries and ultimately fails.
     #[serde(default)]
     pub fail_reasons: HashMap<String, u64>,
+    /// Total completed route() invocations (one per caller request, regardless
+    /// of how many provider attempts were made internally).
+    #[serde(default)]
+    pub routes_total: u64,
+    /// Number of route() calls where the winning provider was NOT the primary
+    /// (i.e. index > 0 in the fallback chain). Divide by routes_total to get
+    /// the true "fell back to secondary" rate.
+    #[serde(default)]
+    pub real_fallback_count: u64,
 }
 
 /// Approximate published free-tier DAILY request limit (RPD) per provider.
@@ -1842,6 +1851,17 @@ pub fn ai_router_health(provider_id: String) -> Result<bool, String> {
         .iter()
         .find(|p| p.id == provider_id)
         .ok_or_else(|| format!("provider '{}' not found", provider_id))?;
+
+    // CLI providers have no HTTP health endpoint — they authenticate via a
+    // local OAuth session inside the CLI binary. Checking for the binary in
+    // PATH is the correct availability signal (same logic as compute_key_status
+    // and the zone test path). Attempting an HTTP probe would always return
+    // false/offline because health_endpoint is None for these providers.
+    if provider.kind == ProviderKind::Cli {
+        let cmd = provider.cli_command.as_deref().unwrap_or("");
+        return Ok(!cmd.is_empty() && detect_cli(cmd));
+    }
+
     Ok(provider_health(provider))
 }
 
@@ -1945,6 +1965,10 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     let mut last_error = String::new();
     let chain = std::iter::once(&zone.primary).chain(zone.fallbacks.iter());
 
+    // Track which position in the chain ultimately succeeds so we can
+    // distinguish a true fallback (index > 0) from a primary success.
+    let mut chain_index: usize = 0;
+
     'provider: for assignment in chain {
         // Skip providers that have no usable API key. We record a soft error
         // in `last_error` so the final "all providers failed" message is
@@ -2036,7 +2060,11 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         });
 
         match outcome {
-            Ok((co, _retry_count)) => return Ok(co.text),
+            Ok((co, _retry_count)) => {
+                // Record the completed route and whether it required a fallback.
+                let _ = load_metrics_and_bump_route_counters(chain_index > 0);
+                return Ok(co.text);
+            }
             Err((e, _reason)) => {
                 // Free-tier 429 short-circuit: give a specific message.
                 last_error = if is_rate_limited && has_free_tier_cap {
@@ -2048,10 +2076,15 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
                 } else {
                     format!("[{}/{}] {}", assignment.provider_id, assignment.model, e)
                 };
+                chain_index = chain_index.saturating_add(1);
                 continue 'provider;
             }
         }
     }
+    // All providers failed — still count as a completed route (fell back,
+    // but no winner). Increment routes_total; real_fallback_count is NOT
+    // incremented because no fallback *succeeded*.
+    let _ = load_metrics_and_bump_route_counters(false);
     Err(format!(
         "all providers failed for zone '{}': {}",
         zone_id, last_error
@@ -2287,6 +2320,27 @@ fn apply_metric_sample(metrics: &mut RouterMetrics, s: &MetricSample<'_>, today:
     }
 }
 
+/// Atomically increments the per-route counters (`routes_total` and, when
+/// `used_fallback` is true, `real_fallback_count`) in the persisted metrics
+/// file.  Separated from `bump_metrics` so that `route()` can record one
+/// route-level event without duplicating the per-attempt `MetricSample` call.
+///
+/// Best-effort: a metrics I/O failure is silently ignored — routing must
+/// never fail because of a stats write error.
+fn load_metrics_and_bump_route_counters(used_fallback: bool) -> Result<(), String> {
+    let path = metrics_path()?;
+    let mut metrics: RouterMetrics = if path.exists() {
+        read_json(&path).unwrap_or_default()
+    } else {
+        RouterMetrics::default()
+    };
+    metrics.routes_total = metrics.routes_total.saturating_add(1);
+    if used_fallback {
+        metrics.real_fallback_count = metrics.real_fallback_count.saturating_add(1);
+    }
+    write_json(&path, &metrics)
+}
+
 /// Public Tauri command surface so the frontend (or a future summariser)
 /// can invoke `route` without going through the test surface.
 #[tauri::command]
@@ -2502,8 +2556,23 @@ pub struct ProviderUsageRow {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UsageSummary {
     pub providers: Vec<ProviderUsageRow>,
-    /// Global fallback rate across all routes (EMA 0.1 in route()).
+    /// EMA (α=0.1) over the 0/1 per-attempt success/failure stream.
+    /// Preserved for backward compatibility — the UI may read this field.
+    /// Semantically this is a *per-attempt* failure rate, NOT a per-route
+    /// fallback rate; see `real_fallback_rate` for the correct metric.
     pub fallback_rate: f64,
+    /// Same value as `fallback_rate`, renamed for clarity.  Use this field
+    /// in new UI code: it is the EMA of per-attempt failures (0.0 = all
+    /// attempts succeed on the first try; 1.0 = every attempt fails).
+    pub attempt_failure_rate: f64,
+    /// Fraction of completed route() calls where the winning provider was
+    /// NOT the primary (index > 0 in the fallback chain).  This is the
+    /// semantically correct "fell back to secondary" rate.  0.0 when
+    /// routes_total == 0.
+    pub real_fallback_rate: f64,
+    /// Raw counters behind real_fallback_rate, exposed for transparency.
+    pub real_fallback_count: u64,
+    pub routes_total: u64,
     /// Per-zone fallback chain: { zone_id -> [primary, fallback1, fallback2, ...] }.
     /// Lets the UI render "if primary X fails, will try Y then Z".
     pub zone_chains: HashMap<String, Vec<String>>,
@@ -2606,9 +2675,19 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
         zone_chains.insert(z.id.clone(), chain);
     }
 
+    let real_fallback_rate = if metrics.routes_total > 0 {
+        metrics.real_fallback_count as f64 / metrics.routes_total as f64
+    } else {
+        0.0
+    };
+
     Ok(UsageSummary {
         providers: rows,
         fallback_rate: metrics.fallback_rate,
+        attempt_failure_rate: metrics.fallback_rate,
+        real_fallback_rate,
+        real_fallback_count: metrics.real_fallback_count,
+        routes_total: metrics.routes_total,
         zone_chains,
     })
 }

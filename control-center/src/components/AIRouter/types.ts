@@ -188,8 +188,19 @@ export interface RouterMetrics {
   tokens_saved_total: number;
   cost_saved_usd: number;
   by_class: Record<string, ClassMetrics>;
-  /** Ratio of invocations that fell back to a secondary provider (0-1). */
-  fallback_rate: number;
+  /**
+   * @deprecated Nombre legacy — puede seguir presente en versiones antiguas del backend.
+   * Usar real_fallback_rate para la métrica honesta o attempt_failure_rate para EMA de intentos.
+   */
+  fallback_rate?: number;
+  /** EMA de fallo por intento (nombre correcto del backend). */
+  attempt_failure_rate?: number;
+  /** Fracción de rutas que cayeron a secundario (0.0..=1.0). */
+  real_fallback_rate?: number;
+  /** Contador absoluto de rutas con fallback ganador. */
+  real_fallback_count?: number;
+  /** Total de invocaciones de route() completadas. */
+  routes_total?: number;
   /** Métricas reales por modelo concreto (rediseño funcional 2026-05-30). */
   by_model?: Record<string, ModelMetrics>;
 }
