@@ -292,6 +292,15 @@ fn normalize_fact(raw: RawFact) -> Option<ProposedFact> {
 /// panics, never propagates. Logs to stderr in debug-friendly form so the
 /// event is not completely silent during development.
 fn call_json<T: DeserializeOwned>(zone: &str, prompt: &str) -> Option<T> {
+    // Hermetic tests: `route` is this module's ONLY network seam. Under
+    // `cargo test` a real provider call would be non-deterministic and would
+    // depend on whatever API keys happen to be in the ambient environment, so
+    // the `*_when_router_unavailable` contract tests below would flake on a dev
+    // machine that has keys set. Short-circuit to the fail-safe path; the pure
+    // parsing logic is exercised directly via `parse_json_tolerant`.
+    if cfg!(test) {
+        return None;
+    }
     match crate::ai_router::route(zone, prompt) {
         Ok(text) => parse_json_tolerant::<T>(&text),
         Err(e) => {

@@ -6,10 +6,11 @@
 //! `crate::mem0::redact` (which only scrubbed Mem0 `m0-` tokens and bare
 //! `Token ` headers) into a reusable detector for the memory write-path.
 //!
-//! STATUS (2026-06-04): this module is built and unit-tested in isolation.
-//! Wiring it into `MemoryService::create_candidate` is GATED on explicit
-//! confirmation because it touches the single-writer critical path; see
-//! `cockpit/memory-rework/STATE-RECONCILIATION-2026-06-04.md` and `CONTRACTS-2026-06-04.md`.
+//! STATUS (2026-06-06): wired into the single-writer critical path. The
+//! detector runs inside `MemoryService::create_candidate` (see
+//! `service.rs`: `redact_in_place` over title/summary/content/json + tags,
+//! and `classify_sensitivity` to mark the promoted item `Secret`), so no
+//! detected credential reaches `brain.db`, Qdrant, logs or backups.
 //!
 //! Detection is dependency-free (no `regex`): it walks whitespace-delimited
 //! words and recognises well-known credential shapes by prefix, plus
@@ -162,7 +163,7 @@ pub fn detect_secrets(text: &str) -> Vec<SecretHit> {
             let end = match text[begin..].find("-----END ") {
                 Some(rel) => {
                     let after = begin + rel;
-                    
+
                     text[after..].find('\n').map_or(text.len(), |nl| after + nl)
                 }
                 None => text.len(),

@@ -140,10 +140,10 @@ fn check_sqlite() -> DoctorCheck {
     if integrity != "ok" {
         return DoctorCheck::error("sqlite", format!("integrity_check={integrity}"), data);
     }
-    if !(2..=3).contains(&user_version) {
+    if !(2..=4).contains(&user_version) {
         return DoctorCheck::warn(
             "sqlite",
-            format!("user_version inesperado: {user_version} (esperado 2 o 3)"),
+            format!("user_version inesperado: {user_version} (esperado 2..=4)"),
             data,
         );
     }
