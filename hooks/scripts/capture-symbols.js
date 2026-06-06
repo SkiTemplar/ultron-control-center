@@ -166,7 +166,13 @@ function main() {
     if (prev && Date.now() - (prev.ts || 0) < DEBOUNCE_ARCH_MS) { emit(''); return; }
     const { what, tags, snippet } = summariseArch(absFile, lines);
     const summary = `Decision tecnica: ${what} en ${rel}${snippet ? ` — ${snippet}` : ''}`;
-    const payload = { type: 'decision', scope: project ? 'project' : 'global', summary, project, importance: 0.6, tags, source: 'posttooluse_arch', confidence: 0.7, file_path: rel };
+    // confidence BELOW REJECT_THRESHOLD (0.55, auto_approve.rs): a mechanical
+    // "config/docs file changed" edit is NOT an architectural decision — it was
+    // flooding the `decision` type with config/dependency noise. Emitted at 0.4
+    // so classify_band rejects it (kept as a candidate for audit, never ACTIVE).
+    // Real architectural decisions are distilled from the transcript by the Stop
+    // hook (stop-compress-session.js), not mechanically per-file-touch.
+    const payload = { type: 'decision', scope: project ? 'project' : 'global', summary, project, importance: 0.6, tags, source: 'posttooluse_arch', confidence: 0.4, file_path: rel };
     const id = emitCandidate(payload);
     seen[key] = { ts: Date.now() };
     saveSeen(seen);
@@ -192,7 +198,15 @@ function main() {
     const summary = `\`${sym.name}\` definido en ${symbolKey}:${line} — ${sym.signature}`;
     // type=codebase_fact: MemoryType canonico que SI parsea (no existe
     // code_location -> caeria a Fact). code_location queda como TAG filtrable.
-    const payload = { type: 'codebase_fact', scope: project ? 'project' : 'global', summary, project, importance: 0.4, tags: ['code_location', lang, action === 'update' ? 'moved' : 'new'], source: 'posttooluse_symbol', confidence: overCap ? 0.6 : 0.95, symbol: symbolKey, file_path: rel, line, signature: sym.signature, recommended_action: action };
+    // confidence BELOW REJECT_THRESHOLD (0.55, auto_approve.rs) ON PURPOSE.
+    // Per-symbol locations are codegraph data, NOT conversational memory; at the
+    // old 0.95 they cleared the 0.85 auto-approve floor and flooded ACTIVE memory
+    // (478 codebase_fact items), polluting the conversational recall pack. Emitting
+    // at 0.5 (0.35 over the session cap) makes classify_band REJECT them, so they
+    // stop contaminating recall. The codegraph EDGES are still captured separately
+    // (emitEdge below) for impact-analysis; raise this only once codegraph reads
+    // from a dedicated space instead of the shared memory_items table.
+    const payload = { type: 'codebase_fact', scope: project ? 'project' : 'global', summary, project, importance: 0.4, tags: ['code_location', lang, action === 'update' ? 'moved' : 'new'], source: 'posttooluse_symbol', confidence: overCap ? 0.35 : 0.5, symbol: symbolKey, file_path: rel, line, signature: sym.signature, recommended_action: action };
     const id = emitCandidate(payload);
     if (id) created++; else skipped++;
     seen[ledgerKey] = { ts: Date.now() };
