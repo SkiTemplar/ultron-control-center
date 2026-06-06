@@ -522,16 +522,32 @@ function loadRegistry() {
 
 /**
  * Check whether a candidate skill id is marked lazy_loadable in the registry.
+ *
+ * Matching strategy (namespaced ids like "superpowers:brainstorming"):
+ *   1. Try the full namespaced id  → registry entry id === "superpowers:brainstorming"
+ *   2. Try the base name (after ':') → registry entry id === "brainstorming"
+ *   3. Try the namespace (before ':') → registry entry id === "superpowers"
+ * This ensures plugin skills registered under their namespace folder are found.
+ *
  * @param {string} skillId
  * @returns {boolean}
  */
 function isLazyLoadable(skillId) {
   const registry = loadRegistry();
   if (!registry) return false;
-  // Normalize: strip namespaced prefixes like "superpowers:", "feature-dev:", etc.
-  const baseId = skillId.includes(':') ? skillId.split(':')[1] : skillId;
+
+  const hasColon = skillId.includes(':');
+  const nsPrefix = hasColon ? skillId.split(':')[0] : null;  // "superpowers"
+  const baseName = hasColon ? skillId.split(':')[1] : skillId; // "brainstorming"
+
   const entry = registry.find(function (r) {
-    return r.id === skillId || r.id === baseId;
+    // 1. Exact full id match ("superpowers:brainstorming")
+    if (r.id === skillId) return true;
+    // 2. Base name match ("brainstorming")
+    if (r.id === baseName) return true;
+    // 3. Namespace folder match ("superpowers") — covers the namespace-level SKILL.md
+    if (nsPrefix && r.id === nsPrefix) return true;
+    return false;
   });
   return entry ? entry.lazy_loadable === true : false;
 }
@@ -558,19 +574,48 @@ function recordInjection(skillId) {
 
 /**
  * Resolve the SKILL.md path for a given skill id.
- * Handles namespaced ids like "superpowers:brainstorming" -> skills/superpowers/SKILL.md.
+ *
+ * Namespaced resolution ("superpowers:brainstorming"):
+ *   Primary:   skills/superpowers/brainstorming/SKILL.md  (sub-skill inside namespace folder)
+ *   Secondary: skills/superpowers/SKILL.md                (namespace-level catch-all)
+ *
+ * Non-namespaced resolution ("brainstorming"):
+ *   Primary:   skills/brainstorming/SKILL.md
+ *
+ * Each candidate is also tried with the `.disabled` suffix that apply-lazy-skills.ps1
+ * uses when deactivating a skill folder (folder renamed to `<name>.disabled`).
+ *
  * @param {string} skillId
  * @returns {string}
  */
 function resolveSkillMdPath(skillId) {
-  // Namespaced: "superpowers:brainstorming" -> use the namespace folder
-  const base = skillId.includes(':') ? skillId.split(':')[0] : skillId;
-  // Las skills lazy_loadable se DESACTIVAN renombrando su carpeta a <id>.disabled
-  // (apply-lazy-skills.ps1). Probar esa ruta primero para que el lazy-inject las
-  // encuentre tras la desactivacion; fallback a la carpeta activa.
-  const disabled = path.join(SKILLS_DIR, base + '.disabled', 'SKILL.md');
+  const hasColon = skillId.includes(':');
+
+  if (hasColon) {
+    const [nsPrefix, baseName] = skillId.split(':', 2);
+    // Candidates in priority order
+    const candidates = [
+      // 1. Sub-skill path: skills/superpowers/brainstorming/SKILL.md
+      path.join(SKILLS_DIR, nsPrefix, baseName, 'SKILL.md'),
+      // 2. Sub-skill disabled: skills/superpowers/brainstorming.disabled/SKILL.md
+      path.join(SKILLS_DIR, nsPrefix, baseName + '.disabled', 'SKILL.md'),
+      // 3. Namespace-level active: skills/superpowers/SKILL.md
+      path.join(SKILLS_DIR, nsPrefix, 'SKILL.md'),
+      // 4. Namespace folder disabled: skills/superpowers.disabled/SKILL.md
+      path.join(SKILLS_DIR, nsPrefix + '.disabled', 'SKILL.md'),
+    ];
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+    // Fall back to namespace folder even if not confirmed to exist (will fail gracefully)
+    return candidates[0];
+  }
+
+  // Non-namespaced: try disabled variant first (active after apply-lazy-skills.ps1),
+  // then active folder.
+  const disabled = path.join(SKILLS_DIR, skillId + '.disabled', 'SKILL.md');
   if (fs.existsSync(disabled)) return disabled;
-  return path.join(SKILLS_DIR, base, 'SKILL.md');
+  return path.join(SKILLS_DIR, skillId, 'SKILL.md');
 }
 
 /**
@@ -632,7 +677,17 @@ async function fetchLazySkillContent(candidates) {
     return true;
   });
 
-  if (eligible.length === 0) return result;
+  if (eligible.length === 0) {
+    // Still log the attempt so compute-metrics.py can track injection_rate = 0 cases
+    safeLog({
+      level: 'info',
+      msg: 'lazy_injection_attempted',
+      candidates: candidates.length,
+      eligible: eligible.length,
+      injected: 0,
+    });
+    return result;
+  }
 
   // Read all eligible in parallel (single Promise.all, bounded by timeout each)
   const reads = eligible.map(async function (c) {
@@ -649,6 +704,16 @@ async function fetchLazySkillContent(candidates) {
       recordInjection(item.id);
     }
   }
+
+  // Telemetry: log final injection outcome with {candidates, eligible, injected}
+  safeLog({
+    level: 'info',
+    msg: 'lazy_injection_attempted',
+    candidates: candidates.length,
+    eligible: eligible.length,
+    injected: result.size,
+    injected_ids: Array.from(result.keys()),
+  });
 
   return result;
 }

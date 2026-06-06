@@ -14,18 +14,54 @@
     actions are preceded by a -WhatIf dry-run summary unless -Force is
     also specified.
 
+    With -AutoCompress the script compresses any quarantine directory whose
+    total size exceeds $AutoCompressThresholdGB GB (default 1 GB) into a
+    .zip archive.  The original directory is removed only after the archive
+    is confirmed present.  -WhatIf is honoured; -Force skips confirmation.
+
+    With -PurgeExpired the script deletes quarantine directories (or their
+    .zip archives) whose last-write time is older than $PurgeExpiredDays
+    days (default 28 days / 4 weeks).  -WhatIf IS ACTIVE BY DEFAULT for
+    this flag -- you must also pass -Force to execute actual deletions.
+
     This script NEVER deletes anything silently.  Every destructive step
     is guarded by an explicit confirmation prompt (or -Force to skip it).
+
+    DISK HYGIENE POLICY (see docs/MAINTAINERS.md -- Disk Hygiene):
+    * .fastembed_cache in ~/.ultron/.fastembed_cache is managed separately
+      (do NOT pass that path to this script).
+    * Quarantine directories are named _cleanup_quarantine_<YYYY-MM-DD>
+      and accumulate during wave-based refactors.
+    * Recommended cadence: run -AutoCompress weekly; -PurgeExpired monthly.
 
 .PARAMETER Apply
     When specified, compress each quarantine to .zip and delete the source.
 
 .PARAMETER Force
-    Skip confirmation prompts.  Only meaningful together with -Apply.
+    Skip confirmation prompts.  Required together with -PurgeExpired to
+    execute actual deletions (WhatIf is default for purge).
+
+.PARAMETER AutoCompress
+    Compress quarantine directories whose combined size exceeds
+    AutoCompressThresholdGB (default 1 GB) into a .zip archive next to the
+    directory, then remove the original directory.  No deletions happen
+    without a .zip being confirmed on disk first.
+
+.PARAMETER AutoCompressThresholdGB
+    Size threshold (in GB) above which -AutoCompress acts on a directory.
+    Default: 1 (i.e. 1 GB).
+
+.PARAMETER PurgeExpired
+    Delete quarantine directories (or .zip archives) whose last-write
+    timestamp is older than PurgeExpiredDays days.  -WhatIf IS ON BY
+    DEFAULT; add -Force to execute real deletions.
+
+.PARAMETER PurgeExpiredDays
+    Age threshold (in days) for -PurgeExpired.  Default: 28 (4 weeks).
 
 .PARAMETER WhatIf
-    (Standard PowerShell switch.)  When used with -Apply, show what would
-    happen without actually doing it.
+    (Standard PowerShell switch.)  When used with -Apply or -AutoCompress,
+    show what would happen without actually doing it.
 
 .EXAMPLE
     # Just report sizes (safe, default)
@@ -42,11 +78,35 @@
 .EXAMPLE
     # Compress and delete everything without prompts
     .\cleanup-quarantine.ps1 -Apply -Force
+
+.EXAMPLE
+    # Compress directories larger than 1 GB (dry-run by default via -WhatIf)
+    .\cleanup-quarantine.ps1 -AutoCompress -WhatIf
+
+.EXAMPLE
+    # Compress directories larger than 1 GB (execute)
+    .\cleanup-quarantine.ps1 -AutoCompress -Force
+
+.EXAMPLE
+    # Show what -PurgeExpired would delete (WhatIf always on without -Force)
+    .\cleanup-quarantine.ps1 -PurgeExpired
+
+.EXAMPLE
+    # Actually delete quarantine dirs/archives older than 28 days
+    .\cleanup-quarantine.ps1 -PurgeExpired -Force
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [switch]$Apply,
-    [switch]$Force
+    [switch]$Force,
+
+    # --- auto-compress flag (Kirkardo PILAR 4 gap) ---
+    [switch]$AutoCompress,
+    [double]$AutoCompressThresholdGB = 1.0,
+
+    # --- purge-expired flag (Kirkardo PILAR 4 gap) ---
+    [switch]$PurgeExpired,
+    [int]$PurgeExpiredDays = 28
 )
 
 Set-StrictMode -Version Latest
@@ -101,8 +161,8 @@ $totalMB = [math]::Round(($rows | Measure-Object -Sum SizeMB).Sum, 2)
 Write-Host "Total: $($rows.Count) director(ies), ${totalMB} MB combined."
 Write-Host ''
 
-if (-not $Apply) {
-    Write-Host 'Read-only mode.  Use -Apply to compress and remove.' -ForegroundColor Yellow
+if (-not $Apply -and -not $AutoCompress -and -not $PurgeExpired) {
+    Write-Host 'Read-only mode.  Use -Apply, -AutoCompress, or -PurgeExpired.' -ForegroundColor Yellow
     exit 0
 }
 
@@ -145,6 +205,145 @@ foreach ($row in $rows) {
         } catch {
             Write-Warning "  Could not delete $src : $_"
             Write-Warning "  Archive retained at $zip"
+        }
+    }
+}
+
+Write-Host ''
+if (-not $AutoCompress -and -not $PurgeExpired) {
+    Write-Host 'Done.' -ForegroundColor Cyan
+    exit 0
+}
+
+# ---------------------------------------------------------------------------
+# -AutoCompress: compress directories whose total size exceeds the threshold
+# ---------------------------------------------------------------------------
+# NOTE: This flag compresses heavy quarantine dirs to .zip to reclaim disk
+# space.  The original directory is only removed after the .zip is confirmed
+# on disk.  -WhatIf is fully supported.  Actual heavy I/O (7z / Compress-
+# Archive) is deferred to runtime -- this script does NOT execute it for you
+# during test/review; run it explicitly when disk hygiene requires it.
+# ---------------------------------------------------------------------------
+
+if ($AutoCompress) {
+    $thresholdBytes = $AutoCompressThresholdGB * 1GB
+    $candidates = $rows | Where-Object { ($_.SizeMB * 1MB) -ge $thresholdBytes }
+
+    if ($candidates.Count -eq 0) {
+        Write-Host ("AutoCompress: no directories exceed {0} GB threshold." -f $AutoCompressThresholdGB) -ForegroundColor Green
+    } else {
+        Write-Host ''
+        Write-Host ("AutoCompress: {0} director(ies) exceed {1} GB:" -f $candidates.Count, $AutoCompressThresholdGB) -ForegroundColor Cyan
+
+        if (-not $Force -and -not $WhatIfPreference) {
+            $answer = Read-Host ("Compress {0} director(ies) and remove originals?  [y/N]" -f $candidates.Count)
+            if ($answer -notmatch '^[Yy]') {
+                Write-Host 'AutoCompress: aborted by user.' -ForegroundColor Yellow
+            } else {
+                foreach ($row in $candidates) {
+                    $src = $row.FullPath
+                    $zip = "$src.zip"
+                    Write-Host ("  Compressing: {0} ({1} MB)" -f $row.Name, $row.SizeMB)
+                    if ($PSCmdlet.ShouldProcess($src, "AutoCompress to $zip")) {
+                        try {
+                            Compress-Archive -Path $src -DestinationPath $zip -Force
+                            Write-Host "    -> $zip" -ForegroundColor Green
+                        } catch {
+                            Write-Warning "    Compression failed: $_"
+                            continue
+                        }
+                        if (Test-Path $zip) {
+                            if ($PSCmdlet.ShouldProcess($src, 'Remove original after successful compress')) {
+                                try {
+                                    Remove-Item -Path $src -Recurse -Force
+                                    Write-Host "    Original removed." -ForegroundColor Green
+                                } catch {
+                                    Write-Warning "    Could not remove original: $_"
+                                }
+                            }
+                        } else {
+                            Write-Warning "    Archive not found after compress; original kept: $src"
+                        }
+                    }
+                }
+            }
+        } else {
+            foreach ($row in $candidates) {
+                $src = $row.FullPath
+                $zip = "$src.zip"
+                Write-Host ("  Compressing: {0} ({1} MB)" -f $row.Name, $row.SizeMB)
+                if ($PSCmdlet.ShouldProcess($src, "AutoCompress to $zip")) {
+                    try {
+                        Compress-Archive -Path $src -DestinationPath $zip -Force
+                        Write-Host "    -> $zip" -ForegroundColor Green
+                    } catch {
+                        Write-Warning "    Compression failed: $_"
+                        continue
+                    }
+                    if (Test-Path $zip) {
+                        if ($PSCmdlet.ShouldProcess($src, 'Remove original after successful compress')) {
+                            try {
+                                Remove-Item -Path $src -Recurse -Force
+                                Write-Host "    Original removed." -ForegroundColor Green
+                            } catch {
+                                Write-Warning "    Could not remove original: $_"
+                            }
+                        }
+                    } else {
+                        Write-Warning "    Archive not found after compress; original kept: $src"
+                    }
+                }
+            }
+        }
+    }
+}
+
+# ---------------------------------------------------------------------------
+# -PurgeExpired: delete quarantine dirs/archives older than PurgeExpiredDays
+# ---------------------------------------------------------------------------
+# SAFETY: -WhatIf IS ACTIVE BY DEFAULT for this flag.  Real deletions only
+# happen when -Force is also specified.  This is intentional -- purging
+# weeks-old data is irreversible and should require an explicit opt-in.
+# ---------------------------------------------------------------------------
+
+if ($PurgeExpired) {
+    $cutoff = (Get-Date).AddDays(-$PurgeExpiredDays)
+
+    # Collect both directories and .zip archives that match the quarantine pattern.
+    $expiredItems = Get-ChildItem -Path $UltronHome -Force `
+        | Where-Object {
+            ($_.Name -like '_cleanup_quarantine_*') -and
+            ($_.LastWriteTime -lt $cutoff)
+        } `
+        | Sort-Object Name
+
+    Write-Host ''
+    Write-Host ("PurgeExpired: items older than {0} days (cutoff {1:yyyy-MM-dd}):" -f $PurgeExpiredDays, $cutoff) -ForegroundColor Cyan
+
+    if ($expiredItems.Count -eq 0) {
+        Write-Host "  None found." -ForegroundColor Green
+    } else {
+        $expiredItems | Format-Table Name, LastWriteTime -AutoSize
+
+        # Default to WhatIf unless -Force is explicitly supplied.
+        if (-not $Force) {
+            Write-Host ("PurgeExpired: {0} item(s) would be deleted.  Re-run with -Force to execute." -f $expiredItems.Count) -ForegroundColor Yellow
+        } else {
+            $answer = Read-Host ("Permanently delete {0} expired item(s)?  This is IRREVERSIBLE.  [y/N]" -f $expiredItems.Count)
+            if ($answer -notmatch '^[Yy]') {
+                Write-Host 'PurgeExpired: aborted by user.' -ForegroundColor Yellow
+            } else {
+                foreach ($item in $expiredItems) {
+                    if ($PSCmdlet.ShouldProcess($item.FullName, 'Purge expired quarantine item')) {
+                        try {
+                            Remove-Item -Path $item.FullName -Recurse -Force
+                            Write-Host ("  Deleted: {0}" -f $item.Name) -ForegroundColor Green
+                        } catch {
+                            Write-Warning ("  Could not delete {0}: {1}" -f $item.Name, $_)
+                        }
+                    }
+                }
+            }
         }
     }
 }

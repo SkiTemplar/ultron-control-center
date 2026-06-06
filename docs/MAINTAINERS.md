@@ -132,6 +132,50 @@ The migration is a clean, atomic future step.
 
 ---
 
+## Disk Hygiene
+
+### Quarantine directories
+
+Wave-based refactors leave behind `_cleanup_quarantine_<YYYY-MM-DD>`
+directories directly under `~/.ultron/`.  Use
+`scripts/cleanup-quarantine.ps1` to inspect and manage them.
+
+| Task | Command |
+|---|---|
+| Report sizes (read-only, safe) | `.\scripts\cleanup-quarantine.ps1` |
+| Compress dirs larger than 1 GB | `.\scripts\cleanup-quarantine.ps1 -AutoCompress -WhatIf` (preview) then `-Force` to execute |
+| Delete entries older than 4 weeks | `.\scripts\cleanup-quarantine.ps1 -PurgeExpired` (WhatIf by default); add `-Force` to delete |
+| Compress all and delete sources | `.\scripts\cleanup-quarantine.ps1 -Apply -Force` |
+
+**Safety rules:**
+
+- `-PurgeExpired` always runs in WhatIf mode unless `-Force` is also passed.
+- No deletion happens without a `.zip` archive being confirmed on disk first
+  (for `-Apply` and `-AutoCompress`).
+- Never pass `~/.ultron/.fastembed_cache` to this script; that cache is
+  managed by the embedding pipeline and must be cleared via
+  `uv run python scripts/cockpit/embed_skills.py --clear-cache`.
+
+Recommended cadence: run `-AutoCompress` after each major wave refactor;
+run `-PurgeExpired` monthly.
+
+### .fastembed_cache policy
+
+The directory `~/.ultron/.fastembed_cache` (or wherever `FASTEMBED_CACHE_DIR`
+points) is owned by the `fastembed` library used by the embedding pipeline.
+**Do NOT manually delete it without first stopping any running embedding job.**
+To clear it safely:
+
+```powershell
+# Stop any background embedding job first, then:
+uv run python scripts/cockpit/embed_skills.py --clear-cache
+```
+
+The cache is typically 300-600 MB (BAAI/bge-small-en-v1.5 model weights).
+Deleting it forces a full model re-download on the next embed run.
+
+---
+
 ## Stats panel signals (Hook Signals → 6 sources, 3 dead by design)
 
 `control-center/src-tauri/src/self_improve.rs::read_hook_signals` aggregates

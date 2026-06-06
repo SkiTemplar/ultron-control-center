@@ -172,6 +172,128 @@ def _check_orphan_paths(rules: dict[str, Any]) -> list[Finding]:
 
 
 # ---------------------------------------------------------------------------
+# Detection (a2): empty directories and orphan files >30d without references
+# ---------------------------------------------------------------------------
+
+
+def _check_empty_dirs_and_orphan_files(rules: dict[str, Any]) -> list[Finding]:
+    """Detect empty directories and loose files >30d old with no script references.
+
+    Scans one level of depth inside ~/.ultron/ (excluding well-known dirs and
+    hidden/temp paths). Reports as SEVERITY_INFO so the doctor never blocks.
+
+    Args:
+        rules: Rules dict from ``doctor_rules.load_rules`` (unused here but
+            required by the detector protocol).
+
+    Returns:
+        A list of :class:`Finding` instances, one per problematic path.
+    """
+    findings: list[Finding] = []
+    if not ULTRON_HOME.exists():
+        return findings
+
+    # Build a reference blob from active scripts (same approach as _check_orphan_paths).
+    blob_parts: list[str] = []
+    for root in _REFERENCE_SEARCH_ROOTS:
+        if not root.exists():
+            continue
+        try:
+            for f in root.rglob("*"):
+                if not f.is_file():
+                    continue
+                if f.suffix.lower() not in (".py", ".ps1", ".yaml", ".yml", ".json", ".md"):
+                    continue
+                try:
+                    blob_parts.append(f.read_text(encoding="utf-8", errors="ignore").lower())
+                except OSError:
+                    continue
+        except OSError:
+            continue
+    blob = "\n".join(blob_parts)
+
+    cutoff_days = 30.0
+    cutoff_epoch = time.time() - cutoff_days * 86400.0
+
+    _SKIP_PREFIXES = (".", "_")
+    _SKIP_NAMES = frozenset({
+        ".tmp", ".git", ".venv", "__pycache__",
+        "node_modules", ".pytest_cache",
+    })
+
+    try:
+        top_level = list(ULTRON_HOME.iterdir())
+    except OSError:
+        return findings
+
+    for top in top_level:
+        name = top.name
+        if name in _WELLKNOWN_ULTRON_DIRS:
+            continue
+        if name in _SKIP_NAMES:
+            continue
+        if any(name.startswith(p) for p in _SKIP_PREFIXES):
+            continue
+
+        # --- Empty directory check ---
+        if top.is_dir():
+            try:
+                children = list(top.iterdir())
+            except OSError:
+                children = []
+            if not children:
+                age_days = _file_age_days(top) or 0.0
+                if age_days >= cutoff_days:
+                    needle = name.lower()
+                    if not (needle and needle in blob):
+                        findings.append(Finding(
+                            id=f"empty_dir:{name}",
+                            category="orphan",
+                            severity=SEVERITY_INFO,
+                            summary=f"Empty directory ~/.ultron/{name} (age {age_days:.0f}d)",
+                            detail=(
+                                f"Path: {top}\n"
+                                f"Age:  {age_days:.1f} days\n"
+                                "Directory is empty and has no active script references."
+                            ),
+                            fix_action=None,
+                            fix_command=None,
+                        ))
+            continue  # directories are handled above; files handled below
+
+        # --- Loose file without references, >30d old ---
+        if not top.is_file():
+            continue
+        try:
+            mtime = top.stat().st_mtime
+        except OSError:
+            continue
+        if mtime >= cutoff_epoch:
+            continue
+        needle = name.lower()
+        if needle and needle in blob:
+            continue
+        age_days = _file_age_days(top) or 0.0
+        size = _path_size_bytes(top)
+        findings.append(Finding(
+            id=f"orphan_file:{name}",
+            category="orphan",
+            severity=SEVERITY_INFO,
+            summary=f"Possible orphan file ~/.ultron/{name} (age {age_days:.0f}d)",
+            detail=(
+                f"Path: {top}\n"
+                f"Size: {_humanize_bytes(size)}\n"
+                f"Age:  {age_days:.1f} days\n"
+                "No reference found in active scripts."
+            ),
+            fix_action=None,
+            fix_command=None,
+        ))
+
+    return findings
+
+
+# ---------------------------------------------------------------------------
 # Detection (b/c): skill drift
 # ---------------------------------------------------------------------------
 
@@ -1236,6 +1358,7 @@ _SECURITY_DETECTORS = (
 
 _ALL_DETECTORS = (
     _check_orphan_paths,
+    _check_empty_dirs_and_orphan_files,
     _check_skill_drift,
     _check_hook_scripts_missing,
     _check_l0_stale,
