@@ -11,6 +11,7 @@
 //   memory_status — Memory tab status cards + sync/index ops
 
 pub mod catalog;
+pub mod codegraph;
 pub mod inbox;
 pub mod memory_graph;
 pub mod migrate;
@@ -20,6 +21,7 @@ pub mod recall_unified;
 pub mod session_resume;
 
 pub use catalog::*;
+pub use codegraph::*;
 pub use inbox::*;
 pub use memory_graph::*;
 pub use migrate::*;

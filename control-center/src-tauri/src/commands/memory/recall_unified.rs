@@ -165,10 +165,14 @@ pub(crate) fn assemble_pack(
                 continue;
             }
         }
-        // Ola 1b: vault = bulk imported historical knowledge (imported_vault,
-        // scope=global, ~92% of the corpus). Under a project filter it floods
-        // every query, so it is OFF by default here (still reachable via
-        // project-less recall). Cuts cross-project noise without a data migration.
+        // Ola 1b vault gate: imported_vault items (~92% of the corpus, confidence=0.5)
+        // flood every query when a project filter is active because their scope=global
+        // bypasses the project-equality check above.  Gate is keyed on
+        // `project_id.is_some()` — when project_id is None (e.g. recall_hybrid or
+        // a project-less recall) the gate does NOT fire and vault items surface
+        // normally.  This is intentional: without a project context, vault is the
+        // primary source.  The quality ranker (Pilar 1, build_trace) still
+        // down-weights vault items relative to high-confidence codebase_fact.
         if project_id.is_some() && item.source == Source::ImportedVault {
             discarded.push(discard("vault off-by-default under project filter"));
             continue;
@@ -290,6 +294,62 @@ pub(crate) fn build_trace(
             })
             .then_with(|| a.canonical_id.cmp(&b.canonical_id))
     });
+
+    // Pilar 1 — quality re-ranker: apply a confidence-based multiplier to each
+    // fused hit so that codebase_fact / decision items (confidence 0.6–0.95) rise
+    // above imported_vault bulk noise (confidence 0.5 default).
+    //
+    // Formula: rrf_score' = rrf_score * (1 + 0.6 * confidence)
+    //   - confidence = 1.0  → ×1.60  (validated knowledge)
+    //   - confidence = 0.8  → ×1.48  (good codebase_fact)
+    //   - confidence = 0.6  → ×1.36  (typical real capture)
+    //   - confidence = 0.5  → ×1.30  (imported_vault default — no penalty, just no boost)
+    //
+    // A soft penalty for confidence < 0.6 (×0.9 factor) discourages generic imports
+    // without hard-filtering them (vault gate in assemble_pack handles the bulk case).
+    //
+    // Recency boost (optional): items updated in the last 7 days get a modest ×1.05
+    // lift so stale vault items don't crowd out fresh captures.
+    //
+    // The RRF K-damping (60) already keeps differences modest when relevance scores
+    // differ a lot; this multiplier only reorders near-ties and equal-relevance bands.
+    {
+        let conn_q = store::open_conn().ok();
+        let now_ms = crate::memory::model::now_millis();
+        const SEVEN_DAYS_MS: i64 = 7 * 24 * 60 * 60 * 1000;
+        for hit in &mut fused {
+            let (confidence, updated_at) = conn_q
+                .as_ref()
+                .and_then(|c| store::get_item(c, &hit.canonical_id).ok().flatten())
+                .map(|it| (it.confidence, it.updated_at))
+                .unwrap_or((0.5, 0)); // unknown → treat as vault-level confidence
+            let quality_factor = if confidence >= 0.6 {
+                1.0 + 0.6 * confidence
+            } else {
+                // Soft penalty for low-confidence items (generic imports).
+                (1.0 + 0.6 * confidence) * 0.9
+            };
+            let recency_factor = if now_ms - updated_at < SEVEN_DAYS_MS {
+                1.05_f32
+            } else {
+                1.0_f32
+            };
+            hit.rrf_score *= quality_factor * recency_factor;
+        }
+        // Re-sort after quality adjustment (preserves dense_score as final tie-break).
+        fused.sort_by(|a, b| {
+            b.rrf_score
+                .partial_cmp(&a.rrf_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| {
+                    b.dense_score
+                        .unwrap_or(0.0)
+                        .partial_cmp(&a.dense_score.unwrap_or(0.0))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .then_with(|| a.canonical_id.cmp(&b.canonical_id))
+        });
+    }
 
     // (4)+(5) load items + apply governance + budget via the pure assemble_pack
     // (unit-tested without Qdrant — see tests::assemble_pack_enforces_governance_invariants).

@@ -264,6 +264,202 @@ pub(crate) fn query_edges(
 }
 
 // ---------------------------------------------------------------------------
+// graph_metrics — aggregate diagnostic counters
+// ---------------------------------------------------------------------------
+
+/// Aggregate counters for the code-graph layer.
+///
+/// Intended for diagnostic UIs and the `edge metrics` CLI subcommand.
+///
+/// # Errors
+///
+/// Returns `MemoryError::RemoteUnavailable` on DB errors.
+pub(crate) fn graph_metrics(conn: &Connection) -> Result<GraphMetricsRow, MemoryError> {
+    let total_edges: i64 = conn
+        .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("graph_metrics total_edges: {e}")))?;
+
+    let unresolved_refs: i64 = conn
+        .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("graph_metrics unresolved_refs: {e}"))
+        })?;
+
+    let mut stmt = conn
+        .prepare("SELECT kind, COUNT(*) FROM edges GROUP BY kind ORDER BY COUNT(*) DESC")
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("graph_metrics edges_by_kind prepare: {e}"))
+        })?;
+
+    let edges_by_kind: Vec<(String, i64)> = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("graph_metrics edges_by_kind query: {e}"))
+        })?
+        .flatten()
+        .collect();
+
+    Ok(GraphMetricsRow {
+        total_edges,
+        edges_by_kind,
+        unresolved_refs,
+    })
+}
+
+/// Raw metric counters returned by `graph_metrics`.
+///
+/// Converted to the richer `GraphMetrics` DTO in
+/// `commands/memory/codegraph.rs` before being serialised to the frontend.
+#[derive(Debug, Clone)]
+pub(crate) struct GraphMetricsRow {
+    /// Total rows in the `edges` table.
+    pub total_edges: i64,
+    /// Per-kind counts: `[(kind_label, count)]`, descending by count.
+    pub edges_by_kind: Vec<(String, i64)>,
+    /// Total rows in `unresolved_refs`.
+    pub unresolved_refs: i64,
+}
+
+// ---------------------------------------------------------------------------
+// drain_unresolved_refs — promote resolved references to edges
+// ---------------------------------------------------------------------------
+
+/// Promote `unresolved_refs` rows whose `symbol` now exists in
+/// `memory_items` to first-class `edges` rows.
+///
+/// The drain uses a LEFT JOIN to find `unresolved_refs` whose `symbol`
+/// matches any `memory_items.title` (the canonical identity field).
+/// Promoted rows use `provenance = "drain-unresolved"` and the `source`
+/// field is set to the unresolved ref's `symbol` (the caller/importer),
+/// targeting itself — i.e. a self-referential edge — since we don't have
+/// a separate caller symbol in `unresolved_refs`.  This is the minimal safe
+/// promotion: it records that the symbol was referenced and is now known.
+///
+/// Rows that cannot be promoted (target still absent from `memory_items`)
+/// are left in place.
+///
+/// # Return value
+///
+/// `(promoted, remaining)` — number of rows promoted and number still
+/// unresolved after the drain.
+///
+/// # Errors
+///
+/// Returns `MemoryError::RemoteUnavailable` on DB errors.
+pub(crate) fn drain_unresolved_refs(conn: &Connection) -> Result<DrainStats, MemoryError> {
+    use rusqlite::params;
+
+    // Collect unresolved_refs whose symbol is now in memory_items.title.
+    // Note: `stmt` must outlive the `MappedRows` iterator, so we collect
+    // into a Vec before letting `stmt` drop at the end of the scope.
+    let mut stmt = conn
+        .prepare(
+            "SELECT ur.id, ur.symbol, ur.file, ur.line, ur.kind
+             FROM unresolved_refs ur
+             INNER JOIN memory_items mi ON mi.title = ur.symbol",
+        )
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("drain_unresolved_refs prepare: {e}"))
+        })?;
+
+    let promotable: Vec<UnresolvedRef> = stmt
+        .query_map([], |row| {
+            Ok(UnresolvedRef {
+                id: row.get(0)?,
+                symbol: row.get(1)?,
+                file: row.get(2)?,
+                line: row.get(3)?,
+                kind: row.get(4)?,
+            })
+        })
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("drain_unresolved_refs query: {e}"))
+        })?
+        .flatten()
+        .collect();
+
+    let promoted_count = promotable.len();
+    if promoted_count == 0 {
+        // Nothing to drain — count remaining and return early.
+        let remaining: i64 = conn
+            .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
+            .unwrap_or(0);
+        return Ok(DrainStats {
+            promoted: 0,
+            remaining: remaining as usize,
+        });
+    }
+
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    // Promote each row within a single transaction for atomicity.
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("drain_unresolved_refs tx: {e}")))?;
+
+    for ur in &promotable {
+        let kind = ur.kind.as_deref().unwrap_or("imports");
+        // Insert the edge (source == target == symbol, records that the
+        // symbol was seen referenced and is now resolvable).
+        tx.execute(
+            "INSERT OR IGNORE INTO edges
+                (source, target, kind, file, line_from, line_to, provenance, project_id, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5, 'drain-unresolved', NULL, ?6)",
+            params![ur.symbol, ur.symbol, kind, ur.file, ur.line, now_ms],
+        )
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("drain_unresolved_refs insert: {e}"))
+        })?;
+
+        // Remove the promoted ref.
+        tx.execute(
+            "DELETE FROM unresolved_refs WHERE id = ?1",
+            params![ur.id],
+        )
+        .map_err(|e| {
+            MemoryError::RemoteUnavailable(format!("drain_unresolved_refs delete: {e}"))
+        })?;
+    }
+
+    tx.commit()
+        .map_err(|e| MemoryError::RemoteUnavailable(format!("drain_unresolved_refs commit: {e}")))?;
+
+    let remaining: i64 = conn
+        .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
+        .unwrap_or(0);
+
+    Ok(DrainStats {
+        promoted: promoted_count,
+        remaining: remaining as usize,
+    })
+}
+
+/// Statistics returned by [`drain_unresolved_refs`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct DrainStats {
+    /// Rows promoted from `unresolved_refs` to `edges`.
+    pub promoted: usize,
+    /// Rows still in `unresolved_refs` after the drain.
+    pub remaining: usize,
+}
+
+// ---------------------------------------------------------------------------
+// Internal helper types
+// ---------------------------------------------------------------------------
+
+/// A row from `unresolved_refs`, used internally by [`drain_unresolved_refs`].
+struct UnresolvedRef {
+    id: i64,
+    symbol: String,
+    file: Option<String>,
+    line: Option<i64>,
+    kind: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -605,5 +801,159 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 1, "existing edge must survive schema re-apply");
+    }
+
+    // -----------------------------------------------------------------------
+    // graph_metrics
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn graph_metrics_empty_db() {
+        let conn = v4_conn();
+        let m = graph_metrics(&conn).expect("graph_metrics must succeed on empty db");
+        assert_eq!(m.total_edges, 0);
+        assert_eq!(m.unresolved_refs, 0);
+        assert!(m.edges_by_kind.is_empty());
+    }
+
+    #[test]
+    fn graph_metrics_counts_edges_and_kinds() {
+        let conn = v4_conn();
+        // 2 calls edges in different files (so no dedup).
+        insert_edge(&conn, "a", "b", "calls", Some("f1.rs"), None, None, None, None).unwrap();
+        insert_edge(&conn, "c", "d", "calls", Some("f2.rs"), None, None, None, None).unwrap();
+        // 1 imports edge.
+        insert_edge(&conn, "e", "f", "imports", None, None, None, None, None).unwrap();
+
+        // 1 unresolved_ref.
+        conn.execute(
+            "INSERT INTO unresolved_refs (symbol, file, line, kind, created_at) VALUES ('unknown', NULL, NULL, 'calls', 0)",
+            [],
+        )
+        .unwrap();
+
+        let m = graph_metrics(&conn).expect("graph_metrics must succeed");
+        assert_eq!(m.total_edges, 3);
+        assert_eq!(m.unresolved_refs, 1);
+
+        // edges_by_kind should have "calls"=2 first (descending), then "imports"=1.
+        assert_eq!(m.edges_by_kind.len(), 2);
+        assert_eq!(m.edges_by_kind[0].0, "calls");
+        assert_eq!(m.edges_by_kind[0].1, 2);
+        assert_eq!(m.edges_by_kind[1].0, "imports");
+        assert_eq!(m.edges_by_kind[1].1, 1);
+    }
+
+    // -----------------------------------------------------------------------
+    // drain_unresolved_refs
+    // -----------------------------------------------------------------------
+
+    /// Create a minimal `memory_items` table (subset of real schema) so that
+    /// the drain's INNER JOIN can find matching titles.
+    fn ensure_memory_items_table(conn: &Connection) {
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS memory_items (
+                id TEXT PRIMARY KEY,
+                title TEXT
+            );",
+        )
+        .expect("create memory_items stub");
+    }
+
+    fn insert_memory_item(conn: &Connection, id: &str, title: &str) {
+        conn.execute(
+            "INSERT OR IGNORE INTO memory_items (id, title) VALUES (?1, ?2)",
+            rusqlite::params![id, title],
+        )
+        .expect("insert memory_item stub");
+    }
+
+    fn insert_unresolved(conn: &Connection, symbol: &str, kind: &str) {
+        conn.execute(
+            "INSERT INTO unresolved_refs (symbol, file, line, kind, created_at) VALUES (?1, NULL, NULL, ?2, 0)",
+            rusqlite::params![symbol, kind],
+        )
+        .expect("insert unresolved_ref");
+    }
+
+    #[test]
+    fn drain_noop_when_no_unresolved() {
+        let conn = v4_conn();
+        ensure_memory_items_table(&conn);
+        let stats = drain_unresolved_refs(&conn).expect("drain must succeed");
+        assert_eq!(stats.promoted, 0);
+        assert_eq!(stats.remaining, 0);
+    }
+
+    #[test]
+    fn drain_noop_when_target_not_in_memory_items() {
+        let conn = v4_conn();
+        ensure_memory_items_table(&conn);
+        insert_unresolved(&conn, "still_unknown", "calls");
+
+        let stats = drain_unresolved_refs(&conn).expect("drain must succeed");
+        assert_eq!(stats.promoted, 0, "nothing promotable — target absent");
+        assert_eq!(stats.remaining, 1, "row must remain in unresolved_refs");
+    }
+
+    #[test]
+    fn drain_promotes_when_target_appears_in_memory_items() {
+        let conn = v4_conn();
+        ensure_memory_items_table(&conn);
+        insert_memory_item(&conn, "id-1", "my_func");
+        insert_unresolved(&conn, "my_func", "calls");
+
+        let stats = drain_unresolved_refs(&conn).expect("drain must succeed");
+        assert_eq!(stats.promoted, 1, "one row must be promoted");
+        assert_eq!(stats.remaining, 0, "no rows left in unresolved_refs");
+
+        // The promoted row must now be in edges.
+        let edge_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM edges WHERE provenance='drain-unresolved'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(edge_count, 1, "promoted edge must exist in edges table");
+
+        // unresolved_refs must be empty.
+        let unresolved_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM unresolved_refs", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(unresolved_count, 0, "unresolved_refs must be empty after drain");
+    }
+
+    #[test]
+    fn drain_is_idempotent() {
+        let conn = v4_conn();
+        ensure_memory_items_table(&conn);
+        insert_memory_item(&conn, "id-1", "known_symbol");
+        insert_unresolved(&conn, "known_symbol", "imports");
+
+        // First drain.
+        let s1 = drain_unresolved_refs(&conn).expect("first drain");
+        assert_eq!(s1.promoted, 1);
+        assert_eq!(s1.remaining, 0);
+
+        // Second drain — nothing left to drain.
+        let s2 = drain_unresolved_refs(&conn).expect("second drain");
+        assert_eq!(s2.promoted, 0, "second drain must be a no-op");
+        assert_eq!(s2.remaining, 0);
+
+        // Edges table must still have exactly 1 row (no double-insert).
+        let edge_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM edges", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(edge_count, 1, "idempotent drain must not duplicate edges");
+    }
+
+    #[test]
+    fn drain_partial_when_only_some_targets_known() {
+        let conn = v4_conn();
+        ensure_memory_items_table(&conn);
+        insert_memory_item(&conn, "id-1", "known");
+        insert_unresolved(&conn, "known", "calls");
+        insert_unresolved(&conn, "still_unknown", "imports");
+
+        let stats = drain_unresolved_refs(&conn).expect("drain must succeed");
+        assert_eq!(stats.promoted, 1, "one symbol promoted");
+        assert_eq!(stats.remaining, 1, "one symbol still unresolved");
     }
 }

@@ -1,36 +1,47 @@
 // ULTRON Control Center — recall_hybrid + memory_health commands (MEMORY CORE D5)
 //
-// recall_hybrid: fan-out query across QdrantStore, SqliteStore, and KgStore.
-//   EccStore and Mem0Store retired (wave2-mem0-ecc, 2026-06-06).
+// recall_hybrid: DEPRECATED — no live frontend callers (verified 2026-06-06).
+//   Retained for backward-compat with any external CLI caller; internally
+//   delegates to the unified recall pipeline (RRF + governance + quality ranker)
+//   so it benefits from the same Pilar 1 fixes without duplicating logic.
 //
 // memory_health: per-store health check + embeddings_real flag.
 
-use crate::memory::{
-    qdrant_store::QdrantStore, sqlite_store::SqliteStore, HybridRecall, KgStore, MemoryHit, Query,
-};
+use crate::memory::{qdrant_store::QdrantStore, sqlite_store::SqliteStore, KgStore, MemoryHit};
 
-/// Fan-out semantic + keyword recall across all registered memory stores.
+/// Fan-out hybrid recall — DEPRECATED wrapper kept for CLI back-compat.
 ///
-/// Store priority (highest score wins after merge):
-///   1. QdrantStore  — cosine similarity via BGE-small-EN-v1.5
-///   2. SqliteStore  — FTS5 ranked / LIKE fallback + kg_entities
-///   3. KgStore      — kg.jsonl substring search
+/// Delegates to `recall_unified::recall_pack` (RRF + confidence quality ranker +
+/// governance) with `project_id = None` (no project filter; vault NOT gated).
+/// Returns a flat `Vec<MemoryHit>` shaped from the unified pack entries.
+///
+/// Prefer `recall` (recall_unified) for all new callers — it returns the richer
+/// `RecallPack` with per-entry ranks, token estimates, and discard trace.
 #[tauri::command]
 pub async fn recall_hybrid(query: String, limit: Option<u32>) -> Result<Vec<MemoryHit>, String> {
     tauri::async_runtime::spawn_blocking(move || {
-        let stores: Vec<Box<dyn crate::memory::MemoryStore>> = vec![
-            Box::new(QdrantStore::new()),
-            Box::new(SqliteStore::new()),
-            Box::new(KgStore::new()),
-        ];
-
-        let recall = HybridRecall::new(stores);
-        let q = Query {
-            text: query,
-            namespace: None,
-            limit,
-        };
-        Ok(recall.search_all(q))
+        // Delegate to the unified pipeline: no project filter, cross_project=false.
+        // project_id = None means the vault gate in assemble_pack does NOT fire
+        // (gate only activates when project_id.is_some()), so vault items surface
+        // as before — the caller is not inside any project context.
+        let pack = crate::commands::memory::recall_unified::recall_pack(
+            &query,
+            limit.map(|n| n as usize).unwrap_or(20),
+            None,  // project_id = None: no project filter, vault gate inactive
+            false, // cross_project = false
+        )?;
+        // Map RecallEntry -> MemoryHit for backward-compat callers.
+        Ok(pack
+            .entries
+            .into_iter()
+            .map(|e| MemoryHit {
+                id: e.canonical_id,
+                text: e.summary.unwrap_or_default(),
+                score: e.score,
+                source: crate::memory::StoreKind::Sqlite,
+                namespace: e.project_id,
+            })
+            .collect())
     })
     .await
     .map_err(|e| format!("spawn_blocking: {e}"))?

@@ -1082,8 +1082,11 @@ impl MemoryStore for SqliteStore {
                     .or(it.content.clone())
                     .unwrap_or_default(),
                 id: it.id,
-                // Importance as a coarse score until Fase B real ranking lands.
-                score: it.importance.clamp(0.0, 1.0),
+                // Pilar 1 fix: blend confidence into score so high-quality codebase_fact
+                // (confidence 0.6–0.95) outranks imported_vault bulk imports (confidence 0.5).
+                // Formula: importance anchors the magnitude; confidence provides the signal.
+                // Both in [0,1], result clamped to [0,1].
+                score: (it.importance * (0.5 + 0.5 * it.confidence)).clamp(0.0, 1.0),
                 source: StoreKind::Sqlite,
                 namespace: it.project_id,
             })
