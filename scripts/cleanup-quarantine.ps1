@@ -122,9 +122,11 @@ if (-not (Test-Path $UltronHome -PathType Container)) {
     exit 1
 }
 
-$quarantineDirs = Get-ChildItem -Path $UltronHome -Directory -Force `
+# @(...) forces an array so .Count is valid under Set-StrictMode even when the
+# pipeline yields $null (0 matches) or a single object (1 match).
+$quarantineDirs = @(Get-ChildItem -Path $UltronHome -Directory -Force `
     | Where-Object { $_.Name -like '_cleanup_quarantine_*' } `
-    | Sort-Object Name
+    | Sort-Object Name)
 
 if ($quarantineDirs.Count -eq 0) {
     Write-Host 'No _cleanup_quarantine_* directories found.' -ForegroundColor Green
@@ -170,49 +172,57 @@ if (-not $Apply -and -not $AutoCompress -and -not $PurgeExpired) {
 # -Apply: compress each quarantine to .zip then delete the source
 # ---------------------------------------------------------------------------
 
-# Confirm once unless -Force
-if (-not $Force -and -not $WhatIfPreference) {
-    $answer = Read-Host "About to compress $($rows.Count) director(ies) and delete originals.  Proceed? [y/N]"
-    if ($answer -notmatch '^[Yy]') {
-        Write-Host 'Aborted.' -ForegroundColor Yellow
+# GUARD: the compress+delete block below acts on ALL quarantine dirs and must
+# run ONLY when -Apply was explicitly passed.  Without this guard, invoking the
+# script with -AutoCompress or -PurgeExpired alone (whose own early-exit on
+# line ~164 does not fire because a flag IS present) fell through into this
+# block and compressed+deleted every quarantine dir, ignoring the size/age
+# thresholds and bypassing the -WhatIf-by-default contract.  (Kirkardo R4 P4.)
+if ($Apply) {
+    # Confirm once unless -Force
+    if (-not $Force -and -not $WhatIfPreference) {
+        $answer = Read-Host "About to compress $($rows.Count) director(ies) and delete originals.  Proceed? [y/N]"
+        if ($answer -notmatch '^[Yy]') {
+            Write-Host 'Aborted.' -ForegroundColor Yellow
+            exit 0
+        }
+    }
+
+    foreach ($row in $rows) {
+        $src  = $row.FullPath
+        $zip  = "$src.zip"
+
+        Write-Host "Processing: $($row.Name) ($($row.SizeMB) MB, $($row.Files) files)"
+
+        # --- Compress ---
+        if ($PSCmdlet.ShouldProcess($src, "Compress to $zip")) {
+            try {
+                Compress-Archive -Path $src -DestinationPath $zip -Force
+                Write-Host "  Compressed -> $zip" -ForegroundColor Green
+            } catch {
+                Write-Warning "  Compression failed for $src : $_"
+                Write-Warning "  Skipping deletion for this directory."
+                continue
+            }
+        }
+
+        # --- Delete source ---
+        if ($PSCmdlet.ShouldProcess($src, 'Remove original directory')) {
+            try {
+                Remove-Item -Path $src -Recurse -Force
+                Write-Host "  Deleted source directory." -ForegroundColor Green
+            } catch {
+                Write-Warning "  Could not delete $src : $_"
+                Write-Warning "  Archive retained at $zip"
+            }
+        }
+    }
+
+    Write-Host ''
+    if (-not $AutoCompress -and -not $PurgeExpired) {
+        Write-Host 'Done.' -ForegroundColor Cyan
         exit 0
     }
-}
-
-foreach ($row in $rows) {
-    $src  = $row.FullPath
-    $zip  = "$src.zip"
-
-    Write-Host "Processing: $($row.Name) ($($row.SizeMB) MB, $($row.Files) files)"
-
-    # --- Compress ---
-    if ($PSCmdlet.ShouldProcess($src, "Compress to $zip")) {
-        try {
-            Compress-Archive -Path $src -DestinationPath $zip -Force
-            Write-Host "  Compressed -> $zip" -ForegroundColor Green
-        } catch {
-            Write-Warning "  Compression failed for $src : $_"
-            Write-Warning "  Skipping deletion for this directory."
-            continue
-        }
-    }
-
-    # --- Delete source ---
-    if ($PSCmdlet.ShouldProcess($src, 'Remove original directory')) {
-        try {
-            Remove-Item -Path $src -Recurse -Force
-            Write-Host "  Deleted source directory." -ForegroundColor Green
-        } catch {
-            Write-Warning "  Could not delete $src : $_"
-            Write-Warning "  Archive retained at $zip"
-        }
-    }
-}
-
-Write-Host ''
-if (-not $AutoCompress -and -not $PurgeExpired) {
-    Write-Host 'Done.' -ForegroundColor Cyan
-    exit 0
 }
 
 # ---------------------------------------------------------------------------
@@ -227,7 +237,8 @@ if (-not $AutoCompress -and -not $PurgeExpired) {
 
 if ($AutoCompress) {
     $thresholdBytes = $AutoCompressThresholdGB * 1GB
-    $candidates = $rows | Where-Object { ($_.SizeMB * 1MB) -ge $thresholdBytes }
+    # @(...) keeps .Count valid under StrictMode for 0/1/N matches.
+    $candidates = @($rows | Where-Object { ($_.SizeMB * 1MB) -ge $thresholdBytes })
 
     if ($candidates.Count -eq 0) {
         Write-Host ("AutoCompress: no directories exceed {0} GB threshold." -f $AutoCompressThresholdGB) -ForegroundColor Green
@@ -310,12 +321,13 @@ if ($PurgeExpired) {
     $cutoff = (Get-Date).AddDays(-$PurgeExpiredDays)
 
     # Collect both directories and .zip archives that match the quarantine pattern.
-    $expiredItems = Get-ChildItem -Path $UltronHome -Force `
+    # @(...) keeps .Count valid under StrictMode when 0 items are expired.
+    $expiredItems = @(Get-ChildItem -Path $UltronHome -Force `
         | Where-Object {
             ($_.Name -like '_cleanup_quarantine_*') -and
             ($_.LastWriteTime -lt $cutoff)
         } `
-        | Sort-Object Name
+        | Sort-Object Name)
 
     Write-Host ''
     Write-Host ("PurgeExpired: items older than {0} days (cutoff {1:yyyy-MM-dd}):" -f $PurgeExpiredDays, $cutoff) -ForegroundColor Cyan
