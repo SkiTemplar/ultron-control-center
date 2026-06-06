@@ -419,3 +419,6 @@ control-center/docs/regression-check-*.md
 control-center/docs/v2.5-MCP-AUDIT.md
 control-center/docs/workdays-rework-spec-*.md
 control-center/docs/workflows-best-practices-*.md
+
+# One-shot dated cleanup scripts (not part of the product)
+cockpit/cleanup-deprecated-*.py
