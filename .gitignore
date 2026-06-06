@@ -98,6 +98,8 @@ cockpit/mcp-audit.jsonl
 cockpit/auto_updater.jsonl
 cockpit/pending_actions.json
 cockpit/backup-config.json
+# AI Router runtime telemetry (per-install counters; mutates on every run).
+cockpit/ai-router/metrics.json
 cockpit/news/
 cockpit/audits/
 plans/PLANS.json
