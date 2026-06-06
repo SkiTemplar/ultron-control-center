@@ -39,6 +39,25 @@ const MAX_PROMPT_CHARS = 4000;
 const HIGH_THRESHOLD = 0.80;
 const MED_THRESHOLD = 0.50;
 
+// ---------------------------------------------------------------------------
+// Workspace autodiscovery paths
+// ---------------------------------------------------------------------------
+
+/**
+ * Root of project-local skills: each subdir that contains SKILL.md is a
+ * workspace skill candidate.  This is SEPARATE from ~/.claude/skills (the
+ * global Claude skills dir used by lazy-injection) — it points to ULTRON's
+ * own skill store under ~/.ultron/skills/.
+ */
+const ULTRON_SKILLS_DIR = path.join(HOME, '.ultron', 'skills');
+
+/**
+ * Root of per-project rosters.  Each project may have:
+ *   pinned-agents.json  → { "pinned": ["agent-id", ...] }
+ *   agent-roster.json   → { "entries": [{ "name": "agent-id", ... }] }
+ */
+const PROJECTS_DIR = path.join(HOME, '.ultron', 'cockpit', 'projects');
+
 // Lazy injection settings
 const LAZY_SCORE_THRESHOLD = 0.80;
 const LAZY_READ_TIMEOUT_MS = 5000;
@@ -441,12 +460,265 @@ function scoreEntry(promptNorm, entry) {
   return { score, matched };
 }
 
+// ---------------------------------------------------------------------------
+// Workspace autodiscovery — build extra candidates from the filesystem
+// ---------------------------------------------------------------------------
+
+/**
+ * Process-lifetime cache so we pay the filesystem scan cost at most once.
+ * null  = not yet loaded
+ * Array = loaded (may be empty on error or empty dirs)
+ * @type {Array<Object>|null}
+ */
+let _workspaceCandidatesCache = null;
+
+/**
+ * Extract a minimal set of scoring tokens from a SKILL.md file.
+ *
+ * Reads the YAML front-matter `name` and `description` fields (simple regex,
+ * no YAML parser dependency) and converts them into trigger/strong/context
+ * arrays compatible with scoreEntry().
+ *
+ * Always returns a valid object — never throws.
+ *
+ * @param {string} skillMdContent  Raw SKILL.md text.
+ * @param {string} dirName         Fallback identifier (the subdir name).
+ * @returns {{ id: string, triggers: string[], strong: string[], context: string[] }}
+ */
+function parseSkillMdTokens(skillMdContent, dirName) {
+  let name = dirName;
+  let description = '';
+
+  try {
+    // Extract `name:` from YAML front-matter (--- ... ---)
+    const fmMatch = skillMdContent.match(/^---\s*\n([\s\S]*?)\n---/);
+    if (fmMatch) {
+      const fm = fmMatch[1];
+      const nameMatch = fm.match(/^name:\s*["']?([^"'\n]+)["']?/m);
+      if (nameMatch) name = nameMatch[1].trim();
+      const descMatch = fm.match(/^description:\s*["']?([\s\S]*?)["']?\s*(?=\n\w|\n---|$)/m);
+      if (descMatch) description = descMatch[1].replace(/\n/g, ' ').trim();
+    }
+
+    // If no front-matter description, grab first non-heading paragraph body text
+    if (!description) {
+      const bodyMatch = skillMdContent.replace(/^---[\s\S]*?---/, '').match(/[A-Za-z].{20,}/);
+      if (bodyMatch) description = bodyMatch[0].slice(0, 200);
+    }
+  } catch (_) {
+    // leave name=dirName, description=''
+  }
+
+  // The skill name itself is the primary trigger (normalized, spaces kept)
+  const idNorm = normalize(name);
+  const triggers = [idNorm];
+  // Dash/underscore variant as additional trigger
+  if (idNorm.includes('-') || idNorm.includes('_')) {
+    triggers.push(idNorm.replace(/[-_]/g, ' '));
+  }
+
+  // Pull meaningful words (>= 5 chars) from description as context signals.
+  // These are weak signals — they go into context[] (W_CONTEXT = 25), not strong[].
+  const stopWords = new Set([
+    'para', 'cuando', 'desde', 'sobre', 'entre', 'hasta', 'under', 'about',
+    'with', 'this', 'that', 'from', 'skill', 'ultron', 'activate', 'always',
+  ]);
+  const contextTokens = [];
+  const wordRe = /[a-z][a-z0-9]{4,}/gi;
+  let m;
+  const descNorm = normalize(description);
+  while ((m = wordRe.exec(descNorm)) !== null) {
+    const w = m[0].toLowerCase();
+    if (!stopWords.has(w) && !contextTokens.includes(w) && contextTokens.length < 8) {
+      contextTokens.push(w);
+    }
+  }
+
+  return {
+    id: normalize(name),       // normalized id — used for dedup
+    _rawName: name,            // original casing for display
+    triggers,
+    strong: [],                // workspace skills start with no strong[] signals
+    context: contextTokens,
+  };
+}
+
+/**
+ * Scan ~/.ultron/skills/ for subdirs that contain SKILL.md and convert each
+ * into a plugin-kind candidate.
+ *
+ * Subdirs whose name ends in '.disabled' are skipped (inactive skills).
+ * Any I/O error is silently caught — returns [] on failure.
+ *
+ * @returns {Array<Object>}
+ */
+function scanUltronSkills() {
+  const candidates = [];
+  try {
+    if (!fs.existsSync(ULTRON_SKILLS_DIR)) return candidates;
+    const entries = fs.readdirSync(ULTRON_SKILLS_DIR, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (entry.name.endsWith('.disabled')) continue;
+      // Skip the registry file itself and any non-skill dirs
+      const skillMdPath = path.join(ULTRON_SKILLS_DIR, entry.name, 'SKILL.md');
+      if (!fs.existsSync(skillMdPath)) continue;
+
+      let content = '';
+      try {
+        content = fs.readFileSync(skillMdPath, 'utf8');
+      } catch (_) {
+        // unreadable — use dir name as fallback
+      }
+
+      const tokens = parseSkillMdTokens(content, entry.name);
+      candidates.push({
+        id: tokens.id,
+        _rawName: tokens._rawName,
+        _source: 'workspace-skill',
+        triggers: tokens.triggers,
+        strong: tokens.strong,
+        context: tokens.context,
+      });
+    }
+  } catch (_) {
+    // directory unreadable — degrade gracefully
+  }
+  return candidates;
+}
+
+/**
+ * Collect agent ids from all per-project roster files under cockpit/projects/.
+ *
+ * Supported schemas:
+ *   pinned-agents.json  → { "pinned": ["agent-id", ...] }
+ *   agent-roster.json   → { "entries": [{ "name": "agent-id" }] }
+ *
+ * Each unique agent id becomes a candidate with its id as the sole trigger.
+ * Any parse/read error is silently caught per-file.
+ *
+ * @returns {Array<Object>}
+ */
+function scanProjectRosters() {
+  const agentIds = new Set();
+  try {
+    if (!fs.existsSync(PROJECTS_DIR)) return [];
+    const projectDirs = fs.readdirSync(PROJECTS_DIR, { withFileTypes: true });
+    for (const projDir of projectDirs) {
+      if (!projDir.isDirectory()) continue;
+      const projPath = path.join(PROJECTS_DIR, projDir.name);
+
+      // pinned-agents.json
+      const pinnedPath = path.join(projPath, 'pinned-agents.json');
+      try {
+        if (fs.existsSync(pinnedPath)) {
+          const data = JSON.parse(fs.readFileSync(pinnedPath, 'utf8'));
+          if (Array.isArray(data.pinned)) {
+            for (const id of data.pinned) {
+              if (typeof id === 'string' && id.trim()) agentIds.add(id.trim());
+            }
+          }
+        }
+      } catch (_) {}
+
+      // agent-roster.json
+      const rosterPath = path.join(projPath, 'agent-roster.json');
+      try {
+        if (fs.existsSync(rosterPath)) {
+          const data = JSON.parse(fs.readFileSync(rosterPath, 'utf8'));
+          if (Array.isArray(data.entries)) {
+            for (const entry of data.entries) {
+              if (entry && typeof entry.name === 'string' && entry.name.trim()) {
+                agentIds.add(entry.name.trim());
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+  } catch (_) {
+    // projects dir unreadable — degrade gracefully
+  }
+
+  // Convert unique ids to agent-kind candidates.
+  // Each agent id is also its trigger (e.g. "cpp-pro" triggers on "cpp-pro").
+  return Array.from(agentIds).map(function (agentId) {
+    const idNorm = normalize(agentId);
+    return {
+      id: agentId,              // keep original casing for display
+      _source: 'project-roster',
+      triggers: [idNorm, idNorm.replace(/-/g, ' ')],
+      strong: [],
+      context: [],
+    };
+  });
+}
+
+/**
+ * Build and cache the workspace candidate list.
+ *
+ * Merges ~/.ultron/skills/ scan + project rosters, then deduplicates against
+ * the hardcoded PERSONAS/PLUGINS/AGENTS arrays.  Hardcoded entries always win:
+ * a workspace candidate whose id matches a hardcoded id is silently dropped.
+ *
+ * Result is cached in _workspaceCandidatesCache for the process lifetime.
+ *
+ * @returns {{ extraPlugins: Array<Object>, extraAgents: Array<Object> }}
+ */
+function loadWorkspaceCandidates() {
+  if (_workspaceCandidatesCache !== null) return _workspaceCandidatesCache;
+
+  try {
+    // Build the set of ids already covered by hardcoded arrays (dedup guard).
+    const hardcodedIds = new Set();
+    for (const p of PERSONAS) hardcodedIds.add(normalize(p.id));
+    for (const p of PLUGINS)  hardcodedIds.add(normalize(p.id));
+    for (const a of AGENTS)   hardcodedIds.add(normalize(a.id));
+
+    // Scan workspace skills (plugin-kind)
+    const rawSkills = scanUltronSkills();
+    const extraPlugins = rawSkills.filter(function (c) {
+      return !hardcodedIds.has(normalize(c.id));
+    });
+
+    // Scan project rosters (agent-kind)
+    const rawRoster = scanProjectRosters();
+    const extraAgents = rawRoster.filter(function (c) {
+      return !hardcodedIds.has(normalize(c.id));
+    });
+
+    _workspaceCandidatesCache = { extraPlugins, extraAgents };
+    safeLog({
+      level: 'info',
+      msg: 'workspace_autodiscovery',
+      extra_plugins: extraPlugins.length,
+      extra_agents: extraAgents.length,
+      plugin_ids: extraPlugins.map(function (c) { return c.id; }),
+      agent_ids: extraAgents.map(function (c) { return c.id; }),
+    });
+  } catch (_err) {
+    // Any unexpected error — fall back to empty extra candidates
+    _workspaceCandidatesCache = { extraPlugins: [], extraAgents: [] };
+    safeLog({ level: 'warn', msg: 'workspace_autodiscovery_failed', error: String(_err && _err.message) });
+  }
+
+  return _workspaceCandidatesCache;
+}
+
 function rankCandidates(prompt) {
   const promptNorm = normalize(prompt).slice(0, MAX_PROMPT_CHARS);
+
+  // Load workspace candidates (cached after first call).
+  // Failures are fully swallowed inside loadWorkspaceCandidates().
+  const workspace = loadWorkspaceCandidates();
+
   const all = [
     ...PERSONAS.map((e) => ({ ...e, kind: 'persona' })),
     ...PLUGINS.map((e) => ({ ...e, kind: 'plugin' })),
     ...AGENTS.map((e) => ({ ...e, kind: 'agent' })),
+    // Workspace-discovered candidates (additive — hardcoded already excluded by dedup)
+    ...workspace.extraPlugins.map((e) => ({ ...e, kind: 'plugin' })),
+    ...workspace.extraAgents.map((e) => ({ ...e, kind: 'agent' })),
   ];
 
   const scored = all
@@ -840,9 +1112,15 @@ module.exports = {
   isCoolingDown,
   fetchLazySkillContent,
   buildInjectionBlock,
+  // workspace autodiscovery
+  loadWorkspaceCandidates,
+  scanUltronSkills,
+  scanProjectRosters,
+  parseSkillMdTokens,
   // expose internals for test isolation
   _injectionHistory,
   _resetInvocationCounter: function () { _invocationCounter = 0; },
+  _resetWorkspaceCache: function () { _workspaceCandidatesCache = null; },
   // Advance the process-wide invocation counter. Callers that reuse v2's
   // lazy-injection machinery WITHOUT going through v2.main() (e.g. v3.mainV3)
   // must call this once per logical invocation so the cooldown window
