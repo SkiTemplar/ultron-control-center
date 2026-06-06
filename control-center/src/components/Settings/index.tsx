@@ -5,6 +5,7 @@ import { AuthStatus } from "../AuthStatus";
 import { JsonEditor } from "./EditorSection";
 import { BackupsPanel } from "./BackupsSection";
 import { LifecyclePanel } from "./LifecyclePanel";
+import { ButtonPromptsSection } from "./ButtonPromptsSection";
 
 // v15.2 F7: "mcps" section removed — MCP enable/disable lives in the MCPs
 // top-level tab now. P7 (2.0): "raw" (settings.json) is the default tab and
@@ -20,7 +21,8 @@ type Section =
   | "raw"
   | "general"
   | "auth"
-  | "backups";
+  | "backups"
+  | "button-prompts";
 
 type SettingsProps = {
   onNavigate?: (tab: string) => void;
@@ -155,6 +157,7 @@ export function Settings(_props: SettingsProps = {}) {
           { id: "general" as Section, label: "General" },
           { id: "auth" as Section, label: "Auth" },
           { id: "backups" as Section, label: "Backups" },
+          { id: "button-prompts" as Section, label: "Button prompts" },
         ].map((t) => (
           <button
             key={t.id}
@@ -272,6 +275,8 @@ export function Settings(_props: SettingsProps = {}) {
             )}
           </div>
         )}
+
+        {section === "button-prompts" && <ButtonPromptsSection />}
 
         {/* v2.5.2 wave 2: "lifecycle" and "plugins" sub-tabs retired.
             Lifecycle content lives in "general"; Plugins lives in Library. */}
