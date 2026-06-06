@@ -301,6 +301,8 @@ pub fn run() {
             commands::memory::memory_impact_analysis,
             commands::memory::memory_graph_metrics,
             commands::memory::memory_drain_unresolved,
+            // FRENTE 8: transitive closure multi-hop (schema_v4 — callees/callers)
+            commands::memory::memory_transitive_closure,
             // -- AUTO-ROUTING #7: agent/skill catalog index + semantic route --
             commands::memory::catalog_reindex,
             commands::memory::catalog_reindex_skills,
@@ -444,6 +446,8 @@ pub fn run() {
             commands::library::library_install_via_ai,
             // v2.9.8: catalog compat analysis + bulk install (card-1779825112840)
             commands::library::analyze_catalog_compat,
+            // FRENTE 7: analizar repo local + integrar al routing/memoria
+            commands::library::analyze_local_repo,
             // -- decision registry (KIRKARDO 24) --
             commands::decisions::decisions_add,
             commands::decisions::decisions_update,

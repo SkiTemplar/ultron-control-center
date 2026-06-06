@@ -172,6 +172,8 @@ export interface ClassMetrics {
   latency_p95_ms: number;
   /** Successful calls (outcome.is_ok()). */
   success_count?: number;
+  /** ISO date (YYYY-MM-DD, UTC) these counters belong to — entries reset daily. */
+  date?: string;
 }
 
 /** Per-model metrics — key del mapa = "provider_id::model". */
@@ -182,6 +184,10 @@ export interface ModelMetrics {
   success_count: number;
   output_tokens: number;
   latency_ms_avg: number;
+  /** p50 (median) latency in ms, derived from the backend histogram. */
+  latency_p50_ms?: number;
+  /** p95 latency in ms, derived from the backend histogram. */
+  latency_p95_ms?: number;
 }
 
 export interface RouterMetrics {

@@ -87,9 +87,11 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 ### Memoria: SQLite como fuente de verdad
 
 - **`~/.ultron/brain.db`** (SQLite, modo WAL) es la **SoT canonica**. El esquema
-  canonico vive en `memory/schema_v3.rs` / `memory/migrations.rs` con modelos en
-  `memory/model.rs` (`MemoryItem`, `MemoryCandidate`, `MemoryEvent`, y los enums
-  de gobernanza `Status`, `Scope`, `Sensitivity`, `Source`, etc.).
+  canonico vive en `memory/schema_v3.rs` (memoria) + `memory/schema_v4.rs`
+  (migracion del codegraph: tablas `edges` / `unresolved_refs`) /
+  `memory/migrations.rs`, con modelos en `memory/model.rs` (`MemoryItem`,
+  `MemoryCandidate`, `MemoryEvent`, y los enums de gobernanza `Status`, `Scope`,
+  `Sensitivity`, `Source`, etc.).
 - **`MemoryService`** (`memory/service.rs`) es el **unico escritor persistente**.
   Invariante de gobernanza: toda mutacion pasa por aqui y **anexa un
   `MemoryEvent`** de auditoria. Hooks y agentes nunca escriben `memory_items`
@@ -121,8 +123,10 @@ memoria esta en `control-center/src-tauri/src/memory/`.
   (`TOKEN_BUDGET = 1500`), con trazas de *por que esta memoria* (rangos por
   fuente, scores, descartes) para el Retrieval Inspector.
 - Existe ademas un `recall_hybrid` mas antiguo (union de scores constantes,
-  multi-store: Qdrant + SQLite + ECC + KG + Mem0 opcional) que sigue registrado
-  pero esta deprecado frente al `recall` unificado con RRF.
+  multi-store) que sigue registrado pero esta **deprecado** frente al `recall`
+  unificado con RRF. Las patas multi-store **ECC**, **KG** y **Mem0** estan
+  **retiradas** (Mem0 esta muerto por politica; no reintroducir): hoy las unicas
+  fuentes vivas son Qdrant (denso) + SQLite/FTS5 (sparse).
 
 ### Captura automatica via Stop hook
 
@@ -162,6 +166,29 @@ memoria esta en `control-center/src-tauri/src/memory/`.
   unificado y los workflows integrados (`agent_orchestration.rs`). Nunca escribe
   memoria persistente y delega a agentes reales en `~/.claude/agents`
   (los "ghost agents" inexistentes en disco se sanean).
+
+### CodeGraph: grafo de codigo sobre brain.db
+
+- Capa ligera de grafo de codigo encima de la captura de simbolos existente.
+  La migracion `memory/schema_v4.rs` (PRAGMA `user_version` v4) crea las tablas
+  `edges` (relaciones dirigidas entre simbolos/modulos: caller -> callee,
+  imports, etc.) y `unresolved_refs` (referencias cuyo simbolo origen aun no
+  esta en `brain.db`; se drenan y promueven a `edges` cuando aparece el target).
+- Backend en `commands/memory/codegraph.rs`, con tres comandos Tauri:
+  `memory_graph_metrics` (contadores agregados: total de edges, por tipo,
+  unresolved), `memory_impact_analysis` (callers/callees de un simbolo) y
+  `memory_drain_unresolved` (promocion idempotente de refs no resueltas a edges).
+- Frontend en `src/components/system/CodeGraph.tsx`: panel **read-only** dentro
+  de la pestana System que muestra metricas del grafo y analisis de impacto.
+
+### Plugin Updates: chequeo de actualizaciones de plugins
+
+- Sub-tab **Updates** dentro de Library (`src/components/library/PluginUpdates.tsx`)
+  que consume los comandos de backend `plugin_check_updates_bulk(force)` y
+  `plugin_changelog_summary(coordinate, installed_sha?)`.
+- Compara el SHA instalado contra el ultimo SHA del marketplace por cada plugin,
+  marca cuales tienen actualizacion disponible y muestra el ultimo mensaje de
+  commit / resumen de changelog.
 
 ---
 
@@ -247,10 +274,13 @@ npm test       # vitest (frontend)
 - **AI Router**: routing real con cadena primario/fallback, deteccion de claves
   y telemetria de uso/ahorro; sin sidecar LiteLLM.
 - **UI (Control Center, v2.7.1)**: barra lateral con Dashboard, Usage, AI Router,
-  System (con sub-tabs de Hooks/Schedules), MCPs, Library (Skills/Agents/Rules),
-  Notes, Sessions, Projects, Finance, Settings y Notifications. La pestana
-  "Memory" se retiro: el cerebro es solo-backend (se gobierna via comandos y el
-  inbox, no via una pestana dedicada).
+  System (con sub-tabs de Hooks/Schedules y el panel **CodeGraph**), MCPs,
+  Library (sub-tabs Skills/Agents/Rules/**Updates**), **Memory**, Notes,
+  Sessions, Projects, Finance, Settings y Notifications. La pestana **Memory**
+  esta **viva** (re-anadida 2026-06-04, `Sidebar.tsx`): expone el inbox de
+  candidatos (aprobar/rechazar/editar) y la salud de `brain.db`; el kernel de
+  memoria sigue siendo solo-backend, pero su gobierno human-in-the-loop se hace
+  desde esta pestana (ademas de los comandos).
 
 ---
 

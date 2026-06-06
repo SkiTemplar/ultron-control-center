@@ -1,13 +1,15 @@
-// PluginUpdates — sub-tab for Library that surfaces the plugin update-check
-// commands already registered in the Tauri backend (v2.9.5).
+// PluginUpdates — Library "updates" sub-tab that surfaces the plugin
+// update-check commands registered in the Tauri backend (v2.9.5).
+//
+// WIRED: rendered as the "updates" sub-tab of the Library tab (Download icon,
+// between "plugins" and "hooks") since commit 21fc0ef. This panel is live, not
+// a stub.
 //
 // Commands consumed (all async):
 //   - plugin_check_updates_bulk(force: bool) → PluginBulkUpdate[]
 //   - plugin_changelog_summary(coordinate: string, installed_sha?: string) → string
 //
-// The component is intentionally standalone (no props). Wiring it into the
-// Library shell only requires adding a sub-tab entry in Library.tsx — see
-// wire_instructions below.
+// The component is intentionally standalone (no props).
 
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";

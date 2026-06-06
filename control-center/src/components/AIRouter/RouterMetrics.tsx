@@ -220,7 +220,7 @@ export function RouterMetrics() {
               <table className="w-full table-auto text-left">
                 <thead>
                   <tr style={{ borderBottom: "1px solid var(--color-border)", background: "var(--color-surface-1)" }}>
-                    {["Proveedor", "Modelo", "Llamadas", "Success", "Tokens", "Latencia"].map((h) => (
+                    {["Proveedor", "Modelo", "Llamadas", "Success", "Tokens", "Latencia avg", "p50", "p95"].map((h) => (
                       <th
                         key={h}
                         className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide"
@@ -253,6 +253,12 @@ export function RouterMetrics() {
                         </td>
                         <td className="px-4 py-3 text-[12px] tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
                           {m.latency_ms_avg > 0 ? `${m.latency_ms_avg.toLocaleString()} ms` : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-[12px] tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
+                          {(m.latency_p50_ms ?? 0) > 0 ? `${(m.latency_p50_ms ?? 0).toLocaleString()} ms` : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-[12px] tabular-nums" style={{ color: "var(--color-text-secondary)" }}>
+                          {(m.latency_p95_ms ?? 0) > 0 ? `${(m.latency_p95_ms ?? 0).toLocaleString()} ms` : "—"}
                         </td>
                       </tr>
                     );

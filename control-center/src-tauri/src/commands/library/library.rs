@@ -50,6 +50,10 @@ pub struct InstallArgs {
 
 #[tauri::command]
 pub async fn library_install_from_github(args: InstallArgs) -> Result<String, String> {
+    // Capture the data needed for the post-install integration BEFORE the args
+    // are moved into the installer.
+    let repo_label = format!("{}/{}", args.owner, args.repo);
+    let project_id = args.target_project_id.clone();
     let p = library::install_from_github_inner(
         args.owner,
         args.repo,
@@ -61,7 +65,38 @@ pub async fn library_install_from_github(args: InstallArgs) -> Result<String, St
         args.overwrite,
     )
     .await?;
+
+    // Post-install integration (BEST-EFFORT, never fails the install): the
+    // installed file's stem is the asset slug (e.g. ".../skills/foo/SKILL.md"
+    // → "foo"; ".../agents/foo.md" → "foo"). Auto-syncs the routing catalog and
+    // proposes a memory candidate. Runs on the blocking pool so the synchronous
+    // node spawn + DB write don't stall the async runtime.
+    let asset = installed_asset_slug(&p);
+    let assets = asset.into_iter().collect::<Vec<_>>();
+    let label = repo_label.clone();
+    let _ = tauri::async_runtime::spawn_blocking(move || {
+        super::post_install::post_install_integrate(&label, &assets, project_id.as_deref())
+    })
+    .await;
+
     Ok(p.display().to_string())
+}
+
+/// Derive the skill/agent slug from an installed target path:
+///   `.../skills/<name>/SKILL.md` → `<name>`
+///   `.../agents/<name>.md`       → `<name>`
+fn installed_asset_slug(target: &std::path::Path) -> Option<String> {
+    let file = target.file_name().and_then(|s| s.to_str())?;
+    if file.eq_ignore_ascii_case("SKILL.md") {
+        // Skill folder layout: parent directory name is the slug.
+        return target
+            .parent()
+            .and_then(|p| p.file_name())
+            .and_then(|s| s.to_str())
+            .map(str::to_string);
+    }
+    // Agent (or flat) layout: the file stem is the slug.
+    Some(file.trim_end_matches(".md").to_string())
 }
 
 #[derive(serde::Deserialize)]
@@ -581,7 +616,43 @@ pub struct AiInstallArgs {
 pub async fn library_install_via_ai(
     args: AiInstallArgs,
 ) -> Result<library::AiInstallResult, String> {
-    library::install_via_ai_inner(args.repo_url, args.target_scope, args.dry_run).await
+    let repo_url = args.repo_url.clone();
+    let result =
+        library::install_via_ai_inner(args.repo_url, args.target_scope, args.dry_run).await?;
+
+    // Post-install integration only when files were actually copied (not a
+    // dry-run / incompatible repo). Best-effort, never fails the command. The
+    // asset slugs are derived from the installed agent/skill paths.
+    if result.executed && !result.installed_paths.is_empty() {
+        let repo_label = github_repo_label(&repo_url);
+        let assets: Vec<String> = result
+            .installed_paths
+            .iter()
+            .filter_map(|p| installed_asset_slug(std::path::Path::new(p)))
+            .collect();
+        let _ = tauri::async_runtime::spawn_blocking(move || {
+            super::post_install::post_install_integrate(&repo_label, &assets, None)
+        })
+        .await;
+    }
+
+    Ok(result)
+}
+
+/// Best-effort `owner/repo` label from a GitHub URL (falls back to the raw URL).
+fn github_repo_label(url: &str) -> String {
+    let stripped = url
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_start_matches("github.com/")
+        .trim_end_matches(".git");
+    let parts: Vec<&str> = stripped.splitn(3, '/').collect();
+    if parts.len() >= 2 && !parts[0].is_empty() && !parts[1].is_empty() {
+        format!("{}/{}", parts[0], parts[1])
+    } else {
+        url.to_string()
+    }
 }
 
 #[cfg(test)]

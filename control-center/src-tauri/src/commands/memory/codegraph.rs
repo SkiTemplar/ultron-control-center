@@ -14,7 +14,7 @@
 // to `tauri::async_runtime::spawn_blocking` so they do not starve the
 // async executor.
 
-use crate::memory::schema_v4::CodeEdge;
+use crate::memory::schema_v4::{ClosureNode, CodeEdge, EdgeDirection};
 use crate::memory::sqlite_store;
 
 // ---------------------------------------------------------------------------
@@ -191,4 +191,69 @@ pub async fn memory_drain_unresolved() -> Result<DrainResult, String> {
     })
     .await
     .map_err(|e| format!("spawn_blocking panicked: {e}"))?
+}
+
+// ---------------------------------------------------------------------------
+// memory_transitive_closure
+// ---------------------------------------------------------------------------
+
+/// Default and hard-cap traversal depth for `memory_transitive_closure`.
+const CLOSURE_DEFAULT_DEPTH: usize = 5;
+const CLOSURE_MAX_DEPTH: usize = 25;
+
+/// Compute the multi-hop transitive closure of `symbol` in the code-graph.
+///
+/// Wraps [`crate::memory::schema_v4::compute_transitive_closure`], exposing the
+/// CTE-based reachability traversal (with cycle detection) to the UI.
+///
+/// # Parameters
+///
+/// * `symbol`    — root symbol to traverse from (exact match on `edges`).
+/// * `direction` — `"callees"` (forward: what does `symbol` reach?) or
+///                 `"callers"` (backward: who reaches `symbol`?).
+///                 Defaults to `"callees"` when omitted.
+/// * `max_depth` — maximum hops (default 5, hard cap 25). The cycle guard in
+///                 the CTE still terminates traversal on cyclic graphs.
+///
+/// Returns nodes sorted by `(depth ASC, symbol ASC)`; the start node is
+/// excluded.
+///
+/// # Errors
+///
+/// Returns a string error on an invalid `direction` or DB I/O failure.
+#[tauri::command]
+pub async fn memory_transitive_closure(
+    symbol: String,
+    direction: Option<String>,
+    max_depth: Option<usize>,
+) -> Result<Vec<ClosureNode>, String> {
+    let dir = match direction.as_deref().unwrap_or("callees") {
+        "callees" => EdgeDirection::Callees,
+        "callers" => EdgeDirection::Callers,
+        other => {
+            return Err(format!(
+                "invalid direction '{other}': expected 'callees' or 'callers'"
+            ))
+        }
+    };
+    let depth = max_depth
+        .unwrap_or(CLOSURE_DEFAULT_DEPTH)
+        .clamp(1, CLOSURE_MAX_DEPTH);
+
+    tauri::async_runtime::spawn_blocking(move || transitive_closure_inner(&symbol, dir, depth))
+        .await
+        .map_err(|e| format!("spawn_blocking panicked: {e}"))?
+}
+
+/// Synchronous inner logic — used by the async wrapper and directly in tests.
+pub(crate) fn transitive_closure_inner(
+    symbol: &str,
+    direction: EdgeDirection,
+    max_depth: usize,
+) -> Result<Vec<ClosureNode>, String> {
+    use crate::memory::schema_v4::compute_transitive_closure;
+    use crate::memory::sqlite_store::open_conn;
+
+    let conn = open_conn().map_err(|e| e.to_string())?;
+    compute_transitive_closure(&conn, symbol, direction, max_depth).map_err(|e| e.to_string())
 }

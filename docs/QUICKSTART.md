@@ -58,9 +58,9 @@ first-party (`ultron-arch`, `ultron-changelog`, `ultron-context`,
 from the embedded copy of the VoltAgent catalog (`cpp-pro`,
 `graphics-programmer`, `unreal-engine-engineer`, `unity-engineer`,
 `devops-engineer`, `database-administrator`, `fullstack-developer`).
-The catalog sidebar exposes **81 additional** agents from `cockpit/agent-catalog.json`
+The catalog sidebar exposes **69 additional** agents from `cockpit/agent-catalog.json`
 (mix of VoltAgent, wshobson, and hesreallyhim community sources),
-taking the **total available to ~100+**. Most require manual install via
+taking the **total available to ~88**. Most require manual install via
 the **Install from catalog** button.
 
 - The same security scanner used on Skills runs on every agent

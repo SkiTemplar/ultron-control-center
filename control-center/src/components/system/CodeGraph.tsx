@@ -1,18 +1,21 @@
-// ULTRON Control Center — CodeGraph panel (F8)
+// ULTRON Control Center — CodeGraph panel
 //
-// Exposes the three codegraph Tauri commands to the UI:
-//   memory_graph_metrics      — aggregate counters (total edges, by kind, unresolved)
-//   memory_impact_analysis    — callers/callees for a given symbol
-//   memory_drain_unresolved   — promote unresolved refs to full edges
+// WIRED: rendered as the "codegraph" sub-tab of the System tab (since commit
+// 21fc0ef). This panel is live, not a stub.
+//
+// Exposes the codegraph Tauri commands to the UI:
+//   memory_graph_metrics        — aggregate counters (total edges, by kind, unresolved)
+//   memory_impact_analysis      — callers/callees for a given symbol
+//   memory_drain_unresolved     — promote unresolved refs to full edges
+//   memory_transitive_closure   — multi-hop reachability chain from a symbol
 //
 // The backend commands are WRITE-ONLY on the ingestion side; this panel is
 // READ-ONLY (no schema changes). drain_unresolved is a safe idempotent
 // promotion — not a destructive write.
 //
-// PLUGIN UPDATE-CHECK NOTE: `check_plugin_updates` and `plugin_check_updates_bulk`
-// are registered in lib.rs:418-420, but no existing UI tab surfaces them.
-// A dedicated plugin-update panel is missing — this is flagged in changes[]
-// but NOT implemented here to avoid scope creep.
+// PLUGIN UPDATE-CHECK NOTE: `plugin_check_updates_bulk` / `plugin_changelog_summary`
+// are surfaced by the dedicated PluginUpdates panel (Library "updates" sub-tab,
+// wired since commit 21fc0ef) — not here.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
@@ -51,6 +54,15 @@ interface DrainResult {
 }
 
 type ImpactDirection = "callers" | "callees" | "both";
+
+/** Mirrors `schema_v4::ClosureNode` */
+interface ClosureNode {
+  symbol: string;
+  depth: number;
+  path: string;
+}
+
+type ClosureDirection = "callees" | "callers";
 
 // ---------------------------------------------------------------------------
 // Small presentational helpers
@@ -535,6 +547,231 @@ function DrainUnresolvedSection() {
 }
 
 // ---------------------------------------------------------------------------
+// Transitive Closure section (multi-hop reachability)
+// ---------------------------------------------------------------------------
+
+const CLOSURE_MAX_DEPTH = 25;
+
+function TransitiveClosureSection() {
+  const [symbol, setSymbol] = useState("");
+  const [direction, setDirection] = useState<ClosureDirection>("callees");
+  const [maxDepth, setMaxDepth] = useState(5);
+  const [nodes, setNodes] = useState<ClosureNode[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const runClosure = useCallback(
+    async (sym: string, dir: ClosureDirection, depth: number) => {
+      if (sym.trim().length === 0) return;
+      setLoading(true);
+      setError(null);
+      setNodes(null);
+      try {
+        const result = (await invoke("memory_transitive_closure", {
+          symbol: sym.trim(),
+          direction: dir,
+          maxDepth: depth,
+        })) as ClosureNode[];
+        setNodes(result);
+      } catch (err: unknown) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  const handleSubmit = useCallback(
+    (e: React.FormEvent) => {
+      e.preventDefault();
+      void runClosure(symbol, direction, maxDepth);
+    },
+    [runClosure, symbol, direction, maxDepth],
+  );
+
+  return (
+    <section className="space-y-4">
+      <div>
+        <SectionHeader>Cadena multi-hop (transitive closure)</SectionHeader>
+        <p className="text-[12px] leading-relaxed" style={{ color: "var(--color-text-faint)" }}>
+          Recorre el grafo desde un simbolo hasta N saltos siguiendo aristas dirigidas (con
+          deteccion de ciclos). Muestra cada nodo alcanzable, su profundidad y la ruta.
+        </p>
+      </div>
+
+      <form onSubmit={handleSubmit} className="flex flex-wrap gap-2 items-end">
+        <div className="flex flex-col gap-1">
+          <label
+            className="text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+            htmlFor="cg-closure-symbol"
+          >
+            Simbolo
+          </label>
+          <input
+            id="cg-closure-symbol"
+            type="text"
+            value={symbol}
+            onChange={(e) => setSymbol(e.target.value)}
+            placeholder="ej. memory_graph_metrics"
+            className="rounded px-3 py-1.5 text-[12px] w-72"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text)",
+              outline: "none",
+            }}
+            autoComplete="off"
+            spellCheck={false}
+          />
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label
+            className="text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+            htmlFor="cg-closure-direction"
+          >
+            Direccion
+          </label>
+          <select
+            id="cg-closure-direction"
+            value={direction}
+            onChange={(e) => setDirection(e.target.value as ClosureDirection)}
+            className="rounded px-3 py-1.5 text-[12px]"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text)",
+            }}
+          >
+            <option value="callees">callees (a quien alcanzo)</option>
+            <option value="callers">callers (quien me alcanza)</option>
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label
+            className="text-[11px] font-semibold uppercase tracking-wide"
+            style={{ color: "var(--color-text-tertiary)" }}
+            htmlFor="cg-closure-depth"
+          >
+            Profundidad
+          </label>
+          <input
+            id="cg-closure-depth"
+            type="number"
+            min={1}
+            max={CLOSURE_MAX_DEPTH}
+            value={maxDepth}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              if (!Number.isNaN(v)) setMaxDepth(Math.min(CLOSURE_MAX_DEPTH, Math.max(1, v)));
+            }}
+            className="rounded px-3 py-1.5 text-[12px] w-24 tabular-nums"
+            style={{
+              background: "var(--color-surface-2)",
+              border: "1px solid var(--color-border)",
+              color: "var(--color-text)",
+              outline: "none",
+            }}
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading || symbol.trim().length === 0}
+          className="rounded px-4 py-1.5 text-[12px] font-medium transition-colors disabled:opacity-40"
+          style={{
+            background: "var(--color-accent)",
+            color: "var(--color-on-accent, #fff)",
+            border: "none",
+          }}
+        >
+          {loading ? "Recorriendo..." : "Recorrer"}
+        </button>
+      </form>
+
+      {error !== null && <InlineError message={error} />}
+
+      {nodes !== null && (
+        <>
+          {nodes.length === 0 ? (
+            <p className="text-[13px]" style={{ color: "var(--color-text-faint)" }}>
+              Sin nodos alcanzables desde{" "}
+              <code style={{ fontFamily: "var(--font-mono)" }}>{symbol}</code> en direccion{" "}
+              {direction}.
+            </p>
+          ) : (
+            <div>
+              <p className="mb-2 text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
+                {nodes.length} nodo{nodes.length !== 1 ? "s" : ""} alcanzable
+                {nodes.length !== 1 ? "s" : ""}
+              </p>
+              <div
+                className="overflow-x-auto overflow-hidden rounded-lg"
+                style={{ border: "1px solid var(--color-border)", background: "var(--color-surface-2)" }}
+              >
+                <table className="w-full table-auto text-left">
+                  <thead>
+                    <tr
+                      style={{
+                        borderBottom: "1px solid var(--color-border)",
+                        background: "var(--color-surface-1)",
+                      }}
+                    >
+                      {["Depth", "Simbolo", "Ruta"].map((h) => (
+                        <th
+                          key={h}
+                          className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap"
+                          style={{ color: "var(--color-text-tertiary)" }}
+                        >
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {nodes.map((node) => (
+                      <tr
+                        key={`${node.symbol}-${node.depth}`}
+                        style={{ borderBottom: "1px solid var(--color-border)" }}
+                      >
+                        <td
+                          className="px-4 py-2.5 text-[12px] tabular-nums"
+                          style={{ color: "var(--color-text-secondary)" }}
+                        >
+                          {node.depth}
+                        </td>
+                        <td
+                          className="px-4 py-2.5 text-[11px]"
+                          style={{ color: "var(--color-text)", fontFamily: "var(--font-mono)" }}
+                          title={node.symbol}
+                        >
+                          {node.symbol}
+                        </td>
+                        <td
+                          className="px-4 py-2.5 text-[11px]"
+                          style={{ color: "var(--color-text-faint)", fontFamily: "var(--font-mono)" }}
+                          title={node.path}
+                        >
+                          {node.path}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Root export
 // ---------------------------------------------------------------------------
 
@@ -556,6 +793,10 @@ export function CodeGraph() {
       <hr style={{ border: "none", borderTop: "1px solid var(--color-border)" }} />
 
       <ImpactAnalysisSection />
+
+      <hr style={{ border: "none", borderTop: "1px solid var(--color-border)" }} />
+
+      <TransitiveClosureSection />
 
       <hr style={{ border: "none", borderTop: "1px solid var(--color-border)" }} />
 

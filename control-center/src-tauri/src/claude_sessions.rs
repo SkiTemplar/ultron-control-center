@@ -472,100 +472,10 @@ pub fn list_workspaces_inner() -> Result<Vec<WorkspaceSummary>, String> {
     Ok(out)
 }
 
-// ---- P4: per-project sessions listing ----
-
-#[allow(dead_code)] // return type of project_sessions_list (tauri command not yet registered)
-#[derive(Debug, Serialize, Clone)]
-pub struct ClaudeSessionSummary {
-    pub session_id: String,
-    pub path: String,
-    pub modified_at: String,
-    pub first_user_message: Option<String>,
-}
-
-#[allow(dead_code)] // recall.rs inlines its own copy; keep here for future re-unification
-pub(crate) fn project_slug_for(path: &str) -> String {
-    // Claude Code mangles project paths into directory names by replacing
-    // ANY non-alphanumeric character with `-`. This means `:`, `\`, `/`, and
-    // `.` all become `-`, so consecutive non-alnum runs collapse to multiple
-    // dashes:
-    //   "C:\Users\User\.ultron" -> "C--Users-User--ultron"
-    //                               ^^       ^^
-    //                               ":\\"    "\\."
-    //
-    // v2.5.2 (fb-046 fix): previous implementation only replaced `\` and `/`,
-    // producing `C:-Users-User-.ultron` which did NOT match Claude's
-    // folder name, so the Sessions sub-tab found zero sessions for the
-    // active project. Now we mirror Claude's own rule: every non-alnum
-    // char becomes `-`. Trailing/leading dashes are trimmed to be safe.
-    let mut out = String::with_capacity(path.len() + 4);
-    for ch in path.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch);
-        } else {
-            out.push('-');
-        }
-    }
-    // Some users register paths with a trailing separator (`C:\Users\X\`).
-    // After translation that leaves a trailing `-` which would never match
-    // the on-disk folder. Trim just the edges, never the middle (we need
-    // the doubles to survive).
-    out.trim_matches('-').to_string()
-}
-
-#[allow(dead_code)] // tauri command prepared but not yet wired into generate_handler!
-#[tauri::command]
-pub async fn project_sessions_list(
-    project_path: String,
-) -> Result<Vec<ClaudeSessionSummary>, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let home = dirs::home_dir().ok_or_else(|| "no home dir".to_string())?;
-        let slug = project_slug_for(&project_path);
-        let dir = home.join(".claude").join("projects").join(&slug);
-        // v2.5.2 (fb-046): diagnostic logging so we can see exactly which
-        // path translation the backend chose. Only emitted in debug builds
-        // to keep release logs quiet.
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "[claude_sessions::project_sessions_list] project_path={:?} slug={:?} dir={:?} exists={}",
-            project_path,
-            slug,
-            dir,
-            dir.exists()
-        );
-        if !dir.exists() {
-            return Ok::<Vec<ClaudeSessionSummary>, String>(vec![]);
-        }
-        let mut out = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|e| format!("read dir: {e}"))? {
-            let entry = entry.map_err(|e| format!("entry: {e}"))?;
-            let p = entry.path();
-            if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let session_id = p
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("")
-                .to_string();
-            let meta = entry.metadata().map_err(|e| format!("metadata: {e}"))?;
-            let modified_at = meta
-                .modified()
-                .ok()
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| format!("epoch:{}", d.as_secs()))
-                .unwrap_or_else(|| "unknown".to_string());
-            let first_user_message = extract_first_user_message(&p);
-            out.push(ClaudeSessionSummary {
-                session_id,
-                path: p.display().to_string(),
-                modified_at,
-                first_user_message,
-            });
-        }
-        out.sort_by(|a, b| b.modified_at.cmp(&a.modified_at));
-        Ok(out)
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
+// NOTE (F6 cleanup 2026-06-07): `project_sessions_list` (a never-registered
+// Tauri command), its return type `ClaudeSessionSummary`, and the
+// `project_slug_for` helper it depended on were removed as dead code. Nothing
+// in `generate_handler!` nor the frontend referenced them, and `recall.rs`
+// keeps its own inline `slug_for` copy, so there was no remaining consumer.
+// If a per-project session list is needed again, build it on top of
+// `list_claude_sessions_inner` (which is live and already filters by slug).

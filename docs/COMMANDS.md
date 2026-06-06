@@ -26,9 +26,18 @@ If you only read one section, read **§1** — the command palette is the fastes
 
 Press `Ctrl+K` anywhere in the Control Center to open the fuzzy palette. Type a few letters and the right action surfaces. Categories:
 
+> **Tabs (real layout, `Sidebar.tsx` + `App.tsx`).** Top-level tabs are:
+> **Dashboard, Usage, AI Router, System, MCPs, Library, Memory, Notes,
+> Sessions, Projects, Finance, Settings, Notifications**. **Skills, Agents and
+> Rules are NOT top-level** — they are **sub-tabs of Library** (alongside
+> **Updates**, the plugin update-check panel). System hosts the **CodeGraph**
+> panel and the Hooks/Schedules sub-tabs. Finance is build-gated
+> (`VITE_FINANCE=1`). Each tab is still reachable individually via the command
+> palette and deep-links even when it lives under another tab.
+
 | Category | Examples |
 |---|---|
-| **Navigate** | Go to Dashboard / Memory / Skills / Agents / Plans / Sessions / Projects / MCPs / Settings (and the "More" tier) |
+| **Navigate** | Go to Dashboard / Memory / Library (Skills · Agents · Rules · Updates) / Sessions / Projects / MCPs / Settings (and the "More" tier) |
 | **Actions** | Refresh dashboard data · Open Settings · Close Control Center |
 | **Diagnostics** | Run Full Diagnostic · Detect Pending Items · Run Doctor · PC Diagnose (last 24 h) · Codex Adversarial Review · Self-Improve Report |
 | **AI** | Spawn Claude session · Spawn Codex session · Spawn Gemini session |

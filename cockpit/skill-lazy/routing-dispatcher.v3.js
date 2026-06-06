@@ -104,6 +104,14 @@ Object.assign(module.exports, v2);
 const SEMANTIC_FALLBACK_THRESHOLD = 0.80;
 
 /**
+ * Maximum prompt characters fed to the normalizer before lazy injection.
+ * Mirrors v2's MAX_PROMPT_CHARS (which is not exported). Kept in sync so the
+ * normalized prompt handed to v2.fetchLazySkillContent matches what v2.main()
+ * would have produced.
+ */
+const MAX_PROMPT_CHARS = 4000;
+
+/**
  * Hard deadline for ALL async I/O in this hook (ms from the moment mainV3 starts).
  *
  * WARNING — TIMING INVARIANT:
@@ -402,8 +410,14 @@ async function mainV3() {
         const lazyRaceTimeout = new Promise(function (resolve) {
           setTimeout(function () { resolve(new Map()); }, lazyBudget);
         });
+        // BUGFIX (Kirkardo R7): pass the normalized prompt as the second arg.
+        // v2.fetchLazySkillContent(candidates, promptNorm) needs promptNorm to
+        // run the ECC on-demand lookup (matchBestEccSkill). Calling it without
+        // promptNorm silently disabled all ECC lazy injection. Mirror v2.main():
+        // normalize(prompt).slice(0, MAX_PROMPT_CHARS).
+        const promptNorm = v2.normalize(prompt).slice(0, MAX_PROMPT_CHARS);
         const injected = await Promise.race([
-          v2.fetchLazySkillContent(ranked),
+          v2.fetchLazySkillContent(ranked, promptNorm),
           lazyRaceTimeout,
         ]);
         if (injected.size > 0) {

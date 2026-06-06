@@ -285,6 +285,15 @@ pub struct ClassMetrics {
     /// Calls that succeeded (outcome.is_ok()). success_rate = success_count/count.
     #[serde(default)]
     pub success_count: u64,
+    /// ISO date (YYYY-MM-DD, UTC) these per-class counters belong to. Same
+    /// date-sentinel pattern as `ModelMetrics::date` / `DailyUsage::date`: on the
+    /// first call of a new UTC day (or a freshly-created entry, whose date is "")
+    /// the entry resets to a clean slate before accumulating, so the per-class
+    /// success-rate never mixes two days. `#[serde(default)]` keeps old
+    /// metrics.json files (which lack this field) deserialising to "" so the
+    /// first call of the day resets them cleanly — no read-before-write bug.
+    #[serde(default)]
+    pub date: String,
 }
 
 /// Token usage extraido de la respuesta de un proveedor.
@@ -388,19 +397,17 @@ impl LatencyHistogram {
 
     /// p50 (median) latency in ms.  Returns the upper bound of the bucket
     /// that contains the 50th-percentile observation.  Returns 0 when empty.
-    #[allow(dead_code)] // exposed for future dashboard telemetry
+    /// Surfaced in the AI Router metrics dashboard (per-model table).
     pub fn p50_ms(&self) -> u64 {
         self.percentile(50)
     }
 
-    /// p95 latency in ms.  Returns 0 when empty.
-    #[allow(dead_code)] // exposed for future dashboard telemetry
+    /// p95 latency in ms.  Returns 0 when empty. Surfaced in the dashboard.
     pub fn p95_ms(&self) -> u64 {
         self.percentile(95)
     }
 
     /// Generic percentile: `pct` in 0..=100.
-    #[allow(dead_code)] // called by p50_ms / p95_ms above
     pub fn percentile(&self, pct: u8) -> u64 {
         if self.total == 0 {
             return 0;
@@ -442,6 +449,15 @@ pub struct ModelMetrics {
     /// `latency_ms_avg` continue to receive a sensible value.
     #[serde(default)]
     pub latency_ms_avg: u64,
+    /// p50 (median) latency in ms — derived from `histogram` on every read so
+    /// the dashboard can show it without recomputing client-side. Persisted as
+    /// a convenience mirror; the histogram remains the source of truth.
+    #[serde(default)]
+    pub latency_p50_ms: u64,
+    /// p95 latency in ms — derived from `histogram` on every read (same
+    /// contract as `latency_p50_ms`).
+    #[serde(default)]
+    pub latency_p95_ms: u64,
     /// Cumulative retries consumed across all calls to this model.
     /// `retried_calls` = number of calls that needed at least one retry.
     /// Divided by `count` gives the per-call retry rate.
@@ -1963,7 +1979,18 @@ pub fn ai_router_health(provider_id: String) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn ai_router_metrics() -> Result<RouterMetrics, String> {
-    load_metrics()
+    let mut metrics = load_metrics()?;
+    // Recompute the derived latency fields from each model's histogram so the
+    // dashboard always sees fresh p50/p95/avg even for entries persisted before
+    // these mirror fields existed (they default to 0 on the wire). The
+    // histogram is the source of truth; this only refreshes the convenience
+    // mirrors that the UI reads directly.
+    for mm in metrics.by_model.values_mut() {
+        mm.latency_ms_avg = mm.histogram.avg_ms();
+        mm.latency_p50_ms = mm.histogram.p50_ms();
+        mm.latency_p95_ms = mm.histogram.p95_ms();
+    }
+    Ok(metrics)
 }
 
 #[tauri::command]
@@ -2021,15 +2048,6 @@ pub fn primary_model_for_zone(zone_id: &str) -> Option<String> {
         .find(|z| z.id == zone_id)
         .map(|z| z.primary.model)
 }
-
-/// Maximum number of retry attempts on a 429 response before giving up and
-/// moving to the next provider in the fallback chain.
-#[allow(dead_code)] // wired into retry logic planned for R5
-const MAX_429_RETRIES: u32 = 2;
-
-/// Initial backoff for a 429 retry (doubles each attempt: 1 s → 2 s → give up).
-#[allow(dead_code)] // wired into retry logic planned for R5
-const BACKOFF_429_BASE_MS: u64 = 1_000;
 
 pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
     let zones = load_zones()?;
@@ -2105,9 +2123,10 @@ pub fn route(zone_id: &str, prompt: &str) -> Result<String, String> {
         }
 
         // --- 429 BACKOFF + RETRY (2026-06-05) --------------------------------
-        // Retry the same provider up to MAX_429_RETRIES times with exponential
-        // backoff before falling through to the next entry in the chain.
-        // Any error that is NOT a rate-limit is propagated immediately.
+        // Paid-tier providers retry the same provider up to MAX_RETRIES times
+        // (see `try_assignment_call`'s `with_retry`) with jitter-backoff before
+        // falling through to the next entry in the chain. Any error that is NOT
+        // a transient rate-limit is propagated immediately.
         //
         // SHORT-CIRCUIT (2026-06-05 fix CRITICAL #1): providers with a known
         // free-tier limit are almost certainly quota-exhausted when they return
@@ -2356,10 +2375,20 @@ fn bump_metrics(s: MetricSample<'_>) -> Result<(), String> {
 /// resets independently by comparing its stored date against `today`.
 fn apply_metric_sample(metrics: &mut RouterMetrics, s: &MetricSample<'_>, today: &str) {
     // --- Per-provider (by_class) ---
+    // Per-day reset by ENTRY: each ClassMetrics carries its own `date`. On the
+    // first call of a new UTC day (or a freshly-created entry, whose date is "")
+    // the entry resets to a clean slate before accumulating, so the per-class
+    // success-rate never mixes days. This uses the SAME date-sentinel pattern as
+    // by_model below — never the read-before-write proxy that the Kirkardo R4 P2
+    // fix removed from by_model.
     let pm = metrics
         .by_class
         .entry(s.provider_id.to_string())
         .or_default();
+    if pm.date != today {
+        *pm = ClassMetrics::default();
+        pm.date = today.to_string();
+    }
     pm.count = pm.count.saturating_add(1);
     if s.success {
         pm.success_count = pm.success_count.saturating_add(1);
@@ -2395,9 +2424,12 @@ fn apply_metric_sample(metrics: &mut RouterMetrics, s: &MetricSample<'_>, today:
         mm.success_count = mm.success_count.saturating_add(1);
     }
     mm.output_tokens = mm.output_tokens.saturating_add(s.output_tokens);
-    // Use the histogram for all latency tracking; derive avg for backward compat.
+    // Use the histogram for all latency tracking; derive avg + percentiles for
+    // the dashboard (the histogram stays the source of truth).
     mm.histogram.record(s.latency_ms);
     mm.latency_ms_avg = mm.histogram.avg_ms();
+    mm.latency_p50_ms = mm.histogram.p50_ms();
+    mm.latency_p95_ms = mm.histogram.p95_ms();
     // KIRKARDO P2: track retry activity per model so the dashboard can surface
     // "X% of calls to this model needed a retry" without biasing fail_reasons.
     mm.total_retries = mm.total_retries.saturating_add(s.retry_count as u64);
@@ -3121,26 +3153,6 @@ mod tests {
     }
 
     #[test]
-    fn backoff_constants_are_sane() {
-        // Sanity-check: total worst-case wait with MAX_429_RETRIES=2 and base=1000ms
-        // is 1000 + 2000 = 3000ms per provider — acceptable for interactive use.
-        let mut total_ms: u64 = 0;
-        let mut backoff = BACKOFF_429_BASE_MS;
-        for _ in 0..MAX_429_RETRIES {
-            total_ms += backoff;
-            backoff = backoff.saturating_mul(2);
-        }
-        assert!(
-            total_ms <= 5_000,
-            "total backoff per provider must stay under 5 s, got {total_ms}ms"
-        );
-        assert!(
-            MAX_429_RETRIES <= 3,
-            "more than 3 retries would be too slow"
-        );
-    }
-
-    #[test]
     fn cli_providers_have_correct_metadata() {
         for p in seed_providers() {
             if p.id == "codex-cli" || p.id == "gemini-cli" {
@@ -3179,6 +3191,12 @@ mod tests {
 
     // --- short-circuit on free-tier 429 (fix CRITICAL #1, 2026-06-05) --------
 
+    /// Local mirror of the `MAX_RETRIES` const used inside `try_assignment_call`.
+    /// Kept here (instead of a module-level constant) because production code
+    /// reads the value inline; these tests only need it to express the
+    /// "full retry budget" expectation for paid-tier providers.
+    const FULL_RETRY_BUDGET: u32 = 3;
+
     #[test]
     fn free_tier_provider_gets_zero_retries() {
         // A provider with a known free-tier cap must have effective_retries = 0,
@@ -3192,7 +3210,7 @@ mod tests {
                 "provider '{pid}' must have a known free-tier limit \
                  so that 429s trigger the short-circuit (no backoff)"
             );
-            let effective_retries: u32 = if has_cap { 0 } else { MAX_429_RETRIES };
+            let effective_retries: u32 = if has_cap { 0 } else { FULL_RETRY_BUDGET };
             assert_eq!(
                 effective_retries, 0,
                 "provider '{pid}' must have effective_retries=0 on 429 \
@@ -3204,7 +3222,7 @@ mod tests {
     #[test]
     fn paid_tier_provider_keeps_full_retry_budget() {
         // Providers WITHOUT a known free-tier cap (paid tier) must still receive
-        // the full MAX_429_RETRIES budget, because their 429s are transient.
+        // the full retry budget, because their 429s are transient.
         for pid in &["claude-haiku", "claude-sonnet", "deepseek"] {
             let has_cap = free_tier_daily_limit(pid).is_some();
             assert!(
@@ -3212,9 +3230,9 @@ mod tests {
                 "provider '{pid}' must NOT have a free-tier cap \
                  (it is a paid-tier provider)"
             );
-            let effective_retries: u32 = if has_cap { 0 } else { MAX_429_RETRIES };
+            let effective_retries: u32 = if has_cap { 0 } else { FULL_RETRY_BUDGET };
             assert_eq!(
-                effective_retries, MAX_429_RETRIES,
+                effective_retries, FULL_RETRY_BUDGET,
                 "paid-tier provider '{pid}' must keep the full retry budget"
             );
         }
@@ -3773,6 +3791,50 @@ mod tests {
         assert_eq!(
             m.by_model["groq::b"].count, 1,
             "model b ALSO resets independently on day 2"
+        );
+    }
+
+    /// F2 FIX — by_class resets on the UTC day boundary by ENTRY (its own
+    /// `date`), so the per-class success-rate never mixes two days. Uses the
+    /// same date-sentinel pattern as by_model — NOT the read-before-write proxy
+    /// that the Kirkardo R4 P2 fix removed. Drives the real `apply_metric_sample`
+    /// pure core with controlled dates.
+    #[test]
+    fn apply_metric_sample_by_class_resets_only_on_day_boundary() {
+        let mut m = RouterMetrics::default();
+
+        // Day 1, call 1: creates the entry, stamped with day 1, one success.
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-05");
+        assert_eq!(m.by_class["groq"].count, 1, "day1 call1: count starts at 1");
+        assert_eq!(m.by_class["groq"].success_count, 1);
+        assert_eq!(m.by_class["groq"].date, "2026-06-05");
+
+        // Day 1, call 2: SAME day → accumulate, never wipe.
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-05");
+        assert_eq!(
+            m.by_class["groq"].count, 2,
+            "same-day calls must accumulate to 2"
+        );
+        assert_eq!(m.by_class["groq"].success_count, 2);
+
+        // Day 2, call 1: NEW day → entry resets to a clean slate (count → 1).
+        // This is the F2 fix: the success-rate no longer mixes day-1 and day-2.
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-06");
+        assert_eq!(
+            m.by_class["groq"].count, 1,
+            "day2 call1: resets at the boundary"
+        );
+        assert_eq!(
+            m.by_class["groq"].success_count, 1,
+            "day2 success_count must NOT carry over from day 1"
+        );
+        assert_eq!(m.by_class["groq"].date, "2026-06-06");
+
+        // Day 2, call 2: SAME (new) day → accumulate to 2 (no second-call wipe).
+        apply_metric_sample(&mut m, &metric_sample("groq", "llama"), "2026-06-06");
+        assert_eq!(
+            m.by_class["groq"].count, 2,
+            "day2 call2 must accumulate, NOT wipe"
         );
     }
 }
