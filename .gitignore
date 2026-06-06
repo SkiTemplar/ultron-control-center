@@ -375,3 +375,15 @@ cockpit/project-cards/
 cockpit/projects/*/kanban.json
 # qdrant-native: almacen local stale con binario qdrant.exe (85M, huerfano)
 qdrant-native/
+
+# === 2026-06-06: sanitizacion ola 5-pilares (datos personales colados al tracking) ===
+# Catalogo de skills auto-generado (incluye personas personales). Rebuild local: skill_catalog_gen.py
+cockpit/skill-catalog.json
+# Notas y proyectos personales (config de agentes preferidos, decisiones, notas)
+cockpit/notes/
+cockpit/projects/*/notes.md
+cockpit/projects/*/decisions.jsonl
+cockpit/projects/*/pinned-agents.json
+cockpit/projects/*/agent-roster.json
+# Script maintainer-only que enumera las personas personales
+scripts/cockpit/audit_personal_data.py
