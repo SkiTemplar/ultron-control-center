@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import logging
 import os
 import re
 import sys
@@ -39,6 +40,8 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+
+logger = logging.getLogger(__name__)
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -106,6 +109,10 @@ class SkillMeta:
 
     def to_payload(self) -> dict[str, Any]:
         return {
+            # entity='skill' namespaces this collection from agents/vault notes
+            # stored in the same Qdrant instance. Queries can filter on entity
+            # to avoid cross-contamination.
+            "entity": "skill",
             "name": self.name,
             "description": self.description[:1500],  # cap for payload size
             "tags": self.tags,
@@ -118,16 +125,35 @@ class SkillMeta:
         }
 
 
-def _parse_frontmatter(text: str) -> dict[str, Any]:
-    """Minimal YAML parse — sufficient for SKILL.md frontmatter shape."""
+def _parse_frontmatter(text: str, *, _source_hint: str = "") -> dict[str, Any]:
+    """Minimal YAML parse — sufficient for SKILL.md frontmatter shape.
+
+    Args:
+        text: Full file contents (frontmatter fences included).
+        _source_hint: Optional path string used in WARN logs.
+
+    Returns:
+        Parsed frontmatter as a plain dict. Returns ``{}`` on any failure
+        (including malformed YAML) after logging a WARN so callers can
+        surface the issue without crashing.
+    """
     m = _FM_RE.match(text)
     if not m:
         return {}
     fm_text = m.group(1)
     try:
         import yaml
-        data = yaml.safe_load(fm_text)
-        return data if isinstance(data, dict) else {}
+        try:
+            data = yaml.safe_load(fm_text)
+            return data if isinstance(data, dict) else {}
+        except Exception as yaml_exc:
+            hint = f" ({_source_hint})" if _source_hint else ""
+            logger.warning(
+                "WARN: YAML parse error en frontmatter%s: %s — usando fallback stdlib",
+                hint,
+                yaml_exc,
+            )
+            # Fall through to stdlib parser below.
     except ImportError:
         pass
     # Stdlib fallback: line-by-line key:value
@@ -174,8 +200,9 @@ def extract_skill_meta(path: Path, kind: str) -> SkillMeta | None:
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
+        logger.warning("WARN: no se pudo leer %s — omitida", path)
         return None
-    fm = _parse_frontmatter(text)
+    fm = _parse_frontmatter(text, _source_hint=str(path))
     if not fm:
         return None
     name = str(fm.get("name") or path.parent.name).strip()
@@ -411,6 +438,14 @@ def index_skills(*, full_rebuild: bool = False, rebuild: bool = False) -> IndexR
     if not full_rebuild and len(state) >= _DESYNC_STATE_MIN:
         pts = _qdrant_points_count(COLLECTION)
         if pts is not None and pts < len(state) * _DESYNC_RATIO:
+            logger.warning(
+                "WARN: self-heal divergencia detectada — state=%d skills, Qdrant=%d puntos "
+                "(ratio %.2f < %.2f) — forzando full rebuild",
+                len(state),
+                pts,
+                pts / len(state) if state else 0,
+                _DESYNC_RATIO,
+            )
             full_rebuild = True
             reconcile_forced = True
             state = {}
@@ -481,20 +516,117 @@ def index_skills(*, full_rebuild: bool = False, rebuild: bool = False) -> IndexR
     )
 
 
-def query_skills(text: str, *, top_n: int = 5, state: str | None = None) -> list[dict[str, Any]]:
+# Tier ordering for reranking: lower number = higher priority.
+_TIER_RANK: dict[str, int] = {
+    "L1": 0, "L2": 1, "L3": 2,
+    "core": 0, "advanced": 1, "experimental": 2,
+}
+_TIER_RANK_DEFAULT = 9  # unknown tiers rank last
+
+
+def _rerank(
+    results: list[dict[str, Any]],
+    *,
+    top_n: int,
+    alpha_semantic: float = 0.85,
+    alpha_tier: float = 0.10,
+    alpha_freshness: float = 0.05,
+) -> list[dict[str, Any]]:
+    """Post-query reranking by (semantic score, tier priority, freshness).
+
+    The final score is a weighted combination:
+      final = alpha_semantic * cosine_score
+            + alpha_tier     * (1 - tier_rank / 10)    # normalised 0..1
+            + alpha_freshness * freshness_norm          # normalised 0..1
+
+    Args:
+        results: Raw Qdrant hit dicts with 'score', 'tier', 'indexed_at'.
+        top_n: Maximum number of results to return.
+        alpha_semantic: Weight for the raw cosine similarity score.
+        alpha_tier: Weight for the tier-priority bonus.
+        alpha_freshness: Weight for the recency bonus.
+
+    Returns:
+        Reranked list of dicts, truncated to top_n, with 'rerank_score' added.
+    """
+    if not results:
+        return results
+
+    # Parse indexed_at timestamps for freshness calculation.
+    now_ts = datetime.now(timezone.utc).timestamp()
+    ONE_YEAR_S = 365 * 24 * 3600
+    for r in results:
+        try:
+            ia = r.get("indexed_at", "")
+            if ia:
+                ts = datetime.fromisoformat(ia).timestamp()
+                age_s = max(0.0, now_ts - ts)
+            else:
+                age_s = ONE_YEAR_S
+        except (ValueError, TypeError):
+            age_s = ONE_YEAR_S
+        r["_age_s"] = age_s
+
+    max_age = max(r["_age_s"] for r in results) or 1.0
+
+    for r in results:
+        tier_val = _TIER_RANK.get(r.get("tier", ""), _TIER_RANK_DEFAULT)
+        tier_score = max(0.0, 1.0 - tier_val / 10.0)
+        freshness_score = 1.0 - r["_age_s"] / max_age
+        r["rerank_score"] = round(
+            alpha_semantic * r["score"]
+            + alpha_tier * tier_score
+            + alpha_freshness * freshness_score,
+            4,
+        )
+
+    results.sort(key=lambda r: r["rerank_score"], reverse=True)
+    for r in results:
+        r.pop("_age_s", None)
+    return results[:top_n]
+
+
+def query_skills(
+    text: str,
+    *,
+    top_n: int = 5,
+    state: str | None = None,
+    rerank: bool = True,
+) -> list[dict[str, Any]]:
+    """Semantic skill search with optional tier/freshness reranking.
+
+    Args:
+        text: Free-form query string.
+        top_n: Number of results to return.
+        state: Optional filter — "active", "vaulted", or "plugin".
+        rerank: If True (default), apply tier+freshness reranking.
+
+    Returns:
+        List of matching skill dicts sorted by (rerank_score if rerank else score).
+    """
+    from qdrant_client.http.models import Filter, FieldCondition, MatchValue
     client = _get_qdrant()
     vec = embed_texts([text])[0]
-    qfilter = None
+
+    # Always restrict to entity='skill' to avoid cross-contamination with
+    # agents or vault notes that may share the same Qdrant instance.
+    must_conditions = [FieldCondition(key="entity", match=MatchValue(value="skill"))]
     if state:
-        from qdrant_client.http.models import Filter, FieldCondition, MatchValue
-        qfilter = Filter(must=[FieldCondition(key="state", match=MatchValue(value=state))])
+        must_conditions.append(
+            FieldCondition(key="state", match=MatchValue(value=state))
+        )
+    qfilter = Filter(must=must_conditions)
+
+    # Fetch extra candidates if reranking so we have enough to reorder.
+    fetch_n = top_n * 3 if rerank else top_n
     results = client.query_points(
         collection_name=COLLECTION,
         query=vec,
-        limit=top_n,
+        limit=fetch_n,
         with_payload=True,
         query_filter=qfilter,
     ).points
+
     out = []
     for r in results:
         payload = r.payload or {}
@@ -506,8 +638,10 @@ def query_skills(text: str, *, top_n: int = 5, state: str | None = None) -> list
             "tier": payload.get("tier", ""),
             "tags": payload.get("tags", []),
             "description": payload.get("description", "")[:200],
+            "indexed_at": payload.get("indexed_at", ""),
         })
-    return out
+
+    return _rerank(out, top_n=top_n) if rerank else out[:top_n]
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
@@ -528,7 +662,7 @@ def _cmd_index(args: argparse.Namespace) -> int:
 
 
 def _cmd_query(args: argparse.Namespace) -> int:
-    rows = query_skills(args.text, top_n=args.top, state=args.state)
+    rows = query_skills(args.text, top_n=args.top, state=args.state, rerank=not args.no_rerank)
     print(json.dumps(rows, indent=2, ensure_ascii=False))
     return 0
 
@@ -580,6 +714,7 @@ def main(argv: list[str] | None = None) -> int:
     p_q.add_argument("text")
     p_q.add_argument("--top", type=int, default=5)
     p_q.add_argument("--state", choices=["active", "vaulted", "plugin"], default=None, help="filtra por estado")
+    p_q.add_argument("--no-rerank", action="store_true", help="desactiva reranking por tier/freshness")
     p_q.set_defaults(func=_cmd_query)
 
     p_s = sub.add_parser("status", help="collection + state info")
