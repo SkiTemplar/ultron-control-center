@@ -1604,16 +1604,6 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
             "Al iniciar, inyecta el resumen de la última sesión del mismo proyecto cuando el match por worktree del plugin falla.",
         ),
         (
-            "workday-session-linker.js",
-            "Vincular sesión a Workday",
-            "Al iniciar, enlaza la nueva sesión con la jornada (Workday) en curso del Control Center.",
-        ),
-        (
-            "session-recall-inject.js",
-            "Recall semántico (Qdrant)",
-            "Al iniciar, busca por similitud vectorial en Qdrant e inyecta el contexto más relevante de sesiones pasadas.",
-        ),
-        (
             "routing-dispatcher.js",
             "Router de skills y personas",
             "En cada prompt, puntúa el texto contra personas y skills y sugiere la más adecuada (sin LLM).",
@@ -1622,11 +1612,6 @@ fn curated_hook_meta(basename: &str) -> Option<(&'static str, &'static str)> {
             "save-user-prompt.js",
             "Auto-guardar prompts del usuario",
             "En cada prompt, archiva el mensaje en un inbox markdown por día y marca el conocimiento crítico.",
-        ),
-        (
-            "quota-capture.js",
-            "Captura de cuota de Claude",
-            "Tras cada herramienta, detecta avisos de límite de la suscripción y los escribe en quota-state.json.",
         ),
         // --- Hooks vigentes (iter-10, 2026-06) ---
         (
