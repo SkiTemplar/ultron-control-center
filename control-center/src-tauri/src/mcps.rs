@@ -462,6 +462,8 @@ const KNOWN_MCP_NAMES: &[&str] = &[
     "sqlite",
     "fetch",
     "brave-search",
+    "exa",
+    "discord",
     "slack",
     "linear",
     "jira",
