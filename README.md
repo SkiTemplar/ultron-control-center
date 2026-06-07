@@ -19,10 +19,10 @@ Claude Code. Vive bajo `~/.ultron/` y reune tres piezas: **memoria gobernada**,
 **AI Router** y un **orquestador de skills/agentes**. No reemplaza a Claude
 Code: lo envuelve con estado persistente, inspeccionable y versionable.
 
-> Repositorio **privado**, de un solo usuario. No es un producto publico ni un
-> SaaS. Esta documentacion describe el sistema tal y como esta en el disco; no
-> contiene secretos ni datos personales (la informacion personal vive solo en
-> ficheros locales fuera de control de versiones).
+> Repositorio **publico** (MIT), de un solo mantenedor. No es un producto
+> comercial ni un SaaS. Esta documentacion describe el sistema tal y como esta
+> en el disco; no contiene secretos ni datos personales (la informacion personal
+> vive solo en ficheros locales fuera de control de versiones).
 
 - **Version**: 2.7.1 (`control-center/package.json`, `Cargo.toml`, `tauri.conf.json`)
 - **Plataforma**: Windows 11 (objetivo principal); Linux x86_64 compila pero el
@@ -88,7 +88,8 @@ memoria esta en `control-center/src-tauri/src/memory/`.
 
 - **`~/.ultron/brain.db`** (SQLite, modo WAL) es la **SoT canonica**. El esquema
   canonico vive en `memory/schema_v3.rs` (memoria) + `memory/schema_v4.rs`
-  (migracion del codegraph: tablas `edges` / `unresolved_refs`) /
+  (migracion historica v4: tablas `edges` / `unresolved_refs`, hoy inertes — el
+  grafo de codigo lo provee el MCP CodeGraph externo) /
   `memory/migrations.rs`, con modelos en `memory/model.rs` (`MemoryItem`,
   `MemoryCandidate`, `MemoryEvent`, y los enums de gobernanza `Status`, `Scope`,
   `Sensitivity`, `Source`, etc.).
@@ -167,19 +168,17 @@ memoria esta en `control-center/src-tauri/src/memory/`.
   memoria persistente y delega a agentes reales en `~/.claude/agents`
   (los "ghost agents" inexistentes en disco se sanean).
 
-### CodeGraph: grafo de codigo sobre brain.db
+### Grafo de codigo: MCP CodeGraph (externo)
 
-- Capa ligera de grafo de codigo encima de la captura de simbolos existente.
-  La migracion `memory/schema_v4.rs` (PRAGMA `user_version` v4) crea las tablas
-  `edges` (relaciones dirigidas entre simbolos/modulos: caller -> callee,
-  imports, etc.) y `unresolved_refs` (referencias cuyo simbolo origen aun no
-  esta en `brain.db`; se drenan y promueven a `edges` cuando aparece el target).
-- Backend en `commands/memory/codegraph.rs`, con tres comandos Tauri:
-  `memory_graph_metrics` (contadores agregados: total de edges, por tipo,
-  unresolved), `memory_impact_analysis` (callers/callees de un simbolo) y
-  `memory_drain_unresolved` (promocion idempotente de refs no resueltas a edges).
-- Frontend en `src/components/system/CodeGraph.tsx`: panel **read-only** dentro
-  de la pestana System que muestra metricas del grafo y analisis de impacto.
+- El grafo de codigo (que simbolos existen, quien llama a quien, analisis de
+  impacto) lo provee **CodeGraph** (`@colbymchenry/codegraph`, MIT), instalado
+  como **servidor MCP** y consultado por los agentes via `codegraph_explore` /
+  `codegraph_callers` / `codegraph_impact`. Indexa el repo con tree-sitter (AST)
+  en `.codegraph/` (SQLite local, incremental) — 20+ lenguajes.
+- El casero v4 anterior (regex + tablas `edges`/`unresolved_refs` en brain.db +
+  panel System) fue **jubilado** (2026-06-08): aportaba menos y no se inyectaba
+  al contexto del agente. La migracion `schema_v4` se conserva como historia
+  inerte (las tablas existen vacias; no hay codigo que las consuma).
 
 ### Plugin Updates: chequeo de actualizaciones de plugins
 
@@ -274,7 +273,7 @@ npm test       # vitest (frontend)
 - **AI Router**: routing real con cadena primario/fallback, deteccion de claves
   y telemetria de uso/ahorro; sin sidecar LiteLLM.
 - **UI (Control Center, v2.7.1)**: barra lateral con Dashboard, Usage, AI Router,
-  System (con sub-tabs de Hooks/Schedules y el panel **CodeGraph**), MCPs,
+  System (con sub-tabs de Hooks/Schedules), MCPs,
   Library (sub-tabs Skills/Agents/Rules/**Updates**), **Memory**, Notes,
   Sessions, Projects, Finance, Settings y Notifications. La pestana **Memory**
   esta **viva** (re-anadida 2026-06-04, `Sidebar.tsx`): expone el inbox de

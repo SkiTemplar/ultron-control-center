@@ -1186,8 +1186,8 @@
         <div class="ld">Conjunto de skills y patrones de planificación (brainstorm, writing-plans, executing-plans…) que el routing puede inyectar bajo demanda como cualquier otra capacidad.</div>
       </div>
       <div class="layer">
-        <div><div class="ln">codegraph</div><div class="lr">grafo de código (interno)</div></div>
-        <div class="ld">Capa ligera sobre <code>brain.db</code> (migración <code>schema_v4.rs</code>: tablas <code>edges</code> / <code>unresolved_refs</code>) con análisis de impacto caller/callee. Panel read-only dentro de la pestaña System.</div>
+        <div><div class="ln">codegraph</div><div class="lr">grafo de código (MCP externo)</div></div>
+        <div class="ld">Provisto por el MCP <code>@colbymchenry/codegraph</code> (tree-sitter, índice local en <code>.codegraph/</code>): los agentes consultan estructura, callers/callees e impacto sin releer el código. El casero v4 sobre <code>brain.db</code> fue jubilado (2026-06-08).</div>
       </div>
       <div class="layer">
         <div><div class="ln">catálogo de agentes</div><div class="lr">comunidad embebida</div></div>
@@ -1355,7 +1355,7 @@ npm run build:app   <span class="c"># cierra cualquier instancia + compila el .e
         <tr><td><b>Library</b></td><td>El catálogo de capacidades: sub-pestañas <b>Skills</b>, <b>Agents</b>, <b>Rules</b> y <b>Updates</b>. Instalas, revisas y actualizas especialistas; los sospechosos quedan en cuarentena.</td></tr>
         <tr><td><b>Projects</b></td><td>Tus proyectos en formato kanban. Desde aquí lanzas una sesión de Claude Code apuntando a la carpeta del proyecto.</td></tr>
         <tr><td><b>Sessions</b></td><td>Historial de sesiones de trabajo y su telemetría (qué se enrutó, a dónde).</td></tr>
-        <tr><td><b>System</b></td><td>Tripas operativas: hooks, tareas programadas y el panel <b>CodeGraph</b> (grafo de código, solo lectura).</td></tr>
+        <tr><td><b>System</b></td><td>Tripas operativas: hooks y tareas programadas.</td></tr>
         <tr><td><b>Usage</b></td><td>Consumo y coste estimado a lo largo del tiempo.</td></tr>
         <tr><td><b>MCPs</b></td><td>Servidores MCP conectados (herramientas externas que la IA puede usar).</td></tr>
         <tr><td><b>Notes</b> · <b>Finance</b></td><td>Notas rápidas y un panel financiero de solo lectura.</td></tr>
@@ -1584,7 +1584,7 @@ npm run build:app   <span class="c"># cierra cualquier instancia + compila el .e
     <div class="ftitle">Procedencia · leído del repo, no inferido</div>
     <div class="files">
       <code><b>memory/</b>{service, sqlite_store, qdrant_index, redaction, capture, catalog, contradiction, doctor}.rs</code>
-      <code><b>commands/memory/</b>{recall_unified, inbox, codegraph}.rs</code>
+      <code><b>commands/memory/</b>{recall_unified, inbox}.rs</code>
       <code><b>src/</b>ai_router.rs · <b>src/</b>orchestrator.rs</code>
       <code><b>cockpit/skill-lazy/</b>{routing-dispatcher, README}  ·  <b>hooks/</b>{manifest.json, README}</code>
       <code><b>docs/</b>{README, QUICKSTART, INTEGRATION}.md</code>

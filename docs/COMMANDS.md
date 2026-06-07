@@ -30,8 +30,8 @@ Press `Ctrl+K` anywhere in the Control Center to open the fuzzy palette. Type a 
 > **Dashboard, Usage, AI Router, System, MCPs, Library, Memory, Notes,
 > Sessions, Projects, Finance, Settings, Notifications**. **Skills, Agents and
 > Rules are NOT top-level** — they are **sub-tabs of Library** (alongside
-> **Updates**, the plugin update-check panel). System hosts the **CodeGraph**
-> panel and the Hooks/Schedules sub-tabs. Finance is build-gated
+> **Updates**, the plugin update-check panel). System hosts the
+> Hooks/Schedules sub-tabs. Finance is build-gated
 > (`VITE_FINANCE=1`). Each tab is still reachable individually via the command
 > palette and deep-links even when it lives under another tab.
 
