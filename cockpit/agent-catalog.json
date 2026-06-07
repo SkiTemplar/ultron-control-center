@@ -150,6 +150,20 @@
       "installed": true
     },
     {
+      "name": "code-simplifier",
+      "description": "Simplifies and refines recently modified code for clarity, consistency and maintainability while preserving all functionality. Prefers readable explicit code over compact one-liners.",
+      "source_repo": "claude-plugins-official/code-simplifier",
+      "category": "quality-security",
+      "raw_url": "https://github.com/anthropics/claude-code",
+      "tags": [
+        "simplification",
+        "refactor",
+        "code-quality"
+      ],
+      "model_hint": "claude-opus-4-7",
+      "installed": true
+    },
+    {
       "name": "context-manager",
       "description": "Manages context windows for long-running agent sessions: pinning, eviction, summary.",
       "source_repo": "VoltAgent/awesome-claude-code-subagents",
