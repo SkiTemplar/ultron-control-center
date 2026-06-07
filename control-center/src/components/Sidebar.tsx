@@ -21,6 +21,7 @@ export type Tab =
   | "usage"
   | "ai-router"
   | "system"
+  | "learn"
   | "settings";
 
 type Item = {
@@ -88,6 +89,7 @@ const SECTIONS: { heading: string; items: Item[] }[] = [
       // v2.6 (card-v26-fb-005): cross-project markdown notes at
       // ~/.ultron/cockpit/notes/.
       { id: "notes", label: "Notes", available: true },
+      { id: "learn", label: "Learn", available: true },
     ],
   },
   {
