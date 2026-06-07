@@ -594,6 +594,17 @@ fn parse_pending_lines(text: &str, existing_keys: &HashSet<String>) -> Vec<Batch
     added
 }
 
+/// Delete every entry from the queue (used by "Clear all" to wipe both the
+/// scripts on disk and the queue records in one atomic operation).
+pub fn clear_queue_inner() -> Result<(), String> {
+    let _g = queue_lock()
+        .lock()
+        .map_err(|_| "batches queue lock poisoned")?;
+    let path = queue_path()?;
+    // Overwrite with an empty file — same atomic tmp+rename discipline.
+    write_atomic(&path, &[])
+}
+
 /// Drain `queue-pending.jsonl` into `queue.jsonl`. Same rename→snapshot→dedup→
 /// atomic-rewrite discipline as `decisions::drain_pending_inner`. Returns the
 /// entries newly added (deduped against what was already queued).

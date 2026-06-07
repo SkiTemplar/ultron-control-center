@@ -217,9 +217,9 @@ pub fn delete_batch_single_inner(name: String) -> Result<(), String> {
     std::fs::remove_file(&cand).map_err(|e| format!("delete '{name}': {e}"))
 }
 
-/// Delete ALL batch scripts (allowed extensions) regardless of age — backs the
-/// "Clear all" button (card-bug-runbatch-clear). Non-batch files are left
-/// untouched and counted in `kept`. Separate path from
+/// Delete ALL batch scripts (allowed extensions) regardless of age AND purge
+/// every entry from queue.jsonl — backs the "Clear all" button. Non-batch
+/// files are left untouched and counted in `kept`. Separate path from
 /// `cleanup_old_batches_inner`, whose `older_than_days = 0` deliberately
 /// deletes NOTHING (the `cutoff_secs > 0` guard), so "clear all" cannot be
 /// expressed by reusing it.
@@ -241,22 +241,33 @@ pub fn clear_all_batches_inner() -> Result<BatchCleanupReport, String> {
         if !path.is_file() {
             continue;
         }
+        // Skip the queue files — those are managed by clear_queue_inner below.
+        let fname = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        if fname == "queue.jsonl"
+            || fname == "queue-pending.jsonl"
+            || fname.ends_with(".draining")
+            || fname.ends_with(".tmp")
+        {
+            continue;
+        }
         if !is_allowed_ext(&path) {
             kept += 1;
             continue;
         }
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
         match std::fs::remove_file(&path) {
-            Ok(()) => deleted.push(name),
+            Ok(()) => deleted.push(fname.to_string()),
             Err(e) => {
                 eprintln!("[batches] could not delete '{}': {e}", path.display());
                 kept += 1;
             }
         }
+    }
+    // Purge the persistent queue so the UI "Cola" section also empties.
+    if let Err(e) = crate::batches_queue::clear_queue_inner() {
+        eprintln!("[batches] clear_queue_inner failed (non-fatal): {e}");
     }
     Ok(BatchCleanupReport { deleted, kept })
 }

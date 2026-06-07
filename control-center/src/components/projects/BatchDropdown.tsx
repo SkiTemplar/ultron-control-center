@@ -346,29 +346,32 @@ export default function BatchDropdown({
     setConfirmingClearAll(false);
     setPendingDeleteName(null);
     setLoading(true);
+    // Optimistic reset of both lists so the UI empties immediately.
+    setBatches([]);
+    setQueue([]);
     try {
       const r = await invoke<{ deleted: string[]; kept: number }>("clear_all_batches");
-      setBatches([]);
       onResult?.({
         kind: "ok",
         title: `${r.deleted.length} batches eliminados`,
         body:
           r.deleted.length === 0
-            ? `No habia batches que borrar. Kept ${r.kept}.`
-            : `Eliminados todos los batches (${r.deleted.length}). Kept ${r.kept} no-batch.`,
+            ? "No habia batches que borrar."
+            : `Eliminados ${r.deleted.length} script${r.deleted.length === 1 ? "" : "s"} y vaciada la cola.`,
       });
-      await refresh();
     } catch (err: unknown) {
       onResult?.({
         kind: "err",
         title: "Clear all failed",
         body: err instanceof Error ? err.message : String(err),
       });
-      await refresh();
     } finally {
       setLoading(false);
+      // Re-fetch both lists to confirm backend state regardless of outcome.
+      await refresh();
+      await refreshQueue();
     }
-  }, [onResult, refresh]);
+  }, [onResult, refresh, refreshQueue]);
 
   // ---------------------------------------------------------------------------
   // Derived counts

@@ -54,17 +54,17 @@ type Step = 1 | 2 | 3 | 4;
 
 const KEBAB_RE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-const SKILL_CREATOR_PROMPT = `You are skill-creator. I want to create a new Claude Code skill named "{NAME}".
+// Drives the spawned Claude session straight into the `skill-creator` skill.
+// The session is launched with `respectClipboard` so this exact text is what
+// the user pastes — phrasing it as an explicit "use the skill-creator skill"
+// request is what reliably triggers the skill (a bare "you are skill-creator"
+// roleplay line does not). The skill itself owns frontmatter quality, the
+// quick_validate.py validator, packaging, and description optimization.
+const SKILL_CREATOR_PROMPT = `Use the skill-creator skill to create a new Claude Code skill named "{NAME}".
 
 Goal: {DESCRIPTION}
 
-Generate the full SKILL.md body in markdown. Include:
-- A short prose paragraph stating when to activate this skill
-- A numbered Workflow section
-- At least one concrete Example with input/output
-- No YAML frontmatter (the Control Center adds that)
-
-Return only the markdown body. No fences. No commentary.`;
+Follow the skill-creator workflow: capture intent, draft a spec-compliant SKILL.md (strong pushy description + lean imperative body + at least one example), then validate it with scripts/quick_validate.py before finishing. Write the skill under ~/.claude/skills/{NAME}/ and offer to package it for Cowork when done.`;
 
 export function CreateSkillModal({
   defaultScope = "global",
@@ -478,9 +478,10 @@ function StepTemplates(props: {
       >
         <Sparkles size={14} />
         <span className="flex-1 text-xs">
-          Rather have Claude draft this? Copy the prompt and paste it into a
-          new Claude session — pairs with the upstream{" "}
-          <code>skill-creator</code> skill.
+          Rather have Claude draft this? This opens a new Claude session and
+          pastes a prompt that launches the{" "}
+          <code>skill-creator</code> skill — it drafts, validates, and packages
+          the skill for you.
         </span>
         <button
           className="inline-flex items-center gap-1 rounded border px-2 py-1 text-xs"
