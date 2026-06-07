@@ -530,6 +530,7 @@ fn is_unknown_mcp(name: &str) -> bool {
 /// Read `~/.claude.json` and extract every MCP server declared there:
 ///   - top-level `mcpServers`            -> origin "user-claudejson"
 ///   - `projects.<path>.mcpServers`      -> origin "project:<basename(path)>"
+///
 /// Returns `(origin, name, cfg)` tuples. Tolerates a missing/unreadable file
 /// (returns an empty vec — never an error) so a fresh install still works.
 fn collect_claude_json_mcps() -> Vec<(String, String, McpServerCfg)> {
@@ -1588,11 +1589,13 @@ mod tests {
         assert!(!is_unknown_mcp("superpowers-mcp"));
         assert!(!is_unknown_mcp("github"));
 
-        // Unknowns the prompt called out.
-        assert!(is_unknown_mcp("discord"));
+        // exa + discord are now recognised (added to KNOWN_MCP_NAMES — both
+        // ship a well-known description, so flagging them as unknown was wrong).
+        assert!(!is_unknown_mcp("exa"));
+        assert!(!is_unknown_mcp("discord"));
+        // Genuinely unknown servers are still flagged.
         assert!(is_unknown_mcp("fakechat"));
         assert!(is_unknown_mcp("imessage"));
-        assert!(is_unknown_mcp("exa"));
         // github-pat is a user-specific alias, not the canonical "github".
         assert!(is_unknown_mcp("github-pat"));
     }
