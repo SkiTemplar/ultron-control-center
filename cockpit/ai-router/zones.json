@@ -57,6 +57,11 @@
     },
     "fallbacks": [
       {
+        "provider_id": "gemini-cli",
+        "model": "gemini-2.5-flash",
+        "max_tokens": 2048
+      },
+      {
         "provider_id": "claude-haiku",
         "model": "claude-haiku-4-5-20251001",
         "max_tokens": 2048

@@ -829,17 +829,27 @@ fn seed_zones() -> Vec<Zone> {
             label: "Code review".into(),
             category: "code".into(),
             task_class: ProviderClass::Light,
-            // Code zone → codex-cli (gpt-5) primary; claude-haiku as fallback.
+            // Code zone → codex-cli primary; gemini-cli (keyless OAuth) then
+            // claude-haiku as fallbacks so the zone stays functional even if
+            // codex is unavailable. (codex-cli ignores the model field — the
+            // ChatGPT account picks its own; kept here only as a label.)
             primary: ZoneAssignment {
                 provider_id: "codex-cli".into(),
                 model: "gpt-5".into(),
                 max_tokens: 2048,
             },
-            fallbacks: vec![ZoneAssignment {
-                provider_id: "claude-haiku".into(),
-                model: "claude-haiku-4-5-20251001".into(),
-                max_tokens: 2048,
-            }],
+            fallbacks: vec![
+                ZoneAssignment {
+                    provider_id: "gemini-cli".into(),
+                    model: "gemini-2.5-flash".into(),
+                    max_tokens: 2048,
+                },
+                ZoneAssignment {
+                    provider_id: "claude-haiku".into(),
+                    model: "claude-haiku-4-5-20251001".into(),
+                    max_tokens: 2048,
+                },
+            ],
             system_prompt: None,
         },
         Zone {
@@ -1860,14 +1870,32 @@ fn clamp_max_tokens(requested: u32, default: u32) -> u32 {
 // run through `cmd.exe /C`.  On Unix, the binary is a plain ELF/Mach-O that
 // executes directly.
 //
-// Both `codex` and `gemini` accept `-p <prompt>` and `--model <model>` as of
-// their respective GA releases (2025/2026). The flag spellings are identical
-// so a single arms-match is sufficient.
+// The two CLIs have DIVERGENT non-interactive APIs (verified in runtime
+// 2026-06-07, KIRKARDO AI-Routing fix):
+//   * codex  -> `codex exec "<prompt>" --sandbox read-only --skip-git-repo-check`
+//     The prompt is POSITIONAL after the `exec` subcommand; `-p` is NOT a
+//     prompt flag (it means `--profile`). The model is the ChatGPT-account
+//     default — passing `--model gpt-5` / `gpt-5-codex` is REJECTED by the
+//     account ("model not supported"), so we do NOT forward a model for codex.
+//   * gemini -> `gemini -p "<prompt>" --model <model>` (flag prompt; works).
 //
 // Timeout: the blocking call can hang if the CLI awaits interactive input.
 // Both CLIs exit non-zero if not authenticated — we surface that stderr as
 // the error message so the user knows to run `codex auth` / `gemini auth`.
 // ---------------------------------------------------------------------------
+
+/// Argument vector for a CLI provider's non-interactive invocation (the tokens
+/// after the program name). Pure + unit-tested so the codex/gemini flag
+/// divergence can never silently regress again: codex uses the `exec`
+/// subcommand with a POSITIONAL prompt (and no model — ChatGPT account default),
+/// gemini uses `-p <prompt> --model <model>` (KIRKARDO AI-Routing fix, 2026-06-07).
+fn cli_invocation_args<'a>(is_codex: bool, prompt: &'a str, model: &'a str) -> Vec<&'a str> {
+    if is_codex {
+        vec!["exec", prompt, "--sandbox", "read-only", "--skip-git-repo-check"]
+    } else {
+        vec!["-p", prompt, "--model", model]
+    }
+}
 
 /// Invoke a CLI provider synchronously and return its stdout on success.
 /// CLI providers do not expose token counters, so usage stays at zero.
@@ -1885,11 +1913,8 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, F
 
     let model = provider.default_model.as_str();
 
-    // Build the argument list. Both CLIs share -p / --model flags.
-    // Codex requires --sandbox read-only (protocol mandate); gemini does not
-    // support that flag, so we only append it when the provider is codex-cli.
-    let prompt_flag = "-p";
-    let model_flag = "--model";
+    // Codex uses `exec` + positional prompt + sandbox (no --model); gemini uses
+    // `-p <prompt> --model <model>`. See the divergent-API note above.
     let is_codex = provider.id == "codex-cli" || provider.cli_command.as_deref() == Some("codex");
 
     // SAFETY: all strings are owned by the caller; no raw pointers.
@@ -1918,11 +1943,17 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, F
         let safe_prompt = sanitize_for_cmd(prompt);
         let safe_cmd = sanitize_for_cmd(cmd);
         let safe_model = sanitize_for_cmd(model);
-        // Append --sandbox read-only for codex-cli only.
-        let sandbox_flags = if is_codex { " --sandbox read-only" } else { "" };
-        let shell_arg = format!(
-            "{safe_cmd} {prompt_flag} \"{safe_prompt}\" {model_flag} {safe_model}{sandbox_flags}"
-        );
+        // Same arg logic as Unix (single source of truth). parts[1] is always
+        // the prompt (positional for codex, after -p for gemini) — the only
+        // token that can contain spaces — so quote just that one.
+        let parts = cli_invocation_args(is_codex, &safe_prompt, &safe_model);
+        let joined = parts
+            .iter()
+            .enumerate()
+            .map(|(i, tok)| if i == 1 { format!("\"{tok}\"") } else { (*tok).to_string() })
+            .collect::<Vec<_>>()
+            .join(" ");
+        let shell_arg = format!("{safe_cmd} {joined}");
         std::process::Command::new("cmd")
             .args(["/C", &shell_arg])
             .stdin(Stdio::null())
@@ -1934,11 +1965,7 @@ fn call_cli(provider: &Provider, prompt: &str) -> Result<CallOutcome, (String, F
 
     #[cfg(not(target_os = "windows"))]
     let output = {
-        let mut args = vec![prompt_flag, prompt, model_flag, model];
-        // Append --sandbox read-only for codex-cli only.
-        if is_codex {
-            args.extend_from_slice(&["--sandbox", "read-only"]);
-        }
+        let args = cli_invocation_args(is_codex, prompt, model);
         std::process::Command::new(cmd)
             .args(&args)
             .stdin(Stdio::null())
@@ -2919,6 +2946,25 @@ pub fn ai_router_usage_summary() -> Result<UsageSummary, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_cli_uses_exec_subcommand_not_dash_p() {
+        // Regression guard (KIRKARDO AI-Routing): the codex CLI reads `-p` as
+        // `--profile`, so codex MUST use the `exec` subcommand with a positional
+        // prompt and NO --model. gemini keeps `-p <prompt> --model <model>`.
+        let codex = cli_invocation_args(true, "hello world", "gpt-5");
+        assert_eq!(codex[0], "exec", "codex must use the exec subcommand");
+        assert_eq!(codex[1], "hello world", "prompt must be positional for codex");
+        assert!(!codex.contains(&"-p"), "codex must NOT receive -p (it means --profile)");
+        assert!(!codex.contains(&"--model"), "codex rejects explicit models on a ChatGPT account");
+        assert!(codex.contains(&"--sandbox") && codex.contains(&"read-only"));
+
+        let gemini = cli_invocation_args(false, "hello world", "gemini-2.5-flash");
+        assert_eq!(gemini[0], "-p", "gemini uses -p for the prompt");
+        assert_eq!(gemini[1], "hello world");
+        assert!(gemini.contains(&"--model") && gemini.contains(&"gemini-2.5-flash"));
+        assert!(!gemini.contains(&"exec"), "gemini has no exec subcommand");
+    }
 
     #[test]
     fn seed_providers_includes_all_six_targets() {
