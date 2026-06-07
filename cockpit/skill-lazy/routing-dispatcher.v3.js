@@ -370,6 +370,21 @@ async function mainV3() {
   let deterministicText = '';
   const topConfidence = top ? top.confidence : 0;
 
+  // iter-10 FASE 7: for genuinely ambiguous prompts (topConfidence < 0.50,
+  // typical of vague planning requests) widen the semantic fallback so it casts
+  // a broader net (TOP_N 5) at a lower effective threshold (0.65). For clearer
+  // prompts the original 0.80 / TOP_N 3 behavior is preserved unchanged.
+  //
+  // INVARIANT: branch A (lazy) still requires topConfidence >= HIGH_THRESHOLD
+  // (0.80); the effective threshold below only ever LOWERS branch B's bar for
+  // conf < 0.50, so 0.50 <= effective <= 0.80 always sits below 0.80 and A/B
+  // remain mutually exclusive. The shared HOOK_DEADLINE_MS budget is untouched.
+  const ambiguousPrompt = topConfidence < MED_THRESHOLD;
+  const effectiveSemanticThreshold = ambiguousPrompt
+    ? 0.65
+    : SEMANTIC_FALLBACK_THRESHOLD;
+  const effectiveSemanticTopN = ambiguousPrompt ? 5 : SEMANTIC_TOP_N;
+
   if (top && topConfidence >= HIGH_THRESHOLD) {
     deterministicText = buildHighContextV3(top);
     safeLogV3({
@@ -438,11 +453,11 @@ async function mainV3() {
 
   // --- Step 3: Semantic fallback (branch B — only when low confidence) ---
   let semanticBlock = '';
-  if (topConfidence < SEMANTIC_FALLBACK_THRESHOLD) {
+  if (topConfidence < effectiveSemanticThreshold) {
     const semBudget = remainingMs();
     if (semBudget > 50) {  // skip if < 50 ms left
       try {
-        const semResults = await querySemanticSkills(prompt, SEMANTIC_TOP_N, semBudget);
+        const semResults = await querySemanticSkills(prompt, effectiveSemanticTopN, semBudget);
         if (semResults && semResults.length > 0) {
           semanticBlock = buildSemanticHint(semResults);
           safeLogV3({

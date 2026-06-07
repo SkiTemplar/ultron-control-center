@@ -89,6 +89,38 @@ const LAZY_SCORE_THRESHOLD = 0.80;
 const LAZY_READ_TIMEOUT_MS = 5000;
 const LAZY_COOLDOWN_INVOCATIONS = 2;
 
+// iter-10 FASE 7: relaxed lazy-injection floor for a tiny allowlist of
+// planning/orchestration skills when the prompt has explicit planning intent.
+// Only these ids may inject in [PLANNING_LAZY_FLOOR, LAZY_SCORE_THRESHOLD).
+const PLANNING_LAZY_FLOOR = 0.65;
+const PLANNING_LAZY_SKILLS = new Set([
+  'hiper-plans',
+  'superpowers:executing-plans',
+  'superpowers:dispatching-parallel-agents',
+]);
+
+/**
+ * Strong planning/orchestration keywords that justify relaxing the lazy floor
+ * for PLANNING_LAZY_SKILLS. All are multi-char phrases or whole words — no short
+ * substrings, so no false-positive injection.
+ */
+const STRONG_PLANNING_KEYWORDS = [
+  'escribe un plan',
+  'planifica',
+  'ejecuta el plan',
+  'orquesta',
+  'paralelo',
+  'multi-agente',
+  'multiagente',
+];
+
+function promptHasStrongPlanningKeyword(promptNorm) {
+  for (const kw of STRONG_PLANNING_KEYWORDS) {
+    if (promptNorm.includes(kw)) return true;
+  }
+  return false;
+}
+
 // Weights
 const W_TRIGGER = 100;
 const W_STRONG = 60;
@@ -144,6 +176,19 @@ const ECC_STOP_WORDS = new Set([
   'and', 'for', 'the', 'are', 'can', 'its', 'not', 'all', 'any', 'use',
   'used', 'user', 'asks', 'needs', 'want', 'wants', 'need', 'make', 'help',
 ]);
+
+/**
+ * Planning-methodology bigrams (iter-10 FASE 7) promoted to strong[] when an
+ * ECC skill's "When to Use" section uses this explicit planning vocabulary.
+ * Normalized (lowercase, no diacritics) so comparison against whenNorm is direct.
+ */
+const PLANNING_METHODOLOGY_BIGRAMS = [
+  'requirements analysis',
+  'architecture decision',
+  'spec driven',
+  'phase breakdown',
+  'risk assessment',
+];
 
 // ---------------------------------------------------------------------------
 // PERSONAS (Layer 1) — unchanged from v1
@@ -330,7 +375,12 @@ const PLUGINS = [
   { id: 'business-strategist',               triggers: ['business strategist'],                              strong: ['b2b saas', 'go-to-market', 'icp definition', 'market validation', 'investor deck'], context: ['estrategia de negocio', 'saas pricing'] },
   { id: 'search-first',                      triggers: ['search first', 'search-first', 'busca antes de codear'], strong: ['research before coding', 'existing library first'],                   context: ['buscar libreria existente'] },
   { id: 'council',                           triggers: ['council', 'convoca el council', 'four-voice council'], strong: ['structured disagreement', 'go/no-go call'],                              context: ['decision ambigua', 'tradeoff'] },
-  { id: 'hiper-plans',                       triggers: ['hiper plan', 'hyper plan', 'hiperplan', 'plan profundo', 'deep plan', 'planifica exhaustivamente'], strong: ['spec driven plan', 'deep plan'],   context: ['planificacion compleja'] },
+  { id: 'hiper-plans',                       triggers: ['hiper plan', 'hyper plan', 'hiperplan', 'plan profundo', 'deep plan', 'planifica exhaustivamente'], strong: ['spec driven plan', 'deep plan', 'escribe un plan', 'plan de implementacion', 'design doc', 'prd'],   context: ['planificacion compleja', 'plan'] },
+  // Orchestration / parallel-agent planning skills (iter-10 FASE 7) — these
+  // surface for planning prompts and are eligible for the relaxed lazy
+  // threshold in fetchLazySkillContent (PLANNING_LAZY_FLOOR).
+  { id: 'superpowers:executing-plans',       triggers: ['ejecuta el plan', 'executing plans', 'execute the plan'], strong: ['ejecuta el plan', 'execute the plan', 'implementation plan', 'plan de implementacion'], context: ['plan', 'checkpoint', 'plan execution'] },
+  { id: 'superpowers:dispatching-parallel-agents', triggers: ['dispatch parallel agents', 'agentes en paralelo', 'multi-agente'], strong: ['parallel agents', 'agentes en paralelo', 'multi-agente', 'multiagente', 'dispatch agents'], context: ['orquesta', 'paralelo', 'parallel'] },
   { id: 'safety-guard',                      triggers: ['safety guard'],                                     strong: ['prevent destructive operations', 'production safety guard'],               context: ['operacion destructiva', 'autonomous safety'] },
   { id: 'frontend-design-direction',         triggers: ['frontend design direction', 'design direction'],    strong: ['product-specific design judgment', 'design direction for ui'],             context: ['direccion de diseno'] },
   { id: 'agentic-os',                        triggers: ['agentic os', 'agentic operating system'],           strong: ['kernel architecture agents', 'file-based memory agents', 'specialist agents os'], context: ['multi-agent os'] },
@@ -466,6 +516,38 @@ function normalize(s) {
     .replace(/[̀-ͯ]/g, '');
 }
 
+/**
+ * Morphological aliases for planning/orchestration vocabulary (iter-10 FASE 7).
+ *
+ * Maps a canonical token (the key used in triggers/strong/context arrays) to the
+ * set of Spanish/English surface forms that should ALSO satisfy a hasToken()
+ * match for that canonical token. This lets a plugin entry keep a single
+ * canonical token (e.g. 'plan') while still matching morphological variants the
+ * user actually types ('planificacion', 'planificar').
+ *
+ * IMPORTANT: every alias listed here is a full word matched with the SAME
+ * word-boundary regex as a normal token — never a short substring. This avoids
+ * the historical substring catastrophe (arr->arregla, irr->irregular) because
+ * the aliases are whole words ('planificacion', not 'plan' as a substring of
+ * 'planificacion'). The boundary check below is applied to the ALIAS, not the
+ * canonical, so 'plan' as a needle still only matches the standalone word 'plan'
+ * plus the explicitly-enumerated longer aliases.
+ */
+const TOKEN_ALIASES = {
+  plan: ['planificacion', 'planificar', 'planifica', 'planeacion', 'planear'],
+  architecture: ['arquitectura', 'arquitectonico', 'arquitectonica', 'arch'],
+  arch: ['arquitectura'],
+  orchestrate: ['orquestar', 'orquestacion', 'orquesta', 'orchestration'],
+  'hiper-plans': ['hiper-plan', 'deep-plan', 'hiperplan', 'deepplan'],
+};
+
+function _matchesWord(haystack, word) {
+  const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Same dual-boundary rule used for plain single-word tokens.
+  const re = new RegExp('(^|[^a-z0-9])' + escaped + '([^a-z0-9]|$)', 'i');
+  return re.test(haystack);
+}
+
 function hasToken(haystack, needle) {
   // Word-boundary match for single-word tokens; substring only for multi-word phrases.
   const n = normalize(needle);
@@ -475,6 +557,23 @@ function hasToken(haystack, needle) {
   // Multi-word phrase -> plain substring (spaces are natural boundaries).
   if (n.includes(' ')) {
     return h.includes(n);
+  }
+
+  // Morphological alias-matching (iter-10 FASE 7): if the canonical token has
+  // registered aliases, a match on ANY alias (each a full word, boundary-checked)
+  // counts as a hit. Word-boundaries are preserved for every alias — no short
+  // substrings, so the arr->arregla / irr->irregular bug class cannot reappear.
+  const aliases = TOKEN_ALIASES[n];
+  if (aliases) {
+    for (const alias of aliases) {
+      const a = normalize(alias);
+      if (!a) continue;
+      if (a.includes(' ')) {
+        if (h.includes(a)) return true;
+      } else if (_matchesWord(h, a)) {
+        return true;
+      }
+    }
   }
 
   const escaped = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -492,9 +591,43 @@ function hasToken(haystack, needle) {
   return re.test(h);
 }
 
+/**
+ * Planning/orchestration intent tokens (iter-10 FASE 7). When the prompt
+ * contains any of these, strong[] hits on planning-oriented entries get a
+ * localized boost so planning skills surface above generic noise — WITHOUT
+ * touching the global W_TRIGGER/W_STRONG/W_CONTEXT weights (which would
+ * rebalance the entire ranking and regress specialist routing).
+ */
+const PLANNING_INTENT_TOKENS = [
+  'plan ', 'planifica', 'planning', 'spec-driven', 'spec driven',
+  'arquitectura', 'design doc', 'prd',
+];
+
+/** Entry ids that count as planning/orchestration for the strong[] boost. */
+const PLANNING_ENTRY_ID_RE = /plan|prd|spec|hiper/i;
+
+/** Local multiplier applied to strong[] hits of planning entries on planning prompts. */
+const PLANNING_STRONG_MULTIPLIER = 1.5;
+
+function promptHasPlanningIntent(promptNorm) {
+  for (const tok of PLANNING_INTENT_TOKENS) {
+    if (promptNorm.includes(tok)) return true;
+  }
+  return false;
+}
+
 function scoreEntry(promptNorm, entry) {
   let score = 0;
   const matched = [];
+
+  // Localized planning boost: only the strong[] contribution of planning-oriented
+  // entries is amplified, and only when the prompt signals planning intent. The
+  // global weight constants are untouched so specialist ranking is unaffected.
+  const planningBoost =
+    promptHasPlanningIntent(promptNorm) && PLANNING_ENTRY_ID_RE.test(entry.id || '');
+  const strongWeight = planningBoost
+    ? Math.round(W_STRONG * PLANNING_STRONG_MULTIPLIER)
+    : W_STRONG;
 
   for (const t of entry.triggers || []) {
     if (hasToken(promptNorm, t)) {
@@ -504,7 +637,7 @@ function scoreEntry(promptNorm, entry) {
   }
   for (const t of entry.strong || []) {
     if (hasToken(promptNorm, t)) {
-      score += W_STRONG;
+      score += strongWeight;
       matched.push('strong:' + t);
     }
   }
@@ -703,6 +836,13 @@ function parseEccSkillTokens(skillMdContent, skillName) {
     if (!ECC_STOP_WORDS.has(a) && !ECC_STOP_WORDS.has(b)) {
       addStrong(a + ' ' + b);
     }
+  }
+
+  // Planning-methodology bigrams (iter-10 FASE 7): if the When-to-Use section
+  // mentions an explicit planning methodology phrase, promote it to strong[] so
+  // planning ECC skills activate on prompts using that vocabulary.
+  for (const phrase of PLANNING_METHODOLOGY_BIGRAMS) {
+    if (whenNorm.includes(phrase)) addStrong(phrase);
   }
 
   // --- context[]: shorter words (>=4 chars) from When-to-Use not already in strong[] ---
@@ -1078,22 +1218,39 @@ function scanEccSkills() {
  * @param {string} promptNorm  Already-normalized prompt (output of normalize()).
  * @returns {{ id: string, skillPath: string, score: number }|null}
  */
+/**
+ * Pattern identifying ECC planning/orchestration skills that qualify for the
+ * lowered re-injection threshold (iter-10 FASE 7).
+ */
+const ECC_PLANNING_ID_RE = /plan|spec|prd|architecture|design/i;
+
+/**
+ * Lowered raw-score floor applied ONLY to ECC skills whose id matches
+ * ECC_PLANNING_ID_RE. The global ECC_MATCH_MIN_RAW (70) stays intact so the
+ * ~230 non-planning ECC skills cannot leak in at a lower bar.
+ */
+const ECC_PLANNING_MATCH_MIN_RAW = 50;
+
 function matchBestEccSkill(promptNorm) {
   const index = scanEccSkills();
   if (index.size === 0) return null;
 
   let best = null;
   let bestScore = 0;
+  let bestIsPlanning = false;
 
   for (const [normId, entry] of index) {
     const { score } = scoreEntry(promptNorm, entry.tokens);
     if (score > bestScore) {
       bestScore = score;
+      bestIsPlanning = ECC_PLANNING_ID_RE.test(normId);
       best = { id: normId, skillPath: entry.skillPath, score };
     }
   }
 
-  if (!best || bestScore < ECC_MATCH_MIN_RAW) return null;
+  // Conditional floor: planning ECC skills clear at 50, everything else at 70.
+  const floor = bestIsPlanning ? ECC_PLANNING_MATCH_MIN_RAW : ECC_MATCH_MIN_RAW;
+  if (!best || bestScore < floor) return null;
   return best;
 }
 
@@ -1272,11 +1429,22 @@ function readWithTimeout(filePath, timeoutMs) {
 async function fetchLazySkillContent(candidates, promptNorm) {
   const result = new Map();
 
+  // iter-10 FASE 7: planning/orchestration prompts may inject a small allowlist
+  // of planning skills even when their confidence sits in [PLANNING_LAZY_FLOOR,
+  // LAZY_SCORE_THRESHOLD). Everything else stays gated at LAZY_SCORE_THRESHOLD.
+  const planningPrompt =
+    typeof promptNorm === 'string' && promptHasStrongPlanningKeyword(promptNorm);
+
   // Filter to skills that qualify for lazy injection
   const eligible = candidates.filter(function (c) {
-    if (c.confidence < LAZY_SCORE_THRESHOLD) return false;
+    const isPlanningSkill =
+      planningPrompt && PLANNING_LAZY_SKILLS.has(c.id);
+    const floor = isPlanningSkill ? PLANNING_LAZY_FLOOR : LAZY_SCORE_THRESHOLD;
+    if (c.confidence < floor) return false;
     if (c.kind !== 'plugin' && c.kind !== 'persona') return false; // personas y plugins tienen SKILL.md en skills/; los agents viven en agents/ (excluidos via isLazyLoadable)
-    if (!isLazyLoadable(c.id)) return false;
+    // Planning allowlist skills bypass the registry lazy_loadable gate so they
+    // can be injected on-demand for explicit planning intent.
+    if (!isPlanningSkill && !isLazyLoadable(c.id)) return false;
     if (isCoolingDown(c.id)) return false;
     return true;
   });
